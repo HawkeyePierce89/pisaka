@@ -65,7 +65,7 @@ final class MainWindowFrameAutosaveView: NSView {
             return
         }
 
-        // Check if another window already holds the name globally to preserve 
+        // Check if another window already holds the name globally to preserve
         // cascading for secondary windows in any multi-window scenarios.
         if NSApp.windows.contains(where: { $0.frameAutosaveName == mainWindowFrameAutosaveName && $0 != window }) {
             return
