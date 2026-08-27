@@ -50,7 +50,7 @@ final class MainWindowFrameSourceGatingTests: XCTestCase {
         var autosaveNameCount = 0
         var usingNameCount = 0
 
-        let autosaveRegex = try NSRegularExpression(pattern: "\\bsetFrameAutosaveName\\(mainWindowFrameAutosaveName\\)")
+        let autosaveRegex = try NSRegularExpression(pattern: "\\bsetFrameAutosaveName\\b")
         let usingRegex = try NSRegularExpression(pattern: "\\bsetFrameUsingName\\b")
 
         for url in try appFiles() {
@@ -71,7 +71,11 @@ final class MainWindowFrameSourceGatingTests: XCTestCase {
             ["MainWindowFrameAutosave.swift"],
             "Exactly one file must name the frame autosave API to prevent accidental multiple adoptions or overwriting."
         )
-        XCTAssertEqual(autosaveNameCount, 1, "There must be exactly one call to setFrameAutosaveName in the codebase.")
+        XCTAssertEqual(
+            autosaveNameCount,
+            3,
+            "There must be exactly three calls to setFrameAutosaveName in the codebase (one to adopt, two to clear)."
+        )
         XCTAssertEqual(usingNameCount, 1, "There must be exactly one call to setFrameUsingName in the codebase.")
     }
 
@@ -80,7 +84,10 @@ final class MainWindowFrameSourceGatingTests: XCTestCase {
         let lines = try significantLines(of: url)
 
         let restoreIndex = lines.firstIndex { LSPSourceGatingTests.containsToken("setFrameUsingName", in: $0) }
-        let adoptIndex = lines.lastIndex { LSPSourceGatingTests.containsToken("setFrameAutosaveName", in: $0) }
+        let adoptIndex = lines.firstIndex {
+            LSPSourceGatingTests.containsToken("setFrameAutosaveName", in: $0) &&
+            LSPSourceGatingTests.containsToken("mainWindowFrameAutosaveName", in: $0)
+        }
 
         let restore = try XCTUnwrap(restoreIndex, "setFrameUsingName not found")
         let adopt = try XCTUnwrap(adoptIndex, "setFrameAutosaveName not found")

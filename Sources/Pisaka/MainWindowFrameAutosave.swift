@@ -70,7 +70,6 @@ final class MainWindowFrameAutosaveView: NSView {
         }
 
         let isFirstAppearance = !Self.seenWindows.contains(window)
-        Self.seenWindows.add(window)
 
         // Check if another window already holds the name globally to preserve
         // cascading for secondary windows in any multi-window scenarios.
@@ -104,6 +103,8 @@ final class MainWindowFrameAutosaveView: NSView {
         // Adopting first can write the window's current (default) frame under the
         // name and destroy the value about to be read.
         guard window.setFrameAutosaveName(mainWindowFrameAutosaveName) else { return }
+
+        Self.seenWindows.add(window)
     }
 }
 #endif
