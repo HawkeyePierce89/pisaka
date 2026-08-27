@@ -91,21 +91,21 @@ Dependencies: none.
 **Files:**
 - Create: `Sources/Pisaka/MainWindowFrameAutosave.swift`
 
-- [ ] Wrap the whole file in `#if os(macOS)`; import `AppKit` and `SwiftUI`.
-- [ ] Declare the chosen name once, as a private file-level constant:
+- [x] Wrap the whole file in `#if os(macOS)`; import `AppKit` and `SwiftUI`.
+- [x] Declare the chosen name once, as a private file-level constant:
       `private let mainWindowFrameAutosaveName = "MainWindow"`. Document that it
       is chosen, not derived; that the framework writes it into the preferences
       domain as `NSWindow Frame MainWindow`; and that renaming it later is a
       deliberate, one-time loss of the saved frame.
-- [ ] Add `struct MainWindowFrameAutosave: NSViewRepresentable` over an internal
+- [x] Add `struct MainWindowFrameAutosave: NSViewRepresentable` over an internal
       `final class MainWindowFrameAutosaveView: NSView`, in the
       `ZoomSurfaceMarker` mould: draws nothing, `hitTest(_:)` answers `nil`,
       `setAccessibilityElement(false)`, `updateNSView` empty.
-- [ ] In `viewDidMoveToWindow()`, after `super`: return early when already
+- [x] In `viewDidMoveToWindow()`, after `super`: return early when already
       adopted, when `window == nil`, or when `window.isSheet` (defensive — the
       marker lives in the window content, never in a sheet, and a sheet must
       never take the main window's name).
-- [ ] Perform the two calls in this exact order, and say in a comment why the
+- [x] Perform the two calls in this exact order, and say in a comment why the
       order is the rule: **restore first** —
       `_ = window.setFrameUsingName(mainWindowFrameAutosaveName)`, which applies
       the saved frame if one exists and does nothing on a first run — **then
@@ -116,10 +116,10 @@ Dependencies: none.
       returning `false` means another window already holds the name: leave the
       one-shot flag down so a later `viewDidMoveToWindow` retries, and do not
       treat it as success.
-- [ ] Set the one-shot flag only on success. Note in the comment that restore is
+- [x] Set the one-shot flag only on success. Note in the comment that restore is
       idempotent anyway (re-applying the same frame is a no-op) and that the flag
       exists so a SwiftUI re-parent cannot undo a resize the user has since made.
-- [ ] Document the sizing interaction (requirement 2): `viewDidMoveToWindow` is
+- [x] Document the sizing interaction (requirement 2): `viewDidMoveToWindow` is
       the first moment a window exists and it fires before the window is ordered
       front, so the restored frame lands before first paint and wins over the
       content's `minWidth`/`minHeight` floor, which is a *minimum* and not a
@@ -132,10 +132,10 @@ Dependencies: none.
       `NSWindow.didBecomeKeyNotification` observer — neither is implemented,
       because neither is needed unless the manual check in Post-Completion shows
       a visible jump.
-- [ ] Write the file's doc comment as the record of the root cause: what the
+- [x] Write the file's doc comment as the record of the root cause: what the
       derived key is made of, why a private context makes it address-mangled, and
       that this is why the name is explicit.
-- [ ] No test yet — the gating suite lands in Task 3 and needs the attachment
+- [x] No test yet — the gating suite lands in Task 3 and needs the attachment
       from Task 2.
 
 ### Task 2: Attach it to the main scene
