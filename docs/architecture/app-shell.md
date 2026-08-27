@@ -550,7 +550,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     refresh that ends up running after a folder switch is rejected rather than
     re-deriving (and reversing) the switch inside `refreshImpl` — the same hazard the
     folder-open pinning closes. `LocalChangesView.refreshIfPossible` (the
-    `onAppear`/`onChange`/manual-button backstop) pins its generation the same way.
+    `onAppear`/manual-button backstop) pins its generation the same way — and its
+    `onChange(of: projectRoot)` peer additionally passes the root from the handler's
+    *parameter*, since pinning alone cannot reject a refresh launched for the
+    *previous* root at the current generation (`app-git-views.md`).
     `revertChanges(contextFile:)` runs the synchronous `confirmRevert` dialog
     first, then does its `revert` + tab-resync loop inside a `Task { @MainActor in
     … }`. It resolves the affected files via `localChanges.filesToRevert(contextFile:)`,

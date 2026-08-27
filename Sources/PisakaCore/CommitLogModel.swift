@@ -313,7 +313,7 @@ public final class CommitLogModel: ObservableObject {
     /// the `await` on git), so an echo built from the published value is a genuinely
     /// different filter and is accepted here — it would spawn a fetch. Not echoing is
     /// the view's obligation: the filter bar's user-intent bindings apply only from
-    /// `Binding.set`/`onSubmit`, and `seedFromFilter` assigns the draft directly, so a
+    /// `Binding.set`/`onSubmit`, and the bar's `seed(from:)` assigns the draft directly, so a
     /// model-published filter change can never reach the apply path.
     ///
     /// Bumps the request generation (via `prepareForRefresh`) on a real change so the

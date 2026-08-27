@@ -740,7 +740,17 @@ user sees it.
   viewer as Local Changes. A filter bar above the table narrows the history
   server-side by branch
   (or "All"), author, date range (since/until), and path, and a search box filters
-  the loaded commits by message text client-side (no re-query). All git access is
+  the loaded commits by message text client-side (no re-query). The date range is a
+  checkbox plus a day picker per bound: unticking Since or Until drops that bound
+  but keeps the day already picked, so re-ticking it filters from the same day
+  again rather than from today — for as long as the bar itself lives, which is
+  while the Log panel stays shown; switching the bottom dock to another panel or
+  hiding it rebuilds the bar, and its pickers then open on today.
+  Every control shows the filter the panel is
+  actually displaying, including one the app applied itself — switching folders
+  clears the filter and the search box immediately. (On iPhone/iPad the advanced
+  filter is a sheet built fresh on each presentation, so its pickers open on today
+  rather than remembering an unticked day.) All git access is
   read-only — no history mutation, and (like Local Changes) no filesystem
   watching: both panels refresh on demand.
 - Branch switcher: a widget in the always-visible bottom bar shows

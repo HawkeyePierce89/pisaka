@@ -489,7 +489,16 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     (`ChangeTree`, recursing in-memory `ChangeNode.children` via
     `DisclosureGroup`s — no disk read), per `model.groupingMode`. A segmented
     control toggles flat/by-folder and a button refreshes against the project
-    root; it also auto-refreshes on appear and on `projectRoot` change. Each row
+    root; it also auto-refreshes on appear and on `projectRoot` change. That
+    **change handler refreshes the root its parameter carries**, never
+    `self.projectRoot`: `projectRoot` is a plain stored property of the view value
+    and macOS 13's `onChange(of:perform:)` runs the closure captured *before* the
+    change, so off `self` it is still the folder the user just left. The pinned
+    request generation does not cover that case — the folder-open path has already
+    bumped it, so a stale-root refresh pinning the *current* generation is accepted,
+    re-derives a switch back inside `refreshImpl` and strands the panel on the
+    previous repository. `refreshIfPossible` (the `onAppear`/manual-button form,
+    where the property is current) now forwards to the same `refresh(root:)`. Each row
     (`ChangedFileRow`, used by both the flat list and the by-folder
     `ChangeNodeView` leaf) shows a leading checkbox bound to
     `model.revertSelection` (toggled via `model.toggleChecked(file)`) for
@@ -612,7 +621,15 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     affordance (shown only when the last fetch filled the limit) bumps the `git log
     -n` limit and re-fetches the whole list (no incremental paging — the model
     replaces `commits` wholesale). Refreshes on `onAppear` and `onChange(projectRoot)`
-    (idempotent backstops; the model's generation guard handles ordering). Selecting
+    (idempotent backstops; the model's generation guard handles ordering). The
+    **change handler refreshes the root its parameter carries**, never
+    `self.projectRoot` — the same stale-stored-property rule `LogFilterBar` states,
+    and here the stakes are higher than a lagging display: `prepareForRefresh`
+    *bumps* the request generation, so a stale-root refresh supersedes the correct
+    one the folder-open path launched, rewrites `lastRequestedRoot` back to the old
+    folder and leaves the panel showing the previous repository's history.
+    `refreshIfPossible` (the `onAppear`/manual-button form) forwards to the same
+    `refresh(root:)`. Selecting
     a commit opens `CommitDetailPane` — now a *files-list only* (the old `VSplitView`
     over an inline `CommitDiffPane` is gone; the `CommitDiffPane` struct was removed)
     — beside the list in an `HSplitView`. Double-clicking a `CommitFileRow` calls a
@@ -639,12 +656,36 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
   - `LogFilterBar.swift` — the Log filter/search bar above the commit table. A thin
     (untested) view whose server-side dimensions live in a single `@State private
     var draft: LogFilterDraft` plus a separate `search: String` (message search is
-    not a `LogFilter` dimension). **Seeding rule:** `seedFromFilter` *assigns* the
-    draft/search directly from `filter`/`searchQuery` (`draft =
-    LogFilterDraft(filter: filter, defaultDate: Date())`) and is therefore
-    structurally unable to reach the apply path — every apply lives only in a
-    user-intent binding setter or an explicit `onSubmit`, and is handed the new
-    value explicitly. No value-equality suppression is involved anywhere: the
+    not a `LogFilter` dimension). **Seeding rule:** a seed *assigns* the
+    draft/search directly and is therefore structurally unable to reach the apply
+    path — every apply lives only in a user-intent binding setter or an explicit
+    `onSubmit`, and is handed the new value explicitly. The preserved day
+    (`LogFilterDraft.seed(from:)`) is scoped to **this view's lifetime**: the bar's
+    `draft` is `@State` and `ContentView.panelContent` is a `switch` in a
+    `@ViewBuilder` under `if let panel = visiblePanel`, so each dock panel is its
+    own structural branch — switching away from Log or hiding the dock destroys the
+    state, and `onAppear` re-parks both pickers on today. Making the memory
+    app-lifetime would mean holding the two days on `CommitLogModel` beside
+    `filter`; not done, and the limit is stated in `docs/FEATURES.md` rather than
+    left to be inferred. **Change handlers seed from
+    their parameter; the view's observed property is stale inside the handler.**
+    `.onChange(of: filter) { newFilter in seed(from: newFilter) }` calls
+    `draft.seed(from: newFilter)` and `.onChange(of: searchQuery) { newQuery in
+    search = newQuery }` assigns that parameter — never `self.filter` /
+    `self.searchQuery`, which inside a change handler still carry the *previous*
+    value (documented SwiftUI behavior, and the reason the closure is handed the
+    new one). Re-reading the property seeds the bar one publish behind forever, and
+    the next apply — assembled from the lagging draft — writes that stale state
+    back, which is how a branch pick was silently dropped by a following Since
+    toggle. `onAppear` is the **one exception** and reads `filter`/`searchQuery`
+    directly (`draft = LogFilterDraft(filter: filter, defaultDate: Date())`),
+    because at appearance the properties are current — and a bar that has never
+    been shown also has no chosen day to preserve, which is exactly the
+    from-scratch seeding form's case. The **single-parameter `onChange` spelling is
+    deliberate**, not an inconsistency with the iOS bar: the deployment target is
+    macOS 13, whose only overload is `onChange(of:perform:)` and whose one closure
+    parameter *is* the new value; the two-parameter form is macOS 14+ and will not
+    compile here. No value-equality suppression is involved anywhere: the
     previous mirrored-`@State` + `.onChange` construction *was* suppressed by value
     equality, which failed under interleaved applies when the published `filter`
     lagged `requestedFilter` and an echo built from the published value was accepted
@@ -675,7 +716,15 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     then formats the absolute instants in UTC), verbatim ref preservation, and the
     `allRefsTag`/`displayRefTag`/`selectRef` seam. The inclusive `until` instant is
     still on the selected day, so re-seeding is verbatim and the round-trip is
-    idempotent — `since`'s `startOfDay` likewise. All the testable
+    idempotent — `since`'s `startOfDay` likewise. That holds only because
+    `endOfDay` derives the next day's *own* `startOfDay` rather than subtracting a
+    second from "same wall-clock time, one day on": in a zone whose DST jump is at
+    midnight the following day starts at 01:00, and the naive form would land on
+    that next day and walk the picker forward one day per apply. And a re-seed whose incoming
+    bound is *absent* clears the toggle but leaves the day the picker already
+    shows, so unticking and re-ticking Since/Until offers the chosen day back
+    instead of today (the rule lives in `LogFilterDraft.seed(from:)`). All the
+    testable
     argument-building/search/normalization logic lives in `PisakaCore.LogFilter` and
     `PisakaCore.LogFilterDraft`.
 

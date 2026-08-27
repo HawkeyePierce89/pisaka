@@ -26,6 +26,26 @@ import PisakaCore
 /// form's single `LogFilterDraft` owns trimming, day-boundary normalization and
 /// verbatim ref preservation exactly as the macOS bar does.
 ///
+/// **A change handler seeds from its parameter**, never from the view's own
+/// stored property. On iOS this is uniformity with the macOS bar rather than a
+/// bug fix, and the difference is worth naming so neither side is "corrected"
+/// into the other: the stale-property trap belongs to the deprecated
+/// single-parameter `onChange(of:perform:)`, which macOS 13 is stuck with — it
+/// runs the closure captured *before* the change, so a plain stored property
+/// read off `self` there (the macOS bar's `filter`/`searchQuery`, a `let`) is
+/// still the previous value and seeding from it lags one publish forever. The
+/// iOS deployment target is 17, whose two-parameter `onChange(of:_:)` runs the
+/// *new* closure, so `searchQuery` would read current here either way; taking
+/// the parameter states the intent and makes both bars read alike. (`@State`
+/// and `@ObservedObject` reads are live under both overloads — they resolve
+/// through their storage, not through the captured view value — which is why
+/// only plain stored properties are at risk on macOS.)
+///
+/// Two handlers are deliberately *not* changed: `LogAdvancedFilterForm_iOS` has
+/// no change handlers at all (it is seeded once in `init` and applies only from
+/// Apply), and `selectedRef` / `applyRef` read `filter` from the view body and a
+/// binding `set` respectively, where the property is current.
+///
 /// The branch selection is deliberately *not* mirrored in `@State` — it reads
 /// straight from `filter` through `LogFilterDraft.displayRefTag(amongKnown:)` and
 /// writes only through the apply path, so a model-published filter change can never
@@ -62,8 +82,11 @@ struct LogFilterBar_iOS: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
+        // Both seeds take the value they seed from explicitly — `onAppear` from the
+        // current property, the change handler from its parameter. See the type doc
+        // for why the parameter is mandatory on macOS and uniformity here.
         .onAppear { search = searchQuery }
-        .onChange(of: searchQuery) { search = searchQuery }
+        .onChange(of: searchQuery) { _, newQuery in search = newQuery }
         .sheet(isPresented: $showingAdvanced) {
             LogAdvancedFilterForm_iOS(
                 filter: filter,

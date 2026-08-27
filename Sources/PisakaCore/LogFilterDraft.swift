@@ -58,22 +58,55 @@ public struct LogFilterDraft: Equatable {
         self.until = until
     }
 
-    /// Seed every dimension from `filter`, parking a disabled date picker on
+    /// Seed a fresh draft from `filter`, parking a disabled date picker on
     /// `defaultDate`.
     ///
-    /// A `nil` bound disables its toggle and parks the picker on `defaultDate`;
-    /// a present bound is seeded verbatim. The inclusive last-second-of-day
+    /// This is the one case `seed(from:)` cannot serve on its own: a draft that
+    /// does not exist yet has no day to preserve, so both pickers start on
+    /// `defaultDate` and `seed(from:)` then overwrites whichever bound the
+    /// filter states. The two forms are therefore one rule, not two that can
+    /// drift.
+    ///
+    /// A present bound is seeded verbatim. The inclusive last-second-of-day
     /// instant for `until` is still on the selected day, so `filter(calendar:)`
     /// re-derives the same bound — the round-trip is idempotent and needs no
     /// inverse, as `since`'s start-of-day already is.
     public init(filter: LogFilter, defaultDate: Date) {
+        self.init(sinceEnabled: false, since: defaultDate, untilEnabled: false, until: defaultDate)
+        seed(from: filter)
+    }
+
+    /// Re-seed this draft from `filter`, keeping the day a disabled picker
+    /// already shows.
+    ///
+    /// `refSelection`, `author`, `path` and both `…Enabled` flags are assigned
+    /// verbatim — the ref especially, which is carried as published and never
+    /// re-resolved against the known refs. Each **date** is assigned only when
+    /// the incoming bound is present; an absent bound clears its flag and
+    /// leaves the date already in the draft alone.
+    ///
+    /// Why the day is preserved: unticking a bound means "do not bound the log
+    /// by this", not "forget the day I chose" — re-ticking it must offer that
+    /// day back rather than jumping to now. And a seed is never a user edit: it
+    /// is the view catching up to what the model published, so it may not
+    /// discard a choice the user made and the filter simply has no room to
+    /// carry. `init(filter:defaultDate:)` is the one caller with nothing to
+    /// preserve, and it says so by parking both dates before seeding.
+    ///
+    /// The rule is deliberately blind to *why* a bound went absent, so a
+    /// repository switch — which publishes a default `LogFilter` — also clears
+    /// both flags while the (now disabled) pickers keep the day chosen in the
+    /// previous project. That is cosmetic: a disabled picker bounds nothing, and
+    /// distinguishing a reset from an ordinary re-seed would need a second signal
+    /// the published filter does not carry.
+    public mutating func seed(from filter: LogFilter) {
         refSelection = filter.refSelection
         author = filter.author ?? ""
         path = filter.path ?? ""
         sinceEnabled = filter.since != nil
-        since = filter.since ?? defaultDate
+        if let incomingSince = filter.since { since = incomingSince }
         untilEnabled = filter.until != nil
-        until = filter.until ?? defaultDate
+        if let incomingUntil = filter.until { until = incomingUntil }
     }
 
     /// Assemble the server-side `LogFilter` this draft represents.
@@ -114,9 +147,21 @@ public struct LogFilterDraft: Equatable {
         }
     }
 
+    /// The last second of `date`'s day: one second before the *next* day begins.
+    ///
+    /// The second `startOfDay` is load-bearing, not belt-and-braces. Adding a day
+    /// to a day's start lands at the same wall-clock time on the next day, which
+    /// is that day's start only when the day begins at midnight. In a zone whose
+    /// DST jump is at midnight (`America/Santiago`, `America/Havana`, ...) the day
+    /// after the jump begins at 01:00, so the naive `+1 day - 1s` returns 00:59:59
+    /// on the day *after* the one chosen. That instant is not merely an hour long:
+    /// `seed(from:)` writes the derived bound straight back into the draft, so the
+    /// picker would jump a day forward and every further apply would extend the
+    /// bound again. Re-deriving the next day's own start keeps the result inside
+    /// the chosen day, which is what makes the round-trip idempotent.
     private static func endOfDay(of date: Date, calendar: Calendar) -> Date {
         let start = calendar.startOfDay(for: date)
         guard let next = calendar.date(byAdding: .day, value: 1, to: start) else { return start }
-        return next.addingTimeInterval(-1)
+        return calendar.startOfDay(for: next).addingTimeInterval(-1)
     }
 }

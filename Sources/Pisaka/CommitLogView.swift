@@ -65,10 +65,21 @@ struct CommitLogView: View {
         // open folder changes, so the list reflects the repo without a manual
         // refresh. A folder switch also resets the limit so the new repo starts at
         // the initial page size.
+        //
+        // The change handler refreshes the root its *parameter* carries, never
+        // `self.projectRoot`: `projectRoot` is a plain stored property of this view
+        // value, and the macOS 13 `onChange(of:perform:)` overload runs the closure
+        // captured before the change, so off `self` it is still the folder the user
+        // just left. Refreshing that root is not a harmless one-behind display here —
+        // `prepareForRefresh` *bumps* the request generation, so the stale request
+        // supersedes the correct one the folder-open path already launched, rewrites
+        // `lastRequestedRoot` back to the old folder and leaves the panel showing the
+        // previous repository's history. (`LogFilterBar` states the same rule for the
+        // same reason; a `@State` or `@ObservedObject` read would have been live.)
         .onAppear(perform: refreshIfPossible)
-        .onChange(of: projectRoot) { _ in
+        .onChange(of: projectRoot) { newRoot in
             limit = Self.initialLimit
-            refreshIfPossible()
+            refresh(root: newRoot)
         }
     }
 
@@ -232,23 +243,30 @@ struct CommitLogView: View {
         // whenever two applies interleave, so an echo built from the published value
         // would be accepted and spawn a fetch. Not echoing is the view's obligation
         // (the bar's user-intent bindings apply only from `Binding.set`/`onSubmit`, and
-        // `seedFromFilter` assigns the draft directly).
+        // the bar's `seed(from:)` assigns the draft directly).
         guard let request = model.prepareForFilter(filter, root: projectRoot) else { return }
         let currentLimit = limit
         Task { await model.applyFilter(filter, root: projectRoot, limit: currentLimit, request: request) }
     }
 
+    /// Refresh for the currently-held root. Safe from `onAppear` and the Refresh
+    /// button, where the view's own property is current; a change handler must call
+    /// `refresh(root:)` with its parameter instead.
     private func refreshIfPossible() {
-        guard let projectRoot else { return }
+        refresh(root: projectRoot)
+    }
+
+    private func refresh(root: URL?) {
+        guard let root else { return }
         // Capture the request token and limit synchronously before the `Task` hop.
         // `prepareForRefresh` bumps the model's request generation now (in creation
         // order), and `refresh` rejects a superseded request — so an older fetch
         // overtaken by a newer one (a folder switch, a second "Load more") discards
         // its stale result rather than clobbering the newer published state, even
         // when the unstructured tasks start out of order.
-        let request = model.prepareForRefresh(root: projectRoot)
+        let request = model.prepareForRefresh(root: root)
         let currentLimit = limit
-        Task { await model.refresh(root: projectRoot, limit: currentLimit, request: request) }
+        Task { await model.refresh(root: root, limit: currentLimit, request: request) }
     }
 }
 

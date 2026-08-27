@@ -777,7 +777,28 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     picker no longer carries its own `allRefsTag`/`selectedRef`/`applyRef` sentinel
     handling: it uses `LogFilterDraft.allRefsTag` + `displayRefTag(amongKnown:)` /
     `selectRef(tag:)` and keeps the verbatim write that was already correct on iOS.
+    **Change handlers seed from their parameter**, as on macOS — but here that is
+    uniformity, not a bug fix, and the difference is worth stating so neither bar
+    is "corrected" into the other. The stale-property trap belongs to the
+    deprecated single-parameter `onChange(of:perform:)` that macOS 13 is stuck
+    with: it runs the closure captured *before* the change, so a plain stored
+    property read off `self` there is still the previous value. The iOS target is
+    17, whose two-parameter `onChange(of:_:)` runs the *new* closure, so
+    `searchQuery` reads current either way; the seed is spelled
+    `.onChange(of: searchQuery) { _, newQuery in search = newQuery }` to state the
+    intent and match the macOS bar. (`@State` and `@ObservedObject` reads are live
+    under both overloads — they resolve through their storage rather than the
+    captured view value — which is why only plain stored properties are at risk on
+    macOS.) Two handlers are deliberately *not* changed:
+    `LogAdvancedFilterForm_iOS` has no change handlers at all (seeded once in
+    `init`, applies only from Apply), and the branch menu's `selectedRef` /
+    `applyRef` read `filter` from the view body and a binding respectively, where
+    the property is current — so the branch selection is never routed through a
+    seed here.
     All trimming, day-boundary normalization, verbatim ref preservation and tag
-    mapping live in the shared `PisakaCore.LogFilterDraft`.
+    mapping live in the shared `PisakaCore.LogFilterDraft`. The draft's
+    preserved-day re-seeding rule (`seed(from:)`) has no caller here on purpose:
+    the advanced form is built fresh on each presentation and so uses only the
+    from-scratch `init(filter:defaultDate:)`, which has no shown day to keep.
   - `iOS/MergeView_iOS.swift` / `iOS/MergeRoute_iOS.swift` — the adaptive 3-pane
     conflict resolver (side-by-side on regular width, stacked on compact).
