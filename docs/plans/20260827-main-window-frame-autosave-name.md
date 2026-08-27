@@ -165,39 +165,39 @@ Dependencies: none.
 **Files:**
 - Create: `Tests/PisakaCoreTests/MainWindowFrameSourceGatingTests.swift`
 
-- [ ] Read `Sources/Pisaka/` through `#filePath`, Foundation only, reusing
+- [x] Read `Sources/Pisaka/` through `#filePath`, Foundation only, reusing
       `LSPSourceGatingTests.strippingCommentsAndStringLiterals(_:)` and
       `containsToken(_:in:)` exactly as `BottomPanelSourceGatingTests` does.
       Write the suite's doc comment explaining each rule and why the compiler
       cannot see it.
-- [ ] `testExactlyOneAppFileNamesTheFrameAutosaveAPI` — scan every `.swift` file
+- [x] `testExactlyOneAppFileNamesTheFrameAutosaveAPI` — scan every `.swift` file
       under `Sources/Pisaka/` (recursively, iOS subtree included) for
       `setFrameAutosaveName` or `setFrameUsingName` and assert the resulting
       file-name set equals `["MainWindowFrameAutosave.swift"]` **by set
       equality**. This is what pins requirement 3 and requirement 4 at once: a
       second window adopting a name, or the main window's adoption being
       duplicated somewhere else, fails here.
-- [ ] `testRestoreComesBeforeAdopt` — in the stripped source of
+- [x] `testRestoreComesBeforeAdopt` — in the stripped source of
       `MainWindowFrameAutosave.swift`, locate the first line naming
       `setFrameUsingName` and the first naming `setFrameAutosaveName`, and assert
       the former is strictly earlier. Swapping the two compiles, type-checks and
       reads as reasonable while silently overwriting the saved frame with the
       default one on every launch — exactly the bug this ticket fixes, in a new
       disguise.
-- [ ] `testTheGlueIsMacOSGated` — the first significant (non-blank, non-comment)
+- [x] `testTheGlueIsMacOSGated` — the first significant (non-blank, non-comment)
       line of `MainWindowFrameAutosave.swift` is `#if os(macOS)`, matching the
       check `LSPSourceGatingTests` already makes for the app-side LSP files, so
       the iOS build cannot start compiling AppKit.
-- [ ] `testTheSceneInstallsTheMarker` — the stripped source of `PisakaApp.swift`
+- [x] `testTheSceneInstallsTheMarker` — the stripped source of `PisakaApp.swift`
       names `MainWindowFrameAutosave`. Without this the glue file could exist,
       satisfy every rule above, and be attached to nothing.
-- [ ] `testAuxiliaryWindowsStillCenterThemselves` — each of the five controller
+- [x] `testAuxiliaryWindowsStillCenterThemselves` — each of the five controller
       files (`DiffWindowController`, `MergeWindowController`,
       `ProjectSearchWindowController`, `SourceViewerWindowController`,
       `LeetCodeBrowserWindowController`) names `center` in stripped source. Their
       per-use centering is the deliberate alternative to a saved frame, and the
       set-equality test above only says they carry no autosave name.
-- [ ] Run `swift test` — must pass before Task 4.
+- [x] Run `swift test` — must pass before Task 4.
 
 ### Task 4: Verify the automated gates
 
