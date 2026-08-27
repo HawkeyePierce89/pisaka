@@ -90,13 +90,14 @@ final class MainWindowFrameAutosaveView: NSView {
             // Restore first: applies the saved frame if one exists (no-op on first run).
             // It is idempotent (re-applying the same frame is a no-op).
             _ = window.setFrameUsingName(mainWindowFrameAutosaveName)
-            Self.restoredWindows.add(window)
         }
 
         // Then adopt: registers the window to save on move/resize/close.
         // Adopting first can write the window's current (default) frame under the
         // name and destroy the value about to be read.
-        _ = window.setFrameAutosaveName(mainWindowFrameAutosaveName)
+        guard window.setFrameAutosaveName(mainWindowFrameAutosaveName) else { return }
+
+        Self.restoredWindows.add(window)
     }
 }
 #endif
