@@ -201,13 +201,13 @@ Dependencies: none.
 
 ### Task 4: Verify the automated gates
 
-- [ ] `swift test` — green.
-- [ ] `swiftlint --strict` from the repository root — clean.
-- [ ] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination
+- [x] `swift test` — green.
+- [x] `swiftlint --strict` from the repository root — clean.
+- [x] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination
       'platform=macOS' build` — green (run `xcodegen generate` first if the
       project file is stale; the new source file needs no `project.yml` change,
       the target globs `Sources/Pisaka`).
-- [ ] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination
+- [x] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination
       'platform=iOS Simulator,name=iPhone 17 Pro' build` — green, proving the
       gating.
 
