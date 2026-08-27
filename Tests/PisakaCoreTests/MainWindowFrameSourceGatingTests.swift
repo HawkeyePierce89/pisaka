@@ -1,21 +1,22 @@
 import XCTest
 
-/// Static verification of the main window's frame autosave rules.
+/// Static verification of the main window's frame persistence rules.
 ///
 /// A repository-file suite that reads `Sources/Pisaka/` through `#filePath` with
 /// Foundation only and reuses `LSPSourceGatingTests`'s Swift scanner to strip
 /// comments and string literals.
 ///
 /// **Why the compiler cannot see this**:
-/// 1. The compiler cannot enforce that `setFrameAutosaveName` is only called in exactly
-///    one place. A duplicate call elsewhere would quietly steal the name or overwrite the saved frame.
-/// 2. The compiler cannot enforce the call order `setFrameUsingName` BEFORE `setFrameAutosaveName`.
-///    Calling them in reverse order compiles fine but overwrites the saved frame with the default one
-///    on every launch.
+/// 1. The compiler cannot enforce that the frame-persistence API (`setFrame(from:)` /
+///    `frameDescriptor`) is named in exactly one file. A second persistence site elsewhere
+///    would quietly compete over the saved frame.
+/// 2. The compiler cannot enforce that the observers start only AFTER the final restore.
+///    Observing first compiles fine but lets the scene's setup-time resize overwrite the
+///    saved frame with the default one — the bug this file exists to fix, in a new disguise.
 /// 3. The compiler cannot ensure `MainWindowFrameAutosave.swift` is gated to macOS. Without `#if os(macOS)`,
 ///    it would break the iOS build.
 /// 4. The compiler cannot guarantee that `PisakaApp.swift` actually attaches the marker to the scene.
-/// 5. The compiler cannot enforce that the five auxiliary windows do *not* adopt a name and instead
+/// 5. The compiler cannot enforce that the five auxiliary windows do *not* persist a frame and instead
 ///    continue to use `.center()`.
 final class MainWindowFrameSourceGatingTests: XCTestCase {
 
@@ -45,57 +46,62 @@ final class MainWindowFrameSourceGatingTests: XCTestCase {
             .filter { !$0.isEmpty }
     }
 
-    func testExactlyOneAppFileNamesTheFrameAutosaveAPI() throws {
+    func testExactlyOneAppFileNamesTheFramePersistenceAPI() throws {
         var foundFiles: Set<String> = []
-        var autosaveNameCount = 0
-        var usingNameCount = 0
+        var setFrameCount = 0
+        var descriptorCount = 0
 
-        let autosaveRegex = try NSRegularExpression(pattern: "\\bsetFrameAutosaveName\\b")
-        let usingRegex = try NSRegularExpression(pattern: "\\bsetFrameUsingName\\b")
+        let setFrameRegex = try NSRegularExpression(pattern: "\\bsetFrame\\b")
+        let descriptorRegex = try NSRegularExpression(pattern: "\\bframeDescriptor\\b")
 
         for url in try appFiles() {
             let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try String(contentsOf: url, encoding: .utf8))
             let codeRange = NSRange(code.startIndex..., in: code)
 
-            let autosaveMatches = autosaveRegex.numberOfMatches(in: code, range: codeRange)
-            let usingMatches = usingRegex.numberOfMatches(in: code, range: codeRange)
+            let setFrameMatches = setFrameRegex.numberOfMatches(in: code, range: codeRange)
+            let descriptorMatches = descriptorRegex.numberOfMatches(in: code, range: codeRange)
 
-            if autosaveMatches > 0 || usingMatches > 0 {
+            if setFrameMatches > 0 || descriptorMatches > 0 {
                 foundFiles.insert(url.lastPathComponent)
-                autosaveNameCount += autosaveMatches
-                usingNameCount += usingMatches
+                setFrameCount += setFrameMatches
+                descriptorCount += descriptorMatches
             }
         }
         XCTAssertEqual(
             foundFiles,
             ["MainWindowFrameAutosave.swift"],
-            "Exactly one file must name the frame autosave API to prevent accidental multiple adoptions or overwriting."
+            "Exactly one file must name the frame persistence API to prevent competing persistence sites."
         )
         XCTAssertEqual(
-            autosaveNameCount,
-            3,
-            "There must be exactly three calls to setFrameAutosaveName in the codebase (one to adopt, two to clear)."
+            setFrameCount,
+            1,
+            "There must be exactly one setFrame(from:) restore site in the codebase."
         )
-        XCTAssertEqual(usingNameCount, 1, "There must be exactly one call to setFrameUsingName in the codebase.")
+        XCTAssertEqual(
+            descriptorCount,
+            1,
+            "There must be exactly one frameDescriptor save site in the codebase."
+        )
     }
 
-    func testRestoreComesBeforeAdopt() throws {
+    func testObserversStartOnlyAfterTheFinalRestore() throws {
         let url = Self.repositoryRoot.appendingPathComponent("Sources/Pisaka/MainWindowFrameAutosave.swift")
         let lines = try significantLines(of: url)
 
-        let restoreIndex = lines.firstIndex { LSPSourceGatingTests.containsToken("setFrameUsingName", in: $0) }
-        let adoptIndex = lines.firstIndex {
-            LSPSourceGatingTests.containsToken("setFrameAutosaveName", in: $0) &&
-            LSPSourceGatingTests.containsToken("mainWindowFrameAutosaveName", in: $0)
-        }
-
-        let restore = try XCTUnwrap(restoreIndex, "setFrameUsingName not found")
-        let adopt = try XCTUnwrap(adoptIndex, "setFrameAutosaveName not found")
+        let lastRestoreCall = try XCTUnwrap(
+            lines.lastIndex(of: "restore(window)"),
+            "restore(window) call not found"
+        )
+        let firstObserveCall = try XCTUnwrap(
+            lines.firstIndex(of: "observe(window)"),
+            "observe(window) call not found"
+        )
 
         XCTAssertLessThan(
-            restore,
-            adopt,
-            "setFrameUsingName must be called strictly before setFrameAutosaveName to avoid overwriting the saved frame."
+            lastRestoreCall,
+            firstObserveCall,
+            "Every restore(window) call must precede observe(window): observing before the final "
+                + "re-apply lets the scene's setup-time resize overwrite the saved frame with the default one."
         )
     }
 

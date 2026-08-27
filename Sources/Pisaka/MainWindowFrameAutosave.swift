@@ -2,30 +2,43 @@
 //  MainWindowFrameAutosave.swift
 //  Pisaka
 //
-//  The explicit frame autosave mechanism for the main window.
+//  The main window's frame persistence: remember the size and position across
+//  launches, under one stable key.
 //
-//  Root cause: The framework-derived key for an autosave name embeds the mangled type
-//  names of the window's content view. When a private context is involved (like
-//  a sheet selector enum declared inside `App`, or an interface-scale modifier applied to it),
-//  the name is rendered as `(unknown context at $<load-address>)`. Because this load
-//  address is randomized by ASLR on every launch, the derived key is unstable.
-//  Therefore, the main window uses an explicit, deliberately chosen frame autosave name,
-//  so the key stops depending on modifier chain type names under ASLR or future refactors.
+//  Why the standard window-frame autosave cannot do this here (both halves
+//  verified live in the preferences domain):
+//
+//  1. With no explicit autosave name set, the framework derives the save key
+//     from the mangled type name of the window's content view. Two types in
+//     that chain are declared in private contexts (the sheet-selector enum
+//     inside the `App`, and the interface-scale modifier applied to the sheet
+//     content), and a private context renders in a mangled name as
+//     `(unknown context at $<load-address>)` — a load address randomized by
+//     ASLR on every launch. Each launch therefore saves under a fresh one-off
+//     key and restores nothing.
+//
+//  2. Adopting an explicit autosave name does not fix it: the scene's window
+//     *redirects the save machinery itself*. The adopted name sticks on the
+//     window, but every frame save — the automatic ones and even a manual
+//     `saveFrame(usingName:)` with the explicit name — lands under the derived
+//     per-launch key anyway, and the explicit key is never written.
+//
+//  So the marker below bypasses that machinery entirely: it restores the frame
+//  from its own defaults key on window attach, and writes the frame descriptor
+//  back under that key itself on every move, resize and close. The descriptor
+//  string carries the screen geometry, so restoring onto a changed display
+//  arrangement is constrained to a screen by the same call that applies it,
+//  and the content's `minWidth`/`minHeight` floor still clamps from below —
+//  the two compose rather than fight.
 //
 
 #if os(macOS)
 import AppKit
 import SwiftUI
 
-/// The explicit autosave name used by the main window.
-///
-/// This name is chosen, not derived. The framework writes it into the preferences
-/// domain as `NSWindow Frame MainWindow`. Renaming it later is a deliberate,
-/// one-time loss of the saved frame.
-private let mainWindowFrameAutosaveName = "MainWindow"
-
-/// A non-drawing, hit-test-transparent marker attached purely to reach AppKit and
-/// configure the main window's frame autosave name.
+/// A non-drawing, hit-test-transparent marker attached to the main scene's
+/// content purely to reach the hosting window and wire up the frame
+/// persistence above.
 struct MainWindowFrameAutosave: NSViewRepresentable {
     func makeNSView(context: Context) -> MainWindowFrameAutosaveView {
         MainWindowFrameAutosaveView()
@@ -51,52 +64,73 @@ final class MainWindowFrameAutosaveView: NSView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        guard let window = self.window, !window.isSheet else { return }
+        MainWindowFramePersistence.adopt(window)
+    }
+}
 
-        guard let window = self.window else {
-            return
+/// The persistence itself, deliberately not tied to the marker view's
+/// lifetime: the view can be recreated by the framework at any time, and a
+/// recreation must neither re-restore the frame (yanking the window back over
+/// a resize the user has since made) nor tear the observers down.
+private enum MainWindowFramePersistence {
+    /// The one chosen defaults key. Chosen, not derived — renaming it later is
+    /// a deliberate, one-time loss of the saved frame. It deliberately does
+    /// not use the `NSWindow Frame` prefix: that namespace belongs to the
+    /// machinery this type exists to bypass.
+    private static let defaultsKey = "MainWindowFrame"
+
+    /// The windows already adopted, weakly held. Window-side state, so a
+    /// recreated marker view finds the window configured and does nothing.
+    private static let adopted = NSHashTable<NSWindow>.weakObjects()
+
+    /// Observer tokens, kept for the app's lifetime. The app has exactly one
+    /// main window per run, and the observers are keyed to that window object,
+    /// so there is nothing to unregister early.
+    private static var observers: [NSObjectProtocol] = []
+
+    static func adopt(_ window: NSWindow) {
+        guard !adopted.contains(window) else { return }
+        adopted.add(window)
+
+        // Restore before first paint: `viewDidMoveToWindow` fires before the
+        // window is ordered front, so the saved frame lands invisibly.
+        restore(window)
+
+        // The scene's own window setup continues after this callback and can
+        // size the window once more. Re-apply on the next main-runloop turn
+        // (idempotent when nothing intervened), and only then start observing
+        // — observing from the start would let that setup-time resize
+        // overwrite the saved frame with the default one.
+        DispatchQueue.main.async { [weak window] in
+            guard let window else { return }
+            restore(window)
+            observe(window)
         }
+    }
 
-        if window.isSheet {
-            _ = window.setFrameAutosaveName("")
-            return
+    private static func restore(_ window: NSWindow) {
+        guard let descriptor = UserDefaults.standard.string(forKey: defaultsKey) else { return }
+        window.setFrame(from: descriptor)
+    }
+
+    private static func observe(_ window: NSWindow) {
+        let names: [Notification.Name] = [
+            NSWindow.didMoveNotification,
+            NSWindow.didResizeNotification,
+            NSWindow.willCloseNotification,
+        ]
+        for name in names {
+            let token = NotificationCenter.default.addObserver(
+                forName: name,
+                object: window,
+                queue: .main
+            ) { notification in
+                guard let window = notification.object as? NSWindow else { return }
+                UserDefaults.standard.set(window.frameDescriptor, forKey: defaultsKey)
+            }
+            observers.append(token)
         }
-
-        // If this exact window already holds the name, it's a SwiftUI view recreation.
-        // We shouldn't re-restore the frame because the user might have resized it since.
-        if window.frameAutosaveName == mainWindowFrameAutosaveName {
-            return
-        }
-
-        // Check if another window already holds the name globally to preserve
-        // cascading for secondary windows in any multi-window scenarios.
-        if NSApp.windows.contains(where: { $0.frameAutosaveName == mainWindowFrameAutosaveName && $0 != window }) {
-            _ = window.setFrameAutosaveName("")
-            return
-        }
-
-        // Sizing interaction:
-        // `viewDidMoveToWindow` is the first moment a window exists, firing before
-        // the window is ordered front. The restored frame lands before first paint
-        // and wins over the content's `minWidth`/`minHeight` floor, which is a minimum
-        // and not a preferred size. The two do not fight, they compose: a saved frame
-        // below the floor is clamped up by `setFrame`, which honours `minSize`; a saved
-        // frame off the current display arrangement is constrained to a screen by the
-        // same call.
-        //
-        // Escalation ladder (if a visible jump appears after first paint):
-        // 1. Re-apply once on the next main-runloop turn.
-        // 2. A one-shot `NSWindow.didBecomeKeyNotification` observer.
-        // Neither is implemented, because neither is needed unless the manual check
-        // in Post-Completion shows a visible jump.
-
-        // Restore first: applies the saved frame if one exists (no-op on first run).
-        // It is idempotent (re-applying the same frame is a no-op).
-        _ = window.setFrameUsingName(mainWindowFrameAutosaveName)
-
-        // Then adopt: registers the window to save on move/resize/close.
-        // Adopting first can write the window's current (default) frame under the
-        // name and destroy the value about to be read.
-        guard window.setFrameAutosaveName(mainWindowFrameAutosaveName) else { return }
     }
 }
 #endif
