@@ -213,7 +213,7 @@ Dependencies: none.
 
 ### Task 5: Update documentation
 
-- [ ] `docs/architecture/app-shell.md` — add a full entry for
+- [x] `docs/architecture/app-shell.md` — add a full entry for
       `MainWindowFrameAutosave.swift` recording the rule: the main window carries
       an explicit frame autosave name because the framework-derived key embeds
       private-context type names that are address-mangled and therefore unstable
@@ -222,15 +222,15 @@ Dependencies: none.
       the sizing interaction with the content's minimum-size floor and the
       un-taken escalation ladder; and that the auxiliary windows deliberately
       carry no name and center per use.
-- [ ] `docs/architecture/app-shell.md` — extend the `PisakaApp.swift` entry with
+- [x] `docs/architecture/app-shell.md` — extend the `PisakaApp.swift` entry with
       the one-line note that the scene attaches the marker to its content, before
       the sheet modifiers, and why it must not move into `ContentView`.
-- [ ] `CLAUDE.md` — one index line under the `app-shell.md` list for
+- [x] `CLAUDE.md` — one index line under the `app-shell.md` list for
       `MainWindowFrameAutosave.swift`, and add `MainWindowFrameSourceGatingTests`
       to the Tests section's list of repository-file gating suites (one clause;
       keep the file's size target in mind — the full rationale stays in
       `app-shell.md`).
-- [ ] No `README.md` / `docs/FEATURES.md` change: a window that reopens where it
+- [x] No `README.md` / `docs/FEATURES.md` change: a window that reopens where it
       was left is restored expected behavior, not a new feature to announce.
 
 ## Post-Completion (manual — for the user)

@@ -1114,7 +1114,16 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     would clear the Keychain and leave the cookies), and the launch-time
     `refreshUserStatus()` joins the one-shot `.onAppear` block beside
     `sweepStaging()`/`lspProvisioning.refresh()` — unawaited and silent, since the
-    menu already says "signed in" optimistically from the Keychain item.
+    menu already says "signed in" optimistically from the Keychain item. The scene also attaches the `MainWindowFrameAutosave` marker to its content, before the sheet modifiers, so exactly one window adopts the name; it must not move into `ContentView` because the marker must sit in the scene's own content to avoid being pulled into a presentation or duplicated.
+  - `MainWindowFrameAutosave.swift` — the explicit frame autosave name for the main window.
+    The main window carries an explicit frame autosave name because the framework-derived key
+    embeds private-context type names that are address-mangled and therefore unstable across
+    launches. The restore-before-adopt order is strictly observed (restoring first, then adopting
+    the name); adopting first would write the default frame over the saved one. The name is a
+    chosen constant whose rename would cost the saved frame once. The sizing interaction correctly
+    composes the saved frame with the content's minimum-size floor, and the un-taken escalation
+    ladder (like next-runloop retries) is recorded but unused. The auxiliary windows deliberately
+    carry no name and center per use instead.
   - `SoftwareUpdater.swift` — the app's **entire** Sparkle 2 surface, wholly
     inside `#if os(macOS)`: a small `ObservableObject` owning one
     `SPUStandardUpdaterController`, plus `CheckForUpdatesCommand`, the one-button
