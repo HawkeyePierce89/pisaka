@@ -35,7 +35,7 @@ struct MainWindowFrameAutosave: NSViewRepresentable {
 }
 
 final class MainWindowFrameAutosaveView: NSView {
-    private static let restoredWindows = NSHashTable<NSWindow>.weakObjects()
+    private static let seenWindows = NSHashTable<NSWindow>.weakObjects()
 
     init() {
         super.init(frame: .zero)
@@ -54,8 +54,12 @@ final class MainWindowFrameAutosaveView: NSView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
 
-        guard let window = self.window,
-              !window.isSheet else {
+        guard let window = self.window else {
+            return
+        }
+
+        if window.isSheet {
+            window.setFrameAutosaveName("")
             return
         }
 
@@ -65,9 +69,13 @@ final class MainWindowFrameAutosaveView: NSView {
             return
         }
 
+        let isFirstAppearance = !Self.seenWindows.contains(window)
+        Self.seenWindows.add(window)
+
         // Check if another window already holds the name globally to preserve
         // cascading for secondary windows in any multi-window scenarios.
         if NSApp.windows.contains(where: { $0.frameAutosaveName == mainWindowFrameAutosaveName && $0 != window }) {
+            window.setFrameAutosaveName("")
             return
         }
 
@@ -86,7 +94,7 @@ final class MainWindowFrameAutosaveView: NSView {
         // Neither is implemented, because neither is needed unless the manual check
         // in Post-Completion shows a visible jump.
 
-        if !Self.restoredWindows.contains(window) {
+        if isFirstAppearance {
             // Restore first: applies the saved frame if one exists (no-op on first run).
             // It is idempotent (re-applying the same frame is a no-op).
             _ = window.setFrameUsingName(mainWindowFrameAutosaveName)
@@ -96,8 +104,6 @@ final class MainWindowFrameAutosaveView: NSView {
         // Adopting first can write the window's current (default) frame under the
         // name and destroy the value about to be read.
         guard window.setFrameAutosaveName(mainWindowFrameAutosaveName) else { return }
-
-        Self.restoredWindows.add(window)
     }
 }
 #endif

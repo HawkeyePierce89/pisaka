@@ -50,7 +50,7 @@ final class MainWindowFrameSourceGatingTests: XCTestCase {
         var autosaveNameCount = 0
         var usingNameCount = 0
 
-        let autosaveRegex = try NSRegularExpression(pattern: "\\bsetFrameAutosaveName\\b")
+        let autosaveRegex = try NSRegularExpression(pattern: "\\bsetFrameAutosaveName\\(mainWindowFrameAutosaveName\\)")
         let usingRegex = try NSRegularExpression(pattern: "\\bsetFrameUsingName\\b")
 
         for url in try appFiles() {
