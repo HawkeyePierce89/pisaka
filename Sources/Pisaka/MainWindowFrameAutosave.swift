@@ -57,7 +57,7 @@ final class MainWindowFrameAutosaveView: NSView {
         }
 
         if window.isSheet {
-            window.setFrameAutosaveName("")
+            _ = window.setFrameAutosaveName("")
             return
         }
 
@@ -70,7 +70,7 @@ final class MainWindowFrameAutosaveView: NSView {
         // Check if another window already holds the name globally to preserve
         // cascading for secondary windows in any multi-window scenarios.
         if NSApp.windows.contains(where: { $0.frameAutosaveName == mainWindowFrameAutosaveName && $0 != window }) {
-            window.setFrameAutosaveName("")
+            _ = window.setFrameAutosaveName("")
             return
         }
 

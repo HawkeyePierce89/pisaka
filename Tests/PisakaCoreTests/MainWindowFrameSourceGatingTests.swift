@@ -127,10 +127,11 @@ final class MainWindowFrameSourceGatingTests: XCTestCase {
             "LeetCodeBrowserWindowController.swift",
         ]
 
+        let files = try appFiles()
         for name in auxiliaryWindows {
             // Some might be in subdirectories, let's find the exact path
             let url = try XCTUnwrap(
-                (try appFiles()).first { $0.lastPathComponent == name },
+                files.first { $0.lastPathComponent == name },
                 "Could not find \(name) in Sources/Pisaka/"
             )
             let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try String(contentsOf: url, encoding: .utf8))
