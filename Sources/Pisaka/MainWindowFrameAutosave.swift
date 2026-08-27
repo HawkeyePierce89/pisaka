@@ -55,10 +55,25 @@ final class MainWindowFrameAutosaveView: NSView {
         super.viewDidMoveToWindow()
 
         guard let window = self.window,
-              !window.isSheet,
-              !hasAdopted else {
+              !window.isSheet else {
             return
         }
+
+        // If this exact window already holds the name, it's a SwiftUI view recreation.
+        // We shouldn't re-restore the frame because the user might have resized it since.
+        if window.frameAutosaveName == mainWindowFrameAutosaveName {
+            hasAdopted = true
+            return
+        }
+
+        // Check if another window already holds the name globally to preserve 
+        // cascading for secondary windows in any multi-window scenarios.
+        if NSApp.windows.contains(where: { $0.frameAutosaveName == mainWindowFrameAutosaveName && $0 != window }) {
+            hasAdopted = true
+            return
+        }
+
+        guard !hasAdopted else { return }
 
         // Sizing interaction:
         // `viewDidMoveToWindow` is the first moment a window exists, firing before

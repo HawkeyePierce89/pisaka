@@ -24,10 +24,6 @@ final class MainWindowFrameSourceGatingTests: XCTestCase {
         .deletingLastPathComponent()  // Tests
         .deletingLastPathComponent()  // <root>
 
-    private func read(_ url: URL) throws -> String {
-        try String(contentsOf: url, encoding: .utf8)
-    }
-
     private func appFiles() throws -> [URL] {
         let directory = Self.repositoryRoot.appendingPathComponent("Sources/Pisaka")
         guard let enumerator = FileManager.default.enumerator(
@@ -43,7 +39,7 @@ final class MainWindowFrameSourceGatingTests: XCTestCase {
     }
 
     private func significantLines(of url: URL) throws -> [String] {
-        LSPSourceGatingTests.strippingCommentsAndStringLiterals(try read(url))
+        LSPSourceGatingTests.strippingCommentsAndStringLiterals(try String(contentsOf: url, encoding: .utf8))
             .components(separatedBy: .newlines)
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
@@ -51,11 +47,18 @@ final class MainWindowFrameSourceGatingTests: XCTestCase {
 
     func testExactlyOneAppFileNamesTheFrameAutosaveAPI() throws {
         var foundFiles: Set<String> = []
+        var autosaveNameCount = 0
+        var usingNameCount = 0
         for url in try appFiles() {
-            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try read(url))
-            if LSPSourceGatingTests.containsToken("setFrameAutosaveName", in: code) ||
-               LSPSourceGatingTests.containsToken("setFrameUsingName", in: code) {
+            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try String(contentsOf: url, encoding: .utf8))
+
+            let autosaveMatches = code.components(separatedBy: "setFrameAutosaveName").count - 1
+            let usingMatches = code.components(separatedBy: "setFrameUsingName").count - 1
+
+            if autosaveMatches > 0 || usingMatches > 0 {
                 foundFiles.insert(url.lastPathComponent)
+                autosaveNameCount += autosaveMatches
+                usingNameCount += usingMatches
             }
         }
         XCTAssertEqual(
@@ -63,6 +66,8 @@ final class MainWindowFrameSourceGatingTests: XCTestCase {
             ["MainWindowFrameAutosave.swift"],
             "Exactly one file must name the frame autosave API to prevent accidental multiple adoptions or overwriting."
         )
+        XCTAssertEqual(autosaveNameCount, 1, "There must be exactly one call to setFrameAutosaveName in the codebase.")
+        XCTAssertEqual(usingNameCount, 1, "There must be exactly one call to setFrameUsingName in the codebase.")
     }
 
     func testRestoreComesBeforeAdopt() throws {
@@ -70,7 +75,7 @@ final class MainWindowFrameSourceGatingTests: XCTestCase {
         let lines = try significantLines(of: url)
 
         let restoreIndex = lines.firstIndex { LSPSourceGatingTests.containsToken("setFrameUsingName", in: $0) }
-        let adoptIndex = lines.firstIndex { LSPSourceGatingTests.containsToken("setFrameAutosaveName", in: $0) }
+        let adoptIndex = lines.lastIndex { LSPSourceGatingTests.containsToken("setFrameAutosaveName", in: $0) }
 
         let restore = try XCTUnwrap(restoreIndex, "setFrameUsingName not found")
         let adopt = try XCTUnwrap(adoptIndex, "setFrameAutosaveName not found")
@@ -94,7 +99,7 @@ final class MainWindowFrameSourceGatingTests: XCTestCase {
 
     func testTheSceneInstallsTheMarker() throws {
         let url = Self.repositoryRoot.appendingPathComponent("Sources/Pisaka/PisakaApp.swift")
-        let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try read(url))
+        let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try String(contentsOf: url, encoding: .utf8))
         XCTAssertTrue(
             LSPSourceGatingTests.containsToken("MainWindowFrameAutosave", in: code),
             "PisakaApp.swift must install the MainWindowFrameAutosave marker."
@@ -116,7 +121,7 @@ final class MainWindowFrameSourceGatingTests: XCTestCase {
                 (try appFiles()).first { $0.lastPathComponent == name },
                 "Could not find \(name) in Sources/Pisaka/"
             )
-            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try read(url))
+            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try String(contentsOf: url, encoding: .utf8))
             XCTAssertTrue(
                 LSPSourceGatingTests.containsToken("center", in: code),
                 "\(name) must continue to call center() explicitly, as auxiliary windows do not use a saved frame."
