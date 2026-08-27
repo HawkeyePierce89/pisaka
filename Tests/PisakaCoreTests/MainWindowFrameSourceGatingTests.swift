@@ -49,11 +49,16 @@ final class MainWindowFrameSourceGatingTests: XCTestCase {
         var foundFiles: Set<String> = []
         var autosaveNameCount = 0
         var usingNameCount = 0
+
+        let autosaveRegex = try NSRegularExpression(pattern: "\\bsetFrameAutosaveName\\b")
+        let usingRegex = try NSRegularExpression(pattern: "\\bsetFrameUsingName\\b")
+
         for url in try appFiles() {
             let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try String(contentsOf: url, encoding: .utf8))
+            let codeRange = NSRange(code.startIndex..., in: code)
 
-            let autosaveMatches = code.components(separatedBy: "setFrameAutosaveName").count - 1
-            let usingMatches = code.components(separatedBy: "setFrameUsingName").count - 1
+            let autosaveMatches = autosaveRegex.numberOfMatches(in: code, range: codeRange)
+            let usingMatches = usingRegex.numberOfMatches(in: code, range: codeRange)
 
             if autosaveMatches > 0 || usingMatches > 0 {
                 foundFiles.insert(url.lastPathComponent)

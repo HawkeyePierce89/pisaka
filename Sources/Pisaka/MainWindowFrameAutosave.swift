@@ -35,7 +35,7 @@ struct MainWindowFrameAutosave: NSViewRepresentable {
 }
 
 final class MainWindowFrameAutosaveView: NSView {
-    private var hasAdopted = false
+    private static let restoredWindows = NSHashTable<NSWindow>.weakObjects()
 
     init() {
         super.init(frame: .zero)
@@ -62,18 +62,14 @@ final class MainWindowFrameAutosaveView: NSView {
         // If this exact window already holds the name, it's a SwiftUI view recreation.
         // We shouldn't re-restore the frame because the user might have resized it since.
         if window.frameAutosaveName == mainWindowFrameAutosaveName {
-            hasAdopted = true
             return
         }
 
         // Check if another window already holds the name globally to preserve 
         // cascading for secondary windows in any multi-window scenarios.
         if NSApp.windows.contains(where: { $0.frameAutosaveName == mainWindowFrameAutosaveName && $0 != window }) {
-            hasAdopted = true
             return
         }
-
-        guard !hasAdopted else { return }
 
         // Sizing interaction:
         // `viewDidMoveToWindow` is the first moment a window exists, firing before
@@ -90,22 +86,17 @@ final class MainWindowFrameAutosaveView: NSView {
         // Neither is implemented, because neither is needed unless the manual check
         // in Post-Completion shows a visible jump.
 
-        // Restore first: applies the saved frame if one exists (no-op on first run).
-        // It is idempotent (re-applying the same frame is a no-op).
-        _ = window.setFrameUsingName(mainWindowFrameAutosaveName)
+        if !Self.restoredWindows.contains(window) {
+            // Restore first: applies the saved frame if one exists (no-op on first run).
+            // It is idempotent (re-applying the same frame is a no-op).
+            _ = window.setFrameUsingName(mainWindowFrameAutosaveName)
+            Self.restoredWindows.add(window)
+        }
 
         // Then adopt: registers the window to save on move/resize/close.
         // Adopting first can write the window's current (default) frame under the
         // name and destroy the value about to be read.
-        guard window.setFrameAutosaveName(mainWindowFrameAutosaveName) else {
-            // Returning false means another window already holds the name.
-            // Leave the one-shot flag down so a later `viewDidMoveToWindow` retries.
-            return
-        }
-
-        // Set the one-shot flag only on success, so a SwiftUI re-parent cannot
-        // undo a resize the user has since made.
-        hasAdopted = true
+        _ = window.setFrameAutosaveName(mainWindowFrameAutosaveName)
     }
 }
 #endif
