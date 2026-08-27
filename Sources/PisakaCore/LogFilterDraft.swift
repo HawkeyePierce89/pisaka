@@ -147,9 +147,21 @@ public struct LogFilterDraft: Equatable {
         }
     }
 
+    /// The last second of `date`'s day: one second before the *next* day begins.
+    ///
+    /// The second `startOfDay` is load-bearing, not belt-and-braces. Adding a day
+    /// to a day's start lands at the same wall-clock time on the next day, which
+    /// is that day's start only when the day begins at midnight. In a zone whose
+    /// DST jump is at midnight (`America/Santiago`, `America/Havana`, ...) the day
+    /// after the jump begins at 01:00, so the naive `+1 day - 1s` returns 00:59:59
+    /// on the day *after* the one chosen. That instant is not merely an hour long:
+    /// `seed(from:)` writes the derived bound straight back into the draft, so the
+    /// picker would jump a day forward and every further apply would extend the
+    /// bound again. Re-deriving the next day's own start keeps the result inside
+    /// the chosen day, which is what makes the round-trip idempotent.
     private static func endOfDay(of date: Date, calendar: Calendar) -> Date {
         let start = calendar.startOfDay(for: date)
         guard let next = calendar.date(byAdding: .day, value: 1, to: start) else { return start }
-        return next.addingTimeInterval(-1)
+        return calendar.startOfDay(for: next).addingTimeInterval(-1)
     }
 }

@@ -659,7 +659,15 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     not a `LogFilter` dimension). **Seeding rule:** a seed *assigns* the
     draft/search directly and is therefore structurally unable to reach the apply
     path — every apply lives only in a user-intent binding setter or an explicit
-    `onSubmit`, and is handed the new value explicitly. **Change handlers seed from
+    `onSubmit`, and is handed the new value explicitly. The preserved day
+    (`LogFilterDraft.seed(from:)`) is scoped to **this view's lifetime**: the bar's
+    `draft` is `@State` and `ContentView.panelContent` is a `switch` in a
+    `@ViewBuilder` under `if let panel = visiblePanel`, so each dock panel is its
+    own structural branch — switching away from Log or hiding the dock destroys the
+    state, and `onAppear` re-parks both pickers on today. Making the memory
+    app-lifetime would mean holding the two days on `CommitLogModel` beside
+    `filter`; not done, and the limit is stated in `docs/FEATURES.md` rather than
+    left to be inferred. **Change handlers seed from
     their parameter; the view's observed property is stale inside the handler.**
     `.onChange(of: filter) { newFilter in seed(from: newFilter) }` calls
     `draft.seed(from: newFilter)` and `.onChange(of: searchQuery) { newQuery in
@@ -708,7 +716,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     then formats the absolute instants in UTC), verbatim ref preservation, and the
     `allRefsTag`/`displayRefTag`/`selectRef` seam. The inclusive `until` instant is
     still on the selected day, so re-seeding is verbatim and the round-trip is
-    idempotent — `since`'s `startOfDay` likewise; and a re-seed whose incoming
+    idempotent — `since`'s `startOfDay` likewise. That holds only because
+    `endOfDay` derives the next day's *own* `startOfDay` rather than subtracting a
+    second from "same wall-clock time, one day on": in a zone whose DST jump is at
+    midnight the following day starts at 01:00, and the naive form would land on
+    that next day and walk the picker forward one day per apply. And a re-seed whose incoming
     bound is *absent* clears the toggle but leaves the day the picker already
     shows, so unticking and re-ticking Since/Until offers the chosen day back
     instead of today (the rule lives in `LogFilterDraft.seed(from:)`). All the

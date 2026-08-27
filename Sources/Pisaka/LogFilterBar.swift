@@ -86,6 +86,17 @@ struct LogFilterBar: View {
             // they are current. A draft that has never been shown also has no
             // chosen day to preserve, which is exactly the from-scratch seeding
             // form's case.
+            //
+            // This is also the scope of the remembered day, and it is the bar's
+            // lifetime, not the app's: `ContentView.panelContent` is a `switch`
+            // inside a `@ViewBuilder` under `if let panel = visiblePanel`, so each
+            // dock panel is a distinct structural branch and switching away from
+            // Log (or hiding the dock) destroys this `@State`. Coming back runs
+            // this line again and both pickers park on today. Deliberate: the
+            // alternative is holding the two days on `CommitLogModel` beside
+            // `filter`, i.e. app-lifetime memory of a value the filter has no room
+            // to carry, which is a bigger promise than "unticking is not
+            // forgetting". `docs/FEATURES.md` states the limit.
             draft = LogFilterDraft(filter: filter, defaultDate: Date())
             search = searchQuery
         }

@@ -295,7 +295,13 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     author/path (blank → `nil`), normalizes `since` to `calendar.startOfDay(for:)`
     and `until` to the last second of the selected day (`Calendar` so "the selected
     day" is the user's local day; git's `--until` is inclusive — the end-of-day
-    includes every commit on that day but none at the next midnight), and carries
+    includes every commit on that day but none at the next midnight). That
+    end-of-day is one second before the next day's **own** `startOfDay`, not before
+    "the same wall-clock time, one day on": in a zone whose DST jump is at midnight
+    (`America/Santiago`, `America/Havana`, …) the day after the jump begins at
+    01:00, so the naive form returns `00:59:59` on the *following* day — and since
+    `seed(from:)` writes the derived bound back into the draft, the picker would
+    advance a day on every apply. It carries
     `refSelection` through verbatim — never re-resolved against the known refs,
     which is what the old `applyFilter` got wrong by routing through
     `resolvedRef(amongKnown:)`. The picker seam is `static let allRefsTag = ""`,

@@ -351,6 +351,61 @@ final class LogFilterDraftTests: XCTestCase {
         XCTAssertEqual(filter, reseeded.filter(calendar: cal))
     }
 
+    func testUntilRoundTripPreservesDayAcrossAMidnightDSTJump() {
+        // Every other date test runs on a UTC calendar, where a day always starts
+        // at midnight; production calls `filter()` with `Calendar.current`. In a
+        // zone whose DST jump is at midnight the day after the jump begins at
+        // 01:00, so a naive `startOfDay + 1 day - 1s` lands on the *next* day —
+        // and because `seed(from:)` writes the derived bound back into the draft,
+        // the picker would walk a day forward on every apply.
+        var cal = Calendar(identifier: .gregorian)
+        guard let santiago = TimeZone(identifier: "America/Santiago") else {
+            XCTFail("America/Santiago must exist in the platform time-zone database")
+            return
+        }
+        cal.timeZone = santiago
+        let defaultDate = cal.date(from: DateComponents(year: 2026, month: 1, day: 1, hour: 12))!
+        // 2026-09-06 is the spring-forward day: 23:59:59 on 09-05 is followed by
+        // 01:00:00 on 09-06, so 09-06 has no midnight.
+        let pickedDay = cal.date(from: DateComponents(year: 2026, month: 9, day: 6, hour: 12))!
+        var draft = LogFilterDraft()
+        draft.untilEnabled = true
+        draft.until = pickedDay
+
+        let filter = draft.filter(calendar: cal)
+        let reseeded = LogFilterDraft(filter: filter, defaultDate: defaultDate)
+        XCTAssertTrue(
+            cal.isDate(reseeded.until, inSameDayAs: pickedDay),
+            "the inclusive bound must stay on the chosen day, got \(reseeded.until)"
+        )
+        XCTAssertEqual(filter, reseeded.filter(calendar: cal))
+
+        // And a second cycle does not drift either — the round-trip is a fixed
+        // point, not merely one step of a walk.
+        let refilter = reseeded.filter(calendar: cal)
+        let twice = LogFilterDraft(filter: refilter, defaultDate: defaultDate)
+        XCTAssertEqual(twice.until, reseeded.until)
+    }
+
+    func testSinceRoundTripPreservesDayAcrossAMidnightDSTJump() {
+        var cal = Calendar(identifier: .gregorian)
+        guard let santiago = TimeZone(identifier: "America/Santiago") else {
+            XCTFail("America/Santiago must exist in the platform time-zone database")
+            return
+        }
+        cal.timeZone = santiago
+        let defaultDate = cal.date(from: DateComponents(year: 2026, month: 1, day: 1, hour: 12))!
+        let pickedDay = cal.date(from: DateComponents(year: 2026, month: 9, day: 6, hour: 12))!
+        var draft = LogFilterDraft()
+        draft.sinceEnabled = true
+        draft.since = pickedDay
+
+        let filter = draft.filter(calendar: cal)
+        let reseeded = LogFilterDraft(filter: filter, defaultDate: defaultDate)
+        XCTAssertTrue(cal.isDate(reseeded.since, inSameDayAs: pickedDay))
+        XCTAssertEqual(filter, reseeded.filter(calendar: cal))
+    }
+
     func testNilBoundsRoundTrip() {
         let cal = utcCalendar()
         let defaultDate = date(year: 2026, month: 1, day: 1)
