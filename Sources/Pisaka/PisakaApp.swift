@@ -441,6 +441,11 @@ struct PisakaApp: App {
         // of its first write, so a run in which nothing is ever saved creates
         // nothing under Application Support.
         self.localHistory = LocalHistoryModel(base: LocalHistorySupportDirectory.storeBase, fileService: FileService())
+        // The window's reader, over the *same* store value the capture side
+        // writes through — not a second one built from the same base. Building it
+        // touches no disk either: it lists a file's revisions when a window is
+        // first pointed at one, and never before.
+        self.localHistoryBrowser = LocalHistoryBrowserModel(store: self.localHistory.store)
 
         // The whole of D16's wiring, now with **three** registry contributors:
         // whenever any set of installed servers changes, the workspace is handed one
@@ -733,6 +738,26 @@ struct PisakaApp: App {
     /// from the same `willTerminateNotification` observer.
     private let leetCodeBrowserWindows = LeetCodeBrowserWindowController()
 
+    /// Owns the single, non-modal Local History window (⌘⇧H). A plain stored
+    /// reference like `projectSearchWindows`/`leetCodeBrowserWindows`, and
+    /// `closeAll()` is invoked from the same `willTerminateNotification` observer.
+    private let localHistoryWindows = LocalHistoryWindowController()
+
+    /// The Local History window's own state: which file it is showing, that
+    /// file's revisions, the selection and the diff.
+    ///
+    /// A **companion** to `localHistory` rather than part of it, the way
+    /// `LeetCodeBrowserModel` is a companion to `LeetCodeModel`: it is handed the
+    /// very same `LocalHistoryStore` value — one store, one layout, one policy,
+    /// however many readers — and it captures nothing, prunes nothing and writes
+    /// nothing. Held here for the app's lifetime because the window is a single
+    /// retargeted one, so its rows and selection have to outlive a close.
+    ///
+    /// A plain stored `let` for the `localHistory`/`commitDialog` reason: it
+    /// publishes plenty, but nothing this scene's `body` reads — the only view
+    /// that observes it is `LocalHistoryView`, inside its own window.
+    private let localHistoryBrowser: LocalHistoryBrowserModel
+
     /// Owns the separate, non-modal read-only source viewer windows a Go to
     /// Definition opens when the declaration lives *outside* the opened folder — an
     /// SDK interface, a dependency checkout (D3). A plain stored reference and a
@@ -843,6 +868,7 @@ struct PisakaApp: App {
                 onDelete: { deleteItem(at: $0) },
                 onRun: { runFile(url: $0) },
                 onRunTest: { testFile(url: $0) },
+                onShowLocalHistory: { showLocalHistory(for: $0) },
                 isCommitDialogPresented: $isCommitDialogPresented,
                 onOpenCommitDialog: { openCommitDialog() },
                 onCommitFile: { file in openCommitDialog(preselectingPath: file.path) },
@@ -1036,6 +1062,7 @@ struct PisakaApp: App {
                         mergeWindows.closeAll()
                         projectSearchWindows.closeAll()
                         leetCodeBrowserWindows.closeAll()
+                        localHistoryWindows.closeAll()
                         sourceViewers.closeAll()
                         // And every language server, for the terminal sessions'
                         // reason: a `sourcekit-lsp` left behind is an orphan process
@@ -1132,6 +1159,20 @@ struct PisakaApp: App {
                 Button("Close") { closeSelected() }
                     .keyboardShortcut("w", modifiers: .command)
                     .disabled(model.selectedID == nil)
+
+                Divider()
+
+                // Local History for the selected tab. Disabled without a
+                // *titled* one, which is stricter than every other item in this
+                // group on purpose: an untitled buffer belongs to no path, and
+                // this feature's first skip rule is "no url" — an enabled item
+                // that opened an empty window would say the file has no history
+                // when what is true is that it has no file.
+                Button("Local History…") {
+                    if let url = localHistoryTargetURL { showLocalHistory(for: url) }
+                }
+                .keyboardShortcut("h", modifiers: [.command, .shift])
+                .disabled(localHistoryTargetURL == nil)
             }
 
             CommandGroup(after: .pasteboard) {
@@ -2393,6 +2434,103 @@ struct PisakaApp: App {
         var isDirectory: ObjCBool = false
         let exists = FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory)
         return exists && isDirectory.boolValue
+    }
+
+    // MARK: - Local History
+
+    /// Open the Local History window on `url`, or retarget the one already open.
+    ///
+    /// Both entry points come here — **File ▸ Local History…** (⌘⇧H, on the
+    /// selected tab) and a project-tree file row's "Local History" item — because
+    /// there is one window and one browser model behind it, so a second open path
+    /// would be a second way to leave the two disagreeing about which file is
+    /// being shown.
+    ///
+    /// The listing is started *before* the window is shown, which costs nothing
+    /// (it is one directory read on a background queue) and means a window that
+    /// was already open never shows the previous file's revisions for a frame.
+    /// A file outside the project root — or no root at all — leaves the model
+    /// empty and the window says so: the store is keyed by a path under the root,
+    /// so there is nothing to list, and that is a fact about the file rather than
+    /// a failure to report.
+    private func showLocalHistory(for url: URL) {
+        localHistoryBrowser.open(file: url, root: model.projectRoot)
+        let content = LocalHistoryView(
+            browser: localHistoryBrowser,
+            settings: settings,
+            currentText: { [self] in currentTextForLocalHistory(of: url) },
+            onRestore: { [self] plan in restoreFromLocalHistory(plan) }
+        )
+        localHistoryWindows.show(title: "Local History — \(url.lastPathComponent)", content: content)
+    }
+
+    /// What the file `url` names holds *right now* — the "new" side of the
+    /// window's diff and the text a restore displaces.
+    ///
+    /// **The buffer wins when a tab holds the file**, and that is the whole point
+    /// of asking at call time rather than reading disk once: a dirty tab holds
+    /// text that exists nowhere else, and diffing a revision against the stale
+    /// disk copy would show the user changes they already made. With no tab on
+    /// it, the disk copy is what the file is.
+    ///
+    /// The disk read goes through `readTextIfNotBinary` under the same 1 MiB
+    /// ceiling the capture side uses, so the window cannot be made to load a
+    /// gigabyte of binary into a diff; an unreadable, oversized or binary file
+    /// answers the empty string, which diffs as "everything in this revision was
+    /// added" rather than as an error — the feature has no error state.
+    private func currentTextForLocalHistory(of url: URL) -> String {
+        if let id = model.fileID(forURL: url), let text = model.text(for: id) { return text }
+        let disk = try? fileService.readTextIfNotBinary(
+            url: url,
+            maxBytes: ProjectSearchModel.defaultMaxFileBytes
+        )
+        return disk ?? ""
+    }
+
+    /// Carry out the restore `LocalHistoryBrowserModel` planned: open a tab if
+    /// none holds the file, snapshot what the buffer holds now, then replace it.
+    ///
+    /// **Three steps, in this order, and the order is the design.**
+    ///
+    /// 1. The tab. A restore is a *buffer* edit — Local History never writes the
+    ///    worktree — so a file with no tab open has nothing to edit; `model.open`
+    ///    re-selects an existing tab rather than duplicating it, so this is also
+    ///    the right call when one is already there. A file that cannot be read
+    ///    beeps and stops: there is nothing to restore *into*.
+    /// 2. The capture, under `.restore`, of the text the replacement is about to
+    ///    displace — so a restore is itself reversible from history as well as by
+    ///    one ⌘Z. It comes from the plan rather than being re-read here, because
+    ///    the plan's whole reason for carrying both texts is that there is no way
+    ///    to hold one and forget the other.
+    /// 3. The replacement, through `SaveTransformController` — the one place in
+    ///    this app that rewrites a buffer through the live text view, so the
+    ///    restore is a single undoable step with a single change notification and
+    ///    every reader sees an ordinary edit.
+    ///
+    /// The tab is left **dirty**: the ordinary save funnel puts the restored text
+    /// on disk when the user saves or the autosave fires, which is what keeps this
+    /// feature a reader that takes no writer gate.
+    private func restoreFromLocalHistory(_ plan: LocalHistoryRestore) {
+        guard let file = try? model.open(url: plan.fileURL) else {
+            PlatformFeedback.warning()
+            return
+        }
+        localHistory.captureBuffers(
+            event: LocalHistoryRestore.event,
+            urls: [plan.fileURL],
+            root: plan.root,
+            texts: [plan.fileURL: plan.captureText]
+        )
+        saveTransform.applyRestore(plan.text, to: file.id)
+    }
+
+    /// The selected tab's url, or `nil` — what **File ▸ Local History…** acts on,
+    /// and what disables it.
+    ///
+    /// An untitled buffer has no path, so it has no history and can have none:
+    /// every skip rule in this feature starts with "no url".
+    private var localHistoryTargetURL: URL? {
+        model.openFiles.first { $0.id == model.selectedID }?.url
     }
 
     // MARK: - Find in Files

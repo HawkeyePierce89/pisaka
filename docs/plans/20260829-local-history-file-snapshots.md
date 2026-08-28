@@ -427,27 +427,27 @@ context menu in the project tree.
 - Modify: `Sources/Pisaka/ProjectTreeView.swift`
 - Modify: `Tests/PisakaCoreTests/LocalHistorySourceGatingTests.swift`
 
-- [ ] `SaveTransformController.applyRestore(_:to:)` — one whole-buffer
+- [x] `SaveTransformController.applyRestore(_:to:)` — one whole-buffer
       `SaveTransformPlan` through the existing private view bracket, with the existing
       model fallback; update the class doc comment ("only a save calls this" is no longer
       true)
-- [ ] `LocalHistoryWindowController` — one reusable window (the
+- [x] `LocalHistoryWindowController` — one reusable window (the
       `ProjectSearchWindowController` pattern), `closeAll()` on termination beside the
       other window controllers
-- [ ] `LocalHistoryView` — revisions list (event title + absolute and relative
+- [x] `LocalHistoryView` — revisions list (event title + absolute and relative
       timestamp), the existing `DiffView` on the right, an empty state, a Restore button;
       `.interfaceScaled(settings)` and `.preferredColorScheme` on its own root like
       `DiffWindowContent`, with the diff panes staying on `settings.fontSize`
-- [ ] restore action in `PisakaApp`: open the file in a tab if none holds it, capture the
+- [x] restore action in `PisakaApp`: open the file in a tab if none holds it, capture the
       current buffer under `restore`, then `saveTransform.applyRestore(…)`
-- [ ] **File ▸ Local History…** (⌘⇧H), disabled without a titled selected tab; a "Local
+- [x] **File ▸ Local History…** (⌘⇧H), disabled without a titled selected tab; a "Local
       History" item on `FileRowView`'s context menu threaded from `ContentView` as
       `onShowLocalHistory`
-- [ ] `LocalHistorySourceGatingTests`, part two: the restore is routed through
+- [x] `LocalHistorySourceGatingTests`, part two: the restore is routed through
       `SaveTransformController` and no second file names
       `beginSaveTransformRewrite`/`replaceCharacters` for a restore; the window declares
       no zoom surface it should not; the two open sites (menu item, tree row) both exist
-- [ ] run `swift test` — must pass before Task 8
+- [x] run `swift test` — must pass before Task 8
 
 ### Task 8: Verify acceptance criteria
 

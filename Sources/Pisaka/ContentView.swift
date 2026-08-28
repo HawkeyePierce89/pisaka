@@ -212,6 +212,13 @@ struct ContentView: View {
     /// previews/tests can construct the view without the app wiring. Threaded down
     /// to `ProjectTreeView` in Task 5.
     var onRunTest: (URL) -> Void = { _ in }
+    /// Invoked when a project-tree file row asks for that file's Local History
+    /// (the "Local History" context-menu item), wired to
+    /// `PisakaApp.showLocalHistory(for:)` — the *same* handler the ⌘⇧H menu item
+    /// uses, so the tree and the menu can never point the single window at
+    /// different files. Default no-op so previews/tests can construct the view
+    /// without the app wiring.
+    var onShowLocalHistory: (URL) -> Void = { _ in }
     /// Whether the commit dialog sheet is up. Owned by `PisakaApp` (which loads the
     /// model before raising it) and bound here; `.constant(false)` keeps the
     /// default-constructed view (previews/tests) without a sheet.
@@ -748,6 +755,7 @@ struct ContentView: View {
                 onDelete: onDelete,
                 onRun: onRun,
                 onRunTest: onRunTest,
+                onShowLocalHistory: onShowLocalHistory,
                 onMove: onMove
             )
             // Every pane's minimum, ideal and maximum width is scaled: at the top

@@ -203,6 +203,103 @@ final class LocalHistorySourceGatingTests: XCTestCase {
         )
     }
 
+    // MARK: - Restore goes through the one rewrite funnel
+
+    func testTheRestoreIsRoutedThroughTheSaveTransformController() throws {
+        let controller = try code(ofFileNamed: "SaveTransformController.swift", under: "Sources/Pisaka")
+        XCTAssertTrue(
+            LSPSourceGatingTests.containsToken("applyRestore", in: controller),
+            "The restore's entry point lives beside the save transform's, because both go through the same "
+                + "through-the-view bracket; a restore that grew its own copy of that AppKit code is how the two "
+                + "would drift."
+        )
+
+        let app = try code(ofFileNamed: "PisakaApp.swift", under: "Sources/Pisaka")
+        XCTAssertEqual(
+            try occurrences(of: "applyRestore\\(", in: app),
+            1,
+            "There is exactly one restore call site. A second one would be a second answer to what a restore "
+                + "does to the buffer, the undo stack and the dirty flag."
+        )
+    }
+
+    func testNoLocalHistoryFileRewritesABufferItself() throws {
+        for url in try localHistoryFiles() {
+            let code = try self.code(of: url)
+            for forbidden in ["beginSaveTransformRewrite", "replaceCharacters", "replaceText", "shouldChangeText"] {
+                XCTAssertFalse(
+                    LSPSourceGatingTests.containsToken(forbidden, in: code),
+                    "\(url.lastPathComponent) must not rewrite a buffer itself (it names \(forbidden)): a restore "
+                        + "goes through SaveTransformController.applyRestore, which is the one path that makes it "
+                        + "a single undoable step with a single change notification."
+                )
+            }
+        }
+    }
+
+    func testTheRestoreSnapshotsTheBufferItIsAboutToDisplace() throws {
+        let app = try code(ofFileNamed: "PisakaApp.swift", under: "Sources/Pisaka")
+        XCTAssertEqual(
+            try occurrences(of: "captureBuffers\\(", in: app),
+            1,
+            "The restore is the one caller of the general buffer capture, and it must stay one: a restore that "
+                + "replaced a buffer without snapshotting it first would be the single operation in this feature "
+                + "that destroys text the feature itself cannot get back."
+        )
+        XCTAssertTrue(
+            LSPSourceGatingTests.containsToken("LocalHistoryRestore", in: app),
+            "The restore travels as a plan value, so the app cannot hold the text it is about to write without "
+                + "also holding the text it is about to displace."
+        )
+    }
+
+    // MARK: - The window
+
+    func testBothOpenSitesExist() throws {
+        let app = try code(ofFileNamed: "PisakaApp.swift", under: "Sources/Pisaka")
+        XCTAssertEqual(
+            try occurrences(of: "showLocalHistory\\(for:", in: app),
+            2,
+            "The two open sites are the File menu item and the project tree's row callback, and both must reach "
+                + "the same handler: there is one window and one browser model behind it, so a second open path "
+                + "is a second way to leave the two disagreeing about which file is shown."
+        )
+        let tree = try code(ofFileNamed: "ProjectTreeView.swift", under: "Sources/Pisaka")
+        XCTAssertTrue(
+            LSPSourceGatingTests.containsToken("onShowLocalHistory", in: tree),
+            "The project tree's file rows offer Local History; the callback is threaded from ContentView like "
+                + "every other row action."
+        )
+        let content = try code(ofFileNamed: "ContentView.swift", under: "Sources/Pisaka")
+        XCTAssertTrue(
+            LSPSourceGatingTests.containsToken("onShowLocalHistory", in: content),
+            "ContentView threads the tree's callbacks; a row action it does not carry cannot reach the app."
+        )
+    }
+
+    func testTheWindowDeclaresNoZoomSurfaceOfItsOwn() throws {
+        for url in try localHistoryFiles() {
+            let code = try self.code(of: url)
+            XCTAssertFalse(
+                LSPSourceGatingTests.containsToken("ZoomSurfaceMarker", in: code)
+                    || LSPSourceGatingTests.containsToken("ZoomSurface", in: code),
+                "\(url.lastPathComponent) must declare no zoom surface: the only thing in this window drawn at "
+                    + "the code font is the DiffView it hosts, which declares its own — and the revisions list "
+                    + "around it is chrome, so it belongs to the interface zone."
+            )
+        }
+    }
+
+    func testTheHistoryWindowIsClosedAtTermination() throws {
+        let app = try code(ofFileNamed: "PisakaApp.swift", under: "Sources/Pisaka")
+        XCTAssertTrue(
+            LSPSourceGatingTests.containsToken("localHistoryWindows", in: app)
+                && app.contains("localHistoryWindows.closeAll()"),
+            "The window is torn down on willTerminateNotification beside the diff/merge/search/browser ones; "
+                + "a retained window that outlives termination is the one failure mode that shape has."
+        )
+    }
+
     // MARK: - Local History is a reader
 
     func testLocalHistoryNeverTakesTheWriterGate() throws {

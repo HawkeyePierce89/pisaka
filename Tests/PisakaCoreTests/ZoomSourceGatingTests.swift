@@ -86,7 +86,7 @@ final class ZoomSourceGatingTests: XCTestCase {
     /// Every file that *applies* `.interfaceScaled(...)`: each SwiftUI root that
     /// receives the shared `SettingsStore` — the main window, the `Settings` scene
     /// (applied by `PisakaApp` at the scene, so it reaches the settings form
-    /// itself) and the five `NSHostingController` roots.
+    /// itself) and the six `NSHostingController` roots.
     /// `InterfaceScaleEnvironment.swift` is deliberately absent: it *declares*
     /// the modifier rather than using it.
     ///
@@ -107,6 +107,7 @@ final class ZoomSourceGatingTests: XCTestCase {
         "ProjectSearchView.swift",
         "MergeView.swift",
         "LeetCodeBrowserView.swift",
+        "LocalHistoryView.swift",
     ]
 
     func testTheInterfaceScaledRootsAreExactlyTheDocumentedSet() throws {

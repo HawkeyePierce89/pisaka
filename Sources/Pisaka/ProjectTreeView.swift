@@ -59,6 +59,10 @@ struct ProjectTreeView: View {
     /// session. Shown in the file-row context menu only for test file types
     /// (`TestCommand.isTestFile`).
     var onRunTest: (URL) -> Void = { _ in }
+    /// Show Local History for the file at the given url. Shown in the file-row
+    /// context menu only — a directory has no revisions, because the store keys
+    /// snapshots by a file's project-relative path.
+    var onShowLocalHistory: (URL) -> Void = { _ in }
     /// Move the file or folder at the first url into the folder at the second —
     /// the one thing dragging a row does. Wired to `PisakaApp.moveItem(at:into:)`,
     /// which decides (through `MoveDropRule`) and performs the move; this view
@@ -145,6 +149,7 @@ struct ProjectTreeView: View {
                         onDelete: onDelete,
                         onRun: onRun,
                         onRunTest: onRunTest,
+                        onShowLocalHistory: onShowLocalHistory,
                         onMove: onMove,
                         mayBeginFileOperation: mayBeginFileOperation,
                         onDraftAppeared: { draftAppearedTrigger += 1 },
@@ -195,6 +200,7 @@ private struct DirectoryNodeView: View {
     let onDelete: (URL) -> Void
     let onRun: (URL) -> Void
     let onRunTest: (URL) -> Void
+    let onShowLocalHistory: (URL) -> Void
     let onMove: (URL, URL) -> Void
     let mayBeginFileOperation: () -> Bool
     let onDraftAppeared: () -> Void
@@ -229,6 +235,7 @@ private struct DirectoryNodeView: View {
         onDelete: @escaping (URL) -> Void,
         onRun: @escaping (URL) -> Void,
         onRunTest: @escaping (URL) -> Void,
+        onShowLocalHistory: @escaping (URL) -> Void,
         onMove: @escaping (URL, URL) -> Void,
         mayBeginFileOperation: @escaping () -> Bool,
         onDraftAppeared: @escaping () -> Void,
@@ -248,6 +255,7 @@ private struct DirectoryNodeView: View {
         self.onDelete = onDelete
         self.onRun = onRun
         self.onRunTest = onRunTest
+        self.onShowLocalHistory = onShowLocalHistory
         self.onMove = onMove
         self.mayBeginFileOperation = mayBeginFileOperation
         self.onDraftAppeared = onDraftAppeared
@@ -302,6 +310,7 @@ private struct DirectoryNodeView: View {
                         onDelete: onDelete,
                         onRun: onRun,
                         onRunTest: onRunTest,
+                        onShowLocalHistory: onShowLocalHistory,
                         onMove: onMove,
                         mayBeginFileOperation: mayBeginFileOperation,
                         onDraftAppeared: onDraftAppeared,
@@ -327,6 +336,7 @@ private struct DirectoryNodeView: View {
                         onDelete: { onDelete(entry.url) },
                         onRun: { onRun(entry.url) },
                         onRunTest: { onRunTest(entry.url) },
+                        onShowLocalHistory: { onShowLocalHistory(entry.url) },
                         dragSession: dragSession,
                         draft: draft,
                         siblings: currentChildrenNames
@@ -808,6 +818,10 @@ private struct FileRowView: View {
     let onDelete: () -> Void
     let onRun: () -> Void
     let onRunTest: () -> Void
+    /// Show this file's Local History — the second of the feature's two open
+    /// sites, and the same `PisakaApp` handler ⌘⇧H reaches, so the single window
+    /// has one owner.
+    let onShowLocalHistory: () -> Void
     /// The tree-wide drag state (see `TreeDragSession`). A file row is a drag
     /// *source* only — a file is never a drop destination, so it installs no drop
     /// delegate and never highlights as one.
@@ -882,6 +896,8 @@ private struct FileRowView: View {
             }
             Button("Rename") { onBeginRename() }
             Button("Delete") { onDelete() }
+            Divider()
+            Button("Local History") { onShowLocalHistory() }
         }
     }
 
