@@ -257,24 +257,24 @@ context menu in the project tree.
 - Create: `Sources/PisakaCore/LocalHistoryPolicy.swift`
 - Create: `Tests/PisakaCoreTests/LocalHistoryPolicyTests.swift`
 
-- [ ] `LocalHistoryPolicy`: the ceilings
+- [x] `LocalHistoryPolicy`: the ceilings
       (`maxContentBytes = ProjectSearchModel.defaultMaxFileBytes`, `maxAge = 14 days`,
       `revisionsPerFile = 30`, `maxPreOperationFiles = 200`) as named constants with
       their reasons in doc comments
-- [ ] `capture(of:relativePath:latestHash:) -> LocalHistoryCaptureDecision` — the one
+- [x] `capture(of:relativePath:latestHash:) -> LocalHistoryCaptureDecision` — the one
       skip rule: `.skip(reason)` for pathless/outside-root/oversized/unchanged,
       `.capture(hash:)` otherwise; the hash comes from `SHA256`
-- [ ] `prune(_ snapshots:, now:) -> (keep: [LocalHistorySnapshot], delete: [LocalHistorySnapshot])`
+- [x] `prune(_ snapshots:, now:) -> (keep: [LocalHistorySnapshot], delete: [LocalHistorySnapshot])`
       — age first, then the count cap, then the unconditional reinstatement of the
       newest revision
-- [ ] tests: each skip reason in isolation and the precedence between them; a 1 MiB
+- [x] tests: each skip reason in isolation and the precedence between them; a 1 MiB
       content is captured and 1 MiB + 1 byte is not (byte count, not character count —
       include a multi-byte case); identical content skips, one changed byte does not;
       retention drops everything older than the age bound *except* the newest;
       retention keeps exactly 30 when handed 31 and 100, always the newest ones; an
       empty input and a single-revision input are both no-ops; a labeled snapshot is
       pruned on the same terms as a `save` one
-- [ ] run `swift test` — must pass before Task 3
+- [x] run `swift test` — must pass before Task 3
 
 ### Task 3: The store engine (Core)
 
