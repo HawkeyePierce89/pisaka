@@ -451,17 +451,28 @@ context menu in the project tree.
 
 ### Task 8: Verify acceptance criteria
 
-- [ ] `swift test` — the whole suite green
-- [ ] `swiftlint --strict` from the repository root — clean
-- [ ] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' build`
-      after `xcodegen generate`
-- [ ] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build`
-      — compiles unchanged
-- [ ] confirm by test inventory that each acceptance criterion has a named test: one
+- [x] `swift test` — the whole suite green (3875 tests, 0 failures)
+- [x] `swiftlint --strict` from the repository root — clean (0 violations, 420 files)
+- [x] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' build`
+      after `xcodegen generate` — BUILD SUCCEEDED
+- [x] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build`
+      — compiles unchanged, BUILD SUCCEEDED
+- [x] confirm by test inventory that each acceptance criterion has a named test: one
       snapshot per save and none for an identical re-save; the quit flush reporting its
       saves and the synchronous capture landing before it returns; labeled pre-operation
       snapshots for all **six** operations; listing/diff/restore; retention bounds with
       the newest surviving; oversized, binary and pathless buffers skipped silently
+
+The inventory, criterion by criterion (116 tests across the seven suites):
+
+| Criterion | Named tests |
+| --- | --- |
+| one snapshot per save, none for an identical re-save | `LocalHistoryStoreTests.testASecondIdenticalCaptureWritesNothing`, `.testAChangedCaptureWritesOneMoreFile`, `.testOneChangedByteIsANewRevision`, `LocalHistoryPolicyTests.testIdenticalContentSkipsAndOneChangedByteDoesNot`, `.testAnotherFilesHashDoesNotSuppressThisFile`, `LocalHistoryModelTests.testTwoOverlappingSaveCapturesOfOneFileStoreOneRevisionForIdenticalText`, `.testTwoOverlappingSaveCapturesOfOneFileStoreBothOrderedForDifferentText` |
+| the quit flush reports its saves; the synchronous capture lands before it returns | `LocalHistorySourceGatingTests.testEveryAutosaveWritePathReportsItsSaves` (three `onSaved?(` sites incl. the quit branch), `.testTheQuitBranchStillSkipsTheMissingFileProbe`, `.testTheSaveCaptureIsNamedAtExactlyTheThreeSaveSites` (the one `captureSavesSynchronously`), `LocalHistoryModelTests.testTheSynchronousCaptureHasStoredEverythingByTheTimeItReturns`, `.testTheSynchronousCaptureDedupsAgainstWhatAnEarlierSaveCaptureWrote`, `.testTheSynchronousCaptureWithNoProjectRootDoesNothing` |
+| labeled pre-operation snapshots for all six operations | `LocalHistorySourceGatingTests.testEveryGatedOperationCapturesBeforeItRuns` (6 = 6 = 6 by count equality over the bracket), `LocalHistoryModelTests.testCaptureBeforeOperationReturnsOnlyOnceEveryByteIsStored`, `.testCaptureBuffersLabelsTheRevisionWithTheGivenEvent`, `.testAFileWithBothABufferAndADiskTargetIsCapturedOnceFromTheBuffer`, `.testTheDiskTargetCapIsEnforcedAndEveryBufferStillLands`, `LocalHistorySnapshotTests.testEveryPreOperationEventSaysBefore`, `.testTheTagSetIsExactlyTheDocumentedVocabulary`, `.testEveryEventRoundTripsThroughItsTag` |
+| listing / diff / restore | `LocalHistoryBrowserModelTests.testOpeningAFileListsItsRevisionsNewestFirst`, `.testAStaleListingCannotPublishOverANewerOne`, `.testRetargetingClearsTheRowsBeforeTheNewListingLands`, `.testSelectingARevisionProducesTheDiffAgainstTheCurrentText`, `.testAStaleContentLoadIsDiscardedEvenWhenItFinishesLast`, `.testTheRestorePlanCarriesTheRevisionAndTheTextItDisplaces`, `.testTheRestorePlanIsNilWithNoSelectionAndForAnIdenticalRevision`, `LocalHistoryStoreTests.testACapturedRevisionIsListedAndReadBack`, `.testRevisionsAreListedNewestFirstAcrossEvents`, `LocalHistorySourceGatingTests.testTheRestoreIsRoutedThroughTheSaveTransformController`, `.testTheRestoreSnapshotsTheBufferItIsAboutToDisplace`, `.testNoLocalHistoryFileRewritesABufferItself`, `.testBothOpenSitesExist` |
+| retention bounds, the newest surviving | `LocalHistoryPolicyTests.testTheNewestSurvivesEvenWhenItIsItselfExpired`, `.testAgeDropsEverythingOlderThanTheBoundExceptTheNewest`, `.testTheCountCapKeepsExactlyTheNewestThirty`, `.testExactlyTheCountCapIsANoOp`, `.testAgeIsAppliedBeforeTheCountCap`, `.testTheStatedDefaultsAreTheDocumentedNumbers`, `LocalHistoryStoreTests.testPruningLeavesTheNewestRevisionHoweverOldItIs`, `.testPruneBoundsAWholeProjectAreaAndLeavesTheNewestOfEachFile`, `.testCapturePrunesTheSameFilesExcessRevisions`, `LocalHistoryModelTests.testPruningTheProjectBoundsEveryFileInTheArea` |
+| oversized, binary and pathless buffers skipped silently | `LocalHistoryPolicyTests.testExactlyTheCeilingIsCapturedAndOneByteMoreIsNot`, `.testTheCeilingCountsUTF8BytesNotCharacters`, `.testTheContentCeilingIsFindInFilesOwnCeiling`, `.testNoRelativePathIsUntitled`, `.testAnAbsoluteOrEscapingPathIsOutsideTheProject`, `.testPathRefusalsOutrankSizeAndSameness`, `.testSizeOutranksSameness`, `.testUntitledOutranksOutsideTheProject`, `LocalHistoryStoreTests.testContentOverTheCeilingIsRefusedAndNothingIsWritten`, `.testAPathOutsideTheProjectIsRefusedAndNothingIsWritten`, `LocalHistoryModelTests.testABinaryOrUnreadableDiskTargetIsSilentlyAbsent`, `.testASaveCaptureSkipsUrlsWithNoTextAndUrlsOutsideTheRoot`, `.testADiskTargetOutsideTheProjectRootIsSkipped` |
 
 ### Task 9: Update documentation
 
