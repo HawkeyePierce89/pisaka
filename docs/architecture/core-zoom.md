@@ -430,8 +430,16 @@ Every SwiftUI root that receives the one shared `SettingsStore` applies
 `.interfaceScaled(settings)`: the main window's `ContentView`, the `Settings`
 scene (applied by `PisakaApp` at the scene rather than inside `SettingsView`, so
 it reaches the settings form itself), and each `NSHostingController` root —
-`DiffWindowContent`, `SourceViewerContent`, `ProjectSearchView`, `MergeView` and
-`LeetCodeBrowserView`.
+`DiffWindowContent`, `SourceViewerContent`, `ProjectSearchView`, `MergeView`,
+`LeetCodeBrowserView` and `LocalHistoryView`.
+
+The last one's content stays deliberately split across two
+zones: the `DiffView` it hosts is code and stays on `settings.fontSize`, while
+the revisions list, the footer and the empty-state sentence around it are chrome
+and scale with the interface. It declares no zoom surface of its own —
+`LocalHistorySourceGatingTests.testTheWindowDeclaresNoZoomSurfaceOfItsOwn` pins
+that — because the only thing in it drawn at the code font is that `DiffView`,
+which already declares one.
 
 **A sheet inherits the environment of the view its `.sheet(…)` is attached to —
 which is not the environment that view's *body* publishes.** Get that backwards

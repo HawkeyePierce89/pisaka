@@ -654,7 +654,9 @@ user sees it.
   how old it is. Identical content is not stored twice, so a save that changed
   nothing adds no revision. Files larger than **1 MiB** and files that are not
   text are skipped, silently, as are "Untitled" buffers and files outside the
-  open project. There is one window, and opening history for another file
+  open project — asking for the history of a file outside the project says "This
+  file is not in the open project, so it has no history." rather than showing an
+  empty window. There is one window, and opening history for another file
   retargets it.
 - Closing a file with unsaved changes shows a Save / Don't Save / Cancel dialog.
 - Local Changes: a collapsible bottom panel (toggle with "Show/Hide Local
@@ -1052,10 +1054,16 @@ and iPhone. The feature scope landed so far:
   disk: in a working tree with more changed files than that, the extras are not
   snapshotted (open tabs are never capped, and are always captured from the buffer
   rather than from disk). Files over 1 MiB and non-text files are never captured.
-  Restoring a file that has no tab open opens one, and that fresh tab has no undo
-  history before the restore — the single-Cmd+Z guarantee applies to a file
-  already open. Two revisions of one file taken within the same millisecond may be
-  listed in either order.
+  The single-Cmd+Z guarantee applies to the tab you are **looking at**: restoring
+  into a file with no tab open (one is opened) or into an open background tab
+  costs that tab its undo history and its remembered scroll position, because the
+  editor has not moved to it yet when the restore runs. A file one of the six
+  operations *deleted* — a reverted untracked file, a file a branch switch removes
+  — can no longer be restored from its own "Before …" revision: the revision is
+  still listed, but Restore replaces a buffer and there is none, so it beeps;
+  re-create the file first. Two revisions of one file taken within the same
+  millisecond are listed in a stable but non-chronological order (by event name,
+  then content hash).
 - Find/replace (per-file and project-wide) is macOS-only: iOS has neither the
   search bar nor the Find in Files window. There is no query history, no "replace
   in selection", and the project search reads tree `.gitignore` files only (not

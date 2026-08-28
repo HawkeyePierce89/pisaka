@@ -182,6 +182,85 @@ final class LocalHistoryModelTests: XCTestCase {
         XCTAssertFalse(tree.readPaths.contains("elsewhere/stray.swift"))
     }
 
+    /// The ceiling is enforced by the *read*, before a big file is ever pulled
+    /// into memory — the stated reason `readTextIfNotBinary(url:maxBytes:)` is
+    /// the one gate on this path rather than the policy's size rule, which only
+    /// ever sees a `String` that has already been read.
+    func testAnOversizeDiskTargetIsNeverReadIntoMemory() async {
+        let tree = makeTree(files: [
+            "project/huge.swift": String(repeating: "x", count: 200),
+            "project/small.swift": "kept",
+        ])
+        let model = makeModel(tree, policy: LocalHistoryPolicy(maxContentBytes: 100))
+
+        await model.captureBeforeOperation(
+            event: .replace,
+            root: projectRoot,
+            bufferTexts: [:],
+            diskTargets: [projectFile("huge.swift"), projectFile("small.swift")]
+        )
+
+        XCTAssertTrue(revisions(model, "huge.swift").isEmpty)
+        XCTAssertEqual(contents(model, "small.swift"), ["kept"])
+    }
+
+    /// A url reaching the root through `..` keys to its *bare name* through
+    /// `ProjectFileWalk.relativePath(of:under:)`, which degrades rather than
+    /// refusing. Without the re-join check that spelling would share a history
+    /// with the file that genuinely has that name at the root — two unrelated
+    /// files, one directory, revisions of each shown as revisions of the other.
+    func testAUrlThatReachesTheRootThroughDotDotIsRefusedRatherThanKeyedByItsBareName() async {
+        let tree = makeTree(files: ["project/sub/a.swift": "the real one"])
+        let model = makeModel(tree)
+        // Lexically inside the root, so containment says yes — but it does not
+        // *spell* the root, so `ProjectFileWalk.relativePath(of:under:)` degrades
+        // to the bare `a.swift`. Keyed on that answer this file would share its
+        // history with a root-level `a.swift`: two unrelated files, one
+        // directory, each one's revisions offered as the other's.
+        let sideways = treeRoot.appendingPathComponent("other/../project/sub/a.swift")
+        XCTAssertEqual(ProjectFileWalk.relativePath(of: sideways, under: projectRoot), "a.swift")
+
+        XCTAssertNil(LocalHistoryModel.relativePath(of: sideways, under: projectRoot))
+
+        model.captureSaves(urls: [sideways], root: projectRoot, texts: [sideways: "not the real one"])
+        await drain(model)
+
+        XCTAssertTrue(revisions(model, "a.swift").isEmpty)
+        XCTAssertTrue(revisions(model, "sub/a.swift").isEmpty)
+        XCTAssertTrue(tree.writtenPaths.isEmpty)
+    }
+
+    /// The wait is on everything already queued — including the project-open
+    /// sweep — so an operation with nothing to capture must not join the queue at
+    /// all: it is holding the writer bracket while it waits.
+    func testCaptureBeforeOperationWithNothingToCaptureDoesNotJoinTheChain() async {
+        let tree = makeTree(files: ["project/a.swift": "text"])
+        let model = makeModel(tree)
+
+        let gate = Gate()
+        tree.listingGate = gate
+        model.pruneProject(root: projectRoot)
+        await gate.waitUntilReached()
+
+        // The sweep is demonstrably mid-read. A capture with no buffers and no
+        // disk targets must return anyway — the deadline is what turns "it joined
+        // the queue" into a failure instead of a hang.
+        let returned = expectation(description: "the capture returns while the sweep is held")
+        Task {
+            await model.captureBeforeOperation(
+                event: .commit,
+                root: projectRoot,
+                bufferTexts: [:],
+                diskTargets: []
+            )
+            returned.fulfill()
+        }
+        await fulfillment(of: [returned], timeout: 5)
+
+        gate.release()
+        await drain(model)
+    }
+
     func testCaptureBeforeOperationWithNoProjectRootDoesNothing() async {
         let tree = makeTree(files: ["project/a.swift": "text"])
         let model = makeModel(tree)

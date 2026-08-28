@@ -99,12 +99,18 @@ public final class LocalHistoryBrowserModel: ObservableObject {
 
     // MARK: - Published state
 
-    /// The file the window is showing, or `nil` before the first `open` (and
-    /// after one that was refused).
+    /// The file the window is showing, or `nil` before the first `open`.
+    ///
+    /// It holds the file of a *refused* open too — one outside the project root,
+    /// or opened with no root at all — because the window has to say something
+    /// about that file, and a window that forgot which file it was asked about
+    /// can only be blank. What a refusal clears is `relativePath`, which is what
+    /// the store is keyed by; see ``isUnsupportedTarget``.
     @Published public private(set) var fileURL: URL?
 
     /// `fileURL`'s path under the project root — what the store is keyed by, and
-    /// what the window titles itself with.
+    /// what the window titles itself with. `nil` when the file cannot be keyed
+    /// at all.
     @Published public private(set) var relativePath: String?
 
     /// The file's stored revisions, newest first.
@@ -129,8 +135,18 @@ public final class LocalHistoryBrowserModel: ObservableObject {
     @Published public private(set) var isLoading = false
 
     /// Whether the window should show its empty state: a file is targeted, its
-    /// listing has landed, and there is nothing in it.
+    /// listing has landed, and there is nothing in it. True for a refused target
+    /// as well — a file the store cannot key has no revisions and never will,
+    /// which is a fact about the file, not a failure to report.
     public var isEmpty: Bool { fileURL != nil && !isLoading && revisions.isEmpty }
+
+    /// Whether the targeted file is one this feature cannot key at all: outside
+    /// the project root, or opened with no project root at all.
+    ///
+    /// The window renders a different sentence for it than for a file that
+    /// simply has no revisions yet, because the two are different answers: one
+    /// gets a history the moment it is saved, the other never does.
+    public var isUnsupportedTarget: Bool { fileURL != nil && relativePath == nil }
 
     // MARK: - Dependencies
 
@@ -160,9 +176,15 @@ public final class LocalHistoryBrowserModel: ObservableObject {
     ///
     /// The clearing half happens *now*, synchronously: whatever the window was
     /// showing belonged to another file, and the listing that replaces it is one
-    /// hop away. A url that is not a file under `root` (or no root at all) leaves
-    /// the window empty rather than reporting anything — the same refusal the
-    /// capture side makes, for the same reason.
+    /// hop away. A url that is not a file under `root` (or no root at all) is
+    /// *targeted but unkeyed* — the same refusal the capture side makes, for the
+    /// same reason — and the window says so rather than reporting anything; see
+    /// ``isUnsupportedTarget``.
+    ///
+    /// The selection lives here rather than in the window for the same reason
+    /// the rows do: a retarget clears it, and a window holding its own copy
+    /// would have to echo that clear back through `select(_:currentText:)`,
+    /// cancelling the listing this call just started.
     public func open(file: URL, root: URL?) {
         generation += 1
         let generation = self.generation
@@ -171,16 +193,15 @@ public final class LocalHistoryBrowserModel: ObservableObject {
         selected = nil
         selectedContent = nil
         diffRows = []
+        fileURL = file
 
         guard let root, let relativePath = LocalHistoryModel.relativePath(of: file, under: root) else {
-            self.fileURL = nil
             self.relativePath = nil
             self.root = nil
             isLoading = false
             return
         }
 
-        fileURL = file
         self.relativePath = relativePath
         self.root = root
         isLoading = true
@@ -203,7 +224,15 @@ public final class LocalHistoryBrowserModel: ObservableObject {
     /// immediately; the content and the rows follow when they land, and only if
     /// nothing has superseded them. Passing `nil` clears the pane, which is why
     /// it takes no hop at all.
+    ///
+    /// **Clearing an already-clear pane is not a new question**, and must not
+    /// count as one: the generation token is what supersedes work in flight, so
+    /// a caller echoing back the clear `open(file:root:)` has just made would
+    /// otherwise discard the listing that call started and leave a file that has
+    /// history looking as though it has none.
     public func select(_ snapshot: LocalHistorySnapshot?, currentText: String) {
+        if snapshot == nil, selected == nil, selectedContent == nil, diffRows.isEmpty { return }
+
         generation += 1
         let generation = self.generation
 

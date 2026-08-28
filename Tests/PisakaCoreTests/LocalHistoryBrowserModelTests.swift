@@ -120,21 +120,55 @@ final class LocalHistoryBrowserModelTests: XCTestCase {
         XCTAssertEqual(model.relativePath, "untouched.swift")
     }
 
-    func testAFileOutsideTheProjectRootIsRefusedWithoutTargetingAnything() async {
+    func testAFileOutsideTheProjectRootIsTargetedButUnkeyed() async {
         let model = makeModel()
+        let outside = treeRoot.appendingPathComponent("elsewhere/a.swift")
 
-        model.open(file: treeRoot.appendingPathComponent("elsewhere/a.swift"), root: projectRoot)
+        model.open(file: outside, root: projectRoot)
 
-        XCTAssertNil(model.fileURL)
+        // The file is remembered — the window has to say something *about* it,
+        // and a window that forgot which file it was asked about can only be
+        // blank — but it is not keyed, so it has no history and never will.
+        XCTAssertEqual(model.fileURL, outside)
         XCTAssertNil(model.relativePath)
         XCTAssertFalse(model.isLoading)
-        // Nothing is targeted, so the window is not "empty" either — there is no
-        // file whose history could be shown.
-        XCTAssertFalse(model.isEmpty)
+        XCTAssertTrue(model.isEmpty)
+        XCTAssertTrue(model.isUnsupportedTarget)
 
         model.open(file: projectFile("a.swift"), root: nil)
-        XCTAssertNil(model.fileURL)
+        XCTAssertEqual(model.fileURL, projectFile("a.swift"))
+        XCTAssertNil(model.relativePath)
         XCTAssertFalse(model.isLoading)
+        XCTAssertTrue(model.isUnsupportedTarget)
+    }
+
+    func testAFileWithNoHistoryIsNotAnUnsupportedTarget() async {
+        let model = makeModel()
+
+        model.open(file: projectFile("untouched.swift"), root: projectRoot)
+        await waitUntil("the listing to land") { !model.isLoading }
+
+        XCTAssertTrue(model.isEmpty)
+        // The two empty states are different answers: this file gets a history
+        // the moment the app writes it.
+        XCTAssertFalse(model.isUnsupportedTarget)
+    }
+
+    func testClearingAnAlreadyClearSelectionCannotCancelTheListingInFlight() async {
+        capture("one", "a.swift", at: 1)
+        capture("two", "a.swift", at: 2)
+        let model = makeModel()
+
+        model.open(file: projectFile("a.swift"), root: projectRoot)
+        // Exactly what a window holding its own selection state does one pass
+        // after a retarget: echo the clear back. It must not count as a newer
+        // question, or the listing just started is discarded and a file that has
+        // history reads as a file that has none.
+        model.select(nil, currentText: "whatever")
+
+        await waitUntil("the listing to land") { !model.isLoading }
+        XCTAssertEqual(model.revisions.count, 2)
+        XCTAssertFalse(model.isEmpty)
     }
 
     func testRetargetingClearsTheRowsBeforeTheNewListingLands() async {
@@ -225,7 +259,7 @@ final class LocalHistoryBrowserModelTests: XCTestCase {
 
     func testAStaleContentLoadIsDiscardedEvenWhenItFinishesLast() async {
         let older = capture("older text", "a.swift", at: 1)
-        capture("newer text", "a.swift", at: 2)
+        let newer = capture("newer text", "a.swift", at: 2)
         let model = makeModel()
         model.open(file: projectFile("a.swift"), root: projectRoot)
         await waitUntil("the listing to land") { model.revisions.count == 2 }
@@ -245,16 +279,17 @@ final class LocalHistoryBrowserModelTests: XCTestCase {
         model.select(nil, currentText: "in the buffer")
         gate.release()
 
-        let storagePath = storagePath(of: older, "a.swift")
-        await waitUntil("the released read to have run") { self.tree.readPaths.contains(storagePath) }
-        // One more turn of the main actor than the discarded publish would have
-        // needed, and it still never arrives.
-        await Task.yield()
-        await Task.yield()
+        // The signal waited on is a *later* load landing, never a count of hops:
+        // the reads run on one serial queue, so the superseded one has both run
+        // and had its chance to publish by the time this one's content arrives.
+        model.select(newer, currentText: "in the buffer")
+        await waitUntil("the newer revision's content to land") { model.selectedContent == "newer text" }
 
-        XCTAssertNil(model.selectedContent)
-        XCTAssertTrue(model.diffRows.isEmpty)
         XCTAssertFalse(published.contains("older text"), "the superseded content reached the window: \(published)")
+        XCTAssertTrue(
+            tree.readPaths.contains(storagePath(of: older, "a.swift")),
+            "the superseded read must actually have run, or this test proves nothing"
+        )
     }
 
     func testARevisionReclaimedBetweenTheListingAndTheClickShowsNothing() async {

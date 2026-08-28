@@ -73,8 +73,17 @@ final class LocalHistorySourceGatingTests: XCTestCase {
     }
 
     private func occurrences(of pattern: String, in code: String) throws -> Int {
+        try offsets(of: pattern, in: code).count
+    }
+
+    /// Where each match starts, so a rule can be about *order* rather than about
+    /// totals — the difference between "six brackets and six captures" and "six
+    /// brackets each of which captures".
+    private func offsets(of pattern: String, in code: String) throws -> [Int] {
         let regex = try NSRegularExpression(pattern: pattern)
-        return regex.numberOfMatches(in: code, range: NSRange(code.startIndex..., in: code))
+        return regex
+            .matches(in: code, range: NSRange(code.startIndex..., in: code))
+            .map { $0.range.location }
     }
 
     // MARK: - Platform gating
@@ -146,6 +155,21 @@ final class LocalHistorySourceGatingTests: XCTestCase {
             suspends,
             "Each gated operation must await captureBeforeOperation as the first await inside its bracket. "
                 + "An operation that rewrites the worktree without one destroys text no other copy of exists."
+        )
+
+        // Totals alone would stay green on the one arrangement this rule exists
+        // to refuse: two captures inside one bracket and none inside another. So
+        // the two sets are checked to *alternate* — every `autosave.suspend()` is
+        // followed by a capture before the next one begins.
+        let bracketed = try (offsets(of: "autosave\\.suspend\\(\\)", in: app).map { (offset: $0, isCapture: false) }
+            + offsets(of: "await captureBeforeOperation\\(", in: app).map { (offset: $0, isCapture: true) })
+            .sorted { $0.offset < $1.offset }
+            .map(\.isCapture)
+        XCTAssertEqual(
+            bracketed,
+            Array(repeating: [false, true], count: suspends).flatMap { $0 },
+            "The two must alternate, gate then capture: an operation holding two captures while another holds "
+                + "none rewrites the worktree with nothing snapshotted, and the counts above cannot see it."
         )
     }
 

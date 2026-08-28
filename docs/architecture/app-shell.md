@@ -72,7 +72,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     the diff/merge controllers in the `willTerminateNotification` observer — as does
     `private let leetCodeBrowserWindows = LeetCodeBrowserWindowController()`, the
     single ⌘⇧B problem-browser window (`core-leetcode.md`), held the same way and
-    for the same reason. The
+    for the same reason — and `private let localHistoryWindows =
+    LocalHistoryWindowController()`, the single ⌘⇧H revisions window, a third of
+    the same shape. Beside them sit `private let localHistory: LocalHistoryModel`
+    and `private let localHistoryBrowser: LocalHistoryBrowserModel` — plain
+    stored `let`s, the `commitDialog` arrangement: the capture model publishes
+    nothing and the browser is observed by its own window rather than by this
+    one, so neither belongs in a `StateObject` the main window re-renders on
+    (`core-local-history.md`). The
     project-search model is the reason `PisakaApp` has an `init()` at all: its two
     buffer closures are `let`s taken at construction and must close over the *very*
     `WorkspaceModel` the app publishes (Core deliberately keeps no reference to the
@@ -86,7 +93,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     being written under it (autosave then persists it like any other edit). `openFolder()` calls `projectSearch.prepareForSearch(root:)`
     *synchronously* alongside the Local Changes / Log registrations (there is no
     "close folder" action, so this is the only call site); no refresh `Task` is
-    spawned, since the window searches only when the user asks.
+    spawned, since the window searches only when the user asks. The same method
+    is where `localHistory.pruneProject(root:)` fires — the once-per-open
+    retention sweep, deliberately fire-and-forget and deliberately holding **no**
+    generation token: it deletes only revisions that are already past retention,
+    so a sweep for the folder just closed is not a stale answer that could land
+    over a newer one, it is work that was owed anyway (`core-local-history.md`).
     `activateSearchMatch(url:range:)` opens the file through the ordinary
     `openFile(url:)` path (so an already-open tab is re-selected, not duplicated),
     resolves the tab id, and records the range with `reveal.reveal(fileID:range:)` —
@@ -443,9 +455,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     A successful Apply then closes the window itself.
     The `willTerminateNotification` observer calls `diffWindows.closeAll()`,
     `mergeWindows.closeAll()`, `projectSearchWindows.closeAll()`,
-    `leetCodeBrowserWindows.closeAll()` and `sourceViewers.closeAll()` alongside
+    `leetCodeBrowserWindows.closeAll()`, `localHistoryWindows.closeAll()` and
+    `sourceViewers.closeAll()` alongside
     `terminalSessions.terminateAll()` so no diff, merge, Find in Files, LeetCode
-    browser or source-viewer window lingers past termination — and `lspWorkspace.terminateNow()` beside them, for the
+    browser, Local History or source-viewer window lingers past termination — and `lspWorkspace.terminateNow()` beside them, for the
     terminal sessions' reason: a `sourcekit-lsp` left behind is an orphan process
     holding a build-system cache open, which the release check
     (`pgrep -fl sourcekit-lsp`) is specifically looking for. **`terminateNow()`

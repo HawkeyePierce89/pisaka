@@ -547,7 +547,10 @@ three by set equality), `BottomPanelSourceGatingTests` (the bottom dock panel's
 four view-layer rules; inventory in that suite's doc comments and
 `app-window.md`), `MainWindowFrameSourceGatingTests` (the main window's
 by-hand frame persistence: one persistence site, observers only after the
-final restore) and `LintConfigurationTests`
+final restore), `LocalHistorySourceGatingTests` (Local History's app-layer
+rules — capture sites, the autosave report, the one restore funnel, the reader
+rule; inventory in that suite's doc comments and `core-local-history.md`) and
+`LintConfigurationTests`
 (both `.swiftlint.yml` files — the version pin, `mandatory_comma`, the root and
 child disabled-rule sets by set equality, every measured threshold ceiling,
 every in-file disable counted by path/rule — plus `.githooks/pre-commit`'s gate

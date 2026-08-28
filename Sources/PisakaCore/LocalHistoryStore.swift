@@ -23,9 +23,10 @@ import Foundation
 /// **A snapshot appears in one `move`.** Bytes are written under a
 /// non-parsing temporary name and renamed into place, so a listing never sees a
 /// half-written revision: an interrupted capture leaves a `.partial` file that
-/// listing ignores, retention ignores, and the next capture of that same
-/// revision overwrites. This is `LSPInstallEngine`'s atomicity rule at the scale
-/// of one file.
+/// listing ignores and retention ignores, and that the project sweep
+/// (`prune(root:now:)`) reclaims — nothing else can, precisely because
+/// everything else looks through it. This is `LSPInstallEngine`'s atomicity rule
+/// at the scale of one file.
 ///
 /// **A writer only of its own directory.** Every path this deletes is asserted
 /// to be inside `layout.base` first; nothing here touches the user's files, so
@@ -168,7 +169,21 @@ public struct LocalHistoryStore {
 
     private nonisolated func prune(directory: URL, now: Date) {
         guard let entries = try? fileService.contentsOfDirectory(at: directory) else { return }
-        if entries.isEmpty {
+
+        // Debris from an interrupted write, and the sweep is the only thing that
+        // can reclaim it: listing and retention both look straight through a
+        // `.partial` (that is what the suffix is *for*), so an unreclaimed one
+        // would sit here for the life of the store and keep its directory from
+        // ever counting as empty. Only names this feature could itself have
+        // written are removed — a snapshot name plus our own suffix — so a
+        // foreign file that happens to end in `.partial` is left where it is,
+        // like every other foreign entry.
+        let leftovers = entries.filter { !$0.isDirectory && Self.isInterruptedWrite($0.name) }
+        for leftover in leftovers {
+            discard(directory.appendingPathComponent(leftover.name))
+        }
+
+        if entries.count == leftovers.count {
             discard(directory)
             return
         }
@@ -176,6 +191,12 @@ public struct LocalHistoryStore {
             entry.isDirectory ? nil : LocalHistoryLayout.snapshot(fromFileName: entry.name)
         }
         delete(policy.prune(stored, now: now).delete, in: directory)
+    }
+
+    /// Whether `name` is one of this feature's own half-written snapshots.
+    static func isInterruptedWrite(_ name: String) -> Bool {
+        guard name.hasSuffix(temporarySuffix) else { return false }
+        return LocalHistoryLayout.snapshot(fromFileName: String(name.dropLast(temporarySuffix.count))) != nil
     }
 
     private nonisolated func snapshots(in directory: URL) -> [LocalHistorySnapshot] {

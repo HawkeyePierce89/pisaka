@@ -308,7 +308,9 @@ final class LocalHistoryStoreTests: XCTestCase {
         let directory = fileDirectory(path, in: tree)
         store.capture(text: "one", root: projectRoot, relativePath: path, event: .save, now: date(1_000))
         tree.files["\(directory)/notes.txt"] = "somebody else's"
-        tree.files["\(directory)/0000001772345678901-save-abcdef0123456789.snapshot.partial"] = "interrupted"
+        // Ends in the suffix but is not a snapshot name with it: not ours, so
+        // not ours to delete either.
+        tree.files["\(directory)/notes.txt.partial"] = "somebody else's too"
 
         XCTAssertEqual(store.revisions(root: projectRoot, relativePath: path).count, 1)
 
@@ -321,7 +323,41 @@ final class LocalHistoryStoreTests: XCTestCase {
             ["two"]
         )
         XCTAssertEqual(tree.files["\(directory)/notes.txt"], "somebody else's")
-        XCTAssertEqual(tree.files["\(directory)/0000001772345678901-save-abcdef0123456789.snapshot.partial"], "interrupted")
+        XCTAssertEqual(tree.files["\(directory)/notes.txt.partial"], "somebody else's too")
+    }
+
+    /// The one entry in this store that nothing else can reclaim: listing looks
+    /// through it (that is what the suffix is for) and so does retention, so
+    /// without the sweep an interrupted write would sit here for the life of the
+    /// store — and keep its directory from ever counting as empty.
+    func testTheSweepReclaimsAnInterruptedWriteNothingElseCanSee() {
+        let tree = makeTree()
+        let store = makeStore(tree)
+        let directory = fileDirectory(path, in: tree)
+        let debris = "0000001772345678901-save-abcdef0123456789.snapshot\(LocalHistoryStore.temporarySuffix)"
+        store.capture(text: "one", root: projectRoot, relativePath: path, event: .save, now: date(1_000))
+        tree.files["\(directory)/\(debris)"] = "half a revision"
+
+        store.prune(root: projectRoot, now: date(1_000))
+
+        XCTAssertNil(tree.files["\(directory)/\(debris)"])
+        // The revision beside it is untouched: the sweep reclaims debris, it does
+        // not take the newest revision with it.
+        XCTAssertEqual(store.revisions(root: projectRoot, relativePath: path).count, 1)
+    }
+
+    func testADirectoryHoldingNothingButInterruptedWritesIsRemovedWholesale() {
+        let tree = makeTree()
+        let store = makeStore(tree)
+        let directory = fileDirectory(path, in: tree)
+        let debris = "0000001772345678901-commit-abcdef0123456789.snapshot\(LocalHistoryStore.temporarySuffix)"
+        tree.directories.insert(directory)
+        tree.files["\(directory)/\(debris)"] = "half a revision"
+
+        store.prune(root: projectRoot, now: date(1_000))
+
+        XCTAssertNil(tree.files["\(directory)/\(debris)"])
+        XCTAssertFalse(tree.hasDirectory(directory))
     }
 
     func testPruningLeavesTheNewestRevisionHoweverOldItIs() {

@@ -106,11 +106,37 @@ final class LocalHistoryLayoutTests: XCTestCase {
     func testALongOrSeparatorBearingRootNameStillMakesOneLegalComponent() {
         let long = URL(fileURLWithPath: "/Users/someone/" + String(repeating: "x", count: 400))
         let name = layout.projectDirectory(forRoot: long).lastPathComponent
-        XCTAssertLessThanOrEqual(name.count, 64 + 1 + LocalHistoryLayout.projectHashLength)
+        XCTAssertLessThanOrEqual(name.utf8.count, 64 + 1 + LocalHistoryLayout.projectHashLength)
         XCTAssertFalse(name.contains("/"))
 
         let colon = URL(fileURLWithPath: "/Users/someone/a:b")
         XCTAssertTrue(layout.projectDirectory(forRoot: colon).lastPathComponent.hasPrefix("a_b-"))
+    }
+
+    /// The bound is measured in the unit the file system measures it in. Sixty-four
+    /// emoji are 64 `Character`s and 256 bytes: truncating by character would name
+    /// a directory `ensureDirectory` cannot create, and a project whose directory
+    /// cannot be created has no history at all — silently, since every failure in
+    /// this feature is.
+    func testTheReadableProjectNameIsTruncatedByBytesRatherThanByCharacters() {
+        for name in [String(repeating: "🌍", count: 80), String(repeating: "👩‍👩‍👧‍👦", count: 40)] {
+            let component = layout
+                .projectDirectory(forRoot: URL(fileURLWithPath: "/Users/someone/" + name))
+                .lastPathComponent
+            XCTAssertLessThanOrEqual(
+                component.utf8.count,
+                64 + 1 + LocalHistoryLayout.projectHashLength,
+                component
+            )
+            // Still a *readable* hint: whole characters, never a name cut
+            // mid-scalar.
+            XCTAssertTrue(component.hasPrefix("🌍") || component.hasPrefix("👩‍👩‍👧‍👦"), component)
+            XCTAssertEqual(
+                component.split(separator: "-").last?.count,
+                LocalHistoryLayout.projectHashLength,
+                "the digest after the hint is what identifies the project: \(component)"
+            )
+        }
     }
 
     func testTheFilesystemRootStillNamesADirectory() {

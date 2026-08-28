@@ -93,11 +93,16 @@ public struct LocalHistoryLayout: Equatable, Sendable {
     /// looking at names.
     public static let timestampDigits = 19
 
-    /// How much of a project root's own name is kept in front of its digest.
-    /// A file name is bounded (255 bytes on APFS) and a directory name can be
-    /// long; the prefix is a human hint, not identity, so truncating it costs
-    /// nothing.
-    private static let projectNamePrefixLength = 64
+    /// How much of a project root's own name is kept in front of its digest,
+    /// **in UTF-8 bytes**. A file name is bounded (255 bytes on APFS) and a
+    /// directory name can be long; the prefix is a human hint, not identity, so
+    /// truncating it costs nothing.
+    ///
+    /// Bytes rather than characters because that is what the bound is measured
+    /// in: 64 emoji are 64 `Character`s and 256 bytes, which with the digest
+    /// after them names a directory the file system refuses to create — and a
+    /// project whose directory cannot be created has no history at all, silently.
+    private static let projectNamePrefixBytes = 64
 
     // MARK: - Directories
 
@@ -242,10 +247,17 @@ public struct LocalHistoryLayout: Equatable, Sendable {
     /// Only ever a hint — nothing parses it back, and the digest beside it is
     /// the identity.
     private static func readableName(_ name: String) -> String {
-        let cleaned = name.map { character -> Character in
-            character == "/" || character == ":" ? "_" : character
+        var truncated = ""
+        var bytes = 0
+        for character in name {
+            let cleaned: Character = (character == "/" || character == ":") ? "_" : character
+            // Whole characters only: a name cut mid-scalar is not a name, and the
+            // point of the prefix is that a human can read it.
+            let width = String(cleaned).utf8.count
+            guard bytes + width <= projectNamePrefixBytes else { break }
+            truncated.append(cleaned)
+            bytes += width
         }
-        let truncated = String(cleaned.prefix(projectNamePrefixLength))
         return truncated.isEmpty ? "project" : truncated
     }
 }

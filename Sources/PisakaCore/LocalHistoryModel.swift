@@ -29,16 +29,16 @@ import Foundation
 /// **Every failure is silent**, all the way down: the store degrades, an
 /// unreadable or binary target is skipped, a url outside the project root is
 /// skipped. There is nothing a user could usefully be asked here.
+///
+/// It publishes nothing and is deliberately **not** an `ObservableObject`: the
+/// app holds it as a plain stored `let` so no view can observe it, and a window
+/// that did would re-render on captures it does not show.
 @MainActor
-public final class LocalHistoryModel: ObservableObject {
+public final class LocalHistoryModel {
     /// The store every entry point here goes through. Public because the browser
     /// model and the window read revisions through the very same value — one
     /// store, one layout, one policy, however many readers.
     public let store: LocalHistoryStore
-
-    /// Where the store lives. Carried through from `init` so the app can name it
-    /// once and everything else asks the model.
-    public var base: URL { store.layout.base }
 
     /// The reads the pre-operation capture does on its own (the store is handed
     /// text, never a url to read).
@@ -166,6 +166,12 @@ public final class LocalHistoryModel: ObservableObject {
     ///   a stated limit: this runs in front of a git command the user asked for,
     ///   so a worktree with thousands of changed files must not put an unbounded
     ///   read pass between the click and the operation. Buffers are never capped.
+    ///
+    /// **Nothing to capture returns without touching the chain.** The wait is on
+    /// everything already queued — including the project-open retention sweep —
+    /// and paying it to store zero bytes would put this feature's housekeeping in
+    /// front of an operation the user asked for, with the writer bracket already
+    /// raised.
     public func captureBeforeOperation(
         event: LocalHistoryEvent,
         root: URL?,
@@ -176,13 +182,14 @@ public final class LocalHistoryModel: ObservableObject {
         let units = Self.bufferUnits(urls: bufferTexts.keys.sorted { $0.path < $1.path }, root: root, texts: bufferTexts)
 
         var claimed = Set(units.map(\.relativePath))
-        var pending: [CaptureUnit] = []
+        var pending: [(relativePath: String, url: URL)] = []
         for url in diskTargets {
             guard pending.count < store.policy.maxPreOperationFiles else { break }
             guard let relativePath = Self.relativePath(of: url, under: root) else { continue }
             guard claimed.insert(relativePath).inserted else { continue }
-            pending.append(CaptureUnit(relativePath: relativePath, text: "", url: url))
+            pending.append((relativePath: relativePath, url: url))
         }
+        guard !units.isEmpty || !pending.isEmpty else { return }
 
         let store = self.store
         let clock = self.clock
@@ -190,13 +197,15 @@ public final class LocalHistoryModel: ObservableObject {
         let maxBytes = store.policy.maxContentBytes
         await append {
             Self.write(units, to: store, root: root, event: event, clock: clock)
-            for unit in pending {
-                guard let url = unit.url,
-                      let text = try? fileService.readTextIfNotBinary(url: url, maxBytes: maxBytes) else { continue }
+            for target in pending {
+                guard let text = try? fileService.readTextIfNotBinary(
+                    url: target.url,
+                    maxBytes: maxBytes
+                ) else { continue }
                 store.capture(
                     text: text,
                     root: root,
-                    relativePath: unit.relativePath,
+                    relativePath: target.relativePath,
                     event: event,
                     now: clock()
                 )
@@ -248,19 +257,13 @@ public final class LocalHistoryModel: ObservableObject {
 
     // MARK: - Pure helpers
 
-    /// One thing to capture: where it goes in the store, and either the text
-    /// already in hand (a buffer) or the url to read it from (a disk target).
+    /// One buffer to capture: where it goes in the store, and the text already in
+    /// hand. A disk target is *not* one of these — it is a `(relativePath, url)`
+    /// pair whose text does not exist until it is read, on the chain, one hop
+    /// later.
     private struct CaptureUnit {
         let relativePath: String
         let text: String
-        /// `nil` for a buffer — its text is `text` and nothing is read.
-        var url: URL?
-
-        init(relativePath: String, text: String, url: URL? = nil) {
-            self.relativePath = relativePath
-            self.text = text
-            self.url = url
-        }
     }
 
     /// The buffers of `urls` that can be keyed in the store, in the given order

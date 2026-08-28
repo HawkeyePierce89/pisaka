@@ -346,7 +346,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `onRun: (URL) -> Void` is threaded the same way into `ProjectTreeView` (the
     file-row "Run" item), wired to `PisakaApp.runFile(url:)`; `onRunTest: (URL) ->
     Void` is threaded identically (the file-row "Run Test" item), wired to
-    `PisakaApp.testFile(url:)`.
+    `PisakaApp.testFile(url:)`; and `onShowLocalHistory: (URL) -> Void` likewise
+    (the file-row "Local History" item), wired to `PisakaApp.showLocalHistory(for:)`
+    — the *same* handler ⌘⇧H reaches, because there is one window and one browser
+    model behind it (`core-local-history.md`).
     The **commit dialog** is presented from here as a `.sheet` on the window
     content root, over the `commitDialog: CommitDialogModel` `PisakaApp` owns and
     loads: `isCommitDialogPresented: Binding<Bool>` raises it, `onOpenCommitDialog`
@@ -635,7 +638,13 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     (play icon → `onRun(url)`) shown only when
     `RunCommand.canRun(url.lastPathComponent)` and a "Run Test" item
     (`checkmark.diamond` icon → `onRunTest(url)`) shown only when
-    `TestCommand.isTestFile(fileName:)` (directories get neither item). The
+    `TestCommand.isTestFile(fileName:)` (directories get neither item), and —
+    last, after a `Divider()` below Rename/Delete — a plain **"Local History"**
+    item (`onShowLocalHistory(url)`) shown **unconditionally** on every file row, unlike
+    the two above: whether a file has revisions is a question only the store can
+    answer, and answering it per row would cost a directory read per row of the
+    tree, so the window is opened and says "No history for this file yet." itself
+    (`core-local-history.md`). Directories get no such item. The
     create and rename actions no longer prompt via dialog: they guard
     against `mayBeginFileOperation` at command time (so the "Git operation
     in progress" alert fires exactly when the menu is chosen), then set an

@@ -54,7 +54,24 @@ struct LocalHistoryView: View {
 
     /// The selected row's file name — a snapshot's identity inside its file
     /// directory, and the one thing about it that is unique.
-    @State private var selection: String?
+    ///
+    /// Read straight off the model rather than kept as `@State` beside it. The
+    /// window is reused across files and a retarget clears the selection
+    /// synchronously, so a second copy here would have to be reset back *through*
+    /// the model — and that reset, arriving one SwiftUI pass later, would cancel
+    /// the listing the retarget had just started (`LocalHistoryBrowserModel
+    /// .select(_:currentText:)`). One owner, no echo.
+    private var selection: Binding<String?> {
+        Binding(
+            get: { browser.selected?.fileName },
+            set: { name in
+                browser.select(
+                    browser.revisions.first { $0.fileName == name },
+                    currentText: currentText()
+                )
+            }
+        )
+    }
 
     /// The interface zone's metrics. Computed from the store rather than read
     /// from the environment because this view is the *root* of its own window and
@@ -80,17 +97,6 @@ struct LocalHistoryView: View {
         // itself. The diff panes stay on `settings.fontSize` — the code zone —
         // exactly as they do in a separate diff window.
         .interfaceScaled(settings)
-        // The window is reused across files, so the selection has to follow the
-        // list rather than persist over it: a retarget clears the rows
-        // synchronously, and a stale file name left selected would highlight
-        // nothing while the Restore button still read as armed.
-        .onChange(of: browser.fileURL) { _ in selection = nil }
-        .onChange(of: selection) { name in
-            browser.select(
-                browser.revisions.first { $0.fileName == name },
-                currentText: currentText()
-            )
-        }
     }
 
     // MARK: - The revisions list
@@ -98,14 +104,18 @@ struct LocalHistoryView: View {
     private var revisions: some View {
         VStack(spacing: 0) {
             if browser.isEmpty {
-                Text("No history for this file yet.")
+                // Two different answers: a file inside the project gets a
+                // history the moment the app writes it, one outside never does.
+                Text(browser.isUnsupportedTarget
+                    ? "This file is not in the open project, so it has no history."
+                    : "No history for this file yet.")
                     .font(metrics.scaledFont(.body))
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                     .padding(metrics.scaled(16))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                List(browser.revisions, id: \.fileName, selection: $selection) { snapshot in
+                List(browser.revisions, id: \.fileName, selection: selection) { snapshot in
                     RevisionRow(snapshot: snapshot)
                 }
                 .listStyle(.inset)
@@ -125,6 +135,13 @@ struct LocalHistoryView: View {
             Button("Restore") {
                 guard let plan = browser.restore(currentText: currentText()) else { return }
                 onRestore(plan)
+                // The buffer the right-hand pane diffs against is exactly what
+                // the restore just replaced, so the rows on screen now describe
+                // a state that no longer exists — which reads as "the restore
+                // did nothing". Re-asking with the restored text settles the
+                // pane to no differences at all, which is what a restore that
+                // worked looks like.
+                browser.select(browser.selected, currentText: currentText())
             }
             // Armed by the *loaded* content rather than by the selection: the
             // content is what a restore writes into the buffer, and it arrives a

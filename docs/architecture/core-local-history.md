@@ -77,7 +77,10 @@ changes.)
 - A **project directory** is the root's own (sanitised, truncated) name, a `-`,
   and 16 hex characters of the SHA-256 of the root's lexically normalised path.
   The readable prefix is a hint for a human deleting one project's history by
-  hand; the digest is the identity.
+  hand; the digest is the identity. It is truncated to 64 **UTF-8 bytes**, whole
+  characters only — bytes because that is the unit the 255-byte file-name bound
+  is measured in (64 emoji are 64 `Character`s and 256 bytes), and a project
+  whose directory cannot be created would have no history at all, silently.
 - A **file directory** is 32 hex characters of the SHA-256 of the
   project-relative path, and nothing else. Directories are hashed rather than
   spelled because a relative path contains `/`, can be deeper than one component
@@ -246,9 +249,15 @@ changes.)
     is never written. **A snapshot appears in one `move`**: bytes are written
     under a `.partial` name that deliberately does not parse and are renamed into
     place, so a listing never sees a half-written revision and an interrupted
-    capture leaves debris that listing ignores, retention ignores and the next
-    attempt at the same revision overwrites — `LSPInstallEngine`'s atomicity rule
-    at the scale of one file. The temporary is derived from the destination name
+    capture leaves debris that listing ignores and retention ignores —
+    `LSPInstallEngine`'s atomicity rule at the scale of one file. **The sweep is
+    what reclaims that debris**, and nothing else can: everything else looks
+    through a `.partial` by design, so an unreclaimed one would sit there for the
+    life of the store and keep its directory from ever counting as empty. Only a
+    name this feature could itself have written is removed — a parseable snapshot
+    name plus the suffix — so a foreign file that happens to end in `.partial` is
+    left alone like any other foreign entry, and a directory holding nothing but
+    debris is removed wholesale. The temporary is derived from the destination name
     rather than randomised precisely so a retry reuses it instead of accumulating.
     Pruning runs here on the one file just captured, because that is the file
     whose count just changed, and it prunes the list already in hand rather than
@@ -308,6 +317,10 @@ changes.)
       one file — and the buffer is what the user would lose); **binary and
       oversize files are skipped** by `readTextIfNotBinary(url:maxBytes:)`, the one
       gate for both; and **the disk set is capped** at `maxPreOperationFiles`.
+      **Nothing to capture returns without touching the chain**: the await is on
+      everything already queued — including the project-open sweep — and paying
+      that to store zero bytes would put this feature's housekeeping in front of
+      an operation the user asked for, with the writer bracket already raised.
     - `pruneProject(root:)` — the project-open sweep, fire-and-forget on the
       chain. No generation token, deliberately: it publishes nothing and reads
       nothing anyone displays, so there is no superseded state it could write over.
@@ -323,9 +336,9 @@ changes.)
     a file that has one. `clock` is injectable for the store's reason one level up
     — it is what lets a test give two overlapping captures two distinct
     milliseconds instead of racing the clock. Its stated limit in production: two
-    captures of one file inside the same millisecond order by file name (i.e. by
-    content hash) rather than chronologically, because that is all the name
-    preserves — reachable only for two *different* texts of one file written
+    captures of one file inside the same millisecond order by file name (event
+    tag first, content hash second) rather than chronologically, because that is
+    all the name preserves — reachable only for two *different* texts of one file written
     within a millisecond of each other, and it costs a row's position in a list,
     never a wrong or missing revision.
   - `LocalHistoryBrowserModel.swift` — the window's state and the restore *plan*.
@@ -335,7 +348,17 @@ changes.)
     so like the symbol index it neither raises the writer gate nor is gated by it.
     Published: `fileURL`, `relativePath`, `revisions`, `selected`,
     `selectedContent`, `diffRows`, `isLoading`, plus the computed `isEmpty` (a
-    file is targeted, its listing has landed, and there is nothing in it). **One
+    file is targeted, its listing has landed, and there is nothing in it) and
+    `isUnsupportedTarget` (a file is targeted and could not be keyed at all).
+    **The selection is one of those published values on purpose**, rather than
+    `@State` in the window beside them: a retarget clears it synchronously, and a
+    window holding its own copy would have to echo that clear back through
+    `select(_:currentText:)` one SwiftUI pass later — which, sharing the token
+    below, would discard the listing the retarget had just started and show a
+    file that *has* history as a file that has none. One owner, no echo; the
+    window's `List` binds its selection straight to `selected?.fileName`. For the
+    same reason `select(_:currentText:)` treats **clearing an already-clear pane
+    as no question at all** and returns without bumping the token. **One
     monotonic generation token, captured synchronously before every hop** —
     listing, content load and diff are all off-main work whose result may come
     back to a window that has since been retargeted or moved to another revision;
@@ -348,8 +371,12 @@ changes.)
     empties the rows, the selection and the diff synchronously, so the window
     never shows one file's revisions, or one file's content diffed against
     another's buffer, while the new listing is in flight. A url that is not a file
-    under the root (or no root at all) leaves the window empty rather than
-    reporting anything, the same refusal the capture side makes.
+    under the root (or no root at all) is **targeted but unkeyed** — the same
+    refusal the capture side makes — which is what `isUnsupportedTarget` reports:
+    `fileURL` still holds the file, because the window has to say something
+    *about* it and a window that forgot which file it was asked about can only be
+    blank, while `relativePath` and the held root are `nil`, so nothing can be
+    listed, selected or restored.
     `select(_:currentText:)` moves `selected` synchronously so the highlight
     follows the click, and loads the content and computes
     `LineDiff.rows(old:new:)` off the main actor through the
@@ -428,15 +455,22 @@ changes.)
     the content is what a restore writes and it arrives a hop after the click;
     `restore(currentText:)` still has the last word, asked when the button is
     pressed rather than on every body evaluation because that answer costs a read
-    of the current text. Empty state: "No history for this file yet." — not an
-    error, because almost every file in a project has never been saved by this
-    app. It is the **root of its own window**, so it applies
+    of the current text. Pressing it also re-asks `select(_:currentText:)` with
+    the restored text, because the rows on screen were diffed against the buffer
+    the restore has just replaced: left alone they would describe a state that no
+    longer exists, which reads as "the restore did nothing". Two empty states,
+    because they are two different answers: "No history for this file yet." for a
+    file inside the project (not an error — almost every file in a project has
+    never been saved by this app, and it gets a history the moment one is) and
+    "This file is not in the open project, so it has no history." for an
+    `isUnsupportedTarget` one, which never will. It is the **root of its own
+    window**, so it applies
     `.interfaceScaled(settings)` and `.preferredColorScheme` itself like
     `DiffWindowContent`, with the diff panes staying on `settings.fontSize` (the
-    code zone). The selection is cleared on a retarget, because a stale file name
-    left selected would highlight nothing while the Restore button still read as
-    armed. Thin and untested like the rest of `Sources/Pisaka`: every decision is
-    Core's.
+    code zone). It holds **no selection state of its own** — the `List` binds
+    straight to the model's `selected` — which is what keeps a retarget from
+    cancelling its own listing; see the browser model's entry. Thin and untested
+    like the rest of `Sources/Pisaka`: every decision is Core's.
 
 ### The wiring in `PisakaApp` and `AutosaveController`
 
@@ -560,7 +594,9 @@ anyway, and the worst case of that is one snapshot written twice.
     order equal to chronological order across millisecond, second and day
     boundaries; every malformed-name shape parsing to `nil`; two roots and two
     relative paths giving different directories while one input gives the same
-    directory twice; `contains` accepting everything the layout produces.
+    directory twice; `contains` accepting everything the layout produces; the
+    readable project-name prefix bounded in **bytes** rather than characters (an
+    emoji and a ZWJ-sequence root name).
   - `LocalHistoryPolicyTests` — each skip reason in isolation and every
     precedence pair between them; exactly 1 MiB captured and one byte more
     refused, counted in UTF-8 bytes (a multi-byte case included); the retention
@@ -572,7 +608,8 @@ anyway, and the worst case of that is one snapshot written twice.
     an injected failure leaving no partial file and throwing nothing; capture
     pruning the same file's excess; `prune(root:)` bounding a whole project area;
     a never-captured file listing `[]`; a foreign file ignored by listing and left
-    alone by pruning.
+    alone by pruning; the sweep reclaiming an interrupted write nothing else can
+    see, and removing a directory that holds nothing but such debris.
   - `LocalHistoryModelTests` — `captureBeforeOperation` returning only once every
     byte is stored (a causal wait through `Gate`, never a delay); a file with both
     a buffer and a disk target captured once, from the buffer; a binary target
@@ -580,11 +617,18 @@ anyway, and the worst case of that is one snapshot written twice.
     overlapping saves of one file producing one revision for identical text and
     two ordered ones for different text; the synchronous capture having stored
     everything by the time it returns and dedup'ing against an earlier one; urls
-    outside the root skipped; the project sweep bounding the area.
+    outside the root skipped; the project sweep bounding the area; an oversize
+    disk target never read into memory; a url that reaches the root through `..`
+    refused rather than keyed by its bare name (the re-join guard); and a capture
+    with nothing to store returning while the sweep is demonstrably mid-read —
+    asserted with a deadline, so joining the chain fails instead of hanging.
   - `LocalHistoryBrowserModelTests` — a stale listing unable to publish over a
     newer one (two loads staged with `Gate`, the older released last); a stale
-    content load discarded even when it finishes last; retargeting clearing the
-    rows; a file with no history landing `isEmpty` rather than an error; the diff
+    content load discarded even when it finishes last (the signal waited on is a
+    *later* load landing, never a count of hops); retargeting clearing the
+    rows; a file with no history landing `isEmpty` rather than an error; a file
+    outside the root targeted but unkeyed (`isUnsupportedTarget`); clearing an
+    already-clear selection unable to cancel the listing in flight; the diff
     rows for a selection; the restore plan carrying both texts, and `nil` for no
     selection and for an identical revision.
   - `LocalHistorySourceGatingTests` — the app layer's architectural rules, matched
@@ -593,7 +637,10 @@ anyway, and the worst case of that is one snapshot written twice.
     one place; **`captureBeforeOperation` named exactly six times against
     `autosave.suspend()` and `localChanges.beginRevert()` also six times each** —
     count equality over the bracket, so a seventh gated operation cannot be added
-    without a capture; the save capture at exactly the three save sites; `onSaved?(`
+    without a capture — **and the two sets asserted to alternate by source offset**,
+    gate then capture, because counts alone stay green on exactly the arrangement
+    the rule exists to refuse: two captures inside one bracket and none inside
+    another; the save capture at exactly the three save sites; `onSaved?(`
     invoked at exactly three places in `AutosaveController.swift`, so no write path
     can go unreported again; the quit branch still skipping the probe; the restore
     routed through `SaveTransformController` with no second file naming
@@ -628,11 +675,24 @@ anyway, and the worst case of that is one snapshot written twice.
   project-relative path). Opening one project under two spellings of its path
   (`/tmp/x` and `/private/tmp/x`) gives two separate histories rather than a wrong
   one.
-- **A restore of a file with no open tab costs that fresh tab its undo stack.**
-  The restore opens a tab and SwiftUI has not built its editor yet, so
-  `applyRestore` takes the through-the-model path; the ⌘Z guarantee holds for the
-  ordinary case, where the file is already open.
-- **Two revisions of one file inside the same millisecond order by content hash**
-  rather than chronologically, because a millisecond is all the file name
-  preserves. It costs a row's position, never a revision.
+- **The ⌘Z guarantee holds for the tab that is *showing*, not for any open tab.**
+  `applyRestore` takes the through-the-view path only when the editor's
+  `displayedFileID` already equals the target, so restoring into a file with no
+  tab (one is opened) *or* into an open background tab (it is selected, but
+  SwiftUI has not moved the editor yet in that same turn) falls through to
+  `WorkspaceModel.replaceText(_:for:)`, which costs that tab its undo stack and
+  its remembered viewport. The common path — ⌘⇧H on the tab you are looking at —
+  is the through-the-view one.
+- **A file the operation deleted cannot be restored from its own labelled
+  snapshot.** A restore is a buffer edit, and `restoreFromLocalHistory` opens the
+  file first; a revert of an untracked file, or a branch switch that removes one,
+  deletes it and force-closes its tab, so the `Before Revert` / `Before Branch
+  Change` revision taken for exactly that case is still *listed* (the window can
+  outlive the file) but Restore beeps rather than recreating it. Recovering it
+  means creating the file again and restoring into it.
+- **Two revisions of one file inside the same millisecond order by file name** —
+  event tag first, content hash second — rather than chronologically, because a
+  millisecond is all the name preserves. The order is deterministic and stable
+  (a listing that reshuffled would make the window's selection jump); what it
+  costs is a row's position, never a revision.
 - **macOS only.** There is no iOS window, no iOS capture and no iOS store.
