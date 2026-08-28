@@ -1,0 +1,202 @@
+import Foundation
+
+/// The disk half of Local History: the one type that lists, reads, writes and
+/// prunes snapshots, expressed entirely in terms of `FileServicing`,
+/// `LocalHistoryLayout` (where things go) and `LocalHistoryPolicy` (whether they
+/// go there at all).
+///
+/// **A value type with synchronous, `nonisolated` methods**, the
+/// `SymbolIndexModel` shape: nothing here hops, so *the caller owns the hop*.
+/// The capture model runs these on a private queue for every ordinary capture,
+/// and the quit path — where a `Task` is not guaranteed to run before the
+/// process exits — calls the very same methods inline on the main actor. A store
+/// that owned an actor of its own could not offer that second guarantee, and a
+/// store that were `async` would make the quit-time write impossible to state.
+///
+/// **Every failure is silent.** Local History runs behind ordinary work: a
+/// listing that cannot be read is an empty history, a write that cannot land
+/// loses one revision, a delete that fails leaves one file to be reclaimed by
+/// the next prune. Nothing here throws and nothing reports, because there is no
+/// answer a user could give — the `LeetCodeCatalog` degrading-write rule, for
+/// the same reason.
+///
+/// **A snapshot appears in one `move`.** Bytes are written under a
+/// non-parsing temporary name and renamed into place, so a listing never sees a
+/// half-written revision: an interrupted capture leaves a `.partial` file that
+/// listing ignores, retention ignores, and the next capture of that same
+/// revision overwrites. This is `LSPInstallEngine`'s atomicity rule at the scale
+/// of one file.
+///
+/// **A writer only of its own directory.** Every path this deletes is asserted
+/// to be inside `layout.base` first; nothing here touches the user's files, so
+/// it takes no `autosave.suspend()` / `localChanges.beginRevert()` gate and is
+/// not gated by one.
+public struct LocalHistoryStore {
+    public let layout: LocalHistoryLayout
+    public let policy: LocalHistoryPolicy
+    private let fileService: FileServicing
+
+    public init(
+        layout: LocalHistoryLayout,
+        fileService: FileServicing,
+        policy: LocalHistoryPolicy = LocalHistoryPolicy()
+    ) {
+        self.layout = layout
+        self.fileService = fileService
+        self.policy = policy
+    }
+
+    /// What a half-written snapshot is called while it is being written. It ends
+    /// in something other than `LocalHistoryLayout.snapshotExtension`, which is
+    /// the whole mechanism: `snapshot(fromFileName:)` refuses it, so listing and
+    /// retention both look straight through it.
+    ///
+    /// Derived from the destination name rather than randomised so that a second
+    /// attempt at the *same* revision reuses (and overwrites) the same temporary
+    /// rather than accumulating debris — and so a test can name the file it wants
+    /// to fail.
+    static let temporarySuffix = ".partial"
+
+    // MARK: - Reading
+
+    /// One file's stored revisions, newest first.
+    ///
+    /// **One directory read and no content reads** — the property the whole
+    /// layout exists to buy. A missing directory (the overwhelmingly common case:
+    /// most files in a project have no history) is an empty list, never an error,
+    /// and so is an unreadable one.
+    ///
+    /// Entries are recognised by *name*: anything that does not parse — a foreign
+    /// file, a `.partial` from an interrupted write, a tag some future version
+    /// invents — is ignored and left where it is. The URLs the listing hands back
+    /// are deliberately not used to read anything: `FileManager` resolves the
+    /// parent's symlinks in them (`StubFileTree.listingSpelling` stages exactly
+    /// that), so every read here re-derives its URL from the layout.
+    public nonisolated func revisions(root: URL, relativePath: String) -> [LocalHistorySnapshot] {
+        let directory = layout.fileDirectory(forRoot: root, relativePath: relativePath)
+        return LocalHistorySnapshot.sortedNewestFirst(snapshots(in: directory))
+    }
+
+    /// One revision's text, or `nil` when it is no longer there.
+    ///
+    /// `nil` rather than a throw for the same reason as everywhere else here, and
+    /// it is genuinely reachable: retention can delete a revision between the
+    /// listing the window is showing and the row the user clicks.
+    public nonisolated func content(
+        of snapshot: LocalHistorySnapshot,
+        root: URL,
+        relativePath: String
+    ) -> String? {
+        let directory = layout.fileDirectory(forRoot: root, relativePath: relativePath)
+        return try? fileService.read(url: directory.appendingPathComponent(snapshot.fileName))
+    }
+
+    // MARK: - Capturing
+
+    /// Store `text` as the next revision of `relativePath`, unless the policy says
+    /// otherwise; the stored snapshot, or `nil` when nothing was written.
+    ///
+    /// The sequence is fixed: **list, ask, write, rename, prune.** The listing is
+    /// what supplies the newest revision's hash, so dedup — by far the most common
+    /// outcome on an aggressive autosave — costs one directory read and no content
+    /// read at all. `now` is passed in rather than read so the whole engine stays a
+    /// function of its inputs.
+    ///
+    /// Pruning runs here, on the one file just captured, because that is the file
+    /// whose revision count just changed; the project-wide sweep
+    /// (`prune(root:now:)`) is for everything else. It prunes the list it already
+    /// has in hand rather than re-reading the directory it just wrote to.
+    @discardableResult
+    public nonisolated func capture(
+        text: String,
+        root: URL,
+        relativePath: String,
+        event: LocalHistoryEvent,
+        now: Date = Date()
+    ) -> LocalHistorySnapshot? {
+        let directory = layout.fileDirectory(forRoot: root, relativePath: relativePath)
+        let existing = LocalHistorySnapshot.sortedNewestFirst(snapshots(in: directory))
+        let decision = policy.capture(of: text, relativePath: relativePath, latestHash: existing.first?.contentHash)
+        guard let hash = decision.hash else { return nil }
+
+        let fileName = LocalHistoryLayout.snapshotFileName(timestamp: now, event: event, contentHash: hash)
+        // Parsed back rather than assembled, so what this returns is exactly what
+        // a listing of the directory will report — including the millisecond the
+        // name rounded the timestamp to — and a name this version could not read
+        // back is never written in the first place.
+        guard let snapshot = LocalHistoryLayout.snapshot(fromFileName: fileName) else { return nil }
+
+        let temporary = directory.appendingPathComponent(fileName + Self.temporarySuffix)
+        do {
+            try fileService.ensureDirectory(at: directory)
+            try fileService.write(text, to: temporary)
+            try fileService.move(from: temporary, to: directory.appendingPathComponent(fileName))
+        } catch {
+            // Whatever the failure was, the revision is lost and nothing else is:
+            // the temporary is removed if it got as far as existing, and the
+            // caller is told `nil` rather than interrupted.
+            discard(temporary)
+            return nil
+        }
+
+        delete(policy.prune(existing + [snapshot], now: now).delete, in: directory)
+        return snapshot
+    }
+
+    // MARK: - Retention
+
+    /// Apply retention to every file directory in one project's area — the
+    /// once-per-project-open sweep.
+    ///
+    /// Capture prunes the file it just wrote; this is what reclaims everything
+    /// *else*, including the history of files that have not been touched since
+    /// their revisions aged out. A file directory left with no entries at all is
+    /// removed, so a project that stops being edited does not leave a fan of empty
+    /// directories behind — a directory still holding something foreign is left
+    /// exactly as it is, because this feature deletes only what it wrote.
+    public nonisolated func prune(root: URL, now: Date = Date()) {
+        let project = layout.projectDirectory(forRoot: root)
+        guard let entries = try? fileService.contentsOfDirectory(at: project) else { return }
+        for entry in entries where entry.isDirectory {
+            // Re-derived from the layout, never taken from the listing: see
+            // `revisions(root:relativePath:)`.
+            prune(directory: project.appendingPathComponent(entry.name, isDirectory: true), now: now)
+        }
+    }
+
+    // MARK: - Private
+
+    private nonisolated func prune(directory: URL, now: Date) {
+        guard let entries = try? fileService.contentsOfDirectory(at: directory) else { return }
+        if entries.isEmpty {
+            discard(directory)
+            return
+        }
+        let stored = entries.compactMap { entry -> LocalHistorySnapshot? in
+            entry.isDirectory ? nil : LocalHistoryLayout.snapshot(fromFileName: entry.name)
+        }
+        delete(policy.prune(stored, now: now).delete, in: directory)
+    }
+
+    private nonisolated func snapshots(in directory: URL) -> [LocalHistorySnapshot] {
+        guard let entries = try? fileService.contentsOfDirectory(at: directory) else { return [] }
+        return entries.compactMap { entry -> LocalHistorySnapshot? in
+            entry.isDirectory ? nil : LocalHistoryLayout.snapshot(fromFileName: entry.name)
+        }
+    }
+
+    private nonisolated func delete(_ snapshots: [LocalHistorySnapshot], in directory: URL) {
+        for snapshot in snapshots {
+            discard(directory.appendingPathComponent(snapshot.fileName))
+        }
+    }
+
+    /// Remove one path, if it is one of ours. The containment check is the same
+    /// assertion `LSPInstallEngine` makes before every delete: a layout bug or a
+    /// caller passing a url from somewhere else must not turn into `rm` on a
+    /// user's file.
+    private nonisolated func discard(_ url: URL) {
+        guard layout.contains(url) else { return }
+        try? fileService.removeItem(at: url)
+    }
+}

@@ -282,30 +282,30 @@ context menu in the project tree.
 - Create: `Sources/PisakaCore/LocalHistoryStore.swift`
 - Create: `Tests/PisakaCoreTests/LocalHistoryStoreTests.swift`
 
-- [ ] `LocalHistoryStore`: a value type over `FileServicing` + `LocalHistoryLayout` +
+- [x] `LocalHistoryStore`: a value type over `FileServicing` + `LocalHistoryLayout` +
       `LocalHistoryPolicy`, all methods **synchronous** and `nonisolated` (the
       `SymbolIndexModel` shape — the caller owns the hop, which is what lets the quit
       path call them inline)
-- [ ] `revisions(root:relativePath:) -> [LocalHistorySnapshot]` — one directory read,
+- [x] `revisions(root:relativePath:) -> [LocalHistorySnapshot]` — one directory read,
       names parsed, unparseable entries ignored, newest first; a missing directory is
       an empty list, never an error
-- [ ] `content(of:root:relativePath:) -> String?` — read one snapshot
-- [ ] `capture(text:root:relativePath:event:now:) -> LocalHistorySnapshot?` — asks the
+- [x] `content(of:root:relativePath:) -> String?` — read one snapshot
+- [x] `capture(text:root:relativePath:event:now:) -> LocalHistorySnapshot?` — asks the
       policy against the newest revision's hash, writes through a temporary name and
       one `move` (the `LSPInstallEngine` atomicity rule: a half-written snapshot never
       appears in a listing), then prunes that file's directory
-- [ ] `prune(root:now:)` — walk the project area's file directories and apply
+- [x] `prune(root:now:)` — walk the project area's file directories and apply
       retention; remove a file directory left empty
-- [ ] every write path degrades: a failing `ensureDirectory`/`write`/`move`/`removeItem`
+- [x] every write path degrades: a failing `ensureDirectory`/`write`/`move`/`removeItem`
       loses the snapshot and nothing else (the `LeetCodeCatalog` degrading-write rule)
-- [ ] tests against `StubFileTree`: capture then list round-trip; a second identical
+- [x] tests against `StubFileTree`: capture then list round-trip; a second identical
       capture writes nothing (assert `writtenPaths`); a changed capture writes one file;
       capture writes through a temporary name and exactly one `move`; an injected write
       failure leaves no partial file and throws nothing; capture prunes the same file's
       excess revisions; `prune(root:)` bounds a whole project area and leaves the newest
       of each file; listing a never-captured file is `[]`; a foreign file in a snapshot
       directory is ignored by listing and left alone by pruning
-- [ ] run `swift test` — must pass before Task 4
+- [x] run `swift test` — must pass before Task 4
 
 ### Task 4: The capture model (Core)
 
