@@ -476,29 +476,29 @@ The inventory, criterion by criterion (116 tests across the seven suites):
 
 ### Task 9: Update documentation
 
-- [ ] Create `docs/architecture/core-local-history.md` with a full entry per new Core
+- [x] Create `docs/architecture/core-local-history.md` with a full entry per new Core
       file and per new app file (both halves in one doc, the `core-leetcode.md` shape),
       including the store diagram, the retention numbers, the awaited pre-operation
       capture and why it is race-free across all six sites, the extended `onSaved`
       contract and how the quit-time write is guaranteed to land, the restore routing,
       and the stated limits
-- [ ] `CLAUDE.md`: one index block for the six Core files and the three app files, plus
+- [x] `CLAUDE.md`: one index block for the six Core files and the three app files, plus
       one short cross-cutting bullet — Local History is a reader with its own store
       outside the project, never takes the writer gate, is never gated by it, its restore
       is a buffer edit rather than a disk write, and the quit flush is the one place it
       writes on the main thread
-- [ ] `docs/architecture/app-shell.md`: update the `AutosaveController` entry for the
+- [x] `docs/architecture/app-shell.md`: update the `AutosaveController` entry for the
       widened `onSaved` (three parameters, invoked on every write path including quit;
       the probe and the Local Changes refresh remain quit-exempt)
-- [ ] `docs/FEATURES.md`: a Local History feature entry with the retention defaults and
+- [x] `docs/FEATURES.md`: a Local History feature entry with the retention defaults and
       the shortcut, and its limits in "Known limitations" — edits made by other
       applications are not captured (nothing outside the app's own save funnel and
       worktree operations is seen), the store holds copies of file contents on the local
       disk under `~/Library/Application Support/Pisaka/LocalHistory`, deleting that
       directory removes the feature's data completely, and the 200-file per-operation
       read ceiling
-- [ ] `README.md`: one line in the feature list plus the ⌘⇧H shortcut
-- [ ] `docs/architecture/core-editorconfig.md`: update the `SaveTransformController`
+- [x] `README.md`: one line in the feature list plus the ⌘⇧H shortcut
+- [x] `docs/architecture/core-editorconfig.md`: update the `SaveTransformController`
       entry for its second caller
 
 ## Post-Completion (manual, by the user)

@@ -823,6 +823,33 @@ Thin by convention: the views wire keys to the rules and decide nothing.
     background tab would make it dirty and put a file nobody edited into the next
     commit. Nothing else calls it: not open, not close, not a tab switch on its
     own, not an `.editorconfig` change, and not the worktree writers.
+    **A save is no longer this class's only caller**, though it is still its only
+    *transform*: `applyRestore(_:to:)` is Local History's restore
+    (`core-local-history.md`), and it lives here rather than in the history window
+    because copying that AppKit bracket into a second file is how the two would
+    drift. It builds a single whole-buffer `SaveTransformPlan` by hand (`init` is
+    public) and runs it through the very same private bracket, so a restored
+    revision is one undoable step with one change notification, exactly as a save
+    transform is — and it gets the position remap for free, which for a
+    whole-buffer replacement clamps the caret, every selection endpoint and the
+    scroll anchor into the new text instead of leaving an offset past its end. It
+    is **not a save**: it computes no plan from an `.editorconfig`, reads no
+    properties, writes no disk and leaves the tab dirty for the ordinary save
+    funnel to settle. Two consequences follow from that. `owedTrims` is
+    deliberately left alone — what a save owes is recomputed by the next save from
+    the buffer as it then stands, and this is not one. And the through-the-model
+    fallback is the *usual* path here rather than the exception, because restoring
+    a file with no open tab opens one first and SwiftUI has not yet built its
+    editor when this runs; it costs that fresh tab an undo stack it never had, and
+    reports through `onBufferReplaced` like every other off-screen rewrite (a
+    restore always has a url, since the store is keyed by one). A restore whose
+    text the buffer already holds does nothing: `LocalHistoryBrowserModel
+    .restore(currentText:)` refuses that case before it becomes a plan, and it is
+    re-checked here because this method is reachable with any text and rewriting a
+    buffer with itself would dirty a clean tab for no change — compared as
+    `NSString` for `prepare`'s reason, since canonical equivalence would call a
+    decomposed and a precomposed spelling equal and skip a restore that does change
+    bytes.
   - **iOS.** `PisakaApp_iOS` builds the model over the *scoped*
     `SecurityScopedFileService`, so its reads run under the opened folder's
     security-scope grant, and hands it to `RootView_iOS` (a plain `let` — it

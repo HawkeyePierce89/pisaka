@@ -1381,8 +1381,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `applicationWillTerminate` without deactivating), so focus-loss alone would
     lose the last idle-debounce window of edits; the notification arrives on the
     main thread as the run loop ends, so a direct synchronous `saveAllDirty()` is
-    the only thing guaranteed to complete before the process exits (it skips
-    `onSaved` — the app is quitting). Suspend gating uses *two* re-entrant counters
+    the only thing guaranteed to complete before the process exits (it *reports*
+    its saves like every other write path, with `isTerminating: true` — what the
+    quit path skips is the probe and, at the caller, the Local Changes refresh and
+    the tree bump). Suspend gating uses *two* re-entrant counters
     (not booleans, so overlapping/nested suspensions each balance their own pair).
     `suspendCount` (`suspend()`/`resume()`) is raised only by an in-flight git
     revert and gates *both* `performAutosave` and `flushNow` — a quit landing
@@ -1400,7 +1402,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     counters return to zero. `performAutosave` calls `onSaved` only when `saveAllDirty()` returned a
     non-empty list, and beeps at most once (non-modal, latched via
     `didBeepForFailure`) if a dirty titled file remained after a write failure.
-    `onSaved` is `(_ saved: [URL], _ createdFile: Bool) -> Void`: before the write
+    `onSaved` is
+    `(_ saved: [URL], _ createdFile: Bool, _ isTerminating: Bool) -> Void`, and it
+    is invoked on **every** write path — the three of them: `performAutosave`, the
+    reporting branch of `flushNow` and the quit branch. Before the write
     `performAutosave`
     collects the dirty *titled* buffers whose file is missing on disk
     (`missingDirtyPaths(in:)` — only dirty titled buffers are probed, so a
@@ -1411,17 +1416,30 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `IgnoreSelf`: the `.editorconfig` cache has no watcher behind it either, so
     `PisakaApp.noteEditorConfigWrites(_:)` needs to be told which files this tick
     wrote or an autosaved `.editorconfig` would go unnoticed
-    (`core-editorconfig.md`).
-    `flushNow(reportingSaves:)` skips both the callback and the probe **by
-    default**, which is right for its original caller and wrong for its second one:
-    on the quit path there is no tree left to bump and no panel left to refresh,
-    but `openCommitDialog` flushes *mid-session* (the dialog reads disk, so every
-    dirty buffer has to reach it first) and there it writes files exactly as
-    `performAutosave` does — so it passes `reportingSaves: true` and the side
-    effects become mandatory rather than pointless. Without them the Local Changes
-    panel kept describing the pre-flush disk state (visibly wrong the moment the
-    user cancels the dialog) and a buffer whose file had been deleted out of band
-    was put back on disk with no `treeRevision` bump to reveal it. `flushNow` is **internal, not
+    (`core-editorconfig.md`). The third argument, `isTerminating`, says the report
+    comes from the **quit** flush, where the caller's usual follow-up work is
+    pointless — there is no Local Changes panel left to refresh and no tree left to
+    bump, and `createdFile` is always `false` there because the probe that would
+    answer it is skipped. It exists because a *report* on that path is **not**
+    pointless: Local History's last chance to snapshot the edit a user is quitting
+    on is exactly the edit a safety net is for (`core-local-history.md`), and it is
+    one callback invoked on every write path with a flag saying which, rather than
+    a second hook the next write path could again forget.
+    `flushNow(reportingSaves:)` skips the probe **by default**, which is right for
+    its original caller and wrong for its second one: on the quit path there is no
+    tree left to bump and no panel left to refresh, but `openCommitDialog` flushes
+    *mid-session* (the dialog reads disk, so every dirty buffer has to reach it
+    first) and there it writes files exactly as `performAutosave` does — so it
+    passes `reportingSaves: true` and the side effects become mandatory rather than
+    pointless. Without them the Local Changes panel kept describing the pre-flush
+    disk state (visibly wrong the moment the user cancels the dialog) and a buffer
+    whose file had been deleted out of band was put back on disk with no
+    `treeRevision` bump to reveal it. What it no longer skips on either branch is
+    the **callback**: it did until Local History gave the quit path a listener, and
+    a flush that wrote bytes and told nobody is how a write path silently loses its
+    safety net — so every branch reports, and
+    `LocalHistorySourceGatingTests.testEveryAutosaveWritePathReportsItsSaves` pins
+    the count at three. `flushNow` is **internal, not
     private**: `PisakaApp` calls it directly on `willTerminateNotification`, ahead
     of `SessionController.flushNow()`, so the two flushes are ordered from one
     visible place (see there). No behavior change — the controller keeps its own
