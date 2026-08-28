@@ -377,35 +377,35 @@ context menu in the project tree.
 - Modify: `Sources/Pisaka/PisakaApp.swift`
 - Create: `Tests/PisakaCoreTests/LocalHistorySourceGatingTests.swift`
 
-- [ ] `LocalHistorySupportDirectory` (`#if os(macOS)`):
+- [x] `LocalHistorySupportDirectory` (`#if os(macOS)`):
       `…/Application Support/Pisaka/LocalHistory`, beside `LanguageServers/` and
       `LeetCode/`, the `LeetCodeSupportDirectory` shape
-- [ ] `PisakaApp`: hold `LocalHistoryModel`; prune the project area when the project root
+- [x] `PisakaApp`: hold `LocalHistoryModel`; prune the project area when the project root
       changes and at launch
-- [ ] `AutosaveController`: **extend the existing** `onSaved` to
+- [x] `AutosaveController`: **extend the existing** `onSaved` to
       `(_ saved: [URL], _ createdFile: Bool, _ isTerminating: Bool) -> Void`; keep the
       two current call sites (`performAutosave`, the reporting branch of `flushNow`)
       passing `isTerminating: false`, and add the invocation to the non-reporting branch
       of `flushNow` with `isTerminating: true` and `createdFile: false`, without running
       `missingDirtyPaths` there
-- [ ] `AutosaveController` doc comments: rewrite the `willTerminateNotification` comment
+- [x] `AutosaveController` doc comments: rewrite the `willTerminateNotification` comment
       (~line 157) and the `reportingSaves` paragraph (~line 305), which today say the
       quit flush skips `onSaved` — what it skips now is the probe and the Local Changes
       refresh, not the report
-- [ ] `PisakaApp`'s `onSaved` binding (~line 904): run the Local Changes refresh and tree
+- [x] `PisakaApp`'s `onSaved` binding (~line 904): run the Local Changes refresh and tree
       bump only when `!isTerminating` (today's exact behavior); call
       `localHistory.captureSavesSynchronously(…)` when `isTerminating` and
       `localHistory.captureSaves(…)` otherwise, reading each saved url's post-transform
       text out of `model.openFiles`
-- [ ] save captures at the two direct sites: `save(id:)` (2509) and `saveAs(id:)` (2564),
+- [x] save captures at the two direct sites: `save(id:)` (2509) and `saveAs(id:)` (2564),
       after a successful write
-- [ ] the **six** gated operations each `await localHistory.captureBeforeOperation(…)` as
+- [x] the **six** gated operations each `await localHistory.captureBeforeOperation(…)` as
       the first `await` inside their task body, with inputs collected in the synchronous
       stretch after the writer bracket, and the target sets from the table above:
       `commitFromDialog`, `replaceAllInProject`, `revertChanges`, `createBranch`,
       `runBranchOperation`, `applyMerge`; each call site gets a comment naming what it is
       pre-empting
-- [ ] `LocalHistorySourceGatingTests`, part one: every new app file is inside
+- [x] `LocalHistorySourceGatingTests`, part one: every new app file is inside
       `#if os(macOS)`; `captureBeforeOperation` is named in `PisakaApp.swift` exactly
       **six** times, once per bracket site; `autosave.suspend()` and
       `localChanges.beginRevert()` still appear exactly six times each, so a new
@@ -414,7 +414,7 @@ context menu in the project tree.
       invoked at exactly three places in `AutosaveController.swift`, so no write path can
       go unreported again; and Local History never names
       `autosave.suspend`/`beginRevert` (it does not take the writer gate)
-- [ ] run `swift test` — must pass before Task 7
+- [x] run `swift test` — must pass before Task 7
 
 ### Task 7: The history window and restore (macOS app)
 
