@@ -23,8 +23,8 @@ import Foundation
 /// **A snapshot appears in one `move`.** Bytes are written under a
 /// non-parsing temporary name and renamed into place, so a listing never sees a
 /// half-written revision: an interrupted capture leaves a `.partial` file that
-/// listing ignores and retention ignores, and that the project sweep
-/// (`prune(root:now:)`) reclaims — nothing else can, precisely because
+/// listing ignores and retention ignores, and that the sweep
+/// (`pruneAll(now:)`) reclaims — nothing else can, precisely because
 /// everything else looks through it. This is `LSPInstallEngine`'s atomicity rule
 /// at the scale of one file.
 ///
@@ -104,8 +104,8 @@ public struct LocalHistoryStore {
     /// function of its inputs.
     ///
     /// Pruning runs here, on the one file just captured, because that is the file
-    /// whose revision count just changed; the project-wide sweep
-    /// (`prune(root:now:)`) is for everything else. It prunes the list it already
+    /// whose revision count just changed; the store-wide sweep
+    /// (`pruneAll(now:)`) is for everything else. It prunes the list it already
     /// has in hand rather than re-reading the directory it just wrote to.
     @discardableResult
     public nonisolated func capture(
@@ -146,26 +146,66 @@ public struct LocalHistoryStore {
 
     // MARK: - Retention
 
-    /// Apply retention to every file directory in one project's area — the
-    /// once-per-project-open sweep.
+    /// Apply retention to **every** project area in the store — the
+    /// once-per-folder-open sweep.
     ///
     /// Capture prunes the file it just wrote; this is what reclaims everything
     /// *else*, including the history of files that have not been touched since
-    /// their revisions aged out. A file directory left with no entries at all is
-    /// removed, so a project that stops being edited does not leave a fan of empty
-    /// directories behind — a directory still holding something foreign is left
-    /// exactly as it is, because this feature deletes only what it wrote.
+    /// their revisions aged out.
+    ///
+    /// **Store-wide rather than per-project, and that is load-bearing.** Retention
+    /// is stated to the user without a condition — anything a captured file
+    /// contained, including a secret removed afterwards, "is in there until
+    /// retention reclaims it" — and a sweep keyed to whichever root is being
+    /// opened cannot keep that promise: the history of a project cloned, edited
+    /// once and never opened again would be reclaimed by nothing at all and would
+    /// sit in the store for the life of the machine, which is both the unbounded
+    /// growth and the privacy claim broken at once. The store is one directory
+    /// outside every project, so its housekeeping is asked of the directory, not
+    /// of a root that happens to be in hand.
+    ///
+    /// The cost is one directory read per project area on top of the per-file
+    /// reads the sweep already did, on the capture chain's queue, once per open.
+    public nonisolated func pruneAll(now: Date = Date()) {
+        guard let entries = try? fileService.contentsOfDirectory(at: layout.base) else { return }
+        for entry in entries where entry.isDirectory {
+            prune(project: layout.base.appendingPathComponent(entry.name, isDirectory: true), now: now)
+        }
+    }
+
+    /// Apply retention to one project's area alone. The unit `pruneAll(now:)` is
+    /// made of, kept public because it is the smallest thing this rule can be
+    /// stated and tested against.
     public nonisolated func prune(root: URL, now: Date = Date()) {
-        let project = layout.projectDirectory(forRoot: root)
+        prune(project: layout.projectDirectory(forRoot: root), now: now)
+    }
+
+    // MARK: - Private
+
+    /// One project area: retention over each file directory, then the area itself
+    /// if nothing is left in it.
+    ///
+    /// A file directory left with no entries at all is removed, so a project that
+    /// stops being edited does not leave a fan of empty directories behind, and
+    /// an area left with no file directories goes the same way — a project whose
+    /// history has entirely aged out leaves nothing, which is what "retention
+    /// reclaims it" has to mean for a store the user is invited to inspect in
+    /// Finder. A directory still holding something foreign is left exactly as it
+    /// is, because this feature deletes only what it wrote.
+    private nonisolated func prune(project: URL, now: Date) {
         guard let entries = try? fileService.contentsOfDirectory(at: project) else { return }
         for entry in entries where entry.isDirectory {
             // Re-derived from the layout, never taken from the listing: see
             // `revisions(root:relativePath:)`.
             prune(directory: project.appendingPathComponent(entry.name, isDirectory: true), now: now)
         }
+        // Re-listed rather than reasoned about: what the loop above removed is the
+        // subset of `entries` that pruned empty, and re-deriving that here would be
+        // a second copy of the emptiness rule.
+        if let remaining = try? fileService.contentsOfDirectory(at: project), remaining.isEmpty {
+            discard(project)
+        }
     }
-
-    // MARK: - Private
 
     private nonisolated func prune(directory: URL, now: Date) {
         guard let entries = try? fileService.contentsOfDirectory(at: directory) else { return }

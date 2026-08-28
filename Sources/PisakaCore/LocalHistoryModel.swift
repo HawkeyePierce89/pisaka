@@ -168,7 +168,7 @@ public final class LocalHistoryModel {
     ///   read pass between the click and the operation. Buffers are never capped.
     ///
     /// **Nothing to capture returns without touching the chain.** The wait is on
-    /// everything already queued — including the project-open retention sweep —
+    /// everything already queued — including the folder-open retention sweep —
     /// and paying it to store zero bytes would put this feature's housekeeping in
     /// front of an operation the user asked for, with the writer bracket already
     /// raised.
@@ -215,16 +215,20 @@ public final class LocalHistoryModel {
 
     // MARK: - Retention
 
-    /// Apply retention to a whole project's area — the once-per-project-open
-    /// sweep, fire-and-forget on the chain.
+    /// Apply retention to the whole store — the once-per-folder-open sweep,
+    /// fire-and-forget on the chain.
     ///
     /// Capture already prunes the one file it just wrote; this is what reclaims
-    /// the history of files nobody has touched since their revisions aged out.
-    public func pruneProject(root: URL?) {
-        guard let root else { return }
+    /// the history of files nobody has touched since their revisions aged out —
+    /// **in every project area, not just the one being opened**, because a
+    /// project that is never opened again would otherwise be reclaimed by nothing
+    /// (`LocalHistoryStore.pruneAll(now:)` carries the reasoning). It therefore
+    /// takes no root: the store is one directory outside every project, and there
+    /// is no root this could be asked about that would make it do less.
+    public func pruneStore() {
         let store = self.store
         let clock = self.clock
-        append { store.prune(root: root, now: clock()) }
+        append { store.pruneAll(now: clock()) }
     }
 
     // MARK: - The chain

@@ -9,12 +9,17 @@ import Foundation
 /// travels as a value and the model itself writes nothing to the worktree ever.
 ///
 /// It carries *both* texts on purpose. `text` is what the buffer becomes, and
-/// `captureText` is what the buffer is right now — which the app hands straight
-/// back to `LocalHistoryModel.captureBuffers(event:urls:root:texts:)` under
-/// ``event`` before it replaces anything, so a restore is reversible from the
-/// history as well as by one ⌘Z. Pairing them in one value is what keeps the
-/// capture from being a step a caller can forget: there is no way to hold a
-/// restore plan and not hold the bytes it is about to displace.
+/// `captureText` is what the window was showing as "now" — which the app
+/// captures under ``event`` before it replaces anything, so a restore is
+/// reversible from the history as well as by one ⌘Z. Pairing them in one value
+/// is what keeps the capture from being a step a caller can forget: there is no
+/// way to hold a restore plan and not hold the bytes it is about to displace.
+///
+/// `captureText` is a *fallback*, not the authority: the app opens a tab first,
+/// and a buffer it had to open can hold more than the window could read (the
+/// window reads disk under a 1 MiB ceiling; `WorkspaceModel.open` has none), so
+/// the app snapshots what it is actually about to displace and falls back to
+/// this only when there is no buffer to ask. See `restoreFromLocalHistory`.
 public struct LocalHistoryRestore: Equatable {
     /// The file being restored, spelled the way the caller opened it.
     public let fileURL: URL
@@ -30,7 +35,8 @@ public struct LocalHistoryRestore: Equatable {
     /// confirmation or an undo label.
     public let snapshot: LocalHistorySnapshot
 
-    /// What the buffer holds now, to be captured under ``event`` first.
+    /// What the window was showing as "now" — the pre-restore capture's fallback
+    /// when the app has no buffer to read the displaced text off.
     public let captureText: String
 
     /// What the buffer becomes.

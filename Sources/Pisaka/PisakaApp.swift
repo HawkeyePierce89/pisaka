@@ -2049,22 +2049,24 @@ struct PisakaApp: App {
         let symbolRequest = symbolIndex.prepareForFolderChange(root: url)
         Task { await symbolIndex.rebuild(root: url, request: symbolRequest) }
 
-        // Apply Local History's retention to this project's whole area, once per
-        // open — which the launch-time session restore reaches through this same
+        // Apply Local History's retention to the whole store, once per open —
+        // which the launch-time session restore reaches through this same
         // function, so a relaunch prunes exactly as a user-driven open does.
         //
         // Capture already prunes the one file it just wrote; this is the only
         // thing that reclaims the history of files nobody has touched since their
         // revisions aged out, and without it a project abandoned for a month would
-        // keep every snapshot forever. Fire-and-forget on the model's own chain
-        // and off the main actor: nothing waits on retention, and a folder switch
-        // in the gap costs at most one sweep of a project the user has left, which
-        // is work that had to happen anyway.
+        // keep every snapshot forever. It sweeps *every* project area rather than
+        // this one, which is why it takes no root: a project reclaimed only when
+        // it is reopened is a project never reclaimed. Fire-and-forget on the
+        // model's own chain and off the main actor: nothing waits on retention,
+        // and a folder switch in the gap costs at most one sweep that had to
+        // happen anyway.
         //
         // No generation token, deliberately — unlike every collaborator above,
         // this publishes nothing and reads nothing anyone displays, so there is no
         // superseded state it could write over.
-        localHistory.pruneProject(root: url)
+        localHistory.pruneStore()
 
         // Register the switch with the LSP workspace in this same turn, for the same
         // reason and with the sharpest consequence of the three: a language server is
@@ -2499,9 +2501,16 @@ struct PisakaApp: App {
     ///    beeps and stops: there is nothing to restore *into*.
     /// 2. The capture, under `.restore`, of the text the replacement is about to
     ///    displace — so a restore is itself reversible from history as well as by
-    ///    one ⌘Z. It comes from the plan rather than being re-read here, because
-    ///    the plan's whole reason for carrying both texts is that there is no way
-    ///    to hold one and forget the other.
+    ///    one ⌘Z. It is read back off the buffer **after** the open, not taken
+    ///    from the plan: the plan's `captureText` is what the *window* was
+    ///    showing, which for a file with no tab is a `readTextIfNotBinary` read
+    ///    under a 1 MiB ceiling and therefore the empty string for a file that
+    ///    has since grown past it — while `model.open` has no ceiling and loads
+    ///    the whole thing. Storing the plan's answer would file an empty
+    ///    `Before Restore` revision for a buffer holding a megabyte of text, which
+    ///    is the one place in this feature a capture could *lose* what it exists
+    ///    to keep. `applyRestore` displaces `model.text(for:)`, so that is the
+    ///    text this snapshots.
     /// 3. The replacement, through `SaveTransformController` — the one place in
     ///    this app that rewrites a buffer through the live text view, so the
     ///    restore is a single undoable step with a single change notification and
@@ -2515,11 +2524,12 @@ struct PisakaApp: App {
             PlatformFeedback.warning()
             return
         }
+        let displaced = model.text(for: file.id) ?? plan.captureText
         localHistory.captureBuffers(
             event: LocalHistoryRestore.event,
             urls: [plan.fileURL],
             root: plan.root,
-            texts: [plan.fileURL: plan.captureText]
+            texts: [plan.fileURL: displaced]
         )
         saveTransform.applyRestore(plan.text, to: file.id)
     }

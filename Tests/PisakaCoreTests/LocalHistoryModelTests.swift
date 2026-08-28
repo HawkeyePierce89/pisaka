@@ -239,7 +239,7 @@ final class LocalHistoryModelTests: XCTestCase {
 
         let gate = Gate()
         tree.listingGate = gate
-        model.pruneProject(root: projectRoot)
+        model.pruneStore()
         await gate.waitUntilReached()
 
         // The sweep is demonstrably mid-read. A capture with no buffers and no
@@ -385,7 +385,7 @@ final class LocalHistoryModelTests: XCTestCase {
 
     // MARK: - Retention
 
-    func testPruningTheProjectBoundsEveryFileInTheArea() async {
+    func testPruningTheStoreBoundsEveryFileInTheArea() async {
         let tree = makeTree()
         let model = makeModel(tree, policy: LocalHistoryPolicy(revisionsPerFile: 2))
         let store = model.store
@@ -415,20 +415,107 @@ final class LocalHistoryModelTests: XCTestCase {
             fileService: tree,
             policy: LocalHistoryPolicy(revisionsPerFile: 1)
         )
-        stale.pruneProject(root: projectRoot)
+        stale.pruneStore()
         await drain(stale)
 
         XCTAssertEqual(contents(stale, "a.swift"), ["a4"])
         XCTAssertEqual(contents(stale, "nested/b.swift"), ["b4"])
     }
 
-    func testPruningWithNoProjectRootDoesNothing() async {
+    func testPruningAnEmptyStoreDoesNothing() async {
         let tree = makeTree()
         let model = makeModel(tree)
 
-        model.pruneProject(root: nil)
+        model.pruneStore()
         await drain(model)
 
         XCTAssertTrue(tree.removedPaths.isEmpty)
+    }
+
+    /// The sweep takes no root, and this is why: a project that is never opened
+    /// again is reclaimed by nothing else, so its history would outlive every
+    /// stated retention bound.
+    func testPruningTheStoreReclaimsAProjectThatIsNotTheOneBeingOpened() async {
+        let tree = makeTree()
+        let model = makeModel(tree, policy: LocalHistoryPolicy(revisionsPerFile: 1))
+        let store = model.store
+        let abandoned = URL(fileURLWithPath: "/abandoned")
+
+        for index in 1...3 {
+            store.capture(
+                text: "old\(index)",
+                root: abandoned,
+                relativePath: "a.swift",
+                event: .save,
+                now: Date(timeIntervalSince1970: Double(index))
+            )
+        }
+        // Captured through the store directly, so each capture's own per-file
+        // prune has already run; a second store with the tighter policy is what
+        // makes the sweep the only thing that can bound what is there.
+        let stale = LocalHistoryModel(
+            base: base,
+            fileService: tree,
+            policy: LocalHistoryPolicy(revisionsPerFile: 1)
+        )
+        XCTAssertEqual(
+            stale.store.revisions(root: abandoned, relativePath: "a.swift").count,
+            1
+        )
+
+        for index in 1...3 {
+            store.capture(
+                text: "new\(index)",
+                root: abandoned,
+                relativePath: "a.swift",
+                event: .save,
+                now: Date(timeIntervalSince1970: Double(10 + index))
+            )
+        }
+
+        // The folder being opened is a different project entirely.
+        model.pruneStore()
+        await drain(model)
+
+        XCTAssertEqual(
+            store.revisions(root: abandoned, relativePath: "a.swift").map(\.contentHash).count,
+            1,
+            "The abandoned project's area was swept even though nothing opened it."
+        )
+    }
+
+    /// A project area whose every revision aged out leaves nothing behind — the
+    /// store the user is invited to inspect in Finder does not accumulate empty
+    /// directories for projects that are gone.
+    func testPruningTheStoreRemovesAProjectAreaLeftEmpty() async {
+        let tree = makeTree()
+        let model = makeModel(tree)
+        let store = model.store
+        let abandoned = URL(fileURLWithPath: "/abandoned")
+
+        store.capture(
+            text: "gone",
+            root: abandoned,
+            relativePath: "a.swift",
+            event: .save,
+            now: Date(timeIntervalSince1970: 0)
+        )
+        // Everything in the area is a leftover from an interrupted write, so the
+        // file directory prunes to nothing and the area follows it.
+        let directory = store.layout.fileDirectory(forRoot: abandoned, relativePath: "a.swift")
+        let name = store.revisions(root: abandoned, relativePath: "a.swift")[0].fileName
+        try? tree.move(
+            from: directory.appendingPathComponent(name),
+            to: directory.appendingPathComponent(name + ".partial")
+        )
+
+        model.pruneStore()
+        await drain(model)
+
+        let project = store.layout.projectDirectory(forRoot: abandoned)
+        XCTAssertTrue(
+            tree.removedPaths.contains { $0.hasSuffix(project.lastPathComponent) },
+            "The project area itself was removed, not just the file directory inside it."
+        )
     }
 }

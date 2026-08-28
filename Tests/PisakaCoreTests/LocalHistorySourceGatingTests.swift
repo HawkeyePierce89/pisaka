@@ -189,13 +189,19 @@ final class LocalHistorySourceGatingTests: XCTestCase {
         )
     }
 
-    func testTheProjectSweepRunsOnFolderOpen() throws {
+    func testTheStoreSweepRunsOnFolderOpen() throws {
         let app = try code(ofFileNamed: "PisakaApp.swift", under: "Sources/Pisaka")
         XCTAssertEqual(
-            try occurrences(of: "pruneProject", in: app),
+            try occurrences(of: "pruneStore", in: app),
             1,
-            "Retention's whole-project sweep runs exactly once, from openFolder — which the launch-time session "
-                + "restore also goes through, so a relaunch prunes as a user-driven open does."
+            "Retention's sweep runs exactly once, from openFolder — which the launch-time session restore also "
+                + "goes through, so a relaunch prunes as a user-driven open does."
+        )
+        XCTAssertFalse(
+            LSPSourceGatingTests.containsToken("pruneProject", in: app),
+            "The sweep takes no root: a sweep keyed to the project being opened never reclaims the history of a "
+                + "project that is not opened again, which is both unbounded growth and the retention promise "
+                + "broken."
         )
     }
 

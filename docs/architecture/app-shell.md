@@ -94,11 +94,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     *synchronously* alongside the Local Changes / Log registrations (there is no
     "close folder" action, so this is the only call site); no refresh `Task` is
     spawned, since the window searches only when the user asks. The same method
-    is where `localHistory.pruneProject(root:)` fires — the once-per-open
-    retention sweep, deliberately fire-and-forget and deliberately holding **no**
-    generation token: it deletes only revisions that are already past retention,
-    so a sweep for the folder just closed is not a stale answer that could land
-    over a newer one, it is work that was owed anyway (`core-local-history.md`).
+    is where `localHistory.pruneStore()` fires — the once-per-open retention
+    sweep, which takes **no root** because it sweeps every project area in the
+    store (a project reclaimed only when it is reopened is a project never
+    reclaimed), and which is deliberately fire-and-forget and deliberately holds
+    **no** generation token: it deletes only revisions that are already past
+    retention, so a sweep landing after a folder switch is not a stale answer that
+    could land over a newer one, it is work that was owed anyway
+    (`core-local-history.md`).
     `activateSearchMatch(url:range:)` opens the file through the ordinary
     `openFile(url:)` path (so an already-open tab is re-selected, not duplicated),
     resolves the tab id, and records the range with `reveal.reveal(fileID:range:)` —

@@ -290,6 +290,62 @@ final class LocalHistoryStoreTests: XCTestCase {
         XCTAssertEqual(store.revisions(root: otherRoot, relativePath: path).count, 2)
     }
 
+    /// The sweep is asked of the store, not of a root: a project that is never
+    /// opened again is reclaimed by nothing else, so a per-project sweep would
+    /// leave its snapshots on disk past every stated bound.
+    func testPruneAllBoundsAProjectAreaNoRootWasHandedFor() {
+        let tree = makeTree()
+        let writer = makeStore(tree)
+        let otherRoot = URL(fileURLWithPath: "/Users/someone/other")
+        for index in 1...3 {
+            writer.capture(
+                text: "v\(index)",
+                root: otherRoot,
+                relativePath: path,
+                event: .save,
+                now: date(1_000 + Double(index))
+            )
+        }
+        XCTAssertEqual(writer.revisions(root: otherRoot, relativePath: path).count, 3)
+
+        makeStore(tree, policy: LocalHistoryPolicy(revisionsPerFile: 1)).pruneAll(now: date(1_010))
+
+        XCTAssertEqual(
+            writer.revisions(root: otherRoot, relativePath: path).count,
+            1,
+            "Every project area is swept, including the ones no caller named."
+        )
+    }
+
+    /// A whole area whose every file directory pruned away goes with them, so the
+    /// store the user is invited to open in Finder does not keep a directory per
+    /// project that no longer has any history at all.
+    func testPruneAllRemovesAProjectAreaLeftEmpty() {
+        let tree = makeTree()
+        let store = makeStore(tree)
+        let project = projectDirectory(in: tree)
+        tree.directories.insert(project)
+        tree.directories.insert("\(project)/0123456789abcdef0123456789abcdef")
+
+        store.pruneAll(now: date(100_000))
+
+        XCTAssertFalse(tree.hasDirectory(project))
+    }
+
+    /// A project area still holding something this feature did not write is left
+    /// exactly as it is, area and all.
+    func testPruneAllLeavesAnAreaHoldingAForeignEntryAlone() {
+        let tree = makeTree()
+        let store = makeStore(tree)
+        let project = projectDirectory(in: tree)
+        tree.files["\(project)/notes.txt"] = "somebody else's"
+
+        store.pruneAll(now: date(100_000))
+
+        XCTAssertTrue(tree.hasDirectory(project))
+        XCTAssertEqual(tree.files["\(project)/notes.txt"], "somebody else's")
+    }
+
     func testPruneRemovesAFileDirectoryLeftEmpty() {
         let tree = makeTree()
         let store = makeStore(tree)

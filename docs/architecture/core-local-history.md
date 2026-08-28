@@ -53,7 +53,7 @@ vocabulary) → `LocalHistoryLayout` (where things go, and the name↔snapshot c
 → `LocalHistoryPolicy` (whether they go there at all, and what stays) →
 `LocalHistoryStore` (the one type that touches `FileServicing`) →
 `LocalHistoryModel` (the capture side: the serial write chain, the three save
-sites, the pre-operation capture, the project sweep) + `LocalHistoryBrowserModel`
+sites, the pre-operation capture, the store sweep) + `LocalHistoryBrowserModel`
 (the window's companion reader, and the restore *plan*) → the three macOS app
 files.
 
@@ -261,11 +261,20 @@ changes.)
     rather than randomised precisely so a retry reuses it instead of accumulating.
     Pruning runs here on the one file just captured, because that is the file
     whose count just changed, and it prunes the list already in hand rather than
-    re-reading the directory it just wrote to. `prune(root:now:)` is the
-    project-wide sweep that reclaims everything *else*, including the history of
-    files nobody has touched since their revisions aged out; a file directory left
-    with no entries at all is removed, while one still holding something foreign
-    is left exactly as it is, because this feature deletes only what it wrote.
+    re-reading the directory it just wrote to. `pruneAll(now:)` is the store-wide
+    sweep that reclaims everything *else*, including the history of files nobody
+    has touched since their revisions aged out; `prune(root:now:)` is the one
+    project area it is made of, kept public because it is the smallest thing the
+    rule can be stated and tested against. A file directory left with no entries
+    at all is removed, then a project area left with no file directories, while
+    one still holding something foreign is left exactly as it is, because this
+    feature deletes only what it wrote. **The sweep is asked of the store, not of
+    a root**, and that is load-bearing: retention is promised to the user with no
+    condition on it ("anything a captured file contained… is in there until
+    retention reclaims it"), and a sweep keyed to whichever project is being
+    opened reclaims nothing at all for a project that is cloned, edited once and
+    never opened again — which is both unbounded growth and the privacy claim
+    broken, in the one directory this feature keeps outside every project.
     Every deletion goes through one `discard(_:)` that asserts
     `layout.contains(_:)` first — `LSPInstallEngine`'s rule, for its reason: a
     layout bug or a caller passing a url from somewhere else must not turn into
@@ -318,12 +327,16 @@ changes.)
       oversize files are skipped** by `readTextIfNotBinary(url:maxBytes:)`, the one
       gate for both; and **the disk set is capped** at `maxPreOperationFiles`.
       **Nothing to capture returns without touching the chain**: the await is on
-      everything already queued — including the project-open sweep — and paying
+      everything already queued — including the folder-open sweep — and paying
       that to store zero bytes would put this feature's housekeeping in front of
       an operation the user asked for, with the writer bracket already raised.
-    - `pruneProject(root:)` — the project-open sweep, fire-and-forget on the
-      chain. No generation token, deliberately: it publishes nothing and reads
-      nothing anyone displays, so there is no superseded state it could write over.
+    - `pruneStore()` — the folder-open sweep, fire-and-forget on the chain, and
+      it takes **no root**: `LocalHistoryStore.pruneAll(now:)` sweeps every
+      project area, because retention is promised to the user without a condition
+      and a sweep keyed to the root being opened can never reach the history of a
+      project that is not opened again. No generation token, deliberately: it
+      publishes nothing and reads nothing anyone displays, so there is no
+      superseded state it could write over.
 
     `relativePath(of:under:)` is the one keying rule, and it is two questions that
     must both answer yes: `LSPInstallLayout.directory(_:contains:)` for
@@ -390,12 +403,17 @@ changes.)
     action** — the `SaveTransformPlan` / `PushPlan` shape — because only the app
     layer can replace a buffer through the live text view. It carries *both* texts
     on purpose: `text` is what the buffer becomes and `captureText` is what the
-    buffer is right now, which the app hands straight back to `captureBuffers`
-    under `LocalHistoryRestore.event` (`.restore`, a constant rather than a field,
-    so there is one wording) before it replaces anything. Pairing them in one
-    value is what keeps the pre-restore capture from being a step a caller can
-    forget: there is no way to hold a restore plan and not hold the bytes it is
-    about to displace.
+    *window* was showing as "now", which the app captures under
+    `LocalHistoryRestore.event` (`.restore`, a constant rather than a field, so
+    there is one wording) before it replaces anything. Pairing them in one value
+    is what keeps the pre-restore capture from being a step a caller can forget:
+    there is no way to hold a restore plan and not hold the bytes it is about to
+    displace. `captureText` is nonetheless the **fallback** rather than the
+    authority — see `restoreFromLocalHistory` below: the window reads disk under a
+    1 MiB ceiling and `WorkspaceModel.open` has none, so a buffer the app had to
+    open can hold text the window could only show as the empty string, and
+    snapshotting the window's answer would file an empty `Before Restore` revision
+    for a megabyte of text.
 
 ### `Pisaka` (app layer — macOS only, every file inside `#if os(macOS)`)
 
@@ -522,7 +540,13 @@ changes.)
     if none holds the file (`model.open` re-selects an existing one, so it is also
     the right call when one is there; an unreadable file beeps and stops, since
     there is nothing to restore *into*), capture the displaced text under
-    `.restore` from the plan, then `saveTransform.applyRestore(…)`. The tab is
+    `.restore` — read back off the buffer **after** the open, `model.text(for:)`
+    being exactly what `applyRestore` displaces, with the plan's `captureText` as
+    the fallback when there is no buffer to ask; taking the plan's answer outright
+    would store the empty string the *window* had to show for a file that has
+    since grown past its 1 MiB read ceiling, which is the one place in this
+    feature a capture could lose what it exists to keep — then
+    `saveTransform.applyRestore(…)`. The tab is
     left **dirty**: the ordinary save funnel puts the restored text on disk when
     the user saves or the autosave fires, which is what keeps this feature a
     reader that takes no writer gate.
@@ -535,10 +559,13 @@ changes.)
     `showLocalHistory(for:)`, which starts the listing *before* showing the window
     (one directory read on a background queue) so an already-open window never
     shows the previous file's revisions for a frame.
-  - **The project sweep** runs from the folder-open path (`pruneProject(root:)`),
+  - **The store sweep** runs from the folder-open path (`pruneStore()`),
     fire-and-forget: capture already prunes the one file it just wrote, and
     without this a project abandoned for a month would keep every snapshot
-    forever.
+    forever. It sweeps the **whole store**, not the project being opened — the
+    per-project sweep it replaced could not reclaim a project nobody reopens,
+    which is precisely the case the retention promise is made for — and it removes
+    a file directory, then a project area, left with nothing in it.
 
 ## The pre-operation capture is race-free by construction
 
@@ -607,9 +634,11 @@ anyway, and the worst case of that is one snapshot written twice.
     new revision; the write going through a temporary name and exactly one `move`;
     an injected failure leaving no partial file and throwing nothing; capture
     pruning the same file's excess; `prune(root:)` bounding a whole project area;
-    a never-captured file listing `[]`; a foreign file ignored by listing and left
-    alone by pruning; the sweep reclaiming an interrupted write nothing else can
-    see, and removing a directory that holds nothing but such debris.
+    `pruneAll()` bounding a project area **no root was handed for**, removing an
+    area left empty and leaving one holding a foreign entry alone; a never-captured
+    file listing `[]`; a foreign file ignored by listing and left alone by pruning;
+    the sweep reclaiming an interrupted write nothing else can see, and removing a
+    directory that holds nothing but such debris.
   - `LocalHistoryModelTests` — `captureBeforeOperation` returning only once every
     byte is stored (a causal wait through `Gate`, never a delay); a file with both
     a buffer and a disk target captured once, from the buffer; a binary target
@@ -617,7 +646,8 @@ anyway, and the worst case of that is one snapshot written twice.
     overlapping saves of one file producing one revision for identical text and
     two ordered ones for different text; the synchronous capture having stored
     everything by the time it returns and dedup'ing against an earlier one; urls
-    outside the root skipped; the project sweep bounding the area; an oversize
+    outside the root skipped; the store sweep bounding the area, reclaiming a
+    project nobody opened and removing an area left empty; an oversize
     disk target never read into memory; a url that reaches the root through `..`
     refused rather than keyed by its bare name (the re-join guard); and a capture
     with nothing to store returning while the sweep is demonstrably mid-read —
