@@ -349,25 +349,25 @@ context menu in the project tree.
 - Create: `Sources/PisakaCore/LocalHistoryBrowserModel.swift`
 - Create: `Tests/PisakaCoreTests/LocalHistoryBrowserModelTests.swift`
 
-- [ ] `@MainActor final class LocalHistoryBrowserModel: ObservableObject` — the window's
+- [x] `@MainActor final class LocalHistoryBrowserModel: ObservableObject` — the window's
       state: `fileURL`, `relativePath`, `revisions`, `selected`, `diffRows`,
       `isLoading`, `isEmpty`
-- [ ] one monotonic generation token captured **synchronously** before every `Task` hop
+- [x] one monotonic generation token captured **synchronously** before every `Task` hop
       (listing, content load, diff computation); a superseded result is discarded, never
       published
-- [ ] `open(file:root:)` — retargeting the window clears the previous file's rows before
+- [x] `open(file:root:)` — retargeting the window clears the previous file's rows before
       the new listing lands, so no stale content is ever shown against a new file
-- [ ] `select(_:currentText:)` — loads the revision's content off-main and computes
+- [x] `select(_:currentText:)` — loads the revision's content off-main and computes
       `LineDiff.rows(old: revision, new: current)` there too
-- [ ] `restore(currentText:) -> LocalHistoryRestore?` — the pure restore plan: `nil` when
+- [x] `restore(currentText:) -> LocalHistoryRestore?` — the pure restore plan: `nil` when
       nothing is selected or the selected content equals the current text, otherwise the
       pre-restore capture request plus the replacement text
-- [ ] tests: a stale listing cannot publish over a newer one (two loads staged with
+- [x] tests: a stale listing cannot publish over a newer one (two loads staged with
       `Gate`, the older released last); retargeting clears rows; a file with no history
       lands `isEmpty`, not an error; selecting a revision produces the expected
       `[DiffRow]`; the restore plan is `nil` for an identical revision and carries the
       revision's text otherwise; the pre-restore capture is part of the plan
-- [ ] run `swift test` — must pass before Task 6
+- [x] run `swift test` — must pass before Task 6
 
 ### Task 6: Capture wiring (macOS app)
 

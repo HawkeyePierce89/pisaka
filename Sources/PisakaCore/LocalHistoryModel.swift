@@ -317,7 +317,12 @@ public final class LocalHistoryModel: ObservableObject {
     /// must spell `url` again. Without that check a url reaching the root through
     /// `..` would be keyed under its bare name and share a history with the file
     /// that genuinely has that name.
-    private nonisolated static func relativePath(of url: URL, under root: URL) -> String? {
+    ///
+    /// Internal rather than private because `LocalHistoryBrowserModel` must key a
+    /// file *exactly* as this side did — a second, separately maintained copy of
+    /// this rule would show an empty history for a file that has one — and one
+    /// function is the only way to say that and mean it.
+    nonisolated static func relativePath(of url: URL, under root: URL) -> String? {
         guard LSPInstallLayout.directory(root, contains: url) else { return nil }
         let relative = ProjectFileWalk.relativePath(of: url, under: root)
         guard !relative.isEmpty, root.appendingPathComponent(relative).path == url.path else { return nil }
