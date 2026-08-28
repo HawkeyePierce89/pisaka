@@ -232,24 +232,24 @@ context menu in the project tree.
 - Create: `Tests/PisakaCoreTests/LocalHistorySnapshotTests.swift`
 - Create: `Tests/PisakaCoreTests/LocalHistoryLayoutTests.swift`
 
-- [ ] `LocalHistoryEvent`: closed enum with a stable lowercase `tag` (the file-name
+- [x] `LocalHistoryEvent`: closed enum with a stable lowercase `tag` (the file-name
       token) and a display `title`; an `init?(tag:)` inverse
-- [ ] `LocalHistorySnapshot`: `Equatable, Sendable` value type — `fileName`,
+- [x] `LocalHistorySnapshot`: `Equatable, Sendable` value type — `fileName`,
       `timestamp: Date`, `event`, `contentHash: String`; ordering newest-first
-- [ ] `LocalHistoryLayout`: pure path math over `base` (lexical normalization copied
+- [x] `LocalHistoryLayout`: pure path math over `base` (lexical normalization copied
       from `LeetCodeCacheLayout`'s initializer, `contains(_:)` through
       `LSPInstallLayout.directory(_:contains:)`), `directoryName = "LocalHistory"`,
       `projectDirectory(forRoot:)`, `fileDirectory(forRoot:relativePath:)`
-- [ ] snapshot file-name encode/parse on the layout: zero-padded 19-digit milliseconds
+- [x] snapshot file-name encode/parse on the layout: zero-padded 19-digit milliseconds
       + `-` + event tag + `-` + 16 hex hash + `.snapshot`; parsing refuses anything
       malformed (returns `nil`, never a partial snapshot)
-- [ ] tests: name round-trips for every event case; lexical name order equals
+- [x] tests: name round-trips for every event case; lexical name order equals
       chronological order across a millisecond/second/day boundary; malformed names
       (wrong field count, non-numeric millis, unknown tag, wrong extension, a nested
       path) all parse to `nil`; two different roots and two different relative paths
       give different directories, and the same input gives the same directory twice;
       `contains` accepts everything the layout produces
-- [ ] run `swift test` — must pass before Task 2
+- [x] run `swift test` — must pass before Task 2
 
 ### Task 2: Capture policy and retention (Core)
 
