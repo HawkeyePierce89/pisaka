@@ -313,26 +313,26 @@ context menu in the project tree.
 - Create: `Sources/PisakaCore/LocalHistoryModel.swift`
 - Create: `Tests/PisakaCoreTests/LocalHistoryModelTests.swift`
 
-- [ ] `@MainActor final class LocalHistoryModel: ObservableObject` owning the store, the
+- [x] `@MainActor final class LocalHistoryModel: ObservableObject` owning the store, the
       base URL and a **serial write chain** (`private var chain: Task<Void, Never>?`,
       each new unit of work appended) so two captures of one file can never interleave
       or race the same "newest revision" read
-- [ ] `captureSaves(urls:root:texts:)` — fire-and-forget through the chain; the ordinary
+- [x] `captureSaves(urls:root:texts:)` — fire-and-forget through the chain; the ordinary
       save path
-- [ ] `captureSavesSynchronously(urls:root:texts:)` — the **quit** path: the same store
+- [x] `captureSavesSynchronously(urls:root:texts:)` — the **quit** path: the same store
       calls, inline on the main actor, so the bytes are written before the termination
       observer returns; documented as the one main-thread disk write in the feature,
       bounded by the number of dirty titled buffers, and as bypassing the chain (whose
       queued work the process is about to discard anyway)
-- [ ] `captureBeforeOperation(event:root:bufferTexts:diskTargets:) async` — collects what
+- [x] `captureBeforeOperation(event:root:bufferTexts:diskTargets:) async` — collects what
       the caller handed it, drops disk targets that already have a buffer text, applies
       `maxPreOperationFiles`, then does the reads
       (`readTextIfNotBinary(url:maxBytes:)` — the binary/oversize gate), hashes, writes
       and prunes off the main actor; returns only when every byte is stored
-- [ ] `pruneProject(root:)` — the project-open sweep, fire-and-forget
-- [ ] relative paths through `ProjectFileWalk.relativePath(of:under:)`; a url outside the
+- [x] `pruneProject(root:)` — the project-open sweep, fire-and-forget
+- [x] relative paths through `ProjectFileWalk.relativePath(of:under:)`; a url outside the
       root is skipped
-- [ ] tests: `captureBeforeOperation` returns only after the store holds every expected
+- [x] tests: `captureBeforeOperation` returns only after the store holds every expected
       snapshot (a causal wait through `Gate`, never a delay); a file with both a buffer
       text and a disk target is captured once, from the buffer; a binary disk target
       (`StubFileTree.skippedFiles`) is silently absent; the disk-target cap is enforced
@@ -341,7 +341,7 @@ context menu in the project tree.
       `captureSavesSynchronously` leaves the snapshots in the store by the time it
       returns, with no await in between, and dedups against what a prior `captureSaves`
       wrote; a url outside the root is skipped; `pruneProject` bounds the area
-- [ ] run `swift test` — must pass before Task 5
+- [x] run `swift test` — must pass before Task 5
 
 ### Task 5: The browser model (Core)
 
