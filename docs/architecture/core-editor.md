@@ -441,10 +441,13 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     matcher pairs `[`↔`]` — the two agree on all well-formed code and are each
     right for their own question; pinned by
     `testCrossedBracketsAllUnmatchedUnlikeMatchEngine` and its mirror. Unit-tested
-    in `BracketDepthScannerTests`. Follow-ups: tree-sitter-aware matching/scanning
-    (skipping strings and comments, which would also close the crossed-input
-    divergence), an iOS variant over these same two engines, and settings (on/off,
-    number of colors).
+    in `BracketDepthScannerTests`. A lexing engine now exists in Core
+    (`SyntaxContextScanner`, `core-intelligence.md`) and it is deliberately not
+    shared: rainbow brackets scan the whole buffer on every debounce and want raw
+    characters, while that engine answers one offset per completion request.
+    Follow-ups: tree-sitter-aware matching/scanning (skipping strings and comments,
+    which would also close the crossed-input divergence), an iOS variant over these
+    same two engines, and settings (on/off, number of colors).
   - `TextSearch.swift` — pure, testable text search/replace over an `NSString` in
     UTF-16 offsets (Foundation only — the `DuplicateEngine`/`AutoPairEngine`
     split: the view owns selection, scrolling and colors, every decision lives

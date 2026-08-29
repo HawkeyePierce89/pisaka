@@ -734,7 +734,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     site the real hazard, since an empty buffer clamps every position to `0:0` and
     answers confidently wrong; the LSP provider therefore treats "empty text,
     non-zero offset" as **unanswerable** and falls back rather than clamping, while
-    the tree-sitter provider ignores the field entirely.
+    the tree-sitter provider ignores the field entirely (it resolves names in the
+    index, not places — and neither does `SymbolIntelligenceProvider.completions`
+    for ranking; the only use of `offset` on that path is the syntax-context gate
+    that suppresses completion inside a string or comment — see that provider's
+    entry and `SyntaxContextScanner`).
     `DefinitionCandidate` **stores what it displays and navigates by, not a
     `Symbol`** (D8). An LSP definition answer is a *location* — a file, a range and
     nothing else, with no declaration kind, because the server was asked "where", not
@@ -781,10 +785,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     the whole of what `textDocument/completion` asks about, since a prefix cannot be
     located in a buffer that may contain it a hundred times. `nil` is read by the LSP
     provider as **unanswerable, never as 0** (D2's guard applied to the other request
-    kind); the tree-sitter provider ignores it, matching names rather than places, so
+    kind); the tree-sitter provider uses the field only to determine whether the
+    caret sits inside a gated string literal or comment where completion is
+    suppressed (`SyntaxContextScanner`); otherwise it matches names, not places, so
     a call site that predates phase 2a keeps meaning exactly what it meant and only
-    the LSP answer is given up. Both editor call sites pass the caret they already
-    have, so only a future one could trip the guard.
+    the LSP answer is given up. Both editor call sites build `CompletionRequest`
+    with the caret already in hand (`CompletionController:359`,
+    `CodeEditorCoordinator_iOS:405`), so only a future one could trip the guard;
+    explicit invocation (⌃Space) builds the same request and is gated identically.
     `CompletionItem` is a string plus two ranking facts (`kind`,
     `isFromCurrentFile`): AppKit's stock popup shows strings only (plan Decision 2)
     and the iOS strip shows buttons, so the extra fields exist to make the
@@ -1060,6 +1068,130 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `ProjectFileWalk.relativePath(of:under:)`, the very helper Find in Files labels
     its result groups with, so a definition row and a search row cannot spell one
     file two ways.
+    **Syntax-context gating** is the one exception to "every prefix gets a list".
+    At the top of the static `completions(for:in:limit:bufferWordLimit:)`, *before*
+    the member branch, the provider asks
+    `SyntaxContextScanner.suppressesCompletion(in:at:language:)` once per request;
+    inside a gated string or any comment the answer is `[]` for symbols, keywords
+    and buffer words alike — and no ranking runs — while inside an interpolation
+    hole (`${…}`, `\(…)`/`\#(…)`, Python `{…}`) the context is `.code` and
+    completion proceeds exactly as in open code. The gate is applied there and not
+    in the router or the view layer because the fallback is the only source that
+    needs suppression (LSP answers are typed and hover has no fallback), so gating
+    the fallback's single static entry point covers every call site including
+    `RoutingIntelligenceProvider`'s forwarded request without touching views;
+    `nil` offset or `nil` language means no caret position or no vocabulary to
+    consult and the request is ungated. That single `offset` is the field
+    `CompletionRequest.offset` carries for this purpose — see that entry. Member
+    completion is covered by the same line, since the gate sits above the branch.
+    `definitions(for:)`, the index and the walk that feeds it are untouched — the
+    same navigation-versus-typing asymmetry the candidate rule already records:
+    ⌃⌘J still lists what typing refuses, because a heading or a multi-word key
+    remains a jump target even when it is not worth inserting.
+  - `SyntaxContextVocabulary.swift` — the per-language string/comment table and the
+    gating policy — **two questions, one scan**. This file declares *what* each of
+    the 16 `SyntaxLanguage` cases considers a string or a comment and *whether*
+    being inside that string should suppress completion, while
+    `SyntaxContextScanner` only walks the buffer and answers honestly
+    (`.code`/`.string`/`.comment`). The split is what lets a language recognize
+    its strings (so a `#` inside a quoted YAML scalar is not mistaken for a
+    comment, and `<!--` inside an HTML attribute value is not a comment) without
+    gating them. Strings are gated where a string is an island inside code and
+    recognized-but-ungated where the strings *are* the document's vocabulary (so
+    word completion of a repeated key keeps working, and comment lexing stays
+    correct); no vocabulary at all where the language has neither.
+
+    | language | string forms | strings gate? | comments |
+    |---|---|---|---|
+    | swift | `"…"` single-line; `"""…"""` multi-line; pound padding `#"…"#`/`##"…"##` (escape is `\` + N `#`) | yes | `//` anywhere; `/* */` **nesting** |
+    | javascript / typescript | `'…'`, `"…"` single-line, `\` escape; `` `…` `` multi-line with `${…}` holes | yes | `//`; `/* */` non-nesting |
+    | python | `'…'`, `"…"` single-line; `'''…'''`, `"""…"""` multi-line; prefixes `r b u f` in any case/order — `r` makes `\` inert, `f` enables `{…}` holes (`{{`/`}}` are literal) | yes | `#` anywhere |
+    | go | `"…"` single-line `\`; `` `…` `` raw multi-line, no escapes; `'…'` rune, single-line | yes | `//`; `/* */` non-nesting |
+    | rust | `"…"` `\`; raw `r"…"`, `r#"…"#`, `br#"…"#` (no escapes). `'` is deliberately not a string delimiter | yes | `//`; `/* */` **nesting** |
+    | css | `'…'`, `"…"` single-line `\` | yes | `/* */` non-nesting |
+    | sql | `'…'` multi-line, escape by doubling (`''`). `"` deliberately not modeled | yes | `--` anywhere; `/* */` non-nesting |
+    | dockerfile | `'…'`, `"…"` single-line `\` | yes | `#` at line start only |
+    | json | `"…"` single-line `\` | **no** | none |
+    | yaml | `'…'` (doubling escape), `"…"` (`\`), single-line | **no** | `#` at line start or after whitespace |
+    | html | `'…'`, `"…"` attribute values, single-line, no escapes | **no** | `<!-- -->` non-nesting |
+    | dotenv | `'…'`, `"…"` single-line | **no** | `#` at line start |
+    | gitignore | none | — | `#` at line start |
+    | editorconfig | none | — | `#` and `;` at line start |
+    | markdown | none | none | **completely ungated** |
+
+    Reasons, carried in the source doc comments and restated here so the table is
+    a decision record rather than a data dump:
+
+    - **Rust's `'`**: a lifetime (`&'a str`, `T: 'static`) would open a bogus
+      literal; the single-line recovery rule would bound the damage to that line,
+      but the right answer is not to model it. A char literal is one character wide
+      and never worth completing inside.
+    - **SQL's `"`**: it quotes an *identifier*, which is exactly the thing worth
+      completing; gating it would silence completion on quoted column names.
+    - **JSON / YAML / HTML / dotenv**: gating them silences the only completion
+      those files have — buffer-word completion of a repeated key, class name, path
+      or variable. Their strings are still *lexed*, because that is what keeps `#`
+      inside a quoted YAML scalar from reading as a comment and `<!--` inside an
+      attribute value from reading as one.
+    - **Markdown**: prose all the way down, with no vocabulary to speak of.
+    - **Regex literals are not modeled** (JS/TS) and neither are
+      `<script>`/`<style>` bodies in HTML: distinguishing `/` division from a regex
+      opener needs a parser, and an embedded-language body needs a second grammar.
+      Stated limits, not omissions.
+
+    The value types are `StringForm` (`open`/`close`, `spansLines`, `EscapeRule`
+    `none`/`backslash`/`doubledDelimiter`, optional `allowedPrefixLetters`,
+    `allowsPoundPadding`, `InterpolationHole`) and `CommentForm` (line with
+    `LineAnchor` `anywhere`/`lineStart`/`afterWhitespace` or block with
+    `nestable`). `Vocabulary` is those two arrays plus `stringsSuppressCompletion`.
+    `languagesWithoutStringVocabulary` (`markdown`, `gitignore`, `editorconfig`) and
+    the per-language `stringsSuppressCompletion` flag (false for `json`, `yaml`,
+    `html`, `dotenv`) make the "ungated but lexed" vs. "no vocabulary" distinction
+    explicit and testable. `canSuppressCompletion(_:)` short-circuits before any
+    scan — true when the language has comment forms or gated string forms, false
+    for `markdown` and `json` — so those files pay no scan. Tests pin the table by
+    **set equality**: `languagesWithoutStringVocabulary` ∪ (languages with string
+    forms) = `SyntaxLanguage.allCases`; the same closure check for comment forms
+    against `CommentStyle.languagesWithoutComments`; a **containment** check (not
+    equality) that every token `CommentStyle.style(for:)` names appears among that
+    language's `commentForms` — the new table is *not* the toggle authority, so
+    equality would couple them incorrectly — with the doc comment explaining why;
+    and no empty or duplicated delimiter.
+  - `SyntaxContextScanner.swift` — the pure syntax-context scanner (Foundation-only,
+    `NSString` + UTF-16 offsets like every other editor engine). Public API:
+    `SyntaxContext` (`.code`/`.string`/`.comment`) + `context(in:at:language:) ->
+    SyntaxContext` (the honest answer) and `suppressesCompletion(in:at:language:)
+    -> Bool` (the one call the provider makes, mapping the context through
+    `stringsSuppressCompletion`). **The boundary rule** is "the context at offset
+    `k` is the state after consuming characters `[0, k)`", which yields the
+    requirement with no special-casing: just before an opening quote is code, just
+    after it is string; just before the closing quote is string, just after it is
+    code; a caret between the two slashes of `//` is code, after both is comment.
+    A single-line form's state is reset at a line separator, so an unterminated
+    `'` cannot poison the rest of the buffer; a multi-line form runs to the end of
+    the buffer, and the caret after an unterminated opener is inside. Out-of-range
+    or negative offsets are `.code` / `false` (ungated). **Interpolation holes**
+    re-open `.code`: `${…}` (JS/TS template literals), `\(…)`/`\#(…)` (Swift,
+    pound count matching the string's) and `{…}` in Python f-strings — the last is
+    in because excluding it would be a regression: completion inside `f"{user.na|me}"`
+    works today and is genuinely useful, and the brace-depth machinery is the same
+    `${…}` already needs — the only extra rules are that `{{`/`}}` are literal
+    braces and that `r` makes `\` inert while `f` gates the hole. Holes count
+    depth so `${ {a: 1} }` closes at the right brace, and the scanner keeps an
+    explicit state stack so a string inside a hole inside a string nests correctly.
+    **Stated limits**, carried in the source and restated here: regex literals are
+    not modeled, `<script>`/`<style>` bodies in HTML are not modeled, Rust `'` is
+    deliberately not a delimiter, and SQL `"` is deliberately not modeled (see the
+    table above). Implementation: an explicit state stack, chunked
+    `getCharacters(_:range:)` reads into a reusable `[unichar]` buffer of
+    `chunkSize` 4096 following `BracketDepthScanner`, decomposed into per-state
+    helpers (`advanceCode`, `advanceLineComment`, `advanceBlockComment`,
+    `advanceString`, `advanceHole`) so no function exceeds the measured lint
+    ceilings (`cyclomatic_complexity` 22, `function_body_length` 140 — honest
+    ceilings, not disables). Nesting block comments (Swift, Rust) track depth;
+    non-nesting ones do not; line comments end at a line separator. Anchored line
+    comments (`#` at line start or after whitespace) consult the line's leading
+    whitespace rather than `hasPrefix`. One call site, one scan per request.
 
 ## The query resources, and the runtime half `swift test` cannot reach
 
