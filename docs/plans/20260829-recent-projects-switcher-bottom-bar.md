@@ -73,31 +73,31 @@ Dependencies: none new.
 - Create: `Tests/PisakaCoreTests/RecentProjectTests.swift`
 - Modify: `Tests/PisakaCoreTests/EditorSessionTests.swift`
 
-- [ ] add `RecentProject`: an `Identifiable, Equatable` row value carrying `url`
+- [x] add `RecentProject`: an `Identifiable, Equatable` row value carrying `url`
       (built from the verbatim stored path), `name` (the folder's last path
       component, falling back to the whole path when there is none), `path` (the
       stored spelling, verbatim — no tilde abbreviation, no canonicalization) and
       `isCurrent`; identity is the canonical path, so a row is stable across
       spellings
-- [ ] add the projection `RecentProject.rows(catalog:currentRoot:folderExists:)`,
+- [x] add the projection `RecentProject.rows(catalog:currentRoot:folderExists:)`,
       a pure static function: MRU order preserved as the catalog stores it; the
       `nil`-`folderPath` entry excluded before anything else (and never handed to
       `folderExists`); each remaining entry kept only when `folderExists` says its
       url is still there; `isCurrent` decided by comparing
       `CanonicalPath.canonical(_:).path` against `currentRoot`, so any spelling of
       the open folder marks its row
-- [ ] give `folderExists` no default, so every call site states its answer; the
+- [x] give `folderExists` no default, so every call site states its answer; the
       documentation comment records the two rules the ticket fixes in place —
       the list is read at display time and may trail the live catalog by one
       debounce of the session writer (acceptable; the button's own label comes
       from the live project root, never from the catalog's head), and the
       remaining race (a folder deleted between display and click) is settled by
       the funnel's refusal added in Task 3
-- [ ] promote `SessionStore.catalog()` to a public reader named `loadCatalog()`
+- [x] promote `SessionStore.catalog()` to a public reader named `loadCatalog()`
       (keeping the private helper as its implementation), documented as the one
       read the recents projection needs and as returning an empty catalog for
       every unreadable-blob case, exactly like the existing readers
-- [ ] write `RecentProjectTests`: MRU order preserved; the `nil`-folder entry
+- [x] write `RecentProjectTests`: MRU order preserved; the `nil`-folder entry
       excluded; the current project marked when the catalog spells it differently
       (`/tmp` vs `/private/tmp`, a trailing slash, a `.` detour) and unmarked when
       no folder is open; paths reported verbatim while identity/marking is
@@ -105,9 +105,9 @@ Dependencies: none new.
       existence filter dropping exactly the entries the closure refuses and
       calling it once per non-`nil` entry; the empty-catalog case returning no
       rows
-- [ ] extend `EditorSessionTests` with a case for `loadCatalog()` — the stored
+- [x] extend `EditorSessionTests` with a case for `loadCatalog()` — the stored
       catalog read back whole, and an empty catalog for an unwritten/garbage blob
-- [ ] run `swift test` — must pass before Task 2
+- [x] run `swift test` — must pass before Task 2
 
 ### Task 2: The bottom-bar widget
 
