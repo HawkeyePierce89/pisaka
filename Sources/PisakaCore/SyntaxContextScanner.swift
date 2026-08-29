@@ -32,11 +32,7 @@ public enum SyntaxContextScanner {
         language: SyntaxLanguage
     ) -> SyntaxContext {
         let length = text.length
-        guard offset > 0, offset <= length else {
-            if offset == 0 { return .code }
-            return .code
-        }
-        if offset < 0 { return .code }
+        guard offset > 0, offset <= length else { return .code }
         return scan(text: text, upTo: offset, language: language)
     }
 
@@ -210,11 +206,6 @@ public enum SyntaxContextScanner {
             if idx + closeWithPound.utf16.count * 2 <= offset,
                isMatch(at: idx, pattern: closeWithPound + closeWithPound, text: text) {
                 return idx + closeWithPound.utf16.count * 2
-            }
-            if idx + form.close.utf16.count * 2 <= offset,
-               isMatch(at: idx, pattern: form.close, text: text),
-               isMatch(at: idx + form.close.utf16.count, pattern: form.close, text: text) {
-                return idx + form.close.utf16.count * 2
             }
         }
         if form.escape == .backslash, !isRaw,
@@ -406,23 +397,12 @@ public enum SyntaxContextScanner {
 
     private static func isAtLineStart(at idx: Int, text: NSString) -> Bool {
         if idx == 0 { return true }
-        var pos = idx - 1
-        while pos >= 0 {
-            let ch = text.character(at: pos)
-            if isLineSeparator(ch) { return true }
-            // If we hit non-whitespace before separator, not at line start
-            // Need to check from line start to idx-1 all whitespace?
-            // Find line start
-            break
-        }
         // Find last line separator before idx
         var lineStart = 0
         var i = idx - 1
         while i >= 0 {
             if isLineSeparator(text.character(at: i)) {
                 lineStart = i + 1
-                // Handle CRLF: if we are at LF and previous is CR, lineStart is after LF?
-                // Simplified: treat each separator as line break.
                 break
             }
             i -= 1
