@@ -181,13 +181,13 @@ Dependencies: none new.
 
 ### Task 4: Verify acceptance criteria
 
-- [ ] run `swift test` — full suite green
-- [ ] run `swiftlint --strict` from the repository root — clean
-- [ ] `xcodegen generate`, then build macOS:
+- [x] run `swift test` — full suite green
+- [x] run `swiftlint --strict` from the repository root — clean
+- [x] `xcodegen generate`, then build macOS:
       `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' build`
-- [ ] build iOS (the widget is macOS-gated; iOS must compile unchanged):
+- [x] build iOS (the widget is macOS-gated; iOS must compile unchanged):
       `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build`
-- [ ] confirm `ZoomSourceGatingTests` passed with no edit to its pinned sets
+- [x] confirm `ZoomSourceGatingTests` passed with no edit to its pinned sets
 
 ### Task 5: Update documentation
 
