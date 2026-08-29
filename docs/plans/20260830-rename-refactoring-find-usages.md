@@ -198,25 +198,25 @@ Tests: new suites for each new Core file; updates to `BottomPanelTests`,
 - Create: `Tests/PisakaCoreTests/UsageResultTests.swift`,
   `Tests/PisakaCoreTests/TextualUsageScannerTests.swift`
 
-- [ ] `UsageResult`: file URL, buffer range, one-based line, relative path, a
+- [x] `UsageResult`: file URL, buffer range, one-based line, relative path, a
   single-line preview with the match range inside it (`MatchPreview`'s shape),
   and whether it came from a textual scan. Plus a `UsagesAnswer` carrying the
   identifier, the rows, the provenance (semantic / textual) and a truncation
   flag.
-- [ ] Hygiene, pure and tested: dedup by `(canonical file, range)`; ordering —
+- [x] Hygiene, pure and tested: dedup by `(canonical file, range)`; ordering —
   the requesting file first, then relative path, then buffer offset; the 2 000
   cap applied after ordering with the truncation flag set when it bites.
-- [ ] `TextualUsageScanner`: whole-word occurrences of an identifier in one
+- [x] `TextualUsageScanner`: whole-word occurrences of an identifier in one
   text, boundaries decided by
   `IdentifierScanner.isIdentifierStart`/`isIdentifierContinuation` (not a regex
   — an identifier may contain characters a pattern would have to escape),
   returning ranges plus previews. Guard the empty and non-identifier query.
-- [ ] Write tests: boundary cases (`foo` inside `foobar`, `_foo`, `foo_`,
+- [x] Write tests: boundary cases (`foo` inside `foobar`, `_foo`, `foo_`,
   `foo.bar`, Unicode identifiers, a match at offset 0 and at end of buffer),
   CRLF and the editor's full separator set for line numbers, dedup across a
   symlink-ish duplicate path, ordering with the requesting file in the middle of
   the alphabet, the cap and its flag.
-- [ ] Run `swift test` — must pass before Task 4.
+- [x] Run `swift test` — must pass before Task 4.
 
 ### Task 4: `FindUsagesModel` and the panel case
 
