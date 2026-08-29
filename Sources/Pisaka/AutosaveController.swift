@@ -24,7 +24,7 @@ final class AutosaveController {
     private let idleDelay: TimeInterval = 2.0
 
     private weak var model: WorkspaceModel?
-    private var onSaved: ((_ saved: [URL], _ createdFile: Bool) -> Void)?
+    private var onSaved: ((_ saved: [URL], _ createdFile: Bool, _ isTerminating: Bool) -> Void)?
 
     /// Run the caller's on-save transform over the buffers this tick is about to
     /// write, before it writes them (`SaveTransformController.prepareForSave`).
@@ -97,10 +97,20 @@ final class AutosaveController {
     /// `IgnoreSelf` reason one level further on: the app's `.editorconfig` cache
     /// has no watcher behind it either, so an autosave of a `.editorconfig` is
     /// invisible unless the caller is told which files this tick wrote.
+    ///
+    /// Its `isTerminating` argument says the report comes from the **quit** flush,
+    /// where the caller's usual follow-up work is pointless: there is no Local
+    /// Changes panel left to refresh and no tree left to bump, and `createdFile`
+    /// is always `false` there because the probe that would answer it is skipped
+    /// (see `flushNow`). It exists because a *report* on that path is not
+    /// pointless — Local History's last chance to snapshot the edit a user is
+    /// quitting on is exactly the edit a safety net is for — so this is one
+    /// callback invoked on every write path, with a flag saying which, rather
+    /// than a second hook the next write path could again forget.
     func start(
         model: WorkspaceModel,
         prepareForSave: @escaping (_ ids: [UUID], _ abandoningBuffers: Bool) -> Void,
-        onSaved: @escaping (_ saved: [URL], _ createdFile: Bool) -> Void
+        onSaved: @escaping (_ saved: [URL], _ createdFile: Bool, _ isTerminating: Bool) -> Void
     ) {
         // Idempotent: `.onAppear` can fire more than once (e.g. a window reopened),
         // and re-subscribing would stack observers and double every autosave. Bail
@@ -154,8 +164,12 @@ final class AutosaveController {
         // notification is delivered on the main thread as the run loop ends and the
         // process is about to exit, so a direct *synchronous* write (no debounce, no
         // async hop) is both safe and the only thing guaranteed to complete before
-        // the process dies. `flushNow()` skips `onSaved` — the app is quitting and
-        // there is no Local Changes UI left to refresh.
+        // the process dies. `flushNow()` here reports its saves with
+        // `isTerminating: true`: what the quit path skips is the missing-file probe
+        // and, at the caller, the Local Changes refresh and the tree bump — there is
+        // no panel left to refresh and no tree left to bump — but not the report
+        // itself, which is what Local History's quit-time capture hangs off. That
+        // capture is synchronous at the caller for the same reason this write is.
         //
         // `abandoningBuffers: true`, the same argument `PisakaApp`'s own
         // termination observer passes. Both observers fire on this one
@@ -247,7 +261,7 @@ final class AutosaveController {
         let missingBeforeWrite = missingDirtyPaths(in: model)
         let saved = model.saveAllDirty()
         if !saved.isEmpty {
-            onSaved?(saved, saved.contains { missingBeforeWrite.contains($0.path) })
+            onSaved?(saved, saved.contains { missingBeforeWrite.contains($0.path) }, false)
         }
         // A file that is still dirty *and* has a url means its write failed
         // (`saveAllDirty()` swallows per-file write errors). Beep once, non-modally
@@ -304,8 +318,13 @@ final class AutosaveController {
     ///
     /// `reportingSaves` is what separates the two callers. On the **quit** path it
     /// stays `false`: there is no tree left to bump and no panel left to refresh on
-    /// the way out, so the probe and `onSaved` are both skipped (see the
-    /// `willTerminateNotification` comment). `openCommitDialog` flushes
+    /// the way out, so the *probe* is skipped and the report goes out with
+    /// `createdFile: false` and `isTerminating: true` (see the
+    /// `willTerminateNotification` comment). The report itself is *not* skipped —
+    /// it was, until Local History gave the quit path a listener for which the
+    /// last save before termination is the whole point; a flush that wrote bytes
+    /// and told nobody is how a write path silently loses its safety net, so
+    /// every branch here reports. `openCommitDialog` flushes
     /// *mid-session* — the dialog reads disk, so every dirty buffer has to reach it
     /// first — and there the side effects are mandatory rather than pointless: this
     /// writes files exactly as `performAutosave` does, so without them the Local
@@ -330,7 +349,16 @@ final class AutosaveController {
         // and the commit dialog's flush is what the dialog then reads off disk.
         prepareForSave?(dirtyTitledIDs(in: model), abandoningBuffers)
         guard reportingSaves else {
-            model.saveAllDirty()
+            // The quit branch. No probe — `missingDirtyPaths` costs one `stat` per
+            // dirty titled buffer to answer a question ("bump the tree") that has
+            // no meaning once the run loop is ending — so `createdFile` is `false`
+            // by construction rather than by measurement, and `isTerminating` says
+            // so. The report is still made: the caller's Local History capture is
+            // the one thing on this path that still has work to do, and it is the
+            // last chance these bytes get.
+            let saved = model.saveAllDirty()
+            guard !saved.isEmpty else { return }
+            onSaved?(saved, false, true)
             return
         }
         // The `performAutosave` sequence: probe before the write (a creating write
@@ -339,7 +367,7 @@ final class AutosaveController {
         let missingBeforeWrite = missingDirtyPaths(in: model)
         let saved = model.saveAllDirty()
         guard !saved.isEmpty else { return }
-        onSaved?(saved, saved.contains { missingBeforeWrite.contains($0.path) })
+        onSaved?(saved, saved.contains { missingBeforeWrite.contains($0.path) }, false)
     }
 }
 

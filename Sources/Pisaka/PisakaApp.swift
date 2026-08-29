@@ -247,6 +247,30 @@ struct PisakaApp: App {
     /// unit-tested without a network or a Keychain.
     private let leetCode: LeetCodeModel
 
+    /// Local History's capture side: the object every write path in this app hands
+    /// its bytes to, so a buffer that was on screen five minutes ago is still
+    /// recoverable after a save, a revert, a checkout or a Replace All.
+    ///
+    /// A plain stored reference for the `commitDialog`/`leetCode` reason: it
+    /// publishes nothing this scene's `body` reads, so observing it would put
+    /// `ContentView` back on an update path for a value nothing here shows. The
+    /// `@main` App is created once, so a `let` is a stable instance — and it has to
+    /// be, because the model owns the serial write chain that keeps two captures of
+    /// one file from each dedup'ing against the state before the other.
+    ///
+    /// **A reader of the user's files and a writer only of its own store**, like
+    /// the symbol index and the `.editorconfig` cache: it never raises
+    /// `autosave.suspend()` / `localChanges.beginRevert()` and is never gated by
+    /// them. What it takes from the six gated operations is *timing* alone — each
+    /// awaits `captureBeforeOperation` as the first `await` inside its bracket, so
+    /// every byte stored is pre-operation by construction.
+    ///
+    /// Composed the way the LSP and LeetCode stacks are: the app supplies the
+    /// concrete `FileService` and the base directory, and every decision above them
+    /// (identity, policy, retention, ordering) is Core's and is unit-tested against
+    /// a `StubFileTree`.
+    private let localHistory: LocalHistoryModel
+
     /// The Sparkle updater behind the "Check for Updates…" item in the app menu.
     ///
     /// A plain stored reference for the `commitDialog`/`leetCode` reason: the
@@ -411,6 +435,17 @@ struct PisakaApp: App {
         // `LeetCodeModel.init`, to decide whether to show "signed in" before the
         // launch-time confirmation lands.
         self.leetCode = PisakaApp.makeLeetCode(settings: settings)
+
+        // Local History, composed once. Building one touches no disk at all: the
+        // layout is pure path math and the store `ensureDirectory`s only in front
+        // of its first write, so a run in which nothing is ever saved creates
+        // nothing under Application Support.
+        self.localHistory = LocalHistoryModel(base: LocalHistorySupportDirectory.storeBase, fileService: FileService())
+        // The window's reader, over the *same* store value the capture side
+        // writes through — not a second one built from the same base. Building it
+        // touches no disk either: it lists a file's revisions when a window is
+        // first pointed at one, and never before.
+        self.localHistoryBrowser = LocalHistoryBrowserModel(store: self.localHistory.store)
 
         // The whole of D16's wiring, now with **three** registry contributors:
         // whenever any set of installed servers changes, the workspace is handed one
@@ -703,6 +738,26 @@ struct PisakaApp: App {
     /// from the same `willTerminateNotification` observer.
     private let leetCodeBrowserWindows = LeetCodeBrowserWindowController()
 
+    /// Owns the single, non-modal Local History window (⌘⇧H). A plain stored
+    /// reference like `projectSearchWindows`/`leetCodeBrowserWindows`, and
+    /// `closeAll()` is invoked from the same `willTerminateNotification` observer.
+    private let localHistoryWindows = LocalHistoryWindowController()
+
+    /// The Local History window's own state: which file it is showing, that
+    /// file's revisions, the selection and the diff.
+    ///
+    /// A **companion** to `localHistory` rather than part of it, the way
+    /// `LeetCodeBrowserModel` is a companion to `LeetCodeModel`: it is handed the
+    /// very same `LocalHistoryStore` value — one store, one layout, one policy,
+    /// however many readers — and it captures nothing, prunes nothing and writes
+    /// nothing. Held here for the app's lifetime because the window is a single
+    /// retargeted one, so its rows and selection have to outlive a close.
+    ///
+    /// A plain stored `let` for the `localHistory`/`commitDialog` reason: it
+    /// publishes plenty, but nothing this scene's `body` reads — the only view
+    /// that observes it is `LocalHistoryView`, inside its own window.
+    private let localHistoryBrowser: LocalHistoryBrowserModel
+
     /// Owns the separate, non-modal read-only source viewer windows a Go to
     /// Definition opens when the declaration lives *outside* the opened folder — an
     /// SDK interface, a dependency checkout (D3). A plain stored reference and a
@@ -813,6 +868,7 @@ struct PisakaApp: App {
                 onDelete: { deleteItem(at: $0) },
                 onRun: { runFile(url: $0) },
                 onRunTest: { testFile(url: $0) },
+                onShowLocalHistory: { showLocalHistory(for: $0) },
                 isCommitDialogPresented: $isCommitDialogPresented,
                 onOpenCommitDialog: { openCommitDialog() },
                 onCommitFile: { file in openCommitDialog(preselectingPath: file.path) },
@@ -895,13 +951,30 @@ struct PisakaApp: App {
                 // transform rewrote through the model fired no change
                 // notification, so it is resynced through the same funnel every
                 // other off-screen rewrite uses.
+                //
+                // `isTerminating` splits the callback in two. Everything that
+                // exists to keep *this session's UI* honest — the Local Changes
+                // re-query, the tree bump, the `.editorconfig` cache drop — runs
+                // only when the session continues; on the way out there is no panel,
+                // no tree and no next question. The Local History capture runs on
+                // both, because the last save before a quit is precisely the edit a
+                // safety net is for — synchronously there, since the process exits
+                // when this observer returns and a `Task` hop is not guaranteed to
+                // run at all.
                 saveTransform.start(model: model, editorConfig: editorConfig, onBufferReplaced: { id, url in
                     reindexReloadedBuffer(id: id, url: url)
                 })
                 autosave.start(
                     model: model,
                     prepareForSave: saveTransform.prepareForAutosave(ids:abandoningBuffers:),
-                    onSaved: { saved, createdFile in
+                    onSaved: { saved, createdFile, isTerminating in
+                        let texts = savedBufferTexts(for: saved)
+                        let root = model.projectRoot
+                        guard !isTerminating else {
+                            localHistory.captureSavesSynchronously(urls: saved, root: root, texts: texts)
+                            return
+                        }
+                        localHistory.captureSaves(urls: saved, root: root, texts: texts)
                         refreshLocalChanges()
                         if createdFile { model.bumpTreeRevision() }
                         // An autosaved `.editorconfig` is a self-write the watcher
@@ -989,6 +1062,7 @@ struct PisakaApp: App {
                         mergeWindows.closeAll()
                         projectSearchWindows.closeAll()
                         leetCodeBrowserWindows.closeAll()
+                        localHistoryWindows.closeAll()
                         sourceViewers.closeAll()
                         // And every language server, for the terminal sessions'
                         // reason: a `sourcekit-lsp` left behind is an orphan process
@@ -1085,6 +1159,20 @@ struct PisakaApp: App {
                 Button("Close") { closeSelected() }
                     .keyboardShortcut("w", modifiers: .command)
                     .disabled(model.selectedID == nil)
+
+                Divider()
+
+                // Local History for the selected tab. Disabled without a
+                // *titled* one, which is stricter than every other item in this
+                // group on purpose: an untitled buffer belongs to no path, and
+                // this feature's first skip rule is "no url" — an enabled item
+                // that opened an empty window would say the file has no history
+                // when what is true is that it has no file.
+                Button("Local History…") {
+                    if let url = localHistoryTargetURL { showLocalHistory(for: url) }
+                }
+                .keyboardShortcut("h", modifiers: [.command, .shift])
+                .disabled(localHistoryTargetURL == nil)
             }
 
             CommandGroup(after: .pasteboard) {
@@ -1961,6 +2049,33 @@ struct PisakaApp: App {
         let symbolRequest = symbolIndex.prepareForFolderChange(root: url)
         Task { await symbolIndex.rebuild(root: url, request: symbolRequest) }
 
+        // Apply Local History's retention to the whole store, once per open —
+        // which the launch-time session restore reaches through this same
+        // function, so a relaunch prunes exactly as a user-driven open does.
+        //
+        // Capture already prunes the one file it just wrote; this is the only
+        // thing that reclaims the history of files nobody has touched since their
+        // revisions aged out, and without it a project abandoned for a month would
+        // keep every snapshot forever. It sweeps *every* project area rather than
+        // this one, which is why it takes no root: a project reclaimed only when
+        // it is reopened is a project never reclaimed. Fire-and-forget on the
+        // model's own chain and off the main actor, so nothing *here* waits on
+        // it, and a folder switch in the gap costs at most one sweep that had to
+        // happen anyway.
+        //
+        // It does sit on the same chain as the captures, which is deliberate and
+        // has one stated cost: a gated operation started while the sweep is still
+        // running waits for it, because `captureBeforeOperation` is awaited and
+        // the chain is serial (see there). Retention deletes names retention has
+        // already condemned, but it deletes them *between* another capture's
+        // list-decide-write, so a lane of its own would trade a bounded wait for
+        // a dedup that reads a directory another unit is mutating.
+        //
+        // No generation token, deliberately — unlike every collaborator above,
+        // this publishes nothing and reads nothing anyone displays, so there is no
+        // superseded state it could write over.
+        localHistory.pruneStore()
+
         // Register the switch with the LSP workspace in this same turn, for the same
         // reason and with the sharpest consequence of the three: a language server is
         // *initialized for one root*, so an answer from the previous project's server
@@ -2182,6 +2297,18 @@ struct PisakaApp: App {
         // `localChanges.isReverting`.
         autosave.suspend()
         localChanges.beginRevert()
+        // Pre-empting a formatting `pre-commit` hook, which is the one way a
+        // commit rewrites the working tree — the same fact the snapshot above
+        // exists for, and the reason the resync below is not enough on its own:
+        // the resync can put the hook's text into the tab, but the *pre-hook* text
+        // is then gone from everywhere. Inputs collected in the synchronous
+        // stretch, and this is the first `await` in the body, ahead of the commit's
+        // own — so what it stores is pre-operation by construction.
+        await captureBeforeOperation(
+            .commit,
+            buffers: openBufferTexts(),
+            targets: changedFileURLs(localChanges.changedFiles, root: repoRoot)
+        )
         let outcome = await commitDialog.commit(originGeneration: originGeneration)
         // Git op done: lower the disk-writer gates *before* any modal, the
         // `runBranchOperation` rule and for its reason. `PlatformAlert
@@ -2317,6 +2444,153 @@ struct PisakaApp: App {
         var isDirectory: ObjCBool = false
         let exists = FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory)
         return exists && isDirectory.boolValue
+    }
+
+    // MARK: - Local History
+
+    /// Open the Local History window on `url`, or retarget the one already open.
+    ///
+    /// Both entry points come here — **File ▸ Local History…** (⌘⇧H, on the
+    /// selected tab) and a project-tree file row's "Local History" item — because
+    /// there is one window and one browser model behind it, so a second open path
+    /// would be a second way to leave the two disagreeing about which file is
+    /// being shown.
+    ///
+    /// The listing is started *before* the window is shown, which costs nothing
+    /// (it is one directory read on a background queue) and means a window that
+    /// was already open never shows the previous file's revisions for a frame.
+    /// A file outside the project root — or no root at all — leaves the model
+    /// empty and the window says so: the store is keyed by a path under the root,
+    /// so there is nothing to list, and that is a fact about the file rather than
+    /// a failure to report.
+    private func showLocalHistory(for url: URL) {
+        localHistoryBrowser.open(file: url, root: model.projectRoot)
+        let content = LocalHistoryView(
+            browser: localHistoryBrowser,
+            settings: settings,
+            currentText: { [self] in currentTextForLocalHistory(of: url) },
+            onRestore: { [self] plan in restoreFromLocalHistory(plan) }
+        )
+        localHistoryWindows.show(title: "Local History — \(url.lastPathComponent)", content: content)
+    }
+
+    /// What the file `url` names holds *right now* — the "new" side of the
+    /// window's diff and the text a restore displaces.
+    ///
+    /// **The buffer wins when a tab holds the file**, and that is the whole point
+    /// of asking at call time rather than reading disk once: a dirty tab holds
+    /// text that exists nowhere else, and diffing a revision against the stale
+    /// disk copy would show the user changes they already made. With no tab on
+    /// it, the disk copy is what the file is.
+    ///
+    /// The disk read goes through `readTextIfNotBinary` under the same 1 MiB
+    /// ceiling the capture side uses, so the window cannot be made to load a
+    /// gigabyte of binary into a diff; an unreadable, oversized or binary file
+    /// answers the empty string, which diffs as "everything in this revision was
+    /// added" rather than as an error — the feature has no error state.
+    private func currentTextForLocalHistory(of url: URL) -> String {
+        if let id = model.fileID(forURL: url), let text = model.text(for: id) { return text }
+        let disk = try? fileService.readTextIfNotBinary(
+            url: url,
+            maxBytes: ProjectSearchModel.defaultMaxFileBytes
+        )
+        return disk ?? ""
+    }
+
+    /// Carry out the restore `LocalHistoryBrowserModel` planned: open a tab if
+    /// none holds the file, snapshot what the buffer holds now, then replace it.
+    ///
+    /// **Three steps, in this order, and the order is the design.**
+    ///
+    /// 1. The tab. A restore is a *buffer* edit — Local History never writes the
+    ///    worktree — so a file with no tab open has nothing to edit; `model.open`
+    ///    re-selects an existing tab rather than duplicating it, so this is also
+    ///    the right call when one is already there. A file that cannot be read
+    ///    beeps and stops: there is nothing to restore *into*.
+    /// 2. The capture, under `.restore`, of the text the replacement is about to
+    ///    displace — so a restore is itself reversible from history as well as by
+    ///    one ⌘Z. It is read back off the buffer **after** the open, not taken
+    ///    from the plan: the plan's `captureText` is what the *window* was
+    ///    showing, which for a file with no tab is a `readTextIfNotBinary` read
+    ///    under a 1 MiB ceiling and therefore the empty string for a file that
+    ///    has since grown past it — while `model.open` has no ceiling and loads
+    ///    the whole thing. Storing the plan's answer would file an empty
+    ///    `Before Restore` revision for a buffer holding a megabyte of text, which
+    ///    is the one place in this feature a capture could *lose* what it exists
+    ///    to keep. `applyRestore` displaces `model.text(for:)`, so that is the
+    ///    text this snapshots.
+    /// 3. The replacement, through `SaveTransformController` — the one place in
+    ///    this app that rewrites a buffer through the live text view, so the
+    ///    restore is a single undoable step with a single change notification and
+    ///    every reader sees an ordinary edit.
+    ///
+    /// The tab is left **dirty**: the ordinary save funnel puts the restored text
+    /// on disk when the user saves or the autosave fires, which is what keeps this
+    /// feature a reader that takes no writer gate.
+    ///
+    /// **Step 0 is the project check, and it is what makes the window's survival
+    /// of a folder switch safe.** The window is deliberately long-lived — it is
+    /// retargeted, not recreated, and `LocalHistoryView` says outright that it
+    /// outlives a folder switch, which costs nothing while everything it does is
+    /// read-only: the diff asks `currentText` at the moment it needs it. Restore
+    /// is the one thing in it that is *not* read-only, and a plan made under the
+    /// previous root names a file that is no longer in the project. Carrying it
+    /// out would put that file into `WorkspaceModel` through `model.open` — the
+    /// exact hazard `viewDefinitionOutsideProject` exists to avoid, since the
+    /// autosave, the session snapshot and ⌘S all then apply to a file outside the
+    /// opened folder — and would file the `.restore` capture under `plan.root`
+    /// while every later save of that buffer keys to nothing, so the restore
+    /// would be the one edit in the file with no history behind it. So it beeps
+    /// and stops, like the two refusals below. `isCurrentProjectRoot` is the
+    /// model's own canonical comparison, which is the rule for "same folder?"
+    /// everywhere else in this file.
+    private func restoreFromLocalHistory(_ plan: LocalHistoryRestore) {
+        guard model.isCurrentProjectRoot(plan.root) else {
+            PlatformFeedback.warning()
+            return
+        }
+        guard let file = try? model.open(url: plan.fileURL) else {
+            PlatformFeedback.warning()
+            return
+        }
+        let displaced = model.text(for: file.id) ?? plan.captureText
+        // **A restore that cannot be captured does not happen.** Step 2 is what
+        // makes a restore reversible, and the policy can refuse it — a file that
+        // had history when it was small and has since grown past
+        // `maxContentBytes` is captured by nothing, while `model.open` above has
+        // no ceiling and loaded the whole of it. Going ahead there would replace
+        // megabytes the store is about to decline to hold, leaving one ⌘Z as the
+        // only copy — the feature destroying exactly what it exists to keep. It
+        // is also the case the window renders least honestly: the same ceiling
+        // makes `currentTextForLocalHistory` answer the empty string, so the diff
+        // showed the revision as wholly added. So it beeps and stops, like the
+        // unreadable file above. `latestHash: nil` asks the one question that
+        // matters here — *may* these bytes be stored — rather than whether they
+        // would be deduplicated, which is a skip that loses nothing.
+        guard localHistory.store.policy.capture(
+            of: displaced,
+            relativePath: plan.relativePath,
+            latestHash: nil
+        ).hash != nil else {
+            PlatformFeedback.warning()
+            return
+        }
+        localHistory.captureBuffers(
+            event: LocalHistoryRestore.event,
+            urls: [plan.fileURL],
+            root: plan.root,
+            texts: [plan.fileURL: displaced]
+        )
+        saveTransform.applyRestore(plan.text, to: file.id)
+    }
+
+    /// The selected tab's url, or `nil` — what **File ▸ Local History…** acts on,
+    /// and what disables it.
+    ///
+    /// An untitled buffer has no path, so it has no history and can have none:
+    /// every skip rule in this feature starts with "no url".
+    private var localHistoryTargetURL: URL? {
+        model.openFiles.first { $0.id == model.selectedID }?.url
     }
 
     // MARK: - Find in Files
@@ -2472,6 +2746,16 @@ struct PisakaApp: App {
         let textsBeforeBatch = Dictionary(
             uniqueKeysWithValues: model.openFiles.map { ($0.id, $0.text) }
         )
+        // Pre-empting the batch's own read-modify-write of every matched file —
+        // the one worktree writer here that is not git, and the one whose result
+        // no `git checkout` can undo. The targets are the results already in hand
+        // (`ProjectSearchModel.results`), so this adds no second traversal. First
+        // `await` in the body, ahead of the batch's own.
+        await captureBeforeOperation(
+            .replace,
+            buffers: openBufferTexts(),
+            targets: projectSearch.results.map(\.fileURL)
+        )
         let summary = await projectSearch.replaceAll(
             template: template,
             originGeneration: originGeneration
@@ -2549,6 +2833,14 @@ struct PisakaApp: App {
                 return saveAs(id: id, abandoningBuffer: abandoningBuffer)
             }
             if recreatesFile { model.bumpTreeRevision() }
+            // Local History's first save site (⌘S, the close prompt's Save, the
+            // run/test pre-run saves — everything funnels through here). *After*
+            // the write, deliberately: the bytes worth keeping are the ones that
+            // reached disk, and a write that threw leaves the `catch` below with
+            // nothing to store.
+            if let file = model.openFiles.first(where: { $0.id == id }), let url = file.url {
+                localHistory.captureSaves(urls: [url], root: model.projectRoot, texts: [url: file.text])
+            }
             noteEditorConfigWrites([model.openFiles.first { $0.id == id }?.url].compactMap { $0 })
             refreshLocalChanges()
             return true
@@ -2587,6 +2879,13 @@ struct PisakaApp: App {
             // not change, so gating on containment would add a path check for no
             // benefit.
             model.bumpTreeRevision()
+            // Local History's second save site. Only now is there a url to key the
+            // buffer under — an untitled buffer belongs to no file and is skipped
+            // everywhere else in this feature — so this is where a Save As first
+            // enters history, under the destination it just took.
+            if let text = model.text(for: id) {
+                localHistory.captureSaves(urls: [url], root: model.projectRoot, texts: [url: text])
+            }
             // The buffer was untitled until now, so nothing has ever indexed it
             // under this path; the refresh picks the written file up from disk.
             notifyIndexOfProjectFileChanges()
@@ -2671,6 +2970,11 @@ struct PisakaApp: App {
         let preRevertText = Dictionary(
             uniqueKeysWithValues: model.openFiles.map { ($0.id, $0.text) }
         )
+        // The two Local History inputs, collected in the same synchronous stretch
+        // as `preRevertText` above and for the same reason — the revert hops off
+        // the main actor and the editor stays live behind it.
+        let revertBuffers = openBufferTexts()
+        let revertTargets = changedFileURLs(files, root: localChanges.root ?? model.projectRoot)
         Task { @MainActor in
             // Resume autosave and lower the revert gate when the whole revert +
             // resync finishes, on every path (origin-generation mismatch, empty
@@ -2679,6 +2983,11 @@ struct PisakaApp: App {
                 autosave.resume()
                 localChanges.endRevert()
             }
+            // Pre-empting the discard itself. This is the operation whose whole
+            // purpose is to destroy text, so it is the one a safety net most owes
+            // an escape hatch: after this, the reverted content exists only in the
+            // store. First `await` in the body, ahead of the revert's own.
+            await captureBeforeOperation(.revert, buffers: revertBuffers, targets: revertTargets)
             let reverted = await localChanges.revert(files, originGeneration: originGeneration)
             // A revert changes tree membership (an added/untracked file is deleted, a
             // deleted one restored), so refresh the tree. The watcher does not cover
@@ -2838,7 +3147,18 @@ struct PisakaApp: App {
         // only tabs under it). Same rationale as `runBranchOperation`.
         let origin = branchSwitcher.currentRefreshGeneration
         let repoRoot = branchSwitcher.root
+        // Local History's inputs, in the same synchronous stretch as `snapshot`.
+        let branchBuffers = openBufferTexts()
+        let branchTargets = changedFileURLs(localChanges.changedFiles, root: repoRoot)
         Task { @MainActor in
+            // Pre-empting the checkout a create-and-switch performs: a branch
+            // change rewrites every file that differs between the two branches,
+            // and an uncommitted edit that the checkout carries over — or refuses
+            // over — is exactly what the user is least able to reconstruct. First
+            // `await` in the body, ahead of the create's own. Its own call site,
+            // not `runBranchOperation`'s: two separate functions, two separate
+            // brackets, one shared `.branch` label.
+            await captureBeforeOperation(.branch, buffers: branchBuffers, targets: branchTargets)
             let outcome = await branchSwitcher.createBranch(
                 name: name,
                 from: startPoint,
@@ -2899,7 +3219,15 @@ struct PisakaApp: App {
         // pointing at an unrelated repo/folder must not be reloaded or closed by this
         // repo's branch change.
         let repoRoot = branchSwitcher.root
+        // Local History's inputs, in the same synchronous stretch as `snapshot`.
+        let branchBuffers = openBufferTexts()
+        let branchTargets = changedFileURLs(localChanges.changedFiles, root: repoRoot)
         Task { @MainActor in
+            // Pre-empting the checkout `op` is about to run — the shared body
+            // behind branch *switch* and *checkout-remote*, both of which rewrite
+            // the working tree wholesale. First `await` in the body, ahead of the
+            // operation's own.
+            await captureBeforeOperation(.branch, buffers: branchBuffers, targets: branchTargets)
             let ok = await op()
             // Git op done: lower the disk-writer gates before any modal so a quit during
             // an error alert still flushes other dirty files (see `createBranch`).
@@ -2935,6 +3263,73 @@ struct PisakaApp: App {
                 ($0.id, ($0.text, model.isDirty(for: $0.id)))
             }
         )
+    }
+
+    /// Every open **titled** tab's buffer text, keyed by url — the "always added"
+    /// half of every pre-operation Local History capture, collected synchronously
+    /// in the same stretch as `openTabSnapshot()` and for the same reason.
+    ///
+    /// Buffers rather than disk copies because a buffer is what the user would
+    /// lose: a dirty tab holds text that exists nowhere else, and a clean one
+    /// holds exactly what disk holds, so reading it back would only cost a syscall
+    /// and a race with the next keystroke. `LocalHistoryModel` also uses this set
+    /// to *exclude* those files from the disk-read pass, so one operation never
+    /// leaves two same-labelled snapshots of one file.
+    ///
+    /// Two tabs may legitimately show one file (opened once by path, once through
+    /// a symlink); the last one wins, which is the same arbitrary-but-harmless
+    /// choice the dedup would make one step later.
+    private func openBufferTexts() -> [URL: String] {
+        var texts: [URL: String] = [:]
+        for file in model.openFiles {
+            guard let url = file.url else { continue }
+            texts[url] = file.text
+        }
+        return texts
+    }
+
+    /// The buffer text of each url in `urls`, for the three save sites' capture.
+    ///
+    /// A save reports *urls*, and the text that belongs in history is the one the
+    /// app just wrote — post-`SaveTransform`, since that funnel runs before every
+    /// write on every path — so it is read out of the buffer here rather than back
+    /// off disk, where the next keystroke could already have overtaken it.
+    private func savedBufferTexts(for urls: [URL]) -> [URL: String] {
+        let wanted = Set(urls)
+        return openBufferTexts().filter { wanted.contains($0.key) }
+    }
+
+    /// The one spelling of a pre-operation capture, so the six bracket sites each
+    /// read as a single line naming what they are pre-empting rather than as four
+    /// repetitions of the same two boilerplate arguments.
+    ///
+    /// It adds no decision of its own: the root is always the project's, because
+    /// that is the only thing the store keys by, and a target outside it is
+    /// dropped by `LocalHistoryModel`, not here. Being `async` is the whole point
+    /// — every caller `await`s it as the first `await` inside its bracket, which
+    /// is what makes what it stores pre-operation by construction.
+    private func captureBeforeOperation(
+        _ event: LocalHistoryEvent,
+        buffers: [URL: String],
+        targets: [URL]
+    ) async {
+        await localHistory.captureBeforeOperation(
+            event: event,
+            root: model.projectRoot,
+            bufferTexts: buffers,
+            diskTargets: targets
+        )
+    }
+
+    /// The worktree urls of `files`, resolved against the repository `root` — the
+    /// disk-read half of a pre-operation capture, and no new git call: these are
+    /// the rows Local Changes already holds.
+    ///
+    /// A url that is not under the *project* root is dropped by
+    /// `LocalHistoryModel` rather than here, so this stays one path join.
+    private func changedFileURLs(_ files: [ChangedFile], root: URL?) -> [URL] {
+        guard let root else { return [] }
+        return files.map { root.appendingPathComponent($0.path) }
     }
 
     /// After a successful checkout/create the working tree may have changed under
@@ -3113,6 +3508,12 @@ struct PisakaApp: App {
             autosave.resume()
             localChanges.endRevert()
         }
+        // Pre-empting the resolved write: `MergeModel.apply()` replaces the
+        // conflicted file with the resolution, so the conflict markers — and any
+        // hand-editing done inside them — are gone from disk and from the tab the
+        // moment it succeeds. One target, the file being resolved. First `await`
+        // in the body, ahead of the apply's own.
+        await captureBeforeOperation(.merge, buffers: openBufferTexts(), targets: [resolvedURL])
         let applied = await mergeModel.apply()
         guard applied else { return false }
         refreshLocalChanges()

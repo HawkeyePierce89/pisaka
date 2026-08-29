@@ -37,6 +37,10 @@ do — is in [`docs/FEATURES.md`](docs/FEATURES.md).
 - **Autosave & sessions** — automatic saving (idle, tab switch, focus loss,
   quit) and per-project session restore, including hot exit for "Untitled"
   buffers.
+- **Local History** — every save, and every file one of the app's git
+  operations is about to overwrite, is snapshotted locally; browse a file's
+  revisions, diff them against what it holds now and restore one
+  (Cmd+Shift+H). 14 days or 30 revisions per file, independent of git.
 - **EditorConfig** — a project's `.editorconfig` drives auto-indent and the
   Tab key, and applies `trim_trailing_whitespace`, `insert_final_newline`
   and `end_of_line` on save.
@@ -106,6 +110,7 @@ server fetching JSON schemas while it runs.
 | Cmd+Shift+T | Show/Hide the terminal panel               |
 | Cmd+Shift+C | Show/Hide the Local Changes panel          |
 | Cmd+Shift+M | Show/Hide the Problems panel               |
+| Cmd+Shift+H | Local History for the active file          |
 | Cmd+,       | Preferences                                |
 | Cmd+= / Cmd+− / Cmd+0 | Zoom in / out / reset the zone under the pointer |
 | Esc         | Close the search bar or the focused auxiliary window |

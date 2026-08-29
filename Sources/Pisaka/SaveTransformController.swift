@@ -96,13 +96,24 @@ protocol SaveTransformEditor: AnyObject {
 /// own choosing rather than because the user did anything, deliberately does
 /// **not** take this path (`prepareForAutosave`).
 ///
-/// **Only a save calls this.** Not open, not close, not a tab switch on its own,
-/// not an `.editorconfig` change, and not the worktree writers (project-wide
-/// Replace All, every git operation), which keep writing exactly the bytes they
-/// write today. The call sites are `PisakaApp.save(id:)` (⌘S, the close prompt's
-/// Save, and the run/test pre-run saves, which all funnel through it),
-/// `PisakaApp.saveAs(id:)` once the destination is known, and
-/// `AutosaveController`'s regular triggers and both flush paths.
+/// **A save is what *decides* a rewrite here, and it is no longer the only thing
+/// that *performs* one.** No transform is computed for anything but a save: not
+/// open, not close, not a tab switch on its own, not an `.editorconfig` change,
+/// and not the worktree writers (project-wide Replace All, every git operation),
+/// which keep writing exactly the bytes they write today. The transform's call
+/// sites are `PisakaApp.save(id:)` (⌘S, the close prompt's Save, and the run/test
+/// pre-run saves, which all funnel through it), `PisakaApp.saveAs(id:)` once the
+/// destination is known, and `AutosaveController`'s regular triggers and both
+/// flush paths.
+///
+/// The through-the-view bracket below is a second thing, and it is shared:
+/// `applyRestore(_:to:)` hands Local History's restore the very same
+/// `shouldChangeText` / `beginEditing`…`endEditing` / `didChangeText` path, so a
+/// restored revision is one undoable step with one change notification, exactly
+/// as a save transform is. It is *not* a save — it computes no plan from an
+/// `.editorconfig`, writes no disk, and leaves the tab dirty for the ordinary
+/// save funnel to settle — and it lives here rather than in the window because
+/// copying that AppKit bracket into a second file is how the two would drift.
 @MainActor
 final class SaveTransformController {
 
@@ -267,6 +278,71 @@ final class SaveTransformController {
     func prepareForSaveAs(id: UUID, destination: URL, protectingCaret: Bool = true) {
         guard let model else { return }
         prepare(id: id, configuredBy: destination, resyncing: nil, in: model, protectingCaret: protectingCaret)
+    }
+
+    // MARK: - Restore
+
+    /// Replace the buffer `id` holds with `text` — Local History's restore, and
+    /// the one caller of this class that is not a save.
+    ///
+    /// **A buffer edit, never a disk write.** Local History is a reader of the
+    /// user's files: it takes no writer gate, is not gated by one, and its only
+    /// writes land in its own store. So a restore does exactly what typing the
+    /// old revision back in would do — it replaces the text and leaves the tab
+    /// dirty — and the ordinary save funnel puts it on disk when the user (or the
+    /// autosave) says so. That is also what makes it undoable: through the view
+    /// it is a single coalesced step, so one ⌘Z brings the pre-restore buffer
+    /// back.
+    ///
+    /// The plan is built here rather than by `SaveTransform`, because there is
+    /// nothing to decide: one replacement covering the whole buffer, whose text
+    /// *is* the revision. Going through `SaveTransformPlan` anyway is what buys
+    /// the position remap for free — the caret, every selection endpoint and the
+    /// scroll anchor are moved by the same three rules a save uses, which for a
+    /// whole-buffer replacement clamps each of them into the new text instead of
+    /// leaving an offset past its end.
+    ///
+    /// The two application paths and their costs are the class's, unchanged: the
+    /// view when it holds this buffer and agrees with the model, and
+    /// `WorkspaceModel.replaceText(_:for:)` otherwise — which is the *usual* path
+    /// here rather than the exception, because restoring a file with no open tab
+    /// opens one first and SwiftUI has not yet built its editor when this runs.
+    /// It costs that fresh tab an undo stack it never had.
+    ///
+    /// A restore whose text the buffer already holds does nothing at all. The
+    /// browser model refuses that case before it ever becomes a plan
+    /// (`LocalHistoryBrowserModel.restore(currentText:)`); it is re-checked here
+    /// because this method is reachable with any text, and rewriting a buffer
+    /// with itself would dirty a clean tab for no change. Compared as `NSString`
+    /// for `prepare`'s reason: canonical equivalence would call a decomposed and
+    /// a precomposed spelling equal and skip a restore that does change bytes.
+    ///
+    /// `owedTrims` is deliberately left alone: what a save owes is recomputed by
+    /// the next save from the buffer as it then stands, and this is not a save.
+    func applyRestore(_ text: String, to id: UUID) {
+        guard let model, let current = model.text(for: id) else { return }
+        let currentString = current as NSString
+        guard !currentString.isEqual(to: text) else { return }
+        let plan = SaveTransformPlan(
+            replacements: [
+                IndentReplacement(
+                    range: NSRange(location: 0, length: currentString.length),
+                    replacement: text
+                ),
+            ],
+            text: text
+        )
+        let displayed = liveTextView(for: id)
+        let live = (displayed?.string as NSString?)?.isEqual(to: current) == true ? displayed : nil
+        if let live, apply(plan, in: live) { return }
+        model.replaceText(text, for: id)
+        // The model path fires no change notification, so the readers that track
+        // this buffer are told the way every other off-screen rewrite tells them.
+        // See `onBufferReplaced` — and note a restore always has a url, since the
+        // store is keyed by one.
+        if let url = model.openFiles.first(where: { $0.id == id })?.url {
+            onBufferReplaced?(id, url)
+        }
     }
 
     // MARK: - Internals

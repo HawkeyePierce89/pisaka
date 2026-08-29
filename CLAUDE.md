@@ -221,6 +221,14 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
 - `LicenseNotice.swift` — license manifest model + `LicenseCatalog`; the coverage invariant lives in the same doc.
 - `PisakaCore.swift` — package constants/version.
 
+`docs/architecture/core-local-history.md` — Local History (Core + app halves, macOS only):
+- `LocalHistorySnapshot.swift` — the event vocabulary (the tag is on-disk) + the revision row; newest-first ordering.
+- `LocalHistoryLayout.swift` — pure path math over the store base + the snapshot-name codec (the name *is* the metadata).
+- `LocalHistoryPolicy.swift` — the skip precedence and the three retention rules; the four stated ceilings.
+- `LocalHistoryStore.swift` — the one `FileServicing` half: list/read/capture/prune, synchronous and `nonisolated`.
+- `LocalHistoryModel.swift` — the capture side: the serial write chain, the three save sites, the awaited pre-operation capture, the store sweep.
+- `LocalHistoryBrowserModel.swift` — the window's reader companion (one generation token) + `LocalHistoryRestore`, the restore plan.
+
 `docs/architecture/core-zoom.md` — the three macOS zoom zones (Core + app halves):
 - `ZoomZone.swift` — zone/surface vocabulary; the deepest-candidate pointer rule.
 - `ZoomScaleRule.swift` — the one clamp/step/reset arithmetic; the three rules' numbers.
@@ -279,6 +287,11 @@ in `Sources/Pisaka/Platform/` bridges per-platform APIs. Untested by convention.
 - `LeetCodeJudgeView.swift` / `iOS/LeetCodeJudgeView_iOS.swift` — the judge section under the statement.
 - `LeetCodeBrowserWindowController.swift` / `LeetCodeBrowserView.swift` — the single macOS browser window (⌘⇧B).
 - `iOS/LeetCodeBrowserView_iOS.swift` — the pushed iOS browser screen.
+
+`docs/architecture/core-local-history.md` — the Local History app surfaces (same doc as the Core half):
+- `LocalHistorySupportDirectory.swift` — `…/Application Support/Pisaka/LocalHistory` (Support, not Caches).
+- `LocalHistoryWindowController.swift` — the one reusable, retargeted history window (⌘⇧H).
+- `LocalHistoryView.swift` — revisions list + `DiffView` + Restore; the empty state.
 
 `docs/architecture/core-zoom.md` — the zoom app surfaces (same doc as the Core half):
 - `ZoomSurface.swift` — the surface marker protocol/representable + the pointer walk.
@@ -403,6 +416,19 @@ ci.yml's `lint` job, and the version-bump procedure.
   `openProblem`, so there is no second create path. All schema knowledge is in
   one Core file, every operation requires a login, and opening a problem never
   changes the project root (`core-leetcode.md`).
+- **Local History is a reader with a store of its own** (macOS only): it snapshots
+  every buffer the app writes and, under a label, every file the **six** gated
+  operations are about to overwrite, into
+  `…/Application Support/Pisaka/LocalHistory` — outside the project, keyed by
+  (root, project-relative path), the file *name* carrying timestamp/event/hash so
+  a listing is one directory read. It never takes the writer gate and is never
+  gated by it; its **restore is a buffer edit** through `SaveTransformController`,
+  not a disk write, so the ordinary save funnel settles it. Each pre-operation
+  capture is the **first `await` inside the operation's bracket**, which is what
+  makes it pre-operation by construction, and the **quit flush is the one place it
+  writes on the main thread** (a `Task` hop is not guaranteed to run before the
+  process exits). Every skip and every failure is silent; retention is 14 days /
+  30 revisions with the newest always surviving (`core-local-history.md`).
 - **Zoom is three zones, one arithmetic, one pointer rule** (macOS only): `code`
   — which *is* `SettingsStore.fontSize`, never a second setting — `terminal` and
   `interface` each clamp/step/reset through one `ZoomScaleRule`, and every
@@ -521,7 +547,10 @@ three by set equality), `BottomPanelSourceGatingTests` (the bottom dock panel's
 four view-layer rules; inventory in that suite's doc comments and
 `app-window.md`), `MainWindowFrameSourceGatingTests` (the main window's
 by-hand frame persistence: one persistence site, observers only after the
-final restore) and `LintConfigurationTests`
+final restore), `LocalHistorySourceGatingTests` (Local History's app-layer
+rules — capture sites, the autosave report, the one restore funnel, the reader
+rule; inventory in that suite's doc comments and `core-local-history.md`) and
+`LintConfigurationTests`
 (both `.swiftlint.yml` files — the version pin, `mandatory_comma`, the root and
 child disabled-rule sets by set equality, every measured threshold ceiling,
 every in-file disable counted by path/rule — plus `.githooks/pre-commit`'s gate

@@ -628,6 +628,39 @@ user sees it.
   the session, only its path — quitting flushes autosave first, so those edits are
   on disk before the session is written, and a crash loses at most one autosave
   window of typing.
+- **Local History (macOS)**: a safety net independent of git. Every time the app
+  writes a file — Cmd+S, any autosave, a Save As, the close prompt's Save, the
+  saves before Run and Test, and the flush on quit — it keeps a private copy of
+  what it wrote. It also takes a *labeled* copy of every file that is about to be
+  overwritten by one of the six operations that rewrite the working tree: a
+  commit (whose `pre-commit` hook may reformat), a project-wide Replace All, a
+  revert, a merge apply, a branch switch or checkout, and a branch create. Those
+  rows read "Before Revert", "Before Replace All" and so on, and they are taken
+  *before* the operation runs, so what they hold is the state you would otherwise
+  have lost — unless those exact bytes are already the newest revision, which an
+  autosave moments earlier has usually just made them: the copy is not taken
+  twice, and the state you would have lost is the one under the "Save" row above.
+  Open the history with **File ▸ Local History…** (Cmd+Shift+H) for the
+  active tab, or with the **"Local History"** item on a file's context menu in the
+  project tree. The window lists that file's revisions newest first, each with the
+  event that took it and both a relative ("2 hours ago") and an absolute
+  timestamp; selecting one shows a side-by-side diff of that revision against what
+  the file holds *now* — the open buffer if a tab has it, including unsaved edits,
+  and the file on disk otherwise. **Restore** puts the selected revision back into
+  the buffer as a single edit: one Cmd+Z undoes it, the tab is left unsaved so
+  nothing reaches disk until you save (or autosave does), and the text it replaced
+  is itself snapshotted first, so a restore is reversible from the history too. A
+  file the app has never written simply says "No history for this file yet." —
+  that is not an error. Nothing about this is configurable and there is nothing to
+  turn on. **Retention**: a revision is kept for **14 days**, each file keeps its
+  **30** most recent, and the newest revision of a file is never deleted no matter
+  how old it is. Identical content is not stored twice, so a save that changed
+  nothing adds no revision. Files larger than **1 MiB** and files that are not
+  text are skipped, silently, as are "Untitled" buffers and files outside the
+  open project — asking for the history of a file outside the project says "This
+  file is not in the open project, so it has no history." rather than showing an
+  empty window. There is one window, and opening history for another file
+  retargets it.
 - Closing a file with unsaved changes shows a Save / Don't Save / Cancel dialog.
 - Local Changes: a collapsible bottom panel (toggle with "Show/Hide Local
   Changes" in the View menu, the Changes button on the bottom bar, or
@@ -1009,6 +1042,49 @@ and iPhone. The feature scope landed so far:
   `README.md`). The update signing key is a single EdDSA
   pair — if it is ever lost, installed copies will reject every future update
   and can only be moved forward by downloading a new build by hand.
+- Local History is macOS-only, and it only ever sees **the app's own writes**.
+  Edits made by another application, a `git` command you run yourself (in the
+  embedded terminal or anywhere else), or any other change made outside Pisaka's
+  save funnel and its six worktree operations are not captured and leave no
+  revision — the folder watcher keeps the project tree current, it does not
+  snapshot. The store holds **copies of your file contents on the local disk**,
+  unencrypted, under `~/Library/Application Support/Pisaka/LocalHistory`; anything
+  a captured file contained — including a secret you removed afterwards — stays
+  there until retention reclaims it (14 days, or 30 revisions of that file) —
+  **except the newest revision of each file, which is never reclaimed at all**.
+  That is the same rule that makes the feature a safety net rather than a tidy
+  cache, and its price is that the last content Pisaka ever wrote for a given path
+  stays on disk indefinitely: retention takes every path it has ever captured down
+  to one revision and no further. Deleting that directory removes every revision
+  completely and breaks nothing else; it is the only thing that does. There is no
+  in-app "clear history" command, no export, and no setting for the retention
+  numbers. A pre-operation capture reads at most **200** files from
+  disk: in a working tree with more changed files than that, the extras are not
+  snapshotted (open tabs are never capped, and are always captured from the buffer
+  rather than from disk). Files over 1 MiB and non-text files are never captured —
+  and because a restore first snapshots what it is about to displace, **Restore
+  beeps and does nothing on a file whose current contents are past that ceiling**
+  (a file that had history while it was small and has since grown past it): its
+  revisions stay listed and readable, but the button will not replace megabytes
+  the safety net has just declined to hold.
+  The single-Cmd+Z guarantee applies to the tab you are **looking at**: restoring
+  into a file with no tab open (one is opened) or into an open background tab
+  costs that tab its undo history and its remembered scroll position, because the
+  editor has not moved to it yet when the restore runs. A file one of the six
+  operations *deleted* — a reverted untracked file, a file a branch switch removes
+  — can no longer be restored from its own "Before …" revision: the revision is
+  still listed, but Restore replaces a buffer and there is none, so it beeps;
+  re-create the file first. Two revisions of one file taken within the same
+  millisecond are listed in a stable but non-chronological order (by event name,
+  then content hash). Renaming, moving or deleting a file does **not**
+  carry its history along: the store is keyed by the file's path inside the
+  project, so a renamed or moved file starts an empty history and the revisions
+  taken under its old path stay in the store, no longer reachable from any
+  window; retention thins them to the newest one, which then stays for good like
+  every other newest revision. The window also does not refresh itself
+  — a revision taken while it is open (an autosave, an operation, or the copy
+  Restore makes of what it replaced) shows up only after you open the history
+  again.
 - Find/replace (per-file and project-wide) is macOS-only: iOS has neither the
   search bar nor the Find in Files window. There is no query history, no "replace
   in selection", and the project search reads tree `.gitignore` files only (not
