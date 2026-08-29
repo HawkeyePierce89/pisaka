@@ -263,32 +263,32 @@ Tests: new suites for each new Core file; updates to `BottomPanelTests`,
 - Modify: `Sources/PisakaCore/LocalHistorySnapshot.swift`,
   `Tests/PisakaCoreTests/LocalHistorySnapshotTests.swift`
 
-- [ ] Add `case rename` to `LocalHistoryEvent` with tag `rename` and title
+- [x] Add `case rename` to `LocalHistoryEvent` with tag `rename` and title
   `Before Rename`; the tag is on-disk data, so the round trip through
   `LocalHistoryLayout`'s name codec gets a test.
-- [ ] `RenameEditPlan.make(from:root:texts:)`: a `LSPWorkspaceEdit` plus the text
+- [x] `RenameEditPlan.make(from:root:texts:)`: a `LSPWorkspaceEdit` plus the text
   of each named file becomes an ordered list of per-file plans. Each file's edits
   are mapped to buffer ranges through `LSPPositionMap`, sorted ascending, and
   each carries `expectedText` — the text the range currently holds.
-- [ ] Refusals, each a named reason and each all-or-nothing: overlapping ranges
+- [x] Refusals, each a named reason and each all-or-nothing: overlapping ranges
   in one file; a file outside the project root (canonical comparison —
   `LSPWorkspace` and the servers disagree about `/private`, and `CanonicalPath`
   is the arbiter); a URI that is not a file URL; a range that cannot be mapped;
   a file whose text could not be read.
-- [ ] `verify(against:)`: given the current text of each file (the open buffer
+- [x] `verify(against:)`: given the current text of each file (the open buffer
   where one exists, the disk copy otherwise), every range must still hold its
   `expectedText`. Any mismatch answers with the offending file — the whole
   rename aborts, never a partial application.
-- [ ] `applied(to:)` per file: the resulting text, produced by applying the
+- [x] `applied(to:)` per file: the resulting text, produced by applying the
   ascending edits in reverse (the `SaveTransformPlan` shape), plus the remap
   needed to keep a caret sane in the displayed tab.
-- [ ] Write tests: construction from `changes` and from `documentChanges`
+- [x] Write tests: construction from `changes` and from `documentChanges`
   producing identical plans; overlap refusal; out-of-root refusal (including the
   `/private` spelling); multi-edit single-file ordering; verification success,
   verification failure naming the right file, and verification against a buffer
   that differs from disk; the applied text for a file with several edits and a
   CRLF line ending.
-- [ ] Run `swift test` — must pass before Task 6.
+- [x] Run `swift test` — must pass before Task 6.
 
 ### Task 6: Entry points and the usages panel (macOS)
 
