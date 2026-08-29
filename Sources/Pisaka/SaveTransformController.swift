@@ -332,20 +332,66 @@ final class SaveTransformController {
             ],
             text: text
         )
+        applyExternalRewrite(plan, to: id, in: model, current: current)
+    }
+
+    // MARK: - Rename
+
+    /// Rewrite the buffer `id` holds with a rename's per-file plan — the second
+    /// caller of this class that is not a save, and the second one that is a
+    /// buffer edit rather than a disk write.
+    ///
+    /// Only the *files no tab holds* are written to disk by the rename engine;
+    /// every open tab is rewritten here instead, because writing under an editor
+    /// would leave a tab showing text that is no longer what the file contains and
+    /// a dirty tab's own edits overwritten with no undo. The tab is left dirty and
+    /// the ordinary save funnel puts it on disk, exactly as a restore is.
+    ///
+    /// The plan is the engine's own (`RenameFilePlan.applied(to:)`), so nothing is
+    /// decided here: it is already ascending, non-overlapping and expressed against
+    /// the text this buffer is being asked to hold. Routing it through the same two
+    /// application paths is the whole point — the displayed tab gets one undoable
+    /// step with one change notification and a remapped caret, and every other tab
+    /// gets `WorkspaceModel.replaceText(_:for:)` and loses its undo stack, which is
+    /// the cost this feature states rather than hides.
+    ///
+    /// A buffer whose text the plan does not fit is left untouched: `apply` refuses
+    /// a mismatched plan and the model path would write the plan's text over a
+    /// buffer that moved. The caller has already verified the whole plan inside its
+    /// writer bracket, so this is the same belt-and-braces check `applyRestore`
+    /// makes — the buffer must still be what the plan was computed against.
+    func applyRename(_ plan: SaveTransformPlan, to id: UUID) {
+        guard let model, let current = model.text(for: id) else { return }
+        let currentString = current as NSString
+        guard !plan.replacements.isEmpty, !currentString.isEqual(to: plan.text) else { return }
+        applyExternalRewrite(plan, to: id, in: model, current: current)
+    }
+
+    // MARK: - Internals
+
+    /// The two application paths, shared by the restore and the rename: the live
+    /// text view when it is showing this buffer and agrees with the model, and
+    /// `WorkspaceModel.replaceText(_:for:)` otherwise.
+    ///
+    /// One body rather than two copies because the *choice* between the paths is
+    /// the decision, and two spellings of it is how the off-screen half would
+    /// eventually stop telling its readers. The model path fires no change
+    /// notification, so the readers that track this buffer are told the way every
+    /// other off-screen rewrite tells them (see `onBufferReplaced`).
+    private func applyExternalRewrite(
+        _ plan: SaveTransformPlan,
+        to id: UUID,
+        in model: WorkspaceModel,
+        current: String
+    ) {
         let displayed = liveTextView(for: id)
         let live = (displayed?.string as NSString?)?.isEqual(to: current) == true ? displayed : nil
         if let live, apply(plan, in: live) { return }
-        model.replaceText(text, for: id)
-        // The model path fires no change notification, so the readers that track
-        // this buffer are told the way every other off-screen rewrite tells them.
-        // See `onBufferReplaced` — and note a restore always has a url, since the
-        // store is keyed by one.
+        model.replaceText(plan.text, for: id)
         if let url = model.openFiles.first(where: { $0.id == id })?.url {
             onBufferReplaced?(id, url)
         }
     }
-
-    // MARK: - Internals
 
     private func prepare(
         id: UUID,

@@ -157,6 +157,19 @@ struct PisakaApp: App {
     /// same reason.
     private let lspWorkspace: LSPWorkspace
 
+    /// The composed intelligence provider — a language server's answer where there
+    /// is one, the symbol index everywhere else — held here as well as installed on
+    /// `symbolIndexController`.
+    ///
+    /// The *same instance* the controller hands out, so nothing about which side
+    /// answers differs between the editor's questions and this one. It is held
+    /// because the rename command asks one question the seam deliberately does not
+    /// carry: `canRename(_:)` is a policy answer about whether a *dialog* should
+    /// appear at all (decision 4), which no `CodeIntelligenceProviding` has,
+    /// and the router forwards it precisely so the app never reaches past it into
+    /// the LSP layer.
+    private let intelligence: RoutingIntelligenceProvider
+
     /// Every language server's published diagnostics, with the sync/revision
     /// bookkeeping that decides which pushes may land (D31/D32): what the
     /// editor's overlays, the gutter and the Problems panel read. A plain
@@ -269,7 +282,7 @@ struct PisakaApp: App {
     /// **A reader of the user's files and a writer only of its own store**, like
     /// the symbol index and the `.editorconfig` cache: it never raises
     /// `autosave.suspend()` / `localChanges.beginRevert()` and is never gated by
-    /// them. What it takes from the six gated operations is *timing* alone — each
+    /// them. What it takes from the seven gated operations is *timing* alone — each
     /// awaits `captureBeforeOperation` as the first `await` inside its bracket, so
     /// every byte stored is pre-operation by construction.
     ///
@@ -373,12 +386,12 @@ struct PisakaApp: App {
         // Installed on the controller rather than plumbed through the views: they
         // read `symbolIndex.provider` already, so composition here changes no view
         // signature and no view can tell which side answered.
-        symbolIndexController.installProvider(
-            RoutingIntelligenceProvider(
-                lsp: LSPIntelligenceProvider(workspace: lspWorkspace),
-                fallback: symbolIndex.provider
-            )
+        let intelligence = RoutingIntelligenceProvider(
+            lsp: LSPIntelligenceProvider(workspace: lspWorkspace),
+            fallback: symbolIndex.provider
         )
+        self.intelligence = intelligence
+        symbolIndexController.installProvider(intelligence)
         // The diagnostics channel (D29–D32), composed beside the routing above:
         // the workspace's push sink feeds the model — clears included, so every
         // teardown path blanks the three surfaces synchronously — and the sync
@@ -2833,14 +2846,209 @@ struct PisakaApp: App {
         reveal.reveal(fileID: id, range: range)
     }
 
-    /// Rename the symbol the editor resolved.
+    /// Rename the symbol the editor resolved: ask, then write.
     ///
-    /// The dialog, the `canRename` pre-check and the gated apply are the next
-    /// task's; until they land the command refuses the way every other
-    /// unavailable answer in this layer does — a beep, no alert (decision 4).
+    /// Three refusals happen before anything is shown, and every one of them is a
+    /// beep and nothing more — the fallback vocabulary of this layer, where a
+    /// language server's absence is never an error the user is made to read
+    /// (decision 4). No project root, no file behind the buffer, or a language
+    /// `canRename` declines: the dialog does not appear at all, because a name
+    /// prompt whose OK cannot do anything is worse than no prompt.
+    ///
+    /// `canRename` is a policy question — it starts no server and probes none — so
+    /// asking it before the sheet costs one actor hop, not a launch.
     private func renameSymbol(_ request: UsagesRequest) {
-        _ = request
-        PlatformFeedback.warning()
+        guard let root = model.projectRoot,
+              let fileURL = request.fileURL,
+              let language = SyntaxLanguage(forFileName: fileURL.lastPathComponent)
+        else {
+            PlatformFeedback.warning()
+            return
+        }
+        Task {
+            guard await intelligence.canRename(language) else {
+                PlatformFeedback.warning()
+                return
+            }
+            guard let newName = promptForNewName(replacing: request.identifier) else { return }
+            // The request is a *read*, so it runs outside the writer bracket: it
+            // can take as long as the server takes, and holding autosave and the
+            // git gate down for a round trip that may time out would stall every
+            // other writer for a rename that has not been decided on yet.
+            let answer = await intelligence.renameEdits(
+                for: RenameRequest(
+                    identifier: request.identifier,
+                    fileURL: request.fileURL,
+                    offset: request.offset,
+                    text: request.text,
+                    newName: newName
+                )
+            )
+            // A server that advertises no rename, one that answered nothing, and
+            // one whose answer touches no file are the same outcome here: there is
+            // nothing to write, and the bracket must not be raised for it.
+            guard let answer, !answer.edit.documents.isEmpty else {
+                PlatformFeedback.warning()
+                return
+            }
+            await applyRename(answer, replacing: request.identifier, root: root)
+        }
+    }
+
+    /// The name dialog: prefilled with the old name, validated on every keystroke
+    /// by the Core rule that owns what a new name may be (`RenameNameRule`).
+    ///
+    /// Both reasons are inline in the dialog rather than an alert after OK,
+    /// because both are knowable while the user types.
+    private func promptForNewName(replacing oldName: String) -> String? {
+        FilePanels.promptName(
+            title: "Rename “\(oldName)”",
+            defaultValue: oldName,
+            validator: { RenameNameRule.rejection(of: $0, replacing: oldName) }
+        )
+    }
+
+    /// Apply a server's rename — **the seventh gated worktree operation**.
+    ///
+    /// The plan is built *before* the bracket: every refusal
+    /// (`RenameRefusal`) is a question about the answer in hand and the texts in
+    /// hand, so it costs nothing and stops nothing, and a rename that is going to
+    /// be refused must never suspend autosave or capture a revision.
+    ///
+    /// Inside the bracket the order is capture, verify, write — and it is that way
+    /// round on purpose (decision 6). The capture is the **first `await` inside the
+    /// bracket**, which is what makes every "Before Rename" revision pre-operation
+    /// by construction; verification then happens against the texts as they are at
+    /// that moment, and an abort leaves behind one harmless extra snapshot that
+    /// retention prunes. The reverse order — verify, then capture — would leave a
+    /// window between the two in which the thing verified could change.
+    ///
+    /// The writes are `RenameEditPlan.apply`'s: files no tab holds go to disk,
+    /// files a tab holds come back as buffer plans and are applied through
+    /// `SaveTransformController` — the displayed tab as one undoable step, every
+    /// other tab through `WorkspaceModel.replaceText` at the cost of its undo stack
+    /// (decision 5).
+    private func applyRename(_ answer: RenameAnswer, replacing oldName: String, root: URL) async {
+        guard !revertInFlight() else { return }
+        let fileService = FileService()
+        let buffers = bufferTextsByCanonicalPath()
+        let plan: RenameEditPlan
+        switch RenameEditPlan.make(
+            from: answer.edit,
+            root: root,
+            texts: { url in
+                buffers[Self.canonicalKey(url)] ?? (try? fileService.read(url: url))
+            }
+        ) {
+        case .success(let made):
+            guard !made.isEmpty else {
+                PlatformFeedback.warning()
+                return
+            }
+            plan = made
+        case .failure(let refusal):
+            PlatformFeedback.warning()
+            PlatformAlert.presentMessage(title: "Rename not applied", message: refusal.reason)
+            return
+        }
+
+        autosave.suspend()
+        localChanges.beginRevert()
+        defer {
+            autosave.resume()
+            localChanges.endRevert()
+        }
+        // Pre-empting a write the user cannot see all of: a rename changes files
+        // no tab holds, and unlike a git operation nothing can put them back. The
+        // targets are the plan's own files, which is also the whole set the write
+        // below touches. First `await` in the body, ahead of every write.
+        await captureBeforeOperation(
+            .rename,
+            buffers: openBufferTexts(),
+            targets: plan.fileURLs
+        )
+        // Re-read *now*: the buffers may have been typed in and the disk written
+        // to while the dialog was up and the server was thinking.
+        let current = bufferTextsByCanonicalPath()
+        let outcome = plan.apply(
+            bufferText: { url in current[Self.canonicalKey(url)] },
+            fileService: fileService
+        )
+        let application: RenameApplication
+        switch outcome {
+        case .applied(let applied):
+            application = applied
+        case .stale(let url):
+            // Nothing was written — the verification is what makes that true, and
+            // it is the one refusal worth an alert rather than a beep: the user
+            // asked for a write, the write did not happen, and the reason is
+            // something they can act on.
+            PlatformFeedback.warning()
+            PlatformAlert.presentMessage(
+                title: "Rename not applied",
+                message: "\(url.lastPathComponent) changed since the language server answered, "
+                    + "so nothing was renamed. Try again."
+            )
+            return
+        }
+
+        // The buffer half, and the resync every worktree rewrite runs.
+        var rewrittenTabs: [(id: UUID, url: URL)] = []
+        for rewrite in application.bufferRewrites {
+            guard let id = model.fileID(forURL: rewrite.fileURL) else { continue }
+            saveTransform.applyRename(rewrite.plan, to: id)
+            rewrittenTabs.append((id, rewrite.fileURL))
+        }
+        refreshLocalChanges()
+        model.bumpTreeRevision()
+        // The files with no tab changed on disk and their symbols are stale until
+        // a stamp-gated refresh re-extracts them…
+        notifyIndexOfProjectFileChanges()
+        // …and a file that *does* have a tab was replaced in the buffer, which is
+        // exactly what that refresh declines to re-extract. Same resync a
+        // project-wide Replace All runs, for its reason.
+        for tab in rewrittenTabs {
+            reindexReloadedBuffer(id: tab.id, url: tab.url)
+        }
+        // Decision 7: the panel is cleared rather than re-run when it is showing
+        // the name that no longer exists. Re-running would spend a walk or a round
+        // trip on a question nobody asked, and every row it holds now names a
+        // string this rename just removed.
+        usages.clearIfNaming(oldName)
+        if let failed = application.writeFailure {
+            PlatformAlert.presentMessage(
+                title: "Rename incomplete",
+                message: "\(failed.lastPathComponent) could not be written. The other files were "
+                    + "renamed; Local History holds a “Before Rename” revision of each."
+            )
+        }
+    }
+
+    /// Every open buffer's text, keyed by its file's canonical path.
+    ///
+    /// Keyed canonically rather than by URL because the two sides of this question
+    /// spell paths differently on purpose: a tab is opened as the user spelled it
+    /// and a language server answers with whatever its own resolution produced
+    /// (`/private/var` against `/var` being the standing example). A URL-keyed
+    /// lookup would miss the buffer and quietly write the server's edits into the
+    /// disk copy beneath an open, possibly dirty, tab.
+    ///
+    /// The key is spelled by `canonicalKey(_:)` — the same symlink-resolving
+    /// transform `CanonicalPath` applies inside Core, restated here for
+    /// `isInsideProject`'s reason (that type is Core-internal) and matching it
+    /// exactly, which is what keeps this lookup and the plan's own path
+    /// comparisons answering the same question.
+    private static func canonicalKey(_ url: URL) -> String {
+        url.standardizedFileURL.resolvingSymlinksInPath().path
+    }
+
+    private func bufferTextsByCanonicalPath() -> [String: String] {
+        var texts: [String: String] = [:]
+        for file in model.openFiles {
+            guard let url = file.url else { continue }
+            texts[Self.canonicalKey(url)] = file.text
+        }
+        return texts
     }
 
     /// The Edit menu's "Toggle Comment": ask the focused editor to toggle comments
@@ -3469,7 +3677,7 @@ struct PisakaApp: App {
         return openBufferTexts().filter { wanted.contains($0.key) }
     }
 
-    /// The one spelling of a pre-operation capture, so the six bracket sites each
+    /// The one spelling of a pre-operation capture, so the seven bracket sites each
     /// read as a single line naming what they are pre-empting rather than as four
     /// repetitions of the same two boilerplate arguments.
     ///

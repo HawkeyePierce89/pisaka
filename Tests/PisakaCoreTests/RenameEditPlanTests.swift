@@ -440,6 +440,161 @@ final class RenameEditPlanTests: XCTestCase {
         }
     }
 
+    // MARK: - The new name
+
+    /// The dialog's two refusals, which are the only two things it may say — and
+    /// the empty field, which it says nothing about.
+    func testTheNameRuleAcceptsAnIdentifierThatDiffers() {
+        XCTAssertNil(RenameNameRule.rejection(of: "total", replacing: "count"))
+        XCTAssertNil(RenameNameRule.rejection(of: "_total2", replacing: "count"))
+        XCTAssertNil(RenameNameRule.rejection(of: "счётчик", replacing: "count"))
+    }
+
+    func testTheNameRuleRefusesAnythingThatIsNotOneIdentifier() {
+        for name in ["two words", "a.b", "1st", "total()", "a-b", " total"] {
+            XCTAssertEqual(
+                RenameNameRule.rejection(of: name, replacing: "count"),
+                "A symbol name must be a single identifier.",
+                "\(name) is not a single identifier"
+            )
+        }
+    }
+
+    func testTheNameRuleRefusesTheNameItAlreadyHas() {
+        XCTAssertEqual(
+            RenameNameRule.rejection(of: "count", replacing: "count"),
+            "The new name must differ from the current one."
+        )
+    }
+
+    /// Incomplete input, not a mistake: the dialog disables OK for a blank field
+    /// and shows no red line under it.
+    func testTheNameRuleSaysNothingAboutABlankField() {
+        XCTAssertNil(RenameNameRule.rejection(of: "", replacing: "count"))
+    }
+
+    // MARK: - Applying
+
+    /// The disk half and the buffer half of one apply, told apart by which files
+    /// a tab holds — decision 5's whole shape, asserted rather than described.
+    func testFilesWithNoBufferAreWrittenAndFilesWithOneComeBackAsRewrites() throws {
+        let text = "let count = 1\nprint(count)\n"
+        let tree = StubFileTree(root: root, files: ["a.swift": text, "b.swift": text])
+        let plan = try makePlan(files: ["/p/root/a.swift": text, "/p/root/b.swift": text])
+
+        let outcome = plan.apply(
+            bufferText: { url in url.lastPathComponent == "a.swift" ? text : nil },
+            fileService: tree
+        )
+
+        guard case .applied(let application) = outcome else {
+            return XCTFail("expected the plan to apply, got \(outcome)")
+        }
+        XCTAssertNil(application.writeFailure)
+        // `a.swift` has a tab: nothing was written for it, and the caller is
+        // handed the plan to apply through the editor instead.
+        XCTAssertEqual(application.filesWritten, [tree.url("b.swift")])
+        XCTAssertEqual(application.bufferRewrites.map(\.fileURL), [tree.url("a.swift")])
+        XCTAssertEqual(
+            application.bufferRewrites.first?.plan.text,
+            "let total = 1\nprint(total)\n"
+        )
+        // The buffer's file is untouched on disk — writing under an open tab is
+        // the one thing this split exists to prevent.
+        XCTAssertEqual(tree.files["a.swift"], text)
+        XCTAssertEqual(tree.files["b.swift"], "let total = 1\nprint(total)\n")
+    }
+
+    /// The buffer beats the disk, and it is the buffer's text that is rewritten:
+    /// a dirty tab is what the user is looking at.
+    func testABufferIsPreferredOverTheDiskCopy() throws {
+        let text = "let count = 1\nprint(count)\n"
+        let tree = StubFileTree(root: root, files: ["a.swift": text])
+        let plan = try makePlan(file: "/p/root/a.swift", text: text)
+        let buffer = text + "// typed since\n"
+
+        let outcome = plan.apply(bufferText: { _ in buffer }, fileService: tree)
+
+        guard case .applied(let application) = outcome else {
+            return XCTFail("expected the plan to apply, got \(outcome)")
+        }
+        XCTAssertTrue(application.filesWritten.isEmpty)
+        XCTAssertEqual(
+            application.bufferRewrites.first?.plan.text,
+            "let total = 1\nprint(total)\n// typed since\n"
+        )
+        XCTAssertTrue(tree.writtenPaths.isEmpty)
+    }
+
+    /// **The abort path.** One stale file and every other file — including the
+    /// ones whose edits were perfectly applicable — is left byte-identical, with
+    /// nothing written at all.
+    func testAStaleFileAbortsBeforeAnythingIsWritten() throws {
+        let text = "let count = 1\nprint(count)\n"
+        let moved = "// inserted behind the app\n" + text
+        let tree = StubFileTree(root: root, files: ["a.swift": text, "b.swift": moved])
+        let plan = try makePlan(files: ["/p/root/a.swift": text, "/p/root/b.swift": text])
+
+        let outcome = plan.apply(bufferText: { _ in nil }, fileService: tree)
+
+        XCTAssertEqual(outcome, .stale(tree.url("b.swift")))
+        XCTAssertEqual(tree.files["a.swift"], text)
+        XCTAssertEqual(tree.files["b.swift"], moved)
+        XCTAssertTrue(
+            tree.writtenPaths.isEmpty,
+            "Verification of every file must precede the first write, or one stale file leaves a project "
+                + "half-renamed."
+        )
+    }
+
+    /// A file that cannot be read at apply time is stale, for the same reason a
+    /// changed one is: it was readable when the plan was built.
+    func testAFileThatCannotBeReadIsStale() throws {
+        let text = "let count = 1\nprint(count)\n"
+        let tree = StubFileTree(root: root, files: ["a.swift": text])
+        tree.unreadableFiles = ["a.swift"]
+        let plan = try makePlan(file: "/p/root/a.swift", text: text)
+
+        XCTAssertEqual(
+            plan.apply(bufferText: { _ in nil }, fileService: tree),
+            .stale(tree.url("a.swift"))
+        )
+        XCTAssertTrue(tree.writtenPaths.isEmpty)
+    }
+
+    /// A write that fails after another has landed is reported, never swallowed:
+    /// the bytes that changed have changed, and only Local History can put them
+    /// back.
+    func testAFailedWriteNamesItselfAndKeepsWhatLanded() throws {
+        let text = "let count = 1\nprint(count)\n"
+        let tree = StubFileTree(root: root, files: ["a.swift": text, "b.swift": text])
+        tree.writeFailures = ["b.swift"]
+        let plan = try makePlan(files: ["/p/root/a.swift": text, "/p/root/b.swift": text])
+
+        let outcome = plan.apply(bufferText: { _ in nil }, fileService: tree)
+
+        guard case .applied(let application) = outcome else {
+            return XCTFail("expected a reported failure, got \(outcome)")
+        }
+        XCTAssertEqual(application.writeFailure, tree.url("b.swift"))
+        XCTAssertEqual(application.filesWritten, [tree.url("a.swift")])
+        XCTAssertEqual(tree.files["a.swift"], "let total = 1\nprint(total)\n")
+        XCTAssertEqual(tree.files["b.swift"], text)
+    }
+
+    /// A plan with no edits writes nothing and asks for nothing — the case the
+    /// command refuses before it ever raises the bracket.
+    func testAnEmptyPlanTouchesNothing() {
+        let tree = StubFileTree(root: root, files: ["a.swift": "let count = 1\n"])
+        let plan = RenameEditPlan(files: [])
+
+        XCTAssertEqual(
+            plan.apply(bufferText: { _ in nil }, fileService: tree),
+            .applied(RenameApplication(bufferRewrites: [], filesWritten: []))
+        )
+        XCTAssertTrue(tree.writtenPaths.isEmpty)
+    }
+
     // MARK: - Helpers
 
     /// A plan renaming every occurrence of `identifier` in each file's text —

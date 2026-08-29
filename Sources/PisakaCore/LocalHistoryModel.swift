@@ -194,7 +194,7 @@ public final class LocalHistoryModel {
     /// Capture everything one gated operation is about to overwrite, and return
     /// only when it is stored.
     ///
-    /// **Awaited, and that is what makes it race-free.** Each of the six gated
+    /// **Awaited, and that is what makes it race-free.** Each of the seven gated
     /// operations raises its writer bracket synchronously before its `Task` hop
     /// and collects `bufferTexts`/`diskTargets` in that same synchronous stretch
     /// (the shape `openTabSnapshot()` already has); this call is then the *first*
@@ -379,7 +379,7 @@ public final class LocalHistoryModel {
     /// **Asked lexically first, then again of canonical paths** — one rule, two
     /// spellings, and the second attempt is why the disk half of a pre-operation
     /// capture works at all. `projectRoot` is stored as the user spelled it,
-    /// while the disk targets of four of the six pre-operation captures are built
+    /// while the disk targets of four of the seven pre-operation captures are built
     /// from the repository root `git rev-parse --show-toplevel` reports, which is
     /// always *physical*: a project the user opened through a symlink (or under
     /// `/tmp`) comes back spelled a second way. Compared lexically those are two

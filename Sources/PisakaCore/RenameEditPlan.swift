@@ -385,3 +385,174 @@ public struct RenameEditPlan: Equatable, Sendable {
         return roundTrip == position ? offset : nil
     }
 }
+
+// MARK: - Applying
+
+/// What one rename actually did — the disk writes it performed itself, and the
+/// buffer rewrites it is handing back for the editor to perform.
+///
+/// The split is not an implementation detail, it is the whole of decision 5. A
+/// file no tab holds is *disk*: the engine writes it, and there is no undo for it
+/// anywhere but Local History. A file a tab holds is a *buffer*: rewriting it on
+/// disk behind an open editor would leave the tab showing the old text over new
+/// bytes, so the engine writes nothing and the app rewrites the buffer instead —
+/// which is also the only way the displayed tab can get the one undoable step it
+/// gets. That application needs a text view, so it cannot happen in Core.
+public struct RenameApplication: Equatable {
+    /// One open buffer's rewrite: the file, and the ascending plan the editor
+    /// applies to it.
+    public struct BufferRewrite: Equatable {
+        public let fileURL: URL
+        public let plan: SaveTransformPlan
+
+        public init(fileURL: URL, plan: SaveTransformPlan) {
+            self.fileURL = fileURL
+            self.plan = plan
+        }
+    }
+
+    /// The buffers to rewrite, in plan order. The caller has not applied these
+    /// yet — that is what it does next.
+    public let bufferRewrites: [BufferRewrite]
+    /// The files this call wrote to disk, in the order it wrote them.
+    public let filesWritten: [URL]
+    /// The file whose disk write threw, when one did. Everything in
+    /// `filesWritten` landed; this one and anything after it did not.
+    ///
+    /// A rename is all-or-nothing *up to the first byte written* — every refusal
+    /// and the whole staleness verification happen before that — and after it
+    /// nothing can put the bytes back but the "Before Rename" revisions the
+    /// bracket captured. So a failed write is reported rather than swallowed and
+    /// rather than pretended to be an abort: the files that changed have changed.
+    public let writeFailure: URL?
+
+    public init(
+        bufferRewrites: [BufferRewrite],
+        filesWritten: [URL],
+        writeFailure: URL? = nil
+    ) {
+        self.bufferRewrites = bufferRewrites
+        self.filesWritten = filesWritten
+        self.writeFailure = writeFailure
+    }
+}
+
+/// The result of asking a plan to apply itself.
+///
+/// Two cases, because there are only two things the caller does: tell the user
+/// which file moved and stop, or carry out the buffer half and resync. A stale
+/// answer has written nothing at all.
+public enum RenameApplyOutcome: Equatable {
+    case applied(RenameApplication)
+    /// The file whose text no longer matched. Nothing was written.
+    case stale(URL)
+}
+
+public extension RenameEditPlan {
+    /// Verify and apply, inside the caller's writer bracket.
+    ///
+    /// The one method in this file that touches the disk, and it is where the
+    /// rename's atomicity lives: **every** file is read and verified before
+    /// **any** file is written, so a rename that cannot complete leaves every
+    /// byte on disk and in every buffer exactly as it was. The alternative —
+    /// verifying each file as it is written — turns one stale file into a project
+    /// half-renamed, which is the state this whole feature is built to avoid.
+    ///
+    /// - Parameters:
+    ///   - bufferText: the text an open tab holds for a file, or `nil` when no tab
+    ///     holds it. Asked before the disk for the same reason `verify(against:)`
+    ///     is asked with it: a dirty buffer is the text the user is looking at, and
+    ///     writing a server's edits into the disk copy under it would be a rename
+    ///     of text nobody can see.
+    ///   - fileService: the disk, for the files no tab holds.
+    ///
+    /// A file that cannot be *read* here is reported as `.stale`, not as a
+    /// separate failure: it was readable when the plan was built, so whatever
+    /// happened to it since is exactly the kind of change staleness exists to
+    /// refuse — and the caller's answer ("this file moved, nothing was renamed")
+    /// is the same one.
+    func apply(
+        bufferText: (URL) -> String?,
+        fileService: FileServicing
+    ) -> RenameApplyOutcome {
+        var resolved: [(file: RenameFilePlan, text: String, isBuffer: Bool)] = []
+        for file in files where !file.edits.isEmpty {
+            if let buffered = bufferText(file.fileURL) {
+                resolved.append((file, buffered, true))
+            } else if let onDisk = try? fileService.read(url: file.fileURL) {
+                resolved.append((file, onDisk, false))
+            } else {
+                return .stale(file.fileURL)
+            }
+        }
+
+        // Every file, before any write. `applied(to:)` re-checks `holds` itself,
+        // so the two passes below cannot disagree — but the check has to happen in
+        // a pass of its own regardless, because the *first* file's write must not
+        // happen until the *last* file's text has been vouched for.
+        var rewrites: [RenameApplication.BufferRewrite] = []
+        var pendingWrites: [(url: URL, text: String)] = []
+        for entry in resolved {
+            guard let applied = entry.file.applied(to: entry.text) else {
+                return .stale(entry.file.fileURL)
+            }
+            if entry.isBuffer {
+                rewrites.append(
+                    RenameApplication.BufferRewrite(fileURL: entry.file.fileURL, plan: applied)
+                )
+            } else {
+                pendingWrites.append((entry.file.fileURL, applied.text))
+            }
+        }
+
+        var written: [URL] = []
+        for pending in pendingWrites {
+            do {
+                try fileService.write(pending.text, to: pending.url)
+            } catch {
+                return .applied(
+                    RenameApplication(
+                        bufferRewrites: rewrites,
+                        filesWritten: written,
+                        writeFailure: pending.url
+                    )
+                )
+            }
+            written.append(pending.url)
+        }
+        return .applied(
+            RenameApplication(bufferRewrites: rewrites, filesWritten: written)
+        )
+    }
+}
+
+// MARK: - The new name
+
+/// What the rename dialog will accept, and why it refuses everything else.
+///
+/// In Core rather than in the dialog because it is a decision, not a widget: the
+/// same two rules would have to be restated by any second surface that ever asks
+/// for a new name, and a rule restated is a rule that drifts.
+///
+/// Both refusals are knowable while the user types, which is why they are
+/// *reasons* rather than a failure after OK. Blank input is deliberately not one
+/// of them — an empty field is incomplete input, not a mistake, and the dialog
+/// disables OK for it without saying anything.
+public enum RenameNameRule {
+    /// Why `newName` cannot replace `oldName`, or `nil` when it can.
+    ///
+    /// The identifier rule is `IdentifierScanner.isIdentifier(_:)` — the very rule
+    /// that decided what the caret was pointing at — so a name this accepts is one
+    /// the editor can resolve back to a symbol. Anything else would produce a
+    /// "rename" whose result could never be renamed again.
+    public static func rejection(of newName: String, replacing oldName: String) -> String? {
+        guard !newName.isEmpty else { return nil }
+        guard IdentifierScanner.isIdentifier(newName) else {
+            return "A symbol name must be a single identifier."
+        }
+        guard newName != oldName else {
+            return "The new name must differ from the current one."
+        }
+        return nil
+    }
+}

@@ -336,37 +336,37 @@ Tests: new suites for each new Core file; updates to `BottomPanelTests`,
   apply needs an entry point beside `applyRestore`)
 - Modify: `Tests/PisakaCoreTests/LocalHistorySourceGatingTests.swift`
 
-- [ ] The command: resolve the identifier, pre-check `canRename` and beep without
+- [x] The command: resolve the identifier, pre-check `canRename` and beep without
   a sheet when it is false, then `FilePanels.promptName` prefilled with the old
   name, validating with `IdentifierScanner.isIdentifier(_:)` and "must differ
   from the current name" as the two inline reasons.
-- [ ] The request runs **outside** the bracket (it is a read), then the plan is
+- [x] The request runs **outside** the bracket (it is a read), then the plan is
   built from the answer and the texts in hand.
-- [ ] The apply, as the seventh gated operation: `autosave.suspend()` +
+- [x] The apply, as the seventh gated operation: `autosave.suspend()` +
   `localChanges.beginRevert()` raised **synchronously** before the first await
   and balanced by `defer`; `await captureBeforeOperation(.rename, buffers:
   openBufferTexts(), targets: <every file the plan touches>)` as the **first
   await inside the bracket**; then the whole-plan verification; then, only if it
   passed, the writes.
-- [ ] Writes: the displayed tab through the live text view as one undoable step
+- [x] Writes: the displayed tab through the live text view as one undoable step
   (the `SaveTransformController` application path); every other open tab through
   `WorkspaceModel.replaceText` plus the buffer-replaced notification, which costs
   that tab its undo stack (decision 5); every file no tab holds through
   `FileServicing.write`.
-- [ ] Afterwards: `refreshLocalChanges()`, `model.bumpTreeRevision()`,
+- [x] Afterwards: `refreshLocalChanges()`, `model.bumpTreeRevision()`,
   `notifyIndexOfProjectFileChanges()`, and `reindexReloadedBuffer` for every
   rewritten tab — the same resync `replaceAllInProject` runs. Then
   `usages.clearIfNaming(oldName)`.
-- [ ] A failed verification aborts before any write, with an alert naming the
+- [x] A failed verification aborts before any write, with an alert naming the
   stale file, and leaves every file untouched.
-- [ ] Update `LocalHistorySourceGatingTests`: six becomes **seven** for both
+- [x] Update `LocalHistorySourceGatingTests`: six becomes **seven** for both
   bracket halves and the capture count, and the alternation assertion must still
   hold.
-- [ ] Write tests: the Core-side rename orchestration (plan → verify → per-file
+- [x] Write tests: the Core-side rename orchestration (plan → verify → per-file
   outcomes) exercised through `StubFileTree` with an injected buffer set,
   including the abort path leaving every file byte-identical; the gating suite's
   new counts.
-- [ ] Run `swift test` — must pass before Task 8.
+- [x] Run `swift test` — must pass before Task 8.
 
 ### Task 8: Verify acceptance criteria
 
