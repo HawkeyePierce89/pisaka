@@ -1063,7 +1063,14 @@ and iPhone. The feature scope landed so far:
   still listed, but Restore replaces a buffer and there is none, so it beeps;
   re-create the file first. Two revisions of one file taken within the same
   millisecond are listed in a stable but non-chronological order (by event name,
-  then content hash).
+  then content hash). Renaming, moving or deleting a file does **not**
+  carry its history along: the store is keyed by the file's path inside the
+  project, so a renamed or moved file starts an empty history and the revisions
+  taken under its old path stay in the store, no longer reachable from any
+  window, until retention reclaims them. The window also does not refresh itself
+  — a revision taken while it is open (an autosave, an operation, or the copy
+  Restore makes of what it replaced) shows up only after you open the history
+  again.
 - Find/replace (per-file and project-wide) is macOS-only: iOS has neither the
   search bar nor the Find in Files window. There is no query history, no "replace
   in selection", and the project search reads tree `.gitignore` files only (not

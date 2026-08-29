@@ -226,7 +226,7 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
 - `LocalHistoryLayout.swift` — pure path math over the store base + the snapshot-name codec (the name *is* the metadata).
 - `LocalHistoryPolicy.swift` — the skip precedence and the three retention rules; the four stated ceilings.
 - `LocalHistoryStore.swift` — the one `FileServicing` half: list/read/capture/prune, synchronous and `nonisolated`.
-- `LocalHistoryModel.swift` — the capture side: the serial write chain, the three save sites, the awaited pre-operation capture, the project sweep.
+- `LocalHistoryModel.swift` — the capture side: the serial write chain, the three save sites, the awaited pre-operation capture, the store sweep.
 - `LocalHistoryBrowserModel.swift` — the window's reader companion (one generation token) + `LocalHistoryRestore`, the restore plan.
 
 `docs/architecture/core-zoom.md` — the three macOS zoom zones (Core + app halves):

@@ -720,6 +720,23 @@ anyway, and the worst case of that is one snapshot written twice.
   Change` revision taken for exactly that case is still *listed* (the window can
   outlive the file) but Restore beeps rather than recreating it. Recovering it
   means creating the file again and restoring into it.
+- **Renaming, moving or deleting a file leaves its history behind.** The store
+  is keyed by a digest of the (root, project-relative path) pair, and the digest
+  is not invertible, so the project tree's rename, drag-and-drop move and delete
+  carry nothing with them: the renamed file starts an empty history under its new
+  path, and the revisions taken under the old one stay in the store, unreachable
+  from the window, until retention reclaims them. Migrating them would mean
+  moving one directory for a file move and re-deriving a digest per descendant
+  for a folder move — a second path-keying rule beside the one the layout states
+  — and a delete has no destination to migrate to at all.
+- **The window does not refresh itself.** `revisions` is listed once, by
+  `open(file:root:)`; a revision written while the window is open — an autosave,
+  a gated operation, or the `Before Restore` snapshot the Restore button itself
+  takes — is in the store but not in the list until ⌘⇧H retargets the window.
+  Re-listing after a restore would additionally race the capture, which is
+  fire-and-forget on the chain, so a reload issued in the same turn could show
+  the row or not depending on timing — less truthful than a list that plainly
+  reflects the moment it was taken.
 - **Two revisions of one file inside the same millisecond order by file name** —
   event tag first, content hash second — rather than chronologically, because a
   millisecond is all the name preserves. The order is deterministic and stable
