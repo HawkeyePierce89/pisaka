@@ -386,25 +386,25 @@ Tests: new suites for each new Core file; updates to `BottomPanelTests`,
 
 ### Task 9: Update documentation
 
-- [ ] `CLAUDE.md`: index lines for the four new Core files and the new app view;
+- [x] `CLAUDE.md`: index lines for the four new Core files and the new app view;
   update the writer-gate invariant from six gated operations to seven; note the
   usages panel beside the Problems panel in the app-window index.
-- [ ] `docs/architecture/core-lsp.md`: full entries for the new session requests
+- [x] `docs/architecture/core-lsp.md`: full entries for the new session requests
   and capability fields; a new decision recording **rename has no fallback** with
   hover's (D25) reasoning, and one recording that the textual usages answer is a
   *model* decision rather than a provider fallback. Record there too that the
   decoded document `version` is not compared: the per-range `expectedText`
   verification is the stronger check that honors it.
-- [ ] `docs/architecture/core-intelligence.md`: `UsageResult`,
+- [x] `docs/architecture/core-intelligence.md`: `UsageResult`,
   `TextualUsageScanner`, `FindUsagesModel` — the hygiene rules, the cap and its
   number, the generation discipline.
-- [ ] `docs/architecture/core-local-history.md`: the `rename` event and the
+- [x] `docs/architecture/core-local-history.md`: the `rename` event and the
   seventh capture site.
-- [ ] `docs/architecture/app-window.md`: the usages panel entry;
+- [x] `docs/architecture/app-window.md`: the usages panel entry;
   `docs/architecture/app-editor.md`: the editor context menu and the two caret
   entry points.
-- [ ] `README.md`: three shortcut rows (Ctrl+Cmd+U, Ctrl+Cmd+R, Cmd+Shift+U).
-- [ ] `docs/FEATURES.md`: a section stating honestly that (a) textual matches are
+- [x] `README.md`: three shortcut rows (Ctrl+Cmd+U, Ctrl+Cmd+R, Cmd+Shift+U).
+- [x] `docs/FEATURES.md`: a section stating honestly that (a) textual matches are
   whole-word matches and not semantic references, (b) rename is unavailable
   without a language server, and (c) **only the tab on screen when the rename is
   applied gets an undoable step — every other open tab is rewritten in place and
@@ -412,7 +412,7 @@ Tests: new suites for each new Core file; updates to `BottomPanelTests`,
   all; a rename is therefore not undoable as a unit, and Local History's "Before
   Rename" revisions (one per touched file) are the recovery story**
   (decision 5).
-- [ ] Record the out-of-scope follow-ups where the docs already keep such notes:
+- [x] Record the out-of-scope follow-ups where the docs already keep such notes:
   an iOS textual usages fallback, a rename preview, `prepareRename`, and
   cross-file undo.
 

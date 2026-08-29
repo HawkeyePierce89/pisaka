@@ -13,12 +13,16 @@ do — is in [`docs/FEATURES.md`](docs/FEATURES.md).
   offers to download once (checksum-pinned, removable in Preferences), Go via
   `gopls` and Rust via `rust-analyzer`. Errors and warnings appear as you
   type — wavy underlines, gutter markers, a Problems panel — plus hover
-  types and precise Go to Definition; every language falls back to the
-  built-in index silently, no alerts ever.
+  types, precise Go to Definition and project-wide **Rename** (Ctrl+Cmd+R);
+  every language falls back to the built-in index silently, no alerts ever.
 - **Code intelligence with no setup at all** — a project-wide symbol index
   built from the tree-sitter parse trees powers Go to Definition (Cmd+click /
   Ctrl+Cmd+J) and fuzzy/camelCase completion with kind badges, even when no
   language server is installed.
+- **Find Usages** (Ctrl+Cmd+U) — every place a name is used, in a bottom-dock
+  panel; a language server answers where there is one, and a whole-word scan of
+  the project answers where there is not — the panel says which of the two it is
+  showing, always.
 - **LeetCode built in** — sign in through LeetCode's own login page, open a
   problem by number/slug/URL or browse and filter the whole catalog, get a
   solution file seeded with the official snippet, read the statement in a
@@ -37,8 +41,9 @@ do — is in [`docs/FEATURES.md`](docs/FEATURES.md).
 - **Autosave & sessions** — automatic saving (idle, tab switch, focus loss,
   quit) and per-project session restore, including hot exit for "Untitled"
   buffers.
-- **Local History** — every save, and every file one of the app's git
-  operations is about to overwrite, is snapshotted locally; browse a file's
+- **Local History** — every save, and every file one of the app's seven
+  worktree-rewriting operations (including Rename) is about to overwrite, is
+  snapshotted locally; browse a file's
   revisions, diff them against what it holds now and restore one
   (Cmd+Shift+H). 14 days or 30 revisions per file, independent of git.
 - **EditorConfig** — a project's `.editorconfig` drives auto-indent and the
@@ -102,6 +107,8 @@ server fetching JSON schemas while it runs.
 | Cmd+Option+F| Replace in the current file                |
 | Cmd+Shift+F | Find in Files (project-wide)               |
 | Ctrl+Cmd+J  | Go to Definition (Cmd+click does the same) |
+| Ctrl+Cmd+U  | Find Usages of the name under the caret    |
+| Ctrl+Cmd+R  | Rename the symbol under the caret (needs a language server) |
 | Middle-drag | Column (rectangular) selection; Option-drag too |
 | Ctrl+Space  | Complete the word being typed              |
 | Cmd+K       | Commit…                                    |
@@ -113,6 +120,7 @@ server fetching JSON schemas while it runs.
 | Cmd+Shift+T | Show/Hide the terminal panel               |
 | Cmd+Shift+C | Show/Hide the Local Changes panel          |
 | Cmd+Shift+M | Show/Hide the Problems panel               |
+| Cmd+Shift+U | Show/Hide the Usages panel                 |
 | Cmd+Shift+H | Local History for the active file          |
 | Cmd+,       | Preferences                                |
 | Cmd+= / Cmd+− / Cmd+0 | Zoom in / out / reset the zone under the pointer |

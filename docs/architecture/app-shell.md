@@ -5,16 +5,19 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
   - `PisakaApp.swift` — `@main` App, menu commands and shortcuts
     (Cmd+N/O, Cmd+Shift+O for "Open Folder…", Cmd+S/W), and the save/close and
     folder/file-open orchestration that ties the model to the file panels. The
-    Terminal, Git Log, Local Changes, and Problems are all VS Code-style *bottom
+    Terminal, Git Log, Local Changes, Problems and Usages are all *bottom
     dock
     panels* sharing one dock: it owns a
     single `@State private var bottomPanel: BottomPanel? = nil` (`nil` = no panel,
     passed as a binding to `ContentView`, which draws the always-visible
-    Terminal/Git/Changes/Problems bar) and four View-menu commands — "Show/Hide Git Log"
+    Terminal/Git/Changes/Problems/Usages bar) and five View-menu commands — "Show/Hide Git Log"
     (Cmd+Shift+L), "Show/Hide Terminal" (Cmd+Shift+T), "Show/Hide Local Changes"
     (**Cmd+Shift+C**, moved off Cmd+Shift+G — the macOS standard for "Find
-    Previous", which the Find menu below claims), and "Show/Hide Problems"
-    (**Cmd+Shift+M**, the language servers' published diagnostics), their labels reflecting the
+    Previous", which the Find menu below claims), "Show/Hide Problems"
+    (**Cmd+Shift+M**, the language servers' published diagnostics) and "Show/Hide
+    Usages" (**Cmd+Shift+U**, the last Find Usages answer — showing the panel
+    *fetches nothing*, because a panel that re-ran the previous query on every open
+    would spend a project walk on a question nobody re-asked), their labels reflecting the
     active state —
     all routed through one shared `togglePanel(_:)` handler (also wired to the
     bottom bar via `ContentView`'s `onTogglePanel` so a button and its matching menu
@@ -348,11 +351,13 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     captured alongside the tab ids, before the removal, for the same
     dangling-symlink reason the ids are) and the three post-git resyncs — the revert
     loop, `resyncOpenTabs` and the merge-apply reload — wherever they force-close a
-    tab whose file the operation took away. Two `Find` menu items reach the focused editor through the responder
-    chain rather than through any window-scoped state, because neither command
+    tab whose file the operation took away. Four `Find` menu items reach the focused editor through the responder
+    chain rather than through any window-scoped state, because none of them
     carries state to survive a tab switch: "Go to Definition" at **⌃⌘J** (Xcode's
     binding, and free here — ⌘J and ⌃⌘F are AppKit's "center selection" and full
-    screen) and "Complete", which alone among the app's menu items carries **no key
+    screen), "Find Usages" at **⌃⌘U** and "Rename…" at **⌃⌘R** (deliberately
+    *not* ⌘U and ⌘R, which are Run Test and Run File and stay untouched), and
+    "Complete", which alone among the app's menu items carries **no key
     equivalent at all**. Its ⌃Space lives on `EditorTextView.keyDown` instead: a
     menu equivalent is claimed app-wide and is offered the keystroke before the key
     window's first responder, and ⌃Space is the one shortcut this app wants that
@@ -364,7 +369,13 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     gated on a tab being open rather than on a project — a symbol declared in the
     buffer itself is indexed from that buffer, so a lone open file can still jump
     within itself — and anything else focused beeps rather than acting somewhere the
-    user is not typing. "Complete" carries a **second** gate that "Go to
+    user is not typing. Find Usages takes the same gate for a related reason: with
+    no folder open the textual scan still answers for the buffer the question was
+    asked in, which beats an empty panel for a command the user just invoked. Rename
+    takes it too, and **only** it (decision 4 in the plan, D35 in `core-lsp.md`):
+    whether a rename is *possible* is a question about the language server, and it
+    is answered on invocation — before any sheet appears — rather than by greying
+    an item out for a reason a menu cannot explain. "Complete" carries a **second** gate that "Go to
     Definition" does not: `!settings.completionEnabled` greys it out while the
     completion toggle is off (`core-services.md`), so an explicitly-invoked
     command is never a silent no-op. Only the menu item can say so, though —
@@ -414,7 +425,73 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `originGeneration` arrives from `ProjectSearchView.confirmReplaceAll` (read
     from `currentRootGeneration` right after the alert returns) through the
     two-argument `onReplaceAll: (String, Int) async -> ReplaceSummary?` closure and
-    is passed straight to `projectSearch.replaceAll(template:originGeneration:)`. It
+    is passed straight to `projectSearch.replaceAll(template:originGeneration:)`.
+    **Find Usages and Rename are the two commands this file added last, and only
+    one of them writes.** It owns the `@StateObject FindUsagesModel`, built in
+    `init()` over the same open-buffer closure the project search uses — so a dirty
+    tab is scanned as the user sees it rather than as the disk holds it — and over a
+    *closure* returning `symbolIndexController.provider`, because the routing
+    provider is installed during that very `init` and a model holding today's answer
+    would keep asking it forever. `findUsages(_:)` **shows** the panel rather than
+    toggling it (this is the answer to a command the user just invoked, and a ⌃⌘U
+    that hid the results because they happened to be on screen would be the opposite
+    of what was asked) and captures `usages.currentRequestGeneration`
+    *synchronously* before the `Task` hop, because unstructured tasks are not
+    guaranteed to start in creation order and two quick presses must settle on the
+    later question whichever runs first. `openFolder` calls
+    `usages.prepareForFolderChange(root:)` in the same synchronous turn as
+    `projectSearch.prepareForSearch` and the commit dialog's own registration, and
+    for the same reason. `activateUsage(_:)` opens through `activateSearchMatch`'s
+    steps but asks `UsageResult.revealRange(naming:in:)` against the buffer the
+    click actually lands in: a row that no longer holds its identifier degrades to
+    opening the file with nothing selected — never a crash on an out-of-bounds
+    range, never a confident selection of a span that is now something else.
+    `renameSymbol(_:)` is the read half and refuses three things **before anything
+    appears**, each with a beep and nothing more (the fallback vocabulary of this
+    layer, where a language server's absence is never an error the user is made to
+    read): no project root, no file behind the buffer, or a language
+    `intelligence.canRename(_:)` declines — which is why the app holds the
+    `RoutingIntelligenceProvider` as well as installing it, since that policy
+    question is not on `CodeIntelligenceProviding` and the router forwards it
+    precisely so nothing here reaches past the seam into the LSP layer. Then
+    `FilePanels.promptName` prefilled with the old name and validated live by
+    `RenameNameRule` (Core), then the rename request itself — which runs **outside**
+    the writer bracket, because it is a read and holding autosave and the git gate
+    down for a round trip that may time out would stall every other writer for a
+    rename that has not been decided on yet. A server that advertises no rename, one
+    that answers nothing, and one whose answer touches no file are one outcome here:
+    a beep, and no bracket raised.
+    `applyRename(_:replacing:root:)` is **the seventh gated worktree operation**,
+    and the first that is not git's or Replace All's. The plan is built *before* the
+    bracket (`RenameEditPlan.make`, against the open buffers keyed by canonical path
+    and the disk otherwise), because every refusal is a question about the answer and
+    the texts in hand: it costs nothing, stops nothing, and a rename that is going to
+    be refused must never suspend autosave or capture a revision. Inside the bracket
+    the order is **capture, verify, write** (D37): `autosave.suspend()` +
+    `localChanges.beginRevert()` raised synchronously and balanced by `defer`,
+    `await captureBeforeOperation(.rename, buffers: openBufferTexts(), targets:
+    plan.fileURLs)` as the **first `await` in the body**, the texts re-read *now*
+    (the buffers may have been typed in and the disk written to while the dialog was
+    up and the server was thinking), then the whole-plan verification, then all
+    writes or none. A stale file is the one refusal here worth an alert rather than a
+    beep — the user asked for a write, the write did not happen, and the reason is
+    something they can act on — and nothing was written when it is shown.
+    The writes are split by who holds the file (decision 5): every file no tab holds
+    is written by the engine, every open tab is rewritten through
+    `SaveTransformController.applyRename`, which routes the displayed tab through the
+    live text view as **one undoable step** and every other tab through
+    `WorkspaceModel.replaceText` **at the cost of its undo stack** — the same two
+    paths a restore takes, shared as one body because the *choice* between them is
+    the decision. Afterwards comes the resync a project-wide Replace All already
+    runs — `refreshLocalChanges()`, `model.bumpTreeRevision()`,
+    `notifyIndexOfProjectFileChanges()` for the files with no tab, and
+    `reindexReloadedBuffer(id:url:)` for every rewritten tab, which the stamp-gated
+    refresh deliberately declines to re-extract — and then
+    `usages.clearIfNaming(oldName)` (decision 7: the panel is cleared, not re-run,
+    because every row it holds now names a spelling this rename just removed). A disk
+    write that *throws* is the one thing refusing cannot undo, so it is reported as
+    its own alert naming the file and pointing at the "Before Rename" revisions
+    rather than swallowed or dressed up as an abort. It
     owns the embedded terminal's `@StateObject
     TerminalSessionsModel`; the app-termination path calls
     `terminalSessions.terminateAll()` so no shell processes leak (tab-close

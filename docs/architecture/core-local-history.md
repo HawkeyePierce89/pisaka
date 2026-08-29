@@ -1,7 +1,7 @@
 # PisakaCore — Local History (automatic per-file snapshots, browse and restore)
 
 Design documentation for the layer that keeps local, per-file copies of every
-buffer the app writes, labeled copies of every file six worktree-mutating git
+buffer the app writes, labeled copies of every file seven worktree-mutating
 operations are about to overwrite, and a macOS window that lists those revisions,
 diffs one against what the file holds now, and restores it. Each entry records a
 file's contract, invariants and the reasoning behind non-obvious decisions —
@@ -14,7 +14,7 @@ committed or ignored, and regardless of whether git is what is doing the
 overwriting. Six Foundation-only Core files — the vocabulary, the path math, the
 policy, the `FileServicing` engine and two `@MainActor` observable models — plus
 three macOS app files (the support directory, the window controller, the view)
-and capture calls at three save sites and six gated-operation sites. **Nothing
+and capture calls at three save sites and seven gated-operation sites. **Nothing
 new compiles on iOS**: there is no iOS window to browse a history in and no iOS
 caller of the capture model, so building the store on that destination would
 create a directory nothing ever writes to.
@@ -34,7 +34,7 @@ never writes a file outside its store, so it takes no
 — the position the symbol index, the `.editorconfig` cache and the LSP client
 already hold, for the same reason: taking the gate would serialise a safety net
 behind the operations it is protecting the user from. What it *does* take from
-the six gated operations is **timing**, and only that; see "The pre-operation
+the seven gated operations is **timing**, and only that; see "The pre-operation
 capture is race-free by construction" below. The one write it causes to a user's
 file is a **restore**, which is a buffer edit through the live text view — the
 ordinary save funnel puts it on disk when the user saves or the autosave fires.
@@ -101,8 +101,8 @@ changes.)
 ### `PisakaCore`
 
   - `LocalHistorySnapshot.swift` — the vocabulary. `LocalHistoryEvent` is a
-    **closed** enum of seven cases (`save`, `replace`, `revert`, `merge`,
-    `branch`, `commit`, `restore`) with a stable lowercase `tag`, an `init?(tag:)`
+    **closed** enum of eight cases (`save`, `replace`, `revert`, `merge`,
+    `branch`, `commit`, `restore`, `rename`) with a stable lowercase `tag`, an `init?(tag:)`
     inverse and a display `title`. The tag is not a display detail: it is one of
     the three fields encoded into a snapshot's file name, so it is **on-disk
     vocabulary** — renaming a case's tag orphans every snapshot already written
@@ -116,7 +116,12 @@ changes.)
     wording. Both branch operations (switch and checkout-remote) share `branch`:
     two call sites and two writer brackets, but from a file's point of view one
     event, and a user restoring a revision does not care which menu item moved the
-    worktree. `LocalHistorySnapshot` is the `Equatable, Sendable` row —
+    worktree. `rename` is the newest case and the one whose snapshots are the
+    *whole* recovery story rather than a second one: a project-wide rename lands as
+    one undoable step only in the tab that was on screen, so every other file it
+    touched — open in a background tab, or held by no tab at all — is recoverable
+    here and nowhere else. Its tag round-trips through `LocalHistoryLayout`'s name
+    codec under test like every other, because a tag *is* on-disk data. `LocalHistorySnapshot` is the `Equatable, Sendable` row —
     `fileName`, `timestamp`, `event`, `contentHash` — every field of which is
     parsed out of the file name, which is what makes a listing content-read-free.
     `contentHash` is the first **16** hexadecimal characters of the SHA-256 of the
@@ -387,7 +392,7 @@ changes.)
     refuses — of `CanonicalPath.canonical(_:)` of each.** The second attempt is
     what makes the disk half of a pre-operation capture work at all.
     `projectRoot` is stored as the user spelled it, while the disk targets of four
-    of the six captures are built from the repository root `git rev-parse
+    of the seven captures are built from the repository root `git rev-parse
     --show-toplevel` reports, which is always *physical*: a project opened through
     a symlink (or under `/tmp`) comes back spelled a second way, and a purely
     lexical comparison calls the two different directories. Every disk target
@@ -613,7 +618,7 @@ changes.)
     re-query, the tree bump, the `.editorconfig` cache drop — runs only when the
     session continues, while the Local History capture runs on both paths,
     synchronously on the way out.
-  - **Six gated operations, six pre-operation captures**: `commitFromDialog`
+  - **Seven gated operations, seven pre-operation captures**: `commitFromDialog`
     (pre-empting a formatting `pre-commit` hook — the one way a commit rewrites
     the working tree, and the reason the open-tab resync is not enough on its own,
     since the resync can put the hook's text into the tab but the *pre-hook* text
@@ -622,16 +627,31 @@ changes.)
     `revertChanges` (the operation whose whole purpose is to destroy text, so the
     one a safety net most owes an escape hatch), `createBranch` and
     `runBranchOperation` (two functions, two brackets, one shared `.branch`
-    label), and `applyMerge` (one target: the file being resolved, whose conflict
+    label), `applyMerge` (one target: the file being resolved, whose conflict
     markers and any hand-editing inside them vanish the moment the apply
-    succeeds). Each is one line through a private `captureBeforeOperation(_:buffers:targets:)`
+    succeeds), and `applyRename` — **the seventh, and the second one that is not
+    git**. It is the operation this net most obviously exists for: a language
+    server's `WorkspaceEdit` rewrites files across the whole project, most of them
+    behind no tab, and *no git command can undo it* — the worktree it changes is
+    the one the user was working in. It is also the only gated operation whose
+    undo story is incomplete by design (decision 5 in `core-lsp.md`): the tab on
+    screen gets one undoable step, every other open tab loses its undo stack, and a
+    file no tab holds changes on disk with no undo at all — so the "Before Rename"
+    revision of each touched file *is* the recovery story rather than a second one.
+    Each is one line through a private `captureBeforeOperation(_:buffers:targets:)`
     helper that adds no decision of its own, so each site reads as a statement of
     what it is pre-empting. The buffer half is `openBufferTexts()` (every open
     titled tab, collected in the same synchronous stretch as `openTabSnapshot()`)
     and the disk half is `changedFileURLs(_:root:)` over rows Local Changes
     already holds — no second traversal and no new git call — except Replace All,
-    which uses `ProjectSearchModel.results`, and the merge apply, which names one
-    file.
+    which uses `ProjectSearchModel.results`, the merge apply, which names one
+    file, and the rename, which names `RenameEditPlan.fileURLs`: the plan's own
+    files, which are exactly the set the write that follows touches. The rename's
+    capture is additionally the **last moment anything can still abort cleanly** —
+    the whole-plan staleness verification runs *after* it, deliberately, because
+    the capture must be the first `await` in the bracket and verifying first would
+    leave a window in which the verified text could move. An aborted rename
+    therefore leaves one harmless extra snapshot behind, which retention prunes.
   - **The restore action is three steps, and the order is the design** — behind
     one refusal that comes before all of them. **The plan's root must still be the
     open project** (`model.isCurrentProjectRoot(plan.root)`, the same canonical
@@ -689,7 +709,7 @@ changes.)
 
 ## The pre-operation capture is race-free by construction
 
-Every one of the six gated operations already has the shape this needs, because
+Every one of the seven gated operations already has the shape this needs, because
 the disk-writer bracket demands it: `autosave.suspend()` and
 `localChanges.beginRevert()` are raised **synchronously**, before the first
 `await`, and the open-tab snapshot is collected in that same synchronous stretch.
@@ -801,9 +821,9 @@ history, just not the newest one.
   - `LocalHistorySourceGatingTests` — the app layer's architectural rules, matched
     against comment- and literal-stripped source the way every sibling suite does:
     every app-side file inside `#if os(macOS)`; the store base spelled in exactly
-    one place; **`captureBeforeOperation` named exactly six times against
-    `autosave.suspend()` and `localChanges.beginRevert()` also six times each** —
-    count equality over the bracket, so a seventh gated operation cannot be added
+    one place; **`captureBeforeOperation` named exactly seven times against
+    `autosave.suspend()` and `localChanges.beginRevert()` also seven times each** —
+    count equality over the bracket, so an eighth gated operation cannot be added
     without a capture — **and the two sets asserted to alternate by source offset**,
     gate then capture, because counts alone stay green on exactly the arrangement
     the rule exists to refuse: two captures inside one bracket and none inside
@@ -820,7 +840,7 @@ history, just not the newest one.
 ## Known limits
 
 - **Only what this app writes is captured.** A save through the app's own funnel
-  and the six worktree operations are the whole capture surface: an edit made in
+  and the seven worktree operations are the whole capture surface: an edit made in
   another editor, a `git checkout` run in the embedded terminal or in another
   window, or any other out-of-band write is not seen and leaves no revision. The
   FSEvents watcher exists to keep the *tree* current and is deliberately not

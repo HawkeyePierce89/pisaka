@@ -1193,6 +1193,153 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     comments (`#` at line start or after whitespace) consult the line's leading
     whitespace rather than `hasPrefix`. One call site, one scan per request.
 
+  - `UsageResult.swift` — the row Find Usages draws and the answer it draws it
+    from. `UsageResult` is a **location, not a declaration**: the question "where is
+    this used" has no kind in its answer at all — not even the optional one
+    `DefinitionCandidate` carries — because every row is by construction a
+    *reference* rather than a thing that was declared. So the type is flat: a file,
+    a UTF-16 range, the 1-based line the gutter would print beside it (counted with
+    `LineStartIndex`, so the row's number is the gutter's number and not the
+    protocol's — D1), the relative path the group header shows, and a `MatchPreview`
+    — Find in Files' own shape, so a usages row and a search row read and clip
+    alike.
+    **`isTextual` is the honesty flag, and it travels on the row rather than only on
+    the answer.** A row from a language server is a resolved reference; a row from
+    `TextualUsageScanner` is a whole-word string match that may name a completely
+    unrelated symbol with the same spelling. The two are the same *shape* and must
+    never be presented as the same *claim*. `UsageProvenance` says which for the
+    answer as a whole and has **two cases and no third**: an answer is never a
+    mixture, because the model asks the server first and falls to the scan only when
+    the server produced nothing at all, so there is no state in which half the rows
+    mean one thing and half the other — and a `mixed` case would be exactly the blur
+    the type exists to prevent.
+    `UsagesAnswer.make` is the hygiene, in the one order that makes each step mean
+    what it says: **dedup, then order, then cap**. Dedup is by *(canonical file,
+    range)* — canonical because the two sources spell files differently on purpose
+    (a server answers with the path it resolved, the walk with the path the user
+    opened), and two rows over the same bytes are one usage however they are spelled
+    — with the first row kept and the canonical path memoised per spelling, since a
+    two-thousand-row answer over a hundred files would otherwise resolve symlinks
+    two thousand times for a hundred distinct results. Ordering is **the requesting
+    file first, then relative path, then buffer offset**: the usages nearest the
+    caret are the ones the question was really about, and scrolling to find the line
+    you started on is the first thing that makes such a panel feel wrong. The cap is
+    last, so what survives is the head of the list the reader is reading.
+    **The cap is 2 000**, deliberately far below Find in Files' 10 000: that number
+    is sized for arbitrary patterns over a whole project, where a broad pattern
+    legitimately matches thousands of lines someone then narrows. This list answers
+    one question about one name, and an identifier used more than two thousand times
+    is not a list anyone reads to the end. `isTruncated` is set only when the cap
+    actually removed something, and the panel says so, so a truncated answer is
+    never mistaken for a complete one.
+    `revealRange(naming:in:)` is the row-activation rule, and it is **in Core rather
+    than in the view** for the reason every decision here is. A row is a position in
+    a text that was read once; between that read and the click the file may have
+    been typed in, rewritten by an operation, or renamed. So the check is the *text*
+    and not the geometry: a range is worth revealing only when the bytes it covers
+    still spell the identifier the answer is about. That rejects both failure modes
+    at once — a range past the end of a shortened buffer (which would raise on
+    `NSString`, i.e. crash the click) and a range still inside a *changed* buffer,
+    where the same offsets now cover something else and a confident selection would
+    silently claim a usage is there. The degradation is opening the file with
+    nothing selected, which is the honest outcome: the place is gone, the file is
+    still the right file to be looking at.
+  - `TextualUsageScanner.swift` — the honest half of Find Usages: every place one
+    text spells an identifier as a **whole word**, pure and `NSString`/UTF-16 like
+    every other editor engine, so a range it returns can be handed straight to the
+    text view. It is what answers when no language server serves the language, or
+    when the one that does has nothing to say; it knows nothing about scope,
+    shadowing, imports or types, so what it finds are *occurrences of a name* and
+    the panel says exactly that. The alternative — answering nothing — would make
+    the command a menu item that never works in the majority of this editor's
+    languages.
+    **The boundary rule is not restated here**, and that is the file's one real
+    decision: a candidate substring is a usage exactly when
+    `IdentifierScanner.identifier(in:at:)` — the same call a ⌘-click makes —
+    resolves *that* range to *that* text at the candidate's own start offset. So
+    `foo` is found in `foo.bar` and `foo(1)` but not inside `foobar`, `_foo` or
+    `foo_`, and a Unicode name (`имя`, `número`) works because the classification is
+    Unicode-based rather than ASCII. Delegating inherits the surprises too — a run
+    that *starts* with digits is not an identifier, so `123foo` reports `foo`,
+    exactly as ⌘-clicking that `f` would resolve `foo` — which is cheaper than two
+    rules that agree almost always. A regular expression was the other candidate and
+    is the wrong tool twice over: an identifier may contain characters a pattern
+    would have to escape, and `\b` is ASCII-shaped in a way that would quietly
+    disagree with the scanner about every non-ASCII name.
+    A query that is not one identifier — empty, `run(_:)`, `.btn-primary`, `9foo`, a
+    phrase with a space — answers `[]` rather than a partial or approximate list: it
+    cannot occur as a word by construction, and taking it as a plain substring
+    search would silently turn this command into a different one. Matching is
+    `.literal` (exact UTF-16 units, no canonical equivalence), because the ranges go
+    to a text view and a match found by folding a decomposed accent into a
+    precomposed one would name a span of a different length than the identifier the
+    caller asked about. The scan advances past each occurrence rather than past its
+    start — identifiers cannot overlap themselves as whole words — and line numbers
+    come from `LineStartIndex`, so CRLF is one break and NEL/LS/PS are breaks at
+    all.
+  - `FindUsagesModel.swift` — the Usages panel's state and the second half of
+    decision D36 in `core-lsp.md`: what was asked, what came back, what it *means*,
+    and whether the walk is still running. `ProjectSearchModel`'s shape throughout —
+    a `@MainActor ObservableObject` whose I/O is injected behind `FileServicing`,
+    whose traversal is the shared `ProjectFileWalk`, whose off-main work runs on a
+    private serial queue, and whose overlapping requests are ordered by a generation
+    token captured **synchronously** before any `Task` hop. Foundation only: the
+    provider arrives as a *closure*, so Core never learns where one comes from —
+    and, just as importantly, the app installs a routing provider during its own
+    `init`, so a model that captured today's answer would keep asking it forever.
+    **Why this type knows about the second answer and the provider chain does not.**
+    The seam's `references` is LSP-or-nothing (hover's rule): an index of
+    declarations cannot enumerate references. The weaker answer exists all the same,
+    but it costs a walk of the whole project, and putting that inside the provider
+    chain would make every unserved ⌃⌘U a traversal disguised as a protocol call —
+    inside a deadline race whose loser is abandoned mid-walk. So the fallback is a
+    *model* decision, taken where the walk, the file service and the open buffers
+    already live, and the panel is told which of the two it is holding.
+    **The flow.** Ask the provider; on an empty answer walk
+    `ProjectFileWalk.collectFiles` (gitignore honored, `readTextIfNotBinary`'s
+    binary/oversize refusals and `ProjectSearchModel.defaultMaxFileBytes` referenced
+    rather than restated, so the two walks decline exactly the same files),
+    scanning in chunks off the main actor and publishing per chunk so a long walk
+    fills the panel as it goes. Open buffers are snapshotted **once**, before the
+    walk, exactly as the project search snapshots them — the closure reads the
+    workspace and so must run on the main actor — and a tab's text is scanned in
+    preference to the disk copy, so the rows describe what the user is looking at.
+    Collection stops the moment one row *more* than the cap is in hand: that surplus
+    row is what sets `isTruncated` through `UsagesAnswer.make`'s own `> cap` test,
+    and walking past it would read the rest of the project to build rows the cap
+    discards. With no folder open the scan falls back to the requesting buffer
+    alone — one file's usages honestly labelled beats an empty panel for a command
+    the user just invoked.
+    **Two generation tokens, answering two different questions.** The *request*
+    token says "a newer question was asked" and gates what may be **published**; it
+    is re-checked after every `await`, so a superseded query drops its partial rows
+    rather than interleaving them with the newer one's. The *project* token says
+    "these files belong to a folder the user has left" and gates whether the walk
+    **continues at all**; `prepareForFolderChange(root:)` bumps both synchronously
+    in the same main-actor turn that handles the folder open
+    (`LocalChangesModel.prepareForFolderChange`'s precedent) and clears the rows up
+    front, because a usage list belongs to the project it was asked in and leaving
+    it clickable across a switch would open files the window no longer shows.
+    `UsagesEmptyReason` is why an empty panel must say *which* nothing it means:
+    `noQuery`, `notAnIdentifier` and `noUsages` look identical as an empty list and
+    mean entirely different things. `UsageFileGroup.grouped` groups by walking
+    **consecutive runs** of the ordered answer rather than bucketing by URL and
+    sorting the buckets — the answer already decided the order, and re-deriving it
+    would put the requesting file back in the alphabet — and it keys on the file
+    *URL*, not the relative path, because two files can display the same relative
+    path (a row outside the root shows its file name) and merging those would draw
+    one header over two different files.
+    `clearIfNaming(_:)` is the post-rename bookkeeping, and it **clears rather than
+    re-runs**: re-asking would spend a server round trip or a whole project walk on
+    a question nobody asked again, and every row on screen names a spelling that no
+    longer exists. The generation is bumped with it, so a walk still in flight for
+    the old name cannot publish over the cleared panel.
+    **A reader, like the index**: it takes no writer gate, is not gated by one, and
+    writes nothing anywhere. **Out of scope** (follow-ups): an iOS surface — the
+    scanner and the model are Foundation-only and would work there unchanged, but
+    there is no panel, no command and no entry point on that platform, so iOS has
+    no usages answer at all.
+
 ## The query resources, and the runtime half `swift test` cannot reach
 
 The language knowledge itself lives outside Core, in

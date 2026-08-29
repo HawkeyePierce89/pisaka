@@ -546,7 +546,7 @@ user sees it.
   **Problems** panel in the bottom dock listing every open file's findings. The
   panel toggles with "Show/Hide Problems" in the View menu, the ⚠ button on the
   bottom bar, or Cmd+Shift+M, and shares that one dock with Terminal, Git Log,
-  and Local Changes. Its header counts errors and warnings across all files; rows
+  Local Changes and Usages. Its header counts errors and warnings across all files; rows
   are grouped by file (path relative to the opened folder) showing severity icon,
   message and line number, ordered top-to-bottom through each file with the most
   serious finding first where several share a position. Clicking a row opens (or
@@ -563,6 +563,61 @@ user sees it.
   — before diagnostics existed, a server started only when you asked for
   completion, Go to Definition or hover. Diagnostics need a server: files of languages without
   one show none of this, silently, exactly like hover.
+- **Find Usages** (macOS, Ctrl+Cmd+U): put the caret in a name — or right-click
+  it — and every place it is used appears in a **Usages** panel in the bottom dock,
+  beside Problems. Rows are grouped by file (path relative to the opened folder)
+  with the line number and the line itself, the occurrence emphasized; clicking one
+  opens or re-selects that file and reveals the occurrence, the same way Find in
+  Files and Go to Definition do. The panel toggles with "Show/Hide Usages" in the
+  View menu, its bottom-bar button, or Cmd+Shift+U — showing it never re-runs
+  anything, it holds whatever the last Ctrl+Cmd+U asked. The file you asked from
+  comes first; everything after it is in path order, and the list is capped at
+  **2 000** usages with the header saying so when the cap bit.
+  **The header always says what the rows mean, and this is the part worth
+  reading.** With a language server running for that language, the rows are the
+  server's resolved references: every one of them really is that symbol. Without
+  one — or when the server has nothing to say — Pisaka answers with a **whole-word
+  text scan** of the project instead, and the header says "textual matches". Those
+  are exactly what they sound like: places that *spell* the name, found by the same
+  rule that decides what a Cmd+click resolves (so `foo` is found in `foo.bar` but
+  not inside `foobar`, `_foo` or `foo_`, and non-ASCII names work), with no idea of
+  scope, shadowing or types. A local `count` in one file and an unrelated
+  property `count` in another are both listed, because a text scan cannot tell them
+  apart and pretending otherwise would be the dishonest option. The scan honors
+  your `.gitignore`, skips binary and very large files, reads unsaved tabs as you
+  see them rather than as the disk holds them, and fills the panel as it goes. With
+  no folder open it scans the current buffer alone. Nothing is ever reported as an
+  error: no server, a slow server and a server that answered nothing all look the
+  same, which is the textual list.
+  A row is a snapshot of where things were when you asked. If the file has changed
+  since, clicking the row **opens the file without selecting anything** rather than
+  revealing a span that is now something else.
+- **Rename** (macOS, Ctrl+Cmd+R): rename the symbol under the caret — or under a
+  right-click — across the whole project, through the language server's own
+  understanding of it. A small dialog asks for the new name, prefilled with the old
+  one and refusing anything that is not a single identifier, or that is the name it
+  already has. Every file the server names is then rewritten in one go: open tabs
+  in their buffers (left dirty, so your ordinary save puts them on disk), and files
+  with no tab open on disk directly.
+  **There is no rename without a language server, deliberately.** If no server
+  serves that language, or the one that does cannot rename, or it answers with
+  nothing to change, Pisaka beeps and nothing happens — no dialog, no alert, no
+  explanation. The alternative would be renaming by text match, which looks
+  identical to a correct rename right up to the moment two different symbols share
+  a spelling, and then has quietly rewritten the one you were not looking at, in
+  files you never opened. A command that is sometimes unavailable is a smaller
+  problem than a command that is usually right.
+  **It is all-or-nothing, and it is not one undo.** If any file changed between the
+  server's answer and the moment of writing — you typed in it, a git command ran, another
+  editor saved it — the whole rename is refused with an alert naming that file, and
+  **nothing at all is written**. When it does apply, only the tab you are *looking
+  at* gets a single undoable step: every other open tab is rewritten in place and
+  **loses its undo history**, and files with no tab open change on disk with **no
+  undo at all**. So a rename is not reversible as a unit. What is: Local History
+  takes a **"Before Rename"** revision of every file it is about to touch, before
+  it touches any of them, so each one can be restored individually
+  (Cmd+Shift+H). There is no preview of what will change and no way to opt one file
+  out — the rename is applied as the server described it.
 - A minimap to the right of the editor: a scaled-down,
   syntax-colored overview of the file with a draggable viewport rectangle.
   Click or drag the rectangle to scroll the editor, or scroll the mouse wheel
@@ -632,9 +687,10 @@ user sees it.
   writes a file — Cmd+S, any autosave, a Save As, the close prompt's Save, the
   saves before Run and Test, and the flush on quit — it keeps a private copy of
   what it wrote. It also takes a *labeled* copy of every file that is about to be
-  overwritten by one of the six operations that rewrite the working tree: a
+  overwritten by one of the seven operations that rewrite the working tree: a
   commit (whose `pre-commit` hook may reformat), a project-wide Replace All, a
-  revert, a merge apply, a branch switch or checkout, and a branch create. Those
+  revert, a merge apply, a branch switch or checkout, a branch create, and a
+  project-wide Rename. Those
   rows read "Before Revert", "Before Replace All" and so on, and they are taken
   *before* the operation runs, so what they hold is the state you would otherwise
   have lost — unless those exact bytes are already the newest revision, which an
@@ -814,8 +870,8 @@ user sees it.
   restarts a running shell. Shells are terminated when you close their tab and
   when you quit, so no processes leak. Closing the last terminal tab collapses the
   panel (no empty gap), and a repeat click / Cmd+Shift+T reopens it. The Terminal,
-  Git Log, Local Changes, and Problems panels share one bottom dock — opening one
-  replaces whichever was shown. The terminal follows the app theme — the system light/dark
+  Git Log, Local Changes, Problems and Usages panels share one bottom dock —
+  opening one replaces whichever was shown. The terminal follows the app theme — the system light/dark
   appearance, or a theme forced in Settings — and recolors live, without restarting
   the shell or losing scrollback; every open tab is recolored, including inactive
   ones.
@@ -1045,7 +1101,7 @@ and iPhone. The feature scope landed so far:
 - Local History is macOS-only, and it only ever sees **the app's own writes**.
   Edits made by another application, a `git` command you run yourself (in the
   embedded terminal or anywhere else), or any other change made outside Pisaka's
-  save funnel and its six worktree operations are not captured and leave no
+  save funnel and its seven worktree operations are not captured and leave no
   revision — the folder watcher keeps the project tree current, it does not
   snapshot. The store holds **copies of your file contents on the local disk**,
   unencrypted, under `~/Library/Application Support/Pisaka/LocalHistory`; anything
@@ -1070,7 +1126,7 @@ and iPhone. The feature scope landed so far:
   The single-Cmd+Z guarantee applies to the tab you are **looking at**: restoring
   into a file with no tab open (one is opened) or into an open background tab
   costs that tab its undo history and its remembered scroll position, because the
-  editor has not moved to it yet when the restore runs. A file one of the six
+  editor has not moved to it yet when the restore runs. A file one of the seven
   operations *deleted* — a reverted untracked file, a file a branch switch removes
   — can no longer be restored from its own "Before …" revision: the revision is
   still listed, but Restore replaces a buffer and there is none, so it beeps;
@@ -1113,8 +1169,8 @@ and iPhone. The feature scope landed so far:
   revision", no jump from an annotation into the Git Log, and the date format is
   fixed (not a setting).
 - The semantic Swift intelligence is macOS-only and needs Xcode, and it covers
-  Go to Definition, completion, hover types and diagnostics only — there is still no Find
-  Usages, no rename and no signature help, and nothing about the
+  Go to Definition, completion, hover types, diagnostics, Find Usages and Rename
+  only — there is still no signature help, and nothing about the
   server is configurable or visible: no status indicator, no "restart server", no
   log. It answers for projects `sourcekit-lsp` can build (a `Package.swift`, a
   `compile_commands.json`, an `.xcodeproj` through the build server protocol); a
@@ -1131,8 +1187,8 @@ and iPhone. The feature scope landed so far:
   differs and no server line number is ever shown. On iOS there is no language
   server at all (iOS has no subprocesses), so the next item applies there in full.
 - The downloadable TypeScript/JavaScript, Python and YAML servers are macOS-only
-  and cover the same Go to Definition, completion, hover types and diagnostics —
-  no rename, no status indicator and no log, and nothing about them is
+  and cover the same Go to Definition, completion, hover types, diagnostics, Find
+  Usages and Rename — no status indicator and no log, and nothing about them is
   configurable: no per-project server, no extra options or arguments, and no
   version picker (the versions are pinned in the app and change only when you
   update it — and when an update does move a pin, the next TypeScript, Python or
@@ -1157,8 +1213,8 @@ and iPhone. The feature scope landed so far:
   quietly falls back to what the buffer contains, which looks like a server that
   has stopped knowing things rather than like a failed download.
 - The Go server (`gopls`) is macOS-only and covers the same Go to Definition,
-  completion, hover types and diagnostics, with the same absence of rename, status
-  indicator and log. It needs a Go toolchain — there is no offer without one, and
+  completion, hover types, diagnostics, Find Usages and Rename, with the same
+  absence of a status indicator and a log. It needs a Go toolchain — there is no offer without one, and
   a `go` that cannot answer `go env` counts as none. A `gopls` you already have
   is used **at whatever version it is**: none is read, required or shown, and it
   is never replaced or updated by Pisaka. A build Pisaka does run is your own
@@ -1170,8 +1226,8 @@ and iPhone. The feature scope landed so far:
   Go toolchain installed while Pisaka is running is found at the next launch. The
   version is pinned in the app and there is no version picker.
 - The Rust server (`rust-analyzer`) is macOS-only and covers the same Go to
-  Definition, completion, hover types and diagnostics, with the same absence of
-  rename, status indicator and log. It needs a **Rust toolchain** — there is no
+  Definition, completion, hover types, diagnostics, Find Usages and Rename, with
+  the same absence of a status indicator and a log. It needs a **Rust toolchain** — there is no
   offer and no server without one, and a `cargo` that cannot answer
   `cargo --version` counts as none. The same applies to a `rust-analyzer` it
   finds: rustup installs a proxy for it whether or not the component was ever
@@ -1212,9 +1268,12 @@ and iPhone. The feature scope landed so far:
   Xcode, always uses — is index-based, not a compiler: Go to Definition matches a
   *name*, so it cannot tell two same-named declarations apart (it lists both),
   knows nothing about imports, scope, generics or overload resolution, and finds
-  nothing in dependencies outside the opened folder. There is no Find Usages, no
-  rename refactoring, **no hover popover** (it needs a server — the index knows
-  names, not types) or signature help, and completion offers
+  nothing in dependencies outside the opened folder. It cannot enumerate
+  *references* at all — a reference is not declared anywhere — so Find Usages
+  answers from a whole-word text scan instead and says so; **rename refactoring is
+  unavailable entirely** without a server, and so is the **hover popover** (both
+  need a server — the index knows names, not types). There is no signature help,
+  and completion offers
   identifiers only — no kind or file column in the macOS popup and no snippets.
   Member completion after a `.` is **name-based, not typed**: it offers every
   member the whole project declares, ranked so the members of a type you named
@@ -1229,6 +1288,18 @@ and iPhone. The feature scope landed so far:
   `.gitignore` deliberately has none) completes from the buffer's words alone, and
   the data formats, Markdown and `.gitignore` have no keyword list either.
   On iOS the index does not see changes made to the files outside the app.
+- Find Usages and Rename are macOS-only: iOS has neither the panel, the menu
+  items nor the editor context menu, so it has no usages answer at all. On macOS,
+  **Rename needs a language server** and is silently unavailable without one (a
+  beep, no dialog); it has **no preview** of what it will change and no way to
+  exclude a file, and it is **not undoable as a unit** — only the tab on screen
+  gets an undo step, other open tabs lose their undo history, and files with no tab
+  open change on disk with no undo, which is what Local History's "Before Rename"
+  revisions exist for. Find Usages always answers something, but a **textual**
+  answer is whole-word matches and not references: it lists every place that spells
+  the name, including unrelated symbols that happen to share it. A usages row is a
+  snapshot — nothing re-runs the query as files change — so a row whose text has
+  moved opens the file without revealing anything.
 - No tab reordering or split views, and no drag-and-drop outside the project
   tree.
 - The path bar above the editor is macOS-only and read-only: its breadcrumb
