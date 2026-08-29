@@ -4,7 +4,7 @@ import Foundation
 public struct RecentProject: Identifiable, Equatable {
     /// The canonical identity.
     public var id: String {
-        CanonicalPath.canonical(url).path
+        path
     }
 
     /// The url built from the verbatim stored path.
@@ -52,8 +52,7 @@ public struct RecentProject: Identifiable, Equatable {
             let url = URL(fileURLWithPath: folderPath)
             guard folderExists(url) else { continue }
 
-            let last = url.lastPathComponent
-            let name = last == "/" || last.isEmpty ? folderPath : last
+            let name = url.lastPathComponent
 
             let isCurrent = CanonicalPath.canonical(url).path == rootKey
 

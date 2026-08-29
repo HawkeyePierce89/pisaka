@@ -56,7 +56,9 @@ do — is in [`docs/FEATURES.md`](docs/FEATURES.md).
   and can Replace All across the project.
 - **Projects** — open a folder (Cmd+Shift+O), create/rename/move/delete right
   in the tree, or switch between recent projects from the bottom bar; external
-  changes show up on their own via FSEvents.
+  changes show up on their own via FSEvents. If you attempt to switch to a
+  recent project folder that has been deleted or moved, Pisaka will display a
+  warning alert and leave your current workspace unchanged.
 - **Automatic updates** via Sparkle — consent asked once, every download
   verified; **Check for Updates…** is always in the app menu.
 - **Preferences** — theme, tab orientation, fonts, completion on/off, the

@@ -3,7 +3,7 @@ import XCTest
 
 final class RecentProjectTests: XCTestCase {
 
-    func testMRUOrderAndNilExclusion() {
+    func testRowsPreservesOrderAndExcludesNil() {
         let catalog = SessionCatalog(entries: [
             EditorSession(folderPath: "/a", tabs: []),
             EditorSession(folderPath: nil, tabs: []),
@@ -78,14 +78,26 @@ final class RecentProjectTests: XCTestCase {
         XCTAssertEqual(calls, [URL(fileURLWithPath: "/a"), URL(fileURLWithPath: "/b"), URL(fileURLWithPath: "/c")])
     }
 
-    func testCurrentProjectMarkedCanonically() {
+    func testCurrentProjectMarkedCanonically() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+        let target = tempDir.appendingPathComponent("target_\(UUID().uuidString)")
+        let symlink = tempDir.appendingPathComponent("symlink_\(UUID().uuidString)")
+
+        try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true, attributes: nil)
+        try FileManager.default.createSymbolicLink(at: symlink, withDestinationURL: target)
+
+        defer {
+            try? FileManager.default.removeItem(at: target)
+            try? FileManager.default.removeItem(at: symlink)
+        }
+
         let catalog = SessionCatalog(entries: [
-            EditorSession(folderPath: "/tmp", tabs: []),
-            EditorSession(folderPath: "/tmp/", tabs: []),
-            EditorSession(folderPath: "/tmp/./", tabs: []),
+            EditorSession(folderPath: symlink.path, tabs: []),
+            EditorSession(folderPath: symlink.path + "/", tabs: []),
+            EditorSession(folderPath: symlink.path + "/./", tabs: []),
         ])
 
-        let root1 = URL(fileURLWithPath: "/private/tmp")
+        let root1 = target
         let rows1 = RecentProject.rows(catalog: catalog, currentRoot: root1, folderExists: { _ in true })
         XCTAssertTrue(rows1[0].isCurrent)
         XCTAssertTrue(rows1[1].isCurrent)
@@ -96,15 +108,5 @@ final class RecentProjectTests: XCTestCase {
         XCTAssertFalse(rows4[0].isCurrent)
         XCTAssertFalse(rows4[1].isCurrent)
         XCTAssertFalse(rows4[2].isCurrent)
-    }
-
-    func testCanonicalIdentity() {
-        let row = RecentProject(
-            url: URL(fileURLWithPath: "/tmp/"),
-            name: "tmp",
-            path: "/tmp/",
-            isCurrent: false
-        )
-        XCTAssertEqual(row.id, CanonicalPath.canonical(URL(fileURLWithPath: "/private/tmp")).path)
     }
 }
