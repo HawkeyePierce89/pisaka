@@ -3,9 +3,7 @@ import Foundation
 /// One row in the recents list.
 public struct RecentProject: Identifiable, Equatable {
     /// The canonical identity.
-    public var id: String {
-        path
-    }
+    public let id: String
 
     /// The url built from the verbatim stored path.
     public let url: URL
@@ -19,7 +17,8 @@ public struct RecentProject: Identifiable, Equatable {
     /// Whether this row is the current project.
     public let isCurrent: Bool
 
-    public init(url: URL, name: String, path: String, isCurrent: Bool) {
+    public init(id: String, url: URL, name: String, path: String, isCurrent: Bool) {
+        self.id = id
         self.url = url
         self.name = name
         self.path = path
@@ -54,9 +53,11 @@ public struct RecentProject: Identifiable, Equatable {
 
             let name = url.lastPathComponent
 
-            let isCurrent = CanonicalPath.canonical(url).path == rootKey
+            let canonicalPath = CanonicalPath.canonical(url).path
+            let isCurrent = canonicalPath == rootKey
 
             rows.append(RecentProject(
+                id: canonicalPath,
                 url: url,
                 name: name,
                 path: folderPath,
