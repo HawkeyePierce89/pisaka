@@ -273,14 +273,14 @@ request.
 
 ### Task 4: Verify acceptance criteria
 
-- [ ] run `swift test` — full suite green
-- [ ] run `swiftlint --strict` from the repository root — clean, with no
+- [x] run `swift test` — full suite green
+- [x] run `swiftlint --strict` from the repository root — clean, with no
       threshold raised and no in-file disable added
-- [ ] run `xcodegen generate` and build macOS: `xcodebuild -project
+- [x] run `xcodegen generate` and build macOS: `xcodebuild -project
       Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' build`
-- [ ] build iOS: `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka
+- [x] build iOS: `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka
       -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build`
-- [ ] confirm by `git diff` that no view-layer file changed and that
+- [x] confirm by `git diff` that no view-layer file changed and that
       `RoutingIntelligenceProvider.swift` and `LSPIntelligenceProvider.swift`
       are untouched
 
