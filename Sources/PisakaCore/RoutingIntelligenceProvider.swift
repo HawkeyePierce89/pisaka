@@ -22,6 +22,15 @@ public protocol LSPIntelligenceSource: CodeIntelligenceProviding, Sendable {
     /// `(server, root)` that D7 has given up on — the three cases where asking
     /// would only cost a hop.
     func canServe(_ language: SyntaxLanguage) async -> Bool
+    /// Whether a rename is worth offering for `language`, asked *before* the
+    /// command puts a name dialog on screen (decision 4).
+    ///
+    /// The same kind of answer as `canServe` and for the same reason — free,
+    /// policy-only, starting and probing nothing — but a question of its own,
+    /// because it is the only one in this protocol whose answer decides whether a
+    /// piece of UI appears at all. Rename has no fallback: a `false` here is the
+    /// command declining, not the router routing elsewhere.
+    func canRename(_ language: SyntaxLanguage) async -> Bool
 }
 
 /// The one `CodeIntelligenceProviding` the editor surfaces hold: a language
@@ -63,6 +72,13 @@ public protocol LSPIntelligenceSource: CodeIntelligenceProviding, Sendable {
 /// this", so there is nothing to fall through *to*: no server means no popover,
 /// and the full reasoning is on `hover(for:)`.
 ///
+/// **Neither is references, and neither is rename** — for two different reasons,
+/// both on the methods themselves. A rename genuinely ends here: there is no
+/// second source for it, ever. A usages answer does not, but its second source is
+/// a walk of the project, which is a *model's* job rather than a provider's
+/// (decision 1) — so what this layer owes there is an honest empty answer, and the
+/// rule "an empty answer is not an answer" deliberately does not apply to it.
+///
 /// Not `@MainActor`: like both providers it composes, the request methods are
 /// `nonisolated async`, so the deadline race, the ranking and the index read all
 /// stay off the main thread.
@@ -98,17 +114,26 @@ public final class RoutingIntelligenceProvider: CodeIntelligenceProviding {
         /// pointer merely stopped — and an answer that arrives after it has moved
         /// on is not late, it is unwanted.
         public var hover: TimeInterval
+        /// `textDocument/references` and `textDocument/rename`, sharing one span
+        /// exactly as `LSPSession.Budgets.references` does and for the same
+        /// argument: both are commands someone typed a shortcut for, so the answer
+        /// is still wanted when it arrives late — a definition's three seconds
+        /// rather than a dwell's one and a half — and two numbers for one act
+        /// asked two ways would only be two numbers to keep in step.
+        public var references: TimeInterval
 
         public init(
             definition: TimeInterval = 3,
             completion: TimeInterval = 1.5,
             resolve: TimeInterval = 1.5,
-            hover: TimeInterval = 1.5
+            hover: TimeInterval = 1.5,
+            references: TimeInterval = 3
         ) {
             self.definition = definition
             self.completion = completion
             self.resolve = resolve
             self.hover = hover
+            self.references = references
         }
 
         /// D7's numbers.
@@ -211,6 +236,57 @@ public final class RoutingIntelligenceProvider: CodeIntelligenceProviding {
         // Two optionals meaning the same thing — the budget ran out, the server
         // had nothing — flattened to the one the caller reads as "show nothing".
         return await withBudget(budgets.hover, { [lsp] in await lsp.hover(for: request) }) ?? nil
+    }
+
+    /// The server's references, or nothing.
+    ///
+    /// **The second method here that does not fall through**, and unlike hover's
+    /// the omission does not mean the question ends: the index cannot enumerate
+    /// references — nothing in a declaration index knows where a name is *used* —
+    /// but a whole-word text scan can, honestly and while saying how little it
+    /// claims. That scan costs a walk of every file in the project, which is not
+    /// something to run inside a deadline race whose loser is abandoned mid-walk,
+    /// so it belongs to `FindUsagesModel` and not here (decision 1). What this
+    /// layer owes is a clean empty answer, which the model reads as "ask the
+    /// files".
+    public func references(for request: UsagesRequest) async -> [UsageResult] {
+        guard let language = request.fileURL
+            .flatMap({ SyntaxLanguage(forFileName: $0.lastPathComponent) }),
+              await lsp.canServe(language)
+        else { return [] }
+        return await withBudget(budgets.references, { [lsp] in
+            await lsp.references(for: request)
+        }) ?? []
+    }
+
+    /// The server's rename, or nothing at all.
+    ///
+    /// **The one question in this file with no second answer of any kind.** Hover
+    /// has none because tree-sitter does not know types; this has none because the
+    /// only thing tree-sitter could offer is a textual replace, and a textual
+    /// rename is indistinguishable from a correct one right up to the moment two
+    /// symbols share a spelling — at which point it has silently rewritten the one
+    /// nobody was looking at, in files the user never opened. A command that is
+    /// unavailable is a smaller harm than a command that is usually right.
+    public func renameEdits(for request: RenameRequest) async -> RenameAnswer? {
+        guard let language = request.fileURL
+            .flatMap({ SyntaxLanguage(forFileName: $0.lastPathComponent) }),
+              await lsp.canRename(language)
+        else { return nil }
+        return await withBudget(budgets.references, { [lsp] in
+            await lsp.renameEdits(for: request)
+        }) ?? nil
+    }
+
+    /// Whether the rename command should offer itself at all for `language`
+    /// (decision 4) — the wrapped source's policy answer, forwarded.
+    ///
+    /// Forwarded rather than reachable directly because the app holds *this*: the
+    /// seam's whole point is that nothing above it names the LSP layer, and a
+    /// command that had to reach past the router for one question would be the
+    /// first thing that did.
+    public func canRename(_ language: SyntaxLanguage) async -> Bool {
+        await lsp.canRename(language)
     }
 
     // MARK: - The deadline

@@ -159,16 +159,16 @@ Tests: new suites for each new Core file; updates to `BottomPanelTests`,
 - Modify: `Tests/PisakaCoreTests/RoutingIntelligenceProviderTests.swift`,
   `Tests/PisakaCoreTests/LSPIntelligenceProviderTests.swift`
 
-- [ ] Add to `CodeIntelligenceProviding`, both defaulted (`hover`'s precedent,
+- [x] Add to `CodeIntelligenceProviding`, both defaulted (`hover`'s precedent,
   so partial conformers keep compiling): `references(for:) async ->
   [UsageResult]` defaulting to `[]`, and `renameEdits(for:) async ->
   RenameAnswer?` defaulting to `nil`. Add the two request value types
   (`UsagesRequest`, `RenameRequest`), each carrying the live buffer, the file
   URL, the offset and the identifier; `RenameRequest` also the new name.
-- [ ] Add `canRename(_ language:) async -> Bool` to `LSPIntelligenceSource`
+- [x] Add `canRename(_ language:) async -> Bool` to `LSPIntelligenceSource`
   (policy-only, `canServe`'s shape) so the app can refuse before it shows a
   sheet.
-- [ ] Implement both in `LSPIntelligenceProvider`, step for step as
+- [x] Implement both in `LSPIntelligenceProvider`, step for step as
   `definitions(for:)`: the D2 empty-buffer guard, the language off the file
   name, `prepare` so the buffer reaches the server, the capability read after
   `prepare`, `LSPPositionMap` in and out, `stillHolds` before the answer is
@@ -176,18 +176,18 @@ Tests: new suites for each new Core file; updates to `BottomPanelTests`,
   text cache, the editor's own line numbering (`LineStartIndex` via
   `TextSearchEngine.lineNumber`), the buffer beating the disk for the requesting
   file, and the canonical-components relative path.
-- [ ] Route in `RoutingIntelligenceProvider`: both questions are `canServe`-gated
+- [x] Route in `RoutingIntelligenceProvider`: both questions are `canServe`-gated
   and budget-raced, and **neither falls through** — hover's rule, for hover's
   reason (an index cannot enumerate references, and a textual rename that looks
   right until it corrupts a same-named symbol is the worst possible answer).
   Document that the *textual* usages answer is a model-level decision, not a
   provider fallback.
-- [ ] Write tests: an unserved language never enters the LSP stack (equality
+- [x] Write tests: an unserved language never enters the LSP stack (equality
   against the untouched fallback output, as the existing suite does); a
   timed-out/empty/no-capability references answer yields `[]` and a rename
   answer yields `nil`; the position round trip through a file with a non-ASCII
   line; a target URI that is not a file URL is dropped silently.
-- [ ] Run `swift test` — must pass before Task 3.
+- [x] Run `swift test` — must pass before Task 3.
 
 ### Task 3: Usage results — value types, hygiene, and the textual scanner
 

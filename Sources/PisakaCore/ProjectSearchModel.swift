@@ -7,7 +7,7 @@ import Foundation
 /// into a 200 KB result row), and `matchRange` is the match's own UTF-16 range
 /// *within that window*, so the view highlights it without re-deriving any
 /// column arithmetic.
-public struct MatchPreview: Equatable {
+public struct MatchPreview: Equatable, Sendable {
     /// The clipped line text — no line separator, so a row is always one line.
     public var text: String
     /// The match's range inside `text`, clamped to it (a match longer than the
