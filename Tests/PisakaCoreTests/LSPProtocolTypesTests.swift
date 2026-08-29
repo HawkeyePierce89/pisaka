@@ -53,6 +53,13 @@ final class LSPProtocolTypesTests: XCTestCase {
         return try value.decoded(as: T.self)
     }
 
+    /// A bare JSON body — the `result` member of a response, written inline
+    /// where a recorded transcript would be more ceremony than the shape being
+    /// pinned deserves.
+    private func decodeResult<T: Decodable>(_ body: String, as type: T.Type) throws -> T {
+        try JSONDecoder().decode([T].self, from: Data("[\(body)]".utf8))[0]
+    }
+
     private func json(_ value: some Encodable) throws -> String {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
@@ -152,6 +159,64 @@ final class LSPProtocolTypesTests: XCTestCase {
         // Both spellings of "no": stated false, and never mentioned at all.
         XCTAssertFalse(capabilities.supportsHover)
         XCTAssertFalse(capabilities.supportsCompletion)
+    }
+
+    func testReferencesAndRenameDecodeThroughTheSameCollapse() throws {
+        // Both providers are `boolean | Options` like every other one here, and
+        // `renameProvider`'s options spelling is the one servers actually use
+        // (it is where `prepareProvider` lives).
+        let optionsSpelling = try JSONDecoder().decode(
+            LSPServerCapabilities.self,
+            from: (
+                #"{"referencesProvider":{"workDoneProgress":true},"#
+                    + #""renameProvider":{"prepareProvider":true}}"#
+            ).utf8Data
+        )
+        XCTAssertTrue(optionsSpelling.supportsReferences)
+        XCTAssertTrue(optionsSpelling.supportsRename)
+
+        let booleanSpelling = try JSONDecoder().decode(
+            LSPServerCapabilities.self,
+            from: Data(#"{"referencesProvider":true,"renameProvider":true}"#.utf8)
+        )
+        XCTAssertTrue(booleanSpelling.supportsReferences)
+        XCTAssertTrue(booleanSpelling.supportsRename)
+
+        let empty = try JSONDecoder().decode(
+            LSPServerCapabilities.self,
+            from: Data(#"{"referencesProvider":{},"renameProvider":{}}"#.utf8)
+        )
+        XCTAssertTrue(empty.supportsReferences)
+        XCTAssertTrue(empty.supportsRename)
+    }
+
+    func testEveryWayOfSayingNoToReferencesAndRename() throws {
+        // Stated false, explicitly null, and never mentioned at all — three
+        // spellings of the same answer, and the initializer's own defaults are
+        // the fourth.
+        let stated = try JSONDecoder().decode(
+            LSPServerCapabilities.self,
+            from: Data(#"{"referencesProvider":false,"renameProvider":false}"#.utf8)
+        )
+        XCTAssertFalse(stated.supportsReferences)
+        XCTAssertFalse(stated.supportsRename)
+
+        let explicitNull = try JSONDecoder().decode(
+            LSPServerCapabilities.self,
+            from: Data(#"{"referencesProvider":null,"renameProvider":null}"#.utf8)
+        )
+        XCTAssertFalse(explicitNull.supportsReferences)
+        XCTAssertFalse(explicitNull.supportsRename)
+
+        let absent = try JSONDecoder().decode(
+            LSPServerCapabilities.self,
+            from: Data(#"{"definitionProvider":true}"#.utf8)
+        )
+        XCTAssertFalse(absent.supportsReferences)
+        XCTAssertFalse(absent.supportsRename)
+
+        XCTAssertFalse(LSPServerCapabilities().supportsReferences)
+        XCTAssertFalse(LSPServerCapabilities().supportsRename)
     }
 
     func testAServerThatNeverMentionsHoverDoesNotSupportIt() throws {
@@ -561,6 +626,190 @@ final class LSPProtocolTypesTests: XCTestCase {
         XCTAssertThrowsError(try hover(#""nonsense""#))
     }
 
+    // MARK: - textDocument/references
+
+    func testReferenceParamsAlwaysAskForTheDeclarationToo() throws {
+        // The context is written every time, and `includeDeclaration` is `true`:
+        // a usages list that omits the declaration the caret is sitting on reads
+        // as a list that lost a row.
+        XCTAssertEqual(
+            try json(LSPReferenceParams(
+                uri: "file:///a/b.swift",
+                position: LSPPosition(line: 12, character: 4)
+            )),
+            #"{"context":{"includeDeclaration":true},"position":{"character":4,"line":12},"# +
+                #""textDocument":{"uri":"file:///a/b.swift"}}"#
+        )
+    }
+
+    func testAReferencesArrayDecodesEveryLocationInOrder() throws {
+        let response = try decodeResult(
+            """
+            [
+              {"uri":"file:///p/a.swift",
+               "range":{"start":{"line":1,"character":2},"end":{"line":1,"character":5}}},
+              {"uri":"file:///p/b.swift",
+               "range":{"start":{"line":9,"character":0},"end":{"line":9,"character":3}}}
+            ]
+            """,
+            as: LSPReferencesResponse.self
+        )
+        XCTAssertEqual(response.locations.map(\.uri), ["file:///p/a.swift", "file:///p/b.swift"])
+        XCTAssertEqual(
+            response.locations.first?.range,
+            LSPRange(start: LSPPosition(line: 1, character: 2), end: LSPPosition(line: 1, character: 5))
+        )
+        XCTAssertFalse(response.isEmpty)
+    }
+
+    func testANullReferencesResultIsTheSameAnswerAsAnEmptyArray() throws {
+        XCTAssertTrue(try decodeResult("null", as: LSPReferencesResponse.self).isEmpty)
+        XCTAssertTrue(try decodeResult("[]", as: LSPReferencesResponse.self).isEmpty)
+    }
+
+    func testOneMalformedReferenceIsDroppedWhileItsSiblingsSurvive() throws {
+        let response = try decodeResult(
+            """
+            [
+              {"uri":"file:///p/a.swift","range":{"start":{"line":1}}},
+              {"uri":"file:///p/b.swift",
+               "range":{"start":{"line":9,"character":0},"end":{"line":9,"character":3}}}
+            ]
+            """,
+            as: LSPReferencesResponse.self
+        )
+        XCTAssertEqual(response.locations.map(\.uri), ["file:///p/b.swift"])
+    }
+
+    func testAReferencesShapeThatIsNeitherNullNorAnArrayThrows() {
+        // "found nothing" and "could not read the answer" stay different facts.
+        XCTAssertThrowsError(
+            try decodeResult(#"{"locations":[]}"#, as: LSPReferencesResponse.self)
+        )
+    }
+
+    // MARK: - textDocument/rename
+
+    func testRenameParamsCarryThePositionAndTheNewName() throws {
+        XCTAssertEqual(
+            try json(LSPRenameParams(
+                uri: "file:///a/b.swift",
+                position: LSPPosition(line: 12, character: 4),
+                newName: "greeting"
+            )),
+            #"{"newName":"greeting","position":{"character":4,"line":12},"# +
+                #""textDocument":{"uri":"file:///a/b.swift"}}"#
+        )
+    }
+
+    func testAChangesMapDecodesEveryDocumentSortedByURI() throws {
+        // A JSON object has no order of its own, so the same answer must not
+        // produce two different plans on two runs: URI order is the tiebreak.
+        let edit = try decodeResult(
+            """
+            {"changes":{
+              "file:///p/z.swift":[{"range":{"start":{"line":0,"character":0},
+                                             "end":{"line":0,"character":3}},"newText":"bar"}],
+              "file:///p/a.swift":[{"range":{"start":{"line":4,"character":1},
+                                             "end":{"line":4,"character":4}},"newText":"bar"},
+                                   {"range":{"start":{"line":7,"character":2},
+                                             "end":{"line":7,"character":5}},"newText":"bar"}]
+            }}
+            """,
+            as: LSPWorkspaceEdit.self
+        )
+        XCTAssertEqual(edit.documents.map(\.uri), ["file:///p/a.swift", "file:///p/z.swift"])
+        XCTAssertEqual(edit.documents.map(\.edits.count), [2, 1])
+        XCTAssertEqual(edit.documents.map(\.version), [nil, nil])
+        XCTAssertFalse(edit.isEmpty)
+    }
+
+    func testDocumentChangesDecodeWithTheirVersionsAndKeepWireOrder() throws {
+        let edit = try decodeResult(
+            """
+            {"documentChanges":[
+              {"textDocument":{"uri":"file:///p/z.swift","version":7},
+               "edits":[{"range":{"start":{"line":0,"character":0},
+                                  "end":{"line":0,"character":3}},"newText":"bar"}]},
+              {"textDocument":{"uri":"file:///p/a.swift","version":null},
+               "edits":[{"range":{"start":{"line":4,"character":1},
+                                  "end":{"line":4,"character":4}},"newText":"bar"}]}
+            ]}
+            """,
+            as: LSPWorkspaceEdit.self
+        )
+        XCTAssertEqual(edit.documents.map(\.uri), ["file:///p/z.swift", "file:///p/a.swift"])
+        XCTAssertEqual(edit.documents.map(\.version), [7, nil])
+    }
+
+    func testDocumentChangesWinWhenAServerSendsBothSpellings() throws {
+        let edit = try decodeResult(
+            """
+            {"changes":{"file:///p/legacy.swift":[{"range":{"start":{"line":0,"character":0},
+                                                            "end":{"line":0,"character":3}},
+                                                   "newText":"bar"}]},
+             "documentChanges":[
+              {"textDocument":{"uri":"file:///p/rich.swift","version":2},
+               "edits":[{"range":{"start":{"line":0,"character":0},
+                                  "end":{"line":0,"character":3}},"newText":"bar"}]}
+            ]}
+            """,
+            as: LSPWorkspaceEdit.self
+        )
+        XCTAssertEqual(edit.documents.map(\.uri), ["file:///p/rich.swift"])
+    }
+
+    /// A server that offers to rename the *file* too, and one that sends an
+    /// operation no version of the spec names. Both are ignored: the textual
+    /// half of the answer is still exactly right, and refusing the whole edit
+    /// would turn a helpful server into one that cannot rename at all.
+    func testFileOperationsInDocumentChangesAreIgnoredRatherThanFailingTheDecode() throws {
+        let edit = try decodeResult(
+            """
+            {"documentChanges":[
+              {"kind":"create","uri":"file:///p/new.swift"},
+              {"textDocument":{"uri":"file:///p/a.swift"},
+               "edits":[{"range":{"start":{"line":4,"character":1},
+                                  "end":{"line":4,"character":4}},"newText":"bar"}]},
+              {"kind":"rename","oldUri":"file:///p/a.swift","newUri":"file:///p/b.swift"},
+              {"kind":"teleport","uri":"file:///p/a.swift"},
+              {"kind":"delete","uri":"file:///p/old.swift"}
+            ]}
+            """,
+            as: LSPWorkspaceEdit.self
+        )
+        XCTAssertEqual(edit.documents.map(\.uri), ["file:///p/a.swift"])
+        XCTAssertEqual(edit.documents.first?.edits.count, 1)
+    }
+
+    func testANullRenameResultAndAnEditWithNoChangesAreBothEmpty() throws {
+        XCTAssertTrue(try decodeResult("null", as: LSPWorkspaceEdit.self).documents.isEmpty)
+        XCTAssertTrue(try decodeResult("{}", as: LSPWorkspaceEdit.self).documents.isEmpty)
+        // A document named with nothing to do in it is still nothing to apply.
+        let empty = try decodeResult(
+            #"{"documentChanges":[{"textDocument":{"uri":"file:///p/a.swift"},"edits":[]}]}"#,
+            as: LSPWorkspaceEdit.self
+        )
+        XCTAssertEqual(empty.documents.count, 1)
+        XCTAssertTrue(empty.isEmpty)
+    }
+
+    func testOneMalformedEditIsDroppedWhileItsSiblingsSurvive() throws {
+        let edit = try decodeResult(
+            """
+            {"documentChanges":[
+              {"textDocument":{"uri":"file:///p/a.swift"},
+               "edits":[{"range":{"start":{"line":4,"character":1}},"newText":"bar"},
+                        {"range":{"start":{"line":7,"character":2},
+                                  "end":{"line":7,"character":5}},"newText":"bar"}]}
+            ]}
+            """,
+            as: LSPWorkspaceEdit.self
+        )
+        XCTAssertEqual(edit.documents.first?.edits.count, 1)
+        XCTAssertEqual(edit.documents.first?.edits.first?.range.start.line, 7)
+    }
+
     // MARK: - textDocument/completion
 
     func testCompletionParamsCarryTheMemberTriggerCharacter() throws {
@@ -904,6 +1153,8 @@ final class LSPProtocolTypesTests: XCTestCase {
         XCTAssertEqual(LSPMethod.didClose, "textDocument/didClose")
         XCTAssertEqual(LSPMethod.definition, "textDocument/definition")
         XCTAssertEqual(LSPMethod.hover, "textDocument/hover")
+        XCTAssertEqual(LSPMethod.references, "textDocument/references")
+        XCTAssertEqual(LSPMethod.rename, "textDocument/rename")
         XCTAssertEqual(LSPMethod.completion, "textDocument/completion")
         XCTAssertEqual(LSPMethod.resolveCompletionItem, "completionItem/resolve")
         XCTAssertEqual(LSPMethod.workspaceConfiguration, "workspace/configuration")

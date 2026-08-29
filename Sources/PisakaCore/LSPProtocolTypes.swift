@@ -57,6 +57,8 @@ public enum LSPMethod {
 
     public static let definition = "textDocument/definition"
     public static let hover = "textDocument/hover"
+    public static let references = "textDocument/references"
+    public static let rename = "textDocument/rename"
     public static let completion = "textDocument/completion"
     public static let resolveCompletionItem = "completionItem/resolve"
 
@@ -830,6 +832,200 @@ public struct LSPCompletionResponse: Equatable, Hashable, Sendable, Decodable {
     public var isEmpty: Bool { items.isEmpty }
 }
 
+// MARK: - References
+
+/// `ReferenceParams.context`. One member, and it is always `true` on the wire:
+/// the declaration is a usage the person who asked expects to see listed, and a
+/// list that silently omits the one row they were looking at is worse than no
+/// list.
+public struct LSPReferenceContext: Equatable, Hashable, Sendable, Codable {
+    public var includeDeclaration: Bool
+
+    public init(includeDeclaration: Bool = true) {
+        self.includeDeclaration = includeDeclaration
+    }
+}
+
+/// `textDocument/references`' params: a position request plus the context.
+public struct LSPReferenceParams: Equatable, Hashable, Sendable, Codable {
+    public var textDocument: LSPTextDocumentIdentifier
+    public var position: LSPPosition
+    public var context: LSPReferenceContext
+
+    public init(
+        textDocument: LSPTextDocumentIdentifier,
+        position: LSPPosition,
+        context: LSPReferenceContext = LSPReferenceContext()
+    ) {
+        self.textDocument = textDocument
+        self.position = position
+        self.context = context
+    }
+
+    public init(
+        uri: String,
+        position: LSPPosition,
+        includeDeclaration: Bool = true
+    ) {
+        self.init(
+            textDocument: LSPTextDocumentIdentifier(uri: uri),
+            position: position,
+            context: LSPReferenceContext(includeDeclaration: includeDeclaration)
+        )
+    }
+}
+
+/// The whole `textDocument/references` result: `Location[]` or `null`.
+///
+/// A decode-only type, folding `null` and the absent `result` member into the
+/// same empty answer every other response here does — a server with nothing to
+/// say and a server that says so explicitly are the same fact. One unreadable
+/// element is dropped while its siblings survive (`publishDiagnostics`' rule:
+/// one malformed row must not cost the other four hundred), but a top level that
+/// is neither `null` nor an array still throws, because "found nothing" and
+/// "could not read the answer" must stay different facts.
+public struct LSPReferencesResponse: Equatable, Hashable, Sendable, Decodable {
+    public var locations: [LSPLocation]
+
+    public init(locations: [LSPLocation]) { self.locations = locations }
+
+    public init(from decoder: Swift.Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if container.decodeNil() {
+            locations = []
+            return
+        }
+        guard let entries = try? container.decode([JSONValue].self) else {
+            throw DecodingError.dataCorruptedError(
+                in: container,
+                debugDescription: "Not a Location[] or null"
+            )
+        }
+        locations = entries.compactMap { try? $0.decoded(as: LSPLocation.self) }
+    }
+
+    public var isEmpty: Bool { locations.isEmpty }
+}
+
+// MARK: - Rename
+
+/// `textDocument/rename`'s params.
+public struct LSPRenameParams: Equatable, Hashable, Sendable, Codable {
+    public var textDocument: LSPTextDocumentIdentifier
+    public var position: LSPPosition
+    public var newName: String
+
+    public init(
+        textDocument: LSPTextDocumentIdentifier,
+        position: LSPPosition,
+        newName: String
+    ) {
+        self.textDocument = textDocument
+        self.position = position
+        self.newName = newName
+    }
+
+    public init(uri: String, position: LSPPosition, newName: String) {
+        self.init(
+            textDocument: LSPTextDocumentIdentifier(uri: uri),
+            position: position,
+            newName: newName
+        )
+    }
+}
+
+/// Every edit one document takes, as the server grouped them.
+///
+/// `version` is the `OptionalVersionedTextDocumentIdentifier`'s member and is
+/// kept when the server sent one — but nothing compares it. The rename plan
+/// verifies each range still holds the exact text the edit was computed
+/// against, which is the stronger check and the one that holds for a server
+/// that sends no version at all.
+public struct LSPDocumentEdits: Equatable, Hashable, Sendable {
+    public var uri: String
+    public var version: Int?
+    public var edits: [LSPTextEdit]
+
+    public init(uri: String, version: Int? = nil, edits: [LSPTextEdit]) {
+        self.uri = uri
+        self.version = version
+        self.edits = edits
+    }
+}
+
+/// A `WorkspaceEdit`, normalised across the two spellings a server may answer a
+/// rename in.
+///
+/// `documentChanges` is the richer one and wins when both are present: it is
+/// ordered, it carries the document version, and it is what a client
+/// advertising `documentChanges` support is supposed to receive. `changes` is a
+/// plain uri → edits map with no order of its own, so its entries are sorted by
+/// URI — an unordered dictionary must not make the same answer produce two
+/// different plans on two runs.
+///
+/// A `documentChanges` array may also hold `CreateFile`/`RenameFile`/
+/// `DeleteFile` operations. Nothing here performs file operations, and a rename
+/// that moves a file is not what this command promises, so those entries are
+/// **ignored** rather than failing the decode: the textual half of the answer is
+/// still exactly right, and refusing it whole would turn a server that helpfully
+/// offers to rename the file too into a server that cannot rename at all. The
+/// same tolerance covers an operation kind no version of the spec names.
+///
+/// One document may legitimately appear more than once; entries are kept in wire
+/// order and grouping is `RenameEditPlan`'s job, not the decoder's.
+public struct LSPWorkspaceEdit: Equatable, Hashable, Sendable, Decodable {
+    public var documents: [LSPDocumentEdits]
+
+    public init(documents: [LSPDocumentEdits]) { self.documents = documents }
+
+    private enum CodingKeys: String, CodingKey { case changes, documentChanges }
+
+    public init(from decoder: Swift.Decoder) throws {
+        if let single = try? decoder.singleValueContainer(), single.decodeNil() {
+            documents = []
+            return
+        }
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let documentChanges = try? container.decodeIfPresent(
+            [JSONValue].self, forKey: .documentChanges
+        )
+        if let documentChanges, !documentChanges.isEmpty {
+            documents = documentChanges.compactMap(LSPWorkspaceEdit.documentEdits(of:))
+            return
+        }
+        let changes = try? container.decodeIfPresent(JSONValue.self, forKey: .changes)
+        documents = LSPWorkspaceEdit.documentEdits(ofChanges: changes)
+    }
+
+    /// One `documentChanges` entry, or `nil` for a file operation.
+    private static func documentEdits(of entry: JSONValue) -> LSPDocumentEdits? {
+        guard let document = entry["textDocument"],
+              let uri = document["uri"]?.stringValue,
+              let edits = entry["edits"]?.arrayValue else { return nil }
+        return LSPDocumentEdits(
+            uri: uri,
+            version: document["version"]?.intValue,
+            edits: edits.compactMap { try? $0.decoded(as: LSPTextEdit.self) }
+        )
+    }
+
+    private static func documentEdits(ofChanges changes: JSONValue?) -> [LSPDocumentEdits] {
+        guard let object = changes?.objectValue else { return [] }
+        return object.keys.sorted().compactMap { uri in
+            guard let edits = object[uri]?.arrayValue else { return nil }
+            return LSPDocumentEdits(
+                uri: uri,
+                edits: edits.compactMap { try? $0.decoded(as: LSPTextEdit.self) }
+            )
+        }
+    }
+
+    /// No edit anywhere — the answer a server gives when it recognised the
+    /// symbol but has nothing to rewrite, which the command treats exactly as it
+    /// treats a server that refused.
+    public var isEmpty: Bool { documents.allSatisfy(\.edits.isEmpty) }
+}
+
 // MARK: - Handshake
 
 /// `$/cancelRequest`'s params — the one notification that carries a request id.
@@ -1037,6 +1233,14 @@ public struct LSPServerCapabilities: Equatable, Hashable, Sendable, Decodable {
     /// Whether `textDocument/hover` is worth asking at all — a server that does
     /// not advertise it is never sent the request (D25).
     public var supportsHover: Bool
+    /// Whether `textDocument/references` is worth asking at all. A server that
+    /// does not advertise it is never sent the request, and Find Usages answers
+    /// with its own textual scan instead.
+    public var supportsReferences: Bool
+    /// Whether `textDocument/rename` is worth asking at all. Rename has no
+    /// fallback of any kind, so a server that does not advertise this is the end
+    /// of the command rather than the start of a second strategy.
+    public var supportsRename: Bool
     public var supportsCompletion: Bool
     /// Whether `completionItem/resolve` is worth sending at all (D4's prefetch).
     public var resolvesCompletionItems: Bool
@@ -1046,6 +1250,8 @@ public struct LSPServerCapabilities: Equatable, Hashable, Sendable, Decodable {
         positionEncoding: String? = nil,
         supportsDefinition: Bool = false,
         supportsHover: Bool = false,
+        supportsReferences: Bool = false,
+        supportsRename: Bool = false,
         supportsCompletion: Bool = false,
         resolvesCompletionItems: Bool = false,
         completionTriggerCharacters: [String] = []
@@ -1053,6 +1259,8 @@ public struct LSPServerCapabilities: Equatable, Hashable, Sendable, Decodable {
         self.positionEncoding = positionEncoding
         self.supportsDefinition = supportsDefinition
         self.supportsHover = supportsHover
+        self.supportsReferences = supportsReferences
+        self.supportsRename = supportsRename
         self.supportsCompletion = supportsCompletion
         self.resolvesCompletionItems = resolvesCompletionItems
         self.completionTriggerCharacters = completionTriggerCharacters
@@ -1060,6 +1268,7 @@ public struct LSPServerCapabilities: Equatable, Hashable, Sendable, Decodable {
 
     private enum CodingKeys: String, CodingKey {
         case positionEncoding, definitionProvider, hoverProvider, completionProvider
+        case referencesProvider, renameProvider
     }
 
     public init(from decoder: Swift.Decoder) throws {
@@ -1074,6 +1283,16 @@ public struct LSPServerCapabilities: Equatable, Hashable, Sendable, Decodable {
 
         let hover = try container.decodeIfPresent(JSONValue.self, forKey: .hoverProvider)
         supportsHover = LSPServerCapabilities.isEnabled(hover)
+
+        // `renameProvider` carries `prepareProvider` in its options spelling;
+        // `textDocument/prepareRename` is deliberately not sent (the app asks for
+        // the new name through its own validating dialog), so the option is read
+        // as nothing more than the presence that makes the collapse say yes.
+        let references = try container.decodeIfPresent(JSONValue.self, forKey: .referencesProvider)
+        supportsReferences = LSPServerCapabilities.isEnabled(references)
+
+        let rename = try container.decodeIfPresent(JSONValue.self, forKey: .renameProvider)
+        supportsRename = LSPServerCapabilities.isEnabled(rename)
 
         let completion = try container.decodeIfPresent(JSONValue.self, forKey: .completionProvider)
         supportsCompletion = LSPServerCapabilities.isEnabled(completion)

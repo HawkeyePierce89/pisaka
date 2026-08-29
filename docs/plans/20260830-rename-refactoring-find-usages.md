@@ -123,31 +123,31 @@ Tests: new suites for each new Core file; updates to `BottomPanelTests`,
 - Modify: `Tests/PisakaCoreTests/LSPProtocolTypesTests.swift`,
   `Tests/PisakaCoreTests/LSPSessionTests.swift`
 
-- [ ] Add `textDocument/references` and `textDocument/rename` to `LSPMethod`.
-- [ ] Decode `referencesProvider` and `renameProvider` into
+- [x] Add `textDocument/references` and `textDocument/rename` to `LSPMethod`.
+- [x] Decode `referencesProvider` and `renameProvider` into
   `LSPServerCapabilities` (`supportsReferences`, `supportsRename`) through the
   existing `isEnabled` collapse; keep the tree closed and the initializer's
   defaults `false`.
-- [ ] Add the request params: a references param carrying
+- [x] Add the request params: a references param carrying
   `context.includeDeclaration` (send `true` — the declaration is a usage the
   user expects to see), and a rename param carrying `newName`.
-- [ ] Add the response types: `[LSPLocation]` (with `null`/absent folded to
+- [x] Add the response types: `[LSPLocation]` (with `null`/absent folded to
   empty, as the other responses do) and `LSPWorkspaceEdit` decoding **both**
   spellings — `changes` (uri → `[LSPTextEdit]`) and `documentChanges` (array of
   `{ textDocument: {uri, version}, edits }`), leniently, keeping the optional
   document `version` when present and ignoring create/rename/delete file
   operations rather than failing the decode.
-- [ ] Add `references(_:)` and `rename(_:)` to `LSPSession` in the established
+- [x] Add `references(_:)` and `rename(_:)` to `LSPSession` in the established
   shape (encode params, `request` with a budget, `decode`), each on the
   definition budget.
-- [ ] Extend `LSPSession.Budgets` with the two new spans and document why they
+- [x] Extend `LSPSession.Budgets` with the two new spans and document why they
   share definition's number (both are explicit user commands, not pointer
   dwell).
-- [ ] Write tests: the capability decode for both wire spellings (`true`, `{}`,
+- [x] Write tests: the capability decode for both wire spellings (`true`, `{}`,
   `false`, absent, `null`); both `WorkspaceEdit` spellings including a
   mixed/unknown-operation document-changes array; the two session round trips
   through `ScriptedLSPTransport`, including a `null` result and a server error.
-- [ ] Run `swift test` — must pass before Task 2.
+- [x] Run `swift test` — must pass before Task 2.
 
 ### Task 2: The seam, the LSP provider, and the router
 
