@@ -153,31 +153,31 @@ Dependencies: none new.
 
 - Modify: `Sources/Pisaka/PisakaApp.swift`
 
-- [ ] add an existence guard as the first statement of `openFolder(url:)`, before
+- [x] add an existence guard as the first statement of `openFolder(url:)`, before
       `isSwitch`/`hadFolder` are decided and before anything is flushed or
       swapped: when `isExistingDirectory(atPath: url.path)` is false, warn and
       return, leaving the workspace exactly as it was
-- [ ] add the refusal helper beside `reportUnsavedBeforeFolderSwitch(_:)`,
+- [x] add the refusal helper beside `reportUnsavedBeforeFolderSwitch(_:)`,
       following it exactly — `PlatformFeedback.warning()` plus
       `PlatformAlert.presentMessage(title: "Cannot open project folder", …)`
       naming the folder that is gone
-- [ ] document on the funnel why the guard is there and why it is at the top: the
+- [x] document on the funnel why the guard is there and why it is at the top: the
       recents list can offer a folder deleted since it was recorded, and every
       present and future programmatic caller inherits the refusal rather than
       re-implementing it
-- [ ] leave `restoreLastSession()` untouched — its own pre-check keeps launch
+- [x] leave `restoreLastSession()` untouched — its own pre-check keeps launch
       restore on the silent path, so the new alert can never fire at launch; state
       that in the guard's comment
-- [ ] add a private `recentProjectRows()` in `PisakaApp` that reads
+- [x] add a private `recentProjectRows()` in `PisakaApp` that reads
       `sessionStore.loadCatalog()` and calls the Core projection with
       `model.projectRoot` and `isExistingDirectory(atPath:)` as the existence
       answer
-- [ ] wire the two new `ContentView` inputs: `recentProjects: { recentProjectRows() }`
+- [x] wire the two new `ContentView` inputs: `recentProjects: { recentProjectRows() }`
       and `onOpenRecentProject: { openFolder(url: $0) }` — the existing funnel
       verbatim, so the unsaved-titled-buffers refusal, the session flush and every
       retargeting apply unchanged and no `WorkspaceModel` mutation happens from
       the widget
-- [ ] run `swift test` — must pass before Task 4
+- [x] run `swift test` — must pass before Task 4
 
 ### Task 4: Verify acceptance criteria
 
