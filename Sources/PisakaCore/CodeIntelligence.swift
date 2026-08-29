@@ -243,9 +243,12 @@ public struct CompletionRequest: Equatable, Sendable {
     /// provider treats as **unanswerable** rather than guessing: a completion
     /// request is a question about a position, and there is no position here to
     /// derive from a prefix and a buffer that may contain it a hundred times.
-    /// The tree-sitter provider ignores the field entirely — it matches names,
-    /// not places — so a call site that predates phase 2a keeps meaning exactly
-    /// what it meant, and only the LSP answer is given up.
+    /// The tree-sitter provider uses the field only to determine whether the
+    /// caret sits inside a string literal or comment where completion is
+    /// suppressed (via `SyntaxContextScanner`); otherwise it matches names, not
+    /// places, so a call site that predates phase 2a keeps meaning exactly what
+    /// it meant when no position is supplied, and only the LSP answer is given
+    /// up.
     ///
     /// The same reasoning as `DefinitionRequest.text`, and the same hazard: both
     /// editor call sites pass it, and the guard above is what keeps a forgotten

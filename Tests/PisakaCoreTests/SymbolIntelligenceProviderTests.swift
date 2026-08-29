@@ -1132,4 +1132,258 @@ final class SymbolIntelligenceProviderTests: XCTestCase {
         )
         XCTAssertEqual(completions, [CompletionItem(text: "Worker", kind: .type, isFromCurrentFile: true)])
     }
+
+    // MARK: - Completions: syntax-context gating
+
+    func testGateSuppressesInStringForAllSources() {
+        let store = index(["a.swift": [symbol("hello", in: "a.swift")]])
+        let text = "let s = \"hel\" ; let hello = 1" as NSString
+        // Offset just after "hel" inside the quoted string.
+        let offsetInString = ("let s = \"" as NSString).length + 3
+        XCTAssertEqual(
+            SyntaxContextScanner.context(in: text, at: offsetInString, language: .swift), .string)
+        let request = CompletionRequest(
+            prefix: "hel", fileURL: fileURL("a.swift"), text: text as String,
+            language: .swift, offset: offsetInString)
+        XCTAssertTrue(SymbolIntelligenceProvider.completions(for: request, in: store).isEmpty)
+        // Same prefix in open code is ungated.
+        let openText = "let hel" as NSString
+        let openOffset = openText.length
+        let openRequest = CompletionRequest(
+            prefix: "hel", fileURL: fileURL("a.swift"), text: openText as String,
+            language: .swift, offset: openOffset)
+        XCTAssertFalse(SymbolIntelligenceProvider.completions(for: openRequest, in: store).isEmpty)
+    }
+
+    func testGateSuppressesInCommentForAllSources() {
+        let store = index(["a.swift": [symbol("hello", in: "a.swift")]])
+        let text = "// hel hello" as NSString
+        let offsetInComment = ("// " as NSString).length + 3
+        XCTAssertEqual(
+            SyntaxContextScanner.context(in: text, at: offsetInComment, language: .swift), .comment)
+        let request = CompletionRequest(
+            prefix: "hel", fileURL: fileURL("a.swift"), text: text as String,
+            language: .swift, offset: offsetInComment)
+        XCTAssertTrue(SymbolIntelligenceProvider.completions(for: request, in: store).isEmpty)
+        // Keywords are also suppressed inside a comment.
+        let kwText = "// gua" as NSString
+        let kwOffset = kwText.length
+        let kwRequest = CompletionRequest(prefix: "gua", fileURL: nil, text: kwText as String, language: .swift, offset: kwOffset)
+        XCTAssertTrue(SymbolIntelligenceProvider.completions(for: kwRequest, in: SymbolIndex()).isEmpty)
+        // Buffer words also suppressed.
+        let wordText = "// wor worker workshop" as NSString
+        let wordOffset = ("// wor" as NSString).length
+        let wordRequest = CompletionRequest(prefix: "wor", fileURL: nil, text: wordText as String, language: .swift, offset: wordOffset)
+        XCTAssertTrue(SymbolIntelligenceProvider.completions(for: wordRequest, in: SymbolIndex()).isEmpty)
+    }
+
+    func testGateSuppressesBlockComment() {
+        let store = index(["a.swift": [symbol("hello", in: "a.swift")]])
+        let text = "/* hel */ hello" as NSString
+        let offset = ("/* " as NSString).length + 3
+        XCTAssertEqual(SyntaxContextScanner.context(in: text, at: offset, language: .swift), .comment)
+        let request = CompletionRequest(prefix: "hel", fileURL: nil, text: text as String, language: .swift, offset: offset)
+        XCTAssertTrue(SymbolIntelligenceProvider.completions(for: request, in: store).isEmpty)
+    }
+
+    func testKeywordAndBufferWordSuppressedInString() {
+        // Keyword source alone would offer "guard" for "gua".
+        let stringText = "let s = \"gua\"" as NSString
+        let offset = ("let s = \"gua" as NSString).length
+        XCTAssertEqual(SyntaxContextScanner.context(in: stringText, at: offset, language: .swift), .string)
+        let kwReq = CompletionRequest(prefix: "gua", fileURL: nil, text: stringText as String, language: .swift, offset: offset)
+        XCTAssertTrue(SymbolIntelligenceProvider.completions(for: kwReq, in: SymbolIndex()).isEmpty)
+        // Buffer words alone: prefix "wor" inside string should not harvest "worker".
+        let wordText = "let s = \"wor\" ; worker" as NSString
+        let wOffset = ("let s = \"wor" as NSString).length
+        let wReq = CompletionRequest(prefix: "wor", fileURL: nil, text: wordText as String, language: .swift, offset: wOffset)
+        XCTAssertTrue(SymbolIntelligenceProvider.completions(for: wReq, in: SymbolIndex()).isEmpty)
+    }
+
+    func testHoleInJsTemplateIsCode() {
+        let store = index(["a.js": [symbol("hello", in: "a.js")]])
+        let text = "let x = `hi ${hel}lo` ; let hello = 1" as NSString
+        // Offset just after "hel" inside ${…}
+        let offsetInHole = ("let x = `hi ${hel" as NSString).length
+        XCTAssertEqual(SyntaxContextScanner.context(in: text, at: offsetInHole, language: .javascript), .code)
+        let holeReq = CompletionRequest(prefix: "hel", fileURL: nil, text: text as String, language: .javascript, offset: offsetInHole)
+        let openText = "let hel ; let hello = 1" as NSString
+        let openOffset = ("let hel" as NSString).length
+        let openReq = CompletionRequest(prefix: "hel", fileURL: nil, text: openText as String, language: .javascript, offset: openOffset)
+        XCTAssertEqual(
+            SymbolIntelligenceProvider.completions(for: holeReq, in: store).map(\.text),
+            SymbolIntelligenceProvider.completions(for: openReq, in: store).map(\.text)
+        )
+        XCTAssertFalse(SymbolIntelligenceProvider.completions(for: holeReq, in: store).isEmpty)
+    }
+
+    func testHoleInSwiftInterpolationIsCode() {
+        let store = index(["a.swift": [symbol("hello", in: "a.swift")]])
+        let text = "let s = \"hi \\(hel)lo\" ; let hello = 1" as NSString
+        let offsetInHole = ("let s = \"hi \\(hel" as NSString).length
+        XCTAssertEqual(SyntaxContextScanner.context(in: text, at: offsetInHole, language: .swift), .code)
+        let holeReq = CompletionRequest(prefix: "hel", fileURL: nil, text: text as String, language: .swift, offset: offsetInHole)
+        let openText = "let hel ; let hello = 1" as NSString
+        let openOffset = ("let hel" as NSString).length
+        let openReq = CompletionRequest(prefix: "hel", fileURL: nil, text: openText as String, language: .swift, offset: openOffset)
+        XCTAssertEqual(
+            SymbolIntelligenceProvider.completions(for: holeReq, in: store).map(\.text),
+            SymbolIntelligenceProvider.completions(for: openReq, in: store).map(\.text)
+        )
+        XCTAssertFalse(SymbolIntelligenceProvider.completions(for: holeReq, in: store).isEmpty)
+    }
+
+    func testHoleInSwiftPoundInterpolationIsCode() {
+        let store = index(["a.swift": [symbol("hello", in: "a.swift")]])
+        let text = "let s = #\"hi \\#(hel)lo\"# ; let hello = 1" as NSString
+        let offsetInHole = ("let s = #\"hi \\#(hel" as NSString).length
+        XCTAssertEqual(SyntaxContextScanner.context(in: text, at: offsetInHole, language: .swift), .code)
+        let holeReq = CompletionRequest(prefix: "hel", fileURL: nil, text: text as String, language: .swift, offset: offsetInHole)
+        let openText = "let hel ; let hello = 1" as NSString
+        let openOffset = ("let hel" as NSString).length
+        let openReq = CompletionRequest(prefix: "hel", fileURL: nil, text: openText as String, language: .swift, offset: openOffset)
+        XCTAssertEqual(
+            SymbolIntelligenceProvider.completions(for: holeReq, in: store).map(\.text),
+            SymbolIntelligenceProvider.completions(for: openReq, in: store).map(\.text)
+        )
+    }
+
+    func testPythonFStringHoleIsCode() {
+        let store = index(["a.py": [symbol("hello", in: "a.py")]])
+        let text = "s = f\"hi {hel}lo\" ; hello = 1" as NSString
+        let offsetInHole = ("s = f\"hi {hel" as NSString).length
+        XCTAssertEqual(SyntaxContextScanner.context(in: text, at: offsetInHole, language: .python), .code)
+        let holeReq = CompletionRequest(prefix: "hel", fileURL: nil, text: text as String, language: .python, offset: offsetInHole)
+        let openText = "hel ; hello = 1" as NSString
+        let openOffset = ("hel" as NSString).length
+        let openReq = CompletionRequest(prefix: "hel", fileURL: nil, text: openText as String, language: .python, offset: openOffset)
+        XCTAssertEqual(
+            SymbolIntelligenceProvider.completions(for: holeReq, in: store).map(\.text),
+            SymbolIntelligenceProvider.completions(for: openReq, in: store).map(\.text)
+        )
+    }
+
+    func testMemberInsideStringReturnsEmpty() {
+        let store = index(["a.swift": [symbol("hello", kind: .method, in: "a.swift", container: "Worker")]])
+        let text = "let s = \"Worker.hel\"" as NSString
+        let offset = ("let s = \"Worker.hel" as NSString).length
+        XCTAssertEqual(SyntaxContextScanner.context(in: text, at: offset, language: .swift), .string)
+        let member = IdentifierScanner.MemberContext(receiver: "Worker", prefixRange: NSRange(location: 0, length: 3))
+        let req = CompletionRequest(prefix: "hel", fileURL: nil, text: text as String, language: .swift, member: member, offset: offset)
+        XCTAssertTrue(SymbolIntelligenceProvider.completions(for: req, in: store).isEmpty)
+    }
+
+    func testExplicitPathGatedIdentically() {
+        // Explicit invocation builds the same request shape; no extra flag reaches the provider.
+        let store = index(["a.swift": [symbol("hello", in: "a.swift")]])
+        let text = "let s = \"hel\"" as NSString
+        let offset = ("let s = \"hel" as NSString).length
+        let req = CompletionRequest(prefix: "hel", fileURL: nil, text: text as String, language: .swift, offset: offset)
+        XCTAssertTrue(SymbolIntelligenceProvider.completions(for: req, in: store).isEmpty)
+        // Same request via explicit trigger would be identical - gate still applies.
+        let req2 = CompletionRequest(prefix: "hel", fileURL: nil, text: text as String, language: .swift, offset: offset)
+        XCTAssertEqual(
+            SymbolIntelligenceProvider.completions(for: req, in: store),
+            SymbolIntelligenceProvider.completions(for: req2, in: store)
+        )
+    }
+
+    func testNilOffsetUngated() {
+        let store = index(["a.swift": [symbol("hello", in: "a.swift")]])
+        let text = "let s = \"hel\""
+        let req = CompletionRequest(prefix: "hel", fileURL: nil, text: text, language: .swift, offset: nil)
+        XCTAssertFalse(SymbolIntelligenceProvider.completions(for: req, in: store).isEmpty)
+    }
+
+    func testNilLanguageUngated() {
+        let store = index(["a.swift": [symbol("hello", in: "a.swift")]])
+        let text = "let s = \"hel\""
+        let offset = (text as NSString).length - 1
+        let req = CompletionRequest(prefix: "hel", fileURL: nil, text: text, language: nil, offset: offset)
+        XCTAssertFalse(SymbolIntelligenceProvider.completions(for: req, in: store).isEmpty)
+    }
+
+    func testOutOfRangeOffsetUngated() {
+        let store = index(["a.swift": [symbol("hello", in: "a.swift")]])
+        let text = "let s = \"hel\""
+        // Negative
+        let negReq = CompletionRequest(prefix: "hel", fileURL: nil, text: text, language: .swift, offset: -1)
+        XCTAssertFalse(SymbolIntelligenceProvider.completions(for: negReq, in: store).isEmpty)
+        // Past end
+        let pastReq = CompletionRequest(prefix: "hel", fileURL: nil, text: text, language: .swift, offset: 9999)
+        XCTAssertFalse(SymbolIntelligenceProvider.completions(for: pastReq, in: store).isEmpty)
+    }
+
+    func testUngatedLanguageStringsNotSuppressed() {
+        let store = index(["a.json": [symbol("hello", in: "a.json")]])
+        for language in [SyntaxLanguage.json, .yaml, .html, .dotenv] as [SyntaxLanguage] {
+            let text: NSString
+            switch language {
+            case .yaml: text = "key: \"hel\"" as NSString
+            case .html: text = "<div class=\"hel\">" as NSString
+            default: text = "\"hel\"" as NSString
+            }
+            // Offset inside the quoted value.
+            let offset: Int
+            if language == .html {
+                offset = ("<div class=\"" as NSString).length + 3
+            } else if language == .yaml {
+                offset = ("key: \"hel" as NSString).length
+            } else {
+                offset = ("\"hel" as NSString).length
+            }
+            XCTAssertEqual(SyntaxContextScanner.context(in: text, at: offset, language: language), .string, "\(language)")
+            XCTAssertFalse(SyntaxContextScanner.suppressesCompletion(in: text, at: offset, language: language), "\(language)")
+            let req = CompletionRequest(prefix: "hel", fileURL: nil, text: text as String, language: language, offset: offset)
+            XCTAssertFalse(SymbolIntelligenceProvider.completions(for: req, in: store).isEmpty, "expected ungated for \(language)")
+        }
+    }
+
+    func testMarkdownAlwaysUngated() {
+        let store = index(["a.md": [symbol("hello", in: "a.md")]])
+        let text = "hello hel" as NSString
+        let offset = text.length
+        XCTAssertEqual(SyntaxContextScanner.context(in: text, at: offset, language: .markdown), .code)
+        let req = CompletionRequest(prefix: "hel", fileURL: nil, text: text as String, language: .markdown, offset: offset)
+        XCTAssertFalse(SymbolIntelligenceProvider.completions(for: req, in: store).isEmpty)
+        // Even a string-like buffer is ungated in markdown.
+        let quoted = "\"hel\"" as NSString
+        let qOffset = quoted.length - 1
+        let qReq = CompletionRequest(prefix: "hel", fileURL: nil, text: quoted as String, language: .markdown, offset: qOffset)
+        XCTAssertFalse(SymbolIntelligenceProvider.completions(for: qReq, in: store).isEmpty)
+    }
+
+    func testYamlCommentGated() {
+        let store = index(["a.yml": [symbol("hello", in: "a.yml")]])
+        let text = "key: value # hel" as NSString
+        let offset = text.length
+        XCTAssertEqual(SyntaxContextScanner.context(in: text, at: offset, language: .yaml), .comment)
+        let req = CompletionRequest(prefix: "hel", fileURL: nil, text: text as String, language: .yaml, offset: offset)
+        XCTAssertTrue(SymbolIntelligenceProvider.completions(for: req, in: store).isEmpty)
+    }
+
+    func testDockerfileMidLineHashNotGated() {
+        let store = index(["Dockerfile": [symbol("hello", in: "Dockerfile")]])
+        let text = "RUN echo hi # hel" as NSString
+        let offset = text.length
+        // Dockerfile '#' only at line start, so mid-line is code.
+        XCTAssertEqual(SyntaxContextScanner.context(in: text, at: offset, language: .dockerfile), .code)
+        let req = CompletionRequest(prefix: "hel", fileURL: nil, text: text as String, language: .dockerfile, offset: offset)
+        XCTAssertFalse(SymbolIntelligenceProvider.completions(for: req, in: store).isEmpty)
+        // At line start it is a comment and gated.
+        let commentText = "# hel" as NSString
+        let cOffset = commentText.length
+        XCTAssertEqual(SyntaxContextScanner.context(in: commentText, at: cOffset, language: .dockerfile), .comment)
+        let cReq = CompletionRequest(prefix: "hel", fileURL: nil, text: commentText as String, language: .dockerfile, offset: cOffset)
+        XCTAssertTrue(SymbolIntelligenceProvider.completions(for: cReq, in: store).isEmpty)
+    }
+
+    func testYamlHashInsideQuotedScalarNotComment() {
+        let store = index(["a.yml": [symbol("hello", in: "a.yml")]])
+        let text = "key: \"hel # still string\"" as NSString
+        let offset = ("key: \"hel" as NSString).length
+        XCTAssertEqual(SyntaxContextScanner.context(in: text, at: offset, language: .yaml), .string)
+        let req = CompletionRequest(prefix: "hel", fileURL: nil, text: text as String, language: .yaml, offset: offset)
+        XCTAssertFalse(SymbolIntelligenceProvider.completions(for: req, in: store).isEmpty)
+    }
 }

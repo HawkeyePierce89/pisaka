@@ -248,18 +248,18 @@ request.
 - Modify: `Sources/PisakaCore/CodeIntelligence.swift`
 - Modify: `Tests/PisakaCoreTests/SymbolIntelligenceProviderTests.swift`
 
-- [ ] add the guard at the top of the static
+- [x] add the guard at the top of the static
       `completions(for:in:limit:bufferWordLimit:)`, before the member branch,
       with a doc comment stating: why it is here and not in the router or the
       view layer, why `nil` offset and `nil` language mean ungated, and that it
       is asked exactly once per request
-- [ ] extend the method's existing documentation block with the gate as a stated
+- [x] extend the method's existing documentation block with the gate as a stated
       rule, and note that `definitions(…)`, the index and the walk stay
       untouched — the same navigation-versus-typing asymmetry the candidate rule
       already records
-- [ ] correct `CompletionRequest.offset`'s doc comment, which currently says the
+- [x] correct `CompletionRequest.offset`'s doc comment, which currently says the
       tree-sitter provider ignores the field entirely
-- [ ] append provider tests: in-string and in-comment requests return `[]` for
+- [x] append provider tests: in-string and in-comment requests return `[]` for
       symbols, keywords and buffer words alike; a request in a `${…}` hole and
       one in a `\(…)` hole return exactly what the same request in open code
       returns; a member request inside a string returns `[]`; the request the
@@ -268,8 +268,8 @@ request.
       language ungated; an out-of-range offset ungated; a
       `json`/`yaml`/`html`/`dotenv` string ungated; a `markdown` buffer ungated;
       a comment in `yaml` gated; a mid-line `#` in a Dockerfile line ungated
-- [ ] confirm no existing test in the file was edited
-- [ ] run `swift test` — must pass before Task 4
+- [x] confirm no existing test in the file was edited
+- [x] run `swift test` — must pass before Task 4
 
 ### Task 4: Verify acceptance criteria
 

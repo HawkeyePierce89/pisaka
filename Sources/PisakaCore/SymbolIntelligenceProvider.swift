@@ -254,6 +254,20 @@ public final class SymbolIntelligenceProvider: CodeIntelligenceProviding {
     /// with the language's keywords and the words the buffer itself contains,
     /// ranked, de-duplicated by name and capped at `limit`.
     ///
+    /// **Syntax-context gating.** When `request.offset` and `request.language`
+    /// are both non-`nil`, the provider asks `SyntaxContextScanner` once whether
+    /// the caret sits inside a string literal or comment that suppresses
+    /// completion for that language; inside a gated string or any comment the
+    /// answer is `[]` for symbols, keywords and buffer words alike, and no
+    /// ranking is performed. Inside an interpolation hole (`${…}`, `\(…)` /
+    /// `\#(…)`, Python `{…}`) the context is `.code` and completion proceeds
+    /// exactly as in open code. The gate is applied before the member branch so
+    /// member completion is covered by the same line; `nil` offset or `nil`
+    /// language means no position or no vocabulary to consult and the request is
+    /// ungated. `definitions(for:in:projectRoot:)`, the index and the walk that
+    /// feeds it are untouched — the same navigation-versus-typing asymmetry the
+    /// candidate rule already records: ⌃⌘J still lists what typing refuses.
+    ///
     /// **The ranking, in order** (each tie-break is pinned by its own test):
     ///
     /// 1. **match quality** — `FuzzyMatch.Quality`, which is itself ordered
@@ -309,6 +323,20 @@ public final class SymbolIntelligenceProvider: CodeIntelligenceProviding {
         bufferWordLimit: Int = SymbolIntelligenceProvider.defaultBufferWordLimit
     ) -> [CompletionItem] {
         guard limit > 0 else { return [] }
+        /// Syntax-context gate — why here and not in the router or the view
+        /// layer, why `nil` offset and `nil` language mean ungated, and that it
+        /// is asked exactly once per request: the fallback is the only source
+        /// that needs suppression (LSP answers are typed and hover has no
+        /// fallback), so gating the single static entry point of the
+        /// fallback covers every call site including the router's forwarded
+        /// request without touching views; `nil` offset means no caret position
+        /// was supplied and `nil` language means no vocabulary to consult, hence
+        /// ungated; the check is performed exactly once per request at the top
+        /// of this method, before the member branch.
+        if let offset = request.offset, let language = request.language,
+           SyntaxContextScanner.suppressesCompletion(in: request.text as NSString, at: offset, language: language) {
+            return []
+        }
         if let member = request.member {
             return memberCompletions(
                 for: request,
