@@ -438,8 +438,8 @@ struct ProjectSearchView: View {
             // truncation signal, so afterwards a partial batch reads as complete.
             + (model.truncated
                 ? " Only the first \(matches) matches were collected — the project "
-                + "contains more, so this replaces part of it. Narrow the query "
-                + "or mask and run it again for the rest."
+                    + "contains more, so this replaces part of it. Narrow the query "
+                    + "or mask and run it again for the rest."
                 : "")
         alert.addButton(withTitle: "Replace All")
         alert.addButton(withTitle: "Cancel")
@@ -473,13 +473,13 @@ struct ProjectSearchView: View {
         }
         var lines = [
             "Replaced \(summary.matchesReplaced) match"
-                + "\(summary.matchesReplaced == 1 ? "" : "es") in \(summary.filesChanged) "
-                + "file\(summary.filesChanged == 1 ? "" : "s").",
+            + "\(summary.matchesReplaced == 1 ? "" : "es") in \(summary.filesChanged) "
+            + "file\(summary.filesChanged == 1 ? "" : "s").",
         ]
         if summary.filesSkipped > 0 {
             lines.append(
                 "\(summary.filesSkipped) file\(summary.filesSkipped == 1 ? " was" : "s were") "
-                    + "skipped because they changed since the search ran."
+                + "skipped because they changed since the search ran."
             )
         }
         if !summary.errors.isEmpty {
@@ -491,8 +491,8 @@ struct ProjectSearchView: View {
         if summary.abandoned {
             lines.append(
                 "The batch stopped early because the opened folder changed. "
-                    + "The remaining files were left untouched — reopen the project "
-                    + "and run the search again to finish."
+                + "The remaining files were left untouched — reopen the project "
+                + "and run the search again to finish."
             )
         }
         PlatformAlert.presentMessage(

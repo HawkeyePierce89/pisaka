@@ -667,7 +667,7 @@ struct PisakaApp: App {
         let base = FileManager.default
             .urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSHomeDirectory())
-            .appendingPathComponent("Library/Application Support", isDirectory: true)
+                .appendingPathComponent("Library/Application Support", isDirectory: true)
         return base
             .appendingPathComponent("Pisaka", isDirectory: true)
             .appendingPathComponent(LSPInstallLayout.directoryName, isDirectory: true)
@@ -3857,12 +3857,12 @@ struct PisakaApp: App {
         alert.messageText = "Invalid name"
         alert.informativeText = isPath
             ? "\"\(name)\" is not a valid path. A slash separates folders, and each "
-            + "part of the path must be non-empty, must not be \".\" or \"..\", "
-            + "must not contain a line break, and must not be a reserved name "
-            + "such as \".git\" or \".DS_Store\" (in any casing)."
+                + "part of the path must be non-empty, must not be \".\" or \"..\", "
+                + "must not contain a line break, and must not be a reserved name "
+                + "such as \".git\" or \".DS_Store\" (in any casing)."
             : "\"\(name)\" is not a valid name. A name must be non-empty, must not "
-            + "be \".\" or \"..\", must not contain a line break, and must not "
-            + "contain a slash — renaming takes a single name, not a path."
+                + "be \".\" or \"..\", must not contain a line break, and must not "
+                + "contain a slash — renaming takes a single name, not a path."
         alert.runModal()
     }
 

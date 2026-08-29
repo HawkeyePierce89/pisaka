@@ -495,7 +495,7 @@ final class LSPProtocolTypesTests: XCTestCase {
 
     func testAHoverWithNoContentsMemberIsTheSameAnswerAsNull() throws {
         let response = try hover(#"{"range":{"start":{"line":0,"character":0},"#
-                                    + #""end":{"line":0,"character":1}}}"#)
+            + #""end":{"line":0,"character":1}}}"#)
         XCTAssertTrue(response.isEmpty)
         // The range still decodes — this layer reports what arrived; whether it
         // is worth showing is `HoverContent`'s question.

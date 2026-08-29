@@ -149,7 +149,7 @@ public final class RoutingIntelligenceProvider: CodeIntelligenceProviding {
             .flatMap({ SyntaxLanguage(forFileName: $0.lastPathComponent) }),
            await lsp.canServe(language),
            let answer = await withBudget(budgets.definition, { [lsp] in
-            await lsp.definitions(for: request)
+               await lsp.definitions(for: request)
            }),
            !answer.isEmpty {
             return answer
@@ -166,7 +166,7 @@ public final class RoutingIntelligenceProvider: CodeIntelligenceProviding {
         if let language = request.language,
            await lsp.canServe(language),
            let answer = await withBudget(budgets.completion, { [lsp] in
-            await lsp.completions(for: request)
+               await lsp.completions(for: request)
            }),
            !answer.isEmpty {
             return answer
@@ -205,7 +205,7 @@ public final class RoutingIntelligenceProvider: CodeIntelligenceProviding {
     /// answer. Silently, like every fallback in this file.
     public func hover(for request: HoverRequest) async -> HoverAnswer? {
         guard let language = request.fileURL
-                .flatMap({ SyntaxLanguage(forFileName: $0.lastPathComponent) }),
+            .flatMap({ SyntaxLanguage(forFileName: $0.lastPathComponent) }),
               await lsp.canServe(language)
         else { return nil }
         // Two optionals meaning the same thing — the budget ran out, the server

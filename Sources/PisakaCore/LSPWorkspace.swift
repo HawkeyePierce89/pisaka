@@ -1297,12 +1297,12 @@ public enum LSPDiagnosticEvent: Equatable, Sendable {
     /// `version` is the wire value verbatim (`nil` when the server sent none);
     /// the model's acceptance gate reads it against its last sync.
     case published(
-            url: URL,
-            serverID: String,
-            root: String,
-            version: Int?,
-            diagnostics: [Diagnostic]
-         )
+        url: URL,
+        serverID: String,
+        root: String,
+        version: Int?,
+        diagnostics: [Diagnostic]
+    )
     /// Something was torn down and its diagnostics go with it. One case with an
     /// explicit scope rather than two overloads of `.cleared` because Swift
     /// cannot pattern-match same-named cases against each other — the switch

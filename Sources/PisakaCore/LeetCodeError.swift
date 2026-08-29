@@ -94,7 +94,7 @@ extension LeetCodeError: LocalizedError {
             return trimmed.isEmpty
                 ? "LeetCode returned something Pisaka did not understand. Its API may have changed."
                 : "LeetCode returned something Pisaka did not understand (\(trimmed)). "
-                + "Its API may have changed."
+                    + "Its API may have changed."
         case .paidOnly(let slug):
             let trimmed = slug.trimmingCharacters(in: .whitespacesAndNewlines)
             return trimmed.isEmpty

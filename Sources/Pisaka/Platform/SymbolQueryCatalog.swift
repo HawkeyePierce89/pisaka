@@ -94,7 +94,7 @@ enum SymbolQueryCatalog {
         else {
             assertionFailure(
                 "\(directory)/\(language.rawValue)/\(queryFileName) is missing from the app bundle, "
-                    + "so \(language.rawValue) files will index no symbols."
+                + "so \(language.rawValue) files will index no symbols."
             )
             return nil
         }
@@ -111,7 +111,7 @@ enum SymbolQueryCatalog {
         } catch {
             assertionFailure(
                 "\(directory)/\(language.rawValue)/\(queryFileName) does not compile against the "
-                    + "\(language.rawValue) grammar (\(error)), so those files will index no symbols."
+                + "\(language.rawValue) grammar (\(error)), so those files will index no symbols."
             )
             return nil
         }

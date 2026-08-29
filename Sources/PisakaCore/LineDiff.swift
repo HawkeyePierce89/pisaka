@@ -187,7 +187,7 @@ public enum LineDiff {
         // Common suffix (not overlapping the prefix on either side).
         var suffix = 0
         while suffix < n - prefix && suffix < m - prefix
-                && oldLines[n - 1 - suffix] == newLines[m - 1 - suffix] {
+            && oldLines[n - 1 - suffix] == newLines[m - 1 - suffix] {
             suffix += 1
         }
 

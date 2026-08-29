@@ -42,7 +42,7 @@ enum LocalHistorySupportDirectory {
         let base = FileManager.default
             .urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSHomeDirectory())
-            .appendingPathComponent("Library/Application Support", isDirectory: true)
+                .appendingPathComponent("Library/Application Support", isDirectory: true)
         return base
             .appendingPathComponent("Pisaka", isDirectory: true)
             .appendingPathComponent(LocalHistoryLayout.directoryName, isDirectory: true)

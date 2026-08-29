@@ -107,8 +107,8 @@ struct LocalHistoryView: View {
                 // Two different answers: a file inside the project gets a
                 // history the moment the app writes it, one outside never does.
                 Text(browser.isUnsupportedTarget
-                        ? "This file is not in the open project, so it has no history."
-                        : "No history for this file yet.")
+                    ? "This file is not in the open project, so it has no history."
+                    : "No history for this file yet.")
                     .font(metrics.scaledFont(.body))
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
@@ -202,7 +202,7 @@ private struct RevisionRow: View {
             Text(snapshot.event.title)
                 .font(metrics.scaledFont(.body))
             Text("\(Self.relative.localizedString(for: snapshot.timestamp, relativeTo: Date())) · "
-                    + Self.absolute.string(from: snapshot.timestamp))
+                + Self.absolute.string(from: snapshot.timestamp))
                 .font(metrics.scaledFont(.caption))
                 .foregroundStyle(.secondary)
         }

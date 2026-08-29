@@ -171,7 +171,7 @@ final class LintConfigurationTests: XCTestCase {
             for url in try swiftFiles(under: tree) {
                 let text = try String(contentsOf: url, encoding: .utf8)
                 let relativePath = tree + String(url.path.dropFirst(
-                                                    Self.repositoryRoot.appendingPathComponent(tree).path.count))
+                    Self.repositoryRoot.appendingPathComponent(tree).path.count))
                 for line in text.components(separatedBy: .newlines) {
                     guard let markerRange = line.range(of: marker) else { continue }
                     // Scope suffixes (`:next`/`:previous`/`:this`) carry a colon and so
@@ -249,7 +249,7 @@ final class LintConfigurationTests: XCTestCase {
             Range($0.range, in: active).map { String(active[$0]) }
         }
         XCTAssertTrue(matches.isEmpty,
-                      """
+                     """
                      the hook contains a hardcoded version literal (\(matches.joined(separator: ", "))). \
                      The pin lives in .swiftlint.yml alone; a second one drifts from it and the \
                      gate then enforces the wrong version.
@@ -287,8 +287,8 @@ final class LintConfigurationTests: XCTestCase {
             "the hook must collect staged files with git diff --cached --diff-filter=ACMR")
         XCTAssertEqual(collectLine,
                        "git diff --cached --name-only --diff-filter=ACMR -z -- "
-                        + trees.map { "'\($0)/*.swift'" }.joined(separator: " ")
-                        + " >\"$list\"",
+                           + trees.map { "'\($0)/*.swift'" }.joined(separator: " ")
+                           + " >\"$list\"",
                        """
                        the hook must collect staged Swift files from exactly the trees \
                        .swiftlint.yml's included: names (\(trees.joined(separator: ", "))) — \
@@ -345,13 +345,13 @@ final class LintConfigurationTests: XCTestCase {
     func testEveryRefusalBranchReachesExitOne() throws {
         let lines = try activeHookLines()
         assertHookGuard("-z \"$pin\"", exits: "exit 1", in: lines, because:
-                            "an unreadable pin means the gate cannot know what version to enforce, and guessing is worse than refusing")
+            "an unreadable pin means the gate cannot know what version to enforce, and guessing is worse than refusing")
         assertHookGuard("command -v swiftlint", exits: "exit 1", in: lines, because:
-                            "a machine without the pinned toolchain is refused, never skipped — skipping is how a violation gets in")
+            "a machine without the pinned toolchain is refused, never skipped — skipping is how a violation gets in")
         assertHookGuard("installed\" != \"$pin", exits: "exit 1", in: lines, because:
-                            "a version mismatch must refuse naming both versions; SwiftLint itself only warns on one")
+            "a version mismatch must refuse naming both versions; SwiftLint itself only warns on one")
         assertHookGuard("xargs -0 swiftlint lint", exits: "exit 1", in: lines, because:
-                            "violations found in the staged content are the whole reason the hook exists")
+            "violations found in the staged content are the whole reason the hook exists")
     }
 
     /// The one permitted non-refusal guard is "no staged Swift files → exit 0"
@@ -362,7 +362,7 @@ final class LintConfigurationTests: XCTestCase {
         XCTAssertEqual(lines.filter { $0 == "exit 0" }.count, 1,
                        "\(Self.hookPath) may reach exit 0 early only for the no-staged-Swift-files case")
         assertHookGuard("-s \"$list\"", exits: "exit 0", in: lines, because:
-                            "a commit touching no Swift files needs no lint, and the empty-input case must stay explicit")
+            "a commit touching no Swift files needs no lint, and the empty-input case must stay explicit")
     }
 
     // MARK: - The CI lint job
@@ -384,7 +384,7 @@ final class LintConfigurationTests: XCTestCase {
             GitHub's six-hour default, and a hung lint holds a runner for the afternoon
             """)
         let budget = try XCTUnwrap(Int(budgetLine.dropFirst("timeout-minutes:".count)
-                                        .trimmingCharacters(in: .whitespaces)), "could not read a number out of “\(budgetLine)”")
+            .trimmingCharacters(in: .whitespaces)), "could not read a number out of “\(budgetLine)”")
         XCTAssertLessThanOrEqual(budget, 15, """
             the lint job budgets \(budget) minutes for a check that takes under two — style is \
             supposed to be the fastest feedback any job gives, not a queue behind it

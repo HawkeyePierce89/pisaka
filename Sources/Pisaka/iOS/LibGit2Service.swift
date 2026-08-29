@@ -851,9 +851,9 @@ final class LibGit2Service: GitServicing, @unchecked Sendable {
             resolvedStatus = .renamed
             renamedFrom = oldPath(entry.index_to_workdir)
         } else if has(GIT_STATUS_WT_NEW)
-                    && !has(GIT_STATUS_INDEX_NEW)
-                    && !has(GIT_STATUS_INDEX_MODIFIED)
-                    && !has(GIT_STATUS_INDEX_DELETED) {
+            && !has(GIT_STATUS_INDEX_NEW)
+            && !has(GIT_STATUS_INDEX_MODIFIED)
+            && !has(GIT_STATUS_INDEX_DELETED) {
             resolvedStatus = .untracked
         } else if has(GIT_STATUS_INDEX_NEW) {
             resolvedStatus = .added

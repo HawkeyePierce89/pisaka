@@ -909,10 +909,10 @@ final class CompletionController {
                   let textView,
                   version == self.bufferVersion,
                   let plan = self.plan(
-                    for: edits,
-                    over: word,
-                    replacing: typedWord,
-                    in: textView.string as NSString
+                      for: edits,
+                      over: word,
+                      replacing: typedWord,
+                      in: textView.string as NSString
                   )
             else { return }
             // Outside `commit(_:)`'s programmatic-edit bracket, so this one

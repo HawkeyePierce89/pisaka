@@ -312,9 +312,9 @@ enum FilePanels {
             // which `StandardKeyBinding.dict` maps to `insertLineBreak:`.
             // Confirm instead when the input is valid, and swallow the key when not.
             guard commandSelector == #selector(NSResponder.insertNewline(_:))
-                    || commandSelector == #selector(NSResponder.insertNewlineIgnoringFieldEditor(_:))
-                    || commandSelector == #selector(NSResponder.insertLineBreak(_:))
-                    || commandSelector == #selector(NSResponder.insertParagraphSeparator(_:))
+                || commandSelector == #selector(NSResponder.insertNewlineIgnoringFieldEditor(_:))
+                || commandSelector == #selector(NSResponder.insertLineBreak(_:))
+                || commandSelector == #selector(NSResponder.insertParagraphSeparator(_:))
             else { return false }
             if okButton.isEnabled { okButton.performClick(nil) }
             return true

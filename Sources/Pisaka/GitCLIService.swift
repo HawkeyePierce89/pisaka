@@ -833,9 +833,9 @@ struct GitCLIService: GitServicing {
         let remotesResult = try await run(["remote"], in: root)
         let remotes = remotesResult.exitCode == 0
             ? remotesResult.stdout
-            .split(separator: "\n", omittingEmptySubsequences: true)
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
+                .split(separator: "\n", omittingEmptySubsequences: true)
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+                .filter { !$0.isEmpty }
             : []
 
         // **Fails closed.** An unreadable git directory must not collapse into an

@@ -74,8 +74,8 @@ struct LSPServerSettingsView: View {
             // make that row's own sentence the first the user hears of it.
             Text(
                 "Pisaka can download or build a language server for these files. "
-                    + "It is used only for completion and Go to Definition — nothing is installed "
-                    + "until you ask for it, and the languages keep working without it."
+                + "It is used only for completion and Go to Definition — nothing is installed "
+                + "until you ask for it, and the languages keep working without it."
             )
             .font(metrics.scaledFont(.callout))
             .foregroundStyle(.secondary)
@@ -116,7 +116,7 @@ struct LSPServerSettingsView: View {
             // than it is by the Remove button that does not appear for it.
             Text(
                 "Anything Pisaka installs lives under ~/Library/Application Support/Pisaka/"
-                    + "\(LSPInstallLayout.directoryName)."
+                + "\(LSPInstallLayout.directoryName)."
             )
             .font(metrics.scaledFont(.caption))
             .foregroundStyle(.secondary)
@@ -130,9 +130,9 @@ struct LSPServerSettingsView: View {
             // substitute, and it is stated rather than omitted.
             Text(
                 "\(LSPGopls.displayName) comes from \(LSPGopls.origin) and is licensed under "
-                    + "\(LSPGopls.licenseSPDX). Pisaka bundles none of it: it is built from source "
-                    + "by your own Go toolchain, which verifies the module against Go's checksum "
-                    + "database."
+                + "\(LSPGopls.licenseSPDX). Pisaka bundles none of it: it is built from source "
+                + "by your own Go toolchain, which verifies the module against Go's checksum "
+                + "database."
             )
             .font(metrics.scaledFont(.caption))
             .foregroundStyle(.secondary)
@@ -149,9 +149,9 @@ struct LSPServerSettingsView: View {
             // *manifest*, so the expression here cannot drift from the pin.
             Text(
                 "\(LSPRustAnalyzer.displayName) comes from \(LSPRustAnalyzer.origin) and is "
-                    + "licensed under \(rust.row.licenseSPDX). Pisaka bundles none of it: the "
-                    + "official release binary is downloaded on request and checked against a "
-                    + "pinned checksum before it is used."
+                + "licensed under \(rust.row.licenseSPDX). Pisaka bundles none of it: the "
+                + "official release binary is downloaded on request and checked against a "
+                + "pinned checksum before it is used."
             )
             .font(metrics.scaledFont(.caption))
             .foregroundStyle(.secondary)

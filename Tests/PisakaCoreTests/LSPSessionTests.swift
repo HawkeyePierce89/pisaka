@@ -713,7 +713,7 @@ final class LSPSessionTests: XCTestCase {
     }
 
     func testWorkspaceConfigurationIsAnsweredSectionBySectionFromTheConfiguration()
-    async throws {
+        async throws {
         let transport = makeTransport()
         let session = try await start(transport, configuration: scriptedConfiguration)
 
