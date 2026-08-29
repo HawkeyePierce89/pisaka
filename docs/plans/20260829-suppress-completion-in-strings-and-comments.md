@@ -290,22 +290,22 @@ request.
 - Modify: `CLAUDE.md`, `docs/architecture/core-intelligence.md`,
   `docs/architecture/core-editor.md`
 
-- [ ] add two index lines to `CLAUDE.md` under `core-intelligence.md` — one for
+- [x] add two index lines to `CLAUDE.md` under `core-intelligence.md` — one for
       `SyntaxContextVocabulary.swift`, one for `SyntaxContextScanner.swift`
-- [ ] add the full entries to `docs/architecture/core-intelligence.md`: the
+- [x] add the full entries to `docs/architecture/core-intelligence.md`: the
       two-questions split, the whole per-language table with its reasons, the
       interpolation-hole decision including why f-strings are in, the boundary
       rule, the stated limits (regex literals, embedded HTML bodies, Rust `'`,
       SQL `"`), the single-call-site rule and the `canSuppressCompletion`
       short-circuit
-- [ ] update the `SymbolIntelligenceProvider` and `CompletionRequest` entries in
+- [x] update the `SymbolIntelligenceProvider` and `CompletionRequest` entries in
       the same doc for the gate
-- [ ] add one cross-reference sentence under `BracketDepthScanner` in
+- [x] add one cross-reference sentence under `BracketDepthScanner` in
       `docs/architecture/core-editor.md`: a lexing engine now exists, and it is
       deliberately not shared — rainbow brackets scan the whole buffer on every
       debounce and want raw characters, while this answers one offset per
       request
-- [ ] re-run `swift test` and `swiftlint --strict`
+- [x] re-run `swift test` and `swiftlint --strict`
 
 ## Post-Completion (manual)
 

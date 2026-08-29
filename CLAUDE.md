@@ -120,6 +120,8 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
 - `LanguageKeywords.swift` — per-language keyword lists (+ the stated no-keyword set).
 - `CodeIntelligence.swift` — the async `CodeIntelligenceProviding` seam + value types.
 - `SymbolIntelligenceProvider.swift` — index-backed provider; every ranking rule + the completion-candidate rule.
+- `SyntaxContextVocabulary.swift` — per-language string/comment vocabulary and the gating policy.
+- `SyntaxContextScanner.swift` — pure syntax-context scanner (`code`/`string`/`comment`); single-offset boundary rule and hole re-entry.
 
 `docs/architecture/core-lsp.md` — the LSP client (sourcekit-lsp, gopls, rust-analyzer), incl. decisions D1–D10 + D17–D34:
 - `LSPMessage.swift` — JSON-RPC envelopes; `null` vs. absent.
