@@ -126,7 +126,7 @@ final class SHA256Tests: XCTestCase {
         // ones, in the order a stream would deliver them.
         let pieces = ["", "a", "", "bcdefghij", String(repeating: "x", count: 63), "y",
                       String(repeating: "z", count: 129), "",
-                      ]
+        ]
         var hasher = SHA256()
         for piece in pieces { hasher.update(Data(piece.utf8)) }
         XCTAssertEqual(

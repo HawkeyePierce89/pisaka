@@ -992,7 +992,7 @@ enum HoverMarkup {
         let nameStart = cursor
         guard cursor < characters.count, characters[cursor].isLetter else { return nil }
         while cursor < characters.count, characters[cursor].isLetter || characters[cursor].isNumber
-            || characters[cursor] == "-" {
+                || characters[cursor] == "-" {
             cursor += 1
         }
         let name = String(characters[nameStart..<cursor])
@@ -1028,7 +1028,7 @@ enum HoverMarkup {
             if start == ">" || start == "/" { continue }
             guard start.isLetter || start == "_" || start == ":" else { return nil }
             while cursor < characters.count, characters[cursor].isLetter
-                || characters[cursor].isNumber || "_:.-".contains(characters[cursor]) {
+                    || characters[cursor].isNumber || "_:.-".contains(characters[cursor]) {
                 cursor += 1
             }
             var value = skippingSpaces(from: cursor)
@@ -1133,7 +1133,7 @@ enum HoverMarkup {
             lines.append(String(decoding: utf8[cursor..<end], as: UTF8.self))
             var next = utf8.index(after: end)
             if utf8[end] == UInt8(ascii: "\r"), next < utf8.endIndex,
-                utf8[next] == UInt8(ascii: "\n") {
+               utf8[next] == UInt8(ascii: "\n") {
                 next = utf8.index(after: next)
             }
             cursor = next

@@ -376,7 +376,7 @@ final class FileNameTests: XCTestCase {
             if case .reservedComponent = issue { continue }
             XCTAssertEqual(isValidFileName(input), issue == nil,
                            "predicate/validator disagree on \(String(reflecting: input)): "
-                               + "isValidFileName=\(isValidFileName(input)), issue=\(String(describing: issue))")
+                            + "isValidFileName=\(isValidFileName(input)), issue=\(String(describing: issue))")
         }
     }
 
@@ -420,7 +420,7 @@ final class FileNameTests: XCTestCase {
             let issue = validateRelativeEntryPath(input)
             XCTAssertEqual(parsed != nil, issue == nil,
                            "parser/validator disagree on \(String(reflecting: input)): "
-                               + "parsed=\(String(describing: parsed)), issue=\(String(describing: issue))")
+                            + "parsed=\(String(describing: parsed)), issue=\(String(describing: issue))")
         }
     }
 

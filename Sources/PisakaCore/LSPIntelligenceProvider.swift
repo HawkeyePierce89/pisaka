@@ -142,9 +142,9 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
         guard let fileURL = request.fileURL,
               let language = SyntaxLanguage(forFileName: fileURL.lastPathComponent),
               let prepared = await workspace.prepare(
-                  url: fileURL,
-                  language: language,
-                  text: request.text
+                url: fileURL,
+                language: language,
+                text: request.text
               )
         else { return [] }
 
@@ -276,9 +276,9 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
         guard let fileURL = request.fileURL,
               let language = SyntaxLanguage(forFileName: fileURL.lastPathComponent),
               let prepared = await workspace.prepare(
-                  url: fileURL,
-                  language: language,
-                  text: request.text
+                url: fileURL,
+                language: language,
+                text: request.text
               ),
               await prepared.session.capabilities?.supportsHover == true
         else { return nil }
@@ -357,9 +357,9 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
               let fileURL = request.fileURL,
               let language = request.language,
               let prepared = await workspace.prepare(
-                  url: fileURL,
-                  language: language,
-                  text: request.text
+                url: fileURL,
+                language: language,
+                text: request.text
               )
         else { return [] }
 

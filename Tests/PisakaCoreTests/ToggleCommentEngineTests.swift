@@ -125,20 +125,20 @@ final class ToggleCommentEngineTests: XCTestCase {
         let text = "a\nb"
         // Caret on first line
         assertToggle(text, selectedRange: NSRange(location: 0, length: 0),
-            expectedEdit: CommentToggleEdit(
-                replacementRange: NSRange(location: 0, length: 2),
-                text: "// a\n",
-                selectedRange: NSRange(location: 5, length: 0)
-            )
+                     expectedEdit: CommentToggleEdit(
+                        replacementRange: NSRange(location: 0, length: 2),
+                        text: "// a\n",
+                        selectedRange: NSRange(location: 5, length: 0)
+                     )
         )
 
         // Caret on last line
         assertToggle(text, selectedRange: NSRange(location: 3, length: 0),
-            expectedEdit: CommentToggleEdit(
-                replacementRange: NSRange(location: 2, length: 1),
-                text: "// b",
-                selectedRange: NSRange(location: 6, length: 0)
-            )
+                     expectedEdit: CommentToggleEdit(
+                        replacementRange: NSRange(location: 2, length: 1),
+                        text: "// b",
+                        selectedRange: NSRange(location: 6, length: 0)
+                     )
         )
     }
 
@@ -231,38 +231,38 @@ final class ToggleCommentEngineTests: XCTestCase {
         // "//x" and "// x"
         let text1 = "//x"
         assertToggle(text1, selectedRange: NSRange(location: 1, length: 0),
-            expectedEdit: CommentToggleEdit(
-                replacementRange: NSRange(location: 0, length: 3),
-                text: "x",
-                selectedRange: NSRange(location: 0, length: 0)
-            )
+                     expectedEdit: CommentToggleEdit(
+                        replacementRange: NSRange(location: 0, length: 3),
+                        text: "x",
+                        selectedRange: NSRange(location: 0, length: 0)
+                     )
         ) // caret inside the removed token snaps to its start
 
         let text2 = "// x"
         assertToggle(text2, selectedRange: NSRange(location: 1, length: 0),
-            expectedEdit: CommentToggleEdit(
-                replacementRange: NSRange(location: 0, length: 4),
-                text: "x",
-                selectedRange: NSRange(location: 0, length: 0)
-            )
+                     expectedEdit: CommentToggleEdit(
+                        replacementRange: NSRange(location: 0, length: 4),
+                        text: "x",
+                        selectedRange: NSRange(location: 0, length: 0)
+                     )
         ) // caret inside the removed token snaps to its start
     }
 
     func testOtherLanguages() {
         let text = "a"
         assertToggle(text, selectedRange: NSRange(location: 0, length: 0), language: .python,
-            expectedEdit: CommentToggleEdit(
-                replacementRange: NSRange(location: 0, length: 1),
-                text: "# a",
-                selectedRange: NSRange(location: 2, length: 0)
-            )
+                     expectedEdit: CommentToggleEdit(
+                        replacementRange: NSRange(location: 0, length: 1),
+                        text: "# a",
+                        selectedRange: NSRange(location: 2, length: 0)
+                     )
         )
         assertToggle(text, selectedRange: NSRange(location: 0, length: 0), language: .sql,
-            expectedEdit: CommentToggleEdit(
-                replacementRange: NSRange(location: 0, length: 1),
-                text: "-- a",
-                selectedRange: NSRange(location: 3, length: 0)
-            )
+                     expectedEdit: CommentToggleEdit(
+                        replacementRange: NSRange(location: 0, length: 1),
+                        text: "-- a",
+                        selectedRange: NSRange(location: 3, length: 0)
+                     )
         )
     }
 
@@ -286,18 +286,18 @@ final class ToggleCommentEngineTests: XCTestCase {
     func testOutOfRangeSelection() {
         let text = "a"
         assertToggle(text, selectedRange: NSRange(location: 10, length: 10),
-            expectedEdit: CommentToggleEdit(
-                replacementRange: NSRange(location: 0, length: 1),
-                text: "// a",
-                selectedRange: NSRange(location: 4, length: 0)
-            )
+                     expectedEdit: CommentToggleEdit(
+                        replacementRange: NSRange(location: 0, length: 1),
+                        text: "// a",
+                        selectedRange: NSRange(location: 4, length: 0)
+                     )
         )
         assertToggle(text, selectedRange: NSRange(location: NSNotFound, length: 0),
-            expectedEdit: CommentToggleEdit(
-                replacementRange: NSRange(location: 0, length: 1),
-                text: "// a",
-                selectedRange: NSRange(location: 4, length: 0)
-            )
+                     expectedEdit: CommentToggleEdit(
+                        replacementRange: NSRange(location: 0, length: 1),
+                        text: "// a",
+                        selectedRange: NSRange(location: 4, length: 0)
+                     )
         )
     }
     // MARK: - Block Mode Tests
@@ -361,40 +361,40 @@ final class ToggleCommentEngineTests: XCTestCase {
 
     func testBlockBothRemovalSpellings() {
         assertToggle("/*x*/", selectedRange: NSRange(location: 2, length: 0), language: .css,
-            expectedEdit: CommentToggleEdit(
-                replacementRange: NSRange(location: 0, length: 5),
-                text: "x",
-                selectedRange: NSRange(location: 0, length: 0)
-            )
+                     expectedEdit: CommentToggleEdit(
+                        replacementRange: NSRange(location: 0, length: 5),
+                        text: "x",
+                        selectedRange: NSRange(location: 0, length: 0)
+                     )
         )
         assertToggle("/* x */", selectedRange: NSRange(location: 3, length: 0), language: .css,
-            expectedEdit: CommentToggleEdit(
-                replacementRange: NSRange(location: 0, length: 7),
-                text: "x",
-                selectedRange: NSRange(location: 0, length: 0)
-            )
+                     expectedEdit: CommentToggleEdit(
+                        replacementRange: NSRange(location: 0, length: 7),
+                        text: "x",
+                        selectedRange: NSRange(location: 0, length: 0)
+                     )
         )
     }
 
     func testBlockTrailingWhitespaceAfterCloser() {
         let text = "/* a */  \n"
         assertToggle(text, selectedRange: NSRange(location: 0, length: 0), language: .css,
-            expectedEdit: CommentToggleEdit(
-                replacementRange: NSRange(location: 0, length: 10),
-                text: "a  \n",
-                selectedRange: NSRange(location: 4, length: 0)
-            )
+                     expectedEdit: CommentToggleEdit(
+                        replacementRange: NSRange(location: 0, length: 10),
+                        text: "a  \n",
+                        selectedRange: NSRange(location: 4, length: 0)
+                     )
         )
     }
 
     func testBlockTargetAlreadyContainsDelimiter() {
         let text = "a /* b */ c"
         assertToggle(text, selectedRange: NSRange(location: 0, length: 0), language: .css,
-            expectedEdit: CommentToggleEdit(
-                replacementRange: NSRange(location: 0, length: 11),
-                text: "/* a /* b */ c */",
-                selectedRange: NSRange(location: 3, length: 0)
-            )
+                     expectedEdit: CommentToggleEdit(
+                        replacementRange: NSRange(location: 0, length: 11),
+                        text: "/* a /* b */ c */",
+                        selectedRange: NSRange(location: 3, length: 0)
+                     )
         )
     }
 
@@ -402,11 +402,11 @@ final class ToggleCommentEngineTests: XCTestCase {
         // " \n a \n "
         let text = " \n a \n "
         assertToggle(text, selectedRange: NSRange(location: 0, length: 7), language: .css,
-            expectedEdit: CommentToggleEdit(
-                replacementRange: NSRange(location: 0, length: 7),
-                text: " \n /* a  */\n ",
-                selectedRange: NSRange(location: 0, length: 13)
-            )
+                     expectedEdit: CommentToggleEdit(
+                        replacementRange: NSRange(location: 0, length: 7),
+                        text: " \n /* a  */\n ",
+                        selectedRange: NSRange(location: 0, length: 13)
+                     )
         )
     }
 

@@ -268,7 +268,7 @@ private struct ChangeNodeView: View {
                         onCommitFile: onCommitFile,
                         onFocusRequest: onFocusRequest
                     )
-                        .padding(.leading, metrics.scaled(12))
+                    .padding(.leading, metrics.scaled(12))
                 }
             } label: {
                 let icon = FileIcon(for: DirectoryEntry(url: node.url, isDirectory: true))

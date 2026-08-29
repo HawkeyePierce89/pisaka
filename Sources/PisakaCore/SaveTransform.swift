@@ -286,11 +286,11 @@ public enum SaveTransform {
         let lastLineTrimLength = trims ? trailingWhitespace(in: ns, content: lastLine.content).length : 0
         if appendsFinalNewline,
            let terminator = finalTerminator(
-               lines: lines,
-               lastLine: lastLine,
-               lastLineTrimLength: lastLineTrimLength,
-               target: target,
-               in: ns
+            lines: lines,
+            lastLine: lastLine,
+            lastLineTrimLength: lastLineTrimLength,
+            target: target,
+            in: ns
            ) {
             replacements.append(IndentReplacement(
                 range: NSRange(location: ns.length, length: 0),

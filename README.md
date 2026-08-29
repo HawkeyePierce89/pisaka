@@ -55,7 +55,8 @@ do — is in [`docs/FEATURES.md`](docs/FEATURES.md).
   and a project-wide **Find in Files** window that honors your `.gitignore`
   and can Replace All across the project.
 - **Projects** — open a folder (Cmd+Shift+O), create/rename/move/delete right
-  in the tree; external changes show up on their own via FSEvents.
+  in the tree, or switch between recent projects from the bottom bar; external
+  changes show up on their own via FSEvents.
 - **Automatic updates** via Sparkle — consent asked once, every download
   verified; **Check for Updates…** is always in the app menu.
 - **Preferences** — theme, tab orientation, fonts, completion on/off, the

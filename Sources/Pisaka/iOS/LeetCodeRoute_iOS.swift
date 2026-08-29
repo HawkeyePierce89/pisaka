@@ -62,7 +62,7 @@ enum LeetCodeFolder_iOS {
         let documents = FileManager.default
             .urls(for: .documentDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
-                .appendingPathComponent("Documents", isDirectory: true)
+            .appendingPathComponent("Documents", isDirectory: true)
         return documents.appendingPathComponent("LeetCode", isDirectory: true)
     }
 

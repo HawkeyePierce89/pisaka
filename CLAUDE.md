@@ -218,6 +218,7 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
 - `TabOrientation.swift` / `ThemePreference.swift` — persisted preference enums.
 - `SettingsStore.swift` — persisted preferences; the three zoom scales and the zone-keyed API; the one `completionEnabled` flag; per-server LSP consent (D15).
 - `EditorSession.swift` — per-project session persistence (`SessionTab`, `SessionCatalog`, the keyed store + legacy migration).
+- `RecentProject.swift` — recent-projects projection (MRU order, `nil` excluded, existence closure, canonical identity).
 - `ScopedFileAccess.swift` — iOS security-scope helpers + `BookmarkStore`.
 - `TabLayout.swift` — iOS tab-presentation decision.
 - `LicenseNotice.swift` — license manifest model + `LicenseCatalog`; the coverage invariant lives in the same doc.
@@ -302,6 +303,7 @@ in `Sources/Pisaka/Platform/` bridges per-platform APIs. Untested by convention.
 
 `docs/architecture/app-window.md` — window chrome (macOS):
 - `ContentView.swift` — window layout; deliberately non-observed `commitDialog`.
+- `ProjectSwitcherView.swift` — bottom-bar project switcher; read-at-open, empty state, delegates actions.
 - `ProblemsPanelView.swift` — the Problems dock panel: grouped rows, counts header, open-and-reveal callback.
 - `DiffWindowContent.swift` / `DiffWindowController.swift` — separate diff windows.
 - `SourceViewerWindowController.swift` / `SourceViewerContent.swift` — the read-only out-of-project definition window.

@@ -630,7 +630,7 @@ final class LicenseCoverageTests: XCTestCase {
 
             if insideDependencies, trimmed.hasPrefix("- package:") {
                 linked.insert(trimmed.dropFirst("- package:".count)
-                    .trimmingCharacters(in: .whitespaces))
+                                .trimmingCharacters(in: .whitespaces))
             }
         }
 

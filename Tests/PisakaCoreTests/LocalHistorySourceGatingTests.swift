@@ -162,7 +162,7 @@ final class LocalHistorySourceGatingTests: XCTestCase {
         // the two sets are checked to *alternate* — every `autosave.suspend()` is
         // followed by a capture before the next one begins.
         let bracketed = try (offsets(of: "autosave\\.suspend\\(\\)", in: app).map { (offset: $0, isCapture: false) }
-            + offsets(of: "await captureBeforeOperation\\(", in: app).map { (offset: $0, isCapture: true) })
+                                + offsets(of: "await captureBeforeOperation\\(", in: app).map { (offset: $0, isCapture: true) })
             .sorted { $0.offset < $1.offset }
             .map(\.isCapture)
         XCTAssertEqual(

@@ -195,8 +195,8 @@ struct LeetCodeJudgeSection: View {
         verdict(result.verdict, isGood: result.verdict == .accepted && result.matchedExpected != false)
         if let matched = result.matchedExpected {
             Text(matched
-                ? "Output matched the expected answer."
-                : "Output did not match the expected answer.")
+                    ? "Output matched the expected answer."
+                    : "Output did not match the expected answer.")
                 .font(metrics.scaledFont(.caption))
                 .foregroundColor(.secondary)
         }

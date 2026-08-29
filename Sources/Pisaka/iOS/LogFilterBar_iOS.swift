@@ -75,8 +75,8 @@ struct LogFilterBar_iOS: View {
                 showingAdvanced = true
             } label: {
                 Image(systemName: hasAdvancedFilter
-                    ? "line.3.horizontal.decrease.circle.fill"
-                    : "line.3.horizontal.decrease.circle")
+                        ? "line.3.horizontal.decrease.circle.fill"
+                        : "line.3.horizontal.decrease.circle")
             }
             .help("Filter by author, path, or date")
         }

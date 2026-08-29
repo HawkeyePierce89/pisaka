@@ -885,7 +885,7 @@ final class ReleaseWorkflowTests: XCTestCase {
             GitHub's six-hour default, and a stuck submission holds a runner for the afternoon.
             """)
         let budget = try XCTUnwrap(Int(budgetLine.dropFirst("timeout-minutes:".count)
-            .trimmingCharacters(in: .whitespaces)), "could not read a number out of “\(budgetLine)”")
+                                        .trimmingCharacters(in: .whitespaces)), "could not read a number out of “\(budgetLine)”")
 
         let script = try stepScript(named: Self.notarizeStepName, because: """
             It is the step whose wait the job budget has to cover.
@@ -933,8 +933,8 @@ final class ReleaseWorkflowTests: XCTestCase {
             release job's post-notary headroom is compared against.
             """, file: file, line: line)
         return try XCTUnwrap(Int(budgetLine.dropFirst("timeout-minutes:".count)
-            .trimmingCharacters(in: .whitespaces)),
-            "could not read a number out of ci.yml's “\(budgetLine)”", file: file, line: line)
+                                    .trimmingCharacters(in: .whitespaces)),
+                             "could not read a number out of ci.yml's “\(budgetLine)”", file: file, line: line)
     }
 
     // MARK: - The artefact
@@ -2759,10 +2759,10 @@ final class ReleaseWorkflowTests: XCTestCase {
             mentioned in the step's refusal message.
             """)
         let checked = Set(loop
-            .dropFirst("for KEY in ".count)
-            .components(separatedBy: .whitespaces)
-            .map { $0.trimmingCharacters(in: CharacterSet(charactersIn: ";")) }
-            .filter { !$0.isEmpty && $0 != "do" })
+                            .dropFirst("for KEY in ".count)
+                            .components(separatedBy: .whitespaces)
+                            .map { $0.trimmingCharacters(in: CharacterSet(charactersIn: ";")) }
+                            .filter { !$0.isEmpty && $0 != "do" })
 
         XCTAssertEqual(checked, ["CFBundleVersion", "CFBundleShortVersionString", "SUFeedURL", "SUPublicEDKey"], """
             release.yml must verify exactly these Info.plist keys on the archived app, and this \

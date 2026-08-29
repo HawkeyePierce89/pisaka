@@ -137,7 +137,7 @@ struct MergeView: View {
                 currentConflict: $currentConflict,
                 fontSize: settings.fontSize
             )
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             Text(model.errorMessage ?? "Loading…")
                 .font(metrics.scaledFont(.body))

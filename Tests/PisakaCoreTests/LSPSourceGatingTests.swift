@@ -159,7 +159,7 @@ final class LSPSourceGatingTests: XCTestCase {
                 XCTAssertFalse(
                     Self.containsToken(identifier, in: code),
                     "\(url.lastPathComponent) uses \(identifier); Core stays Foundation-only "
-                    + "(the app owns the process — see LSPProcessTransport)"
+                        + "(the app owns the process — see LSPProcessTransport)"
                 )
             }
         }

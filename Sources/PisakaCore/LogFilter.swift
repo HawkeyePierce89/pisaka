@@ -138,8 +138,8 @@ public struct LogFilter: Equatable {
     /// true, exactly as it already does for the client-side message search.
     public var mayProduceNonContiguousHistory: Bool {
         let hasAuthor = !(author?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .isEmpty ?? true)
+                            .trimmingCharacters(in: .whitespacesAndNewlines)
+                            .isEmpty ?? true)
         return hasAuthor || since != nil || until != nil
     }
 

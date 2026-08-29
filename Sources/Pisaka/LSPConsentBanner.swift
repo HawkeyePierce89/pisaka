@@ -176,8 +176,8 @@ struct LSPConsentBanner: View {
                 // first one did — see `LSPConsentPrompt`.
                 Text(
                     "\(Self.size(prompt.downloadByteCount)) download. "
-                    + "It adds project-wide completion and Go to Definition for these files; "
-                    + "without it they keep using the built-in index."
+                        + "It adds project-wide completion and Go to Definition for these files; "
+                        + "without it they keep using the built-in index."
                 )
                 .font(metrics.scaledFont(.caption))
                 .foregroundStyle(.secondary)
@@ -261,12 +261,12 @@ struct LSPConsentBanner: View {
                     .font(metrics.scaledFont(.callout))
                 Text(
                     "Pisaka will build version \(prompt.version) with the Go at "
-                    + "\(prompt.goExecutablePath) and keep the result to itself — nothing is "
-                    + "downloaded by Pisaka and nothing is installed outside its own folder. "
-                    + "The build runs as your own “go install” would, using and adding to your "
-                    + "Go module and build caches. "
-                    + "It adds project-wide completion and Go to Definition for these files; "
-                    + "without it they keep using the built-in index."
+                        + "\(prompt.goExecutablePath) and keep the result to itself — nothing is "
+                        + "downloaded by Pisaka and nothing is installed outside its own folder. "
+                        + "The build runs as your own “go install” would, using and adding to your "
+                        + "Go module and build caches. "
+                        + "It adds project-wide completion and Go to Definition for these files; "
+                        + "without it they keep using the built-in index."
                 )
                 .font(metrics.scaledFont(.caption))
                 .foregroundStyle(.secondary)
@@ -324,9 +324,9 @@ struct LSPConsentBanner: View {
                     .font(metrics.scaledFont(.callout))
                 Text(
                     "\(Self.size(prompt.downloadByteCount)) download of the official "
-                    + "\(prompt.version) release, verified and kept to itself. "
-                    + "It adds project-wide completion and Go to Definition for these files; "
-                    + "without it they keep using the built-in index."
+                        + "\(prompt.version) release, verified and kept to itself. "
+                        + "It adds project-wide completion and Go to Definition for these files; "
+                        + "without it they keep using the built-in index."
                 )
                 .font(metrics.scaledFont(.caption))
                 .foregroundStyle(.secondary)

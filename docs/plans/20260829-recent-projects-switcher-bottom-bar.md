@@ -197,25 +197,25 @@ Dependencies: none new.
   `docs/architecture/app-window.md`, `docs/architecture/app-shell.md`,
   `docs/FEATURES.md`, `README.md`
 
-- [ ] `CLAUDE.md`: one index line for `RecentProject.swift` under
+- [x] `CLAUDE.md`: one index line for `RecentProject.swift` under
       `core-services.md` (beside `EditorSession.swift`) and one for
       `ProjectSwitcherView.swift` under `app-window.md`
-- [ ] `docs/architecture/core-services.md`: a full entry for `RecentProject.swift`
+- [x] `docs/architecture/core-services.md`: a full entry for `RecentProject.swift`
       — the four rules (MRU order, `nil`-entry exclusion, canonical marking over
       verbatim display, injected existence) and the one-debounce staleness note;
       update the `EditorSession.swift` entry for `SessionStore.loadCatalog()`;
       record the out-of-scope iOS follow-up beside the `ScopedFileAccess` entry
       (the bookmark store already accumulates recents there, so a future ticket
       can add a list to the folder-picker screen)
-- [ ] `docs/architecture/app-window.md`: a full entry for
+- [x] `docs/architecture/app-window.md`: a full entry for
       `ProjectSwitcherView.swift` (read-at-open, the two callbacks, current-row
       short-circuit, empty state, interface-zone scaling, declares no zoom
       surface) and an updated `ContentView.swift` entry for the two new inputs
-- [ ] `docs/architecture/app-shell.md`: update the `PisakaApp.swift` entry for the
+- [x] `docs/architecture/app-shell.md`: update the `PisakaApp.swift` entry for the
       funnel's existence guard, its refusal, and the recents reader
-- [ ] `README.md` / `docs/FEATURES.md`: one user-facing line for the bottom-bar
+- [x] `README.md` / `docs/FEATURES.md`: one user-facing line for the bottom-bar
       project switcher, in the existing voice and with no product names
-- [ ] re-run `swift test` and `swiftlint --strict` after the documentation edits
+- [x] re-run `swift test` and `swiftlint --strict` after the documentation edits
 
 ## Post-Completion (manual, by the user)
 

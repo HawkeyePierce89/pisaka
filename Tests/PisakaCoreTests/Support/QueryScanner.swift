@@ -241,24 +241,24 @@ func assertQueryNodesAreDeclared(
     for node in query.namedNodes.sorted() where !declared.named.contains(node) {
         let asAnonymous = declared.anonymous.contains(node)
             ? " — it is declared, but as an *anonymous* token, so the query must spell it "
-                + "\"\(node)\" rather than (\(node))"
+            + "\"\(node)\" rather than (\(node))"
             : ""
         XCTFail("query names node (\(node)), which \(subject)'s node-types.json "
-                + "does not declare as a named node\(asAnonymous) — the query would fail to "
-                + "compile and \(consequence)", file: file, line: line)
+                    + "does not declare as a named node\(asAnonymous) — the query would fail to "
+                    + "compile and \(consequence)", file: file, line: line)
     }
     for literal in query.anonymousNodes.sorted() where !declared.anonymous.contains(literal) {
         let asNamed = declared.named.contains(literal)
             ? " — it is declared, but as a *named* node, so the query must spell it "
-                + "(\(literal)) rather than \"\(literal)\""
+            + "(\(literal)) rather than \"\(literal)\""
             : ""
         XCTFail("query names anonymous node \"\(literal)\", which \(subject)'s "
-                + "node-types.json does not declare as an anonymous token\(asNamed) — the "
-                + "query would fail to compile and \(consequence)", file: file, line: line)
+                    + "node-types.json does not declare as an anonymous token\(asNamed) — the "
+                    + "query would fail to compile and \(consequence)", file: file, line: line)
     }
     for field in query.fieldNames.sorted() where !declared.fields.contains(field) {
         XCTFail("query navigates by field \(field):, which \(subject)'s node-types.json "
-                + "does not declare — ts_query_new fails with TSQueryErrorField, so the "
-                + "query would fail to compile and \(consequence)", file: file, line: line)
+                    + "does not declare — ts_query_new fails with TSQueryErrorField, so the "
+                    + "query would fail to compile and \(consequence)", file: file, line: line)
     }
 }

@@ -600,7 +600,7 @@ user sees it.
   project you leave keeps its tabs and selection, and the one you open comes back
   exactly as you left it — empty the first time you open it, rather than showing
   the previous project's files behind the new tree. "Untitled" buffers travel with
-  their project. Re-opening the folder already open changes nothing. Before the
+  their project. The bottom bar holds a **project switcher** (a folder icon on the left, next to the terminal toggle) listing your recent projects; clicking one switches to it instantly, and its "Open Folder…" item is the same Cmd+Shift+O. Re-opening the folder already open changes nothing. Before the
   switch every unsaved titled file is written to disk; if one cannot be written
   the switch is refused and an alert names it, because switching would close it and
   lose those edits (save it elsewhere or close its tab, then switch). The very

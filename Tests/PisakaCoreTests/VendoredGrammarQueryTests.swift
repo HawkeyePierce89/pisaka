@@ -60,7 +60,7 @@ final class VendoredGrammarQueryTests: XCTestCase {
         // nothing. (`punctuation.delimiter` and `punctuation.bracket` share a
         // kind by design, so four names collapse to four kinds over these.)
         let kinds = Set(["comment", "operator", "string", "punctuation.delimiter"]
-            .map { SyntaxTokenKind(captureName: $0) })
+                            .map { SyntaxTokenKind(captureName: $0) })
         XCTAssertEqual(kinds.count, 4)
     }
 
