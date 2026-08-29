@@ -285,6 +285,79 @@ final class UsageResultTests: XCTestCase {
         XCTAssertEqual(answer.identifier, "foo")
     }
 
+    // MARK: - Activating a row against the buffer as it then is
+
+    /// The whole rule in its ordinary case: nothing changed, so the row reveals
+    /// exactly the span it describes.
+    func testARowRevealsItsRangeWhenTheTextStillSpellsTheIdentifier() {
+        let text = "let foo = 1\nprint(foo)\n" as NSString
+        let usage = row("/p/root/a.swift", at: 4, length: 3)
+
+        XCTAssertEqual(
+            usage.revealRange(naming: "foo", in: text),
+            NSRange(location: 4, length: 3)
+        )
+    }
+
+    /// The crash case. A row computed against a longer text is clicked after the
+    /// file was shortened; `NSString.substring(with:)` would raise on the range,
+    /// so the bound check has to come first.
+    func testARowPastTheEndOfTheBufferRevealsNothing() {
+        let text = "let foo = 1" as NSString
+        let usage = row("/p/root/a.swift", at: 400, length: 3)
+
+        XCTAssertNil(usage.revealRange(naming: "foo", in: text))
+    }
+
+    /// A range that *ends* past the buffer, with a start inside it — the other
+    /// half of the same raise.
+    func testARowOverhangingTheEndOfTheBufferRevealsNothing() {
+        let text = "let foo" as NSString
+        let usage = row("/p/root/a.swift", at: 5, length: 10)
+
+        XCTAssertNil(usage.revealRange(naming: "foo", in: text))
+    }
+
+    /// The misleading case, and the reason the check is the text rather than the
+    /// geometry: the range is perfectly valid and now covers something else.
+    func testARowWhoseSpanNowHoldsOtherTextRevealsNothing() {
+        // The row was computed against "let foo = 1"; someone renamed the
+        // binding, so offset 4 now spells "bar".
+        let text = "let bar = 1\nprint(bar)\n" as NSString
+        let usage = row("/p/root/a.swift", at: 4, length: 3)
+
+        XCTAssertNil(usage.revealRange(naming: "foo", in: text))
+    }
+
+    /// A span that merely *starts* with the identifier is not the identifier —
+    /// the length is part of the comparison, so a longer name at the same offset
+    /// is rejected rather than half-selected.
+    func testARowWhoseSpanIsNowALongerNameRevealsNothing() {
+        let text = "let foobar = 1" as NSString
+        let usage = row("/p/root/a.swift", at: 4, length: 6)
+
+        XCTAssertNil(usage.revealRange(naming: "foo", in: text))
+    }
+
+    /// An empty buffer is the degenerate shortening: every row is out of bounds,
+    /// including one at offset 0.
+    func testEveryRowRevealsNothingInAnEmptyBuffer() {
+        let text = "" as NSString
+        XCTAssertNil(row("/p/root/a.swift", at: 0, length: 3).revealRange(naming: "foo", in: text))
+    }
+
+    /// Non-ASCII text ahead of the match: the range is UTF-16, so the comparison
+    /// must be made in the same units the row was computed in.
+    func testTheComparisonIsMadeInUTF16Units() {
+        let text = "\u{1F600} foo" as NSString   // one emoji is two UTF-16 units
+        let usage = row("/p/root/a.swift", at: 3, length: 3)
+
+        XCTAssertEqual(
+            usage.revealRange(naming: "foo", in: text),
+            NSRange(location: 3, length: 3)
+        )
+    }
+
     func testProvenanceRawValuesAreStable() {
         // The provenance is what the panel prints; the raw values are named here
         // so a rename of a case is a deliberate change rather than a silent one.

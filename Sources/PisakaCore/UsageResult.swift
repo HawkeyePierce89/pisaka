@@ -226,3 +226,42 @@ public struct UsagesAnswer: Equatable, Sendable {
         }
     }
 }
+
+extension UsageResult {
+    /// The range a row activation may reveal in `text` — the file's contents *as
+    /// they are when the row is clicked* — or `nil` when the row no longer
+    /// describes that buffer and the file should simply be opened.
+    ///
+    /// **Why a row can be stale at all.** Every row is a position in a text that
+    /// was read once: the disk copy the walk scanned, the buffer the server was
+    /// told about. Between that read and the click the user may have typed in the
+    /// file, an operation may have rewritten it, or a rename may have moved every
+    /// occurrence — and the panel keeps its rows across all three, because
+    /// re-running a project walk on every keystroke to keep a list honest is not a
+    /// trade anyone would take.
+    ///
+    /// **So the check is the text itself, not the geometry.** A range is worth
+    /// revealing only when the bytes it covers still spell the identifier the
+    /// answer is about. That rejects both failure modes at once: a range now past
+    /// the end of a shortened buffer (which would raise on `NSString`, i.e. crash
+    /// the click) and a range still inside a *changed* buffer, where the same
+    /// offsets now cover something else entirely — the "reveal of the wrong span"
+    /// that is worse than no reveal, because it silently claims a usage is there.
+    ///
+    /// **The degradation is opening the file with no selection**, which is the
+    /// honest outcome: the user asked to see a place, the place is gone, and the
+    /// file they asked about is still the right file to be looking at.
+    ///
+    /// A consequence worth stating: a semantic row whose server returned a range
+    /// *wider* than the name — a qualified reference, say — degrades to open-only
+    /// even when nothing changed, because its text is not the identifier. Every
+    /// server this app speaks to answers `textDocument/references` with the name's
+    /// own range, so this is a theoretical loss; and the direction it fails in is
+    /// the one that cannot mislead.
+    public func revealRange(naming identifier: String, in text: NSString) -> NSRange? {
+        guard range.location >= 0, range.length >= 0 else { return nil }
+        guard range.location <= text.length, NSMaxRange(range) <= text.length else { return nil }
+        guard text.substring(with: range) == identifier else { return nil }
+        return range
+    }
+}

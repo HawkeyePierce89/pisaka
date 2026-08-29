@@ -28,6 +28,14 @@ struct PisakaApp: App {
     /// open tab is searched — and replaced — through these closures instead of on
     /// disk, which is what lets Replace All keep a dirty tab's unsaved edits.
     @StateObject private var projectSearch: ProjectSearchModel
+    /// Observable state for the Find Usages bottom dock panel (⌃⌘U).
+    ///
+    /// Built in `init()` for `projectSearch`'s reason and one more: it needs the
+    /// same open-buffer closure — so a dirty tab is scanned as the user sees it,
+    /// not as the disk holds it — *and* the installed intelligence provider, so
+    /// the question reaches a language server when one serves the language and
+    /// falls to the whole-word scan only when nothing does.
+    @StateObject private var usages: FindUsagesModel
     @StateObject private var localChanges = LocalChangesModel(gitService: GitCLIService())
     @StateObject private var commitLog = CommitLogModel(gitService: GitCLIService())
     /// Observable state for the branch-switcher bottom-bar widget. Constructed
@@ -540,6 +548,19 @@ struct PisakaApp: App {
                 }
             )
         )
+
+        // The usages panel's model, over the same two seams. The provider is read
+        // through a closure rather than captured as a value for the reason the
+        // model states: the routing provider is *installed* on the controller
+        // during this very `init`, and a later phase may install another, so a
+        // model holding today's answer would keep asking it forever.
+        _usages = StateObject(
+            wrappedValue: FindUsagesModel(
+                fileService: FileService(),
+                provider: { [weak symbolIndexController] in symbolIndexController?.provider },
+                openBuffers: openBuffers
+            )
+        )
     }
 
     /// The provisioning pair — the engine and the model over it — composed the
@@ -849,6 +870,10 @@ struct PisakaApp: App {
                 bottomPanel: $bottomPanel,
                 onTogglePanel: { togglePanel($0) },
                 onActivateProblem: { url, range in activateSearchMatch(url: url, range: range) },
+                usages: usages,
+                onActivateUsage: { activateUsage($0) },
+                onFindUsages: { findUsages($0) },
+                onRenameSymbol: { renameSymbol($0) },
                 onClose: { closeFile(id: $0) },
                 onOpenFile: { openFile(url: $0) },
                 onOpenFolder: { openFolder() },
@@ -1252,6 +1277,16 @@ struct PisakaApp: App {
                     togglePanel(.problems)
                 }
                 .keyboardShortcut("m", modifiers: [.command, .shift])
+
+                // Toggle the Usages bottom dock panel. Same handler as the
+                // bottom bar's Usages button; the panel renders whatever the
+                // last ⌃⌘U asked, so showing it fetches nothing — a panel that
+                // re-ran the previous query on every open would spend a project
+                // walk on a question nobody re-asked.
+                Button(bottomPanel == .usages ? "Hide Usages" : "Show Usages") {
+                    togglePanel(.usages)
+                }
+                .keyboardShortcut("u", modifiers: [.command, .shift])
             }
 
             CommandMenu("Find") {
@@ -1299,6 +1334,26 @@ struct PisakaApp: App {
                 // can still jump within itself.
                 Button("Go to Definition") { goToDefinitionAtCaret() }
                     .keyboardShortcut("j", modifiers: [.control, .command])
+                    .disabled(model.selectedID == nil)
+
+                // ⌃⌘U — free here, and deliberately not ⌘U, which is Run Test.
+                // Gated on a tab being open rather than on a project, exactly as
+                // Go to Definition is: with no folder open the textual scan
+                // still answers for the buffer the question was asked in, which
+                // is a better answer to a command the user just invoked than an
+                // empty panel.
+                Button("Find Usages") { findUsagesAtCaret() }
+                    .keyboardShortcut("u", modifiers: [.control, .command])
+                    .disabled(model.selectedID == nil)
+
+                // ⌃⌘R — free here, and deliberately not ⌘R, which is Run File.
+                // Enabled whenever a tab is open (decision 4): whether a rename
+                // is *possible* is a question about the language server, and it
+                // is answered on invocation — before any sheet appears — rather
+                // than by greying the item out for reasons the menu cannot
+                // explain.
+                Button("Rename…") { renameAtCaret() }
+                    .keyboardShortcut("r", modifiers: [.control, .command])
                     .disabled(model.selectedID == nil)
 
                 // The explicit "complete this word now" command, in addition to
@@ -2024,6 +2079,14 @@ struct PisakaApp: App {
         // for one.
         projectSearch.prepareForSearch(root: url)
 
+        // And with the usages panel, in this same turn and for the same reason:
+        // it drops the previous project's rows — which are file positions in
+        // files this window no longer shows — and bumps both of its tokens, so a
+        // walk suspended on its off-main I/O abandons instead of filling the new
+        // project's panel with the old one's matches. No query is spawned: the
+        // panel answers a question the user asks, never one it asks itself.
+        usages.prepareForFolderChange(root: url)
+
         // Register the switch with the commit dialog *synchronously* too, for the
         // same reason and with sharper consequences: it clears the previous
         // project's file selection and message, and it bumps the token an
@@ -2700,6 +2763,84 @@ struct PisakaApp: App {
             return
         }
         editor.goToDefinitionAtCaret()
+    }
+
+    // MARK: - Find usages / rename
+
+    /// The Find menu's "Find Usages" (⌃⌘U): ask the focused editor about the
+    /// identifier under its caret.
+    ///
+    /// Routed through the first responder for `goToDefinitionAtCaret()`'s reason
+    /// — the command carries no state, and the responder chain already names the
+    /// one view that can answer. Anything else focused has no caret in code and
+    /// beeps.
+    private func findUsagesAtCaret() {
+        guard let editor = NSApp.keyWindow?.firstResponder as? EditorTextView else {
+            PlatformFeedback.warning()
+            return
+        }
+        editor.findUsagesAtCaret()
+    }
+
+    /// The Find menu's "Rename…" (⌃⌘R): ask the focused editor about the
+    /// identifier under its caret. Routed and refused exactly as
+    /// `findUsagesAtCaret()` is.
+    private func renameAtCaret() {
+        guard let editor = NSApp.keyWindow?.firstResponder as? EditorTextView else {
+            PlatformFeedback.warning()
+            return
+        }
+        editor.renameAtCaret()
+    }
+
+    /// Run a usages query and show the panel holding its answer.
+    ///
+    /// The panel is *shown* rather than toggled: this is the answer to a command
+    /// the user just invoked, and a ⌃⌘U that hid the results because they
+    /// happened to be on screen would be the opposite of what was asked.
+    ///
+    /// The request generation is captured **synchronously**, before the `Task`
+    /// hop, and handed back to the model — the generation-token rule, applied
+    /// here because unstructured tasks are not guaranteed to start in creation
+    /// order, so two quick ⌃⌘U presses must settle on the later question
+    /// whichever task runs first.
+    private func findUsages(_ request: UsagesRequest) {
+        bottomPanel = .usages
+        let root = model.projectRoot
+        let generation = usages.currentRequestGeneration
+        Task { await usages.find(request, root: root, request: generation) }
+    }
+
+    /// Open the file a usages row names and reveal the occurrence — when it is
+    /// still there.
+    ///
+    /// The open goes through `activateSearchMatch`'s three steps, but the range
+    /// is not the row's own: a row is a position in a text that was read once,
+    /// and the buffer the click lands in may have been typed in, rewritten or
+    /// renamed since. `UsageResult.revealRange(naming:in:)` is asked against the
+    /// text as it *now* is, and a row that no longer holds its identifier
+    /// degrades to opening the file with nothing selected — never a crash on an
+    /// out-of-bounds range, never a confident selection of a span that is now
+    /// something else.
+    private func activateUsage(_ row: UsageResult) {
+        openFile(url: row.fileURL)
+        guard let id = model.fileID(forURL: row.fileURL),
+              let text = model.openFiles.first(where: { $0.id == id })?.text
+        else { return }
+        guard let range = row.revealRange(naming: usages.identifier, in: text as NSString) else {
+            return
+        }
+        reveal.reveal(fileID: id, range: range)
+    }
+
+    /// Rename the symbol the editor resolved.
+    ///
+    /// The dialog, the `canRename` pre-check and the gated apply are the next
+    /// task's; until they land the command refuses the way every other
+    /// unavailable answer in this layer does — a beep, no alert (decision 4).
+    private func renameSymbol(_ request: UsagesRequest) {
+        _ = request
+        PlatformFeedback.warning()
     }
 
     /// The Edit menu's "Toggle Comment": ask the focused editor to toggle comments

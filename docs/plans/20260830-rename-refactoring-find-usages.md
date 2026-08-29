@@ -301,31 +301,31 @@ Tests: new suites for each new Core file; updates to `BottomPanelTests`,
   set it pins moves), `Tests/PisakaCoreTests/ZoomSourceGatingTests.swift`,
   `Tests/PisakaCoreTests/BottomPanelSourceGatingTests.swift`
 
-- [ ] `EditorTextView`: two caret entry points beside `goToDefinitionAtCaret()` —
+- [x] `EditorTextView`: two caret entry points beside `goToDefinitionAtCaret()` —
   `findUsagesAtCaret()` and `renameAtCaret()` — both resolving the word through
   `IdentifierScanner` from the selection's start, both beeping when nothing
   resolves.
-- [ ] An editor context menu (`menu(for:)` on `EditorTextView`, the
+- [x] An editor context menu (`menu(for:)` on `EditorTextView`, the
   `LineNumberRulerView` precedent): the stock menu plus Go to Definition, Find
   Usages and Rename, each disabled when the click resolves no identifier.
-- [ ] Find menu items with the shortcuts decision 2 fixes, routed through the key
+- [x] Find menu items with the shortcuts decision 2 fixes, routed through the key
   window's first responder exactly as `goToDefinitionAtCaret()` is; a View-menu
   toggle for the Usages panel.
-- [ ] `UsagesPanelView` in `ProblemsPanelView`'s shape: a header naming the
+- [x] `UsagesPanelView` in `ProblemsPanelView`'s shape: a header naming the
   identifier, the count, the truncation note and — when the answer was textual —
   a plain "textual matches" label; rows grouped by file with the line number and
   preview; activation calls back into `activateSearchMatch(url:range:)`. Chrome:
   `\.interfaceMetrics` throughout, **no** zoom surface, no minimum height (the
   bottom-panel gating rules).
-- [ ] Wire the panel into `ContentView`'s panel slot and the bottom bar beside
+- [x] Wire the panel into `ContentView`'s panel slot and the bottom bar beside
   Problems.
-- [ ] A row whose file/range no longer matches when activated degrades to opening
+- [x] A row whose file/range no longer matches when activated degrades to opening
   the file with no reveal (clamp the range against the buffer as it then is) —
   never a crash, never a reveal of the wrong span.
-- [ ] Write/extend tests: the source-gating suites stay green and their pinned
+- [x] Write/extend tests: the source-gating suites stay green and their pinned
   sets are updated only if the new views genuinely change one; a Core test for
   the row-activation clamp rule (put the clamp in Core, not the view).
-- [ ] Run `swift test` — must pass before Task 7.
+- [x] Run `swift test` — must pass before Task 7.
 
 ### Task 7: Rename as the seventh gated operation (macOS)
 

@@ -28,10 +28,11 @@ import XCTest
 ///   of it: what lands in the slot is a *view*, and a minimum on that view's own
 ///   `body` root reaches the slot exactly as one written at the call site would
 ///   — `TerminalPanelView` carried one, in its own file, for the whole life of
-///   this rule. So the four hosted panel roots (and `ContentView`'s
-///   `problemsPanel`, one hop from the branch it serves) are read too — each
+///   this rule. So the five hosted panel roots (and `ContentView`'s
+///   `problemsPanel` and `usagesPanel`, each one hop from the branch it serves)
+///   are read too — each
 ///   hosted view **whole**, `struct` brace to matching brace, not by its `var
-///   body` alone: three of the four bodies are pure delegation, so a minimum
+///   body` alone: most of those bodies are pure delegation, so a minimum
 ///   written on the `content` property they compose reaches the slot exactly as
 ///   one on `body` would, and `body`-only scanning would miss the likeliest
 ///   place to reintroduce this. The private row and detail structs later in
@@ -41,8 +42,8 @@ import XCTest
 ///   thing and is deliberately not matched. The per-panel table is pinned to
 ///   the `case .…:` labels of `panelContent(_:)` **by set equality**, so the
 ///   inventory cannot fall behind the enum: the compiler already forces that
-///   switch to cover every `BottomPanel` case, and without the tie a fifth
-///   panel would put a fifth view in the slot with no minimum check at all
+///   switch to cover every `BottomPanel` case, and without the tie a new
+///   panel would put another view in the slot with no minimum check at all
 ///   while this suite stayed green.
 /// - **The drag is measured in the column's named coordinate space, with
 ///   `minimumDistance: 0`.** `DragGesture()` — the default — compiles and
@@ -94,7 +95,7 @@ final class BottomPanelSourceGatingTests: XCTestCase {
         var slotFacingBodies: [(what: String, code: String)] = []
         var panelContentBody = ""
 
-        for name in ["panelContent", "problemsPanel"] {
+        for name in ["panelContent", "problemsPanel", "usagesPanel"] {
             let body = try XCTUnwrap(
                 Self.declarationBody(after: name, in: contentView),
                 "\(name) not found in ContentView.swift — rename it and update this suite deliberately"
@@ -105,7 +106,7 @@ final class BottomPanelSourceGatingTests: XCTestCase {
 
         // The views `panelContent(_:)` puts in the slot, **one per
         // `BottomPanel` case**. Each is read **whole**, not by its `var body`
-        // alone: three of the four bodies are pure delegation
+        // alone: most of those bodies are pure delegation
         // (`VStack { header; Divider(); content }`), and a minimum written on
         // `content` — where the list actually lives, and so the likeliest place
         // to reintroduce this — raises the `VStack`'s minimum and reaches the
@@ -119,13 +120,14 @@ final class BottomPanelSourceGatingTests: XCTestCase {
             "log": ("CommitLogView.swift", "CommitLogView"),
             "changes": ("LocalChangesView.swift", "LocalChangesView"),
             "problems": ("ProblemsPanelView.swift", "ProblemsPanelView"),
+            "usages": ("UsagesPanelView.swift", "UsagesPanelView"),
         ]
 
         // The tie that makes this table complete rather than merely long. A
-        // fifth `BottomPanel` case forces a fifth branch in `panelContent(_:)`
+        // new `BottomPanel` case forces another branch in `panelContent(_:)`
         // — the compiler makes that switch exhaustive, which is the one half of
         // this rule `swift test` gets for free — and that branch would put a
-        // fifth view in the fixed-height slot with no minimum check at all
+        // further view in the fixed-height slot with no minimum check at all
         // while this suite stayed green, the exact miss `TerminalPanelView`
         // already demonstrated for the whole life of the rule. Matching the
         // branch labels against the table by set equality is what turns adding
