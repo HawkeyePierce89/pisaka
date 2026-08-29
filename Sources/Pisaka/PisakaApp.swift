@@ -2527,7 +2527,28 @@ struct PisakaApp: App {
     /// The tab is left **dirty**: the ordinary save funnel puts the restored text
     /// on disk when the user saves or the autosave fires, which is what keeps this
     /// feature a reader that takes no writer gate.
+    ///
+    /// **Step 0 is the project check, and it is what makes the window's survival
+    /// of a folder switch safe.** The window is deliberately long-lived — it is
+    /// retargeted, not recreated, and `LocalHistoryView` says outright that it
+    /// outlives a folder switch, which costs nothing while everything it does is
+    /// read-only: the diff asks `currentText` at the moment it needs it. Restore
+    /// is the one thing in it that is *not* read-only, and a plan made under the
+    /// previous root names a file that is no longer in the project. Carrying it
+    /// out would put that file into `WorkspaceModel` through `model.open` — the
+    /// exact hazard `viewDefinitionOutsideProject` exists to avoid, since the
+    /// autosave, the session snapshot and ⌘S all then apply to a file outside the
+    /// opened folder — and would file the `.restore` capture under `plan.root`
+    /// while every later save of that buffer keys to nothing, so the restore
+    /// would be the one edit in the file with no history behind it. So it beeps
+    /// and stops, like the two refusals below. `isCurrentProjectRoot` is the
+    /// model's own canonical comparison, which is the rule for "same folder?"
+    /// everywhere else in this file.
     private func restoreFromLocalHistory(_ plan: LocalHistoryRestore) {
+        guard model.isCurrentProjectRoot(plan.root) else {
+            PlatformFeedback.warning()
+            return
+        }
         guard let file = try? model.open(url: plan.fileURL) else {
             PlatformFeedback.warning()
             return

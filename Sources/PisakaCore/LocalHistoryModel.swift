@@ -138,10 +138,17 @@ public final class LocalHistoryModel {
     /// snapshot still appears in one `move`, so a torn or corrupt one is not
     /// reachable; the two outcomes that are, and what answers them:
     ///
-    /// - **The same snapshot written twice.** Harmless: both writes carry the
-    ///   same name (timestamp, event and content hash), so the second is the same
-    ///   bytes at the same path, and a later identical capture would have
-    ///   deduplicated it anyway.
+    /// - **The same bytes captured twice**, because each side read the directory
+    ///   before the other's `move` landed, so neither could dedup against the
+    ///   other. Harmless either way, and which way depends only on whether the
+    ///   two clock reads rounded to the same millisecond: different ones give two
+    ///   names, hence two adjacent revisions of identical content, which retention
+    ///   reclaims like any other; the same one gives the same name, and
+    ///   `FileServicing.move` refuses to overwrite an existing destination, so the
+    ///   loser's attempts both throw, it discards its temporary and answers `nil`.
+    ///   That `nil` is a false negative — the revision *is* on disk, written by
+    ///   the other side — and nothing acts on it: `write(_:to:root:event:clock:)`
+    ///   discards the result, because a capture reports no outcome to anyone.
     /// - **The sweep reclaiming the directory this is writing into**, between the
     ///   `ensureDirectory` and the write. `LocalHistoryStore.capture` re-runs the
     ///   whole create-write-rename once for exactly this reason, so the window

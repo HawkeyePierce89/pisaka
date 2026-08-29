@@ -333,10 +333,14 @@ changes.)
       be discarded with the process — so it is the one capture that can run
       *beside* another, ordinarily one still on the chain or the folder-open
       sweep. A corrupt snapshot is still unreachable (a snapshot appears in one
-      `move`); the two outcomes that are reachable are the same snapshot written
-      twice, which is harmless because both writes carry the same name and the
-      same bytes, and the sweep reclaiming the directory this is writing into,
-      which the store's one retry answers.
+      `move`); the two outcomes that are reachable are the same bytes captured
+      twice — harmless either way, and which way depends only on whether the two
+      clock reads rounded to the same millisecond: different ones leave two
+      adjacent revisions of identical content, which retention reclaims like any
+      other, and the same one makes the loser's `move` refuse an existing
+      destination, so it stores nothing and answers a `nil` nobody reads — and
+      the sweep reclaiming the directory this is writing into, which the store's
+      one retry answers.
     - `captureBeforeOperation(event:root:bufferTexts:diskTargets:)` — awaited, and
       that is what makes it race-free (below). Three rules decide what is read:
       **buffers win** (a file with an open tab is captured from its buffer and not
@@ -566,7 +570,20 @@ changes.)
     already holds — no second traversal and no new git call — except Replace All,
     which uses `ProjectSearchModel.results`, and the merge apply, which names one
     file.
-  - **The restore action is three steps, and the order is the design.** Open a tab
+  - **The restore action is three steps, and the order is the design** — behind
+    one refusal that comes before all of them. **The plan's root must still be the
+    open project** (`model.isCurrentProjectRoot(plan.root)`, the same canonical
+    comparison the folder-switch path itself uses), and that check is what makes
+    the window's survival of a folder switch safe. Everything else the window does
+    is read-only, so outliving the switch costs nothing; Restore is the one thing
+    that is not, and a plan made under the previous root names a file no longer in
+    the project. Carrying it out would put that file into `WorkspaceModel` through
+    `model.open` — the hazard `viewDefinitionOutsideProject` exists to avoid,
+    since the autosave, the session snapshot and ⌘S would then all apply to a file
+    outside the opened folder — and would file the `.restore` capture under the
+    old root while every later save of that buffer keys to nothing, making the
+    restore the one edit in that file with no history behind it. So it beeps and
+    stops, like the two refusals below. Then: open a tab
     if none holds the file (`model.open` re-selects an existing one, so it is also
     the right call when one is there; an unreadable file beeps and stops, since
     there is nothing to restore *into*), capture the displaced text under
@@ -648,9 +665,12 @@ than an actor — the caller owns the hop, so the caller can choose not to hop.
 The cost is one directory read plus at most one ≤1 MiB write per dirty titled
 buffer, once per quit, with dedup usually making it zero writes; the call
 bypasses the write chain, whose queued work the process is about to discard
-anyway, and the two outcomes of running beside another capture are one snapshot
-written twice (harmless — same name, same bytes) and the store-wide sweep
-reclaiming the directory this is writing into, which `capture` retries over.
+anyway, and the two outcomes of running beside another capture are the same
+bytes captured twice (harmless: two clock reads a millisecond apart leave two
+identical revisions retention reclaims, the same millisecond makes the loser's
+`move` refuse an existing destination and store nothing) and the store-wide
+sweep reclaiming the directory this is writing into, which `capture` retries
+over.
 
 ## Tests
 
