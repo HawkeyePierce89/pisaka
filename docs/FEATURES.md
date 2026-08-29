@@ -637,7 +637,10 @@ user sees it.
   revert, a merge apply, a branch switch or checkout, and a branch create. Those
   rows read "Before Revert", "Before Replace All" and so on, and they are taken
   *before* the operation runs, so what they hold is the state you would otherwise
-  have lost. Open the history with **File ▸ Local History…** (Cmd+Shift+H) for the
+  have lost — unless those exact bytes are already the newest revision, which an
+  autosave moments earlier has usually just made them: the copy is not taken
+  twice, and the state you would have lost is the one under the "Save" row above.
+  Open the history with **File ▸ Local History…** (Cmd+Shift+H) for the
   active tab, or with the **"Local History"** item on a file's context menu in the
   project tree. The window lists that file's revisions newest first, each with the
   event that took it and both a relative ("2 hours ago") and an absolute

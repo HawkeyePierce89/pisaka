@@ -206,28 +206,78 @@ final class LocalHistoryModelTests: XCTestCase {
 
     /// A url reaching the root through `..` keys to its *bare name* through
     /// `ProjectFileWalk.relativePath(of:under:)`, which degrades rather than
-    /// refusing. Without the re-join check that spelling would share a history
-    /// with the file that genuinely has that name at the root — two unrelated
-    /// files, one directory, revisions of each shown as revisions of the other.
-    func testAUrlThatReachesTheRootThroughDotDotIsRefusedRatherThanKeyedByItsBareName() async {
+    /// refusing. Keyed on that answer the file would share its history with a
+    /// root-level file of the same name — two unrelated files, one directory,
+    /// each one's revisions offered as the other's. Canonicalizing first settles
+    /// it by resolving the `..` outright, so the file is keyed where it actually
+    /// lives rather than being either refused or collided.
+    func testAUrlThatReachesTheRootThroughDotDotIsKeyedWhereTheFileActuallyLives() async {
         let tree = makeTree(files: ["project/sub/a.swift": "the real one"])
         let model = makeModel(tree)
-        // Lexically inside the root, so containment says yes — but it does not
-        // *spell* the root, so `ProjectFileWalk.relativePath(of:under:)` degrades
-        // to the bare `a.swift`. Keyed on that answer this file would share its
-        // history with a root-level `a.swift`: two unrelated files, one
-        // directory, each one's revisions offered as the other's.
         let sideways = treeRoot.appendingPathComponent("other/../project/sub/a.swift")
         XCTAssertEqual(ProjectFileWalk.relativePath(of: sideways, under: projectRoot), "a.swift")
 
-        XCTAssertNil(LocalHistoryModel.relativePath(of: sideways, under: projectRoot))
+        XCTAssertEqual(LocalHistoryModel.relativePath(of: sideways, under: projectRoot), "sub/a.swift")
 
-        model.captureSaves(urls: [sideways], root: projectRoot, texts: [sideways: "not the real one"])
+        model.captureSaves(urls: [sideways], root: projectRoot, texts: [sideways: "edited"])
         await drain(model)
 
-        XCTAssertTrue(revisions(model, "a.swift").isEmpty)
-        XCTAssertTrue(revisions(model, "sub/a.swift").isEmpty)
-        XCTAssertTrue(tree.writtenPaths.isEmpty)
+        XCTAssertTrue(revisions(model, "a.swift").isEmpty, "No history under the bare name.")
+        XCTAssertEqual(contents(model, "sub/a.swift"), ["edited"])
+    }
+
+    /// The disk targets of four of the six pre-operation captures are built from
+    /// the repository root `git rev-parse --show-toplevel` reports, which is
+    /// always *physical*, while `projectRoot` is stored as the user spelled it.
+    /// Compared lexically those two directories are different, and every disk
+    /// target would be dropped — silently, leaving the labelled capture with open
+    /// buffers only. Staged with a real symlink, because that divergence is only
+    /// reproducible through one: the resolution is the file system's, not a
+    /// string rule this test could imitate.
+    func testDiskTargetsSpelledAsGitReportsThemAreCapturedUnderTheUsersSpelling() async throws {
+        let manager = FileManager.default
+        let physical = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("local-history-\(UUID().uuidString)", isDirectory: true)
+        let symlinked = physical.deletingLastPathComponent()
+            .appendingPathComponent(physical.lastPathComponent + "-link", isDirectory: true)
+        // The project itself exists on disk too, because that is what the
+        // resolution needs: `URL.resolvingSymlinksInPath()` resolves nothing for
+        // a path that is not there. The *contents* still come from the stub.
+        try manager.createDirectory(
+            at: physical.appendingPathComponent("project", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        try Data().write(to: physical.appendingPathComponent("project/a.swift"))
+        try manager.createSymbolicLink(at: symlinked, withDestinationURL: physical)
+        defer {
+            try? manager.removeItem(at: symlinked)
+            try? manager.removeItem(at: physical)
+        }
+
+        // The tree — like the disk, and like what `git rev-parse --show-toplevel`
+        // reports — knows only the physical spelling; the user opened the folder
+        // through the symlink, so that is what `projectRoot` holds.
+        let tree = StubFileTree(root: physical, files: ["project/a.swift": "on disk"])
+        let model = LocalHistoryModel(
+            base: physical.appendingPathComponent("LocalHistory"),
+            fileService: tree,
+            policy: LocalHistoryPolicy(),
+            now: StepClock().next
+        )
+        let userRoot = symlinked.appendingPathComponent("project", isDirectory: true)
+
+        await model.captureBeforeOperation(
+            event: .revert,
+            root: userRoot,
+            bufferTexts: [:],
+            diskTargets: [physical.appendingPathComponent("project/a.swift")]
+        )
+
+        XCTAssertEqual(
+            model.store.revisions(root: userRoot, relativePath: "a.swift").map(\.event),
+            [.revert],
+            "The disk target was dropped because the two roots were compared lexically."
+        )
     }
 
     /// The wait is on everything already queued — including the project-open

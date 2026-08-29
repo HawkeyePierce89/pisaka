@@ -376,22 +376,57 @@ public final class LocalHistoryModel {
 
     /// `url`'s path under `root`, or `nil` when it is not a file under `root`.
     ///
-    /// Two questions, both of which must answer yes.
-    /// `LSPInstallLayout.directory(_:contains:)` is the containment rule — the
-    /// one lexical one this feature asks everywhere, reused rather than restated
-    /// — and `ProjectFileWalk.relativePath(of:under:)` is the one relative-path
-    /// helper. The second is not the first restated: it *degrades* an unexpected
-    /// url to its bare file name rather than refusing, so what is checked
-    /// afterwards is that it did not degrade — `root` re-joined to the answer
-    /// must spell `url` again. Without that check a url reaching the root through
-    /// `..` would be keyed under its bare name and share a history with the file
-    /// that genuinely has that name.
+    /// **Asked lexically first, then again of canonical paths** — one rule, two
+    /// spellings, and the second attempt is why the disk half of a pre-operation
+    /// capture works at all. `projectRoot` is stored as the user spelled it,
+    /// while the disk targets of four of the six pre-operation captures are built
+    /// from the repository root `git rev-parse --show-toplevel` reports, which is
+    /// always *physical*: a project the user opened through a symlink (or under
+    /// `/tmp`) comes back spelled a second way. Compared lexically those are two
+    /// different directories, so every disk target would be dropped and the
+    /// labelled capture would degrade to open buffers only — silently, which is
+    /// exactly the failure this feature must not have.
+    /// `resyncOpenTabsAfterCheckout` resolves both sides before asking the same
+    /// question for the same reason.
+    ///
+    /// The order is not arbitrary. The lexical attempt is the whole answer
+    /// whenever the two arrive spelled alike (every ordinary project), costs no
+    /// disk access, and — the part that matters —
+    /// `URL.resolvingSymlinksInPath()` resolves *nothing* when the path does not
+    /// exist, so canonicalizing unconditionally would refuse a buffer whose file
+    /// has been deleted out from under it: the one tab holding the last copy of
+    /// that file, which is precisely what this feature is for. Trying the raw
+    /// spelling first keeps that case exactly as it was and adds the canonical
+    /// one only where the raw comparison refuses. Both attempts answer the *same*
+    /// relative path for a given file, so the store key stays stable however the
+    /// url was spelled.
     ///
     /// Internal rather than private because `LocalHistoryBrowserModel` must key a
     /// file *exactly* as this side did — a second, separately maintained copy of
     /// this rule would show an empty history for a file that has one — and one
     /// function is the only way to say that and mean it.
     nonisolated static func relativePath(of url: URL, under root: URL) -> String? {
+        if let relative = lexicalRelativePath(of: url, under: root) { return relative }
+        return lexicalRelativePath(
+            of: CanonicalPath.canonical(url),
+            under: CanonicalPath.canonical(root)
+        )
+    }
+
+    /// One spelling's answer: two questions, both of which must answer yes.
+    ///
+    /// `LSPInstallLayout.directory(_:contains:)` is the containment rule — the
+    /// one component-wise lexical one this feature asks everywhere, reused rather
+    /// than restated — and `ProjectFileWalk.relativePath(of:under:)` is the one
+    /// relative-path helper. The second is not the first restated: it *degrades*
+    /// an unexpected url to its bare file name rather than refusing, so what is
+    /// checked afterwards is that it did not degrade — `root` re-joined to the
+    /// answer must spell `url` again. Without that check a url reaching the root
+    /// through `..` would be keyed under its bare name and share a history with
+    /// the file that genuinely has that name; with it, such a url falls through
+    /// to the canonical attempt above, which resolves the `..` and keys it where
+    /// the file actually lives.
+    private nonisolated static func lexicalRelativePath(of url: URL, under root: URL) -> String? {
         guard LSPInstallLayout.directory(root, contains: url) else { return nil }
         let relative = ProjectFileWalk.relativePath(of: url, under: root)
         guard !relative.isEmpty, root.appendingPathComponent(relative).path == url.path else { return nil }

@@ -381,7 +381,38 @@ changes.)
     containment, then `ProjectFileWalk.relativePath(of:under:)` for the path —
     with a check that it did not *degrade* (`root` re-joined to the answer must
     spell the url again), since that helper answers a bare file name rather than
-    `nil` for a url it did not expect. It is internal rather than private because
+    `nil` for a url it did not expect.
+
+    **Both questions are asked twice: of the raw spellings, and — only if that
+    refuses — of `CanonicalPath.canonical(_:)` of each.** The second attempt is
+    what makes the disk half of a pre-operation capture work at all.
+    `projectRoot` is stored as the user spelled it, while the disk targets of four
+    of the six captures are built from the repository root `git rev-parse
+    --show-toplevel` reports, which is always *physical*: a project opened through
+    a symlink (or under `/tmp`) comes back spelled a second way, and a purely
+    lexical comparison calls the two different directories. Every disk target
+    would then be dropped and the labelled capture would silently degrade to open
+    buffers only — the failure this feature must not have.
+    `resyncOpenTabsAfterCheckout` resolves both sides before asking the same
+    question, for the same reason.
+
+    The **order** carries its own reason, and it is not "cheapest first". The raw
+    attempt is the whole answer whenever the two arrive spelled alike (every
+    ordinary project) and touches no disk; canonicalizing *unconditionally* would
+    be a regression, because `URL.resolvingSymlinksInPath()` resolves nothing for
+    a path that does not exist — under a symlinked root it would refuse a buffer
+    whose file has been deleted out from under it, i.e. the one tab holding the
+    last copy of that file, which is exactly what a safety net is for. Raw first
+    keeps that case byte-for-byte as it was and adds the canonical one only where
+    raw refuses. Both attempts answer the *same* relative path for a given file,
+    so the store key stays stable however the url was spelled — and a url reaching
+    the root through `..`, which the degrade check refuses on the raw pass, falls
+    through to the canonical one and is keyed where the file actually lives rather
+    than under its bare name. The store's own path math (`LocalHistoryLayout`)
+    keeps asking `LSPInstallLayout` raw and only raw: those paths are the app's
+    own, under Application Support, and never arrive in two spellings.
+
+    It is internal rather than private because
     `LocalHistoryBrowserModel` must key a file **exactly** as this side did: a
     second, separately maintained copy of the rule would show an empty history for
     a file that has one. `clock` is injectable for the store's reason one level up
