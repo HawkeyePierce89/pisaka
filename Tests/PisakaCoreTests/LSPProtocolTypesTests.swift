@@ -794,19 +794,48 @@ final class LSPProtocolTypesTests: XCTestCase {
         XCTAssertTrue(empty.isEmpty)
     }
 
-    func testOneMalformedEditIsDroppedWhileItsSiblingsSurvive() throws {
-        let edit = try decodeResult(
-            """
+    /// **An edit this cannot read fails the whole answer**, in both wire
+    /// spellings. Dropping it and keeping its siblings would build a plan that
+    /// passes every refusal in `RenameEditPlan` and renames a project in four
+    /// places out of five — the half-renamed state the whole feature is built to
+    /// refuse. The command's answer to a throw here is the beep it gives a server
+    /// that refused outright.
+    func testOneMalformedEditFailsTheWholeAnswer() {
+        let documentChanges = """
             {"documentChanges":[
               {"textDocument":{"uri":"file:///p/a.swift"},
                "edits":[{"range":{"start":{"line":4,"character":1}},"newText":"bar"},
                         {"range":{"start":{"line":7,"character":2},
                                   "end":{"line":7,"character":5}},"newText":"bar"}]}
             ]}
+            """
+        XCTAssertThrowsError(try decodeResult(documentChanges, as: LSPWorkspaceEdit.self))
+
+        let changes = """
+            {"changes":{"file:///p/a.swift":[
+               {"range":{"start":{"line":4,"character":1}},"newText":"bar"},
+               {"range":{"start":{"line":7,"character":2},
+                         "end":{"line":7,"character":5}},"newText":"bar"}]}}
+            """
+        XCTAssertThrowsError(try decodeResult(changes, as: LSPWorkspaceEdit.self))
+    }
+
+    /// The tolerance that *remains*: an entry that is not a text edit at all — a
+    /// file operation, or a kind no version of the spec names — is ignored, and
+    /// the textual half of the answer is still exactly right.
+    func testFileOperationEntriesAreIgnoredRatherThanFailing() throws {
+        let edit = try decodeResult(
+            """
+            {"documentChanges":[
+              {"kind":"rename","oldUri":"file:///p/a.swift","newUri":"file:///p/b.swift"},
+              {"textDocument":{"uri":"file:///p/a.swift"},
+               "edits":[{"range":{"start":{"line":7,"character":2},
+                                  "end":{"line":7,"character":5}},"newText":"bar"}]}
+            ]}
             """,
             as: LSPWorkspaceEdit.self
         )
-        XCTAssertEqual(edit.documents.first?.edits.count, 1)
+        XCTAssertEqual(edit.documents.count, 1)
         XCTAssertEqual(edit.documents.first?.edits.first?.range.start.line, 7)
     }
 

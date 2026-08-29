@@ -78,9 +78,12 @@ struct UsagesPanelView: View {
         .padding(.vertical, metrics.scaled(6))
     }
 
-    /// What the rows mean, in words. Absent while there are none: an empty
-    /// answer is "nothing was found", and labelling *that* semantic or textual
-    /// would be a claim about a list with no entries in it.
+    /// What the rows mean, in words. Absent until a question has been *answered*:
+    /// before that there is nothing to characterise, and labelling a panel nobody
+    /// has asked anything of would be a claim about a list that does not exist.
+    /// An answer that found nothing still says which kind of nothing it is —
+    /// "searched textually, found none" is the honest reading of an empty textual
+    /// answer, and `emptyText` says the rest of it.
     private var provenanceNote: String? {
         switch model.provenance {
         case .none: return nil

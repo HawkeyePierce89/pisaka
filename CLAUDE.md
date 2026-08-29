@@ -103,7 +103,7 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
 - `EditorConfigModel.swift` — the synchronous per-file cache; two wholesale invalidations.
 - `IndentUnitRule.swift` — the hybrid unit rule, the stricter Tab rule, the Tab plan.
 - `SaveTransform.swift` — the pure on-save engine: the three transforms, the spared line, the position remap.
-- `SaveTransformController.swift` (app, macOS) — the one save funnel; through the editor when it holds the buffer.
+- `SaveTransformController.swift` (app, macOS) — the one save funnel; through the editor when it holds the buffer; also the two non-save buffer rewrites (restore, rename).
 
 `docs/architecture/core-search.md` — Find in Files:
 - `GitignoreMatcher.swift` — gitignore(5) matching; oracle-tested against `git check-ignore`.
@@ -385,10 +385,20 @@ ci.yml's `lint` job, and the version-bump procedure.
   and four failures mark that `(server, root)` unavailable for the app run. A
   **reader**, like the index. `Process` lives only in `Sources/Pisaka` behind
   `LSPTransport` — `LSPSourceGatingTests` asserts that. Registration is dynamic
-  (`updateRegistry(_:)`): un-registering a server shuts its process down. **Hover
-  is the one question with no fallback** (D25): tree-sitter knows names, not
-  types, so no server means no popover — and the popover itself is chrome, not a
-  code surface, because the pointer cannot reach it (D26, `core-lsp.md`).
+  (`updateRegistry(_:)`): un-registering a server shuts its process down. **Three
+  questions are exceptions to the silent tree-sitter fallback.** *Hover* (D25) and
+  *rename* (D35) have no second answer at all — tree-sitter knows names, not types
+  or references, so no server means no popover and no rename — and hover's popover
+  is itself chrome, not a code surface, because the pointer cannot reach it (D26,
+  `core-lsp.md`). *`references`* (D36) has a second answer that is **not this
+  layer's**: nothing in the provider chain ever walks the project, because a walk
+  inside the router's deadline race would be abandoned mid-flight with nobody left
+  to say so, so `FindUsagesModel` runs `TextualUsageScanner` where the walk, the
+  file service and the buffers already live. The panel always states which of the
+  two it is holding, and an answer is **never a mixture** (`UsageProvenance` has
+  two cases and no third). Rename is also the one answer in the layer that becomes
+  a *write*, applied by the app under the seventh writer bracket — the layer itself
+  still writes nothing (D10).
 - **Provisioned servers**: nothing downloads without per-server consent; what
   *may* be downloaded is pinned data in Core (URL + SHA-256 + size), changed
   only by shipping a new app version. Every install verifies before unpacking

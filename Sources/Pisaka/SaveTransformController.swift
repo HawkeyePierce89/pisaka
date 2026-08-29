@@ -355,11 +355,17 @@ final class SaveTransformController {
     /// gets `WorkspaceModel.replaceText(_:for:)` and loses its undo stack, which is
     /// the cost this feature states rather than hides.
     ///
-    /// A buffer whose text the plan does not fit is left untouched: `apply` refuses
-    /// a mismatched plan and the model path would write the plan's text over a
-    /// buffer that moved. The caller has already verified the whole plan inside its
-    /// writer bracket, so this is the same belt-and-braces check `applyRestore`
-    /// makes — the buffer must still be what the plan was computed against.
+    /// A buffer that already holds the plan's result is left untouched — the same
+    /// no-op guard `applyRestore` makes, and compared as `NSString` for the same
+    /// reason: rewriting a buffer with itself would dirty a clean tab for no
+    /// change. It is *not* a staleness check, and deliberately so: whether the
+    /// buffer is still what the plan was computed against was settled by
+    /// `RenameEditPlan.apply`, which verified every file before producing any of
+    /// these plans, and this method is called in the same main-actor turn — there
+    /// is no `await` between the two for anything to change in. A second check here
+    /// would need the plan's *input* text, which a `SaveTransformPlan` does not
+    /// carry, so it would be a check that could not be written rather than one
+    /// that was left out.
     func applyRename(_ plan: SaveTransformPlan, to id: UUID) {
         guard let model, let current = model.text(for: id) else { return }
         let currentString = current as NSString

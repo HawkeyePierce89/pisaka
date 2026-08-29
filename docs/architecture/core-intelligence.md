@@ -1300,7 +1300,16 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     binary/oversize refusals and `ProjectSearchModel.defaultMaxFileBytes` referenced
     rather than restated, so the two walks decline exactly the same files),
     scanning in chunks off the main actor and publishing per chunk so a long walk
-    fills the panel as it goes. Open buffers are snapshotted **once**, before the
+    fills the panel as it goes — publishing only from a chunk that actually
+    *matched*, because `UsagesAnswer.make` re-deduplicates and re-sorts everything
+    collected so far and resolves a symlink per distinct file while doing it, and
+    most chunks of most projects contain no occurrence at all. **The walk always
+    ends in an answer**, published once after the loop: without it the two cases the
+    loop cannot publish from — a walk that yielded no file at all (an unreadable
+    root, or one where everything is excluded) and one where no chunk matched —
+    would leave `provenance` and `emptyReason` both `nil`, which the panel draws as
+    "nothing has been asked yet" for a question that was just asked and just
+    answered. Open buffers are snapshotted **once**, before the
     walk, exactly as the project search snapshots them — the closure reads the
     workspace and so must run on the main actor — and a tab's text is scanned in
     preference to the disk copy, so the rows describe what the user is looking at.
@@ -1313,9 +1322,17 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     **Two generation tokens, answering two different questions.** The *request*
     token says "a newer question was asked" and gates what may be **published**; it
     is re-checked after every `await`, so a superseded query drops its partial rows
-    rather than interleaving them with the newer one's. The *project* token says
+    rather than interleaving them with the newer one's. A caller that defers `find`
+    across a `Task` hop **reserves** its token with `prepareForQuery()` rather than
+    reading the current one, and `find` accepts only that reservation without
+    bumping again: two presses that merely read the same value would be ordered by
+    whichever task the runtime happened to start first, which is the outcome the
+    token is there to prevent. The *project* token says
     "these files belong to a folder the user has left" and gates whether the walk
-    **continues at all**; `prepareForFolderChange(root:)` bumps both synchronously
+    **continues at all**; `find` records the root it was asked about and bumps the
+    project token when it differs (`ProjectSearchModel.search`'s rule, so the model
+    never depends on having been *told* about a folder to know which one its rows
+    belong to), and `prepareForFolderChange(root:)` bumps both synchronously
     in the same main-actor turn that handles the folder open
     (`LocalChangesModel.prepareForFolderChange`'s precedent) and clears the rows up
     front, because a usage list belongs to the project it was asked in and leaving

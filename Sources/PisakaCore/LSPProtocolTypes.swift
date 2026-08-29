@@ -971,6 +971,17 @@ public struct LSPDocumentEdits: Equatable, Hashable, Sendable {
 /// offers to rename the file too into a server that cannot rename at all. The
 /// same tolerance covers an operation kind no version of the spec names.
 ///
+/// **The leniency stops at the edits themselves.** An entry this cannot read is
+/// dropped; an *edit* it cannot read fails the whole decode, and the command
+/// beeps as it does for a server that refused. The two are not the same case:
+/// dropping an entry that is not a text edit loses nothing the rename promised,
+/// while dropping one edit out of a document's five produces a `WorkspaceEdit`
+/// that is internally consistent, passes every refusal in `RenameEditPlan`, and
+/// writes a project renamed in four places out of five — the half-renamed state
+/// `RenameRefusal` calls strictly worse than a rename that did not happen. This
+/// is the one answer in this file that becomes a *write*, so it is the one that
+/// is decoded all-or-nothing.
+///
 /// One document may legitimately appear more than once; entries are kept in wire
 /// order and grouping is `RenameEditPlan`'s job, not the decoder's.
 public struct LSPWorkspaceEdit: Equatable, Hashable, Sendable, Decodable {
@@ -990,32 +1001,32 @@ public struct LSPWorkspaceEdit: Equatable, Hashable, Sendable, Decodable {
             [JSONValue].self, forKey: .documentChanges
         )
         if let documentChanges, !documentChanges.isEmpty {
-            documents = documentChanges.compactMap(LSPWorkspaceEdit.documentEdits(of:))
+            documents = try documentChanges.compactMap(LSPWorkspaceEdit.documentEdits(of:))
             return
         }
         let changes = try? container.decodeIfPresent(JSONValue.self, forKey: .changes)
-        documents = LSPWorkspaceEdit.documentEdits(ofChanges: changes)
+        documents = try LSPWorkspaceEdit.documentEdits(ofChanges: changes)
     }
 
     /// One `documentChanges` entry, or `nil` for a file operation.
-    private static func documentEdits(of entry: JSONValue) -> LSPDocumentEdits? {
+    private static func documentEdits(of entry: JSONValue) throws -> LSPDocumentEdits? {
         guard let document = entry["textDocument"],
               let uri = document["uri"]?.stringValue,
               let edits = entry["edits"]?.arrayValue else { return nil }
         return LSPDocumentEdits(
             uri: uri,
             version: document["version"]?.intValue,
-            edits: edits.compactMap { try? $0.decoded(as: LSPTextEdit.self) }
+            edits: try edits.map { try $0.decoded(as: LSPTextEdit.self) }
         )
     }
 
-    private static func documentEdits(ofChanges changes: JSONValue?) -> [LSPDocumentEdits] {
+    private static func documentEdits(ofChanges changes: JSONValue?) throws -> [LSPDocumentEdits] {
         guard let object = changes?.objectValue else { return [] }
-        return object.keys.sorted().compactMap { uri in
+        return try object.keys.sorted().compactMap { uri in
             guard let edits = object[uri]?.arrayValue else { return nil }
             return LSPDocumentEdits(
                 uri: uri,
-                edits: edits.compactMap { try? $0.decoded(as: LSPTextEdit.self) }
+                edits: try edits.map { try $0.decoded(as: LSPTextEdit.self) }
             )
         }
     }

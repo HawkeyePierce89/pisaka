@@ -561,10 +561,17 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     right-click, so the additions are guarded by a tag — appending unconditionally
     would grow the menu by four items per click. Enablement stays AppKit's:
     `autoenablesItems` is left alone (turning it off for our three would turn it off
-    for every stock item too) and `validateUserInterfaceItem(_:)` answers `false`
-    for the three when the click resolves no identifier and defers to `super` for
-    everything else, including any command reaching this view through the responder
-    chain.
+    for every stock item too), and **both** validation entry points answer it —
+    `validateMenuItem(_:)` and `validateUserInterfaceItem(_:)`, each deferring to
+    one private predicate so the two cannot disagree about the same click. That is
+    not belt-and-braces: `NSTextView` conforms to `NSMenuItemValidation`, and a menu
+    validating an `NSMenuItem` asks a target that implements `validateMenuItem(_:)`
+    and never falls through to `validateUserInterfaceItem(_:)`, so overriding only
+    the latter would leave all three items permanently enabled on a right-click that
+    resolved no name — and silently inert, since the handlers guard on the same
+    question. `validateUserInterfaceItem(_:)` is kept for every other validating
+    client, and both defer to `super` for everything else, including any command
+    reaching this view through the responder chain.
     **One place turns a caret into a question**, shared by both commands so they
     can never disagree about what a name is or where the question is asked:
     `IdentifierScanner` decides — the same rule Go to Definition, completion and the

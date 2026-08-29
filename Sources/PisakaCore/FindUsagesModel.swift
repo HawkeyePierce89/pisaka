@@ -220,8 +220,23 @@ public final class FindUsagesModel: ObservableObject {
         return generation
     }
 
-    /// The current request generation, captured synchronously by a caller that
-    /// defers a `find` across a `Task` hop and passes it back as `request:`.
+    /// Synchronously reserve the token for a question that is about to be asked
+    /// across a `Task` hop, and hand it back for `find`'s `request:`.
+    ///
+    /// **Reserving is what makes the token mean anything.** A caller that merely
+    /// *read* the current generation would give two rapid ⌃⌘U presses the same
+    /// token, and whichever task happened to start first would then supersede the
+    /// other — including when the loser is the later question, which is the exact
+    /// outcome the token exists to prevent. Bumping here orders the presses in the
+    /// main-actor turn that handles them, which is the only place their order is
+    /// known.
+    @discardableResult
+    public func prepareForQuery() -> Int {
+        generation += 1
+        return generation
+    }
+
+    /// The current request generation — what `prepareForQuery()` last handed out.
     public var currentRequestGeneration: Int { generation }
 
     /// The current project generation — the token a folder switch moves.
@@ -256,12 +271,26 @@ public final class FindUsagesModel: ObservableObject {
     /// A `request` token a newer question has already superseded is rejected
     /// before any work — `LocalChangesModel.refresh(root:requestGeneration:)`'s
     /// rule, because unstructured `Task`s are not guaranteed to start in creation
-    /// order.
+    /// order. The token is the one `prepareForQuery()` reserved, and it is *not*
+    /// bumped again here: the reservation already ordered the presses, and bumping
+    /// a second time would let the task that merely started first win.
     public func find(_ usages: UsagesRequest, root: URL?, request: Int? = nil) async {
-        if let request, request != generation { return }
-
-        generation += 1
-        let token = generation
+        let token: Int
+        if let request {
+            guard request == generation else { return }
+            token = request
+        } else {
+            generation += 1
+            token = generation
+        }
+        // The root a question is asked about is recorded here as well as in
+        // `prepareForFolderChange` — `ProjectSearchModel.search`'s rule, for its
+        // reason: the model must not depend on having been *told* about a folder
+        // to know which one its rows belong to, or a root that arrived some other
+        // way leaves `lastRoot` stale and the later "the folder closed" call reads
+        // as a repeat of a switch that never happened.
+        if root != lastRoot { rootGeneration += 1 }
+        lastRoot = root
         let projectToken = rootGeneration
 
         guard IdentifierScanner.isIdentifier(usages.identifier) else {
@@ -351,6 +380,13 @@ public final class FindUsagesModel: ObservableObject {
             }
             guard token == generation, projectToken == rootGeneration else { return }
 
+            // A chunk that found nothing changes no row, and `make` is not free:
+            // it re-deduplicates and re-sorts everything collected so far, and
+            // resolves a symlink per distinct file while doing it. Most chunks of
+            // most projects contain no occurrence at all, so republishing an
+            // unchanged list for each of them is the walk's whole cost for
+            // nothing.
+            guard !found.isEmpty else { continue }
             collected.append(contentsOf: found)
             publish(
                 UsagesAnswer.make(
@@ -362,6 +398,21 @@ public final class FindUsagesModel: ObservableObject {
             )
         }
 
+        // **The walk always ends in an answer**, including the two cases the loop
+        // above cannot publish from: a project whose walk yielded no file at all
+        // (an unreadable root, or one where everything is excluded), and one where
+        // no chunk matched. Without this the terminal state would be `provenance`
+        // and `emptyReason` both `nil` — which the panel draws as "nothing has
+        // been asked yet", the one conflation `UsagesEmptyReason` exists to
+        // prevent, for a question the user just asked and this walk just answered.
+        publish(
+            UsagesAnswer.make(
+                identifier: name,
+                rows: collected,
+                provenance: .textual,
+                requestingFile: usages.fileURL
+            )
+        )
         isSearching = false
     }
 

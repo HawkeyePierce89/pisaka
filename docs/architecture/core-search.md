@@ -87,7 +87,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     line a result row draws (`text` with its separator stripped, plus the match's
     range *within that window*) — clipped to `previewWindow` 300 UTF-16 units
     starting at most `previewLead` 40 before the match, so a minified single-line
-    bundle cannot produce a 200 KB row; `FileSearchResult` carries `fileURL`, the
+    bundle cannot produce a 200 KB row. It is **no longer search-only**: a usages
+    row carries one too, built by `preview(for:in:)` from `TextualUsageScanner` and
+    from `LSPIntelligenceProvider`, so a Find in Files row and a Find Usages row
+    clip identically by construction rather than by two rules that agree today; it
+    is `Sendable` because usages rows are assembled off the main actor and published
+    per chunk (`core-intelligence.md`); `FileSearchResult` carries `fileURL`, the
     `relativePath` group header, and `matches`/`previews` as **parallel arrays**
     (index *i* of one describes index *i* of the other) rather than pairs, so the
     view hands `matches` straight to the editor's selection path — the shape

@@ -435,17 +435,28 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     would keep asking it forever. `findUsages(_:)` **shows** the panel rather than
     toggling it (this is the answer to a command the user just invoked, and a ⌃⌘U
     that hid the results because they happened to be on screen would be the opposite
-    of what was asked) and captures `usages.currentRequestGeneration`
-    *synchronously* before the `Task` hop, because unstructured tasks are not
-    guaranteed to start in creation order and two quick presses must settle on the
-    later question whichever runs first. `openFolder` calls
+    of what was asked) and **reserves** a request generation
+    (`usages.prepareForQuery()`) *synchronously* before the `Task` hop, because
+    unstructured tasks are not guaranteed to start in creation order and two quick
+    presses must settle on the later question whichever runs first. Reserved rather
+    than merely *read*: two presses in one turn that read the same token would be
+    ordered by whichever task started first, which is the thing the token exists to
+    stop. `openFolder` calls
     `usages.prepareForFolderChange(root:)` in the same synchronous turn as
     `projectSearch.prepareForSearch` and the commit dialog's own registration, and
     for the same reason. `activateUsage(_:)` opens through `activateSearchMatch`'s
     steps but asks `UsageResult.revealRange(naming:in:)` against the buffer the
     click actually lands in: a row that no longer holds its identifier degrades to
     opening the file with nothing selected — never a crash on an out-of-bounds
-    range, never a confident selection of a span that is now something else.
+    range, never a confident selection of a span that is now something else. A row
+    **outside the opened folder** does not go through `openFile` at all: it goes to
+    the read-only viewer, exactly as a definition outside the project does (D3). A
+    server answers `textDocument/references` with every reference it resolved, and
+    an SDK header or a dependency checkout is an ordinary one — opening it as a tab
+    would put a file the user did not open a project for into `WorkspaceModel`,
+    where the autosave gate, the session snapshot and ⌘S all then apply to it, which
+    is precisely what `viewDefinitionOutsideProject` exists to prevent and would
+    otherwise arrive through the panel instead.
     `renameSymbol(_:)` is the read half and refuses three things **before anything
     appears**, each with a beep and nothing more (the fallback vocabulary of this
     layer, where a language server's absence is never an error the user is made to
@@ -461,18 +472,29 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     rename that has not been decided on yet. A server that advertises no rename, one
     that answers nothing, and one whose answer touches no file are one outcome here:
     a beep, and no bracket raised.
-    `applyRename(_:replacing:root:)` is **the seventh gated worktree operation**,
-    and the first that is not git's or Replace All's. The plan is built *before* the
-    bracket (`RenameEditPlan.make`, against the open buffers keyed by canonical path
-    and the disk otherwise), because every refusal is a question about the answer and
-    the texts in hand: it costs nothing, stops nothing, and a rename that is going to
-    be refused must never suspend autosave or capture a revision. Inside the bracket
+    `applyRename(_:for:root:)` is **the seventh gated worktree operation**,
+    and the first that is not git's or Replace All's. Like every other writer it
+    refuses outright while another one holds the gate (`revertInFlight()`) — and
+    alone among this command's refusals it says **nothing at all**, because by then
+    the user has answered a dialog and a beep arriving because a git operation
+    happened to start would be a report about a race rather than about their
+    command. The plan is built *before* the bracket (`RenameEditPlan.make`, against
+    the open buffers keyed by canonical path and the disk otherwise), because every
+    refusal is a question about the answer and the texts in hand: it costs nothing,
+    stops nothing, and a rename that is going to be refused must never suspend
+    autosave or capture a revision. The **requesting** file is answered with
+    `request.text` rather than with its current buffer — the text the server was
+    actually given, so a keystroke during the round trip surfaces as an honest
+    "changed since the language server answered" instead of as edits mapped onto
+    coordinates they were never computed for (D37, and the full reasoning on
+    `RenameEditPlan`'s entry in `core-lsp.md`). Inside the bracket
     the order is **capture, verify, write** (D37): `autosave.suspend()` +
     `localChanges.beginRevert()` raised synchronously and balanced by `defer`,
     `await captureBeforeOperation(.rename, buffers: openBufferTexts(), targets:
     plan.fileURLs)` as the **first `await` in the body**, the texts re-read *now*
     (the buffers may have been typed in and the disk written to while the dialog was
-    up and the server was thinking), then the whole-plan verification, then all
+    up and the server was thinking), then the whole-plan verification — `apply`'s
+    own first pass, which is why there is no separate `verify` call — then all
     writes or none. A stale file is the one refusal here worth an alert rather than a
     beep — the user asked for a write, the write did not happen, and the reason is
     something they can act on — and nothing was written when it is shown.

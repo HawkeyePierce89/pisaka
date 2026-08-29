@@ -327,8 +327,10 @@ user sees it.
   new project: whatever was already written stands, the report says the folder
   changed, and the rest is left untouched. Afterwards the summary is shown and the
   search re-runs.
-- Go to Definition: Cmd+click an identifier — or put the caret in it and press
-  Ctrl+Cmd+J (Find > Go to Definition) — to jump to where it is declared, in this
+- Go to Definition: Cmd+click an identifier — put the caret in it and press
+  Ctrl+Cmd+J (Find > Go to Definition), or right-click it and choose Go to
+  Definition, which acts on the word under the *click* rather than under the caret
+  — to jump to where it is declared, in this
   file or anywhere in the open project (for Swift on macOS it reaches beyond it,
   into dependencies and the SDK — see below). The caret lands on the declaration's
   *name*, the file is opened (or its tab re-selected) as needed, and when several
@@ -336,6 +338,11 @@ user sees it.
   `Container.name — path/to/file.swift:42`, with the current file's first. A name
   nothing declares just beeps. Cmd+drag still selects text, and Cmd+Shift+click /
   Cmd+Option+click keep their usual meaning.
+- Right-clicking in the editor (macOS) adds **Go to Definition**, **Find Usages**
+  and **Rename…** below the standard text menu (Cut/Copy/Paste, Look Up, Services
+  and the substitution submenus all stay). All three act on the name under the
+  click rather than under the caret, and all three are greyed out unless the click
+  landed on one.
 - Column selection (macOS): middle-button drag selects a vertical column (rectangular selection), a purely vertical drag gives multiple insertion points, a plain middle click just places the caret, and the wheel still scrolls. Option-drag still works.
 - Autocompletion: as you type an identifier (from the second character), a custom popup
   offers the project's declarations, the keywords of the language you are typing
@@ -591,7 +598,10 @@ user sees it.
   same, which is the textual list.
   A row is a snapshot of where things were when you asked. If the file has changed
   since, clicking the row **opens the file without selecting anything** rather than
-  revealing a span that is now something else.
+  revealing a span that is now something else. A server can legitimately name a
+  file outside the opened folder — an SDK header, a dependency checkout — and such
+  a row opens in the same **read-only viewer window** a Go to Definition outside
+  the project uses, never as an editable tab.
 - **Rename** (macOS, Ctrl+Cmd+R): rename the symbol under the caret — or under a
   right-click — across the whole project, through the language server's own
   understanding of it. A small dialog asks for the new name, prefilled with the old

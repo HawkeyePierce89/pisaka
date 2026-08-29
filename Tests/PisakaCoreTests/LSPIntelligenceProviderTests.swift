@@ -172,6 +172,25 @@ final class LSPIntelligenceProviderTests: XCTestCase {
     /// URIs exist at all: `/tmp` and `/private/tmp` are the same directory, and a
     /// fake that matched them by raw string would fail on the very paths this
     /// server really answers with.
+    /// Counts `loadText` calls from whatever thread the mapping runs on — the
+    /// only way to assert "read once per file" rather than "read at all".
+    private final class Counter: @unchecked Sendable {
+        private let lock = NSLock()
+        private var paths: [String] = []
+
+        func record(_ path: String) {
+            lock.lock()
+            paths.append(path)
+            lock.unlock()
+        }
+
+        var count: Int {
+            lock.lock()
+            defer { lock.unlock() }
+            return paths.count
+        }
+    }
+
     private func makeProvider(
         files: [String: String] = [:],
         completionLimit: Int = SymbolIntelligenceProvider.defaultCompletionLimit,
@@ -853,6 +872,94 @@ final class LSPIntelligenceProviderTests: XCTestCase {
         XCTAssertEqual(transport.requests(for: LSPMethod.references).count, 3)
     }
 
+    /// **The staleness gate on the usages path.** A row is a *range in a buffer*,
+    /// and a list computed for the folder the user has just left points at files
+    /// the window no longer shows.
+    ///
+    /// Staged through the transport's write hook rather than a delay: the request
+    /// is held inside `send`, so the switch provably lands while the question is
+    /// outstanding, and the reply cannot arrive before it.
+    func testReferencesAreDroppedWhenTheFolderChangedWhileTheQuestionWasOutstanding() async throws {
+        transport.script(LSPMethod.references, .reply(.array([
+            location(greeterFile, line: 1, from: 14, to: 21),
+        ])))
+        let provider = makeProvider(files: [greeterFile.path: greeterSource])
+        let workspace = try XCTUnwrap(lastWorkspace)
+        let gate = Gate()
+        transport.onSend { method in
+            guard method == LSPMethod.references else { return }
+            gate.wait()
+        }
+
+        let asking = Task { await provider.references(for: self.usagesRequest()) }
+        await gate.waitUntilReached()
+
+        workspace.prepareForFolderChange(root: otherRoot)
+        gate.release()
+
+        let usages = await asking.value
+        XCTAssertTrue(
+            usages.isEmpty,
+            "rows for a folder the user has left would open files the window no longer shows"
+        )
+    }
+
+    /// **One read and one line-start scan per file, whatever the row count.** The
+    /// cache's whole reason: a busy identifier answers hundreds of rows in one
+    /// file, and re-reading it per row is the difference between a list and a
+    /// hang. The two spellings of `main.swift` are the second half of the rule —
+    /// a server answers with the path *it* resolved, and `/tmp` vs `/private/tmp`
+    /// is one file, not two.
+    func testEachFileIsReadOnceForAWholeUsagesAnswerHoweverManyRowsItHas() async throws {
+        transport.script(LSPMethod.references, .reply(.array([
+            location(greeterFile, line: 1, from: 14, to: 21),
+            location(greeterFile, line: 1, from: 14, to: 21),
+            location(greeterFile, line: 1, from: 14, to: 21),
+        ])))
+        let counter = Counter()
+        let workspace = makeWorkspace()
+        lastWorkspace = workspace
+        let source = greeterSource
+        let canonicalGreeter = CanonicalPath.canonical(greeterFile).path
+        let provider = LSPIntelligenceProvider(
+            workspace: workspace,
+            loadText: { url in
+                counter.record(url.path)
+                return CanonicalPath.canonical(url).path == canonicalGreeter ? source : nil
+            }
+        )
+
+        let usages = await provider.references(for: usagesRequest())
+
+        XCTAssertEqual(usages.count, 3)
+        XCTAssertEqual(counter.count, 1, "three rows in one file must cost one read, not three")
+    }
+
+    /// The requesting file is seeded from the *buffer*, so however many rows land
+    /// in it none of them is a disk read — the rule that makes a usages answer in
+    /// the file being edited describe what the user is looking at.
+    func testTheRequestingFileIsNeverLoadedFromDisk() async throws {
+        transport.script(LSPMethod.references, .reply(.array([
+            location(mainFile, line: 3, from: 14, to: 21),
+            location(mainFile, line: 3, from: 14, to: 21),
+        ])))
+        let counter = Counter()
+        let workspace = makeWorkspace()
+        lastWorkspace = workspace
+        let provider = LSPIntelligenceProvider(
+            workspace: workspace,
+            loadText: { url in
+                counter.record(url.path)
+                return nil
+            }
+        )
+
+        let usages = await provider.references(for: usagesRequest())
+
+        XCTAssertEqual(usages.count, 2)
+        XCTAssertEqual(counter.count, 0, "the requesting file is the buffer, never a disk read")
+    }
+
     // MARK: - Rename
 
     private func renameRequest(
@@ -972,6 +1079,44 @@ final class LSPIntelligenceProviderTests: XCTestCase {
             XCTAssertNil(renamed)
         }
         XCTAssertEqual(transport.requests(for: LSPMethod.rename).count, 4)
+    }
+
+    /// **The same gate, on the one answer that becomes a write.** Every other
+    /// answer that survives a stale document is a wrong *reading*; this one would
+    /// be a wrong write, applied project-wide inside the writer bracket.
+    func testARenameIsDroppedWhenTheFolderChangedWhileTheQuestionWasOutstanding() async throws {
+        transport.script(LSPMethod.rename, .reply(.object([
+            "changes": .object([
+                LSPWorkspace.documentURI(for: greeterFile): .array([
+                    .object([
+                        "newText": .string("Welcomer"),
+                        "range": .object([
+                            "start": .object(["line": .int(1), "character": .int(14)]),
+                            "end": .object(["line": .int(1), "character": .int(21)]),
+                        ]),
+                    ]),
+                ]),
+            ]),
+        ])))
+        let provider = makeProvider(files: [greeterFile.path: greeterSource])
+        let workspace = try XCTUnwrap(lastWorkspace)
+        let gate = Gate()
+        transport.onSend { method in
+            guard method == LSPMethod.rename else { return }
+            gate.wait()
+        }
+
+        let renaming = Task { await provider.renameEdits(for: self.renameRequest()) }
+        await gate.waitUntilReached()
+
+        workspace.prepareForFolderChange(root: otherRoot)
+        gate.release()
+
+        let renamed = await renaming.value
+        XCTAssertNil(
+            renamed,
+            "a rename computed for a closed project may not become a write in the open one"
+        )
     }
 
     // MARK: - The D2 guard

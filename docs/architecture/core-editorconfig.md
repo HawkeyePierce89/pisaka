@@ -824,10 +824,25 @@ Thin by convention: the views wire keys to the rules and decide nothing.
     commit. Nothing else calls it: not open, not close, not a tab switch on its
     own, not an `.editorconfig` change, and not the worktree writers.
     **A save is no longer this class's only caller**, though it is still its only
-    *transform*: `applyRestore(_:to:)` is Local History's restore
-    (`core-local-history.md`), and it lives here rather than in the history window
-    because copying that AppKit bracket into a second file is how the two would
-    drift. It builds a single whole-buffer `SaveTransformPlan` by hand (`init` is
+    *transform*: there are now **two** non-save callers, and they share one body.
+    `applyRestore(_:to:)` is Local History's restore (`core-local-history.md`) and
+    `applyRename(_:to:)` is the buffer half of the seventh gated worktree operation
+    (`core-lsp.md`'s `RenameEditPlan` entry); both route through one private
+    `applyExternalRewrite(_:to:in:current:)`, because the *choice* between the
+    live-text-view path (one undoable step) and `WorkspaceModel.replaceText` (undo
+    stack lost) is the decision, and two spellings of it is how the off-screen half
+    would stop telling its readers. Both live here rather than in the history window
+    or the rename command because copying that AppKit bracket into a second file is
+    how the copies would drift.
+    `applyRename` **decides nothing**: the plan is `RenameFilePlan.applied(to:)`'s,
+    already ascending, non-overlapping and expressed against the text this buffer is
+    being asked to hold, and whether the buffer is still that text was settled by
+    `RenameEditPlan.apply` — which verified every file before producing any plan, in
+    the same main-actor turn, with no `await` between for anything to change in. Its
+    one guard is the no-op guard `applyRestore` also makes (a buffer that already
+    holds the result is left alone, so a clean tab is not dirtied for no change),
+    and it is *not* a staleness check: a second one here would need the plan's
+    *input* text, which a `SaveTransformPlan` does not carry. It builds a single whole-buffer `SaveTransformPlan` by hand (`init` is
     public) and runs it through the very same private bracket, so a restored
     revision is one undoable step with one change notification, exactly as a save
     transform is — and it gets the position remap for free, which for a

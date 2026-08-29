@@ -295,9 +295,14 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
         guard await workspace.stillHolds(prepared) else { return [] }
 
         let root = await workspace.root
+        // Resolved once for the whole answer: `CanonicalPath.canonical` resolves
+        // symlinks on the file system, and asking it per row would put one such
+        // resolution of the project root behind every one of up to two thousand
+        // rows.
+        let rootComponents = root.map { CanonicalPath.canonical($0).pathComponents }
         var texts = FileTextCache(requestURL: fileURL, requestText: source)
         return response.locations.compactMap { location in
-            usage(at: location, root: root, texts: &texts)
+            usage(at: location, rootComponents: rootComponents, texts: &texts)
         }
     }
 
@@ -311,20 +316,22 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
     /// exactly the ones D1 is about.
     private func usage(
         at location: LSPLocation,
-        root: URL?,
+        rootComponents: [String]?,
         texts: inout FileTextCache
     ) -> UsageResult? {
         guard let url = URL(string: location.uri), url.isFileURL else { return nil }
         let file = url.standardizedFileURL
         guard let content = texts.text(for: file, loadText: loadText) else { return nil }
 
-        let range = LSPPositionMap.range(for: location.range, in: content.text)
+        let range = LSPPositionMap.range(
+            for: location.range, in: content.text, lineStarts: content.lspLineStarts
+        )
         // The *display* line is the editor's, not the server's (D1).
         let line = TextSearchEngine.lineNumber(forOffset: range.location, in: content.lineStarts)
-        let inside = root.flatMap {
+        let inside = rootComponents.flatMap {
             CanonicalPath.relativeComponents(
                 of: CanonicalPath.canonical(file).pathComponents,
-                under: CanonicalPath.canonical($0).pathComponents
+                under: $0
             )
         }
         return UsageResult(
@@ -1049,11 +1056,22 @@ extension LSPIntelligenceProvider: LSPIntelligenceSource {
 private struct FileTextCache {
     struct Entry {
         let text: NSString
+        /// The editor's line starts (`LineStartIndex`), for the row's display
+        /// line — the gutter's numbering, not the protocol's (D1).
         let lineStarts: [Int]
+        /// The *protocol's* line starts (`LSPPositionMap`), for mapping each
+        /// location's `(line, character)` back to a buffer range. A second table
+        /// rather than a reuse of the one above because the two disagree on
+        /// purpose: NEL/LS/PS start an editor line and not an LSP one (D1). Held
+        /// here for the same reason the text is — `LSPPositionMap.range(for:in:)`
+        /// rebuilds this table on every call, so mapping a file's rows one at a
+        /// time would scan it once per row.
+        let lspLineStarts: [Int]
 
         init(_ text: NSString) {
             self.text = text
             lineStarts = LineStartIndex.offsets(in: text)
+            lspLineStarts = LSPPositionMap.lineStarts(in: text)
         }
     }
 

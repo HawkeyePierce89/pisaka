@@ -1,7 +1,7 @@
 import XCTest
 @testable import PisakaCore
 
-/// The rename engine's three moments — build, verify, apply — and the five
+/// The rename engine's two moments — build and apply — and the five
 /// refusals that keep a rename all-or-nothing.
 ///
 /// This is the one Core file whose output is a *write*, so the cases here are
@@ -331,60 +331,54 @@ final class RenameEditPlanTests: XCTestCase {
 
     // MARK: - Verification
 
-    func testVerificationPassesAgainstTheTextThePlanWasBuiltFrom() throws {
-        let file = "/p/root/a.swift"
-        let text = "let count = 1\nprint(count)\n"
-        let plan = try makePlan(file: file, text: text)
-
-        XCTAssertEqual(plan.verify(against: texts([file: text])), .verified)
-        XCTAssertTrue(plan.verify(against: texts([file: text])).isVerified)
-    }
-
-    func testVerificationNamesTheFileThatMoved() throws {
-        let first = "/p/root/a.swift"
-        let second = "/p/root/b.swift"
-        let text = "let count = 1\nprint(count)\n"
-        let plan = try makePlan(files: [first: text, second: text])
-
-        let stale = plan.verify(against: texts([
-            first: text,
-            // One space inserted at the head: every range in `b` now holds
-            // something else.
-            second: " " + text,
-        ]))
-
-        XCTAssertEqual(stale, .stale(URL(fileURLWithPath: second)))
-        XCTAssertFalse(stale.isVerified)
-    }
-
-    /// A file that was readable when the plan was built and is not now is exactly
-    /// as stale as one that changed.
-    func testAFileThatCannotBeReadAtVerificationIsStale() throws {
-        let file = "/p/root/a.swift"
-        let plan = try makePlan(file: file, text: "let count = 1\nprint(count)\n")
-
-        XCTAssertEqual(plan.verify(against: { _ in nil }), .stale(URL(fileURLWithPath: file)))
-    }
-
-    /// The texts handed to verification come from the open buffer where one
-    /// exists — a buffer whose unsaved edits moved the range is stale even though
-    /// the disk copy still matches.
-    func testVerificationSeesTheBufferRatherThanTheDisk() throws {
-        let file = "/p/root/a.swift"
-        let disk = "let count = 1\nprint(count)\n"
-        let plan = try makePlan(file: file, text: disk)
-        let buffer = "// typed since\n" + disk
-
-        XCTAssertEqual(plan.verify(against: texts([file: disk])), .verified)
-        XCTAssertEqual(plan.verify(against: texts([file: buffer])), .stale(URL(fileURLWithPath: file)))
-    }
+    /// Verification is not a step of its own: `apply` re-reads every file and
+    /// vouches for all of them before writing any. These cases pin what that pass
+    /// answers, through the one method that performs it.
 
     /// A file that shrank past a range's end must answer "stale", not trap.
     func testAShorterTextIsStaleRatherThanATrap() throws {
-        let file = "/p/root/a.swift"
-        let plan = try makePlan(file: file, text: "let count = 1\nprint(count)\n")
+        let text = "let count = 1\nprint(count)\n"
+        let tree = StubFileTree(root: root, files: ["a.swift": "let"])
+        let plan = try makePlan(file: "/p/root/a.swift", text: text)
 
-        XCTAssertEqual(plan.verify(against: texts([file: "let"])), .stale(URL(fileURLWithPath: file)))
+        XCTAssertEqual(
+            plan.apply(bufferText: { _ in nil }, fileService: tree),
+            .stale(tree.url("a.swift"))
+        )
+        XCTAssertTrue(tree.writtenPaths.isEmpty)
+    }
+
+    /// The texts verification sees come from the open buffer where one exists — a
+    /// buffer whose unsaved edits moved the range is stale even though the disk
+    /// copy still matches.
+    func testVerificationSeesTheBufferRatherThanTheDisk() throws {
+        let disk = "let count = 1\nprint(count)\n"
+        let tree = StubFileTree(root: root, files: ["a.swift": disk])
+        let plan = try makePlan(file: "/p/root/a.swift", text: disk)
+
+        XCTAssertEqual(
+            plan.apply(bufferText: { _ in "// typed since\n" + disk }, fileService: tree),
+            .stale(tree.url("a.swift"))
+        )
+        XCTAssertTrue(tree.writtenPaths.isEmpty)
+    }
+
+    /// The first mismatch names itself and stops; the answer to "which files are
+    /// stale" changes nothing a caller does.
+    func testVerificationNamesTheFileThatMoved() throws {
+        let text = "let count = 1\nprint(count)\n"
+        let tree = StubFileTree(
+            root: root,
+            // One space inserted at the head: every range in `b` now holds
+            // something else.
+            files: ["a.swift": text, "b.swift": " " + text]
+        )
+        let plan = try makePlan(files: ["/p/root/a.swift": text, "/p/root/b.swift": text])
+
+        XCTAssertEqual(
+            plan.apply(bufferText: { _ in nil }, fileService: tree),
+            .stale(tree.url("b.swift"))
+        )
     }
 
     // MARK: - Application
@@ -567,9 +561,18 @@ final class RenameEditPlanTests: XCTestCase {
     /// back.
     func testAFailedWriteNamesItselfAndKeepsWhatLanded() throws {
         let text = "let count = 1\nprint(count)\n"
-        let tree = StubFileTree(root: root, files: ["a.swift": text, "b.swift": text])
+        let renamed = "let total = 1\nprint(total)\n"
+        // Three files with the failure on the *middle* one, so the contract's
+        // second half — "this one and anything after it did not" — has a file to
+        // be about. Two files could only ever assert the first half.
+        let tree = StubFileTree(
+            root: root,
+            files: ["a.swift": text, "b.swift": text, "c.swift": text]
+        )
         tree.writeFailures = ["b.swift"]
-        let plan = try makePlan(files: ["/p/root/a.swift": text, "/p/root/b.swift": text])
+        let plan = try makePlan(
+            files: ["/p/root/a.swift": text, "/p/root/b.swift": text, "/p/root/c.swift": text]
+        )
 
         let outcome = plan.apply(bufferText: { _ in nil }, fileService: tree)
 
@@ -578,8 +581,14 @@ final class RenameEditPlanTests: XCTestCase {
         }
         XCTAssertEqual(application.writeFailure, tree.url("b.swift"))
         XCTAssertEqual(application.filesWritten, [tree.url("a.swift")])
-        XCTAssertEqual(tree.files["a.swift"], "let total = 1\nprint(total)\n")
+        XCTAssertEqual(tree.files["a.swift"], renamed)
         XCTAssertEqual(tree.files["b.swift"], text)
+        XCTAssertEqual(
+            tree.files["c.swift"],
+            text,
+            "A write after the failure would leave bytes on disk that `filesWritten` does not name."
+        )
+        XCTAssertEqual(tree.writtenPaths, ["a.swift"])
     }
 
     /// A plan with no edits writes nothing and asks for nothing — the case the

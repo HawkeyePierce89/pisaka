@@ -158,23 +158,6 @@ public struct RenameFilePlan: Equatable, Sendable {
     }
 }
 
-/// Whether every file a plan touches still holds the text the plan was built
-/// against.
-///
-/// Two cases and no count of them: the first mismatch aborts, because the answer
-/// to "which files are stale" changes nothing a caller does. A rename either
-/// applies whole or not at all, and the one file worth naming is the one that
-/// made it impossible.
-public enum RenameVerification: Equatable, Sendable {
-    case verified
-    /// The file whose text no longer matches — including a file whose text could
-    /// not be read at all, which was readable when the plan was built and is
-    /// therefore exactly as stale as one that changed.
-    case stale(URL)
-
-    public var isVerified: Bool { self == .verified }
-}
-
 /// A language server's `WorkspaceEdit`, turned into something this editor can
 /// verify and apply — and nothing else.
 ///
@@ -184,20 +167,23 @@ public enum RenameVerification: Equatable, Sendable {
 /// unit-tested, and what keeps the disk writes in the one place that holds the
 /// writer bracket.
 ///
-/// The three moments are deliberately separate methods:
+/// The two moments are deliberately separate methods:
 ///
 /// 1. `make(from:root:texts:)` — build, against the texts in hand *before* the
 ///    writer bracket is raised. Every refusal happens here, where nothing has
 ///    been captured and nothing suspended.
-/// 2. `verify(against:)` — re-ask inside the bracket, after the Local History
-///    capture, against the texts as they then are. This is the last moment
-///    anything can abort.
-/// 3. `RenameFilePlan.applied(to:)` — the bytes, per file, produced only once
-///    verification passed.
+/// 2. `apply(bufferText:fileService:)` — re-read inside the bracket, after the
+///    Local History capture, and verify **every** file before writing **any**.
+///    That verification pass is the last moment anything can abort, and it is
+///    deliberately not a method of its own: a separate `verify` would be a second
+///    read of the same texts with a window between it and the write in which the
+///    thing verified could change again. `RenameFilePlan.applied(to:)` re-checks
+///    `holds` for each file as it produces its bytes, so the two passes inside
+///    `apply` cannot disagree.
 ///
-/// Steps 1 and 3 both check `holds`, and that is not redundant: step 1's check is
-/// against texts that may be minutes old by the time step 3 runs, and step 3 is
-/// the one that must not write into a file that moved.
+/// Both steps check `holds`, and that is not redundant: step 1's check is against
+/// texts that may be minutes old by the time step 2 runs, and step 2 is the one
+/// that must not write into a file that moved.
 public struct RenameEditPlan: Equatable, Sendable {
     /// The files, ordered by their canonical path so one answer always produces
     /// one plan. `changes` arrives as an unordered map and `documentChanges` in
@@ -219,7 +205,8 @@ public struct RenameEditPlan: Equatable, Sendable {
     /// capture is handed as its targets.
     public var fileURLs: [URL] { files.map(\.fileURL) }
 
-    /// The total number of replacements, for the dialog's own accounting.
+    /// The total number of replacements across every file — the plan's size in
+    /// one number, which is what a test asserts a built plan by.
     public var editCount: Int { files.reduce(0) { $0 + $1.edits.count } }
 
     /// Build the plan, or name the first thing that made it impossible.
@@ -279,19 +266,6 @@ public struct RenameEditPlan: Equatable, Sendable {
             }
         }
         return .success(RenameEditPlan(files: files))
-    }
-
-    /// Re-ask, inside the writer bracket, whether the world still matches the
-    /// plan. `texts` answers from the open buffer where one exists and the disk
-    /// otherwise — the same rule `make` was given, asked again at the last moment
-    /// before anything is written.
-    public func verify(against texts: (URL) -> String?) -> RenameVerification {
-        for file in files {
-            guard let text = texts(file.fileURL), file.holds(in: text) else {
-                return .stale(file.fileURL)
-            }
-        }
-        return .verified
     }
 
     // MARK: - Private
@@ -460,10 +434,10 @@ public extension RenameEditPlan {
     ///
     /// - Parameters:
     ///   - bufferText: the text an open tab holds for a file, or `nil` when no tab
-    ///     holds it. Asked before the disk for the same reason `verify(against:)`
-    ///     is asked with it: a dirty buffer is the text the user is looking at, and
-    ///     writing a server's edits into the disk copy under it would be a rename
-    ///     of text nobody can see.
+    ///     holds it. Asked before the disk for the same reason `make` is asked
+    ///     with it: a dirty buffer is the text the user is looking at, and writing
+    ///     a server's edits into the disk copy under it would be a rename of text
+    ///     nobody can see.
     ///   - fileService: the disk, for the files no tab holds.
     ///
     /// A file that cannot be *read* here is reported as `.stale`, not as a

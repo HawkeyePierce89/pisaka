@@ -2812,15 +2812,17 @@ struct PisakaApp: App {
     /// the user just invoked, and a ⌃⌘U that hid the results because they
     /// happened to be on screen would be the opposite of what was asked.
     ///
-    /// The request generation is captured **synchronously**, before the `Task`
+    /// The request generation is **reserved** synchronously, before the `Task`
     /// hop, and handed back to the model — the generation-token rule, applied
     /// here because unstructured tasks are not guaranteed to start in creation
     /// order, so two quick ⌃⌘U presses must settle on the later question
-    /// whichever task runs first.
+    /// whichever task runs first. Reserved rather than merely read: two presses
+    /// that read the same token would be ordered by whichever task started first,
+    /// which is the thing this is here to stop.
     private func findUsages(_ request: UsagesRequest) {
         bottomPanel = .usages
         let root = model.projectRoot
-        let generation = usages.currentRequestGeneration
+        let generation = usages.prepareForQuery()
         Task { await usages.find(request, root: root, request: generation) }
     }
 
@@ -2835,7 +2837,22 @@ struct PisakaApp: App {
     /// degrades to opening the file with nothing selected — never a crash on an
     /// out-of-bounds range, never a confident selection of a span that is now
     /// something else.
+    ///
+    /// A row **outside the opened folder** goes to the read-only viewer instead,
+    /// for `viewDefinitionOutsideProject`'s reason and D3's: a language server
+    /// answers `textDocument/references` with every reference it resolved, and an
+    /// SDK header or a dependency checkout is a perfectly ordinary one. Opening it
+    /// through `openFile` would put a file the user did not open a project for
+    /// into `WorkspaceModel`, where the autosave gate, the session snapshot and ⌘S
+    /// all then apply to it — the very thing a semantic *jump* outside the project
+    /// is prevented from doing, arriving through the panel instead. The viewer
+    /// takes the row's range as it stands, because it holds the file's text as
+    /// read at that moment and there is no buffer to have moved under it.
     private func activateUsage(_ row: UsageResult) {
+        if let root = model.projectRoot, !isInsideProject(row.fileURL, root: root) {
+            viewDefinitionOutsideProject(url: row.fileURL, range: row.range)
+            return
+        }
         openFile(url: row.fileURL)
         guard let id = model.fileID(forURL: row.fileURL),
               let text = model.openFiles.first(where: { $0.id == id })?.text
@@ -2887,11 +2904,11 @@ struct PisakaApp: App {
             // A server that advertises no rename, one that answered nothing, and
             // one whose answer touches no file are the same outcome here: there is
             // nothing to write, and the bracket must not be raised for it.
-            guard let answer, !answer.edit.documents.isEmpty else {
+            guard let answer, !answer.edit.isEmpty else {
                 PlatformFeedback.warning()
                 return
             }
-            await applyRename(answer, replacing: request.identifier, root: root)
+            await applyRename(answer, for: request, root: root)
         }
     }
 
@@ -2928,16 +2945,40 @@ struct PisakaApp: App {
     /// `SaveTransformController` — the displayed tab as one undoable step, every
     /// other tab through `WorkspaceModel.replaceText` at the cost of its undo stack
     /// (decision 5).
-    private func applyRename(_ answer: RenameAnswer, replacing oldName: String, root: URL) async {
+    ///
+    /// **The requesting file is planned against the text the *server* was given,
+    /// not against the buffer as it now stands.** The dialog is modal, but the
+    /// round trip that follows it is not: the editor is live for however long the
+    /// server takes, and a keystroke in that window moves every offset after it.
+    /// Planning against the current buffer would map the server's `(line,
+    /// character)` coordinates onto text they were never computed for and then
+    /// record whatever bytes happen to sit there as `expectedText` — a
+    /// verification that passes by construction, and a rename that silently
+    /// replaces the wrong spans. Planning against `request.text` instead makes the
+    /// mismatch visible: `apply` re-reads the live buffer, `holds` fails, and the
+    /// command says the file changed and writes nothing. `LSPWorkspace.stillHolds`
+    /// catches the same typing only once the 400 ms document-sync debounce has
+    /// fired, so this closes the window in front of it.
+    ///
+    /// It refuses outright while another writer holds the gate, and — alone among
+    /// this command's refusals — says nothing at all: by then the user has answered
+    /// a dialog, and a beep arriving because a git operation happened to start
+    /// would be a report about a race rather than about their command.
+    private func applyRename(_ answer: RenameAnswer, for request: UsagesRequest, root: URL) async {
         guard !revertInFlight() else { return }
+        let oldName = request.identifier
         let fileService = FileService()
         let buffers = bufferTextsByCanonicalPath()
+        let requestKey = request.fileURL.map(Self.canonicalKey)
+        let requestText = request.text
         let plan: RenameEditPlan
         switch RenameEditPlan.make(
             from: answer.edit,
             root: root,
             texts: { url in
-                buffers[Self.canonicalKey(url)] ?? (try? fileService.read(url: url))
+                let key = Self.canonicalKey(url)
+                if key == requestKey { return requestText }
+                return buffers[key] ?? (try? fileService.read(url: url))
             }
         ) {
         case .success(let made):

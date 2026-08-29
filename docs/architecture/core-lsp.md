@@ -371,7 +371,15 @@ document, together with the limits they carry.
     version of the spec names): those are **ignored rather than fatal**, since
     nothing here performs file operations and refusing the whole answer would turn
     a server that helpfully offers to rename the file too into a server that cannot
-    rename at all. One document may legitimately appear more than once; entries stay
+    rename at all. **The leniency stops at the edits themselves**: an *entry* this
+    cannot read is dropped, an *edit* it cannot read fails the whole decode and the
+    command beeps as it does for a server that refused. The two are not the same
+    case — dropping a non-text-edit entry loses nothing the rename promised, while
+    dropping one edit out of a document's five yields a `WorkspaceEdit` that is
+    internally consistent, passes every refusal in `RenameEditPlan`, and writes a
+    project renamed in four places out of five. This is the one answer in the file
+    that becomes a write, so it is the one decoded all-or-nothing.
+    One document may legitimately appear more than once; entries stay
     in wire order and grouping is `RenameEditPlan`'s job, not the decoder's.
     `LSPDocumentEdits.version` is **kept and never compared** (D37): the plan
     verifies each range still holds the exact text the edit was computed against,
@@ -1360,15 +1368,18 @@ document, together with the limits they carry.
     the one place that holds the writer bracket. **It reads no file and writes
     none** — the texts arrive as a closure the caller answers from the open buffers
     first and the disk second, and what comes back is per-file replacements.
-    **Three moments, three methods, on purpose.** `make(from:root:texts:)` builds
+    **Two moments, two methods, on purpose.** `make(from:root:texts:)` builds
     the plan against the texts in hand *before* the bracket is raised, which is
     where every refusal happens — nothing captured, nothing suspended, nothing to
-    undo. `verify(against:)` re-asks *inside* the bracket, after the Local History
-    capture, against the texts as they then are; it is the last moment anything can
-    abort. `RenameFilePlan.applied(to:)` produces the bytes, once. Steps one and
-    three both check `holds`, and that is not redundant: step one's texts may be
-    minutes old by the time step three runs, and step three is the one that must not
-    write into a file that moved.
+    undo. `apply(bufferText:fileService:)` re-reads *inside* the bracket, after the
+    Local History capture, and verifies every file before writing any; that
+    verification pass is the last moment anything can abort. It is deliberately not
+    a `verify` method of its own — a separate call would be a second read of the
+    same texts with a window between it and the write in which the thing verified
+    could change again, and the pass `apply` already runs closes exactly that
+    window. Both moments check `holds`, and that is not redundant: `make`'s texts
+    may be minutes old by the time `apply` runs, and `apply` is the one that must
+    not write into a file that moved.
     **Five named refusals, each fatal to the whole rename** (`RenameRefusal`):
     `notAFile` (a document URI that is not a file URL), `outsideRoot` (a file
     outside the opened project — compared **canonically**, because a server
@@ -1393,10 +1404,24 @@ document, together with the limits they carry.
     answer and its application are three moments with awaits between them, and in
     them a git operation, another editor or the user's own typing can move the text
     under a range the server computed against something else. Each `RenameEdit`
-    therefore carries what its range held when the plan was built, and
-    `verify(against:)` compares the bytes — the first mismatch answers `.stale(URL)`
-    and the rename is over. There is no count of stale files, because the answer to
-    "which ones" changes nothing a caller does.
+    therefore carries what its range held when the plan was built, and `apply`
+    compares the bytes — the first mismatch answers `.stale(URL)` and the rename is
+    over. There is no count of stale files, because the answer to "which ones"
+    changes nothing a caller does.
+    **What the plan is built *against* is what makes that comparison mean
+    anything**, and it is the app's half of D37: `PisakaApp.applyRename` answers
+    `texts` for the *requesting* file with `request.text` — the buffer as it was
+    when the question was asked, which is exactly the text the server was given —
+    rather than with the buffer as it now stands. The dialog is modal but the round
+    trip after it is not, so a keystroke during it moves every offset after the
+    caret; planning against the current buffer would map the server's coordinates
+    onto text they were never computed for and then record whatever bytes sit there
+    as `expectedText`, a verification that passes by construction. Planning against
+    the request's own snapshot turns that case into the honest one: `apply` re-reads
+    the live buffer, `holds` fails, and the command says the file changed and writes
+    nothing. `LSPWorkspace.stillHolds` catches the same typing only once the 400 ms
+    document-sync debounce has fired (D30), so this closes the window in front of
+    it.
     Edits are grouped by **canonical path** and sorted together — `documentChanges`
     is a list, so one document may appear twice, and sorting two entries separately
     would produce a descending pair no back-to-front application can survive — then
@@ -2465,6 +2490,13 @@ descriptions composed from a pinned manifest, and no client code moved. See
 `autosave.suspend()`/`localChanges.beginRevert()` and is never gated by them — the
 same rule already written for the symbol index. It reads buffers and answers
 questions; it writes nothing to disk.
+
+**Rename does not change this, and it is worth saying why** (D35/D37):
+`textDocument/rename` is a *read* like every other exchange in this layer — the
+session verifies nothing, applies nothing and writes nothing — and the
+`WorkspaceEdit` it answers with is turned into bytes by the **app**, inside the
+seventh writer bracket, through `RenameEditPlan`. The gate stays where the disk
+writes are.
 
 **D17 — gopls is discovered, never downloaded, and 2b is not touched.** There are
 no official prebuilt gopls binaries; it is distributed as source and installed

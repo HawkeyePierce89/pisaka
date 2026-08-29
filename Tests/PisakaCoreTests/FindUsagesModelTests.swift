@@ -14,11 +14,19 @@ final class FindUsagesModelTests: XCTestCase {
         var referenceRows: [UsageResult] = []
         private(set) var referenceCalls = 0
 
+        /// Run on the main actor *while `find` is suspended on this answer* — the
+        /// causal rendezvous the semantic checkpoint needs, with no timing in it:
+        /// the model is provably parked on this `await` when the hook runs, which
+        /// is the one window in which a newer question can supersede a semantic
+        /// answer that has already been computed.
+        var whileAnswering: (@MainActor () -> Void)?
+
         func definitions(for request: DefinitionRequest) async -> [DefinitionCandidate] { [] }
         func completions(for request: CompletionRequest) async -> [CompletionItem] { [] }
 
         func references(for request: UsagesRequest) async -> [UsageResult] {
             referenceCalls += 1
+            if let whileAnswering { await MainActor.run { whileAnswering() } }
             return referenceRows
         }
     }
@@ -205,7 +213,9 @@ final class FindUsagesModelTests: XCTestCase {
         XCTAssertFalse(model.isSearching)
     }
 
-    func testAnAnswerUnderTheCapIsNotTruncated() async {
+    /// Exactly at the cap, which is the boundary worth pinning: `make` truncates
+    /// on `> cap`, so an answer of precisely `cap` rows is complete.
+    func testAnAnswerExactlyAtTheCapIsNotTruncated() async {
         let under = Array(repeating: "count", count: UsagesAnswer.cap).joined(separator: " ")
         let stub = StubFileTree(root: root, files: ["a.swift": under])
         let model = FindUsagesModel(fileService: stub)
@@ -261,6 +271,135 @@ final class FindUsagesModelTests: XCTestCase {
         XCTAssertFalse(model.isSearching)
     }
 
+    /// **The checkpoint after the provider's `await`.** The answer is computed,
+    /// and by the time it comes back the user has left the folder — so it must be
+    /// dropped rather than published into a window that no longer shows those
+    /// files.
+    func testASupersededQuestionDropsAComputedSemanticAnswer() async {
+        let provider = StubProvider()
+        provider.referenceRows = [
+            usage(file: "a.swift", location: 0, line: 1, preview: "count"),
+        ]
+        let model = FindUsagesModel(
+            fileService: StubFileTree(root: root, files: [:]),
+            provider: { provider }
+        )
+        provider.whileAnswering = { [weak model] in
+            model?.prepareForFolderChange(root: URL(fileURLWithPath: "/other"))
+        }
+
+        await model.find(request("count"), root: root)
+
+        XCTAssertEqual(provider.referenceCalls, 1)
+        XCTAssertTrue(model.rows.isEmpty, "A superseded semantic answer must not be published.")
+        XCTAssertNil(model.provenance)
+        XCTAssertEqual(model.identifier, "")
+        XCTAssertEqual(model.emptyReason, .noQuery)
+    }
+
+    /// The same checkpoint, superseded by a *newer question* rather than by a
+    /// folder switch: the rows are for the name nobody is asking about any more.
+    func testANewerQuestionDropsAComputedSemanticAnswer() async {
+        let provider = StubProvider()
+        provider.referenceRows = [
+            usage(file: "a.swift", location: 0, line: 1, preview: "count"),
+        ]
+        let model = FindUsagesModel(
+            fileService: StubFileTree(root: root, files: [:]),
+            provider: { provider }
+        )
+        provider.whileAnswering = { [weak model] in model?.clearIfNaming("count") }
+
+        await model.find(request("count"), root: root)
+
+        XCTAssertTrue(model.rows.isEmpty)
+        XCTAssertNil(model.provenance)
+    }
+
+    /// **The checkpoint after each chunk.** Two chunks' worth of files with the
+    /// folder switched while the second one is being read: the first chunk's rows
+    /// are cleared by the switch, and the second chunk must not put them back.
+    func testAFolderSwitchBetweenChunksAbandonsTheRestOfTheWalk() async {
+        var files: [String: String] = [:]
+        for index in 0..<(FindUsagesModel.chunkSize * 2) {
+            files[String(format: "f%02d.swift", index)] = "count\n"
+        }
+        let stub = StubFileTree(root: root, files: files)
+        let gate = Gate()
+        // A file in the *second* chunk (the listing is name-ordered), so the first
+        // chunk has already been scanned and published when the switch lands.
+        stub.readGate = (path: "f40.swift", gate: gate)
+        let model = FindUsagesModel(fileService: stub)
+
+        let task = Task { await model.find(self.request("count", file: nil), root: self.root) }
+        await gate.waitUntilReached()
+
+        model.prepareForFolderChange(root: URL(fileURLWithPath: "/other"))
+        gate.release()
+        await task.value
+
+        XCTAssertTrue(
+            model.rows.isEmpty,
+            "A chunk finishing after the folder changed must not publish the previous project's rows."
+        )
+        XCTAssertEqual(model.emptyReason, .noQuery)
+        XCTAssertFalse(model.isSearching)
+    }
+
+    /// `isSearching` is the panel's progress indicator and its "Searching…" empty
+    /// state; asserting only that it ends `false` would keep passing if it were
+    /// never set at all.
+    func testIsSearchingIsTrueWhileTheWalkIsRunning() async {
+        let stub = StubFileTree(root: root, files: ["a.swift": "count\n"])
+        let gate = Gate()
+        stub.listingGate = gate
+        let model = FindUsagesModel(fileService: stub)
+
+        let task = Task { await model.find(self.request("count"), root: self.root) }
+        await gate.waitUntilReached()
+
+        XCTAssertTrue(model.isSearching)
+
+        gate.release()
+        await task.value
+
+        XCTAssertFalse(model.isSearching)
+    }
+
+    /// **A walk that reads no file at all still ends in an answer.** An empty or
+    /// wholly excluded project publishes from no chunk, and without a terminal
+    /// publish the panel would fall back to "nothing has been asked yet" for a
+    /// question that was just asked and just answered.
+    func testAProjectWithNoFilesStillEndsInATextualAnswer() async {
+        let model = FindUsagesModel(fileService: StubFileTree(root: root, files: [:]))
+
+        await model.find(request("count", file: nil), root: root)
+
+        XCTAssertEqual(model.provenance, .textual)
+        XCTAssertEqual(model.emptyReason, .noUsages)
+        XCTAssertEqual(model.identifier, "count")
+        XCTAssertFalse(model.isSearching)
+    }
+
+    /// Two presses in one main-actor turn reserve two tokens, so the *later*
+    /// question wins whichever task the runtime happens to start first — which a
+    /// caller that merely read the current generation would not get.
+    func testTwoReservedTokensSettleOnTheLaterQuestion() async {
+        let stub = StubFileTree(root: root, files: ["a.swift": "alpha beta\n"])
+        let model = FindUsagesModel(fileService: stub)
+
+        let first = model.prepareForQuery()
+        let second = model.prepareForQuery()
+
+        // Deliberately run in reservation-*reverse* order: the later question is
+        // answered first, and the earlier one must still be refused.
+        await model.find(request("beta"), root: root, request: second)
+        await model.find(request("alpha"), root: root, request: first)
+
+        XCTAssertEqual(model.identifier, "beta")
+        XCTAssertEqual(model.rows.count, 1)
+    }
+
     func testPrepareForFolderChangeClearsStaleRowsSynchronously() async {
         let stub = StubFileTree(root: root, files: ["a.swift": "count\n"])
         let model = FindUsagesModel(fileService: stub)
@@ -272,6 +411,23 @@ final class FindUsagesModelTests: XCTestCase {
         XCTAssertTrue(model.rows.isEmpty)
         XCTAssertEqual(model.identifier, "")
         XCTAssertEqual(model.emptyReason, .noQuery)
+    }
+
+    /// Closing the folder is a switch like any other: the rows belong to a project
+    /// that is no longer open, and leaving them clickable would open files from a
+    /// window that shows none.
+    func testClosingTheFolderClearsTheRows() async {
+        let stub = StubFileTree(root: root, files: ["a.swift": "count\n"])
+        let model = FindUsagesModel(fileService: stub)
+        await model.find(request("count"), root: root)
+        XCTAssertFalse(model.rows.isEmpty)
+
+        model.prepareForFolderChange(root: nil)
+
+        XCTAssertTrue(model.rows.isEmpty)
+        XCTAssertEqual(model.identifier, "")
+        XCTAssertEqual(model.emptyReason, .noQuery)
+        XCTAssertNil(model.provenance)
     }
 
     func testPrepareForFolderChangeForTheSameFolderIsANoOp() async {

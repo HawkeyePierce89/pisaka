@@ -2985,8 +2985,7 @@ final class EditorTextView: NSTextView, ZoomSurfaceProviding {
     /// guarded by a tag: appending unconditionally would grow the menu by four
     /// items per click. Enablement stays AppKit's — `autoenablesItems` is left
     /// alone, because turning it off for our three items would turn it off for
-    /// every stock item too — and is answered in
-    /// `validateUserInterfaceItem(_:)`.
+    /// every stock item too — and is answered in `validateMenuItem(_:)`.
     override func menu(for event: NSEvent) -> NSMenu? {
         let menu = super.menu(for: event) ?? NSMenu()
         contextMenuOffset = characterIndexForInsertion(
@@ -3016,14 +3015,41 @@ final class EditorTextView: NSTextView, ZoomSurfaceProviding {
     /// The three context-menu items are live only where a name is. Everything
     /// else — the stock items, and any command reaching this view through the
     /// responder chain — stays `super`'s answer.
+    ///
+    /// **Both validation entry points, and that is not belt-and-braces.**
+    /// `NSTextView` conforms to `NSMenuItemValidation`, and a menu validating an
+    /// `NSMenuItem` asks a target that implements `validateMenuItem(_:)` and never
+    /// falls through to `validateUserInterfaceItem(_:)` — so overriding only the
+    /// latter would leave all three items permanently enabled and silently
+    /// inert on a right-click that resolved no name, which is precisely the state
+    /// the enablement exists to avoid. `validateUserInterfaceItem(_:)` is kept for
+    /// every other validating client (a toolbar item, a `NSUserInterfaceValidations`
+    /// walk of the responder chain), and both defer to `super` for anything else.
+    override func validateMenuItem(_ item: NSMenuItem) -> Bool {
+        guard let enabled = intelligenceItemEnablement(for: item.action) else {
+            return super.validateMenuItem(item)
+        }
+        return enabled
+    }
+
     override func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
-        switch item.action {
+        guard let enabled = intelligenceItemEnablement(for: item.action) else {
+            return super.validateUserInterfaceItem(item)
+        }
+        return enabled
+    }
+
+    /// Whether one of the three added items may fire, or `nil` when the action is
+    /// not one of them — the single answer both validation overrides give, so the
+    /// two entry points cannot disagree about the same click.
+    private func intelligenceItemEnablement(for action: Selector?) -> Bool? {
+        switch action {
         case #selector(goToDefinitionFromMenu(_:)),
              #selector(findUsagesFromMenu(_:)),
              #selector(renameFromMenu(_:)):
             return clickedIdentifierOffset() != nil
         default:
-            return super.validateUserInterfaceItem(item)
+            return nil
         }
     }
 
