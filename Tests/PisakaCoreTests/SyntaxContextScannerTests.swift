@@ -1,0 +1,480 @@
+import XCTest
+@testable import PisakaCore
+
+/// Exercises the per-language string/comment lexing that gates fallback
+/// completion. Each rule in the plan's table gets its own test so a
+/// failing case names the language and the delimiter that broke.
+final class SyntaxContextScannerTests: XCTestCase {
+
+    private func assertContext(
+        _ text: String,
+        at offset: Int,
+        language: SyntaxLanguage,
+        is expected: SyntaxContext,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let ns = text as NSString
+        let got = SyntaxContextScanner.context(in: ns, at: offset, language: language)
+        XCTAssertEqual(got, expected, "text: \(text.debugDescription) offset: \(offset) language: \(language.rawValue)", file: file, line: line)
+    }
+
+    private func assertSuppress(
+        _ text: String,
+        at offset: Int,
+        language: SyntaxLanguage,
+        is expected: Bool,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let ns = text as NSString
+        let got = SyntaxContextScanner.suppressesCompletion(in: ns, at: offset, language: language)
+        XCTAssertEqual(got, expected, "text: \(text.debugDescription) offset: \(offset) language: \(language.rawValue)", file: file, line: line)
+    }
+
+    // MARK: - Plain strings in each gated language
+
+    func testSwiftDoubleQuotedString() {
+        let text = "let s = \"hello\""
+        //           0123456789 01234
+        // indices: 0         1
+        // s at offset inside string
+        let inside = (text as NSString).range(of: "hello").location + 1
+        assertContext(text, at: inside, language: .swift, is: .string)
+        assertSuppress(text, at: inside, language: .swift, is: true)
+        assertContext(text, at: 0, language: .swift, is: .code)
+    }
+
+    func testJavascriptSingleQuotedString() {
+        let text = "const s = 'hello';"
+        let inside = (text as NSString).range(of: "hello").location + 1
+        assertContext(text, at: inside, language: .javascript, is: .string)
+        assertSuppress(text, at: inside, language: .javascript, is: true)
+    }
+
+    func testTypeScriptDoubleQuotedString() {
+        let text = "const s = \"hello\";"
+        let inside = (text as NSString).range(of: "hello").location + 1
+        assertContext(text, at: inside, language: .typescript, is: .string)
+        assertSuppress(text, at: inside, language: .typescript, is: true)
+    }
+
+    func testPythonSingleQuotedString() {
+        let text = "s = 'hello'"
+        let inside = (text as NSString).range(of: "hello").location + 1
+        assertContext(text, at: inside, language: .python, is: .string)
+        assertSuppress(text, at: inside, language: .python, is: true)
+    }
+
+    func testGoDoubleQuotedString() {
+        let text = "s := \"hello\""
+        let inside = (text as NSString).range(of: "hello").location + 1
+        assertContext(text, at: inside, language: .go, is: .string)
+        assertSuppress(text, at: inside, language: .go, is: true)
+    }
+
+    func testRustDoubleQuotedString() {
+        let text = "let s = \"hello\";"
+        let inside = (text as NSString).range(of: "hello").location + 1
+        assertContext(text, at: inside, language: .rust, is: .string)
+        assertSuppress(text, at: inside, language: .rust, is: true)
+    }
+
+    func testCssSingleQuotedString() {
+        let text = "@import 'hello';"
+        let inside = (text as NSString).range(of: "hello").location + 1
+        assertContext(text, at: inside, language: .css, is: .string)
+        assertSuppress(text, at: inside, language: .css, is: true)
+    }
+
+    func testSqlSingleQuotedString() {
+        let text = "SELECT 'hello'"
+        let inside = (text as NSString).range(of: "hello").location + 1
+        assertContext(text, at: inside, language: .sql, is: .string)
+        assertSuppress(text, at: inside, language: .sql, is: true)
+    }
+
+    func testDockerfileDoubleQuotedString() {
+        let text = "RUN echo \"hello\""
+        let inside = (text as NSString).range(of: "hello").location + 1
+        assertContext(text, at: inside, language: .dockerfile, is: .string)
+        assertSuppress(text, at: inside, language: .dockerfile, is: true)
+    }
+
+    // MARK: - Multi-line forms
+
+    func testSwiftTripleQuotedString() {
+        let text = "let s = \"\"\"hello\nworld\"\"\""
+        let inside = (text as NSString).range(of: "hello").location + 1
+        assertContext(text, at: inside, language: .swift, is: .string)
+    }
+
+    func testPythonTripleQuotedString() {
+        let text = "s = '''hello\nworld'''"
+        let inside = (text as NSString).range(of: "hello").location + 1
+        assertContext(text, at: inside, language: .python, is: .string)
+    }
+
+    func testJavaScriptBacktickTemplate() {
+        let text = "const s = `hello\nworld`"
+        let inside = (text as NSString).range(of: "hello").location + 1
+        assertContext(text, at: inside, language: .javascript, is: .string)
+    }
+
+    func testGoRawBacktickString() {
+        let text = "s := `hello\nworld`"
+        let inside = (text as NSString).range(of: "hello").location + 1
+        assertContext(text, at: inside, language: .go, is: .string)
+    }
+
+    // MARK: - Raw and pound-padded
+
+    func testSwiftPoundPaddedString() {
+        let text = "let s = #\"hello\"#"
+        let inside = (text as NSString).range(of: "hello").location + 1
+        assertContext(text, at: inside, language: .swift, is: .string)
+        assertSuppress(text, at: inside, language: .swift, is: true)
+    }
+
+    func testSwiftDoublePoundPaddedString() {
+        let text = "let s = ##\"hello\"##"
+        let inside = (text as NSString).range(of: "hello").location + 1
+        assertContext(text, at: inside, language: .swift, is: .string)
+    }
+
+    func testPythonRawString() {
+        let text = "s = r'hello'"
+        let inside = (text as NSString).range(of: "hello").location + 1
+        assertContext(text, at: inside, language: .python, is: .string)
+    }
+
+    func testRustRawString() {
+        let text = "let s = r#\"hello\"#;"
+        let inside = (text as NSString).range(of: "hello").location + 1
+        assertContext(text, at: inside, language: .rust, is: .string)
+    }
+
+    // MARK: - Escaped quote and backslash
+
+    func testEscapedQuoteDoesNotClose() {
+        // "a\"b" -> closing quote after escaped one
+        let text = "\"a\\\"b\""
+        // indices: 0:" 1:a 2:\ 3:" 4:b 5:" . Inside after escaped quote should still be string
+        // Offset 4 (b) is inside
+        assertContext(text, at: 4, language: .swift, is: .string)
+        // Offset after final close -> code
+        assertContext(text, at: 6, language: .swift, is: .code)
+    }
+
+    func testEscapedBackslashCloses() {
+        // "a\\" -> first \ escapes second, then " closes
+        let text = "\"a\\\\\""
+        // 0:" 1:a 2:\ 3:\ 4:" . Inside at 1 is string, after close is code
+        assertContext(text, at: 2, language: .javascript, is: .string)
+        assertContext(text, at: 5, language: .javascript, is: .code)
+    }
+
+    func testDoubledDelimiterEscapeSQL() {
+        let text = "'a''b'"
+        // ' a ' ' b '  -> first ' opens, '' is escaped, final ' closes
+        // Offset at b (index 4) inside
+        assertContext(text, at: 4, language: .sql, is: .string)
+        assertContext(text, at: 6, language: .sql, is: .code)
+    }
+
+    func testDoubledDelimiterEscapeYAML() {
+        let text = "'a''b'"
+        assertContext(text, at: 4, language: .yaml, is: .string)
+        // YAML strings are ungated
+        assertSuppress(text, at: 4, language: .yaml, is: false)
+    }
+
+    // MARK: - Unterminated strings
+
+    func testUnterminatedSingleLineEndsAtLineSeparator() {
+        let text = "\"hello\nworld"
+        // hello inside string, world after newline is code
+        let helloInside = (text as NSString).range(of: "hello").location + 1
+        assertContext(text, at: helloInside, language: .javascript, is: .string)
+        let worldOffset = (text as NSString).range(of: "world").location + 1
+        assertContext(text, at: worldOffset, language: .javascript, is: .code)
+    }
+
+    func testUnterminatedMultiLineRunsToEnd() {
+        let text = "`hello"
+        // backtick multi-line unterminated -> caret at end is inside
+        assertContext(text, at: 3, language: .javascript, is: .string)
+        assertContext(text, at: text.utf16.count, language: .javascript, is: .string)
+    }
+
+    // MARK: - Boundary offsets
+
+    func testFourBoundariesAroundDelimiter() {
+        let text = "\"a\""
+        // 0:" 1:a 2:" len3
+        assertContext(text, at: 0, language: .swift, is: .code) // before open
+        assertContext(text, at: 1, language: .swift, is: .string) // after open
+        assertContext(text, at: 2, language: .swift, is: .string) // before close (still inside)
+        assertContext(text, at: 3, language: .swift, is: .code) // after close
+    }
+
+    func testCaretBetweenTwoCharsOfLineCommentIsCode() {
+        let text = "// hello"
+        assertContext(text, at: 0, language: .swift, is: .code)
+        assertContext(text, at: 1, language: .swift, is: .code) // between //
+        assertContext(text, at: 2, language: .swift, is: .comment)
+    }
+
+    // MARK: - Line and block comments
+
+    func testLineCommentToEndOfLine() {
+        let text = "code // comment\nnext"
+        let inside = (text as NSString).range(of: "comment").location + 1
+        assertContext(text, at: inside, language: .swift, is: .comment)
+        assertSuppress(text, at: inside, language: .swift, is: true)
+        let nextOffset = (text as NSString).range(of: "next").location + 1
+        assertContext(text, at: nextOffset, language: .swift, is: .code)
+    }
+
+    func testBlockCommentAcrossLines() {
+        let text = "code /* comment\nstill */ next"
+        let inside = (text as NSString).range(of: "comment").location + 1
+        assertContext(text, at: inside, language: .swift, is: .comment)
+        let nextOffset = (text as NSString).range(of: "next").location + 1
+        assertContext(text, at: nextOffset, language: .swift, is: .code)
+    }
+
+    func testNestedBlockCommentSwift() {
+        let text = "/* outer /* inner */ still */ code"
+        let inner = (text as NSString).range(of: "inner").location + 1
+        assertContext(text, at: inner, language: .swift, is: .comment)
+        let still = (text as NSString).range(of: "still").location + 1
+        assertContext(text, at: still, language: .swift, is: .comment)
+        let after = (text as NSString).range(of: "code").location + 1
+        assertContext(text, at: after, language: .swift, is: .code)
+    }
+
+    func testNestedBlockCommentRust() {
+        let text = "/* outer /* inner */ still */ code"
+        let inner = (text as NSString).range(of: "inner").location + 1
+        assertContext(text, at: inner, language: .rust, is: .comment)
+    }
+
+    func testNonNestingBlockComment() {
+        let text = "/* outer /* inner */ code"
+        // JS non-nesting: after first */ comment ends
+        let codeOff = (text as NSString).range(of: "code").location + 1
+        assertContext(text, at: codeOff, language: .javascript, is: .code)
+    }
+
+    func testHashInsideStringIsNotComment() {
+        let text = "\"a # b\""
+        let hashOff = (text as NSString).range(of: "#").location + 1
+        assertContext(text, at: hashOff, language: .python, is: .string)
+    }
+
+    func testSlashSlashInsideStringIsNotComment() {
+        let text = "\"a // b\""
+        let slashOff = (text as NSString).range(of: "//").location + 1
+        assertContext(text, at: slashOff, language: .swift, is: .string)
+    }
+
+    func testQuoteInsideCommentDoesNotOpenString() {
+        let text = "// \"hello\""
+        let helloOff = (text as NSString).range(of: "hello").location + 1
+        assertContext(text, at: helloOff, language: .swift, is: .comment)
+    }
+
+    // MARK: - Interpolation holes
+
+    func testJsTemplateHoleIsCode() {
+        let text = "`a${b}c`"
+        let bOff = (text as NSString).range(of: "b").location + 1
+        assertContext(text, at: bOff, language: .javascript, is: .code)
+        assertSuppress(text, at: bOff, language: .javascript, is: false)
+    }
+
+    func testSwiftInterpolationHoleIsCode() {
+        let text = "\"a\\(b)c\""
+        let bOff = (text as NSString).range(of: "b").location + 1
+        // Need swift text with interpolation
+        assertContext(text, at: bOff, language: .swift, is: .code)
+        assertSuppress(text, at: bOff, language: .swift, is: false)
+    }
+
+    func testSwiftPoundInterpolationHoleIsCode() {
+        let text = "#\"a\\#(b)c\"#"
+        let bOff = (text as NSString).range(of: "b").location + 1
+        assertContext(text, at: bOff, language: .swift, is: .code)
+    }
+
+    func testPythonFStringHoleIsCode() {
+        let text = "f\"{user}\""
+        let userOff = (text as NSString).range(of: "user").location + 1
+        assertContext(text, at: userOff, language: .python, is: .code)
+        assertSuppress(text, at: userOff, language: .python, is: false)
+    }
+
+    func testPythonDoubleBraceLiteralStaysString() {
+        let text = "f\"{{hello}}\""
+        let helloOff = (text as NSString).range(of: "hello").location + 1
+        assertContext(text, at: helloOff, language: .python, is: .string)
+        assertSuppress(text, at: helloOff, language: .python, is: true)
+    }
+
+    func testBraceDepthInsideHole() {
+        let text = "`a${ {a: 1} }c`"
+        // The inner `}` before space should still be inside hole (code)
+        // Find the first `a:` location
+        let aOff = (text as NSString).range(of: "a:").location + 1
+        assertContext(text, at: aOff, language: .javascript, is: .code)
+    }
+
+    func testStringNestedInsideHole() {
+        let text = "`a${ \"b\" }c`"
+        let bOff = (text as NSString).range(of: "\"b\"").location + 2 // inside b
+        // The b is inside a string inside a hole -> string context, gated
+        // Note: scanner should report .string for b because hole contains string
+        // Use JS language
+        assertContext(text, at: bOff, language: .javascript, is: .string)
+        assertSuppress(text, at: bOff, language: .javascript, is: true)
+    }
+
+    // MARK: - Anchored comments
+
+    func testDockerfileHashMidLineNotComment() {
+        let text = "RUN echo hi # comment"
+        let hashOff = (text as NSString).range(of: "#").location + 1
+        assertContext(text, at: hashOff, language: .dockerfile, is: .code)
+        assertSuppress(text, at: hashOff, language: .dockerfile, is: false)
+    }
+
+    func testDockerfileHashAtLineStartIsComment() {
+        let text = "# comment"
+        let comOff = (text as NSString).range(of: "comment").location + 1
+        assertContext(text, at: comOff, language: .dockerfile, is: .comment)
+        assertSuppress(text, at: comOff, language: .dockerfile, is: true)
+    }
+
+    func testGitignoreHashMidLineNotComment() {
+        let text = "foo # bar"
+        let hashOff = (text as NSString).range(of: "#").location + 1
+        assertContext(text, at: hashOff, language: .gitignore, is: .code)
+    }
+
+    func testEditorconfigHashMidLineNotComment() {
+        let text = "key = value # comment"
+        let hashOff = (text as NSString).range(of: "#").location + 1
+        assertContext(text, at: hashOff, language: .editorconfig, is: .code)
+    }
+
+    func testYamlHashAfterWhitespaceIsComment() {
+        let text = "key: value # comment"
+        let comOff = (text as NSString).range(of: "comment").location + 1
+        assertContext(text, at: comOff, language: .yaml, is: .comment)
+        assertSuppress(text, at: comOff, language: .yaml, is: true)
+    }
+
+    func testYamlHashMidLineWithoutWhitespaceNotComment() {
+        let text = "key: value#not"
+        let hashOff = (text as NSString).range(of: "#").location + 1
+        assertContext(text, at: hashOff, language: .yaml, is: .code)
+    }
+
+    func testYamlHashInsideQuotedScalarNotComment() {
+        let text = "key: \"a # b\""
+        let hashOff = (text as NSString).range(of: "#").location + 1
+        assertContext(text, at: hashOff, language: .yaml, is: .string)
+        assertSuppress(text, at: hashOff, language: .yaml, is: false)
+    }
+
+    // MARK: - Rust lifetime
+
+    func testRustLifetimeLeavesRestAsCode() {
+        let text = "fn foo(x: &'a str) {}"
+        // The 'a is lifetime, not string; after it, code
+        let after = (text as NSString).range(of: "str").location + 1
+        assertContext(text, at: after, language: .rust, is: .code)
+        // The single quote itself should not open string
+        let quoteOff = (text as NSString).range(of: "'a").location + 1 // at a
+        assertContext(text, at: quoteOff, language: .rust, is: .code)
+    }
+
+    // MARK: - Markdown always code
+
+    func testMarkdownAlwaysCode() {
+        let text = "\"hello\" // comment /* block */"
+        for off in [1, 5, 10, 15, text.utf16.count] {
+            assertContext(text, at: off, language: .markdown, is: .code)
+            assertSuppress(text, at: off, language: .markdown, is: false)
+        }
+    }
+
+    // MARK: - JSON
+
+    func testJsonStringReportedButNotGated() {
+        let text = "{\"key\": \"value\"}"
+        let valOff = (text as NSString).range(of: "value").location + 1
+        assertContext(text, at: valOff, language: .json, is: .string)
+        assertSuppress(text, at: valOff, language: .json, is: false)
+    }
+
+    func testYamlStringNotGated() {
+        let text = "'hello'"
+        let inside = (text as NSString).range(of: "hello").location + 1
+        assertContext(text, at: inside, language: .yaml, is: .string)
+        assertSuppress(text, at: inside, language: .yaml, is: false)
+    }
+
+    func testHtmlStringNotGated() {
+        let text = "<div class=\"foo\">"
+        let fooOff = (text as NSString).range(of: "foo").location + 1
+        assertContext(text, at: fooOff, language: .html, is: .string)
+        assertSuppress(text, at: fooOff, language: .html, is: false)
+    }
+
+    func testDotenvStringNotGated() {
+        let text = "KEY=\"value\""
+        let valOff = (text as NSString).range(of: "value").location + 1
+        assertContext(text, at: valOff, language: .dotenv, is: .string)
+        assertSuppress(text, at: valOff, language: .dotenv, is: false)
+    }
+
+    func testHtmlBlockComment() {
+        let text = "<!-- comment --> code"
+        let comOff = (text as NSString).range(of: "comment").location + 1
+        assertContext(text, at: comOff, language: .html, is: .comment)
+        assertSuppress(text, at: comOff, language: .html, is: true)
+    }
+
+    // MARK: - Out of range
+
+    func testNegativeOffsetIsCode() {
+        assertContext("hello", at: -1, language: .swift, is: .code)
+        assertSuppress("hello", at: -1, language: .swift, is: false)
+    }
+
+    func testOutOfRangeOffsetIsCode() {
+        let text = "hello"
+        assertContext(text, at: 100, language: .swift, is: .code)
+        assertSuppress(text, at: 100, language: .swift, is: false)
+    }
+
+    func testZeroOffsetIsCode() {
+        assertContext("\"hello\"", at: 0, language: .swift, is: .code)
+    }
+
+    // MARK: - Comment gating still true
+
+    func testYamlCommentGated() {
+        let text = "# comment\nother"
+        let comOff = (text as NSString).range(of: "comment").location + 1
+        assertContext(text, at: comOff, language: .yaml, is: .comment)
+        assertSuppress(text, at: comOff, language: .yaml, is: true)
+    }
+
+    func testJsonNoComment() {
+        let text = "// comment"
+        assertContext(text, at: 5, language: .json, is: .code)
+    }
+}

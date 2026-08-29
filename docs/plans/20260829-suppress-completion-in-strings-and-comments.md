@@ -212,7 +212,7 @@ request.
 - Create: `Sources/PisakaCore/SyntaxContextScanner.swift`
 - Create: `Tests/PisakaCoreTests/SyntaxContextScannerTests.swift`
 
-- [ ] write the failing tests first, one per rule: plain single- and
+- [x] write the failing tests first, one per rule: plain single- and
       double-quoted strings in each gated language; multi-line forms (triple
       quotes, backticks); raw and pound-padded forms; escaped quote and escaped
       backslash (`"a\\"` closes, `"a\""` does not); doubled-delimiter escape in
@@ -231,15 +231,15 @@ request.
       not); Rust `'a` lifetimes leaving the rest of the line as code; markdown
       always `.code`; JSON strings reported `.string` but `suppressesCompletion`
       false; out-of-range and negative offsets
-- [ ] implement `SyntaxContext` and `SyntaxContextScanner`: an explicit state
+- [x] implement `SyntaxContext` and `SyntaxContextScanner`: an explicit state
       stack, chunked `getCharacters(_:range:)` reads with a reusable `[unichar]`
       buffer following `BracketDepthScanner`'s pattern, decomposed into
       per-state helpers so no function exceeds the measured complexity/length
       ceilings
-- [ ] implement `suppressesCompletion(in:at:language:)`: short-circuit on
+- [x] implement `suppressesCompletion(in:at:language:)`: short-circuit on
       `canSuppressCompletion`, then map the context through
       `stringsSuppressCompletion`
-- [ ] run `swift test` — must pass before Task 3
+- [x] run `swift test` — must pass before Task 3
 
 ### Task 3: The gate in the fallback provider
 
