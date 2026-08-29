@@ -346,4 +346,34 @@ final class LocalHistoryBrowserModelTests: XCTestCase {
         XCTAssertNil(model.restore(currentText: "identical"), "the buffer already holds these bytes")
         XCTAssertNotNil(model.restore(currentText: "edited since"))
     }
+
+    /// The sameness test is over bytes, not over canonical equivalence.
+    ///
+    /// A revision is identified by a SHA-256 of its UTF-8 bytes, so a decomposed
+    /// and a precomposed spelling of one word are two genuinely different
+    /// revisions in the store — and Swift's `==` calls them equal. Comparing that
+    /// way would arm the Restore button and then plan nothing: the click would do
+    /// nothing at all, and the buffer would keep the encoding the user asked to
+    /// replace.
+    func testARevisionDifferingOnlyByUnicodeNormalizationIsStillRestorable() async {
+        let precomposed = "caf\u{00E9}"
+        let decomposed = "cafe\u{0301}"
+        XCTAssertEqual(precomposed, decomposed, "the two spellings are canonically equivalent")
+        XCTAssertNotEqual(
+            Array(precomposed.utf8),
+            Array(decomposed.utf8),
+            "…and are nevertheless different bytes, which is what the store keys on"
+        )
+
+        capture(precomposed, "a.swift", at: 1)
+        let model = makeModel()
+        model.open(file: projectFile("a.swift"), root: projectRoot)
+        await waitUntil("the listing to land") { model.revisions.count == 1 }
+        model.select(model.revisions[0], currentText: decomposed)
+        await waitUntil("the content to land") { model.selectedContent != nil }
+
+        let plan = model.restore(currentText: decomposed)
+        XCTAssertEqual(plan?.text.utf8.map { $0 }, Array(precomposed.utf8))
+        XCTAssertEqual(plan?.captureText.utf8.map { $0 }, Array(decomposed.utf8))
+    }
 }

@@ -2059,9 +2059,17 @@ struct PisakaApp: App {
         // keep every snapshot forever. It sweeps *every* project area rather than
         // this one, which is why it takes no root: a project reclaimed only when
         // it is reopened is a project never reclaimed. Fire-and-forget on the
-        // model's own chain and off the main actor: nothing waits on retention,
-        // and a folder switch in the gap costs at most one sweep that had to
+        // model's own chain and off the main actor, so nothing *here* waits on
+        // it, and a folder switch in the gap costs at most one sweep that had to
         // happen anyway.
+        //
+        // It does sit on the same chain as the captures, which is deliberate and
+        // has one stated cost: a gated operation started while the sweep is still
+        // running waits for it, because `captureBeforeOperation` is awaited and
+        // the chain is serial (see there). Retention deletes names retention has
+        // already condemned, but it deletes them *between* another capture's
+        // list-decide-write, so a lane of its own would trade a bounded wait for
+        // a dedup that reads a directory another unit is mutating.
         //
         // No generation token, deliberately — unlike every collaborator above,
         // this publishes nothing and reads nothing anyone displays, so there is no
@@ -2525,6 +2533,27 @@ struct PisakaApp: App {
             return
         }
         let displaced = model.text(for: file.id) ?? plan.captureText
+        // **A restore that cannot be captured does not happen.** Step 2 is what
+        // makes a restore reversible, and the policy can refuse it — a file that
+        // had history when it was small and has since grown past
+        // `maxContentBytes` is captured by nothing, while `model.open` above has
+        // no ceiling and loaded the whole of it. Going ahead there would replace
+        // megabytes the store is about to decline to hold, leaving one ⌘Z as the
+        // only copy — the feature destroying exactly what it exists to keep. It
+        // is also the case the window renders least honestly: the same ceiling
+        // makes `currentTextForLocalHistory` answer the empty string, so the diff
+        // showed the revision as wholly added. So it beeps and stops, like the
+        // unreadable file above. `latestHash: nil` asks the one question that
+        // matters here — *may* these bytes be stored — rather than whether they
+        // would be deduplicated, which is a skip that loses nothing.
+        guard localHistory.store.policy.capture(
+            of: displaced,
+            relativePath: plan.relativePath,
+            latestHash: nil
+        ).hash != nil else {
+            PlatformFeedback.warning()
+            return
+        }
         localHistory.captureBuffers(
             event: LocalHistoryRestore.event,
             urls: [plan.fileURL],

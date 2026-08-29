@@ -259,6 +259,13 @@ changes.)
     left alone like any other foreign entry, and a directory holding nothing but
     debris is removed wholesale. The temporary is derived from the destination name
     rather than randomised precisely so a retry reuses it instead of accumulating.
+    **The create-write-rename is attempted twice**, and the second attempt is not
+    optimism about a failing disk: the sweep above reclaims a file directory it
+    finds empty, which is exactly what the `ensureDirectory` of a concurrent
+    capture just created — and the capture that can be concurrent with it is the
+    quit-time one, whose revision is the last save before termination. Every
+    attempt discards its own temporary, so a permanently failing write still
+    leaves nothing behind.
     Pruning runs here on the one file just captured, because that is the file
     whose count just changed, and it prunes the list already in hand rather than
     re-reading the directory it just wrote to. `pruneAll(now:)` is the store-wide
@@ -323,8 +330,13 @@ changes.)
       directory read plus one ≤1 MiB write per dirty titled buffer, and dedup
       usually makes it zero writes. It **bypasses the chain**, which cannot
       deadlock it and cannot be waited on — whatever is queued there is about to
-      be discarded with the process — and the worst case is one snapshot written
-      twice, never a corrupt one, because a snapshot appears in one `move`.
+      be discarded with the process — so it is the one capture that can run
+      *beside* another, ordinarily one still on the chain or the folder-open
+      sweep. A corrupt snapshot is still unreachable (a snapshot appears in one
+      `move`); the two outcomes that are reachable are the same snapshot written
+      twice, which is harmless because both writes carry the same name and the
+      same bytes, and the sweep reclaiming the directory this is writing into,
+      which the store's one retry answers.
     - `captureBeforeOperation(event:root:bufferTexts:diskTargets:)` — awaited, and
       that is what makes it race-free (below). Three rules decide what is read:
       **buffers win** (a file with an open tab is captured from its buffer and not
@@ -336,8 +348,14 @@ changes.)
       everything already queued — including the folder-open sweep — and paying
       that to store zero bytes would put this feature's housekeeping in front of
       an operation the user asked for, with the writer bracket already raised.
-    - `pruneStore()` — the folder-open sweep, fire-and-forget on the chain, and
-      it takes **no root**: `LocalHistoryStore.pruneAll(now:)` sweeps every
+    - `pruneStore()` — the folder-open sweep, fire-and-forget on the chain (so
+      the folder open itself waits on nothing) with one stated cost: a gated
+      operation started while the sweep is still running waits for it, because
+      `captureBeforeOperation` is awaited and the chain is serial. Retention gets
+      a lane of its own nowhere, deliberately — it deletes names it has already
+      condemned, but it deletes them *between* another capture's
+      list-decide-write, so a second lane would trade a bounded wait for a dedup
+      reading a directory another unit is mutating. It takes **no root**: `LocalHistoryStore.pruneAll(now:)` sweeps every
       project area, because retention is promised to the user without a condition
       and a sweep keyed to the root being opened can never reach the history of a
       project that is not opened again. No generation token, deliberately: it
@@ -405,7 +423,13 @@ changes.)
     reclaimed between the listing and the click), and a revision whose text the
     buffer already holds; refusing the identical case is what keeps a restore from
     marking a clean tab dirty and writing a `.restore` snapshot of bytes that are
-    already the newest revision. `LocalHistoryRestore` is **a plan, not an
+    already the newest revision. That sameness test is `NSString`'s, not Swift's:
+    `==` on `String` compares by canonical equivalence, while a revision is
+    identified by a SHA-256 over its *UTF-8 bytes*, so a decomposed and a
+    precomposed spelling are two real revisions the store keeps apart — and a
+    canonical comparison would arm Restore and then plan nothing, which is the
+    one no-op that *is* a bug (`SaveTransformController.applyRestore` guards the
+    same hazard one layer up). `LocalHistoryRestore` is **a plan, not an
     action** — the `SaveTransformPlan` / `PushPlan` shape — because only the app
     layer can replace a buffer through the live text view. It carries *both* texts
     on purpose: `text` is what the buffer becomes and `captureText` is what the
@@ -552,7 +576,18 @@ changes.)
     would store the empty string the *window* had to show for a file that has
     since grown past its 1 MiB read ceiling, which is the one place in this
     feature a capture could lose what it exists to keep — then
-    `saveTransform.applyRestore(…)`. The tab is
+    `saveTransform.applyRestore(…)`. **A restore the policy would refuse to
+    capture does not happen at all**: the displaced text is put to
+    `store.policy.capture(of:relativePath:latestHash: nil)` first, and a refusal
+    beeps and stops exactly as an unreadable file does. Reading the buffer back
+    fixes *what* is snapshotted, not whether it can be — a file that had history
+    when it was small and has since grown past `maxContentBytes` is captured by
+    nothing, so going ahead would replace megabytes with one ⌘Z as the only copy,
+    and it is also the case the window renders least honestly (the same ceiling
+    makes the current side of the diff the empty string, so the revision showed
+    as wholly added). `latestHash: nil` asks the one question that matters —
+    *may* these bytes be stored — rather than whether they would be
+    deduplicated, which is a skip that loses nothing. The tab is
     left **dirty**: the ordinary save funnel puts the restored text on disk when
     the user saves or the autosave fires, which is what keeps this feature a
     reader that takes no writer gate.
@@ -613,11 +648,13 @@ than an actor — the caller owns the hop, so the caller can choose not to hop.
 The cost is one directory read plus at most one ≤1 MiB write per dirty titled
 buffer, once per quit, with dedup usually making it zero writes; the call
 bypasses the write chain, whose queued work the process is about to discard
-anyway, and the worst case of that is one snapshot written twice.
+anyway, and the two outcomes of running beside another capture are one snapshot
+written twice (harmless — same name, same bytes) and the store-wide sweep
+reclaiming the directory this is writing into, which `capture` retries over.
 
 ## Tests
 
-116 tests across seven suites in `Tests/PisakaCoreTests/`, all against
+133 tests across seven suites in `Tests/PisakaCoreTests/`, all against
 `StubFileTree` or pure values — no temporary directories and no real clock:
 
   - `LocalHistorySnapshotTests` — the tag vocabulary by set equality, every event
@@ -638,7 +675,10 @@ anyway, and the worst case of that is one snapshot written twice.
   - `LocalHistoryStoreTests` — capture/list/read round-trip; a second identical
     capture writing nothing (asserted on `writtenPaths`); one changed byte being a
     new revision; the write going through a temporary name and exactly one `move`;
-    an injected failure leaving no partial file and throwing nothing; capture
+    an injected failure leaving no partial file and throwing nothing (every
+    attempt cleaning up after itself, twice over); a capture whose directory is
+    reclaimed mid-write succeeding on its retry — the sweep-versus-quit-capture
+    window, staged with `StubFileTree.onWrite`; capture
     pruning the same file's excess; `prune(root:)` bounding a whole project area;
     `pruneAll()` bounding a project area **no root was handed for**, removing an
     area left empty and leaving one holding a foreign entry alone; a never-captured
@@ -665,8 +705,10 @@ anyway, and the worst case of that is one snapshot written twice.
     rows; a file with no history landing `isEmpty` rather than an error; a file
     outside the root targeted but unkeyed (`isUnsupportedTarget`); clearing an
     already-clear selection unable to cancel the listing in flight; the diff
-    rows for a selection; the restore plan carrying both texts, and `nil` for no
-    selection and for an identical revision.
+    rows for a selection; the restore plan carrying both texts, `nil` for no
+    selection and for an identical revision, and a revision differing from the
+    buffer only by Unicode normalization still planning a restore (the store keys
+    on UTF-8 bytes, so canonical equivalence is the wrong question).
   - `LocalHistorySourceGatingTests` — the app layer's architectural rules, matched
     against comment- and literal-stripped source the way every sibling suite does:
     every app-side file inside `#if os(macOS)`; the store base spelled in exactly
@@ -680,7 +722,9 @@ anyway, and the worst case of that is one snapshot written twice.
     invoked at exactly three places in `AutosaveController.swift`, so no write path
     can go unreported again; the quit branch still skipping the probe; the restore
     routed through `SaveTransformController` with no second file naming
-    `beginSaveTransformRewrite`/`replaceCharacters`; both open sites present; the
+    `beginSaveTransformRewrite`/`replaceCharacters`; the restore asking
+    `policy.capture(` exactly once, so it cannot replace a buffer the store would
+    refuse to snapshot; both open sites present; the
     window declaring no zoom surface; the window closed at termination; and Local
     History never naming `autosave.suspend`/`beginRevert` anywhere.
 

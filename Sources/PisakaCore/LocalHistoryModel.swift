@@ -133,9 +133,19 @@ public final class LocalHistoryModel {
     ///
     /// It **bypasses the chain**, which cannot deadlock it and cannot be waited
     /// on: whatever is still queued there is about to be discarded with the
-    /// process. The worst case is one snapshot written twice — never a corrupt
-    /// one, because a snapshot appears in one `move` — and a later identical
-    /// capture would have deduplicated it anyway.
+    /// process. So this is the one capture that can run *beside* another —
+    /// ordinarily one still on the chain, or the folder-open retention sweep. A
+    /// snapshot still appears in one `move`, so a torn or corrupt one is not
+    /// reachable; the two outcomes that are, and what answers them:
+    ///
+    /// - **The same snapshot written twice.** Harmless: both writes carry the
+    ///   same name (timestamp, event and content hash), so the second is the same
+    ///   bytes at the same path, and a later identical capture would have
+    ///   deduplicated it anyway.
+    /// - **The sweep reclaiming the directory this is writing into**, between the
+    ///   `ensureDirectory` and the write. `LocalHistoryStore.capture` re-runs the
+    ///   whole create-write-rename once for exactly this reason, so the window
+    ///   costs a retry rather than the last save before the quit.
     public func captureSavesSynchronously(urls: [URL], root: URL?, texts: [URL: String]) {
         let units = Self.bufferUnits(urls: urls, root: root, texts: texts)
         guard !units.isEmpty, let root else { return }

@@ -283,6 +283,18 @@ final class LocalHistorySourceGatingTests: XCTestCase {
         )
     }
 
+    func testTheRestoreRefusesWhatThePolicyWillNotCapture() throws {
+        let app = try code(ofFileNamed: "PisakaApp.swift", under: "Sources/Pisaka")
+        XCTAssertEqual(
+            try occurrences(of: "policy\\.capture\\(", in: app),
+            1,
+            "The restore asks the very policy the store will apply whether the text it is about to displace can "
+                + "be stored, and stops when it cannot. Without that question a file which had history when it "
+                + "was small and has since grown past maxContentBytes is replaced with nothing captured — the "
+                + "one place this feature destroys exactly what it exists to keep."
+        )
+    }
+
     // MARK: - The window
 
     func testBothOpenSitesExist() throws {

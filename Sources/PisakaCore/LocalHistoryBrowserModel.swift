@@ -279,10 +279,20 @@ public final class LocalHistoryBrowserModel: ObservableObject {
     /// Refusing the identical case is what keeps a restore from marking a clean
     /// tab dirty and writing a `.restore` snapshot of bytes that are already the
     /// newest revision.
+    ///
+    /// **The sameness test is `NSString`'s, not `String`'s**, and that is the same
+    /// hazard `SaveTransformController.applyRestore` guards one layer up: Swift's
+    /// `==` compares by canonical equivalence, so it calls a decomposed and a
+    /// precomposed spelling of one word equal — while this feature identifies a
+    /// revision by SHA-256 over its *UTF-8 bytes*, which stores those two
+    /// spellings as genuinely different revisions. Comparing canonically here
+    /// would refuse to plan the one restore that does change bytes, silently: the
+    /// button is armed, the click does nothing, and the buffer keeps the encoding
+    /// the user asked to replace.
     public func restore(currentText: String) -> LocalHistoryRestore? {
         guard let fileURL, let root, let relativePath,
               let snapshot = selected, let text = selectedContent else { return nil }
-        guard text != currentText else { return nil }
+        guard !(text as NSString).isEqual(to: currentText) else { return nil }
         return LocalHistoryRestore(
             fileURL: fileURL,
             root: root,

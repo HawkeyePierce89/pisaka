@@ -1058,7 +1058,12 @@ and iPhone. The feature scope landed so far:
   numbers. A pre-operation capture reads at most **200** files from
   disk: in a working tree with more changed files than that, the extras are not
   snapshotted (open tabs are never capped, and are always captured from the buffer
-  rather than from disk). Files over 1 MiB and non-text files are never captured.
+  rather than from disk). Files over 1 MiB and non-text files are never captured —
+  and because a restore first snapshots what it is about to displace, **Restore
+  beeps and does nothing on a file whose current contents are past that ceiling**
+  (a file that had history while it was small and has since grown past it): its
+  revisions stay listed and readable, but the button will not replace megabytes
+  the safety net has just declined to hold.
   The single-Cmd+Z guarantee applies to the tab you are **looking at**: restoring
   into a file with no tab open (one is opened) or into an open background tab
   costs that tab its undo history and its remembered scroll position, because the

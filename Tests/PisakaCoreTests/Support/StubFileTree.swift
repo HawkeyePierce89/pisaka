@@ -109,6 +109,16 @@ final class StubFileTree: FileServicing, @unchecked Sendable {
     /// computed itself is wrong in exactly that case and correct in every case a
     /// stub without this hook can stage — see `LSPInstallEngine.sweepStaging`.
     var listingSpelling: ((URL) -> URL)?
+    /// Called with the root-relative path at the *start* of every `write`,
+    /// before the failure set is consulted.
+    ///
+    /// The hook for a write whose surroundings change *between* attempts — the
+    /// file directory a concurrent sweep reclaimed, which `LocalHistoryStore
+    /// .capture` answers with one retry. A path-keyed failure set cannot express
+    /// it: those failures are permanent, and this one is exactly the transient
+    /// kind the retry exists for.
+    var onWrite: ((String) -> Void)?
+
     /// Held on the read of this exact root-relative path, once.
     var readGate: (path: String, gate: Gate)?
 
@@ -209,6 +219,7 @@ final class StubFileTree: FileServicing, @unchecked Sendable {
 
     func write(_ text: String, to url: URL) throws {
         let path = relative(url)
+        onWrite?(path)
         guard !writeFailures.contains(path) else { throw StubError.denied }
         files[path] = text
         lock.lock()

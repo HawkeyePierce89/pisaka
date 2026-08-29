@@ -128,17 +128,33 @@ public struct LocalHistoryStore {
         guard let snapshot = LocalHistoryLayout.snapshot(fromFileName: fileName) else { return nil }
 
         let temporary = directory.appendingPathComponent(fileName + Self.temporarySuffix)
-        do {
-            try fileService.ensureDirectory(at: directory)
-            try fileService.write(text, to: temporary)
-            try fileService.move(from: temporary, to: directory.appendingPathComponent(fileName))
-        } catch {
-            // Whatever the failure was, the revision is lost and nothing else is:
-            // the temporary is removed if it got as far as existing, and the
-            // caller is told `nil` rather than interrupted.
-            discard(temporary)
-            return nil
+        var written = false
+        // Two attempts, and the second one is not optimism about a failing disk:
+        // the quit-time capture runs on the main thread while the store-wide sweep
+        // may be running on the model's queue, and the sweep reclaims a file
+        // directory it finds holding nothing (`prune(directory:now:)`) — which is
+        // exactly what the `ensureDirectory` just above created. Losing the last
+        // save before a quit to that window would lose the one edit the
+        // synchronous path exists to guarantee, so the whole create-write-rename
+        // is simply re-run once, which re-creates the directory the sweep took.
+        for _ in 0..<2 {
+            do {
+                try fileService.ensureDirectory(at: directory)
+                try fileService.write(text, to: temporary)
+                try fileService.move(from: temporary, to: directory.appendingPathComponent(fileName))
+                written = true
+                break
+            } catch {
+                // Whatever the failure was, the temporary is removed if it got as
+                // far as existing — so a retry starts from the same clean state
+                // the first attempt did, and a second failure leaves nothing
+                // behind either.
+                discard(temporary)
+            }
         }
+        // Both attempts failed: the revision is lost and nothing else is, and the
+        // caller is told `nil` rather than interrupted.
+        guard written else { return nil }
 
         delete(policy.prune(existing + [snapshot], now: now).delete, in: directory)
         return snapshot

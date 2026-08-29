@@ -191,7 +191,41 @@ final class LocalHistoryStoreTests: XCTestCase {
         XCTAssertNil(store.capture(text: "hello", root: projectRoot, relativePath: path, event: .save, now: date(1_000)))
         XCTAssertEqual(store.revisions(root: projectRoot, relativePath: path), [])
         XCTAssertEqual(tree.filePaths(under: directory), [])
-        XCTAssertEqual(tree.removedPaths, ["\(directory)/\(name)\(LocalHistoryStore.temporarySuffix)"])
+        // Twice, because a failed attempt is retried once — and the point of the
+        // assertion is that *every* attempt cleans up after itself, so a
+        // permanently failing one still leaves nothing behind.
+        XCTAssertEqual(
+            tree.removedPaths,
+            Array(repeating: "\(directory)/\(name)\(LocalHistoryStore.temporarySuffix)", count: 2)
+        )
+    }
+
+    /// A capture whose directory vanishes mid-write is retried, once.
+    ///
+    /// The quit-time capture runs on the main thread while the store-wide sweep
+    /// may be running on the model's queue, and the sweep reclaims a file
+    /// directory it finds empty — which is precisely what `capture` created a
+    /// moment earlier. Without the retry that window costs the last save before
+    /// a quit, i.e. the one edit the synchronous path exists to guarantee.
+    func testACaptureWhoseDirectoryIsReclaimedMidWriteIsRetriedAndSucceeds() throws {
+        let tree = makeTree()
+        let store = makeStore(tree)
+        let directory = fileDirectory(path, in: tree)
+        let temporary = "\(directory)/\(LocalHistoryLayout.snapshotFileName(timestamp: date(1_000), event: .save, contentHash: LocalHistoryLayout.contentHash(of: "hello")))\(LocalHistoryStore.temporarySuffix)"
+        // The sweep gets in exactly once, between the create and the write.
+        tree.writeFailures = [temporary]
+        tree.onWrite = { [weak tree] written in
+            guard written == temporary else { return }
+            tree?.writeFailures = []
+        }
+
+        let snapshot = try XCTUnwrap(
+            store.capture(text: "hello", root: projectRoot, relativePath: path, event: .save, now: date(1_000))
+        )
+
+        XCTAssertEqual(store.revisions(root: projectRoot, relativePath: path), [snapshot])
+        XCTAssertEqual(store.content(of: snapshot, root: projectRoot, relativePath: path), "hello")
+        XCTAssertEqual(tree.moves, [StubFileTree.Move(from: temporary, to: "\(directory)/\(snapshot.fileName)")])
     }
 
     func testADirectoryThatCannotBeCreatedLosesTheRevisionSilently() {
