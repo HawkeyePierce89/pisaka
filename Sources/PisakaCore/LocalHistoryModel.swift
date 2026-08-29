@@ -49,12 +49,25 @@ public final class LocalHistoryModel {
     /// level up, and it is what lets a test give two overlapping captures two
     /// distinct milliseconds instead of racing the clock.
     ///
+    /// **Every capture reads it synchronously, in the entry point, before the
+    /// work is appended** — never inside `write`, one hop later. A snapshot's
+    /// timestamp is *when the app had those bytes in hand*, which is the instant
+    /// the caller handed them over; taking it at write time would let a unit that
+    /// waited behind the store sweep out-stamp bytes that are genuinely newer.
+    /// `captureSavesSynchronously(urls:root:texts:)` makes that reachable rather
+    /// than theoretical: it bypasses the chain by design, so a queued capture of
+    /// *older* text can — and at quit routinely does — reach the disk after it,
+    /// and a write-time read would file that older text as the newest revision,
+    /// where both the history window and retention's "the newest always survives"
+    /// would believe it. The retention sweep is the one caller that still reads it
+    /// at run time; see `pruneStore()`.
+    ///
     /// The stated limit of *not* having it in production: two captures of one
     /// file landing inside the same millisecond order by file name (i.e. by
     /// content hash) rather than chronologically, because that is all the name
-    /// preserves. Reachable only for two *different* texts of one file written
-    /// within a millisecond of each other, and it costs a row's position in a
-    /// list, never a wrong or missing revision.
+    /// preserves. Reachable only for two *different* texts of one file handed
+    /// over within a millisecond of each other, and it costs a row's position in
+    /// a list, never a wrong or missing revision.
     private let clock: () -> Date
 
     /// Where every ordinary capture's disk work runs. Serial, utility QoS — the
@@ -110,9 +123,9 @@ public final class LocalHistoryModel {
         let units = Self.bufferUnits(urls: urls, root: root, texts: texts)
         guard !units.isEmpty, let root else { return }
         let store = self.store
-        let clock = self.clock
+        let now = clock()
         append {
-            Self.write(units, to: store, root: root, event: event, clock: clock)
+            Self.write(units, to: store, root: root, event: event, now: now)
         }
     }
 
@@ -153,10 +166,21 @@ public final class LocalHistoryModel {
     ///   `ensureDirectory` and the write. `LocalHistoryStore.capture` re-runs the
     ///   whole create-write-rename once for exactly this reason, so the window
     ///   costs a retry rather than the last save before the quit.
+    ///
+    /// The third — **a queued capture of *older* text landing after this one** —
+    /// is answered upstream rather than here, and could not be answered here:
+    /// this path cannot wait for the chain (that is the whole point) and cannot
+    /// cancel it (the write may already be in the kernel). What settles it is that
+    /// every capture's timestamp is read in its entry point, before it joins the
+    /// chain (see `clock`), so the queued unit files under the instant its bytes
+    /// were handed over — earlier than this one's — however long it waited and
+    /// whenever it lands. Its snapshot is a real revision that belongs in the
+    /// history, just not the newest one, and both the window's ordering and
+    /// retention's "the newest always survives" read it as what it is.
     public func captureSavesSynchronously(urls: [URL], root: URL?, texts: [URL: String]) {
         let units = Self.bufferUnits(urls: urls, root: root, texts: texts)
         guard !units.isEmpty, let root else { return }
-        Self.write(units, to: store, root: root, event: .save, clock: clock)
+        Self.write(units, to: store, root: root, event: .save, now: clock())
     }
 
     // MARK: - Before a worktree operation
@@ -209,11 +233,11 @@ public final class LocalHistoryModel {
         guard !units.isEmpty || !pending.isEmpty else { return }
 
         let store = self.store
-        let clock = self.clock
+        let now = clock()
         let fileService = self.fileService
         let maxBytes = store.policy.maxContentBytes
         await append {
-            Self.write(units, to: store, root: root, event: event, clock: clock)
+            Self.write(units, to: store, root: root, event: event, now: now)
             for target in pending {
                 guard let text = try? fileService.readTextIfNotBinary(
                     url: target.url,
@@ -224,7 +248,7 @@ public final class LocalHistoryModel {
                     root: root,
                     relativePath: target.relativePath,
                     event: event,
-                    now: clock()
+                    now: now
                 )
             }
         }.value
@@ -242,6 +266,13 @@ public final class LocalHistoryModel {
     /// (`LocalHistoryStore.pruneAll(now:)` carries the reasoning). It therefore
     /// takes no root: the store is one directory outside every project, and there
     /// is no root this could be asked about that would make it do less.
+    ///
+    /// **The one caller that still reads the clock on the chain**, and the
+    /// exception proves the rule: a capture's instant answers *when were these
+    /// bytes in hand*, which is fixed at the entry point, while retention asks
+    /// *what is old now*, which is only true of the moment the sweep runs. A
+    /// sweep held behind a long capture would otherwise measure ages against an
+    /// instant that has since passed.
     public func pruneStore() {
         let store = self.store
         let clock = self.clock
@@ -311,12 +342,20 @@ public final class LocalHistoryModel {
         return units
     }
 
+    /// Store every unit under one already-taken instant.
+    ///
+    /// `now` is a value rather than a clock on purpose: it was read in the entry
+    /// point, synchronously, before this work joined the chain (see `clock`). One
+    /// instant for the whole call is what that costs, and it costs nothing —
+    /// every unit here keys to a different file, so their snapshots land in
+    /// different directories and no ordering, dedup or name-collision question
+    /// spans two of them.
     private nonisolated static func write(
         _ units: [CaptureUnit],
         to store: LocalHistoryStore,
         root: URL,
         event: LocalHistoryEvent,
-        clock: () -> Date
+        now: Date
     ) {
         for unit in units {
             store.capture(
@@ -324,7 +363,7 @@ public final class LocalHistoryModel {
                 root: root,
                 relativePath: unit.relativePath,
                 event: event,
-                now: clock()
+                now: now
             )
         }
     }

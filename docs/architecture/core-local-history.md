@@ -340,7 +340,10 @@ changes.)
       other, and the same one makes the loser's `move` refuse an existing
       destination, so it stores nothing and answers a `nil` nobody reads — and
       the sweep reclaiming the directory this is writing into, which the store's
-      one retry answers.
+      one retry answers. A third — **a queued capture of older text landing after
+      this one** — is answered upstream by the enqueue-time timestamp (below)
+      rather than here: this path cannot wait for the chain (that is its whole
+      point) and cannot cancel it (the write may already be in the kernel).
     - `captureBeforeOperation(event:root:bufferTexts:diskTargets:)` — awaited, and
       that is what makes it race-free (below). Three rules decide what is read:
       **buffers win** (a file with an open tab is captured from its buffer and not
@@ -376,12 +379,33 @@ changes.)
     second, separately maintained copy of the rule would show an empty history for
     a file that has one. `clock` is injectable for the store's reason one level up
     — it is what lets a test give two overlapping captures two distinct
-    milliseconds instead of racing the clock. Its stated limit in production: two
+    milliseconds instead of racing the clock.
+
+    **Every capture reads the clock in its entry point, synchronously, before the
+    work joins the chain** — never inside `write`, one hop later. A snapshot's
+    timestamp is *when the app had those bytes in hand*, which is the instant the
+    caller handed them over, and taking it at write time would let a unit that
+    waited behind the store sweep out-stamp bytes that are genuinely newer.
+    `captureSavesSynchronously` is what makes that reachable rather than
+    theoretical: it bypasses the chain by design, so a queued capture of *older*
+    text can — and at quit routinely does — reach the disk after it, and a
+    write-time read would file that older text as the newest revision, where both
+    the window's ordering and retention's "the newest always survives" would
+    believe it. `pruneStore()` is the one caller that still reads the clock on the
+    chain, and the exception proves the rule: a capture's instant answers *when
+    were these bytes in hand*, fixed at the entry point, while retention asks
+    *what is old now*, which is only true of the moment the sweep runs. One
+    consequence of one instant per call: every unit of a single call shares it —
+    which costs nothing, because each keys to a different file, so their snapshots
+    land in different directories and no ordering, dedup or name-collision
+    question spans two of them.
+
+    The clock's stated limit in production: two
     captures of one file inside the same millisecond order by file name (event
     tag first, content hash second) rather than chronologically, because that is
-    all the name preserves — reachable only for two *different* texts of one file written
-    within a millisecond of each other, and it costs a row's position in a list,
-    never a wrong or missing revision.
+    all the name preserves — reachable only for two *different* texts of one file
+    handed over within a millisecond of each other, and it costs a row's position
+    in a list, never a wrong or missing revision.
   - `LocalHistoryBrowserModel.swift` — the window's state and the restore *plan*.
     A **pure reader over the store the capture model already owns**: it is handed
     the same `LocalHistoryStore` value — one store, one layout, one policy,
@@ -670,7 +694,12 @@ bytes captured twice (harmless: two clock reads a millisecond apart leave two
 identical revisions retention reclaims, the same millisecond makes the loser's
 `move` refuse an existing destination and store nothing) and the store-wide
 sweep reclaiming the directory this is writing into, which `capture` retries
-over.
+over. The third outcome — a capture queued behind the sweep reaching the disk
+*after* this one, carrying older text — is settled by fact 4: every capture's
+timestamp is read in its entry point, before the work joins the chain, so the
+held unit files under the instant its bytes were handed over rather than the
+instant it finally ran. Its snapshot is a real revision that belongs in the
+history, just not the newest one.
 
 ## Tests
 
@@ -711,7 +740,9 @@ over.
     silently absent; the disk cap enforced with every buffer still landing; two
     overlapping saves of one file producing one revision for identical text and
     two ordered ones for different text; the synchronous capture having stored
-    everything by the time it returns and dedup'ing against an earlier one; urls
+    everything by the time it returns and dedup'ing against an earlier one; a
+    capture held behind the store sweep landing *after* the quit capture and
+    still listed as the older revision (the enqueue-time timestamp); urls
     outside the root skipped; the store sweep bounding the area, reclaiming a
     project nobody opened and removing an area left empty; an oversize
     disk target never read into memory; a url that reaches the root through `..`

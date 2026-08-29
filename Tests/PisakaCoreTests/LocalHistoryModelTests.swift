@@ -373,6 +373,39 @@ final class LocalHistoryModelTests: XCTestCase {
         XCTAssertEqual(contents(model, "a.swift"), ["one last edit", "final text"])
     }
 
+    /// The quit capture bypasses the chain by design, so a capture queued behind
+    /// something slow — here the store-wide sweep — can reach the disk *after* it.
+    /// What keeps that from filing older bytes as the newest revision is that the
+    /// timestamp is read in the entry point, before the work joins the chain: the
+    /// held unit carries the instant its text was handed over, not the instant it
+    /// finally ran.
+    func testACaptureHeldBehindTheSweepDoesNotOutStampTheQuitCapture() async {
+        let tree = makeTree()
+        let model = makeModel(tree)
+        let url = projectFile("a.swift")
+
+        // The sweep occupies the chain and is held on its very first listing, so
+        // the save capture queued behind it has not started at all.
+        let gate = Gate()
+        tree.listingGate = gate
+        model.pruneStore()
+        await gate.waitUntilReached()
+        model.captureSaves(urls: [url], root: projectRoot, texts: [url: "older"])
+
+        // The user edits again and quits while that is still queued.
+        model.captureSavesSynchronously(urls: [url], root: projectRoot, texts: [url: "newer"])
+        XCTAssertEqual(contents(model, "a.swift"), ["newer"])
+
+        gate.release()
+        await drain(model)
+
+        XCTAssertEqual(
+            contents(model, "a.swift"),
+            ["newer", "older"],
+            "the held capture lands last but is older, and must be listed as such"
+        )
+    }
+
     func testTheSynchronousCaptureWithNoProjectRootDoesNothing() {
         let tree = makeTree()
         let model = makeModel(tree)
