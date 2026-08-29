@@ -162,10 +162,16 @@ public final class LocalHistoryModel {
     ///   That `nil` is a false negative — the revision *is* on disk, written by
     ///   the other side — and nothing acts on it: `write(_:to:root:event:clock:)`
     ///   discards the result, because a capture reports no outcome to anyone.
-    /// - **The sweep reclaiming the directory this is writing into**, between the
-    ///   `ensureDirectory` and the write. `LocalHistoryStore.capture` re-runs the
-    ///   whole create-write-rename once for exactly this reason, so the window
-    ///   costs a retry rather than the last save before the quit.
+    /// - **The sweep reclaiming the directory this is writing into.** Two
+    ///   orderings, answered on two sides. The sweep taking the directory
+    ///   *between* the `ensureDirectory` and the write is answered in
+    ///   `LocalHistoryStore.capture`, which re-runs the whole create-write-rename
+    ///   once for exactly this reason, so that window costs a retry rather than
+    ///   the last save before the quit. The sweep taking it *after* the `move`
+    ///   has landed cannot be answered there at all — the retry loop has seen its
+    ///   `move` succeed and broken out — so it is answered on the sweep's side:
+    ///   `prune(directory:now:)` re-lists immediately before its recursive
+    ///   removal and reclaims nothing it can still see something in.
     ///
     /// The third — **a queued capture of *older* text landing after this one** —
     /// is answered upstream rather than here, and could not be answered here:

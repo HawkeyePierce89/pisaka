@@ -137,6 +137,10 @@ public struct LocalHistoryStore {
         // save before a quit to that window would lose the one edit the
         // synchronous path exists to guarantee, so the whole create-write-rename
         // is simply re-run once, which re-creates the directory the sweep took.
+        // The mirror ordering — the sweep reclaiming the directory *after* the
+        // `move` below has landed — is out of reach from here, since by then this
+        // loop has already broken; `prune(directory:now:)` answers that one by
+        // re-listing immediately before it removes.
         for _ in 0..<2 {
             do {
                 try fileService.ensureDirectory(at: directory)
@@ -249,7 +253,20 @@ public struct LocalHistoryStore {
         }
 
         if entries.count == leftovers.count {
-            discard(directory)
+            // Re-listed rather than decided on the listing above, and that is not
+            // tidiness: `discard` is recursive, and the synchronous quit capture
+            // bypasses the chain, so it can land a whole snapshot in this
+            // directory while the leftovers above are being removed. Removing on
+            // the stale listing would take that snapshot with the directory —
+            // silently, and past any help from `capture`'s retry, which has
+            // already seen its `move` succeed and broken out of the loop. The
+            // edit at stake is the last save before a quit, which is the one the
+            // synchronous path exists to guarantee. What is left is the ordinary
+            // window between this listing and the removal below, which is the
+            // same residual every other reclamation here accepts.
+            if let remaining = try? fileService.contentsOfDirectory(at: directory), remaining.isEmpty {
+                discard(directory)
+            }
             return
         }
         let stored = entries.compactMap { entry -> LocalHistorySnapshot? in

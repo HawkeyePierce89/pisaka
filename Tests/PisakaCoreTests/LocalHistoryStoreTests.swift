@@ -450,6 +450,38 @@ final class LocalHistoryStoreTests: XCTestCase {
         XCTAssertFalse(tree.hasDirectory(directory))
     }
 
+    /// The quit-time capture bypasses the write chain, so it can land a whole
+    /// snapshot in a file directory *while* the sweep is clearing that
+    /// directory's debris. Removing on the listing taken before that clearing
+    /// would take the new snapshot with the directory — silently, and past any
+    /// help from `capture`'s retry, which has already seen its `move` succeed.
+    /// The snapshot at stake is the last save before a quit, which is the one
+    /// the synchronous path exists to guarantee.
+    ///
+    /// `onRemove` stages exactly that interleaving: the capture runs at the
+    /// moment the debris is removed, which is the last thing the sweep does
+    /// before deciding the directory is empty.
+    func testASnapshotLandingWhileTheSweepClearsDebrisSurvivesTheSweep() {
+        let tree = makeTree()
+        let store = makeStore(tree)
+        let directory = fileDirectory(path, in: tree)
+        let debris = "0000001772345678901-save-abcdef0123456789.snapshot\(LocalHistoryStore.temporarySuffix)"
+        tree.directories.insert(directory)
+        tree.files["\(directory)/\(debris)"] = "half a revision"
+
+        tree.onRemove = { [weak tree] removed in
+            guard removed == "\(directory)/\(debris)" else { return }
+            tree?.onRemove = nil
+            store.capture(text: "the last save", root: self.projectRoot, relativePath: self.path, event: .save, now: self.date(1_000))
+        }
+        store.prune(root: projectRoot, now: date(1_000))
+
+        XCTAssertTrue(tree.hasDirectory(directory))
+        let listed = store.revisions(root: projectRoot, relativePath: path)
+        XCTAssertEqual(listed.count, 1)
+        XCTAssertEqual(store.content(of: listed[0], root: projectRoot, relativePath: path), "the last save")
+    }
+
     func testPruningLeavesTheNewestRevisionHoweverOldItIs() {
         let tree = makeTree()
         let store = makeStore(tree, policy: LocalHistoryPolicy(maxAge: 60))

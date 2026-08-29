@@ -265,7 +265,13 @@ changes.)
     capture just created — and the capture that can be concurrent with it is the
     quit-time one, whose revision is the last save before termination. Every
     attempt discards its own temporary, so a permanently failing write still
-    leaves nothing behind.
+    leaves nothing behind. The **mirror ordering** — the sweep reclaiming that
+    directory *after* the `move` has landed — is out of the retry's reach, since
+    by then the loop has seen its `move` succeed and broken out, so it is answered
+    on the sweep's side instead: the empty-directory removal re-lists immediately
+    before it removes and reclaims nothing it can still see something in. Deciding
+    on the stale listing would take a just-written snapshot with the directory,
+    silently, and that snapshot is the last save before a quit.
     Pruning runs here on the one file just captured, because that is the file
     whose count just changed, and it prunes the list already in hand rather than
     re-reading the directory it just wrote to. `pruneAll(now:)` is the store-wide
@@ -340,7 +346,8 @@ changes.)
       other, and the same one makes the loser's `move` refuse an existing
       destination, so it stores nothing and answers a `nil` nobody reads — and
       the sweep reclaiming the directory this is writing into, which the store's
-      one retry answers. A third — **a queued capture of older text landing after
+      one retry answers before the `move` and the sweep's own re-list answers
+      after it. A third — **a queued capture of older text landing after
       this one** — is answered upstream by the enqueue-time timestamp (below)
       rather than here: this path cannot wait for the chain (that is its whole
       point) and cannot cancel it (the write may already be in the kernel).

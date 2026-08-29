@@ -118,6 +118,15 @@ final class StubFileTree: FileServicing, @unchecked Sendable {
     /// it: those failures are permanent, and this one is exactly the transient
     /// kind the retry exists for.
     var onWrite: ((String) -> Void)?
+    /// Called with the root-relative path at the *start* of every `removeItem`,
+    /// before the failure set is consulted.
+    ///
+    /// The counterpart to `onWrite`, for the surroundings that change *during* a
+    /// removal sequence: the quit-time capture that lands a snapshot in a file
+    /// directory while `LocalHistoryStore.prune(directory:now:)` is clearing that
+    /// directory's `.partial` debris, which the sweep answers by re-listing
+    /// before it removes the directory itself.
+    var onRemove: ((String) -> Void)?
 
     /// Held on the read of this exact root-relative path, once.
     var readGate: (path: String, gate: Gate)?
@@ -346,6 +355,7 @@ final class StubFileTree: FileServicing, @unchecked Sendable {
 
     func removeItem(at url: URL) throws {
         guard let path = relativeIfInside(url), !path.isEmpty else { throw StubError.missing }
+        onRemove?(path)
         guard !removeFailures.contains(path) else { throw StubError.denied }
         guard exists(path) else { throw StubError.missing }
         let prefix = path + "/"
