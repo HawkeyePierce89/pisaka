@@ -2,7 +2,7 @@
 import SwiftUI
 import PisakaCore
 
-/// The JetBrains-style project-switcher widget for the always-visible bottom bar.
+/// The project-switcher widget for the always-visible bottom bar.
 ///
 /// A thin SwiftUI view over `RecentProject` rows provided by the Core projection.
 /// The widget shows the current project's name as a bottom-bar button that opens
