@@ -370,15 +370,15 @@ Tests: new suites for each new Core file; updates to `BottomPanelTests`,
 
 ### Task 8: Verify acceptance criteria
 
-- [ ] `swift test` — the full suite green.
-- [ ] `swiftlint --strict` from the repository root — clean.
-- [ ] `xcodegen generate` then the macOS build (`xcodebuild -project
+- [x] `swift test` — the full suite green.
+- [x] `swiftlint --strict` from the repository root — clean.
+- [x] `xcodegen generate` then the macOS build (`xcodebuild -project
   Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' build`).
-- [ ] The iOS build (`-destination 'platform=iOS Simulator,name=iPhone 17 Pro'`)
+- [x] The iOS build (`-destination 'platform=iOS Simulator,name=iPhone 17 Pro'`)
   — unchanged and green; no new file reachable from the iOS layer.
-- [ ] Confirm the new Core files import Foundation only (`CrossPlatformAuditTests`
+- [x] Confirm the new Core files import Foundation only (`CrossPlatformAuditTests`
   stays green) and every new app file is inside `#if os(macOS)`.
-- [ ] Confirm every new decision path named in the acceptance criteria has a
+- [x] Confirm every new decision path named in the acceptance criteria has a
   test: capability decode, both request/response mappings, the whole-word rule
   and caps, ordering/dedup, both `WorkspaceEdit` spellings, overlap and
   out-of-root refusal, staleness verification, and the panel's generation
