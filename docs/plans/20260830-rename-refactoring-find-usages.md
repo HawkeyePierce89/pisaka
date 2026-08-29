@@ -227,32 +227,32 @@ Tests: new suites for each new Core file; updates to `BottomPanelTests`,
 - Modify: `Sources/PisakaCore/BottomPanel.swift`,
   `Tests/PisakaCoreTests/BottomPanelTests.swift`
 
-- [ ] Add `case usages` to `BottomPanel`; update `BottomPanelTests` for the new
+- [x] Add `case usages` to `BottomPanel`; update `BottomPanelTests` for the new
   case (the `toggled(_:selecting:)` rule is unchanged).
-- [ ] `FindUsagesModel` (`@MainActor`, `ObservableObject`, over an injected
+- [x] `FindUsagesModel` (`@MainActor`, `ObservableObject`, over an injected
   `FileServicing` and a provider closure): published identifier, rows grouped
   for the panel, provenance, truncation, `isSearching` and an empty-state
   reason.
-- [ ] The flow: ask the provider's `references`; on an empty answer run the
+- [x] The flow: ask the provider's `references`; on an empty answer run the
   textual scan over `ProjectFileWalk.collectFiles(root:maskPatterns: [],
   fileService:)` off the main actor in chunks, honoring gitignore and the same
   per-file byte cap the project search uses (`readTextIfNotBinary`), reading an
   open buffer's text in preference to the disk copy where one exists (the
   `openBuffers` closure `ProjectSearchModel` already establishes).
-- [ ] Generation discipline: a request token captured **synchronously** before
+- [x] Generation discipline: a request token captured **synchronously** before
   the hop, re-checked after *every* await; a newer query discards an older
   answer rather than publishing over it. A separate project token bumped on
   folder change (`prepareForFolderChange`'s shape), so a folder switch mid-walk
   abandons the walk.
-- [ ] `clearIfNaming(_ identifier:)` for the post-rename bookkeeping
+- [x] `clearIfNaming(_ identifier:)` for the post-rename bookkeeping
   (decision 7).
-- [ ] Write tests: the semantic path publishes the provider's rows with semantic
+- [x] Write tests: the semantic path publishes the provider's rows with semantic
   provenance; an empty provider answer falls to the textual scan and publishes
   textual provenance; a superseded query never publishes (staged with `Gate`,
   asserted by polling a sink, no timed delays); a folder switch mid-walk
   abandons; the cap and the truncation flag reach the published state;
   `clearIfNaming` clears on a match and leaves other results alone.
-- [ ] Run `swift test` — must pass before Task 5.
+- [x] Run `swift test` — must pass before Task 5.
 
 ### Task 5: The rename edit plan
 
