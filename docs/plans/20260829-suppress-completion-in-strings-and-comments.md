@@ -181,21 +181,21 @@ request.
 - Create: `Sources/PisakaCore/SyntaxContextVocabulary.swift`
 - Create: `Tests/PisakaCoreTests/SyntaxContextVocabularyTests.swift`
 
-- [ ] define the value types: a string form (open/close delimiters,
+- [x] define the value types: a string form (open/close delimiters,
       `spansLines`, escape rule — none / backslash / doubled-delimiter, optional
       letter prefixes, whether pound padding is allowed, the hole rule) and a
       comment form (line with an anchor — anywhere / line start / after
       whitespace — or block with a `nestable` flag)
-- [ ] write `SyntaxContextVocabulary.vocabulary(for:)` covering all 16
+- [x] write `SyntaxContextVocabulary.vocabulary(for:)` covering all 16
       `SyntaxLanguage` cases exactly as the table above states, each non-obvious
       decision carrying its reason in a doc comment
-- [ ] add the explicit `languagesWithoutStringVocabulary` set (`markdown`,
+- [x] add the explicit `languagesWithoutStringVocabulary` set (`markdown`,
       `gitignore`, `editorconfig`) and the per-language
       `stringsSuppressCompletion` flag (false for `json`, `yaml`, `html`,
       `dotenv`)
-- [ ] add `canSuppressCompletion(_:)` — true when the language has comment forms
+- [x] add `canSuppressCompletion(_:)` — true when the language has comment forms
       or gated string forms; false for `markdown` and `json`
-- [ ] write tests: set equality of `languagesWithoutStringVocabulary` ∪
+- [x] write tests: set equality of `languagesWithoutStringVocabulary` ∪
       (languages with string forms) against `SyntaxLanguage.allCases`; the same
       closure check for comment forms against
       `CommentStyle.languagesWithoutComments`; the containment consistency test
@@ -204,7 +204,7 @@ request.
       must declare none) with a doc comment explaining why containment and not
       equality; `canSuppressCompletion` per language; no empty or duplicated
       delimiter
-- [ ] run `swift test` — must pass before Task 2
+- [x] run `swift test` — must pass before Task 2
 
 ### Task 2: The scanner
 
