@@ -301,12 +301,15 @@ public enum SyntaxContextVocabulary {
 
     /// Rust: `"…"` with `\` escape (spans lines — Rust string literals may contain
     /// unescaped newlines and an unterminated one must run to the buffer end).
-    /// Raw forms `r"…"`, `r#"…"#`, `br#"…"#` have no escapes and are gated as well.
+    /// `b"…"` is the byte-string form (same escapes). Raw forms `r"…"`,
+    /// `r#"…"#`, `br#"…"#` have no escapes and are gated as well. A bare `b`
+    /// without `r` is never raw.
     /// `'` is deliberately **not** a string delimiter — a lifetime `&'a` would open
     /// a bogus literal, and a char literal is one character wide and never worth
     /// completing inside.
     private static let rustStringForms: [StringForm] = [
         StringForm(open: "\"", close: "\"", spansLines: true, escape: .backslash),
+        StringForm(open: "\"", close: "\"", spansLines: true, escape: .backslash, allowedPrefixLetters: ["b"]),
         StringForm(
             open: "\"",
             close: "\"",

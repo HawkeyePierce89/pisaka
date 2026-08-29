@@ -105,7 +105,7 @@ public enum SyntaxContextScanner {
             let next: Int
             switch top {
             case .none:
-                next = advanceCode(at: idx, offset: offset, text: text, vocab: vocab, stack: &stack)
+                next = advanceCode(at: idx, offset: offset, text: text, vocab: vocab, language: language, stack: &stack)
             case .some(.lineComment):
                 next = advanceLineComment(at: idx, ch: ch, stack: &stack)
             case .some(.blockComment):
@@ -133,10 +133,11 @@ public enum SyntaxContextScanner {
 
     private static func advanceCode(
         at idx: Int, offset: Int, text: NSString,
-        vocab: SyntaxContextVocabulary.Vocabulary, stack: inout [Frame]
+        vocab: SyntaxContextVocabulary.Vocabulary, language: SyntaxLanguage, stack: inout [Frame]
     ) -> Int {
         if let m = stringMatch(at: idx, text: text, forms: vocab.stringForms),
-           idx + m.totalLen <= offset {
+           idx + m.totalLen <= offset,
+           isValidStringOpen(at: idx, text: text, language: language, match: m) {
             stack.append(.string(form: m.form, pound: m.pound, isRaw: m.isRaw, hasF: m.hasF))
             return idx + m.totalLen
         }
@@ -346,6 +347,11 @@ public enum SyntaxContextScanner {
                 if pound > 10 { break }
             }
         }
+        // Raw forms (no escape + pound padding) require an `r` prefix — a bare `b`
+        // is the byte-string form (`b"…"`) with normal escapes, not raw.
+        if form.escape == .none, form.allowsPoundPadding, !isRaw, form.allowedPrefixLetters != nil {
+            return nil
+        }
         guard isMatch(at: pos, pattern: form.open, text: text) else { return nil }
         let totalLen = (pos - idx) + form.open.utf16.count
         return StringMatch(form: form, pound: pound, isRaw: isRaw, hasF: hasF, totalLen: totalLen)
@@ -486,5 +492,398 @@ public enum SyntaxContextScanner {
         case .swiftInterpolation:
             return ch == 40 // '('
         }
+    }
+
+    // MARK: - Ungated string gating
+
+    private static func isValidStringOpen(at idx: Int, text: NSString, language: SyntaxLanguage, match: StringMatch) -> Bool {
+        // Gated languages accept any configured delimiter; the false-positive
+        // masking only matters where strings are *recognized* but not gating.
+        if SyntaxContextVocabulary.stringsSuppressCompletion(for: language) { return true }
+        // Languages without string vocabulary never reach here, but guard anyway.
+        if SyntaxContextVocabulary.stringForms(for: language).isEmpty { return true }
+        switch language {
+        case .html:
+            return isAttributeStringOpen(at: idx, text: text)
+        case .yaml:
+            return isYamlStringOpen(at: idx, text: text)
+        case .json:
+            return isJsonStringOpen(at: idx, text: text)
+        case .dotenv:
+            return isDotenvStringOpen(at: idx, text: text)
+        default:
+            return true
+        }
+    }
+
+    private static func isAttributeStringOpen(at idx: Int, text: NSString) -> Bool {
+        // Attribute values are `=` + optional whitespace + quote, but only
+        // inside a tag (`<…>`). Walk back skipping spaces/tabs; the first
+        // non-whitespace must be `=`, and there must be an unclosed `<`
+        // before that `=`.
+        var pos = idx - 1
+        while pos >= 0 {
+            let ch = text.character(at: pos)
+            if ch == 32 || ch == 9 {
+                pos -= 1
+                continue
+            }
+            guard ch == 61 else { return false } // '='
+            break
+        }
+        if pos < 0 { return false }
+        // Verify we are inside a tag. Scan forward from the start to the quote
+        // while tracking quoted attribute values, so a `>` inside an earlier
+        // `data="a > b"` does not look like the tag's close. Single-line
+        // strings reset at any line separator; `<!-- -->` comments are skipped
+        // outside tags.
+        return isInsideHtmlTag(at: idx, text: text)
+    }
+
+    private static func isInsideHtmlTag(at target: Int, text: NSString) -> Bool {
+        var inTag = false
+        var inSingle = false
+        var inDouble = false
+        var idx = 0
+        while idx < target {
+            let ch = text.character(at: idx)
+            if isLineSeparator(ch) {
+                inSingle = false
+                inDouble = false
+                idx += 1
+                continue
+            }
+            if inSingle {
+                if ch == 39 { inSingle = false } // "'"
+                idx += 1
+                continue
+            }
+            if inDouble {
+                if ch == 34 { inDouble = false } // '"'
+                idx += 1
+                continue
+            }
+            if inTag {
+                if ch == 39 {
+                    inSingle = true
+                } else if ch == 34 {
+                    inDouble = true
+                } else if ch == 62 { // '>'
+                    inTag = false
+                }
+                idx += 1
+                continue
+            }
+            // Outside tag — skip HTML comments so their `>` does not open.
+            if ch == 60, idx + 4 <= text.length, idx + 4 <= target,
+               isMatch(at: idx, pattern: "<!--", text: text) {
+                // Advance to after the next "-->" or to target if unclosed.
+                var end = idx + 4
+                while end + 3 <= text.length, end + 3 <= target {
+                    if isMatch(at: end, pattern: "-->", text: text) {
+                        end += 3
+                        break
+                    }
+                    let sep = text.character(at: end)
+                    if isLineSeparator(sep) {
+                        // Comments are not single-line; keep scanning.
+                    }
+                    end += 1
+                }
+                idx = min(end, target)
+                continue
+            }
+            if ch == 60 { // '<'
+                inTag = true
+            }
+            idx += 1
+        }
+        return inTag
+    }
+
+    private static func isYamlStringOpen(at idx: Int, text: NSString) -> Bool {
+        if idx == 0 { return true }
+        let prev = text.character(at: idx - 1)
+        if (prev >= 65 && prev <= 90) || (prev >= 97 && prev <= 122) || (prev >= 48 && prev <= 57) || prev == 95 || prev == 45 {
+            return false
+        }
+        // YAML quoted scalars start at value position. A bare `:` always
+        // introduces a value; `[`/`{` and a bare line-start (after
+        // indentation) do as well. Comma and dash are context-sensitive:
+        // `,` only in flow context and `-` only as a block-sequence
+        // indicator — otherwise `key: say, "hello` or `say - "hello` are
+        // plain scalars where the quote is literal and `#` is a comment.
+        var pos = idx - 1
+        while pos >= 0, isWhitespace(text.character(at: pos)) { pos -= 1 }
+        if pos < 0 { return true }
+        if isAtLineStart(at: idx, text: text) { return isYamlLineStartValueAllowed(at: idx, text: text) }
+        let ch = text.character(at: pos)
+        if ch == 58 {
+            // ':' is a value indicator only when followed by separation
+            // whitespace (space/tab). Without it the colon is literal
+            // inside a block plain scalar (e.g. `foo:"bar`).
+            if idx == pos + 1 { return false }
+            return true
+        }
+        if ch == 91 || ch == 123 { // '[' '{'
+            return isYamlFlowBracketValueOpen(at: pos, text: text)
+        }
+        if ch == 44 {
+            // Flow comma: only inside a flow collection (`[…]` / `{…}`).
+            // The previous heuristic checked the token before the comma for a
+            // quoted-string close, but that rejects valid flow entries like
+            // `list: [a, "hel # still"]` where the comma follows a plain
+            // scalar or number. Distinguish by scanning for an unclosed flow
+            // bracket before the comma instead — outside flow the comma is
+            // part of a block plain scalar (`say, "hello`).
+            return isInsideYamlFlow(at: pos, text: text)
+        }
+        if ch == 45 {
+            // Block sequence dash: only when the dash is the first
+            // non-whitespace on the line (indent + '-').
+            var lineStart = 0
+            var index = pos - 1
+            while index >= 0 {
+                if isLineSeparator(text.character(at: index)) {
+                    lineStart = index + 1
+                    break
+                }
+                index -= 1
+            }
+            for point in lineStart..<pos where !isWhitespace(text.character(at: point)) { return false }
+            return true
+        }
+        return false
+    }
+
+    private static func isYamlFlowBracketValueOpen(at bracketPos: Int, text: NSString) -> Bool {
+        // A `[` / `{` only starts a flow value at positions where YAML allows
+        // one: after `:`, inside flow after `,`, after another *valid* flow
+        // opener, after a block-sequence `-` that is the first non-whitespace
+        // on its line, or as the first non-whitespace on the line itself.
+        // Otherwise the bracket is literal text inside a block plain scalar
+        // (`say [`). The `,` case is flow-depth sensitive, so the check
+        // consults the validated depth up to the bracket.
+        var scan = bracketPos - 1
+        while scan >= 0, isWhitespace(text.character(at: scan)) { scan -= 1 }
+        if scan < 0 { return true }
+        var lineStart = 0
+        var tmp = bracketPos - 1
+        while tmp >= 0 {
+            if isLineSeparator(text.character(at: tmp)) {
+                lineStart = tmp + 1
+                break
+            }
+            tmp -= 1
+        }
+        if scan < lineStart { return true }
+        let prev = text.character(at: scan)
+        if prev == 58 {
+            if bracketPos == scan + 1 { return false }
+            return true
+        }
+        // Depth before this bracket determines whether a preceding ',' or
+        // nested '['/'{' is itself inside flow.
+        let depthBefore = yamlFlowDepth(upTo: bracketPos, text: text)
+        if prev == 44 { return depthBefore > 0 } // ',' only inside flow
+        if prev == 91 || prev == 123 { return depthBefore > 0 } // '[' '{' only when already in flow
+        if prev == 45 {
+            var dashLineStart = 0
+            var j = scan - 1
+            while j >= 0 {
+                if isLineSeparator(text.character(at: j)) {
+                    dashLineStart = j + 1
+                    break
+                }
+                j -= 1
+            }
+            for point in dashLineStart..<scan where !isWhitespace(text.character(at: point)) { return false }
+            return true
+        }
+        return false
+    }
+
+    private static func isYamlLineStartValueAllowed(at idx: Int, text: NSString) -> Bool {
+        var lineStart = 0
+        var tmp = idx - 1
+        while tmp >= 0 {
+            if isLineSeparator(text.character(at: tmp)) {
+                lineStart = tmp + 1
+                break
+            }
+            tmp -= 1
+        }
+        if lineStart == 0 { return true }
+        var prevPos = lineStart - 1
+        while prevPos >= 0, isLineSeparator(text.character(at: prevPos)) { prevPos -= 1 }
+        while prevPos >= 0, isWhitespace(text.character(at: prevPos)) { prevPos -= 1 }
+        // Skip trailing comment-only lines.
+        while prevPos >= 0 {
+            var checkLineStart = 0
+            var k = prevPos - 1
+            while k >= 0 {
+                if isLineSeparator(text.character(at: k)) {
+                    checkLineStart = k + 1
+                    break
+                }
+                k -= 1
+            }
+            var firstNonWs = -1
+            for point in checkLineStart...prevPos {
+                let ch = text.character(at: point)
+                if !isWhitespace(ch), !isLineSeparator(ch) {
+                    firstNonWs = point
+                    break
+                }
+            }
+            if firstNonWs >= 0, text.character(at: firstNonWs) == 35, isYamlCommentStart(at: firstNonWs, text: text) {
+                prevPos = checkLineStart - 1
+                while prevPos >= 0, isLineSeparator(text.character(at: prevPos)) { prevPos -= 1 }
+                while prevPos >= 0, isWhitespace(text.character(at: prevPos)) { prevPos -= 1 }
+                continue
+            }
+            break
+        }
+        if prevPos < 0 { return true }
+        let ch = text.character(at: prevPos)
+        if (ch >= 65 && ch <= 90) || (ch >= 97 && ch <= 122) || (ch >= 48 && ch <= 57) || ch == 95 || ch == 45 {
+            return false
+        }
+        return true
+    }
+
+    private static func isYamlCommentStart(at idx: Int, text: NSString) -> Bool {
+        if idx == 0 { return true }
+        if isAtLineStart(at: idx, text: text) { return true }
+        let prev = text.character(at: idx - 1)
+        return isWhitespace(prev) || isLineSeparator(prev)
+    }
+
+    private static func isInsideYamlFlow(at commaPos: Int, text: NSString) -> Bool {
+        yamlFlowDepth(upTo: commaPos, text: text) > 0
+    }
+
+    private static func yamlFlowDepth(upTo limit: Int, text: NSString) -> Int {
+        // Validated flow depth: only brackets that are genuine flow openers
+        // contribute. A '['/'{' inside a block plain scalar (`say [`) is
+        // literal and must not inflate depth, otherwise a later `, "`
+        // masquerades as a flow comma and opens an ungated string inside a
+        // real `#` comment (e.g. `key: say [a, "hello # hel`).
+        var depth = 0
+        var idx = 0
+        var inSingle = false
+        var inDouble = false
+        while idx < limit {
+            let ch = text.character(at: idx)
+            if isLineSeparator(ch) {
+                inSingle = false
+                inDouble = false
+                idx += 1
+                continue
+            }
+            if inSingle {
+                if ch == 39 {
+                    if idx + 1 < limit, text.character(at: idx + 1) == 39 {
+                        idx += 2
+                        continue
+                    }
+                    inSingle = false
+                }
+                idx += 1
+                continue
+            }
+            if inDouble {
+                if ch == 92 {
+                    idx += 2
+                    continue
+                }
+                if ch == 34 {
+                    inDouble = false
+                }
+                idx += 1
+                continue
+            }
+            if ch == 35, isYamlCommentStart(at: idx, text: text) {
+                idx += 1
+                while idx < limit, !isLineSeparator(text.character(at: idx)) { idx += 1 }
+                continue
+            }
+            if ch == 39 {
+                inSingle = true
+            } else if ch == 34 {
+                inDouble = true
+            } else if ch == 91 || ch == 123 {
+                if isValidYamlFlowOpener(at: idx, text: text, depthBefore: depth) {
+                    depth += 1
+                }
+            } else if ch == 93 || ch == 125 {
+                if depth > 0 { depth -= 1 }
+            }
+            idx += 1
+        }
+        return depth
+    }
+
+    private static func isValidYamlFlowOpener(at pos: Int, text: NSString, depthBefore: Int) -> Bool {
+        var scan = pos - 1
+        while scan >= 0, isWhitespace(text.character(at: scan)) { scan -= 1 }
+        if scan < 0 { return true }
+        var lineStart = 0
+        var tmp = pos - 1
+        while tmp >= 0 {
+            if isLineSeparator(text.character(at: tmp)) {
+                lineStart = tmp + 1
+                break
+            }
+            tmp -= 1
+        }
+        if scan < lineStart { return true }
+        let prev = text.character(at: scan)
+        if prev == 58 {
+            if pos == scan + 1 { return false }
+            return true
+        }
+        if prev == 44 { return depthBefore > 0 }
+        if prev == 91 || prev == 123 { return depthBefore > 0 }
+        if prev == 45 {
+            var dashLineStart = 0
+            var j = scan - 1
+            while j >= 0 {
+                if isLineSeparator(text.character(at: j)) {
+                    dashLineStart = j + 1
+                    break
+                }
+                j -= 1
+            }
+            for point in dashLineStart..<scan where !isWhitespace(text.character(at: point)) { return false }
+            return true
+        }
+        return false
+    }
+
+    private static func isJsonStringOpen(at idx: Int, text: NSString) -> Bool {
+        if idx == 0 { return true }
+        let prev = text.character(at: idx - 1)
+        if (prev >= 65 && prev <= 90) || (prev >= 97 && prev <= 122) || (prev >= 48 && prev <= 57) || prev == 95 || prev == 45 {
+            return false
+        }
+        var pos = idx - 1
+        while pos >= 0, isWhitespace(text.character(at: pos)) { pos -= 1 }
+        if pos < 0 { return true }
+        if isAtLineStart(at: idx, text: text) { return true }
+        let ch = text.character(at: pos)
+        return ch == 58 || ch == 44 || ch == 91 || ch == 123 // ':', ',', '[', '{'
+    }
+
+    private static func isDotenvStringOpen(at idx: Int, text: NSString) -> Bool {
+        if idx == 0 { return true }
+        let prev = text.character(at: idx - 1)
+        if (prev >= 65 && prev <= 90) || (prev >= 97 && prev <= 122) || (prev >= 48 && prev <= 57) || prev == 95 || prev == 45 {
+            return false
+        }
+        var pos = idx - 1
+        while pos >= 0, isWhitespace(text.character(at: pos)) { pos -= 1 }
+        if pos < 0 { return false }
+        return text.character(at: pos) == 61 // '='
     }
 }
