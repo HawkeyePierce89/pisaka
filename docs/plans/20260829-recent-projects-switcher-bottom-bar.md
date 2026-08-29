@@ -116,17 +116,17 @@ Dependencies: none new.
 - Create: `Sources/Pisaka/ProjectSwitcherView.swift`
 - Modify: `Sources/Pisaka/ContentView.swift`
 
-- [ ] add `ProjectSwitcherView` (whole file under `#if os(macOS)`), shaped like
+- [x] add `ProjectSwitcherView` (whole file under `#if os(macOS)`), shaped like
       `BranchSwitcherView`: inputs are `currentRoot: URL?`, a
       `recentProjects: () -> [RecentProject]` reader and two no-op-defaulted
       callbacks `onOpenFolder: () -> Void` and `onOpenRecent: (URL) -> Void`
-- [ ] the bottom-bar label is a `Label` with a folder SF Symbol plus the current
+- [x] the bottom-bar label is a `Label` with a folder SF Symbol plus the current
       folder's name, or the stated placeholder "No Folder" when none is open;
       plain button style, a `.help` tooltip, `.popover(arrowEdge: .bottom)`
-- [ ] read the rows in the button's action into `@State` *before* presenting, so
+- [x] read the rows in the button's action into `@State` *before* presenting, so
       the list (and its existence checks — at most 20, once per open) is produced
       exactly at popover-open time
-- [ ] popover content: an "Open Folder…" button that dismisses and calls
+- [x] popover content: an "Open Folder…" button that dismisses and calls
       `onOpenFolder`, a divider, a "Recent" section header and the rows in a
       capped-height `ScrollView`; a row shows a checkmark and the accent color
       when it is the current project, a folder icon otherwise, with the name on
@@ -134,16 +134,16 @@ Dependencies: none new.
       clicking a non-current row dismisses and calls `onOpenRecent(row.url)`,
       clicking the current row only dismisses; an empty list renders a short
       empty-state line with "Open Folder…" still above it; no filter field
-- [ ] every font, padding, row spacing, scroll cap and the popover width goes
+- [x] every font, padding, row spacing, scroll cap and the popover width goes
       through `\.interfaceMetrics` (`metrics.scaledFont` / `metrics.scaled`); the
       view names `interfaceScale` nowhere, applies `.interfaceScaled(...)`
       nowhere and declares no zoom surface
-- [ ] add two `ContentView` inputs — `recentProjects: () -> [RecentProject]` and
+- [x] add two `ContentView` inputs — `recentProjects: () -> [RecentProject]` and
       `onOpenRecentProject: (URL) -> Void`, both no-op-defaulted like their
       neighbours — and place `ProjectSwitcherView` in `bottomBar` between the
       `Spacer()` and `BranchSwitcherView`, passing `model.projectRoot` as the
       current root
-- [ ] run `swift test` (the zoom and bottom-panel source-gating suites are the
+- [x] run `swift test` (the zoom and bottom-panel source-gating suites are the
       tests that police this layer; both must stay green with no edit to their
       pinned sets) — must pass before Task 3
 
