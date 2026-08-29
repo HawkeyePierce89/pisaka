@@ -268,13 +268,19 @@ changes.)
     rule can be stated and tested against. A file directory left with no entries
     at all is removed, then a project area left with no file directories, while
     one still holding something foreign is left exactly as it is, because this
-    feature deletes only what it wrote. **The sweep is asked of the store, not of
-    a root**, and that is load-bearing: retention is promised to the user with no
-    condition on it ("anything a captured file contained… is in there until
-    retention reclaims it"), and a sweep keyed to whichever project is being
-    opened reclaims nothing at all for a project that is cloned, edited once and
-    never opened again — which is both unbounded growth and the privacy claim
-    broken, in the one directory this feature keeps outside every project.
+    feature deletes only what it wrote. Retention alone never empties a directory
+    holding a real snapshot, so those two branches in practice reclaim a directory
+    left with nothing but `.partial` debris. **The sweep is asked of the store,
+    not of a root**, and that is load-bearing: retention is the only thing that
+    bounds a store kept outside every project, and a sweep keyed to whichever
+    project is being opened bounds nothing at all for a project cloned, edited
+    once and never opened again — its whole history would sit there for the life
+    of the machine. **What no sweep reclaims**, by design, is the newest revision
+    of every path ever captured (policy rule 3), including paths whose file was
+    since renamed, moved or deleted: the store settles at one revision per such
+    path rather than at nothing, which is what the newest-survives guarantee costs
+    and why both user-facing docs state the retention numbers with that rule
+    beside them instead of promising unconditional reclamation.
     Every deletion goes through one `discard(_:)` that asserts
     `layout.contains(_:)` first — `LSPInstallEngine`'s rule, for its reason: a
     layout bug or a caller passing a url from somewhere else must not turn into
@@ -691,9 +697,11 @@ anyway, and the worst case of that is one snapshot written twice.
   `~/Library/Application Support/Pisaka/LocalHistory`, for up to 14 days or 30
   revisions per file. Anything a captured file contained — including a secret
   committed by accident and then removed — is in there until retention reclaims
-  it. Deleting that directory removes the feature's data completely and breaks
-  nothing; there is no in-app "clear history" command, because the directory *is*
-  the state.
+  it, **except the newest revision of each path, which retention never reclaims**
+  (policy rule 3): the store settles at one revision per path ever captured, not
+  at nothing. Deleting that directory removes the feature's data completely and
+  breaks nothing, and it is the only thing that does; there is no in-app "clear
+  history" command, because the directory *is* the state.
 - **A pre-operation capture reads at most 200 files from disk.** Open buffers are
   never capped, but in a worktree with more than 200 changed files the disk half
   is truncated, and which 200 is the order the caller handed them in. The bound is
@@ -725,7 +733,8 @@ anyway, and the worst case of that is one snapshot written twice.
   is not invertible, so the project tree's rename, drag-and-drop move and delete
   carry nothing with them: the renamed file starts an empty history under its new
   path, and the revisions taken under the old one stay in the store, unreachable
-  from the window, until retention reclaims them. Migrating them would mean
+  from the window; retention thins them to the newest, which then survives for
+  good like every other newest revision. Migrating them would mean
   moving one directory for a file move and re-deriving a digest per descendant
   for a folder move — a second path-keying rule beside the one the layout states
   — and a delete has no destination to migrate to at all.

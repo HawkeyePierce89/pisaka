@@ -428,6 +428,29 @@ final class LocalHistoryStoreTests: XCTestCase {
         XCTAssertEqual(listed.first.flatMap { store.content(of: $0, root: projectRoot, relativePath: path) }, "only")
     }
 
+    /// The floor both user-facing docs now state: a sweep takes a path down to one
+    /// revision and no further, so a fully expired area is *not* reclaimed — its
+    /// file directory and the area around it survive every later sweep. Pinned
+    /// because the two "left empty" branches read as if aging out could reach
+    /// them, and because dropping the newest-survives rule to bound the store
+    /// would have to change this documented consequence too.
+    func testAFullyExpiredAreaSettlesAtOneRevisionAndIsNeverReclaimed() {
+        let tree = makeTree()
+        let store = makeStore(tree, policy: LocalHistoryPolicy(maxAge: 60))
+        store.capture(text: "first", root: projectRoot, relativePath: path, event: .save, now: date(1_000))
+        store.capture(text: "second", root: projectRoot, relativePath: path, event: .save, now: date(2_000))
+
+        store.pruneAll(now: date(10_000_000))
+        store.pruneAll(now: date(20_000_000))
+
+        XCTAssertTrue(
+            tree.hasDirectory(fileDirectory(path, in: tree)),
+            "The file directory outlived a sweep that condemned every revision in it."
+        )
+        XCTAssertTrue(tree.hasDirectory(projectDirectory(in: tree)), "The project area outlived it too.")
+        XCTAssertEqual(store.revisions(root: projectRoot, relativePath: path).map(\.contentHash).count, 1)
+    }
+
     func testPruningANeverCapturedProjectDoesNothing() {
         let tree = makeTree()
         let store = makeStore(tree)

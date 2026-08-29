@@ -1047,10 +1047,15 @@ and iPhone. The feature scope landed so far:
   snapshot. The store holds **copies of your file contents on the local disk**,
   unencrypted, under `~/Library/Application Support/Pisaka/LocalHistory`; anything
   a captured file contained — including a secret you removed afterwards — stays
-  there until retention reclaims it (14 days, or 30 revisions of that file).
-  Deleting that directory removes every revision completely and breaks nothing
-  else; there is no in-app "clear history" command, no export, and no setting for
-  the retention numbers. A pre-operation capture reads at most **200** files from
+  there until retention reclaims it (14 days, or 30 revisions of that file) —
+  **except the newest revision of each file, which is never reclaimed at all**.
+  That is the same rule that makes the feature a safety net rather than a tidy
+  cache, and its price is that the last content Pisaka ever wrote for a given path
+  stays on disk indefinitely: retention takes every path it has ever captured down
+  to one revision and no further. Deleting that directory removes every revision
+  completely and breaks nothing else; it is the only thing that does. There is no
+  in-app "clear history" command, no export, and no setting for the retention
+  numbers. A pre-operation capture reads at most **200** files from
   disk: in a working tree with more changed files than that, the extras are not
   snapshotted (open tabs are never capped, and are always captured from the buffer
   rather than from disk). Files over 1 MiB and non-text files are never captured.
@@ -1067,7 +1072,8 @@ and iPhone. The feature scope landed so far:
   carry its history along: the store is keyed by the file's path inside the
   project, so a renamed or moved file starts an empty history and the revisions
   taken under its old path stay in the store, no longer reachable from any
-  window, until retention reclaims them. The window also does not refresh itself
+  window; retention thins them to the newest one, which then stays for good like
+  every other newest revision. The window also does not refresh itself
   — a revision taken while it is open (an autosave, an operation, or the copy
   Restore makes of what it replaced) shows up only after you open the history
   again.

@@ -154,15 +154,22 @@ public struct LocalHistoryStore {
     /// their revisions aged out.
     ///
     /// **Store-wide rather than per-project, and that is load-bearing.** Retention
-    /// is stated to the user without a condition — anything a captured file
-    /// contained, including a secret removed afterwards, "is in there until
-    /// retention reclaims it" — and a sweep keyed to whichever root is being
-    /// opened cannot keep that promise: the history of a project cloned, edited
-    /// once and never opened again would be reclaimed by nothing at all and would
-    /// sit in the store for the life of the machine, which is both the unbounded
-    /// growth and the privacy claim broken at once. The store is one directory
-    /// outside every project, so its housekeeping is asked of the directory, not
-    /// of a root that happens to be in hand.
+    /// is what bounds a store that lives outside every project, and a sweep keyed
+    /// to whichever root is being opened bounds nothing at all for a project
+    /// cloned, edited once and never opened again: its whole history would sit
+    /// there for the life of the machine. The store is one directory outside
+    /// every project, so its housekeeping is asked of the directory, not of a
+    /// root that happens to be in hand.
+    ///
+    /// **What this cannot reclaim, by design:** `LocalHistoryPolicy`'s third rule
+    /// reinstates the newest revision of a file unconditionally, so a sweep takes
+    /// every path ever captured down to one revision and no further — including a
+    /// path whose file was since renamed, moved or deleted, which no window can
+    /// reach again. That is the guarantee ("the revision from before that edit
+    /// survives however old it is") paid for in bytes, and it is why the retention
+    /// numbers are stated to the user with the newest-survives rule beside them
+    /// rather than as an unconditional reclamation. Deleting the store directory
+    /// is the only thing that removes everything.
     ///
     /// The cost is one directory read per project area on top of the per-file
     /// reads the sweep already did, on the capture chain's queue, once per open.
@@ -185,13 +192,15 @@ public struct LocalHistoryStore {
     /// One project area: retention over each file directory, then the area itself
     /// if nothing is left in it.
     ///
-    /// A file directory left with no entries at all is removed, so a project that
-    /// stops being edited does not leave a fan of empty directories behind, and
-    /// an area left with no file directories goes the same way — a project whose
-    /// history has entirely aged out leaves nothing, which is what "retention
-    /// reclaims it" has to mean for a store the user is invited to inspect in
-    /// Finder. A directory still holding something foreign is left exactly as it
-    /// is, because this feature deletes only what it wrote.
+    /// A file directory left with no entries at all is removed, so the store the
+    /// user is invited to inspect in Finder does not accumulate a fan of empty
+    /// directories, and an area left with no file directories goes the same way.
+    /// Retention alone never empties a directory that holds a real snapshot — the
+    /// newest one always survives (`pruneAll(now:)` states why) — so in practice
+    /// these two branches reclaim a directory holding nothing but the `.partial`
+    /// debris removed just above, or one this feature created and never wrote to.
+    /// A directory still holding something foreign is left exactly as it is,
+    /// because this feature deletes only what it wrote.
     private nonisolated func prune(project: URL, now: Date) {
         guard let entries = try? fileService.contentsOfDirectory(at: project) else { return }
         for entry in entries where entry.isDirectory {

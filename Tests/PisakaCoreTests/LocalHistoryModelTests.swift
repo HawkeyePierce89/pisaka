@@ -484,9 +484,11 @@ final class LocalHistoryModelTests: XCTestCase {
         )
     }
 
-    /// A project area whose every revision aged out leaves nothing behind — the
-    /// store the user is invited to inspect in Finder does not accumulate empty
-    /// directories for projects that are gone.
+    /// A project area with nothing left in it is removed, so the store the user is
+    /// invited to inspect in Finder does not accumulate empty directories for
+    /// projects that are gone. Staged with `.partial` debris rather than by aging
+    /// revisions out, because retention alone cannot empty a directory holding a
+    /// real snapshot: the newest one always survives.
     func testPruningTheStoreRemovesAProjectAreaLeftEmpty() async {
         let tree = makeTree()
         let model = makeModel(tree)
