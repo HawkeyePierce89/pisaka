@@ -451,6 +451,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `UserDefaults`, one property-list blob — now the `SessionCatalog` — under the
     stable `Keys.projectSessions` (`"session.projects"`), with
     `loadLastOpened()` (the head, what launch restore follows),
+    `loadCatalog()` (the whole catalog for the recents list; empty for an unreadable blob),
     `session(forFolder:)` (that project's session, or `nil` — which is what a
     folder opened for the first time looks like), `save(_:)` and `clear()`.
     `save(_:)` keeps its single-argument signature on purpose and is now an
@@ -480,6 +481,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     "nothing stored", so a user who closed every tab and quit comes back to an empty
     editor rather than to the session before last. Unit-tested in
     `EditorSessionTests`.
+  - `RecentProject.swift` — pure recent-projects projection (`RecentProject` value type) over `SessionCatalog`.
+    Applies four rules to the catalog's raw entries: (1) **MRU order** is preserved as the catalog stores it;
+    (2) the **`nil`-folder entry is excluded** (the no-folder workspace has no openable path);
+    (3) **injected existence**: the view passes a `folderExists` closure so the filter rule is unit-tested without disk IO, and any entry it rejects is dropped;
+    (4) **canonical marking over verbatim display**: rows carry the exact spelling stored (no tilde abbreviation), but identity and the `isCurrent` flag compare `CanonicalPath.canonical(_:).path` against the open project, so any spelling of the open folder marks its row.
+    **Staleness**: the list is read at display time and may trail the live catalog by one debounce of the session writer. This is acceptable; the button's own label always reads the live project root, and a race where a folder is deleted after the popover opens is settled by the funnel's refusal guard (`PisakaApp.swift`). Unit-tested in `RecentProjectTests`.
   - `ScopedFileAccess.swift` — pure, Foundation-only iOS security-scoped-access
     helpers (the `FileIcon`/`SettingsStore` move-the-testable-math-into-Core
     precedent). `FolderBookmark` (`Codable`/`Equatable`: standardized `path`
@@ -496,6 +503,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     under the stable `bookmarks.recentFolders` key — `folders()` (empty on an
     undecodable blob), `bookmark(forPath:)`, `rememberFolder(...)`,
     `forgetFolder(...)`. Covered by `ScopedFileAccessTests`/`BookmarkStoreTests`.
+    *(Note: `BookmarkStore` already accumulates recent folders here; an out-of-scope follow-up ticket can use this to add a recents list to the iOS folder-picker screen).*
   - `TabLayout.swift` — pure, SwiftUI-free decision for the iOS open-tabs
     presentation (the `BottomPanel.toggled` precedent):
     `presentation(isCompactWidth:orientation:) -> Presentation` returns `.switcher`

@@ -852,6 +852,8 @@ struct PisakaApp: App {
                 onClose: { closeFile(id: $0) },
                 onOpenFile: { openFile(url: $0) },
                 onOpenFolder: { openFolder() },
+                recentProjects: { recentProjectRows() },
+                onOpenRecentProject: { openFolder(url: $0) },
                 onRevert: { revertChanges(contextFile: $0) },
                 onOpenDiff: { openLocalChangesDiff($0) },
                 onOpenCommitDiff: { openCommitDiff($0, in: $1) },
@@ -1831,7 +1833,18 @@ struct PisakaApp: App {
     /// invariant. Nothing being force-closed is also why step 3's refusal does not
     /// apply here. At launch this is all the same thing, since there is nothing open
     /// to carry.
+    ///
+    /// The existence guard at the top protects against the recents list offering a
+    /// folder deleted since it was recorded. Every present and future programmatic
+    /// caller inherits this refusal rather than re-implementing it.
+    /// `restoreLastSession()` is untouched — its own pre-check keeps launch restore
+    /// on the silent path, so the new alert can never fire at launch.
     private func openFolder(url: URL) {
+        guard isExistingDirectory(atPath: url.path) else {
+            reportMissingFolderBeforeSwitch(url)
+            return
+        }
+
         // Both decided *before* `model.openFolder(url:)` moves `projectRoot`, which
         // would make every later test read as a re-open.
         let isSwitch = !model.isCurrentProjectRoot(url)
@@ -2138,6 +2151,14 @@ struct PisakaApp: App {
         }
     }
 
+    private func recentProjectRows() -> [RecentProject] {
+        RecentProject.rows(
+            catalog: sessionStore.loadCatalog(),
+            currentRoot: model.projectRoot,
+            folderExists: { isExistingDirectory(atPath: $0.path) }
+        )
+    }
+
     // MARK: - Commit dialog
 
     /// Open the commit dialog for the current project (⌘K / the Local Changes
@@ -2249,6 +2270,14 @@ struct PisakaApp: App {
             message: "These files could not be saved, and switching folders would "
                 + "close them and lose those edits:\n\n"
                 + names.joined(separator: "\n")
+        )
+    }
+
+    private func reportMissingFolderBeforeSwitch(_ url: URL) {
+        PlatformFeedback.warning()
+        PlatformAlert.presentMessage(
+            title: "Cannot open project folder",
+            message: "The folder “\(url.lastPathComponent)” no longer exists at its recorded location."
         )
     }
 

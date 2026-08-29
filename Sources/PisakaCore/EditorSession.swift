@@ -405,6 +405,13 @@ public final class SessionStore {
         defaults.removeObject(forKey: Keys.lastSession)
     }
 
+    /// The whole stored catalog, read exactly like the existing readers.
+    /// Returns an empty catalog for every unreadable-blob case. This is the
+    /// one read the recents projection needs.
+    public func loadCatalog() -> SessionCatalog {
+        catalog()
+    }
+
     /// The stored catalog: the new blob when its key is present, the migrated
     /// legacy blob when it is not, an empty catalog otherwise. Presence is tested
     /// on the *object*, not on `data(forKey:)`, so a wrong-typed value under the

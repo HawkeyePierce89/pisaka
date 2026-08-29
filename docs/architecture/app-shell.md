@@ -810,7 +810,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `PisakaApp` also owns the **launch-time session restore**: a `private let
     sessionStore = SessionStore()` and a `private let sessionController =
     SessionController()` (plain stored references like the controllers above — the
-    `@main` App is created once), plus `@State private var didRestoreSession`. The
+    `@main` App is created once), plus `@State private var didRestoreSession`. It exposes the `SessionCatalog` to `ContentView`'s recent-projects switcher via the private `recentProjectRows()`, reading `sessionStore.loadCatalog()` and passing `model.projectRoot` and `isExistingDirectory(atPath:)`. The
     former `openFolder()` is **split in two**: the no-argument form now does
     nothing but show the panel and call `openFolder(url:)`, which holds *all* the
     folder-change logic (the watcher start and the Local Changes / Git Log / branch
@@ -819,10 +819,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     restore — goes through exactly the same collaborators as a user-driven one;
     calling `model.openFolder(url:)` directly would leave every one of them on a
     project the workspace has already moved past.
-    **Sessions are per project, and `openFolder(url:)` owns the switch.** Whether
-    this open *is* a switch is decided **first**, before anything is touched
-    (`!model.isCurrentProjectRoot(url)`) — necessarily first, since
-    `model.openFolder(url:)` moves `projectRoot` and would make every later test
+    **Sessions are per project, and `openFolder(url:)` owns the switch.**
+    An **existence guard sits at the very top of `openFolder(url:)`**: before `isSwitch` is decided and before anything is flushed, the funnel checks `isExistingDirectory(atPath: url.path)`. If the folder is gone, it warns via `PlatformFeedback.warning()` + `PlatformAlert` ("Cannot open project folder") and returns, leaving the workspace unchanged. This protects programmatic callers (like the recents widget, which can offer a folder deleted since it was recorded); the launch restore's own pre-check keeps it on the silent path, so the alert never fires at launch.
+    Whether this open *is* a switch is decided **next**, before anything else is touched
+    (`!model.isCurrentProjectRoot(url)`) — necessarily before
+    `model.openFolder(url:)` moves `projectRoot`, which would make every later test
     read as a re-open. Re-opening the folder already open stays a pure no-op for the
     tabs, exactly as it already is for the LSP workspace and the commit dialog; a
     real switch runs four things in this order, and the order is the whole design.

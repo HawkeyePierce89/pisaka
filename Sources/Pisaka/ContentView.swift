@@ -168,6 +168,12 @@ struct ContentView: View {
     /// Defaults to a no-op so previews/tests can construct the view without the
     /// app wiring.
     var onOpenFolder: () -> Void = {}
+    /// Invoked by the bottom-bar project switcher to fetch the MRU project list.
+    /// Default no-op returning empty for previews/tests.
+    var recentProjects: () -> [RecentProject] = { [] }
+    /// Invoked when a recent project is chosen from the bottom-bar switcher.
+    /// Default no-op for previews/tests.
+    var onOpenRecentProject: (URL) -> Void = { _ in }
     /// Invoked when a changed-file row requests a revert. Defaults to a no-op so
     /// previews/tests can construct the view without the app wiring.
     var onRevert: (ChangedFile) -> Void = { _ in }
@@ -677,6 +683,13 @@ struct ContentView: View {
             bottomBarButton(title: "Changes", systemImage: "arrow.triangle.pull", panel: .changes)
             bottomBarButton(title: "Problems", systemImage: "exclamationmark.triangle", panel: .problems)
             Spacer()
+            // Recent-projects switcher widget.
+            ProjectSwitcherView(
+                currentRoot: model.projectRoot,
+                recentProjects: recentProjects,
+                onOpenFolder: onOpenFolder,
+                onOpenRecent: onOpenRecentProject
+            )
             // JetBrains-style branch widget on the right of the status bar: shows
             // the current branch and opens the switch/create popover.
             BranchSwitcherView(

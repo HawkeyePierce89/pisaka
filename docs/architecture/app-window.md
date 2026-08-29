@@ -133,7 +133,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     the `BranchSwitcherView` (JetBrains status-bar convention) showing the current
     branch, threaded through as the `branchSwitcher: BranchSwitcherModel` /
     `onSwitchBranch` / `onCreateBranch` parameters (owned by `PisakaApp`, defaulted
-    for previews).
+    for previews). Beside it sits the new project switcher (`ProjectSwitcherView`), threaded through as the `recentProjects: () -> [RecentProject]` / `onOpenRecentProject: (URL) -> Void` parameters (owned by `PisakaApp`, defaulted).
     At the **trailing end** of the same bar, after the branch widget, sits the
     completion on/off switch (T-4): `completionToggleButton`, in the existing
     `bottomBarButton` idiom (plain button style, accent tint when active,
@@ -410,6 +410,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     still leaves room for the panel's content. The panel *content* states no
     minimum of its own (see the panel-height paragraph above); the slot's scaled
     height is the only height it has.
+  - `ProjectSwitcherView.swift` (macOS) — the bottom-bar project switcher. Reads `recentProjects` inside the button's action before presenting, so the catalog is queried exactly at popover-open time. Takes two closures: `onOpenFolder` (dismisses and calls, wired to the same open panel) and `onOpenRecent` (dismisses and calls with the URL). Includes a current-row short-circuit: clicking the already-current project just dismisses the popover. The empty state is a short list with only the "Open Folder…" item. Everything sizes through the interface zone (`\.interfaceMetrics`), and it deliberately declares no zoom surface.
   - `ProblemsPanelView.swift` (macOS) — the Problems panel: every diagnostic the
     language servers currently hold, grouped by file. It observes `DiagnosticsModel`
     (`@ObservedObject` — this view is *for* that state and nothing else renders it)

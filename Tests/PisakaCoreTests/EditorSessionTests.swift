@@ -809,4 +809,29 @@ final class EditorSessionTests: XCTestCase {
         ])
         XCTAssertEqual(loaded?.selectedIndex, 2)
     }
+    func testLoadCatalogReturnsWholeStoredCatalog() throws {
+        let defaults = makeDefaults()
+        let store = SessionStore(defaults: defaults)
+        let one = EditorSession(folderPath: "/p/one", tabs: [.file(path: "/p/one/a.swift")])
+        let two = EditorSession(folderPath: "/p/two", tabs: [.file(path: "/p/two/b.swift")])
+        store.save(one)
+        store.save(two)
+
+        let catalog = store.loadCatalog()
+        XCTAssertEqual(catalog.entries.count, 2)
+        XCTAssertEqual(catalog.entries[0], two)
+        XCTAssertEqual(catalog.entries[1], one)
+    }
+
+    func testLoadCatalogReturnsEmptyForUnwrittenBlob() {
+        let defaults = makeDefaults()
+        let store = SessionStore(defaults: defaults)
+        XCTAssertTrue(store.loadCatalog().entries.isEmpty)
+    }
+
+    func testLoadCatalogReturnsEmptyForGarbageBlob() {
+        let defaults = makeDefaults()
+        defaults.set(Data("not a property list".utf8), forKey: SessionStore.Keys.projectSessions)
+        XCTAssertTrue(SessionStore(defaults: defaults).loadCatalog().entries.isEmpty)
+    }
 }
