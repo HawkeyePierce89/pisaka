@@ -45,15 +45,18 @@ public struct RecentProject: Identifiable, Equatable {
     ) -> [RecentProject] {
         let rootKey = currentRoot.map { CanonicalPath.canonical($0).path }
 
+        var seen = Set<String>()
         var rows: [RecentProject] = []
         for entry in catalog.entries {
             guard let folderPath = entry.folderPath else { continue }
             let url = URL(fileURLWithPath: folderPath)
             guard folderExists(url) else { continue }
 
-            let name = url.lastPathComponent
-
             let canonicalPath = CanonicalPath.canonical(url).path
+            guard !seen.contains(canonicalPath) else { continue }
+            seen.insert(canonicalPath)
+
+            let name = url.lastPathComponent
             let isCurrent = canonicalPath == rootKey
 
             rows.append(RecentProject(

@@ -30,8 +30,10 @@ struct ProjectSwitcherView: View {
 
     var body: some View {
         Button {
-            rows = recentProjects()
-            isPresented = true
+            if !isPresented {
+                rows = recentProjects()
+            }
+            isPresented.toggle()
         } label: {
             Label(currentLabel, systemImage: "folder")
                 .font(metrics.scaledFont(.callout))

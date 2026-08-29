@@ -99,14 +99,12 @@ final class RecentProjectTests: XCTestCase {
 
         let root1 = target
         let rows1 = RecentProject.rows(catalog: catalog, currentRoot: root1, folderExists: { _ in true })
+        XCTAssertEqual(rows1.count, 1)
         XCTAssertTrue(rows1[0].isCurrent)
-        XCTAssertTrue(rows1[1].isCurrent)
-        XCTAssertTrue(rows1[2].isCurrent)
 
         let root4: URL? = nil
         let rows4 = RecentProject.rows(catalog: catalog, currentRoot: root4, folderExists: { _ in true })
+        XCTAssertEqual(rows4.count, 1)
         XCTAssertFalse(rows4[0].isCurrent)
-        XCTAssertFalse(rows4[1].isCurrent)
-        XCTAssertFalse(rows4[2].isCurrent)
     }
 }
