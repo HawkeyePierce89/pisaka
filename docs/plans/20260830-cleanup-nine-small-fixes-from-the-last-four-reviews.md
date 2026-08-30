@@ -235,36 +235,36 @@ source file; a new ordinary Core test suite needs no index line).
 - Modify: `Tests/PisakaCoreTests/SyntaxContextScannerCharacterizationTests.swift`
   (the scaling assertion only)
 
-- [ ] Introduce a per-scan `Scan` reference type holding the `NSString`, its
+- [x] Introduce a per-scan `Scan` reference type holding the `NSString`, its
   length, the chunk buffer and the chunk bookkeeping, `character(at:)` and
   `isMatch(at:pattern:)`, the string forms **ordered once** at construction
   (item 4a), and the two validator cursors below.
-- [ ] Thread it through every helper in place of `text: NSString`, so every
+- [x] Thread it through every helper in place of `text: NSString`, so every
   per-character read goes through the chunk (item 4b). The buffer stops being
   half-used; the fallback for a look-ahead beyond the current chunk stays.
-- [ ] Replace `yamlFlowDepth(upTo:)`'s walk-from-zero with a resumable cursor on
+- [x] Replace `yamlFlowDepth(upTo:)`'s walk-from-zero with a resumable cursor on
   `Scan` (position, depth, in-single, in-double), advancing forward to the
   requested limit and restarting from zero only for a backwards query — which
   the scan's monotonic candidate order never issues, and which is why the
   answers are identical rather than merely close (item 4c).
-- [ ] Replace `isInsideHtmlTag(at:)`'s walk-from-zero the same way (position,
+- [x] Replace `isInsideHtmlTag(at:)`'s walk-from-zero the same way (position,
   in-tag, in-single, in-double, in-comment). Preserve today's answers exactly at
   the target-clamped tail: the cursor commits only to a safe boundary and the
   last few characters are resolved on a scratch copy, so a clamped decision is
   never recorded into the cursor for a later, longer query to inherit.
-- [ ] Add an internal test seam returning the number of characters the two
+- [x] Add an internal test seam returning the number of characters the two
   validators visited in one scan, documented as existing for the scaling
   assertion and read by nothing in the app.
-- [ ] Tests: the goldens from Task 2 pass **unmodified**; the existing scanner
+- [x] Tests: the goldens from Task 2 pass **unmodified**; the existing scanner
   suite passes unmodified; a new scaling assertion shows the validator step count
   for a quote-dense YAML document and an HTML document growing roughly linearly
   (4× the document costing well under 6× the steps), with the comment stating
   that a re-walk from zero blows this by an order of magnitude and that no clock
   is involved.
-- [ ] Check `swiftlint --strict` for the file's measured thresholds (length,
+- [x] Check `swiftlint --strict` for the file's measured thresholds (length,
   cyclomatic complexity, parameter count); if a ceiling genuinely moves, move it
   in `.swiftlint.yml` with its reason and update `LintConfigurationTests`.
-- [ ] Run `swift test` — must pass before Task 4.
+- [x] Run `swift test` — must pass before Task 4.
 
 ### Task 4: The anchor vocabulary and the dotenv decision
 

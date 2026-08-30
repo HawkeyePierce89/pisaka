@@ -375,4 +375,68 @@ final class SyntaxContextScannerCharacterizationTests: XCTestCase {
             "11c,6s,6c,5s,13c,10s,4c,10m,2c,23m,16c,3s,2c",
         ])
     }
+
+    // MARK: - Scaling
+
+    /// The two validated-open walks — YAML flow depth and HTML inside-tag —
+    /// must cost the scan roughly one visit per character, not one walk per
+    /// candidate quote.
+    ///
+    /// Both used to restart from offset zero for every candidate, which is
+    /// quadratic: a 4× document cost about 16× the character visits, and a
+    /// quote-dense one much worse. The assertion is therefore a *shape*
+    /// assertion — a 4× document must cost well under 6× the steps — and it
+    /// reads `validatorStepCount`, a counter of characters actually visited,
+    /// rather than a clock. That matters twice over: a wall-clock bound on a
+    /// shared CI machine is noise the size of the effect it measures, and a
+    /// re-walk from zero blows this count by an order of magnitude, which no
+    /// scheduling jitter can either hide or fake.
+    ///
+    /// The upper bound is deliberately loose. Resuming is not free of constant
+    /// factors — a query clamped by its own target leaves the cursor a few
+    /// characters back and the next query re-walks them — so the measured
+    /// ratio sits near 4 and the bound at 6 is the band between "linear with
+    /// slack" and "quadratic".
+    private func assertValidatorStepsScaleLinearly(
+        _ name: String,
+        block: String,
+        language: SyntaxLanguage,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        func steps(repeating count: Int) -> Int {
+            let text = Array(repeating: block, count: count).joined(separator: "\n") as NSString
+            return SyntaxContextScanner.validatorStepCount(in: text, at: text.length, language: language)
+        }
+        let small = steps(repeating: 16)
+        let large = steps(repeating: 64)
+        XCTAssertGreaterThan(
+            small, 0,
+            "\(name): the corpus must actually reach the validators, or the ratio proves nothing",
+            file: file, line: line
+        )
+        XCTAssertLessThan(
+            large, small * 6,
+            "\(name): a 4× document cost \(large) validator steps against \(small) — "
+                + "that is the walk-from-zero shape, not a resumed cursor",
+            file: file, line: line
+        )
+    }
+
+    func testYamlValidatorStepsScaleLinearly() {
+        assertValidatorStepsScaleLinearly("yaml", block: [
+            #"list: [a, "b # c", 'd']"#,
+            #"map: {x: "1", y: '2'}"#,
+            #"key: "value # not a comment""#,
+            #"other: 'it''s fine'   # real comment"#,
+        ].joined(separator: "\n"), language: .yaml)
+    }
+
+    func testHtmlValidatorStepsScaleLinearly() {
+        assertValidatorStepsScaleLinearly("html", block: [
+            #"<div class="a > b" id='x'>text</div>"#,
+            #"<!-- comment with " quote -->"#,
+            #"<input value="v" name='n'>"#,
+        ].joined(separator: "\n"), language: .html)
+    }
 }
