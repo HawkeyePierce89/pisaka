@@ -146,6 +146,33 @@ final class UsageResultTests: XCTestCase {
         )
     }
 
+    func testTwoFilesSharingADisplayPathStayContiguous() {
+        // Two different files displaying one name — what every row outside the
+        // project root does, since it falls back to `lastPathComponent`. Ordering
+        // on the display path alone would interleave them by offset, and
+        // `UsageFileGroup.grouped` (consecutive runs of one file) would then emit
+        // the same file as two groups, which the panel draws with a duplicate
+        // `ForEach` identity.
+        let answer = UsagesAnswer.make(
+            identifier: "foo",
+            rows: [
+                row("/deps/one/lib.rs", at: 10, relativePath: "lib.rs"),
+                row("/deps/two/lib.rs", at: 5, relativePath: "lib.rs"),
+                row("/deps/one/lib.rs", at: 30, relativePath: "lib.rs"),
+            ],
+            provenance: .semantic,
+            requestingFile: nil
+        )
+
+        XCTAssertEqual(
+            answer.rows.map { "\($0.fileURL.path)@\($0.range.location)" },
+            ["/deps/one/lib.rs@10", "/deps/one/lib.rs@30", "/deps/two/lib.rs@5"]
+        )
+        let groups = UsageFileGroup.grouped(answer.rows)
+        XCTAssertEqual(groups.count, 2)
+        XCTAssertEqual(Set(groups.map(\.fileURL)).count, 2, "One group per file, never two for one")
+    }
+
     func testOrderingByOffsetIsNumericNotLexicographic() {
         let answer = UsagesAnswer.make(
             identifier: "foo",

@@ -427,7 +427,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     two-argument `onReplaceAll: (String, Int) async -> ReplaceSummary?` closure and
     is passed straight to `projectSearch.replaceAll(template:originGeneration:)`.
     **Find Usages and Rename are the two commands this file added last, and only
-    one of them writes.** It owns the `@StateObject FindUsagesModel`, built in
+    one of them writes.** It owns the `FindUsagesModel` as a **plain `let`,
+    deliberately not `@StateObject`** — the `commitDialog`/`diagnostics` rule, and
+    this model is its strongest case: a textual scan republishes once per walked
+    chunk, and `@StateObject` would subscribe this scene's `body` to every one of
+    them, re-creating `ContentView` with its non-`Equatable` closure parameters and
+    putting the project tree, the tab list and `CodeEditorView.updateNSView` on the
+    walk's republish path. `UsagesPanelView` observes it itself, which is what makes
+    the rows appear. It is built in
     `init()` over the same open-buffer closure the project search uses — so a dirty
     tab is scanned as the user sees it rather than as the disk holds it — and over a
     *closure* returning `symbolIndexController.provider`, because the routing
@@ -489,7 +496,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     coordinates they were never computed for (D37, and the full reasoning on
     `RenameEditPlan`'s entry in `core-lsp.md`). Inside the bracket
     the order is **capture, verify, write** (D37): `autosave.suspend()` +
-    `localChanges.beginRevert()` raised synchronously and balanced by `defer`,
+    `localChanges.beginRevert()` raised synchronously and lowered **by hand on both
+    exits rather than by `defer`** — the commit path's rule and for its reason:
+    `PlatformAlert.presentMessage` is `NSAlert.runModal()`, a nested run loop, and
+    `AutosaveController.flushNow()` bails while `suspendCount > 0`, so a ⌘Q while
+    the stale-file or write-failure alert sits on screen would skip the termination
+    flush for every dirty buffer. `captureBeforeOperation` is the body's only
+    `await`, so those two exits are the only paths out and the `defer` bought
+    nothing but the ordering hazard —
     `await captureBeforeOperation(.rename, buffers: openBufferTexts(), targets:
     plan.fileURLs)` as the **first `await` in the body**, the texts re-read *now*
     (the buffers may have been typed in and the disk written to while the dialog was

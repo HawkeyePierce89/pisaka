@@ -820,6 +820,21 @@ final class LSPProtocolTypesTests: XCTestCase {
         XCTAssertThrowsError(try decodeResult(changes, as: LSPWorkspaceEdit.self))
     }
 
+    /// A `changes` entry that is not an array of edits fails the whole decode
+    /// too, and unlike `documentChanges` it has no file-operation reading to be
+    /// tolerant of: every value in that map is one document's edits, so dropping
+    /// the unreadable one would keep the other four documents and write exactly
+    /// the half-renamed project the rule above refuses.
+    func testAMalformedChangesEntryFailsTheWholeAnswer() {
+        let changes = """
+            {"changes":{
+               "file:///p/a.swift":[{"range":{"start":{"line":1,"character":0},
+                                              "end":{"line":1,"character":3}},"newText":"bar"}],
+               "file:///p/b.swift":"not an array"}}
+            """
+        XCTAssertThrowsError(try decodeResult(changes, as: LSPWorkspaceEdit.self))
+    }
+
     /// The tolerance that *remains*: an entry that is not a text edit at all — a
     /// file operation, or a kind no version of the spec names — is ignored, and
     /// the textual half of the answer is still exactly right.

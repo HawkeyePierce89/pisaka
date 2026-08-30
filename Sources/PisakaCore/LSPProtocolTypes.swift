@@ -971,8 +971,11 @@ public struct LSPDocumentEdits: Equatable, Hashable, Sendable {
 /// offers to rename the file too into a server that cannot rename at all. The
 /// same tolerance covers an operation kind no version of the spec names.
 ///
-/// **The leniency stops at the edits themselves.** An entry this cannot read is
-/// dropped; an *edit* it cannot read fails the whole decode, and the command
+/// **The leniency stops at the edits themselves.** A `documentChanges` entry
+/// that is not a text edit — the file operations above — is dropped; an *edit*
+/// this cannot read fails the whole decode, and so does an unreadable entry of
+/// the `changes` map, which has no file operations to be tolerant of and so
+/// carries nothing a drop could lose harmlessly. The command
 /// beeps as it does for a server that refused. The two are not the same case:
 /// dropping an entry that is not a text edit loses nothing the rename promised,
 /// while dropping one edit out of a document's five produces a `WorkspaceEdit`
@@ -1020,10 +1023,26 @@ public struct LSPWorkspaceEdit: Equatable, Hashable, Sendable, Decodable {
         )
     }
 
+    /// The `changes` map, all-or-nothing.
+    ///
+    /// Unlike `documentChanges`, this map has no file-operation entries to be
+    /// tolerant *of*: every value in it is one document's edits, so a value that
+    /// is not an array of edits is a malformed answer and not a kind this client
+    /// declines to perform. Dropping it would be the half-renamed project the
+    /// type's rule above refuses — renamed in four files out of five, with every
+    /// refusal in `RenameEditPlan` passing because what remains is internally
+    /// consistent.
     private static func documentEdits(ofChanges changes: JSONValue?) throws -> [LSPDocumentEdits] {
         guard let object = changes?.objectValue else { return [] }
-        return try object.keys.sorted().compactMap { uri in
-            guard let edits = object[uri]?.arrayValue else { return nil }
+        return try object.keys.sorted().map { uri in
+            guard let edits = object[uri]?.arrayValue else {
+                throw DecodingError.dataCorrupted(
+                    .init(
+                        codingPath: [],
+                        debugDescription: "changes entry for \(uri) is not an array of edits"
+                    )
+                )
+            }
             return LSPDocumentEdits(
                 uri: uri,
                 edits: try edits.map { try $0.decoded(as: LSPTextEdit.self) }

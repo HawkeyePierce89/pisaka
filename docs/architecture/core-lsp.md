@@ -371,14 +371,18 @@ document, together with the limits they carry.
     version of the spec names): those are **ignored rather than fatal**, since
     nothing here performs file operations and refusing the whole answer would turn
     a server that helpfully offers to rename the file too into a server that cannot
-    rename at all. **The leniency stops at the edits themselves**: an *entry* this
-    cannot read is dropped, an *edit* it cannot read fails the whole decode and the
-    command beeps as it does for a server that refused. The two are not the same
-    case — dropping a non-text-edit entry loses nothing the rename promised, while
-    dropping one edit out of a document's five yields a `WorkspaceEdit` that is
-    internally consistent, passes every refusal in `RenameEditPlan`, and writes a
-    project renamed in four places out of five. This is the one answer in the file
-    that becomes a write, so it is the one decoded all-or-nothing.
+    rename at all. **The leniency stops at the edits themselves**: a
+    *`documentChanges` entry* this cannot read is dropped, an *edit* it cannot read
+    fails the whole decode and the command beeps as it does for a server that
+    refused. The two are not the same case — dropping a non-text-edit entry loses
+    nothing the rename promised, while dropping one edit out of a document's five
+    yields a `WorkspaceEdit` that is internally consistent, passes every refusal in
+    `RenameEditPlan`, and writes a project renamed in four places out of five. This
+    is the one answer in the file that becomes a write, so it is the one decoded
+    all-or-nothing — which is also why an unreadable entry of the **`changes`** map
+    throws rather than being dropped: that map holds no file operations to be
+    tolerant of, so every value in it is one document's edits and skipping one is
+    precisely the half-renamed project, arriving through the other spelling.
     One document may legitimately appear more than once; entries stay
     in wire order and grouping is `RenameEditPlan`'s job, not the decoder's.
     `LSPDocumentEdits.version` is **kept and never compared** (D37): the plan

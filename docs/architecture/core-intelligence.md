@@ -1221,9 +1221,16 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     — with the first row kept and the canonical path memoised per spelling, since a
     two-thousand-row answer over a hundred files would otherwise resolve symlinks
     two thousand times for a hundred distinct results. Ordering is **the requesting
-    file first, then relative path, then buffer offset**: the usages nearest the
-    caret are the ones the question was really about, and scrolling to find the line
-    you started on is the first thing that makes such a panel feel wrong. The cap is
+    file first, then relative path, then the file path, then buffer offset**: the
+    usages nearest the caret are the ones the question was really about, and
+    scrolling to find the line you started on is the first thing that makes such a
+    panel feel wrong. The file path is a key of its own because `relativePath` is a
+    *display* path and two files legitimately share one — every row outside the root
+    falls back to its file name, so two crates' `lib.rs` display alike. Ordering on
+    the display path alone would interleave their rows by offset, and
+    `UsageFileGroup.grouped` (consecutive runs of one file) would then emit that
+    file as two separate groups, which the panel draws with a duplicate `ForEach`
+    identity. The cap is
     last, so what survives is the head of the list the reader is reading.
     **The cap is 2 000**, deliberately far below Find in Files' 10 000: that number
     is sized for arbitrary patterns over a whole project, where a broad pattern
@@ -1316,7 +1323,17 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     Collection stops the moment one row *more* than the cap is in hand: that surplus
     row is what sets `isTruncated` through `UsagesAnswer.make`'s own `> cap` test,
     and walking past it would read the rest of the project to build rows the cap
-    discards. With no folder open the scan falls back to the requesting buffer
+    discards. **The requesting file is always in the scanned set**, prepended to
+    the walk's list when the walk does not already yield it: a tab may hold a file
+    the project's `.gitignore` excludes, or one opened from outside the root
+    entirely, and neither is a file `ProjectFileWalk` visits — so without this the
+    panel would answer "No usages" for the name the caret is sitting on, the one
+    wrong answer the user can see is wrong. The coverage test is a plain path
+    comparison rather than a canonical one, because canonicalizing every walked file
+    would resolve a symlink per file across the whole project while the cost of
+    getting it wrong is nil: the extra file goes through the same `scanChunk` and
+    produces byte-identical rows, which `make`'s canonical dedup collapses. With no
+    folder open the scan falls back to the requesting buffer
     alone — one file's usages honestly labelled beats an empty panel for a command
     the user just invoked.
     **Two generation tokens, answering two different questions.** The *request*

@@ -35,7 +35,18 @@ struct PisakaApp: App {
     /// not as the disk holds it — *and* the installed intelligence provider, so
     /// the question reaches a language server when one serves the language and
     /// falls to the whole-word scan only when nothing does.
-    @StateObject private var usages: FindUsagesModel
+    ///
+    /// A plain stored property, deliberately **not** `@StateObject` — the
+    /// `commitDialog`/`diagnostics` rule, and this model is the strongest case
+    /// for it in the app: a textual scan republishes once per walked chunk, and
+    /// `@StateObject` subscribes this scene's `body` to every one of them, which
+    /// re-creates `ContentView` with its non-`Equatable` closure parameters and
+    /// puts the project tree, the tab list and `CodeEditorView.updateNSView` on
+    /// the walk's republish path. `UsagesPanelView` observes it itself, which is
+    /// what makes the rows appear; nothing in this scene's `body` reads a
+    /// published property of it. `ContentView` states the same rule where it
+    /// holds this model non-observed.
+    private let usages: FindUsagesModel
     @StateObject private var localChanges = LocalChangesModel(gitService: GitCLIService())
     @StateObject private var commitLog = CommitLogModel(gitService: GitCLIService())
     /// Observable state for the branch-switcher bottom-bar widget. Constructed
@@ -567,12 +578,10 @@ struct PisakaApp: App {
         // model states: the routing provider is *installed* on the controller
         // during this very `init`, and a later phase may install another, so a
         // model holding today's answer would keep asking it forever.
-        _usages = StateObject(
-            wrappedValue: FindUsagesModel(
-                fileService: FileService(),
-                provider: { [weak symbolIndexController] in symbolIndexController?.provider },
-                openBuffers: openBuffers
-            )
+        usages = FindUsagesModel(
+            fileService: FileService(),
+            provider: { [weak symbolIndexController] in symbolIndexController?.provider },
+            openBuffers: openBuffers
         )
     }
 
@@ -2995,10 +3004,14 @@ struct PisakaApp: App {
 
         autosave.suspend()
         localChanges.beginRevert()
-        defer {
-            autosave.resume()
-            localChanges.endRevert()
-        }
+        // No `defer`: the two exits below lower the gates by hand, the commit
+        // path's rule and for its reason — `PlatformAlert.presentMessage` is
+        // `NSAlert.runModal()`, a nested run loop, and `AutosaveController
+        // .flushNow()` bails while `suspendCount > 0`, so a ⌘Q while a rename
+        // alert sits on screen would skip the termination flush for every dirty
+        // buffer. `captureBeforeOperation` is the only `await` in the body, so
+        // the two exits are the only paths out and a `defer` bought nothing but
+        // the ordering hazard.
         // Pre-empting a write the user cannot see all of: a rename changes files
         // no tab holds, and unlike a git operation nothing can put them back. The
         // targets are the plan's own files, which is also the whole set the write
@@ -3023,7 +3036,9 @@ struct PisakaApp: App {
             // Nothing was written — the verification is what makes that true, and
             // it is the one refusal worth an alert rather than a beep: the user
             // asked for a write, the write did not happen, and the reason is
-            // something they can act on.
+            // something they can act on. Gates down *before* the modal.
+            localChanges.endRevert()
+            autosave.resume()
             PlatformFeedback.warning()
             PlatformAlert.presentMessage(
                 title: "Rename not applied",
@@ -3056,6 +3071,10 @@ struct PisakaApp: App {
         // trip on a question nobody asked, and every row it holds now names a
         // string this rename just removed.
         usages.clearIfNaming(oldName)
+        // Every write and every resync is done: gates down before the one modal
+        // this path can still present, for the reason stated above the bracket.
+        localChanges.endRevert()
+        autosave.resume()
         if let failed = application.writeFailure {
             PlatformAlert.presentMessage(
                 title: "Rename incomplete",

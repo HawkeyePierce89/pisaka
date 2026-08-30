@@ -198,11 +198,22 @@ public struct UsagesAnswer: Equatable, Sendable {
         return kept
     }
 
-    /// The requesting file first, then relative path, then buffer offset.
+    /// The requesting file first, then relative path, then the file itself, then
+    /// buffer offset.
+    ///
+    /// **The file path is a key of its own and not a formality**: `relativePath`
+    /// is a *display* path, and two different files legitimately share one — every
+    /// row outside the project root falls back to `lastPathComponent`, so a
+    /// server naming two crates' `lib.rs` produces two files with one displayed
+    /// name. Ordering on the display path alone would interleave their rows by
+    /// offset, and `UsageFileGroup.grouped` — which groups *consecutive* runs of
+    /// one file — would then emit the same file as two separate groups, which the
+    /// panel draws with a duplicate `ForEach` identity. Sorting by the file path
+    /// keeps every file's rows contiguous whatever they display as.
     ///
     /// The sort is stable in the only way that matters — the comparator is a
-    /// total order on *(isRequestingFile, relativePath, location, length)*, so
-    /// two rows can compare equal only when they are duplicates dedup already
+    /// total order on *(isRequestingFile, relativePath, path, location, length)*,
+    /// so two rows can compare equal only when they are duplicates dedup already
     /// removed.
     static func ordered(_ rows: [UsageResult], requestingFile: URL?) -> [UsageResult] {
         let requestingPath = requestingFile.map { CanonicalPath.canonical($0).path }
@@ -221,6 +232,7 @@ public struct UsagesAnswer: Equatable, Sendable {
             let rhsFirst = isRequesting(rhs)
             if lhsFirst != rhsFirst { return lhsFirst }
             if lhs.relativePath != rhs.relativePath { return lhs.relativePath < rhs.relativePath }
+            if lhs.fileURL.path != rhs.fileURL.path { return lhs.fileURL.path < rhs.fileURL.path }
             if lhs.range.location != rhs.range.location { return lhs.range.location < rhs.range.location }
             return lhs.range.length < rhs.range.length
         }

@@ -352,13 +352,34 @@ public final class FindUsagesModel: ObservableObject {
         // off-main: see the type's "Where the work runs" note.
         let buffers = openBuffers()
 
-        let (files, bufferIndex) = await offMain {
+        let (walked, bufferIndex) = await offMain {
             (
                 ProjectFileWalk.collectFiles(root: root, maskPatterns: [], fileService: service),
                 ProjectSearchModel.bufferIndex(buffers)
             )
         }
         guard token == generation, projectToken == rootGeneration else { return }
+
+        // **The file the question was asked from is always scanned**, even when
+        // the walk does not yield it. It need not: a tab may hold a file the
+        // project's `.gitignore` excludes, or one opened from outside the root
+        // entirely, and neither is a file `ProjectFileWalk` visits. Without this
+        // the panel would answer "No usages" for a name the caret is sitting on —
+        // a demonstrably false answer, and the one case where the user can see it
+        // is false. It leads the list for `UsagesAnswer.make`'s reason.
+        //
+        // The comparison is a plain path test rather than a canonical one on
+        // purpose: canonicalizing every walked file resolves a symlink per file
+        // across the whole project, and the cost of getting it wrong is nil —
+        // scanning a file twice through the same `scanChunk` produces byte-identical
+        // rows, which `make`'s canonical dedup collapses.
+        var files = walked
+        if let fileURL = usages.fileURL {
+            let requesting = fileURL.standardizedFileURL
+            if !files.contains(where: { $0.standardizedFileURL.path == requesting.path }) {
+                files.insert(requesting, at: 0)
+            }
+        }
 
         var collected: [UsageResult] = []
         var index = 0

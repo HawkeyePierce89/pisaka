@@ -141,6 +141,47 @@ final class FindUsagesModelTests: XCTestCase {
         XCTAssertTrue(stub.readPaths.isEmpty)
     }
 
+    /// A tab may hold a file the project walk never yields — one the
+    /// `.gitignore` excludes, say. Answering "No usages" for the name the caret
+    /// is sitting on is the one wrong answer the user can see is wrong, so the
+    /// requesting file is scanned whether or not the walk visited it.
+    func testTheRequestingFileIsScannedEvenWhenTheWalkSkipsIt() async {
+        let stub = StubFileTree(root: root, files: ["a.swift": "nothing here\n"])
+        let hidden = root.appendingPathComponent("ignored/gen.swift")
+        let model = FindUsagesModel(
+            fileService: stub,
+            openBuffers: { [hidden: "let count = 1\n"] }
+        )
+
+        await model.find(
+            request("count", file: "ignored/gen.swift", offset: 4, text: "let count = 1\n"),
+            root: root
+        )
+
+        XCTAssertEqual(model.provenance, .textual)
+        XCTAssertEqual(paths(model), ["ignored/gen.swift"])
+        XCTAssertNil(model.emptyReason)
+    }
+
+    /// The same rule for a tab opened from outside the folder entirely: its rows
+    /// display as a bare file name (`ProjectFileWalk.relativePath`) and lead the
+    /// answer, because that is where the question was asked from.
+    func testTheRequestingFileIsScannedWhenItLivesOutsideTheRoot() async {
+        let stub = StubFileTree(root: root, files: ["a.swift": "count\n"])
+        let outside = URL(fileURLWithPath: "/elsewhere/x.swift")
+        let model = FindUsagesModel(
+            fileService: stub,
+            openBuffers: { [outside: "count\n"] }
+        )
+
+        await model.find(
+            UsagesRequest(identifier: "count", fileURL: outside, offset: 0, text: "count\n"),
+            root: root
+        )
+
+        XCTAssertEqual(paths(model), ["x.swift", "a.swift"])
+    }
+
     func testBinaryAndOversizeFilesAreSkippedByTheScan() async {
         let stub = StubFileTree(root: root, files: ["a.swift": "count\n", "big.bin": "count\n"])
         stub.skippedFiles = ["big.bin"]
