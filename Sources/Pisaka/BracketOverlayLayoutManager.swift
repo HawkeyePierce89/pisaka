@@ -490,7 +490,7 @@ final class BracketOverlayLayoutManager: NSLayoutManager {
         baselineOffset: CGFloat,
         lineFragmentRect lineRect: NSRect,
         lineFragmentGlyphRange lineGlyphRange: NSRange,
-        containerOrigin containerOrigin: NSPoint
+        containerOrigin: NSPoint
     ) {
         guard underlineVal.contains(Self.diagnosticUnderlineStyle) else {
             super.drawUnderline(

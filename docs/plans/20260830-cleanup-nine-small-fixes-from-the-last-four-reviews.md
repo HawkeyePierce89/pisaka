@@ -306,17 +306,17 @@ source file; a new ordinary Core test suite needs no index line).
 - Modify: `Sources/Pisaka/PisakaApp.swift`,
   `Sources/Pisaka/BracketOverlayLayoutManager.swift`
 
-- [ ] Rename apply pass: the per-tab guard compares with `NSString` equality
+- [x] Rename apply pass: the per-tab guard compares with `NSString` equality
   rather than Swift's, preserving today's "no verified text ⇒ no match, and the
   file is reported unrewritten" behavior. The surrounding doc comment gains the
   reason: the plan was verified against exact bytes, and canonical equivalence
   would vouch for a tab holding a differently-encoded spelling — the same hazard
   the restore path and the usages reveal already name.
-- [ ] Fix the underline override's duplicated parameter name; zero behavior
+- [x] Fix the underline override's duplicated parameter name; zero behavior
   change.
-- [ ] Both are app-layer and stay untested by convention; the reasoning ships at
+- [x] Both are app-layer and stay untested by convention; the reasoning ships at
   the code.
-- [ ] Run `swift test` — must pass before Task 6.
+- [x] Run `swift test` — must pass before Task 6.
 
 ### Task 6: Clock-free budget assertions in the glob suite
 

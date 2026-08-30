@@ -3236,14 +3236,27 @@ struct PisakaApp: App {
         // pass's hop: a tab typed into while the disk half ran is skipped and
         // reported, never overwritten from a text it no longer holds — Replace
         // All's rule for the identical window.
+        //
+        // **The sameness question is `NSString`'s, not Swift's.** The plan was
+        // verified against exact bytes and its edits are UTF-16 offsets measured
+        // against them, while Swift's `String` equality is *canonical
+        // equivalence*: it answers `true` for a decomposed and a precomposed
+        // spelling of the same characters, which have different `NSString`
+        // lengths. Vouching for a tab holding a differently-encoded spelling
+        // would apply offsets measured against one string to another — misplaced
+        // edits, or an out-of-range exception — which is the same hazard the
+        // restore path (`SaveTransformController`) and the usages reveal already
+        // name. A key with no verified text still matches nothing and the file is
+        // reported unrewritten, exactly as before.
         var rewrittenTabs: [(id: UUID, url: URL)] = []
         var unrewritten: [URL] = []
         for rewrite in application.bufferRewrites {
             let key = Self.canonicalKey(rewrite.fileURL)
-            let verified = current[key]
+            let verified = current[key] as NSString?
             var matched = false
             for file in model.openFiles {
-                guard file.url.map(Self.canonicalKey) == key, file.text == verified else { continue }
+                guard file.url.map(Self.canonicalKey) == key,
+                      verified?.isEqual(to: file.text) == true else { continue }
                 saveTransform.applyRename(rewrite.plan, to: file.id)
                 rewrittenTabs.append((file.id, rewrite.fileURL))
                 matched = true
