@@ -357,20 +357,20 @@ source file; a new ordinary Core test suite needs no index line).
 
 ### Task 8: Update documentation
 
-- [ ] `docs/architecture/core-local-history.md` — the browser model's
+- [x] `docs/architecture/core-local-history.md` — the browser model's
   current-text seam (buffer synchronous, disk deferred and resolved in the hop
   it already makes), the published restore plan as the button's one rule, and
   the window's single reference date.
-- [ ] `docs/architecture/core-intelligence.md` — the vocabulary table's
+- [x] `docs/architecture/core-intelligence.md` — the vocabulary table's
   gitignore row (`#` at true line start only) and dotenv row (the escape
   decision and its reason); the anchor vocabulary's four cases with the
   per-language assignment; the scanner's per-scan reader, the ordered forms and
   the two resumable validator cursors, including the restart-on-backwards-query
   rule.
-- [ ] `docs/architecture/core-editorconfig.md` — the glob suite's eight
+- [x] `docs/architecture/core-editorconfig.md` — the glob suite's eight
   pathological tests now assert charged budget rather than wall-clock time, and
   why that still catches the regression they were written for.
-- [ ] No `CLAUDE.md` change: no new source file, and the new suite is an
+- [x] No `CLAUDE.md` change: no new source file, and the new suite is an
   ordinary Core test suite rather than a repository-file one.
 
 ## Post-Completion (manual, outside the agent's checkboxes)

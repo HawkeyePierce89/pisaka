@@ -455,7 +455,7 @@ changes.)
     however many readers — and it never captures, never prunes and never writes,
     so like the symbol index it neither raises the writer gate nor is gated by it.
     Published: `fileURL`, `relativePath`, `revisions`, `selected`,
-    `selectedContent`, `diffRows`, `isLoading`, plus the computed `isEmpty` (a
+    `selectedContent`, `diffRows`, `restorePlan`, `isLoading`, plus the computed `isEmpty` (a
     file is targeted, its listing has landed, and there is nothing in it) and
     `isUnsupportedTarget` (a file is targeted and could not be keyed at all).
     **The selection is one of those published values on purpose**, rather than
@@ -488,13 +488,39 @@ changes.)
     `select(_:currentText:)` moves `selected` synchronously so the highlight
     follows the click, and loads the content and computes
     `LineDiff.rows(old:new:)` off the main actor through the
-    `ProjectSearchModel.offMain(_:)` shape. `restore(currentText:)` is pure and
-    answers `nil` in the two cases where a restore would be a no-op the user could
-    not tell from a bug: nothing selected (or its content not in hand — a revision
-    reclaimed between the listing and the click), and a revision whose text the
-    buffer already holds; refusing the identical case is what keeps a restore from
-    marking a clean tab dirty and writing a `.restore` snapshot of bytes that are
-    already the newest revision. That sameness test is `NSString`'s, not Swift's:
+    `ProjectSearchModel.offMain(_:)` shape.
+    **What the file holds "now" arrives as a `LocalHistoryCurrentText`, not a
+    `String`, because the two answers cost different things.** When a tab holds
+    the file the text is already main-actor state and reading it is a dictionary
+    lookup, so it travels as `.text(String)` and nothing is deferred; when no tab
+    does, the answer is a disk read under the same 1 MiB ceiling the capture side
+    uses, and that read has no business on the main thread, so it travels as
+    `.deferred(@Sendable () -> String)` and is resolved **inside the hop this call
+    already makes** — beside the revision's content read and the diff, on the same
+    private serial queue. Same content, same ceiling, same empty-string fallback;
+    one fewer main-thread read. The closure is `@Sendable` because that is where
+    it runs, and it is only ever called when there is something to diff: clearing
+    the pane takes no hop at all, so a deselection no longer reads a file.
+    `PisakaApp.currentTextForLocalHistory` is the one place that decides which
+    shape to answer with.
+    **The Restore button reads a published plan rather than a predicate.** The
+    landed selection keeps the text it resolved and `restorePlan:
+    LocalHistoryRestore?` is built from it by `plannedRestore()`; the window
+    disables on `restorePlan == nil` and acts on that same value, so the question
+    "is this revision worth restoring?" is spelled exactly once and against the
+    very text the rows above were computed from. That is what makes the button
+    agree with the diff pane it sits under — the previous rule, armed by the
+    loaded content and refused at click time by a `restore(currentText:)` that
+    re-read the current text, could show an armed button whose click did nothing.
+    The plan is `nil` in the three cases where a restore would be a no-op the user
+    could not tell from a bug: nothing selected, its content not in hand (a
+    revision reclaimed between the listing and the click), and a revision whose
+    text the buffer already holds; refusing the identical case is what keeps a
+    restore from marking a clean tab dirty and writing a `.restore` snapshot of
+    bytes that are already the newest revision. It is cleared wherever the
+    selection is — `open(file:root:)` and a `nil` selection — and a superseded
+    selection publishes no plan, like everything else the generation token
+    guards. That sameness test is `NSString`'s, not Swift's:
     `==` on `String` compares by canonical equivalence, while a revision is
     identified by a SHA-256 over its *UTF-8 bytes*, so a decomposed and a
     precomposed spelling are two real revisions the store keeps apart — and a
@@ -563,18 +589,33 @@ changes.)
     companion model rather than more members on its owner. **The current text
     arrives as a closure, read at the moment it is needed**: the window outlives
     edits to the file it is showing and outlives a folder switch, so the "new"
-    side of every diff has to be asked for rather than captured. Each row shows
+    side of every diff has to be asked for rather than captured. The closure
+    answers a `LocalHistoryCurrentText` rather than a `String`, so the disk half
+    is itself deferred and this window never reads a file on the main actor;
+    which shape it answers with is `PisakaApp`'s decision, not the view's. Each
+    row shows
     the event title and the timestamp **twice** — relative ("2 hours ago") is how
     a user finds the edit they remember making, absolute is how they tell two of
-    them apart. The `DiffView` is keyed by the revision's own file name (so
+    them apart. **The relative reading is measured against one date the window
+    owns**, held as `@State`, refreshed on a 60 s timer and passed into every
+    `RevisionRow`, whose `body` therefore reads no clock. A `body` that calls
+    `Date()` is only correct at the instant SwiftUI happens to evaluate it — rows
+    re-render when the model publishes, not when time passes, so a window left
+    open goes on reading "just now" about an edit made an hour ago, and two rows
+    re-rendered in different passes disagree about what "now" is. One instant
+    passed down makes every row consistent; the timer is what makes them true,
+    and a minute is the resolution the relative wording has, so a shorter tick
+    would re-render the list for no visible difference. The `DiffView` is keyed
+    by the revision's own file name (so
     switching rows rebuilds the panes wholesale) but named with the *file's* name
     (which is what selects the syntax language; a snapshot's own name is a
     timestamp with a `.snapshot` extension and would highlight as nothing).
-    Restore is armed by the *loaded content* rather than by the selection, since
-    the content is what a restore writes and it arrives a hop after the click;
-    `restore(currentText:)` still has the last word, asked when the button is
-    pressed rather than on every body evaluation because that answer costs a read
-    of the current text. Pressing it also re-asks `select(_:currentText:)` with
+    **Restore reads the model's published plan, for its enablement and for its
+    action alike**: the button is disabled on `restorePlan == nil` and hands that
+    same value to `onRestore`, so this view decides nothing about it and the
+    button cannot disagree with the rows above it — both are answered from the
+    text the diff was computed against. Pressing it also re-asks
+    `select(_:currentText:)` with
     the restored text, because the rows on screen were diffed against the buffer
     the restore has just replaced: left alone they would describe a state that no
     longer exists, which reads as "the restore did nothing". Two empty states,

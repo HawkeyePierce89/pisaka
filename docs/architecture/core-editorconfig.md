@@ -864,7 +864,8 @@ Thin by convention: the views wire keys to the rules and decide nothing.
     reports through `onBufferReplaced` like every other off-screen rewrite (a
     restore always has a url, since the store is keyed by one). A restore whose
     text the buffer already holds does nothing: `LocalHistoryBrowserModel
-    .restore(currentText:)` refuses that case before it becomes a plan, and it is
+    .restorePlan` is `nil` in that case — the plan is never built, which is also
+    what greys the window's Restore button out — and it is
     re-checked here because this method is reachable with any text and rewriting a
     buffer with itself would dirty a clean tab for no change — compared as
     `NSString` for `prepare`'s reason, since canonical equivalence would call a
@@ -932,14 +933,36 @@ over in-memory trees (no committed `.editorconfig`):
     literal brace groups, nested braces, numeric ranges (negatives included, a
     non-integer refused), escapes, the 1024-character boundary accepted at the
     limit and ignored beyond it, and the "no slash ⇒ any depth" vs. "slash ⇒
-    anchored" split. Plus the budget from six sides, each asserted on a wall
-    clock because a bound on work is the only honest way to state one: the
-    wildcard-heavy pathological name, the alternation-heavy one (the shape a flat
-    step count under-reports), a name ending in empty alternation branches and a
-    numeric range against a long digit run (the two shapes a *length*-derived
-    charge under-reports), fifty copies of one of them in a single file (the
-    per-pair-vs-per-resolution scope), and a 200-section but honest config
-    spending under half the ceiling while every matching section still answers.
+    anchored" split. Plus the budget from both sides — and **asserted on the
+    charged work rather than on a wall clock**, which the suite no longer consults
+    anywhere. Every pathological input is one whose real cost is *charged* against
+    a ceiling; that charging was the fix each test was written for, so the ceiling
+    is the honest statement of the bound. The match shapes run against a
+    caller-owned budget and assert it was driven to exhaustion **and** that the
+    call still answered: the wildcard-heavy pathological name, the
+    alternation-heavy one (the shape a flat step count under-reports), a name
+    ending in empty alternation branches and a numeric range against a long digit
+    run (the two shapes a *length*-derived charge under-reports), and fifty copies
+    of one of them in a single file (the per-pair-vs-per-resolution scope, where a
+    per-section budget would leave the shared one at its ceiling). The compile
+    shapes assert `exceedsCompileBudget` directly, and the whole-file case asserts
+    every section degraded that way, so the file's total work is sections × the
+    ceiling. The two "nowhere near the budget" tests are the other side of the
+    bound and were always clock-free: a 200-section but honest config spending
+    under half the ceiling while every matching section still answers, and an
+    ordinary pattern against a deep path still matching.
+
+    **Why that still catches the regression the clock was standing in for.** The
+    two claims are not the same, and the budget is the stronger one. Work that is
+    quadratic *and uncharged* — which is what every one of these inputs was found
+    by — runs its full cost without touching the ceiling, so the exhaustion
+    assertion fires deterministically, where a clock only fires on a machine slow
+    enough that day (one of these bounds did exactly that in a release run). Work
+    that is quadratic *and charged* cannot outrun the ceiling it is charged
+    against, which is precisely the "cannot hang" property the clock approximated.
+    The measured pre-fix numbers stay in each test's comment as the evidence for
+    why the input is pathological in the first place; the pathological inputs
+    themselves are unchanged, because the coverage is the input, not the clock.
   - `SaveTransformTests` — the acceptance list, engine-level: trimming with
     spaces, tabs and mixed runs (a whitespace-only line, the unterminated last
     line, a buffer trimmed on every line); the spared line from six sides (a
