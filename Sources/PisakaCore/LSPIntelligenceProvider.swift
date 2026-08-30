@@ -307,7 +307,12 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
             openTexts: request.openTexts
         )
         var rows: [UsageResult] = []
-        rows.reserveCapacity(response.locations.count)
+        // Bounded by the cap the answer is built with, not by the server's count:
+        // a `references` reply is the one answer here whose length is the
+        // server's to choose, and reserving for tens of thousands of locations
+        // that `UsagesAnswer.make` discards past two thousand would allocate for
+        // the reply rather than for the answer. Growth past this is amortised.
+        rows.reserveCapacity(min(response.locations.count, UsagesAnswer.cap))
         for location in response.locations {
             // **The one loop in this file that can outlive the question.** A
             // references answer is the only one whose mapping is unbounded — a

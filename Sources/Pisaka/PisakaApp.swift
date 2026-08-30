@@ -2850,7 +2850,8 @@ struct PisakaApp: App {
     /// out-of-bounds range, never a confident selection of a span that is now
     /// something else.
     ///
-    /// A row **outside the opened folder** goes to the read-only viewer instead,
+    /// A row **outside the opened folder that no tab already holds** goes to the
+    /// read-only viewer instead,
     /// for `viewDefinitionOutsideProject`'s reason and D3's: a language server
     /// answers `textDocument/references` with every reference it resolved, and an
     /// SDK header or a dependency checkout is a perfectly ordinary one. Opening it
@@ -2869,8 +2870,24 @@ struct PisakaApp: App {
     /// not change while a window onto them is open, and closing it means the
     /// viewer handing its text back out — the one thing "structurally read-only"
     /// is easiest to keep true by not doing.
+    ///
+    /// **A file a tab already holds never takes that branch, wherever it lives.**
+    /// The reason above is entirely about what `openFile` would *add* to
+    /// `WorkspaceModel`, and there is nothing to add to a file already in it: the
+    /// user opened it themselves, the autosave gate and ⌘S already apply, and
+    /// showing a second, read-only window onto a file whose editable tab is on
+    /// screen is the wrong answer to a click. It is also the *unsafe* one — the
+    /// viewer reads the file from disk while a row is a position in a buffer, so
+    /// a dirty out-of-root tab would have the row's range revealed against text
+    /// it was never computed for, which is exactly the confident reveal of a
+    /// wrong span `revealRange(naming:in:)` exists to refuse. Both paths out of
+    /// this are ordinary: Find Usages always scans the requesting file, even one
+    /// opened from outside the root entirely (`FindUsagesModel.scanTextually`),
+    /// and a semantic answer maps every location against the open buffers.
     private func activateUsage(_ row: UsageResult) {
-        if let root = model.projectRoot, !isInsideProject(row.fileURL, root: root) {
+        if let root = model.projectRoot,
+           !isInsideProject(row.fileURL, root: root),
+           model.fileID(forURL: row.fileURL) == nil {
             viewDefinitionOutsideProject(url: row.fileURL, range: row.range)
             return
         }
@@ -2967,19 +2984,33 @@ struct PisakaApp: App {
     /// other tab through `WorkspaceModel.replaceText` at the cost of its undo stack
     /// (decision 5).
     ///
-    /// **The requesting file is planned against the text the *server* was given,
-    /// not against the buffer as it now stands.** The dialog is modal, but the
-    /// round trip that follows it is not: the editor is live for however long the
-    /// server takes, and a keystroke in that window moves every offset after it.
-    /// Planning against the current buffer would map the server's `(line,
-    /// character)` coordinates onto text they were never computed for and then
-    /// record whatever bytes happen to sit there as `expectedText` — a
-    /// verification that passes by construction, and a rename that silently
-    /// replaces the wrong spans. Planning against `request.text` instead makes the
+    /// **Every file is planned against the text the *server* was given, and no
+    /// file against a live buffer.** The dialog is modal, but the round trip that
+    /// follows it is not: the editor is live for however long the server takes,
+    /// and a keystroke in that window moves every offset after it. Planning
+    /// against the current buffer would map the server's `(line, character)`
+    /// coordinates onto text they were never computed for and then record
+    /// whatever bytes happen to sit there as `expectedText` — a verification that
+    /// passes by construction, and a rename that silently replaces the wrong
+    /// spans. Planning against what the server was told instead makes the
     /// mismatch visible: `apply` re-reads the live buffer, `holds` fails, and the
-    /// command says the file changed and writes nothing. `LSPWorkspace.stillHolds`
-    /// catches the same typing only once the 400 ms document-sync debounce has
-    /// fired, so this closes the window in front of it.
+    /// command says the file changed and writes nothing.
+    ///
+    /// The requesting file's copy of that text is `request.text` — definitionally
+    /// what `LSPIntelligenceProvider` prepared the document with. Every *other*
+    /// file is one nobody prepared, and its copy is `LSPWorkspace.lastSentTexts()`:
+    /// a background tab typed in less than `LSPDocumentSyncController`'s 400 ms
+    /// debounce ago is a buffer the server has never seen, and it is the same
+    /// hazard one file further out. `LSPWorkspace.stillHolds` cannot see it — it
+    /// compares the *prepared* document's version and nothing else — so the two
+    /// halves are closed here, together, or the one left open is the one with no
+    /// undo behind it (decision 5).
+    ///
+    /// A file the map does not name is a file **no server holds open**, so the
+    /// server answered about the bytes on disk: the fallback is `FileService`,
+    /// never `WorkspaceModel`. A dirty tab over such a file therefore ends in the
+    /// stale refusal below rather than in a write — which is the honest answer,
+    /// because the edits were computed for text that tab has already replaced.
     ///
     /// **It refuses outright once the project root has moved.** `root` is the
     /// folder that was open when the command was invoked; the round trip in front
@@ -3003,7 +3034,9 @@ struct PisakaApp: App {
         guard !revertInFlight() else { return }
         let oldName = request.identifier
         let fileService = FileService()
-        let buffers = bufferTextsByCanonicalPath()
+        var sent: [String: String] = [:]
+        for (url, text) in lspWorkspace.lastSentTexts() { sent[Self.canonicalKey(url)] = text }
+        let serverTexts = sent
         let requestKey = request.fileURL.map(Self.canonicalKey)
         let requestText = request.text
         let plan: RenameEditPlan
@@ -3013,7 +3046,7 @@ struct PisakaApp: App {
             texts: { url in
                 let key = Self.canonicalKey(url)
                 if key == requestKey { return requestText }
-                return buffers[key] ?? (try? fileService.read(url: url))
+                return serverTexts[key] ?? (try? fileService.read(url: url))
             }
         ) {
         case .success(let made):

@@ -2980,10 +2980,16 @@ final class EditorTextView: NSTextView, ZoomSurfaceProviding {
     /// resolved offset is therefore stashed here and read by the actions below.
     ///
     /// `super`'s menu is *appended to* rather than replaced, so Cut/Copy/Paste,
-    /// Look Up, Services and the substitution submenus all survive. AppKit hands
-    /// the same menu object back on every right-click, so the additions are
-    /// guarded by a tag: appending unconditionally would grow the menu by four
-    /// items per click. Enablement stays AppKit's — `autoenablesItems` is left
+    /// Look Up, Services and the substitution submenus all survive. What `super`
+    /// hands back is not promised to be a fresh menu — `NSTextView` builds one
+    /// from a template it shares across every instance — so the additions are
+    /// **removed and re-made** rather than skipped when they are already there.
+    /// Appending unconditionally would grow a reused menu by four items per
+    /// click; *skipping* a reused menu would be worse, because the items it
+    /// already carries are targeted at whichever text view built them, and a
+    /// second editor would then run Find Usages and Rename against the first
+    /// one's buffer. Rebuilding is right under both behaviours and costs three
+    /// items. Enablement stays AppKit's — `autoenablesItems` is left
     /// alone, because turning it off for our three items would turn it off for
     /// every stock item too — and is answered in `validateMenuItem(_:)`.
     override func menu(for event: NSEvent) -> NSMenu? {
@@ -2991,7 +2997,9 @@ final class EditorTextView: NSTextView, ZoomSurfaceProviding {
         contextMenuOffset = characterIndexForInsertion(
             at: convert(event.locationInWindow, from: nil)
         )
-        guard !menu.items.contains(where: { $0.tag == Self.intelligenceMenuTag }) else { return menu }
+        for item in menu.items where item.tag == Self.intelligenceMenuTag {
+            menu.removeItem(item)
+        }
 
         let separator = NSMenuItem.separator()
         separator.tag = Self.intelligenceMenuTag

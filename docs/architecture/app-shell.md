@@ -458,7 +458,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     click actually lands in: a row that no longer holds its identifier degrades to
     opening the file with nothing selected — never a crash on an out-of-bounds
     range, never a confident selection of a span that is now something else. A row
-    **outside the opened folder** does not go through `openFile` at all: it goes to
+    **outside the opened folder that no tab already holds** does not go through
+    `openFile` at all: it goes to
     the read-only viewer, exactly as a definition outside the project does (D3). A
     server answers `textDocument/references` with every reference it resolved, and
     an SDK header or a dependency checkout is an ordinary one — opening it as a tab
@@ -475,6 +476,18 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     sources and dependency checkouts that do not change while a window onto them is
     open, and closing it means the viewer handing its text back out, which is the
     one thing "structurally read-only" is easiest to keep true by not doing.
+    **The already-open exclusion is not a courtesy.** The reason above is entirely
+    about what `openFile` would *add* to `WorkspaceModel`, and there is nothing to
+    add to a file already in it — the user opened it themselves, so the gate, the
+    session and ⌘S already apply. Routing it to the viewer anyway would also be the
+    *unsafe* branch: the viewer reads the file from **disk** while a row is a
+    position in a **buffer**, so a dirty out-of-root tab would have the row's range
+    revealed against text it was never computed for, which is the confident reveal
+    of a wrong span `revealRange(naming:in:)` exists to refuse. Both ways in are
+    ordinary rather than exotic — `FindUsagesModel.scanTextually` always scans the
+    requesting file, naming "one opened from outside the root entirely" as a case
+    it exists for, and a semantic answer maps every location against the open
+    buffers.
     `renameSymbol(_:)` is the read half and refuses three things **before anything
     appears**, each with a beep and nothing more (the fallback vocabulary of this
     layer, where a language server's absence is never an error the user is made to

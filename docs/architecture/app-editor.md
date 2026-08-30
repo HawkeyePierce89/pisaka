@@ -557,9 +557,15 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     exactly the wrong word and silently so; the resolved offset is therefore
     stashed at menu-build time and re-read when an item fires (kept as an *offset*
     rather than a resolved word, so the identifier is read from the buffer as it is
-    when the item runs). AppKit hands the same menu object back on every
-    right-click, so the additions are guarded by a tag — appending unconditionally
-    would grow the menu by four items per click. Enablement stays AppKit's:
+    when the item runs). What `super` hands back is not promised to be a fresh
+    menu — `NSTextView` builds one from a template it shares across every
+    instance — so the tagged additions are **removed and re-made** on each
+    right-click rather than skipped when they are already there. Appending
+    unconditionally would grow a reused menu by four items per click; *skipping* a
+    reused menu would be the worse bug, because the items it already carries are
+    targeted at whichever text view built them, and a second editor would then run
+    Find Usages and Rename against the first one's buffer. Rebuilding is right
+    under both behaviours and costs three items. Enablement stays AppKit's:
     `autoenablesItems` is left alone (turning it off for our three would turn it off
     for every stock item too), and **both** validation entry points answer it —
     `validateMenuItem(_:)` and `validateUserInterfaceItem(_:)`, each deferring to

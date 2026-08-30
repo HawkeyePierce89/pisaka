@@ -840,6 +840,38 @@ public final class LSPWorkspace {
         return documents[prepared.uri]?.version == prepared.version
     }
 
+    /// The text each open document was last **sent**, keyed by the file URL its
+    /// URI names — the texts a server's answers are computed against.
+    ///
+    /// `stillHolds(_:)` answers the same question for the *one* document a
+    /// request prepared, and by version rather than by bytes. That is enough for
+    /// every answer this layer reads, because every one of them is about the file
+    /// the question was asked in. A **rename is the exception**: it answers about
+    /// files nobody prepared, whose coordinates the server computed against
+    /// whatever it was last told — which for a buffer typed in less than
+    /// `LSPDocumentSyncController`'s debounce ago is *not* the buffer as it now
+    /// stands. Mapping those coordinates onto the live buffer would move every
+    /// edit and then record whatever bytes happen to sit there as `expectedText`:
+    /// a verification that passes by construction. So the plan is built against
+    /// these texts instead, and the divergence surfaces where it can still be
+    /// refused — `RenameEditPlan.apply` re-reads the live buffer, `holds` fails,
+    /// and nothing is written.
+    ///
+    /// A file **absent** from this map is one no server holds open, which means
+    /// the server read it from *disk*; the caller falls back to the disk for
+    /// exactly that reason, and never to a buffer.
+    ///
+    /// A snapshot, not a view: the caller is about to hop, and the bookkeeping
+    /// behind it is the editor's own turn's.
+    public func lastSentTexts() -> [URL: String] {
+        var texts: [URL: String] = [:]
+        for (uri, state) in documents {
+            guard let url = URL(string: uri), url.isFileURL else { continue }
+            texts[url.standardizedFileURL] = state.text
+        }
+        return texts
+    }
+
     // MARK: - Sessions
 
     /// Whether asking a server about `language` is worth attempting at all — the

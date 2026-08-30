@@ -781,6 +781,19 @@ document, together with the limits they carry.
     serialise every other question about that file behind a server that is allowed to
     take seconds, and the cost of the conservative answer is one tree-sitter fallback
     in a case where the world had moved on anyway.
+    **`lastSentTexts()` answers the same question for the documents nobody
+    prepared**, and by bytes rather than by version: the text each open document
+    was last *sent*, keyed by the file URL its URI names. `stillHolds` is enough
+    for every answer this layer only *reads*, because each of those is about the
+    one file the question was asked in; a **rename** is the exception, since it
+    answers about files no request prepared, whose coordinates the server computed
+    against whatever it was last told. `PisakaApp.applyRename` is the one caller
+    (see D37 below for what it does with them). A file absent from the map is one
+    no server holds open — the server read it from disk, and so does the caller.
+    `LSPWorkspaceTests` `.testLastSentTextsReportsTheTextEachDocumentWasFlushedWith`
+    / `.testLastSentTextsLagsABufferThatHasNotBeenFlushedAgain` /
+    `.testLastSentTextsIsEmptyBeforeAnyDocumentIsOpenedAndAfterOneCloses` pin the
+    three cases, the middle one being the whole point.
     **When to give up** (D7): three restarts with 1 s / 2 s / 4 s of backoff — the
     `backoffDelays` array's length *is* the budget — and the fourth failure marks
     that `(server, root)` unavailable for the rest of the app run. The budget is per
@@ -1456,19 +1469,30 @@ document, together with the limits they carry.
     over. There is no count of stale files, because the answer to "which ones"
     changes nothing a caller does.
     **What the plan is built *against* is what makes that comparison mean
-    anything**, and it is the app's half of D37: `PisakaApp.applyRename` answers
-    `texts` for the *requesting* file with `request.text` — the buffer as it was
-    when the question was asked, which is exactly the text the server was given —
-    rather than with the buffer as it now stands. The dialog is modal but the round
-    trip after it is not, so a keystroke during it moves every offset after the
-    caret; planning against the current buffer would map the server's coordinates
-    onto text they were never computed for and then record whatever bytes sit there
-    as `expectedText`, a verification that passes by construction. Planning against
-    the request's own snapshot turns that case into the honest one: `apply` re-reads
-    the live buffer, `holds` fails, and the command says the file changed and writes
-    nothing. `LSPWorkspace.stillHolds` catches the same typing only once the 400 ms
-    document-sync debounce has fired (D30), so this closes the window in front of
-    it.
+    anything**, and it is the app's half of D37: `PisakaApp.applyRename` builds the
+    plan against **the text the server was given, for every file, and against a live
+    buffer for none**. The dialog is modal but the round trip after it is not, so a
+    keystroke during it moves every offset after the caret; planning against the
+    current buffer would map the server's coordinates onto text they were never
+    computed for and then record whatever bytes sit there as `expectedText`, a
+    verification that passes by construction. Planning against what the server was
+    told turns that case into the honest one: `apply` re-reads the live buffer,
+    `holds` fails, and the command says the file changed and writes nothing.
+    The *requesting* file's copy of that text is `request.text` — the buffer as it
+    was when the question was asked, which is definitionally what
+    `LSPIntelligenceProvider` prepared the document with. Every **other** file in
+    the answer is one nobody prepared, and its copy is
+    `LSPWorkspace.lastSentTexts()`: a background tab typed in less than the 400 ms
+    document-sync debounce ago (D30) is a buffer the server has never seen, and
+    mapping its references onto that buffer is the same hazard one file further
+    out — with no undo behind it, because a tab that is not the displayed one is
+    rewritten through `WorkspaceModel.replaceText` (decision 5). `stillHolds`
+    cannot see either case: it compares the *prepared* document's version and
+    nothing else, so both halves are closed here instead, together. A file
+    `lastSentTexts()` does not name is a file no server holds open, which means the
+    server answered about the bytes on **disk** — so the fallback is `FileService`
+    and never `WorkspaceModel`, and a dirty tab over such a file ends in the stale
+    refusal rather than in a write.
     Edits are grouped by **canonical path** and sorted together — `documentChanges`
     is a list, so one document may appear twice, and sorting two entries separately
     would produce a descending pair no back-to-front application can survive — then
