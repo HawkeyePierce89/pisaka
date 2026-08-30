@@ -481,11 +481,20 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     a beep, and no bracket raised.
     `applyRename(_:for:root:)` is **the seventh gated worktree operation**,
     and the first that is not git's or Replace All's. Like every other writer it
-    refuses outright while another one holds the gate (`revertInFlight()`) — and
-    alone among this command's refusals it says **nothing at all**, because by then
-    the user has answered a dialog and a beep arriving because a git operation
-    happened to start would be a report about a race rather than about their
-    command. The plan is built *before* the bracket (`RenameEditPlan.make`, against
+    refuses outright while another one holds the gate (`revertInFlight()`), with
+    the same "Git operation in progress" alert ⌘S gets and for the same reason.
+    Before that it refuses **a project root that has moved**: `root` is the folder
+    that was open when the command was invoked, the round trip in front of this is
+    a read *outside* the bracket, and `openFolder(url:)` refuses only while the
+    gate is up — so nothing stops an Open Folder in that window. Every other async
+    model on this path orders across a folder switch with a token
+    (`FindUsagesModel`'s `rootGeneration`), and this command has more to lose than
+    they do: the plan would be built against the **old** root while
+    `captureBeforeOperation` is handed `model.projectRoot`, the **new** one, and
+    `LocalHistoryModel` drops every target outside the root it is given — so the
+    writes would land in a project the user has left, with none of the "Before
+    Rename" revisions the failure alert promises. That one refusal says nothing:
+    the user has moved on. The plan is built *before* the bracket (`RenameEditPlan.make`, against
     the open buffers keyed by canonical path and the disk otherwise), because every
     refusal is a question about the answer and the texts in hand: it costs nothing,
     stops nothing, and a rename that is going to be refused must never suspend

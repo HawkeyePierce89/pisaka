@@ -972,10 +972,13 @@ public struct LSPDocumentEdits: Equatable, Hashable, Sendable {
 /// same tolerance covers an operation kind no version of the spec names.
 ///
 /// **The leniency stops at the edits themselves.** A `documentChanges` entry
-/// that is not a text edit — the file operations above — is dropped; an *edit*
-/// this cannot read fails the whole decode, and so does an unreadable entry of
-/// the `changes` map, which has no file operations to be tolerant of and so
-/// carries nothing a drop could lose harmlessly. The command
+/// that is not a text edit — the file operations above, told apart by carrying
+/// no `textDocument` — is dropped; an *edit* this cannot read fails the whole
+/// decode, and so do the two entries that claim to be text edits and are not
+/// readable as one: a `documentChanges` entry naming a `textDocument` whose
+/// `uri` or `edits` cannot be read, and an unreadable entry of the `changes`
+/// map, which has no file operations to be tolerant of and so carries nothing
+/// a drop could lose harmlessly. The command
 /// beeps as it does for a server that refused. The two are not the same case:
 /// dropping an entry that is not a text edit loses nothing the rename promised,
 /// while dropping one edit out of a document's five produces a `WorkspaceEdit`
@@ -1012,10 +1015,31 @@ public struct LSPWorkspaceEdit: Equatable, Hashable, Sendable, Decodable {
     }
 
     /// One `documentChanges` entry, or `nil` for a file operation.
+    ///
+    /// The `nil` means one thing and only one: **this entry is not a text edit**
+    /// — a `CreateFile`/`RenameFile`/`DeleteFile`, or a kind no version of the
+    /// spec names — and an entry that carries no edits loses nothing by being
+    /// dropped. `textDocument` is what tells the two apart: a file operation
+    /// names its files with `uri`/`oldUri`/`newUri` and never carries one.
+    ///
+    /// An entry that *does* carry a `textDocument` is a document this rename is
+    /// supposed to rewrite, so a `uri` or an `edits` member that cannot be read
+    /// **throws** rather than returning `nil`. Reading it as a file operation
+    /// would keep its siblings and write the project renamed in four files out
+    /// of five — the same half-renamed state the type's rule above refuses one
+    /// level down, at a single edit.
     private static func documentEdits(of entry: JSONValue) throws -> LSPDocumentEdits? {
-        guard let document = entry["textDocument"],
-              let uri = document["uri"]?.stringValue,
-              let edits = entry["edits"]?.arrayValue else { return nil }
+        guard let document = entry["textDocument"] else { return nil }
+        guard let uri = document["uri"]?.stringValue,
+              let edits = entry["edits"]?.arrayValue else {
+            throw DecodingError.dataCorrupted(
+                .init(
+                    codingPath: [],
+                    debugDescription: "documentChanges entry names a textDocument "
+                        + "but carries no readable uri and edits"
+                )
+            )
+        }
         return LSPDocumentEdits(
             uri: uri,
             version: document["version"]?.intValue,

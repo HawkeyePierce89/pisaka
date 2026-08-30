@@ -300,9 +300,13 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
         // resolution of the project root behind every one of up to two thousand
         // rows.
         let rootComponents = root.map { CanonicalPath.canonical($0).pathComponents }
-        var texts = FileTextCache(requestURL: fileURL, requestText: source)
+        var texts = FileTextCache(
+            requestURL: fileURL,
+            requestText: source,
+            rootComponents: rootComponents
+        )
         return response.locations.compactMap { location in
-            usage(at: location, rootComponents: rootComponents, texts: &texts)
+            usage(at: location, texts: &texts)
         }
     }
 
@@ -316,7 +320,6 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
     /// exactly the ones D1 is about.
     private func usage(
         at location: LSPLocation,
-        rootComponents: [String]?,
         texts: inout FileTextCache
     ) -> UsageResult? {
         guard let url = URL(string: location.uri), url.isFileURL else { return nil }
@@ -328,21 +331,18 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
         )
         // The *display* line is the editor's, not the server's (D1).
         let line = TextSearchEngine.lineNumber(forOffset: range.location, in: content.lineStarts)
-        let inside = rootComponents.flatMap {
-            CanonicalPath.relativeComponents(
-                of: CanonicalPath.canonical(file).pathComponents,
-                under: $0
-            )
-        }
         return UsageResult(
             fileURL: file,
             range: range,
             line: line,
-            // Canonical components rather than a lexical strip, for
-            // `candidate(for:…)`'s reason: a server answers with the path *it*
+            // Off the cache entry, not recomputed here: the display path is
+            // canonical components rather than a lexical strip, for
+            // `candidate(for:…)`'s reason — a server answers with the path *it*
             // resolved, and `/private/tmp/…` for a project opened as `/tmp/…` is
-            // a real answer a prefix comparison reads as "outside the root".
-            relativePath: inside?.joined(separator: "/") ?? file.lastPathComponent,
+            // a real answer a prefix comparison reads as "outside the root" — and
+            // that resolution is a file-system round trip the cache key already
+            // paid for once per file.
+            relativePath: content.relativePath,
             preview: ProjectSearchModel.preview(
                 for: SearchMatch(range: range, lineNumber: line),
                 in: content.text
@@ -1067,33 +1067,71 @@ private struct FileTextCache {
         /// rebuilds this table on every call, so mapping a file's rows one at a
         /// time would scan it once per row.
         let lspLineStarts: [Int]
+        /// The row's display path. Derived from the *same* canonicalization that
+        /// produced this entry's key, and held here for the reason the root's own
+        /// is hoisted out of the loop: `CanonicalPath.canonical` resolves symlinks
+        /// on the file system, and the answer is one constant per file, so asking
+        /// it again per row would put a second round trip behind every one of up
+        /// to two thousand rows.
+        let relativePath: String
 
-        init(_ text: NSString) {
+        init(_ text: NSString, relativePath: String) {
             self.text = text
+            self.relativePath = relativePath
             lineStarts = LineStartIndex.offsets(in: text)
             lspLineStarts = LSPPositionMap.lineStarts(in: text)
         }
     }
 
     private var entries: [String: Entry]
+    private let rootComponents: [String]?
 
-    init(requestURL: URL, requestText: NSString) {
-        entries = [CanonicalPath.canonical(requestURL).path: Entry(requestText)]
+    init(requestURL: URL, requestText: NSString, rootComponents: [String]?) {
+        self.rootComponents = rootComponents
+        let canonical = CanonicalPath.canonical(requestURL)
+        let entry = Entry(
+            requestText,
+            relativePath: Self.relativePath(
+                ofCanonical: canonical,
+                fallbackName: requestURL.lastPathComponent,
+                under: rootComponents
+            )
+        )
+        entries = [canonical.path: entry]
     }
 
     /// Keyed canonically rather than by `path`, so the same file named two
     /// ways — which is exactly what a server that resolved `/private/tmp/…`
-    /// hands back for a buffer opened as `/tmp/…` — is read and scanned once.
+    /// hands back for a buffer opened as `/tmp/…` — is read, scanned and
+    /// path-resolved once.
     mutating func text(
         for file: URL,
         loadText: LSPIntelligenceProvider.TextLoader
     ) -> Entry? {
-        let key = CanonicalPath.canonical(file).path
-        if let cached = entries[key] { return cached }
+        let canonical = CanonicalPath.canonical(file)
+        if let cached = entries[canonical.path] { return cached }
         guard let loaded = loadText(file) else { return nil }
-        let entry = Entry(loaded as NSString)
-        entries[key] = entry
+        let entry = Entry(
+            loaded as NSString,
+            relativePath: Self.relativePath(
+                ofCanonical: canonical,
+                fallbackName: file.lastPathComponent,
+                under: rootComponents
+            )
+        )
+        entries[canonical.path] = entry
         return entry
+    }
+
+    private static func relativePath(
+        ofCanonical canonical: URL,
+        fallbackName: String,
+        under rootComponents: [String]?
+    ) -> String {
+        let inside = rootComponents.flatMap {
+            CanonicalPath.relativeComponents(of: canonical.pathComponents, under: $0)
+        }
+        return inside?.joined(separator: "/") ?? fallbackName
     }
 }
 

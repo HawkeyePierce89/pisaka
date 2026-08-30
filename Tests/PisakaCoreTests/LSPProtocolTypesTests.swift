@@ -835,6 +835,48 @@ final class LSPProtocolTypesTests: XCTestCase {
         XCTAssertThrowsError(try decodeResult(changes, as: LSPWorkspaceEdit.self))
     }
 
+    /// **An entry that claims to be a text edit and is not readable as one fails
+    /// the whole answer too.** `textDocument` is what separates a document this
+    /// rename must rewrite from a file operation it declines to perform, so an
+    /// entry carrying one whose `uri` or `edits` cannot be read is a malformed
+    /// answer and not a kind this client passes on. Reading it as a file
+    /// operation would keep its sibling and write `b.swift` renamed while
+    /// `a.swift` keeps the old name — one level up from the single dropped edit
+    /// the case above refuses, and the same half-renamed project.
+    func testADocumentChangesEntryNamingADocumentItCannotReadFailsTheWholeAnswer() {
+        let unreadableEdits = """
+            {"documentChanges":[
+              {"textDocument":{"uri":"file:///p/a.swift"},"edits":null},
+              {"textDocument":{"uri":"file:///p/b.swift"},
+               "edits":[{"range":{"start":{"line":7,"character":2},
+                                  "end":{"line":7,"character":5}},"newText":"bar"}]}
+            ]}
+            """
+        XCTAssertThrowsError(try decodeResult(unreadableEdits, as: LSPWorkspaceEdit.self))
+
+        let missingEdits = """
+            {"documentChanges":[
+              {"textDocument":{"uri":"file:///p/a.swift"}},
+              {"textDocument":{"uri":"file:///p/b.swift"},
+               "edits":[{"range":{"start":{"line":7,"character":2},
+                                  "end":{"line":7,"character":5}},"newText":"bar"}]}
+            ]}
+            """
+        XCTAssertThrowsError(try decodeResult(missingEdits, as: LSPWorkspaceEdit.self))
+
+        let unreadableURI = """
+            {"documentChanges":[
+              {"textDocument":{"uri":42},
+               "edits":[{"range":{"start":{"line":4,"character":1},
+                                  "end":{"line":4,"character":4}},"newText":"bar"}]},
+              {"textDocument":{"uri":"file:///p/b.swift"},
+               "edits":[{"range":{"start":{"line":7,"character":2},
+                                  "end":{"line":7,"character":5}},"newText":"bar"}]}
+            ]}
+            """
+        XCTAssertThrowsError(try decodeResult(unreadableURI, as: LSPWorkspaceEdit.self))
+    }
+
     /// The tolerance that *remains*: an entry that is not a text edit at all — a
     /// file operation, or a kind no version of the spec names — is ignored, and
     /// the textual half of the answer is still exactly right.

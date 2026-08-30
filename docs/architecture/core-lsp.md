@@ -372,17 +372,25 @@ document, together with the limits they carry.
     nothing here performs file operations and refusing the whole answer would turn
     a server that helpfully offers to rename the file too into a server that cannot
     rename at all. **The leniency stops at the edits themselves**: a
-    *`documentChanges` entry* this cannot read is dropped, an *edit* it cannot read
-    fails the whole decode and the command beeps as it does for a server that
-    refused. The two are not the same case — dropping a non-text-edit entry loses
-    nothing the rename promised, while dropping one edit out of a document's five
-    yields a `WorkspaceEdit` that is internally consistent, passes every refusal in
+    *`documentChanges` entry that is not a text edit at all* is dropped, and
+    everything that claims to be one and cannot be read as one fails the whole
+    decode, at which point the command beeps as it does for a server that refused.
+    The two are not the same case — dropping a non-text-edit entry loses nothing
+    the rename promised, while dropping one edit out of a document's five yields a
+    `WorkspaceEdit` that is internally consistent, passes every refusal in
     `RenameEditPlan`, and writes a project renamed in four places out of five. This
     is the one answer in the file that becomes a write, so it is the one decoded
-    all-or-nothing — which is also why an unreadable entry of the **`changes`** map
-    throws rather than being dropped: that map holds no file operations to be
-    tolerant of, so every value in it is one document's edits and skipping one is
-    precisely the half-renamed project, arriving through the other spelling.
+    all-or-nothing. **`textDocument` is what tells the two apart**, and it is the
+    only thing that does: a file operation names its files with
+    `uri`/`oldUri`/`newUri` and never carries one, so an entry that *does* carry a
+    `textDocument` is a document this rename must rewrite and an unreadable `uri`
+    or `edits` on it **throws** rather than being read as an operation to decline —
+    reading it as one would keep its siblings and produce the half-renamed project
+    one level up from the single dropped edit. For the same reason an unreadable
+    entry of the **`changes`** map throws rather than being dropped: that map holds
+    no file operations to be tolerant of, so every value in it is one document's
+    edits and skipping one is precisely the half-renamed project, arriving through
+    the third spelling.
     One document may legitimately appear more than once; entries stay
     in wire order and grouping is `RenameEditPlan`'s job, not the decoder's.
     `LSPDocumentEdits.version` is **kept and never compared** (D37): the plan
@@ -1732,7 +1740,13 @@ document, together with the limits they carry.
     canonically, and seeded with the requesting file's **buffer** rather than its
     disk copy. Without it, `LineStartIndex.offsets(in:)` would run once per usage in
     a file, which on the identifier that motivates the 2 000 cap is the difference
-    between a list and a hang.
+    between a list and a hang. The row's **display path is cached on the same
+    entry**, for the reason the canonical *root* is hoisted out of the loop above
+    it: `CanonicalPath.canonical` is a symlink resolution on the file system and
+    the answer is one constant per file, so deriving it per row would put a second
+    round trip behind every one of up to two thousand rows — on top of the one the
+    cache key already pays. The entry is what that key was computed from, so the
+    two cannot disagree.
     **`renameEdits(for:)` is the same seven steps with two refusals of its own, and
     every outcome is `nil`** — there is nothing else it can answer (D35). A new name
     that is empty, or equal to the old one, is refused *before the wire*: the second

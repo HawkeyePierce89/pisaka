@@ -2969,11 +2969,25 @@ struct PisakaApp: App {
     /// catches the same typing only once the 400 ms document-sync debounce has
     /// fired, so this closes the window in front of it.
     ///
-    /// It refuses outright while another writer holds the gate, and — alone among
-    /// this command's refusals — says nothing at all: by then the user has answered
-    /// a dialog, and a beep arriving because a git operation happened to start
-    /// would be a report about a race rather than about their command.
+    /// **It refuses outright once the project root has moved.** `root` is the
+    /// folder that was open when the command was invoked; the round trip in front
+    /// of this is a *read* outside the bracket, and `openFolder(url:)` refuses only
+    /// while the gate is up, so nothing stops an Open Folder in that window. Every
+    /// other async model on this branch orders across that switch with a token —
+    /// `FindUsagesModel` grew `rootGeneration` for it — and this command has more
+    /// to lose than they do: the plan is built against the *old* root while
+    /// `captureBeforeOperation` is handed the *new* one, and `LocalHistoryModel`
+    /// drops every target outside the root it is given. The writes would still
+    /// land, in a project the user has left, with none of the "Before Rename"
+    /// revisions the failure alert promises. So the switch ends the command, and
+    /// says nothing: the user has moved on.
+    ///
+    /// It refuses outright while another writer holds the gate too, through
+    /// `revertInFlight()` — the same alert every other gated operation gives,
+    /// because a rename arriving mid-`git checkout` is refused for the same reason
+    /// ⌘S is and deserves the same explanation.
     private func applyRename(_ answer: RenameAnswer, for request: UsagesRequest, root: URL) async {
+        guard model.isCurrentProjectRoot(root) else { return }
         guard !revertInFlight() else { return }
         let oldName = request.identifier
         let fileService = FileService()
