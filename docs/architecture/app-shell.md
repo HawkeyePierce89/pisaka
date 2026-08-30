@@ -495,7 +495,13 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `intelligence.canRename(_:)` declines — which is why the app holds the
     `RoutingIntelligenceProvider` as well as installing it, since that policy
     question is not on `CodeIntelligenceProviding` and the router forwards it
-    precisely so nothing here reaches past the seam into the LSP layer. Then
+    precisely so nothing here reaches past the seam into the LSP layer. A fourth
+    refusal joins them and is the one that *speaks*: `revertInFlight()` is asked
+    here too, ahead of the dialog. `applyRename` asks it again and must — that
+    check is what closes the window the modal and the round trip open — but asking
+    only there would make the user name the symbol and wait out the server before
+    being told the command was never going to run, and every other gated operation
+    refuses before it costs anything. Then
     `FilePanels.promptName` prefilled with the old name and validated live by
     `RenameNameRule` (Core), then the rename request itself — which runs **outside**
     the writer bracket, because it is a read and holding autosave and the git gate
@@ -538,12 +544,19 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     freeze for the whole pass with nothing on screen to say why; every decision
     *around* them still happens on the main actor, which is what the re-checks below
     are for. The plan pass reads through
-    `readTextIfNotBinary(url:maxBytes:)` at the project search's cap, not `read`:
+    `readTextIfNotBinary(url:maxBytes:)`, not `read`:
     this is the one file read in the app whose targets a *server* chooses, and an
-    unbounded read of a generated or binary file it happens to name would pull the
+    unbounded read of a binary file it happens to name would pull the
     whole thing into memory looking for identifiers that cannot be in it. Declining
     is a `RenameRefusal.unreadable`, so the rename refuses rather than skipping a
-    file quietly. Because the plan pass hops, `isCurrentProjectRoot` and
+    file quietly — which is exactly why the cap is
+    `LSPIntelligenceProvider.maximumTargetFileBytes` (16 MiB, the cap this layer
+    already uses for a path a server named) and **not** the project search's 1 MiB:
+    a grep cap on an all-or-nothing read would make ⌃⌘R permanently impossible for
+    any symbol that also appears in a large generated source file, and report it as
+    a file that "could not be read". The asymmetry settles it too — the requesting
+    buffer and every text the server was sent bypass the cap entirely, so at 1 MiB
+    whether a rename works would depend on which tabs happen to be open. Because the plan pass hops, `isCurrentProjectRoot` and
     `revertInFlight()` are asked **again** on the far side: a folder switch or
     another writer can land while it runs, and a plan built for a project the window
     has left must not be applied to the one it is showing. Inside the bracket

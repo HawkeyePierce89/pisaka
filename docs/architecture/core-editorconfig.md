@@ -837,8 +837,13 @@ Thin by convention: the views wire keys to the rules and decide nothing.
     `applyRename` **decides nothing**: the plan is `RenameFilePlan.applied(to:)`'s,
     already ascending, non-overlapping and expressed against the text this buffer is
     being asked to hold, and whether the buffer is still that text was settled by
-    `RenameEditPlan.apply` — which verified every file before producing any plan, in
-    the same main-actor turn, with no `await` between for anything to change in. Its
+    `RenameEditPlan.apply` — which verified every file before producing any plan.
+    That verification runs **off the main thread**, so there is an `await` between
+    it and this call; what closes it is the caller's own re-check, not this
+    method's absence of one: `PisakaApp.applyRename` compares each tab's
+    `file.text` against the same main-actor snapshot the plan was verified against
+    and skips (and reports, "Rename incomplete") any tab that moved under the write
+    pass, so nothing stale reaches here. Its
     one guard is the no-op guard `applyRestore` also makes (a buffer that already
     holds the result is left alone, so a clean tab is not dirtied for no change),
     and it is *not* a staleness check: a second one here would need the plan's

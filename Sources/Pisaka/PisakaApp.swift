@@ -2917,7 +2917,9 @@ struct PisakaApp: App {
     /// language server's absence is never an error the user is made to read
     /// (decision 4). No project root, no file behind the buffer, or a language
     /// `canRename` declines: the dialog does not appear at all, because a name
-    /// prompt whose OK cannot do anything is worse than no prompt.
+    /// prompt whose OK cannot do anything is worse than no prompt. A fourth,
+    /// `revertInFlight()`, joins them and is the one that speaks: a raised writer
+    /// gate is the same alert every other gated operation gives.
     ///
     /// `canRename` is a policy question — it starts no server and probes none — so
     /// asking it before the sheet costs one actor hop, not a launch.
@@ -2934,6 +2936,14 @@ struct PisakaApp: App {
                 PlatformFeedback.warning()
                 return
             }
+            // The writer gate, asked *before* the dialog rather than only after
+            // the round trip. `applyRename` asks it again and must — that check
+            // closes the window the modal and the server open — but asking only
+            // there makes the user name the symbol and wait out the server before
+            // being told the command was never going to run. Every other gated
+            // operation refuses before it costs anything, and this one costs the
+            // most.
+            guard !revertInFlight() else { return }
             guard let newName = promptForNewName(replacing: request.identifier) else { return }
             // **Read before the request goes out, never after it comes back.**
             // This map is the baseline every *other* file's plan is built
@@ -3071,7 +3081,7 @@ struct PisakaApp: App {
         let fileService = FileService()
         let requestKey = request.fileURL.map(Self.canonicalKey)
         let requestText = request.text
-        let maxBytes = FindUsagesModel.defaultMaxFileBytes
+        let maxBytes = LSPIntelligenceProvider.maximumTargetFileBytes
         let edit = answer.edit
         // **Off the main thread**, the `ProjectSearchModel.replaceAll` shape and
         // for its reason: building the plan resolves symlinks three times and
@@ -3084,11 +3094,21 @@ struct PisakaApp: App {
         //
         // `readTextIfNotBinary` rather than `read`: this is the one file read in
         // the app that a *server* chooses the targets of, and an unbounded `read`
-        // of a generated or binary file it happens to name would load the whole
-        // thing into memory to look for identifiers that cannot be there. The cap
-        // is the project search's, so this walk declines exactly the files the
-        // other two do — and declining is a `RenameRefusal.unreadable`, i.e. the
-        // whole rename refuses rather than silently skipping a file.
+        // of a binary file it happens to name would load the whole thing into
+        // memory to look for identifiers that cannot be there.
+        //
+        // The cap is `LSPIntelligenceProvider.maximumTargetFileBytes` — the one
+        // this layer already uses for a file whose path a *server* named — and
+        // deliberately not the project search's 1 MiB. Declining here is a
+        // `RenameRefusal.unreadable`, i.e. the *whole* rename refuses rather than
+        // silently skipping a file, so the grep cap would make ⌃⌘R permanently
+        // impossible for any symbol that also appears in a large generated source
+        // file — and report it as a file that "could not be read", which is not
+        // what happened. The asymmetry is the other half of the argument: the
+        // requesting buffer and every text the server was sent bypass the cap
+        // entirely, so at 1 MiB whether a rename works would depend on which tabs
+        // happen to be open. Binary content is still declined by content, which is
+        // what this read is actually protecting against.
         let made = await Self.offMain {
             RenameEditPlan.make(
                 from: edit,

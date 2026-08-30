@@ -361,11 +361,14 @@ final class SaveTransformController {
     /// change. It is *not* a staleness check, and deliberately so: whether the
     /// buffer is still what the plan was computed against was settled by
     /// `RenameEditPlan.apply`, which verified every file before producing any of
-    /// these plans, and this method is called in the same main-actor turn — there
-    /// is no `await` between the two for anything to change in. A second check here
-    /// would need the plan's *input* text, which a `SaveTransformPlan` does not
-    /// carry, so it would be a check that could not be written rather than one
-    /// that was left out.
+    /// these plans. That verification runs off the main thread, so there *is* an
+    /// `await` between it and this call; what closes it is the caller's own
+    /// re-check — `PisakaApp.applyRename` compares each tab's `file.text` against
+    /// the same main-actor snapshot the plan was verified against and skips (and
+    /// reports) any tab that has moved, so nothing reaching here is stale. A
+    /// second check in this method would need the plan's *input* text, which a
+    /// `SaveTransformPlan` does not carry, so it would be a check that could not
+    /// be written rather than one that was left out.
     func applyRename(_ plan: SaveTransformPlan, to id: UUID) {
         guard let model, let current = model.text(for: id) else { return }
         let currentString = current as NSString
