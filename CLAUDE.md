@@ -597,7 +597,8 @@ than the charge**, or the assertion is a tautology that dies with the regression
 it names: a counter the charging call increments shrinks the moment a charge is
 deleted or undersized, so `EditorConfigGlob.MatchWork` keeps *double-entry*
 books — `record(_:)` for what a step costs, `spend(_:)` for what it is charged,
-the two arguments written out separately at each site on purpose. When they agree
+the two deliberately kept apart at each site (never hoisted into a shared local,
+which re-couples them). When they agree
 the budget halts the search at the ceiling; when they disagree the recorded work
 runs into the millions while the budget sits at zero looking healthy. That is an
 invariant, where a clock is a reading off whichever machine ran it (one such

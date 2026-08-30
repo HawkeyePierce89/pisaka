@@ -943,8 +943,10 @@ over in-memory trees (no committed `.editorconfig`):
     ceiling could pay for: the wildcard-heavy pathological name, the
     alternation-heavy one (the shape a flat step count under-reports), a name
     ending in empty alternation branches and a numeric range against a long digit
-    run (the two shapes a *length*-derived charge under-reports), and fifty copies
-    of one of them in a single file (the per-pair-vs-per-resolution scope, where a
+    run (the two shapes a *length*-derived charge under-reports), a name ending in
+    a **trailing wildcard** (the one shape whose cost scales with the *path*
+    rather than the pattern — see below), and fifty copies of one of them in a
+    single file (the per-pair-vs-per-resolution scope, where a
     per-section budget would leave the shared one at its ceiling). The compile
     shapes assert `exceedsCompileBudget` directly, and the whole-file case asserts
     every section degraded that way, so the file's total work is sections × the
@@ -977,15 +979,34 @@ over in-memory trees (no committed `.editorconfig`):
     name — measured, with the numeric-range charge removed the suite passed in
     29.7 s. `MatchWork` therefore keeps **double-entry books**: `record(_:)` says
     what a step costs, `spend(_:)` says what the search is charged for it, and
-    the two arguments are written out separately at each of the three sites
-    rather than hoisted into a shared local (a local re-couples them — with one,
+    the two are kept apart at each of the four sites rather than hoisted into a
+    shared local (a local re-couples them — with one,
     the empty-branch regression escapes again, also measured). When the books
     agree the budget halts the search and the recorded work lands at the ceiling
     with it; when they disagree the search keeps doing work nobody paid for. All
-    three historical regressions are now caught, each at three orders of
+    four historical regressions are now caught, each at three orders of
     magnitude above the bound: 54 million units for the alternation splice
     charged as a constant, 302 million for the deleted numeric-range charge, 41
-    million for the empty branches. The bound itself is *twice* the ceiling, the
+    million for the empty branches, 160 million for the trailing wildcard.
+
+    **`matchWildcard` is the fourth site, and the one that had neither book.**
+    Every wildcard attempt is charged by the recursion it makes — except a
+    wildcard that is the *last* token, which recurses into an empty token list and
+    returns before `match`'s charging loop ever runs. That one shape therefore
+    spent nothing and recorded nothing: the search walked the whole path component
+    per attempt while both books read healthy at the ceiling. The section-name cap
+    bounds the pattern, but nothing bounds the path, so the cost grew linearly
+    with it — `*a*a*a*a*a*a*a*a*a*a*` measured 0.14 s against a 200-character
+    component, 3.6 s against 3 200 and ~22 s against 20 000, on the main thread
+    inside the Enter and Tab key handlers, all three reporting an at-the-ceiling
+    200 000 units. It is now charged per attempt, and the record it is checked
+    against is the *distance the walk covered*, taken once on the way out of the
+    loop rather than beside the charge — so a `spend(_:)` deleted as "redundant,
+    the recursion charges it" (true of every wildcard but this one) leaves the
+    record standing instead of vanishing with it. Fixed, the same pair answers in
+    5 ms at any path length.
+
+    The bound itself is *twice* the ceiling, the
     slack being one step's overshoot — a step records its cost before it learns
     the budget cannot cover it, and the dearest single step is bounded by the
     section-name cap and the path length, never by the ceiling.

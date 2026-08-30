@@ -376,6 +376,30 @@ final class EditorConfigGlobTests: XCTestCase {
         assertBoundedByItsCeiling(result)
     }
 
+    func testASectionNameEndingInAWildcardSpendsItsBudget() {
+        // The fifth, and the only one whose cost scales with the *path* rather
+        // than the pattern: `matchWildcard` tries every run length, and every
+        // attempt but the last one's is charged by the recursion it makes — a
+        // wildcard that is the last token recurses into an empty token list,
+        // which returns before `match`'s charging loop ever runs. Uncharged, each
+        // attempt walked the whole path component for free, so the section-name
+        // cap bounded the pattern while nothing at all bounded the path: measured
+        // at 0.14 s for a 200-character component, 3.6 s for 3 200 and ~22 s for
+        // 20 000, on the main thread, inside the Enter and Tab key handlers.
+        //
+        // Exhaustion cannot see it — the wildcards before the last one spend the
+        // ceiling either way, in 5 ms — and neither can a record taken inside the
+        // charge. It is the walk's *distance*, recorded on the way out of the
+        // loop, that separates the two: delete the `spend(1)` and this pair
+        // records 160 million units against a ceiling of 200 000, in 7 s.
+        let pattern = String(repeating: "*a", count: 10) + "*"
+        XCTAssertLessThan(pattern.count, EditorConfigGlob.maximumSectionNameLength)
+        let path = String(repeating: "a", count: 3200) + "/b"
+        let result = matchSpendingBudget(pattern, path)
+        XCTAssertFalse(result.answer)
+        assertBoundedByItsCeiling(result)
+    }
+
     func testTheBudgetBoundsAWholeResolutionRatherThanOneSection() {
         // Nothing caps how many sections a `.editorconfig` declares, so a
         // per-section budget multiplies by the section count: fifty copies of the

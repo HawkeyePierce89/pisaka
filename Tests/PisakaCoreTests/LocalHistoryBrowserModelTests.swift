@@ -505,11 +505,8 @@ final class LocalHistoryBrowserModelTests: XCTestCase {
         XCTAssertEqual(model.restorePlan?.captureText, "read from disk")
     }
 
-    /// Clearing the pane takes no hop, so it must not pay for one either: a
-    /// deselection now costs no file read at all, where a `String` parameter made
-    /// every one of them read disk before the call.
-    /// The refusal through the path `.deferred` actually exists for: a file no
-    /// tab holds, whose disk copy already *is* the revision. The resolved text
+    /// The refusal the `.deferred` path actually exists for: a file no tab
+    /// holds, whose disk copy already *is* the revision. The resolved text
     /// has to reach `plannedRestore()` — not just `diffRows` — or the button
     /// would be armed under a pane showing no differences.
     func testADeferredCurrentTextMatchingTheRevisionPlansNothing() async {
@@ -525,6 +522,9 @@ final class LocalHistoryBrowserModelTests: XCTestCase {
         XCTAssertTrue(model.diffRows.allSatisfy { $0.kind == .unchanged })
     }
 
+    /// Clearing the pane takes no hop, so it must not pay for one either: a
+    /// deselection now costs no file read at all, where a `String` parameter made
+    /// every one of them read disk before the call.
     func testDeselectingNeverResolvesTheDeferredRead() async {
         capture("the old text", "a.swift", at: 1)
         let model = makeModel()

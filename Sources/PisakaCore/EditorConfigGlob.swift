@@ -345,6 +345,20 @@ public struct EditorConfigGlob: Equatable {
 
     /// `*`/`**`: try every run length from the shortest up, stopping at a `/`
     /// unless the token is allowed to cross one.
+    ///
+    /// Each run length is one attempt and is booked as one, here rather than in
+    /// the recursion it makes. Ordinarily the recursion would charge it — it
+    /// enters `match`'s loop and pays on the first token — but a wildcard that is
+    /// the *last* token recurses into `tokens[tokens.count...]`, which returns
+    /// before that loop ever runs. Left to the recursion, that one shape spends
+    /// nothing and records nothing: the search walks the whole path component per
+    /// attempt while both books read healthy, which is the exact failure
+    /// `MatchWork`'s double entry exists to make visible. Measured on
+    /// `*a*a*a*a*a*a*a*a*a*a*` against `"a"×3200 + "/b"`: 3.6 s of main-thread
+    /// work reporting an at-the-ceiling 200 000 units, against 8 ms for the same
+    /// pattern with one literal appended so the recursion charges. The section-
+    /// name cap bounds the pattern; nothing bounds the path, so the cost grew
+    /// linearly with it.
     private static func matchWildcard(
         _ tokens: [EditorConfigGlobToken],
         after tokenIndex: Int,
@@ -354,9 +368,19 @@ public struct EditorConfigGlob: Equatable {
         work: inout MatchWork
     ) -> Bool {
         var end = characterIndex
+        // The two books are kept even further apart here than at the other
+        // sites: the charge is per attempt, inside the loop, while the record is
+        // the distance the walk actually covered, taken once on the way out. A
+        // `spend(_:)` deleted as "redundant, the recursion charges it" — which is
+        // true of every wildcard except a trailing one — then leaves this record
+        // standing and the recorded work runs away from the ceiling, which is the
+        // whole point of booking a step twice.
+        defer { work.record(end - characterIndex + 1) }
         while true {
+            guard work.budget > 0 else { return false }
+            work.spend(1)
             if match(tokens, from: tokenIndex + 1, characters, from: end, work: &work) { return true }
-            guard end < characters.count, work.budget > 0 else { return false }
+            guard end < characters.count else { return false }
             if !crossesSeparators, characters[end] == "/" { return false }
             end += 1
         }
