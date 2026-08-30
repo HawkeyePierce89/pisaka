@@ -598,7 +598,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     afterwards). A disk
     write that *throws* is the one thing refusing cannot undo, so it is reported as
     its own alert naming the file and pointing at the "Before Rename" revisions
-    rather than swallowed or dressed up as an abort. It
+    rather than swallowed or dressed up as an abort — and that alert, not a second
+    one, is where a skipped tab is named when a run hits **both**: its sentence
+    "some files still hold the old name and the open editors do not" is true of
+    every buffer the pass rewrote and false of the ones it skipped, so the skipped
+    list is folded in rather than dropped. One incomplete rename is one sentence
+    about one state. It
     owns the embedded terminal's `@StateObject
     TerminalSessionsModel`; the app-termination path calls
     `terminalSessions.terminateAll()` so no shell processes leak (tab-close

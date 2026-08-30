@@ -811,6 +811,30 @@ final class LSPProtocolTypesTests: XCTestCase {
         XCTAssertEqual(edit.documents.first?.edits.count, 1)
     }
 
+    /// **A `documentChanges` entry that is not an object fails the whole
+    /// answer**, where a file operation only removes itself. The two look alike
+    /// through `JSONValue`'s subscript — both answer `nil` for `textDocument` —
+    /// and reading a string or an array as "a kind this client declines to
+    /// perform" would keep its siblings and rename the project in four files out
+    /// of five. A file operation is a *stated* non-edit; a scalar is a malformed
+    /// answer, and this client cannot tell what it was supposed to rewrite.
+    func testANonObjectDocumentChangesEntryFailsTheWholeAnswer() {
+        for entry in ["\"nope\"", "7", "[]", "null", "true"] {
+            let json = """
+                {"documentChanges":[
+                  \(entry),
+                  {"textDocument":{"uri":"file:///p/a.swift"},
+                   "edits":[{"range":{"start":{"line":4,"character":1},
+                                      "end":{"line":4,"character":4}},"newText":"bar"}]}
+                ]}
+                """
+            XCTAssertThrowsError(
+                try decodeResult(json, as: LSPWorkspaceEdit.self),
+                "a \(entry) entry must not decode as a file operation"
+            )
+        }
+    }
+
     func testANullRenameResultAndAnEditWithNoChangesAreBothEmpty() throws {
         XCTAssertTrue(try decodeResult("null", as: LSPWorkspaceEdit.self).documents.isEmpty)
         XCTAssertTrue(try decodeResult("{}", as: LSPWorkspaceEdit.self).documents.isEmpty)

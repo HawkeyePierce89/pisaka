@@ -1048,7 +1048,21 @@ public struct LSPWorkspaceEdit: Equatable, Hashable, Sendable, Decodable {
     /// of five — the same half-renamed state the type's rule above refuses one
     /// level down, at a single edit.
     private static func documentEdits(of entry: JSONValue) throws -> LSPDocumentEdits? {
-        guard let document = entry["textDocument"] else { return nil }
+        // The object test comes first, and separately: `JSONValue`'s subscript is
+        // `objectValue?[key]`, so asking a string or an array for `textDocument`
+        // answers `nil` — the same `nil` a file operation answers with. Reading a
+        // malformed entry as a file operation would keep its siblings and write
+        // the project renamed in four files out of five, which is the one state
+        // this whole decode exists to refuse.
+        guard let fields = entry.objectValue else {
+            throw DecodingError.dataCorrupted(
+                .init(
+                    codingPath: [],
+                    debugDescription: "documentChanges entry is not an object"
+                )
+            )
+        }
+        guard let document = fields["textDocument"] else { return nil }
         guard let uri = document["uri"]?.stringValue,
               let edits = entry["edits"]?.arrayValue else {
             throw DecodingError.dataCorrupted(

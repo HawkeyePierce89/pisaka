@@ -409,6 +409,13 @@ document, together with the limits they carry.
     `uri`/`oldUri`/`newUri` and never carries one, so an entry that *does* carry a
     `textDocument` is a document this rename must rewrite and an unreadable `uri`
     or `edits` on it **throws** rather than being read as an operation to decline —
+    and the entry is required to be a JSON **object** before that question is even
+    asked, because `JSONValue`'s subscript is `objectValue?[key]`: a string, a
+    number or an array answers `nil` for `textDocument`, indistinguishably from a
+    file operation, so without the object test a garbled entry beside four good
+    ones would be *dropped* and produce exactly the half-renamed project this rule
+    refuses. A file operation is a stated non-edit; a scalar is a malformed answer
+    whose intended target this client cannot know —
     reading it as one would keep its siblings and produce the half-renamed project
     one level up from the single dropped edit. For the same reason an unreadable
     entry of the **`changes`** map throws rather than being dropped: that map holds

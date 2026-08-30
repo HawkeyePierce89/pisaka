@@ -3261,11 +3261,25 @@ struct PisakaApp: App {
             // binary and oversize files silently — so the alert points at Local
             // History without promising what is in it. Naming a state the user
             // can check beats naming one that sounds tidier and may be false.
+            //
+            // "the open editors do not" is true of every buffer this pass
+            // rewrote and false of the ones it skipped, so a run that both failed
+            // a write *and* had a tab move under it says which tabs those are
+            // rather than asserting a consistency they do not have. The skipped
+            // list is reported here instead of in its own alert above for that
+            // reason: one incomplete rename is one sentence about one state.
+            let skipped = unrewritten.isEmpty
+                ? ""
+                : " \(unrewritten.map(\.lastPathComponent).joined(separator: ", ")) "
+                    + "changed while the rename was being written, so "
+                    + (unrewritten.count == 1 ? "that editor" : "those editors")
+                    + " still hold\(unrewritten.count == 1 ? "s" : "") the old name too."
             PlatformAlert.presentMessage(
                 title: "Rename incomplete",
                 message: "\(failed.lastPathComponent) could not be written, so the rename stopped "
-                    + "there: some files still hold the old name and the open editors do not. "
-                    + "Local History may hold a “Before Rename” revision of the files "
+                    + "there: some files still hold the old name and the open editors do not."
+                    + skipped
+                    + " Local History may hold a “Before Rename” revision of the files "
                     + "that changed."
             )
         }
