@@ -769,6 +769,25 @@ final class LSPProtocolTypesTests: XCTestCase {
         XCTAssertEqual(edit.documents.map(\.uri), ["file:///p/rich.swift"])
     }
 
+    /// **Present includes present and empty.** `documentChanges: []` is the
+    /// richer member saying there is nothing to rewrite; falling through to
+    /// `changes` there would turn the one answer that means "no rename" into a
+    /// write of the very edit set the member above supersedes. A non-empty array
+    /// of nothing but file operations already decodes to no documents, so the
+    /// emptier answer must not be the more dangerous one.
+    func testAnEmptyDocumentChangesArrayIsAnAnswerRatherThanAFallThrough() throws {
+        let edit = try decodeResult(
+            """
+            {"documentChanges":[],
+             "changes":{"file:///p/legacy.swift":[{"range":{"start":{"line":0,"character":0},
+                                                            "end":{"line":0,"character":3}},
+                                                   "newText":"bar"}]}}
+            """,
+            as: LSPWorkspaceEdit.self
+        )
+        XCTAssertTrue(edit.documents.isEmpty)
+    }
+
     /// A server that offers to rename the *file* too, and one that sends an
     /// operation no version of the spec names. Both are ignored: the textual
     /// half of the answer is still exactly right, and refusing the whole edit

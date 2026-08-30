@@ -443,12 +443,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     toggling it (this is the answer to a command the user just invoked, and a ⌃⌘U
     that hid the results because they happened to be on screen would be the opposite
     of what was asked) and **reserves** a request generation
-    (`usages.prepareForQuery()`) *synchronously* before the `Task` hop, because
+    (`usages.prepareForQuery(for:)`) *synchronously* before the `Task` hop, because
     unstructured tasks are not guaranteed to start in creation order and two quick
     presses must settle on the later question whichever runs first. Reserved rather
     than merely *read*: two presses in one turn that read the same token would be
     ordered by whichever task started first, which is the thing the token exists to
-    stop. `openFolder` calls
+    stop. The request's identifier is reserved with the token so that a rename
+    landing in the same window can invalidate a question about the name it removed
+    before that question has run (`FindUsagesModel.clearIfNaming`). `openFolder` calls
     `usages.prepareForFolderChange(root:)` in the same synchronous turn as
     `projectSearch.prepareForSearch` and the commit dialog's own registration, and
     for the same reason. `activateUsage(_:)` opens through `activateSearchMatch`'s
@@ -542,7 +544,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `reindexReloadedBuffer(id:url:)` for every rewritten tab, which the stamp-gated
     refresh deliberately declines to re-extract — and then
     `usages.clearIfNaming(oldName)` (decision 7: the panel is cleared, not re-run,
-    because every row it holds now names a spelling this rename just removed). A disk
+    because every row it holds now names a spelling this rename just removed — and
+    a ⌃⌘U reserved for that same name while the round trip was in flight has its
+    token invalidated with it, so the queued walk cannot publish the old spelling
+    afterwards). A disk
     write that *throws* is the one thing refusing cannot undo, so it is reported as
     its own alert naming the file and pointing at the "Before Rename" revisions
     rather than swallowed or dressed up as an abort. It

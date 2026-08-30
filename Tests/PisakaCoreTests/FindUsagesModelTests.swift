@@ -511,8 +511,8 @@ final class FindUsagesModelTests: XCTestCase {
         let stub = StubFileTree(root: root, files: ["a.swift": "alpha beta\n"])
         let model = FindUsagesModel(fileService: stub)
 
-        let first = model.prepareForQuery()
-        let second = model.prepareForQuery()
+        let first = model.prepareForQuery(for: "alpha")
+        let second = model.prepareForQuery(for: "beta")
 
         // Deliberately run in reservation-*reverse* order: the later question is
         // answered first, and the earlier one must still be refused.
@@ -605,6 +605,145 @@ final class FindUsagesModelTests: XCTestCase {
 
         XCTAssertEqual(model.identifier, "count")
         XCTAssertEqual(model.rows.count, 1)
+    }
+
+    /// The window a reserved token opens: a ⌃⌘U pressed while the rename's round
+    /// trip is in flight holds a token, but nothing about that question has
+    /// reached `identifier` yet. Comparing the displayed subject alone would read
+    /// the rename as being about some other name and let the queued walk publish
+    /// the spelling the rename just removed.
+    func testClearIfNamingInvalidatesAQuestionReservedButNotYetStarted() async {
+        let stub = StubFileTree(root: root, files: ["a.swift": "count\n"])
+        let model = FindUsagesModel(fileService: stub)
+
+        // Reserved in the main-actor turn that handled the press; `find` has not
+        // run, so the model still displays nothing at all.
+        let reserved = model.prepareForQuery(for: "count")
+        XCTAssertEqual(model.identifier, "")
+
+        model.clearIfNaming("count")
+        await model.find(request("count"), root: root, request: reserved)
+
+        XCTAssertTrue(model.rows.isEmpty)
+        XCTAssertEqual(model.identifier, "")
+        XCTAssertEqual(model.emptyReason, .noQuery)
+        XCTAssertFalse(model.isSearching)
+    }
+
+    /// The other half of decision 7 in that same window: a reserved question about
+    /// a name the rename did not touch is still the question the user asked, so
+    /// the rename must not take its token away.
+    func testClearIfNamingLeavesAQuestionReservedForAnotherNameRunnable() async {
+        let stub = StubFileTree(root: root, files: ["a.swift": "count total\n"])
+        let model = FindUsagesModel(fileService: stub)
+
+        let reserved = model.prepareForQuery(for: "total")
+        model.clearIfNaming("count")
+        await model.find(request("total"), root: root, request: reserved)
+
+        XCTAssertEqual(model.identifier, "total")
+        XCTAssertEqual(model.rows.count, 1)
+    }
+
+    /// The same half, with rows for the old name still on screen — the case where
+    /// the clear *does* fire. Clearing what is displayed and stranding the newer
+    /// reserved question are two different acts, and only the first is decision
+    /// 7's: the reservation already superseded any walk the bump would have
+    /// stranded, so bumping past it would reject the one question that is current.
+    func testClearIfNamingKeepsAnotherNamesReservationWhileClearingTheOldRows() async {
+        let stub = StubFileTree(root: root, files: ["a.swift": "count total\n"])
+        let model = FindUsagesModel(fileService: stub)
+
+        await model.find(request("count"), root: root)
+        XCTAssertEqual(model.identifier, "count")
+
+        let reserved = model.prepareForQuery(for: "total")
+        model.clearIfNaming("count")
+
+        XCTAssertTrue(model.rows.isEmpty)
+        XCTAssertEqual(model.emptyReason, .noQuery)
+
+        await model.find(request("total"), root: root, request: reserved)
+
+        XCTAssertEqual(model.identifier, "total")
+        XCTAssertEqual(model.rows.count, 1)
+        XCTAssertEqual(model.provenance, .textual)
+    }
+
+    /// A reservation is spent once `find` redeems it: the rows on screen are then
+    /// the ones `identifier` names, and a later rename of some *other* name must
+    /// not invalidate them through a token nobody is still holding.
+    func testARedeemedReservationNoLongerInvalidatesByItsOwnName() async {
+        let stub = StubFileTree(root: root, files: ["a.swift": "count total\n"])
+        let model = FindUsagesModel(fileService: stub)
+
+        let reserved = model.prepareForQuery(for: "count")
+        await model.find(request("count"), root: root, request: reserved)
+        let afterAnswer = model.currentRequestGeneration
+
+        model.clearIfNaming("total")
+
+        XCTAssertEqual(model.currentRequestGeneration, afterAnswer)
+        XCTAssertEqual(model.identifier, "count")
+        XCTAssertEqual(model.rows.count, 1)
+    }
+
+    /// The interleaving where invalidating a reservation is the *only* thing that
+    /// happens: a walk for one name is already running, a ⌃⌘U for a second name
+    /// reserves a token inside the rename's round trip, and the rename then
+    /// removes that second name. The bump strands the running walk's chunk **and**
+    /// the reserved question, so neither of the two tasks reaches a publish — and
+    /// with the displayed subject naming neither of them, nothing would put the
+    /// loading flag back down. The panel would print "Searching…" over an
+    /// abandoned walk's partial rows with nothing left to finish it.
+    func testClearIfNamingEndsTheLoadingStateItStrandsForAnotherName() async {
+        let stub = StubFileTree(root: root, files: ["a.swift": "count total\n"])
+        let gate = Gate()
+        stub.listingGate = gate
+        let model = FindUsagesModel(fileService: stub)
+
+        // The older walk, still inside the listing when the rename lands.
+        let running = Task { await model.find(self.request("total"), root: self.root) }
+        await gate.waitUntilReached()
+        XCTAssertTrue(model.isSearching)
+
+        // ⌃⌘U on `count` while the rename's round trip is in flight: reserved in
+        // the main-actor turn that handled the press, not yet started.
+        let reserved = model.prepareForQuery(for: "count")
+
+        model.clearIfNaming("count")
+        gate.release()
+        await running.value
+        await model.find(request("count"), root: root, request: reserved)
+
+        XCTAssertFalse(
+            model.isSearching,
+            "Stranding both the running walk and the question that would have replaced it must "
+                + "not leave the panel loading forever."
+        )
+        XCTAssertTrue(model.rows.isEmpty)
+        XCTAssertEqual(model.identifier, "")
+        XCTAssertEqual(model.emptyReason, .noQuery)
+        XCTAssertNil(model.provenance)
+    }
+
+    /// The same bump with **no** walk running: there is no loading state to end,
+    /// and a settled answer about a name the rename did not touch still survives
+    /// it (decision 7's other half).
+    func testClearIfNamingKeepsASettledAnswerWhenItInvalidatesAReservation() async {
+        let stub = StubFileTree(root: root, files: ["a.swift": "count total\n"])
+        let model = FindUsagesModel(fileService: stub)
+
+        await model.find(request("total"), root: root)
+        XCTAssertEqual(model.rows.count, 1)
+
+        model.prepareForQuery(for: "count")
+        model.clearIfNaming("count")
+
+        XCTAssertFalse(model.isSearching)
+        XCTAssertEqual(model.identifier, "total")
+        XCTAssertEqual(model.rows.count, 1)
+        XCTAssertEqual(model.provenance, .textual)
     }
 
     func testClearIfNamingStopsAWalkStillLookingForThatName() async {

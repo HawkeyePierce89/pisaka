@@ -419,7 +419,13 @@ document, together with the limits they carry.
     would beep as though the rename were a no-op rather than unreadable. A
     `changes` that is present and is not a map throws for the same reason. Only
     *absent* — which includes `null`, since that is what `decodeIfPresent` says —
-    is "this server sent no such member".
+    is "this server sent no such member". **An empty array is present**, and is
+    therefore the answer: `documentChanges: []` is the richer member saying there
+    is nothing to rewrite, and falling through to `changes` there would turn the
+    one answer that means "no rename" into a write of the edit set that member
+    supersedes. A non-empty array of nothing but file operations already decodes to
+    no documents by the drop rule above, so reading the empty array any other way
+    would make the emptier answer the more dangerous one.
     One document may legitimately appear more than once; entries stay
     in wire order and grouping is `RenameEditPlan`'s job, not the decoder's.
     `LSPDocumentEdits.version` is **kept and never compared** (D37): the plan

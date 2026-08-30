@@ -2827,11 +2827,14 @@ struct PisakaApp: App {
     /// order, so two quick ⌃⌘U presses must settle on the later question
     /// whichever task runs first. Reserved rather than merely read: two presses
     /// that read the same token would be ordered by whichever task started first,
-    /// which is the thing this is here to stop.
+    /// which is the thing this is here to stop. The identifier is reserved along
+    /// with the token so a rename landing in the same window can invalidate a
+    /// question about the name it removed before that question has run
+    /// (`FindUsagesModel.clearIfNaming`).
     private func findUsages(_ request: UsagesRequest) {
         bottomPanel = .usages
         let root = model.projectRoot
-        let generation = usages.prepareForQuery()
+        let generation = usages.prepareForQuery(for: request.identifier)
         Task { await usages.find(request, root: root, request: generation) }
     }
 

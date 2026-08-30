@@ -1367,11 +1367,15 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     token says "a newer question was asked" and gates what may be **published**; it
     is re-checked after every `await`, so a superseded query drops its partial rows
     rather than interleaving them with the newer one's. A caller that defers `find`
-    across a `Task` hop **reserves** its token with `prepareForQuery()` rather than
-    reading the current one, and `find` accepts only that reservation without
+    across a `Task` hop **reserves** its token with `prepareForQuery(for:)` rather
+    than reading the current one, and `find` accepts only that reservation without
     bumping again: two presses that merely read the same value would be ordered by
     whichever task the runtime happened to start first, which is the outcome the
-    token is there to prevent. The *project* token says
+    token is there to prevent. The reservation carries the **identifier** as well
+    as the token, because between reserving and running there is a question this
+    model is committed to publishing and cannot name — `identifier` still holds the
+    previous answer's subject until the hop lands — and `clearIfNaming` has to be
+    able to reach it. The *project* token says
     "these files belong to a folder the user has left" and gates whether the walk
     **continues at all**; `find` records the root it was asked about and bumps the
     project token when it differs (`ProjectSearchModel.search`'s rule, so the model
@@ -1394,7 +1398,34 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     re-runs**: re-asking would spend a server round trip or a whole project walk on
     a question nobody asked again, and every row on screen names a spelling that no
     longer exists. The generation is bumped with it, so a walk still in flight for
-    the old name cannot publish over the cleared panel.
+    the old name cannot publish over the cleared panel. It matches the **reserved**
+    question as well as the displayed one: a ⌃⌘U pressed while the rename's round
+    trip was in flight holds a token but has not reached `identifier` yet, so
+    comparing the displayed subject alone would read that rename as being about
+    some other name and let the queued walk publish the spelling the rename had
+    just removed. Invalidating the token is the whole of what that case needs — the
+    rows on screen still describe whatever they described — so the *clear* stays
+    conditional on the displayed subject, and an answer about another name (and a
+    reservation for one) survives a rename either way. The **bump** is conditional
+    too, and on the reservation rather than the display: it exists to strand a walk
+    in flight for the old name, but a standing reservation already holds the
+    current token, so such a walk was superseded the moment `prepareForQuery`
+    handed that token out and a second bump has nothing left to strand — it would
+    land on the one question that *is* current, the newer unrelated one, and get it
+    rejected at `find`'s guard. So it runs only when no reservation stands or the
+    standing one is itself about the old name.
+    A bump that *does* run also has to **end the loading state it strands**, which
+    is a different act from clearing the displayed subject. `isSearching` is only
+    ever true for a search whose token this model still expects someone to redeem,
+    and the reservation the bump retires is exactly that redeemer: a walk for some
+    other name, already superseded by `prepareForQuery(for: oldName)`, was going to
+    be replaced on screen by the reserved question's own `find` — which now returns
+    at its guard instead, leaving nobody to set the flag down and the panel saying
+    "Searching…" forever over rows from a walk abandoned mid-flight. Those rows are
+    a partial answer by construction (`isSearching` goes false the instant one
+    settles), so the honest state is the one a folder switch leaves: no query. With
+    no walk running there is nothing to end, and a *settled* answer about another
+    name still survives the bump.
     **A reader, like the index**: it takes no writer gate, is not gated by one, and
     writes nothing anywhere. **Out of scope** (follow-ups): an iOS surface — the
     scanner and the model are Foundation-only and would work there unchanged, but

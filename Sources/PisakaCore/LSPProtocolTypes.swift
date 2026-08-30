@@ -956,7 +956,8 @@ public struct LSPDocumentEdits: Equatable, Hashable, Sendable {
 /// A `WorkspaceEdit`, normalised across the two spellings a server may answer a
 /// rename in.
 ///
-/// `documentChanges` is the richer one and wins when both are present: it is
+/// `documentChanges` is the richer one and wins when both are present — present
+/// meaning *sent*, an empty array included: it is
 /// ordered, it carries the document version, and it is what a client
 /// advertising `documentChanges` support is supposed to receive. `changes` is a
 /// plain uri → edits map with no order of its own, so its entries are sorted by
@@ -1016,7 +1017,15 @@ public struct LSPWorkspaceEdit: Equatable, Hashable, Sendable, Decodable {
         let documentChanges = try container.decodeIfPresent(
             [JSONValue].self, forKey: .documentChanges
         )
-        if let documentChanges, !documentChanges.isEmpty {
+        // **Present wins, including present and empty.** `documentChanges: []` is
+        // the richer member saying there is nothing to rewrite, and falling
+        // through to `changes` there would turn the one answer that means "no
+        // rename" into a write — the same superseded edit set the throw above
+        // refuses to fall back to. A non-empty array of nothing but file
+        // operations already decodes to no documents for exactly this reason, so
+        // reading the empty array as anything else would make the emptier answer
+        // the more dangerous one. Absent and `null` are still not present.
+        if let documentChanges {
             documents = try documentChanges.compactMap(LSPWorkspaceEdit.documentEdits(of:))
             return
         }

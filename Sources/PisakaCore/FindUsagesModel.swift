@@ -172,6 +172,21 @@ public final class FindUsagesModel: ObservableObject {
     /// tell a genuine switch from a repeat call.
     private var lastRoot: URL?
 
+    /// The identifier of the question whose token `prepareForQuery(for:)` last
+    /// reserved and whose `find` has not started yet, or `nil` when no reserved
+    /// question is outstanding.
+    ///
+    /// **What `identifier` cannot answer.** A question is reserved on the main
+    /// actor and asked one `Task` hop later, and `identifier` only becomes the
+    /// question's own subject once that hop lands — until then it still names the
+    /// *previous* answer (or nothing at all). `clearIfNaming` comparing only
+    /// `identifier` would therefore read a rename that arrives inside that window
+    /// as being about some other name, leave the reserved token alone, and let the
+    /// queued walk publish rows for the spelling the rename has just removed —
+    /// precisely the state decision 7 exists to prevent. Held here so the reserved
+    /// question can be invalidated by name before it has a chance to run.
+    private var pendingIdentifier: String?
+
     /// - Parameters:
     ///   - provider: the code-intelligence seam, read at each question rather
     ///     than held, because the app swaps a routing provider in once the LSP
@@ -218,6 +233,7 @@ public final class FindUsagesModel: ObservableObject {
         lastRoot = root
         generation += 1
         rootGeneration += 1
+        pendingIdentifier = nil
         clearState(reason: .noQuery)
         return generation
     }
@@ -232,9 +248,15 @@ public final class FindUsagesModel: ObservableObject {
     /// outcome the token exists to prevent. Bumping here orders the presses in the
     /// main-actor turn that handles them, which is the only place their order is
     /// known.
+    ///
+    /// The identifier is taken along with the token because a reserved question
+    /// is a question this model is already committed to publishing and yet cannot
+    /// name — see `pendingIdentifier`, which is what lets `clearIfNaming` reach a
+    /// query a rename has invalidated before it ever ran.
     @discardableResult
-    public func prepareForQuery() -> Int {
+    public func prepareForQuery(for identifier: String) -> Int {
         generation += 1
+        pendingIdentifier = identifier
         return generation
     }
 
@@ -253,10 +275,49 @@ public final class FindUsagesModel: ObservableObject {
     /// that no longer exists under that spelling — so the honest state after a
     /// rename is no state. The generation is bumped along with it, so a walk still
     /// in flight for the old name cannot publish rows over the cleared panel.
+    ///
+    /// **A question that has been reserved but has not started counts as naming
+    /// the old name too** (`pendingIdentifier`): a ⌃⌘U pressed while the rename's
+    /// round trip was in flight holds a token this model handed out, and nothing
+    /// about it has reached `identifier` yet, so comparing the displayed subject
+    /// alone would let that queued walk publish the old spelling *after* the
+    /// rename removed it. Invalidating the token is the whole of what that case
+    /// needs — the rows on screen still describe whatever they described, so the
+    /// clear stays conditional on the displayed subject and an answer about
+    /// another name survives a rename either way.
+    ///
+    /// **A reservation for another name survives too, and that is what the bump
+    /// is conditional on.** The bump exists to strand a walk in flight *for the
+    /// old name*; but a standing reservation already holds the current token, so
+    /// any such walk was superseded the moment `prepareForQuery` handed that
+    /// token out and there is nothing left for a second bump to strand. Bumping
+    /// anyway would land on the one thing that *is* current — the newer,
+    /// unrelated question — and reject it at `find`'s guard, which is the reverse
+    /// of what the token is for. So the bump runs only when no reservation stands
+    /// (`nil`) or the standing one is itself about `oldName`.
+    ///
+    /// **Invalidating also has to end the panel's loading state, which is not the
+    /// same act as clearing the displayed subject.** `isSearching` is only ever
+    /// true for a search whose token this model still expects someone to redeem,
+    /// and the reservation this call retires is exactly the redeemer: a walk for
+    /// some *other* name that a `prepareForQuery(for: oldName)` had already
+    /// superseded was going to be replaced on screen by that reserved question's
+    /// own `find` — which now returns at its guard instead. With nobody left to
+    /// set the flag down, the panel would say "Searching…" forever over rows from
+    /// a walk that was abandoned mid-flight. Those rows are a partial answer by
+    /// construction (`isSearching` is false the instant one settles), so the
+    /// honest state is the same one a folder switch leaves: no query.
     public func clearIfNaming(_ oldName: String) {
-        guard identifier == oldName, !oldName.isEmpty else { return }
-        generation += 1
-        clearState(reason: .noQuery)
+        guard !oldName.isEmpty else { return }
+        let showsOldName = identifier == oldName
+        let awaitsOldName = pendingIdentifier == oldName
+        guard showsOldName || awaitsOldName else { return }
+        let invalidates = pendingIdentifier == nil || awaitsOldName
+        if invalidates {
+            generation += 1
+            pendingIdentifier = nil
+        }
+        if showsOldName || (invalidates && isSearching) { clearState(reason: .noQuery) }
     }
 
     // MARK: - Finding
@@ -285,6 +346,12 @@ public final class FindUsagesModel: ObservableObject {
             generation += 1
             token = generation
         }
+        // The reservation has been redeemed: from here `identifier` names this
+        // question itself, so a `pendingIdentifier` left standing would only let
+        // `clearIfNaming` invalidate a token that has already been spent. (An
+        // unreserved `find` bumped past every reservation just above, which
+        // retires them for the same reason.)
+        pendingIdentifier = nil
         // The root a question is asked about is recorded here as well as in
         // `prepareForFolderChange` — `ProjectSearchModel.search`'s rule, for its
         // reason: the model must not depend on having been *told* about a folder
