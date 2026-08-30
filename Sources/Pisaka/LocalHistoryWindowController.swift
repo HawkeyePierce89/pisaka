@@ -28,6 +28,11 @@ final class LocalHistoryWindowController {
     private var window: NSWindow?
     private var hosting: NSHostingController<LocalHistoryView>?
     private var delegate: WindowDelegate?
+    /// What to re-ask when the window becomes key. Held here rather than in the
+    /// delegate because a retarget replaces it along with the root view — the
+    /// closure carries the file the window now shows — while the delegate, like
+    /// the window, outlives every retarget.
+    private var onBecomeKey: (() -> Void)?
 
     /// Show the Local History window, creating it on first use and focusing it
     /// afterwards.
@@ -37,7 +42,13 @@ final class LocalHistoryWindowController {
     /// app's current closures — and here also the file the title names — so a
     /// window left open across a retarget or a folder switch picks the new one
     /// up.
-    func show(title: String, content: LocalHistoryView) {
+    ///
+    /// `onBecomeKey` is what keeps the one part of this window that is an
+    /// *action* from going stale with the rest of it: see
+    /// `LocalHistoryBrowserModel.refreshSelection(currentText:)`. It is re-supplied
+    /// on every retarget for the same reason the content is.
+    func show(title: String, content: LocalHistoryView, onBecomeKey: @escaping () -> Void) {
+        self.onBecomeKey = onBecomeKey
         if let window, let hosting {
             hosting.rootView = content
             window.title = title
@@ -53,7 +64,10 @@ final class LocalHistoryWindowController {
         window.setContentSize(NSSize(width: 900, height: 560))
         window.center()
 
-        let delegate = WindowDelegate { [weak self] in self?.release() }
+        let delegate = WindowDelegate(
+            onClose: { [weak self] in self?.release() },
+            onBecomeKey: { [weak self] in self?.onBecomeKey?() }
+        )
         window.delegate = delegate
 
         self.window = window
@@ -76,18 +90,26 @@ final class LocalHistoryWindowController {
         window = nil
         hosting = nil
         delegate = nil
+        onBecomeKey = nil
     }
 
-    /// Forwards `windowWillClose` to the controller's release hook.
+    /// Forwards `windowWillClose` to the controller's release hook and
+    /// `windowDidBecomeKey` to its refresh hook.
     private final class WindowDelegate: NSObject, NSWindowDelegate {
         private let onClose: () -> Void
+        private let onBecomeKey: () -> Void
 
-        init(onClose: @escaping () -> Void) {
+        init(onClose: @escaping () -> Void, onBecomeKey: @escaping () -> Void) {
             self.onClose = onClose
+            self.onBecomeKey = onBecomeKey
         }
 
         func windowWillClose(_ notification: Notification) {
             onClose()
+        }
+
+        func windowDidBecomeKey(_ notification: Notification) {
+            onBecomeKey()
         }
     }
 }

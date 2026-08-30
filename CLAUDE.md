@@ -234,7 +234,7 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
 - `LocalHistoryPolicy.swift` — the skip precedence and the three retention rules; the four stated ceilings.
 - `LocalHistoryStore.swift` — the one `FileServicing` half: list/read/capture/prune, synchronous and `nonisolated`.
 - `LocalHistoryModel.swift` — the capture side: the serial write chain, the three save sites, the awaited pre-operation capture, the store sweep.
-- `LocalHistoryBrowserModel.swift` — the window's reader companion (one generation token) + `LocalHistoryRestore`, the restore plan.
+- `LocalHistoryBrowserModel.swift` — the window's reader companion (one generation token) + `LocalHistoryRestore`, the restore plan, and `LocalHistoryCurrentText`, the buffer-or-deferred-disk seam; the plan is re-asked when the window becomes key.
 
 `docs/architecture/core-zoom.md` — the three macOS zoom zones (Core + app halves):
 - `ZoomZone.swift` — zone/surface vocabulary; the deepest-candidate pointer rule.
@@ -584,6 +584,21 @@ behind it, and for any architectural rule `swift test` cannot otherwise see.
 Non-Swift test data lives in `Tests/PisakaCoreTests/Fixtures/<area>/`, read
 through `#filePath` the same way, and must be listed in the test target's
 `exclude:` (why, in `core-lsp.md`).
+
+**Performance bounds are charged, not timed.** A test pinning a pathological
+input asserts the *work* — a budget driven to exhaustion **plus** a count of the
+attempts that budget paid for (`EditorConfigGlob.matchAttempts(relativePath:)`),
+or a step count off an `internal` seam (`SyntaxContextScanner.validatorStepCount`)
+— never a wall clock. Exhaustion alone is not the property: these inputs
+backtrack through charged states too, so the ceiling lands at zero whether or not
+the quadratic work in question is charged, and only the ratio between work done
+and ceiling spent tells the two apart. Every attempt is charged at least one
+step, so a correct search cannot enter more attempts than its budget — an
+invariant, where a clock is a reading off whichever machine ran it (one such
+bound fired spuriously in a release run, which is what started this). Two older
+suites still bound a *structural* cap with a generous clock rather than a budget
+(`GitignoreMatcherTests`' DP walk, `HoverContentTests`' two caps): neither has a
+budget to charge, so they are the stated exception, not the pattern to copy.
 
 **Async Test Staging:** Async tests must stage races using a causal rendezvous (a wait on a signal that *must* arrive, never on a window that may already have closed) rather than using timed delays or `Task.yield()` spins. Use helpers like `Gate` and `waitFor` for condition-waits that fail loudly via `XCTFail` on timeout rather than passing vacuously. Assertions should poll for a sink's record instead of assuming any particular hop count.
 

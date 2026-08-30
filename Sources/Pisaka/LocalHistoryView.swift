@@ -174,6 +174,12 @@ struct LocalHistoryView: View {
             // differences and greys the button out, where the previous rule —
             // armed by the loaded content, refused at click time — showed an
             // armed button whose click did nothing.
+            //
+            // The cost of moving the question off the click is that it can go
+            // stale, and a stale *refusal* is worse than a stale pane. The
+            // window re-asks it on becoming key, which is when the user has come
+            // back from wherever the buffer changed; see
+            // `LocalHistoryBrowserModel.refreshSelection(currentText:)`.
             .disabled(browser.restorePlan == nil)
         }
         .font(metrics.scaledFont(.body))

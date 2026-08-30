@@ -162,6 +162,33 @@ public struct EditorConfigGlob: Equatable {
     /// every section of every `.editorconfig` on the walk — is bounded as a
     /// whole rather than once per pair (see `maximumMatchSteps`).
     func matches(relativePath: String, budget: inout Int) -> Bool {
+        var work = MatchWork(budget: budget)
+        defer { budget = work.budget }
+        return matches(relativePath: relativePath, work: &work)
+    }
+
+    /// How many attempts the backtracking search entered while answering
+    /// `matches(relativePath:)`.
+    ///
+    /// A test seam and nothing else — no app code reads it, which is why it is
+    /// `internal` — and it exists because *exhaustion is not the property the
+    /// pathological-section-name tests mean*. Those inputs backtrack through
+    /// charged states as well as uncharged ones, so the ceiling lands at zero
+    /// either way: the same pair that answers in 9 ms today answers in 14 s with
+    /// one `budget -=` removed, and an assertion reading `budget` alone stays
+    /// green through that. What separates the two is the ratio between work done
+    /// and ceiling spent. Every attempt counted here is charged at least one
+    /// step, so a correctly charged search satisfies
+    /// `attempts <= maximumMatchSteps` *by construction*, while an uncharged one
+    /// runs the ceiling many times over — which is the "cannot hang" property a
+    /// wall clock could only approximate on the machine it happened to run on.
+    func matchAttempts(relativePath: String) -> Int {
+        var work = MatchWork(budget: EditorConfigGlob.maximumMatchSteps)
+        _ = matches(relativePath: relativePath, work: &work)
+        return work.attempts
+    }
+
+    private func matches(relativePath: String, work: inout MatchWork) -> Bool {
         guard !exceedsLengthLimit, !exceedsCompileBudget else { return false }
         var path = relativePath
         if path.hasPrefix("/") { path.removeFirst() }
@@ -169,13 +196,13 @@ public struct EditorConfigGlob: Equatable {
 
         // One budget for the whole question, so a pattern cannot buy itself more
         // work by having many component starts to try.
-        if EditorConfigGlob.match(tokens, from: 0, characters, from: 0, budget: &budget) { return true }
+        if EditorConfigGlob.match(tokens, from: 0, characters, from: 0, work: &work) { return true }
         guard !anchored else { return false }
         // Unanchored ⇒ "at any depth": the pattern may start at the beginning of
         // any component. An unanchored pattern names no `/`, so trying each
         // component start is exactly what a leading `**/` would express.
         for index in characters.indices where characters[index] == "/" {
-            if EditorConfigGlob.match(tokens, from: 0, characters, from: index + 1, budget: &budget) {
+            if EditorConfigGlob.match(tokens, from: 0, characters, from: index + 1, work: &work) {
                 return true
             }
         }
@@ -202,6 +229,31 @@ public struct EditorConfigGlob: Equatable {
 
     // MARK: - Matching
 
+    /// The match ceiling, and the number of attempts it was charged for.
+    ///
+    /// The two travel together because the *pair* is the bound that matters. The
+    /// budget alone says "this search stopped"; it does not say the search could
+    /// not have run for fourteen seconds first, which is exactly what happens
+    /// when a backtracking state is entered without being charged for. Every
+    /// site below that enters an attempt charges at least one step for it, so
+    /// `attempts` can never exceed the starting budget — and a charge deleted
+    /// anywhere breaks that inequality long before it breaks anything a user
+    /// could see. `matchAttempts(relativePath:)` is what reads it.
+    struct MatchWork {
+        /// What is left of `maximumMatchSteps`. Spent, not merely watched: a
+        /// step is charged before it is taken.
+        var budget: Int
+        /// Every attempt entered, whatever it cost.
+        private(set) var attempts = 0
+
+        /// Enters one attempt and charges `cost` steps for it. `cost` is always
+        /// at least one; see the type's note for why that is the invariant.
+        mutating func charge(_ cost: Int) {
+            attempts += 1
+            budget -= cost
+        }
+    }
+
     /// Recursive backtracking match of `tokens[tokenIndex...]` against
     /// `characters[characterIndex...]`, both of which must be consumed whole.
     ///
@@ -215,13 +267,13 @@ public struct EditorConfigGlob: Equatable {
         from tokenIndex: Int,
         _ characters: [Character],
         from characterIndex: Int,
-        budget: inout Int
+        work: inout MatchWork
     ) -> Bool {
         var tokenIndex = tokenIndex
         var characterIndex = characterIndex
         while tokenIndex < tokens.count {
-            guard budget > 0 else { return false }
-            budget -= 1
+            guard work.budget > 0 else { return false }
+            work.charge(1)
             switch tokens[tokenIndex] {
             case .literal(let expected):
                 guard characterIndex < characters.count, characters[characterIndex] == expected else { return false }
@@ -244,21 +296,21 @@ public struct EditorConfigGlob: Equatable {
                 if crossesSeparators,
                    tokenIndex + 1 < tokens.count, tokens[tokenIndex + 1] == .literal("/"),
                    tokenIndex == 0 || tokens[tokenIndex - 1] == .literal("/"),
-                   match(tokens, from: tokenIndex + 2, characters, from: characterIndex, budget: &budget) {
+                   match(tokens, from: tokenIndex + 2, characters, from: characterIndex, work: &work) {
                     return true
                 }
                 return matchWildcard(
                     tokens, after: tokenIndex, characters, from: characterIndex,
-                    crossesSeparators: crossesSeparators, budget: &budget
+                    crossesSeparators: crossesSeparators, work: &work
                 )
             case .alternation(let branches):
                 return matchAlternation(
-                    branches, tokens, after: tokenIndex, characters, from: characterIndex, budget: &budget
+                    branches, tokens, after: tokenIndex, characters, from: characterIndex, work: &work
                 )
             case .numericRange(let lower, let upper):
                 return matchNumericRange(
                     lower: lower, upper: upper,
-                    tokens, after: tokenIndex, characters, from: characterIndex, budget: &budget
+                    tokens, after: tokenIndex, characters, from: characterIndex, work: &work
                 )
             }
             tokenIndex += 1
@@ -275,12 +327,12 @@ public struct EditorConfigGlob: Equatable {
         _ characters: [Character],
         from characterIndex: Int,
         crossesSeparators: Bool,
-        budget: inout Int
+        work: inout MatchWork
     ) -> Bool {
         var end = characterIndex
         while true {
-            if match(tokens, from: tokenIndex + 1, characters, from: end, budget: &budget) { return true }
-            guard end < characters.count, budget > 0 else { return false }
+            if match(tokens, from: tokenIndex + 1, characters, from: end, work: &work) { return true }
+            guard end < characters.count, work.budget > 0 else { return false }
             if !crossesSeparators, characters[end] == "/" { return false }
             end += 1
         }
@@ -295,7 +347,7 @@ public struct EditorConfigGlob: Equatable {
         after tokenIndex: Int,
         _ characters: [Character],
         from characterIndex: Int,
-        budget: inout Int
+        work: inout MatchWork
     ) -> Bool {
         let rest = Array(tokens[(tokenIndex + 1)...])
         for branch in branches {
@@ -316,10 +368,10 @@ public struct EditorConfigGlob: Equatable {
             // hundreds of free iterations at every backtracking state the budget
             // does allow, which is exactly the multiplication the ceiling exists
             // to refuse.
-            budget -= 1 + branch.count + rest.count
-            guard budget > 0 else { return false }
-            if match(branch + rest, from: 0, characters, from: characterIndex, budget: &budget) { return true }
-            guard budget > 0 else { return false }
+            work.charge(1 + branch.count + rest.count)
+            guard work.budget > 0 else { return false }
+            if match(branch + rest, from: 0, characters, from: characterIndex, work: &work) { return true }
+            guard work.budget > 0 else { return false }
         }
         return false
     }
@@ -334,7 +386,7 @@ public struct EditorConfigGlob: Equatable {
         after tokenIndex: Int,
         _ characters: [Character],
         from characterIndex: Int,
-        budget: inout Int
+        work: inout MatchWork
     ) -> Bool {
         var digitsStart = characterIndex
         if digitsStart < characters.count, characters[digitsStart] == "-" { digitsStart += 1 }
@@ -351,14 +403,14 @@ public struct EditorConfigGlob: Equatable {
             // ceiling by the path's digit-run length: `*1*1…{0..0}` against a
             // 200-digit path spends tens of seconds inside a keystroke while
             // staying under every cap.
-            budget -= length - characterIndex
-            guard budget > 0 else { return false }
+            work.charge(length - characterIndex)
+            guard work.budget > 0 else { return false }
             if let value = Int(String(characters[characterIndex..<length])),
                value >= lower, value <= upper,
-               match(tokens, from: tokenIndex + 1, characters, from: length, budget: &budget) {
+               match(tokens, from: tokenIndex + 1, characters, from: length, work: &work) {
                 return true
             }
-            guard budget > 0 else { return false }
+            guard work.budget > 0 else { return false }
             length -= 1
         }
         return false

@@ -716,7 +716,11 @@ user sees it.
   and the file on disk otherwise. **Restore** puts the selected revision back into
   the buffer as a single edit: one Cmd+Z undoes it, the tab is left unsaved so
   nothing reaches disk until you save (or autosave does), and the text it replaced
-  is itself snapshotted first, so a restore is reversible from the history too. A
+  is itself snapshotted first, so a restore is reversible from the history too.
+  A revision whose text the file already holds cannot be restored — the diff
+  shows no differences and **Restore** is greyed out, so the button always agrees
+  with the panes above it. It re-reads the file whenever you click back into the
+  window, so an edit made in the meantime re-arms it. A
   file the app has never written simply says "No history for this file yet." —
   that is not an error. Nothing about this is configurable and there is nothing to
   turn on. **Retention**: a revision is kept for **14 days**, each file keeps its
@@ -1148,10 +1152,12 @@ and iPhone. The feature scope landed so far:
   project, so a renamed or moved file starts an empty history and the revisions
   taken under its old path stay in the store, no longer reachable from any
   window; retention thins them to the newest one, which then stays for good like
-  every other newest revision. The window also does not refresh itself
-  — a revision taken while it is open (an autosave, an operation, or the copy
-  Restore makes of what it replaced) shows up only after you open the history
-  again.
+  every other newest revision. The revisions *list* also does not refresh itself
+  — a revision taken while the window is open (an autosave, an operation, or the
+  copy Restore makes of what it replaced) shows up only after you open the
+  history again. The diff and the **Restore** button do refresh, but only when
+  you click back into the window; the relative timestamps on the rows keep up on
+  their own, to the minute.
 - Find/replace (per-file and project-wide) is macOS-only: iOS has neither the
   search bar nor the Find in Files window. There is no query history, no "replace
   in selection", and the project search reads tree `.gitignore` files only (not

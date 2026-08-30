@@ -939,7 +939,8 @@ over in-memory trees (no committed `.editorconfig`):
     a ceiling; that charging was the fix each test was written for, so the ceiling
     is the honest statement of the bound. The match shapes run against a
     caller-owned budget and assert it was driven to exhaustion **and** that the
-    call still answered: the wildcard-heavy pathological name, the
+    call still answered **and** that it entered no more attempts than that
+    ceiling could pay for: the wildcard-heavy pathological name, the
     alternation-heavy one (the shape a flat step count under-reports), a name
     ending in empty alternation branches and a numeric range against a long digit
     run (the two shapes a *length*-derived charge under-reports), and fifty copies
@@ -952,14 +953,29 @@ over in-memory trees (no committed `.editorconfig`):
     under half the ceiling while every matching section still answers, and an
     ordinary pattern against a deep path still matching.
 
-    **Why that still catches the regression the clock was standing in for.** The
-    two claims are not the same, and the budget is the stronger one. Work that is
-    quadratic *and uncharged* — which is what every one of these inputs was found
-    by — runs its full cost without touching the ceiling, so the exhaustion
-    assertion fires deterministically, where a clock only fires on a machine slow
-    enough that day (one of these bounds did exactly that in a release run). Work
-    that is quadratic *and charged* cannot outrun the ceiling it is charged
-    against, which is precisely the "cannot hang" property the clock approximated.
+    **Why that still catches the regression the clock was standing in for — and
+    why exhaustion alone does not.** Two numbers are asserted, not one, because
+    the first on its own is vacuous here. Exhaustion says only that the search
+    stopped; it does not say the search could not have run for fourteen seconds
+    first. Every one of these inputs backtracks through *charged* wildcard states
+    as well as the uncharged work each was found by, so it drives the ceiling to
+    zero **either way**: restoring the numeric-range regression leaves an
+    exhaustion-only assertion green while the pair takes 14 s, and the
+    empty-branch one leaves it green at 6.6 s. Both were measured that way, which
+    is why the assertion is not written that way.
+
+    What separates the two is the *ratio* between work done and ceiling spent,
+    and `EditorConfigGlob.matchAttempts(relativePath:)` is the seam that reports
+    it — an `internal` counter of attempts entered, read by the suite and by
+    nothing in the app, the shape `SyntaxContextScanner.validatorStepCount` uses
+    for the same reason. Every site that enters an attempt charges at least one
+    step for it, so a correctly charged search **cannot** enter more attempts than
+    its starting budget — the inequality holds by construction — while an
+    uncharged one runs the ceiling many times over: 6.4 million attempts against
+    200 000 for the numeric range, 41 million for the empty branches. That is the
+    "cannot hang" property the clock approximated, stated as an invariant rather
+    than as a reading off whichever machine happened to run it (one of the old
+    bounds fired on a slow release-run machine, which is what started this).
     The measured pre-fix numbers stay in each test's comment as the evidence for
     why the input is pathological in the first place; the pathological inputs
     themselves are unchanged, because the coverage is the input, not the clock.

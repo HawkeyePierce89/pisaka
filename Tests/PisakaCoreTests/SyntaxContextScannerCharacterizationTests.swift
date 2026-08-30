@@ -272,9 +272,9 @@ final class SyntaxContextScannerCharacterizationTests: XCTestCase {
     /// vocabulary re-pointed gitignore from "first non-whitespace on the line"
     /// to true column zero, because gitignore(5) reads an indented `#` as a
     /// literal pattern rather than a comment. The `  # indented hash` run is
-    /// therefore code now — the second `9m` run in the previous expectation
-    /// (`1c,9m,10c,15m,31c`) is gone, and every other language's golden stays
-    /// byte-identical.
+    /// therefore code now — the `15m` run in the previous expectation
+    /// (`1c,9m,10c,15m,31c`) is gone and the code around it coalesced into one
+    /// `56c`, while every other language's golden stays byte-identical.
     func testGitignoreGolden() {
         let text = [
             #"# comment"#,

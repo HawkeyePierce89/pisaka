@@ -673,6 +673,16 @@ public enum SyntaxContextScanner {
     /// not about the buffer, so the cursor commits the state from before that
     /// character and the rest of the answer is computed without being recorded.
     /// The answer returned is always the full walk's, clamps included.
+    ///
+    /// The first of the two is **unreachable through today's vocabulary** and is
+    /// kept as a guard on that vocabulary rather than as a case that occurs: the
+    /// only caller is `isAttributeStringOpen`, so `target` is always the offset
+    /// of a string opener, and HTML's two string forms are the single characters
+    /// `'` and `"` with no prefix letters — while the offsets this branch needs
+    /// `target` to be (`idx + 1…3` of a `<!--`) hold `!`, `-`, `-`. Give HTML a
+    /// multi-character or prefixed opener and it becomes live, which is the
+    /// reason it is not deleted; nothing in the suite exercises it, and a test
+    /// could only reach it by constructing a vocabulary that does not exist.
     private static func isInsideHtmlTag(at target: Int, scan: Scan) -> Bool {
         var cursor = scan.htmlCursor
         if target < cursor.position { cursor = HtmlTagCursor() }

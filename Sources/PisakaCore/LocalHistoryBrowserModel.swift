@@ -317,7 +317,6 @@ public final class LocalHistoryBrowserModel: ObservableObject {
         if snapshot == nil, selected == nil, selectedContent == nil, diffRows.isEmpty { return }
 
         generation += 1
-        let generation = self.generation
 
         selected = snapshot
         selectedContent = nil
@@ -325,10 +324,48 @@ public final class LocalHistoryBrowserModel: ObservableObject {
         restorePlan = nil
         resolvedCurrentText = nil
 
-        guard let snapshot, let root, let relativePath else {
+        guard let snapshot, root != nil, relativePath != nil else {
             isLoading = false
             return
         }
+
+        load(snapshot, currentText: currentText)
+    }
+
+    /// Re-ask the standing selection's question against the current text.
+    ///
+    /// **The window is a snapshot, and one part of that snapshot became an
+    /// action.** Everything the pane shows was resolved when the selection
+    /// landed, which was fine while it was all read-only; now the same resolved
+    /// text also decides whether ``restorePlan`` exists, and therefore whether
+    /// the Restore button is live. Left alone, a window held open across an edit
+    /// in another window greys Restore out for a revision the buffer no longer
+    /// holds — the panes merely go stale, but the button *refuses*, which is
+    /// strictly worse than the click-time question it replaced.
+    ///
+    /// So the window re-asks when it becomes key: the user came back to it, the
+    /// buffer is whatever it is now, and the diff and the button are recomputed
+    /// together so they still agree. Unlike ``select(_:currentText:)`` this does
+    /// **not** clear the panes first — there is nothing to hide, and blanking
+    /// them on every focus would flicker — but it takes the generation token on
+    /// the same terms, so a refresh and a click racing each other resolve in
+    /// issue order. No selection means no question, and no read: a `.deferred`
+    /// current text is not resolved and disk is not touched.
+    public func refreshSelection(currentText: LocalHistoryCurrentText) {
+        guard let snapshot = selected, root != nil, relativePath != nil else { return }
+        generation += 1
+        load(snapshot, currentText: currentText)
+    }
+
+    /// The one hop both entry points make: resolve the current text, read the
+    /// revision and compute the diff off the main actor, then publish all of it —
+    /// the restore plan included — only if nothing has superseded it.
+    ///
+    /// The generation token is bumped by the *caller*, synchronously, before this
+    /// runs; it is read here and re-checked after the hop.
+    private func load(_ snapshot: LocalHistorySnapshot, currentText: LocalHistoryCurrentText) {
+        guard let root, let relativePath else { return }
+        let generation = self.generation
 
         isLoading = true
         let store = self.store

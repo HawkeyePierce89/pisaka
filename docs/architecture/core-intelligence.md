@@ -1242,14 +1242,17 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
       **A backwards query restarts from zero** — the scan's monotonic candidate
       order never issues one, and that fallback is what makes the resumed answers
       *identical* to the walk-from-zero rather than merely usually identical.
-      The HTML cursor additionally refuses to record a **target-clamped** decision:
-      two of its branches consult the target itself (a `<!--` whose fourth
-      character sits at or past it, and a comment finding no `-->` before it), and
-      a state reached through either is a fact about *this* query rather than about
-      the buffer, so the cursor commits the state from before that character while
-      the answer returned is still the full walk's, clamps included. Without that
-      rule a later, longer query would inherit a truncated comment as though it
-      were real.
+      **Both** cursors additionally refuse to record a **target-clamped**
+      decision, under one rule rather than two: a branch that consults the target
+      (or the limit) itself reaches a state that is a fact about *this* query
+      rather than about the buffer, so the cursor commits the state from before
+      that character while the answer returned is still the full walk's, clamps
+      included. Without that rule a later, longer query would inherit a truncated
+      comment — or a truncated quote — as though it were real. The HTML walk
+      clamps on two branches (a `<!--` whose fourth character sits at or past the
+      target, and a comment finding no `-->` before it); the YAML walk clamps on
+      two of its own (a `''` doubled-quote escape straddling the limit, and a `#`
+      comment running past it).
 
     `validatorStepCount(in:at:language:)` is an `internal` **test seam and nothing
     else** — no app code reads it — returning how many characters those two walks

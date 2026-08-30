@@ -2588,13 +2588,18 @@ struct PisakaApp: App {
     /// a failure to report.
     private func showLocalHistory(for url: URL) {
         localHistoryBrowser.open(file: url, root: model.projectRoot)
+        let currentText = { [self] in currentTextForLocalHistory(of: url) }
         let content = LocalHistoryView(
-            browser: localHistoryBrowser,
-            settings: settings,
-            currentText: { [self] in currentTextForLocalHistory(of: url) },
+            browser: localHistoryBrowser, settings: settings, currentText: currentText,
             onRestore: { [self] plan in restoreFromLocalHistory(plan) }
         )
-        localHistoryWindows.show(title: "Local History — \(url.lastPathComponent)", content: content)
+        // Coming back to this window is the moment its "current" side may have
+        // moved: the buffer lives in another window, and the Restore button's
+        // enablement is computed from it. See
+        // `LocalHistoryBrowserModel.refreshSelection(currentText:)`.
+        localHistoryWindows.show(title: "Local History — \(url.lastPathComponent)", content: content) {
+            localHistoryBrowser.refreshSelection(currentText: currentText())
+        }
     }
 
     /// What the file `url` names holds *right now* — the "new" side of the

@@ -382,6 +382,102 @@ final class LocalHistoryBrowserModelTests: XCTestCase {
         XCTAssertEqual(plan?.captureText.utf8.map { $0 }, Array(decomposed.utf8))
     }
 
+    // MARK: - Refreshing the standing selection
+
+    /// The plan is resolved once, when the selection lands — so the one part of
+    /// this window that is an *action* can go stale while the panes merely look
+    /// stale. Coming back to the window re-asks it.
+    ///
+    /// This is the case the published-plan design would otherwise be strictly
+    /// worse at than the click-time question it replaced: a revision the buffer
+    /// held when the row was clicked greys Restore out, and an edit made in
+    /// another window afterwards would leave it greyed with nothing to un-grey
+    /// it.
+    func testRefreshingRearmsAPlanTheBufferHasSinceDivergedFrom() async {
+        capture("identical", "a.swift", at: 1)
+        let model = makeModel()
+        model.open(file: projectFile("a.swift"), root: projectRoot)
+        await waitUntil("the listing to land") { model.revisions.count == 1 }
+
+        model.select(model.revisions[0], currentText: .text("identical"))
+        await waitUntil("the content to land") { model.selectedContent != nil }
+        XCTAssertNil(model.restorePlan, "the buffer holds these bytes, so there is nothing to restore")
+
+        model.refreshSelection(currentText: .text("edited since"))
+        await waitUntil("the refresh to land") { !model.isLoading }
+
+        XCTAssertEqual(model.restorePlan?.text, "identical")
+        XCTAssertEqual(model.restorePlan?.captureText, "edited since")
+        XCTAssertEqual(model.selected, model.revisions[0], "the refresh must not move the selection")
+    }
+
+    /// The mirror direction, and the one the published-plan design was made for:
+    /// a buffer that has come to *match* the selected revision disarms the button
+    /// rather than leaving an armed one whose click does nothing.
+    func testRefreshingDisarmsAPlanTheBufferHasComeToMatch() async {
+        capture("the old text", "a.swift", at: 1)
+        let model = makeModel()
+        model.open(file: projectFile("a.swift"), root: projectRoot)
+        await waitUntil("the listing to land") { model.revisions.count == 1 }
+
+        model.select(model.revisions[0], currentText: .text("something else"))
+        await waitUntil("the content to land") { model.selectedContent != nil }
+        XCTAssertNotNil(model.restorePlan)
+
+        model.refreshSelection(currentText: .text("the old text"))
+        await waitUntil("the refresh to land") { model.restorePlan == nil }
+
+        XCTAssertTrue(model.diffRows.allSatisfy { $0.kind == .unchanged }, "the pane must agree with the button")
+    }
+
+    /// No selection is no question — and therefore no read. The window becomes
+    /// key every time the user clicks it, so a refresh that resolved a
+    /// `.deferred` current text with nothing selected would read disk for an
+    /// answer nothing could use.
+    func testRefreshingWithNoSelectionAsksNothingAndReadsNothing() async {
+        capture("the old text", "a.swift", at: 1)
+        let model = makeModel()
+        model.open(file: projectFile("a.swift"), root: projectRoot)
+        await waitUntil("the listing to land") { model.revisions.count == 1 }
+
+        let record = ThreadRecord()
+        model.refreshSelection(currentText: .deferred {
+            record.note(isMain: Thread.isMainThread)
+            return "on disk"
+        })
+
+        XCTAssertEqual(record.calls, 0)
+        XCTAssertFalse(model.isLoading)
+        XCTAssertNil(model.restorePlan)
+        XCTAssertEqual(model.revisions.count, 1, "the standing listing must survive a refresh that asks nothing")
+    }
+
+    /// A refresh takes the generation token on the same terms a selection does,
+    /// so a refresh held up behind a slow read cannot publish over the selection
+    /// that superseded it.
+    func testASupersededRefreshPublishesNothing() async {
+        let older = capture("older text", "a.swift", at: 1)
+        let newer = capture("newer text", "a.swift", at: 2)
+        let model = makeModel()
+        model.open(file: projectFile("a.swift"), root: projectRoot)
+        await waitUntil("the listing to land") { model.revisions.count == 2 }
+
+        model.select(older, currentText: .text("in the buffer"))
+        await waitUntil("the content to land") { model.selectedContent != nil }
+
+        let gate = Gate()
+        tree.readGate = (path: storagePath(of: older, "a.swift"), gate: gate)
+        model.refreshSelection(currentText: .text("edited since"))
+        await gate.waitUntilReached()
+
+        model.select(newer, currentText: .text("in the buffer"))
+        gate.release()
+
+        await waitUntil("the newer revision's plan to land") { model.restorePlan?.snapshot == newer }
+        XCTAssertEqual(model.selectedContent, "newer text")
+        XCTAssertEqual(model.restorePlan?.captureText, "in the buffer")
+    }
+
     // MARK: - The current-text seam
 
     /// A `.deferred` current text is a *disk read*, and the whole reason it is a
@@ -412,6 +508,23 @@ final class LocalHistoryBrowserModelTests: XCTestCase {
     /// Clearing the pane takes no hop, so it must not pay for one either: a
     /// deselection now costs no file read at all, where a `String` parameter made
     /// every one of them read disk before the call.
+    /// The refusal through the path `.deferred` actually exists for: a file no
+    /// tab holds, whose disk copy already *is* the revision. The resolved text
+    /// has to reach `plannedRestore()` — not just `diffRows` — or the button
+    /// would be armed under a pane showing no differences.
+    func testADeferredCurrentTextMatchingTheRevisionPlansNothing() async {
+        capture("on disk", "a.swift", at: 1)
+        let model = makeModel()
+        model.open(file: projectFile("a.swift"), root: projectRoot)
+        await waitUntil("the listing to land") { model.revisions.count == 1 }
+
+        model.select(model.revisions[0], currentText: .deferred { "on disk" })
+        await waitUntil("the content to land") { model.selectedContent != nil }
+
+        XCTAssertNil(model.restorePlan, "the disk copy already holds these bytes")
+        XCTAssertTrue(model.diffRows.allSatisfy { $0.kind == .unchanged })
+    }
+
     func testDeselectingNeverResolvesTheDeferredRead() async {
         capture("the old text", "a.swift", at: 1)
         let model = makeModel()

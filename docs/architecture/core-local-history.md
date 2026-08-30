@@ -520,7 +520,25 @@ changes.)
     bytes that are already the newest revision. It is cleared wherever the
     selection is — `open(file:root:)` and a `nil` selection — and a superseded
     selection publishes no plan, like everything else the generation token
-    guards. That sameness test is `NSString`'s, not Swift's:
+    guards.
+
+    **The plan is re-asked when the window becomes key**
+    (`refreshSelection(currentText:)`, driven by the window controller's
+    `windowDidBecomeKey`). Moving the question off the click is what buys the
+    agreement above, and the price is that it can go stale — and a stale
+    *refusal* is worse than a stale pane. Left alone, a window held open across
+    an edit made in the main window greys Restore out for a revision the buffer
+    no longer holds, with nothing to un-grey it short of clicking another row and
+    back; the click-time question it replaced self-corrected there. Becoming key
+    is exactly the moment the user has come back from wherever the buffer
+    changed, so the diff and the button are recomputed **together** and still
+    agree. Unlike `select(_:currentText:)` the refresh does not clear the panes
+    first — there is nothing to hide and blanking them on every focus would
+    flicker — but it takes the generation token on the same terms, so a refresh
+    and a click racing each other resolve in issue order. No selection means no
+    question and therefore no read: a `.deferred` current text is not resolved
+    and disk is not touched, which matters because a window becomes key every
+    time it is clicked. That sameness test is `NSString`'s, not Swift's:
     `==` on `String` compares by canonical equivalence, while a revision is
     identified by a SHA-256 over its *UTF-8 bytes*, so a decomposed and a
     precomposed spelling are two real revisions the store keeps apart — and a
@@ -938,10 +956,14 @@ history, just not the newest one.
   moving one directory for a file move and re-deriving a digest per descendant
   for a folder move — a second path-keying rule beside the one the layout states
   — and a delete has no destination to migrate to at all.
-- **The window does not refresh itself.** `revisions` is listed once, by
+- **The revisions *list* does not refresh itself.** `revisions` is listed once, by
   `open(file:root:)`; a revision written while the window is open — an autosave,
   a gated operation, or the `Before Restore` snapshot the Restore button itself
   takes — is in the store but not in the list until ⌘⇧H retargets the window.
+  The *selection* is a different matter and does refresh, on becoming key: its
+  right-hand side is the live buffer, and the Restore button's enablement is
+  computed from it, so that one is an action going stale rather than a listing
+  (see the `refreshSelection(currentText:)` note above).
   Re-listing after a restore would additionally race the capture, which is
   fire-and-forget on the chain, so a reload issued in the same turn could show
   the row or not depending on timing — less truthful than a list that plainly

@@ -227,6 +227,11 @@ final class SyntaxContextVocabularyTests: XCTestCase {
                 byAnchor[anchor, default: []].insert(language)
             }
         }
+        // The key set closes the vocabulary from the other side: a fifth
+        // `LineAnchor` case would otherwise add a key nothing below looks at, and
+        // the four assertions would all still pass while a whole reading of what
+        // starts a comment went unstated.
+        XCTAssertEqual(Set(byAnchor.keys), [.anywhere, .trueLineStart, .afterIndent, .afterWhitespace])
         XCTAssertEqual(byAnchor[.anywhere], [.swift, .javascript, .typescript, .python, .go, .rust, .sql])
         XCTAssertEqual(byAnchor[.trueLineStart], [.gitignore])
         XCTAssertEqual(byAnchor[.afterIndent], [.dockerfile, .dotenv, .editorconfig])
