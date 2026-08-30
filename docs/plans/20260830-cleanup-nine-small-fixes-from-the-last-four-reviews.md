@@ -171,40 +171,40 @@ source file; a new ordinary Core test suite needs no index line).
 - Modify: `Sources/Pisaka/LocalHistoryView.swift`, `Sources/Pisaka/PisakaApp.swift`
 - Modify: `Tests/PisakaCoreTests/LocalHistoryBrowserModelTests.swift`
 
-- [ ] Add `LocalHistoryCurrentText` (in the browser model's file — no new file):
+- [x] Add `LocalHistoryCurrentText` (in the browser model's file — no new file):
   `.text(String)` for a value already in hand and
   `.deferred(@Sendable () -> String)` for one that must be read, with a doc
   comment stating that `.deferred` is resolved off the main actor and is the
   reason the window no longer reads disk on it.
-- [ ] Change `select(_:currentText:)` to take that value and resolve it inside
+- [x] Change `select(_:currentText:)` to take that value and resolve it inside
   the existing `offMain` block, beside the content read and the diff; the
   generation token keeps its current discipline (bumped synchronously before the
   hop, re-checked after it) and a superseded selection publishes nothing.
-- [ ] Keep the resolved text on the model and publish
+- [x] Keep the resolved text on the model and publish
   `restorePlan: LocalHistoryRestore?`, built by the existing rule — the
   `NSString` sameness question that answers `nil` for a revision the buffer
   already holds. Clear it in `open(file:root:)` and on a `nil` selection.
   Remove `restore(currentText:)`; move its doc-comment reasoning to the plan's
   construction site.
-- [ ] `LocalHistoryView`: the button disables on `restorePlan == nil` and acts on
+- [x] `LocalHistoryView`: the button disables on `restorePlan == nil` and acts on
   that same value; the `currentText` closure now answers a
   `LocalHistoryCurrentText`; the footer comment is rewritten to say why the
   enablement is now the plan itself.
-- [ ] `LocalHistoryView`: one `@State` reference date on the window root,
+- [x] `LocalHistoryView`: one `@State` reference date on the window root,
   refreshed on a 60 s timer, passed into `RevisionRow`; `body` reads no clock.
   State the reason in the row's doc comment.
-- [ ] `PisakaApp.currentTextForLocalHistory` answers `.text(buffer)` when a tab
+- [x] `PisakaApp.currentTextForLocalHistory` answers `.text(buffer)` when a tab
   holds the file and `.deferred { … }` otherwise, carrying the same
   `readTextIfNotBinary` call, the same 1 MiB cap and the same empty-string
   fallback; the doc comment gains why the buffer half stays synchronous (it is
   main-actor state and costs a lookup) and the disk half does not.
-- [ ] Tests: the deferred closure is resolved off the main thread (recorded
+- [x] Tests: the deferred closure is resolved off the main thread (recorded
   inside the closure, awaited through the existing rendezvous helpers — no timed
   delays); the plan is `nil` for a byte-identical revision and non-`nil` for a
   decomposed/precomposed pair; the plan clears on retarget and on deselect; a
   superseded selection publishes no plan.
-- [ ] Update the existing `select`/`restore` call sites in that suite.
-- [ ] Run `swift test` — must pass before Task 2.
+- [x] Update the existing `select`/`restore` call sites in that suite.
+- [x] Run `swift test` — must pass before Task 2.
 
 ### Task 2: Characterization goldens for the syntax-context scanner
 

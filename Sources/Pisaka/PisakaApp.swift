@@ -2606,18 +2606,31 @@ struct PisakaApp: App {
     /// disk copy would show the user changes they already made. With no tab on
     /// it, the disk copy is what the file is.
     ///
+    /// **The two halves are answered differently, because they cost differently.**
+    /// The buffer half stays synchronous and travels as a value: it is
+    /// `WorkspaceModel` state, this method is already on the main actor, and
+    /// reading it is a dictionary lookup — deferring that would buy nothing and
+    /// cost a hop. The disk half is a file read, which has no business on the main
+    /// thread at all, so it travels as a closure the browser model resolves off it,
+    /// inside the hop that call already makes for the revision's content and the
+    /// diff. Same call, same ceiling, same fallback; one fewer main-thread read —
+    /// and a deselection, which takes no hop, now costs no read whatsoever.
+    ///
     /// The disk read goes through `readTextIfNotBinary` under the same 1 MiB
     /// ceiling the capture side uses, so the window cannot be made to load a
     /// gigabyte of binary into a diff; an unreadable, oversized or binary file
     /// answers the empty string, which diffs as "everything in this revision was
     /// added" rather than as an error — the feature has no error state.
-    private func currentTextForLocalHistory(of url: URL) -> String {
-        if let id = model.fileID(forURL: url), let text = model.text(for: id) { return text }
-        let disk = try? fileService.readTextIfNotBinary(
-            url: url,
-            maxBytes: ProjectSearchModel.defaultMaxFileBytes
-        )
-        return disk ?? ""
+    private func currentTextForLocalHistory(of url: URL) -> LocalHistoryCurrentText {
+        if let id = model.fileID(forURL: url), let text = model.text(for: id) { return .text(text) }
+        let fileService = self.fileService
+        return .deferred {
+            let disk = try? fileService.readTextIfNotBinary(
+                url: url,
+                maxBytes: ProjectSearchModel.defaultMaxFileBytes
+            )
+            return disk ?? ""
+        }
     }
 
     /// Carry out the restore `LocalHistoryBrowserModel` planned: open a tab if

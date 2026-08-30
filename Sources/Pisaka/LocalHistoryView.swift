@@ -19,7 +19,9 @@ import SwiftUI
 /// switch — so the "new" side of every diff has to be asked for rather than
 /// captured: `currentText` answers with the open buffer when a tab holds the file
 /// and with the disk copy otherwise, which is `PisakaApp`'s decision, not this
-/// view's.
+/// view's. It answers a `LocalHistoryCurrentText` rather than a `String`, so the
+/// disk half is a closure the model resolves off the main actor and this window
+/// never reads a file on it.
 ///
 /// **A file with no history is empty, not broken.** Almost every file in a
 /// project has never been saved by this app; the store answers a missing
@@ -30,8 +32,8 @@ import SwiftUI
 /// what the revisions are and how they sort is `LocalHistorySnapshot`, what a row
 /// is called is `LocalHistoryEvent.title`, what the diff shows is `LineDiff`
 /// through the browser model, and whether a Restore is worth doing at all is
-/// `LocalHistoryBrowserModel.restore(currentText:)` — which answers `nil` for a
-/// revision the buffer already holds, so this view never has to decide it.
+/// `LocalHistoryBrowserModel.restorePlan` — `nil` for a revision the buffer
+/// already holds, so this view never has to decide it.
 struct LocalHistoryView: View {
     /// The window's own state: the target file, its revisions, the selection and
     /// the diff. The one thing observed here.
@@ -43,8 +45,10 @@ struct LocalHistoryView: View {
     @ObservedObject var settings: SettingsStore
 
     /// What the file holds right now — the "new" side of every diff, and the text
-    /// a restore displaces. See the type's note for why it is a closure.
-    var currentText: () -> String
+    /// a restore displaces. See the type's note for why it is a closure, and
+    /// `LocalHistoryCurrentText` for why its answer is a value with two shapes
+    /// rather than a `String`.
+    var currentText: () -> LocalHistoryCurrentText
 
     /// Carry out the restore the browser model planned. `PisakaApp` opens a tab
     /// if none holds the file, snapshots the buffer under the `restore` label and
@@ -73,6 +77,23 @@ struct LocalHistoryView: View {
         )
     }
 
+    /// The instant every row's "2 hours ago" is measured against, refreshed on a
+    /// timer below.
+    ///
+    /// **One date for the whole window, held as state rather than read in a row's
+    /// `body`.** A `body` that calls `Date()` is only correct at the moment
+    /// SwiftUI happens to evaluate it: rows re-render when the model publishes,
+    /// not when time passes, so a window left open reads "just now" for an hour —
+    /// and two rows re-rendered in different passes disagree about what "now" is.
+    /// Passing one instant down makes every row consistent, and refreshing it is
+    /// what makes them true.
+    @State private var now = Date()
+
+    /// What refreshes it. A minute is the resolution the relative wording has —
+    /// nothing it can print changes faster than that — so a shorter tick would
+    /// re-render the list for no visible difference.
+    private let clock = Timer.publish(every: 60, on: .main, in: .common).autoconnect()
+
     /// The interface zone's metrics. Computed from the store rather than read
     /// from the environment because this view is the *root* of its own window and
     /// injects the value below — an environment write reaches descendants, not
@@ -92,6 +113,7 @@ struct LocalHistoryView: View {
         }
         .frame(minWidth: metrics.scaled(640), minHeight: metrics.scaled(380))
         .preferredColorScheme(settings.themePreference.colorScheme)
+        .onReceive(clock) { now = $0 }
         // Its own SwiftUI root (an `NSHostingController` made by
         // `LocalHistoryWindowController`), so it injects the interface scale
         // itself. The diff panes stay on `settings.fontSize` — the code zone —
@@ -116,7 +138,7 @@ struct LocalHistoryView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 List(browser.revisions, id: \.fileName, selection: selection) { snapshot in
-                    RevisionRow(snapshot: snapshot)
+                    RevisionRow(snapshot: snapshot, now: now)
                 }
                 .listStyle(.inset)
             }
@@ -133,23 +155,26 @@ struct LocalHistoryView: View {
             }
             Spacer()
             Button("Restore") {
-                guard let plan = browser.restore(currentText: currentText()) else { return }
+                guard let plan = browser.restorePlan else { return }
                 onRestore(plan)
                 // The buffer the right-hand pane diffs against is exactly what
                 // the restore just replaced, so the rows on screen now describe
                 // a state that no longer exists — which reads as "the restore
                 // did nothing". Re-asking with the restored text settles the
                 // pane to no differences at all, which is what a restore that
-                // worked looks like.
+                // worked looks like — and settles the plan to `nil`, which
+                // greys this button out.
                 browser.select(browser.selected, currentText: currentText())
             }
-            // Armed by the *loaded* content rather than by the selection: the
-            // content is what a restore writes into the buffer, and it arrives a
-            // hop after the click. `restore(currentText:)` still has the last
-            // word — a revision identical to the buffer plans nothing — but
-            // that answer costs a read of the current text, so it is asked when
-            // the button is pressed, not on every body evaluation.
-            .disabled(browser.selectedContent == nil)
+            // **The enablement *is* the action.** Both read the one published
+            // plan, so the question "is this revision worth restoring?" is
+            // spelled once, in Core, against the very text the rows above were
+            // computed from. The button therefore agrees with the diff pane it
+            // sits under: a revision the buffer already holds shows no
+            // differences and greys the button out, where the previous rule —
+            // armed by the loaded content, refused at click time — showed an
+            // armed button whose click did nothing.
+            .disabled(browser.restorePlan == nil)
         }
         .font(metrics.scaledFont(.body))
         .padding(.horizontal, metrics.scaled(10))
@@ -194,6 +219,17 @@ struct LocalHistoryView: View {
 private struct RevisionRow: View {
     let snapshot: LocalHistorySnapshot
 
+    /// The instant the relative wording is measured against, handed down by the
+    /// window rather than read here.
+    ///
+    /// `body` must read no clock: it runs when SwiftUI decides to evaluate it,
+    /// which for a list of revisions is when the model publishes — so a row that
+    /// asked `Date()` itself printed the age it had at its last re-render and
+    /// went on printing it, saying "just now" about an edit made an hour ago.
+    /// The window owns one date and refreshes it on a timer; every row then
+    /// agrees with every other, which a per-row clock cannot guarantee either.
+    let now: Date
+
     /// The interface zone's metrics, inherited from the window root.
     @Environment(\.interfaceMetrics) private var metrics
 
@@ -201,7 +237,7 @@ private struct RevisionRow: View {
         VStack(alignment: .leading, spacing: metrics.scaled(2)) {
             Text(snapshot.event.title)
                 .font(metrics.scaledFont(.body))
-            Text("\(Self.relative.localizedString(for: snapshot.timestamp, relativeTo: Date())) · "
+            Text("\(Self.relative.localizedString(for: snapshot.timestamp, relativeTo: now)) · "
                 + Self.absolute.string(from: snapshot.timestamp))
                 .font(metrics.scaledFont(.caption))
                 .foregroundStyle(.secondary)

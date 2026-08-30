@@ -64,6 +64,38 @@ public struct LocalHistoryRestore: Equatable {
     }
 }
 
+/// What the file being browsed holds *right now* — the "new" side of every diff
+/// and the text a restore displaces — in the two shapes the app can answer it.
+///
+/// **A value, not a `String`, because the two answers cost different things.**
+/// When a tab holds the file, the text is already main-actor state and reading it
+/// is a dictionary lookup, so it travels as ``text(_:)`` and nothing is deferred.
+/// When no tab does, the answer is a disk read under the same ceiling the capture
+/// side uses, and that read has no business on the main thread: it travels as
+/// ``deferred(_:)`` and the model resolves it **off the main actor**, inside the
+/// hop it already makes for the revision's content and the diff. Same content,
+/// same ceiling, same empty-string fallback — one fewer main-thread read.
+///
+/// The closure is `@Sendable` because that is where it runs. It is also only ever
+/// called when there is something to diff: clearing the pane takes no hop, so a
+/// deselection no longer costs a file read at all.
+public enum LocalHistoryCurrentText: Sendable {
+    /// Text already in hand — the open buffer.
+    case text(String)
+
+    /// Text that must be read, resolved off the main actor.
+    case deferred(@Sendable () -> String)
+
+    /// The text itself. Called on the browser model's private queue, never on the
+    /// main actor.
+    func resolve() -> String {
+        switch self {
+        case let .text(text): return text
+        case let .deferred(read): return read()
+        }
+    }
+}
+
 /// The Local History window's state: which file it is showing, that file's
 /// revisions, which one is selected, and the diff between it and the buffer.
 ///
@@ -132,9 +164,39 @@ public final class LocalHistoryBrowserModel: ObservableObject {
     /// than as a failure.
     @Published public private(set) var selectedContent: String?
 
-    /// The side-by-side rows for `selected` (left) against the buffer the caller
-    /// passed to `select(_:currentText:)` (right).
+    /// The side-by-side rows for `selected` (left) against the current text the
+    /// caller passed to `select(_:currentText:)` (right).
     @Published public private(set) var diffRows: [DiffRow] = []
+
+    /// What restoring the selected revision would do, or `nil` when there is
+    /// nothing to do — which is also what disables the window's Restore button.
+    ///
+    /// **The enablement and the action are the same value**, which is the point of
+    /// publishing a plan rather than exposing a predicate the view calls on click:
+    /// the button now agrees with the diff pane it sits under, because both are
+    /// answered from the very text the diff was computed against. A predicate
+    /// asked at click time can only re-read the current text, and a window whose
+    /// button says "restorable" while its rows say "identical" is the disagreement
+    /// this removes.
+    ///
+    /// It is `nil` in the three cases where a restore would be a no-op the user
+    /// could not tell from a bug: nothing is selected; the selected revision's
+    /// content is not in hand (reclaimed by retention between the listing and the
+    /// click); and a revision whose text the buffer already holds. Refusing the
+    /// identical case is what keeps a restore from marking a clean tab dirty and
+    /// writing a `.restore` snapshot of bytes that are already the newest
+    /// revision.
+    ///
+    /// **The sameness test is `NSString`'s, not `String`'s**, and that is the same
+    /// hazard `SaveTransformController.applyRestore` guards one layer up: Swift's
+    /// `==` compares by canonical equivalence, so it calls a decomposed and a
+    /// precomposed spelling of one word equal — while this feature identifies a
+    /// revision by SHA-256 over its *UTF-8 bytes*, which stores those two
+    /// spellings as genuinely different revisions. Comparing canonically here
+    /// would refuse to plan the one restore that does change bytes, silently: the
+    /// button is armed, the click does nothing, and the buffer keeps the encoding
+    /// the user asked to replace.
+    @Published public private(set) var restorePlan: LocalHistoryRestore?
 
     /// Whether a listing or a content load is in flight. Only the newest one can
     /// clear it; see the type's note.
@@ -163,6 +225,12 @@ public final class LocalHistoryBrowserModel: ObservableObject {
     /// re-derived so a content load cannot key itself differently from the
     /// listing that produced the row.
     private var root: URL?
+
+    /// What the last landed selection resolved ``LocalHistoryCurrentText`` to —
+    /// the very text ``diffRows`` was computed against, and therefore the only
+    /// honest right-hand side of the sameness question ``restorePlan`` asks.
+    /// Cleared wherever the selection is.
+    private var resolvedCurrentText: String?
 
     /// See the type's note.
     private var generation = 0
@@ -199,6 +267,8 @@ public final class LocalHistoryBrowserModel: ObservableObject {
         selected = nil
         selectedContent = nil
         diffRows = []
+        restorePlan = nil
+        resolvedCurrentText = nil
         fileURL = file
 
         guard let root, let relativePath = LocalHistoryModel.relativePath(of: file, under: root) else {
@@ -223,20 +293,27 @@ public final class LocalHistoryBrowserModel: ObservableObject {
 
     // MARK: - Selection
 
-    /// Show `snapshot` against `currentText`, loading its content and computing
-    /// the diff off the main actor.
+    /// Show `snapshot` against what the file holds now, loading its content,
+    /// resolving that current text and computing the diff off the main actor.
     ///
     /// `selected` moves synchronously so the list's highlight follows the click
-    /// immediately; the content and the rows follow when they land, and only if
-    /// nothing has superseded them. Passing `nil` clears the pane, which is why
-    /// it takes no hop at all.
+    /// immediately; the content, the rows and the restore plan follow when they
+    /// land, and only if nothing has superseded them. Passing `nil` clears the
+    /// pane, which is why it takes no hop at all — and therefore why a
+    /// deselection never resolves a ``LocalHistoryCurrentText/deferred(_:)`` and
+    /// never reads disk.
+    ///
+    /// **The current text is resolved inside the hop this call already makes.**
+    /// The revision's bytes are read there and the diff is computed there, so a
+    /// disk copy of the current text belongs in the same place rather than on the
+    /// main actor before it; see ``LocalHistoryCurrentText``.
     ///
     /// **Clearing an already-clear pane is not a new question**, and must not
     /// count as one: the generation token is what supersedes work in flight, so
     /// a caller echoing back the clear `open(file:root:)` has just made would
     /// otherwise discard the listing that call started and leave a file that has
     /// history looking as though it has none.
-    public func select(_ snapshot: LocalHistorySnapshot?, currentText: String) {
+    public func select(_ snapshot: LocalHistorySnapshot?, currentText: LocalHistoryCurrentText) {
         if snapshot == nil, selected == nil, selectedContent == nil, diffRows.isEmpty { return }
 
         generation += 1
@@ -245,6 +322,8 @@ public final class LocalHistoryBrowserModel: ObservableObject {
         selected = snapshot
         selectedContent = nil
         diffRows = []
+        restorePlan = nil
+        resolvedCurrentText = nil
 
         guard let snapshot, let root, let relativePath else {
             isLoading = false
@@ -254,44 +333,34 @@ public final class LocalHistoryBrowserModel: ObservableObject {
         isLoading = true
         let store = self.store
         Task {
-            let loaded = await offMain { () -> (String, [DiffRow])? in
+            let loaded = await offMain { () -> (current: String, content: String?, rows: [DiffRow]) in
+                let current = currentText.resolve()
                 guard let text = store.content(of: snapshot, root: root, relativePath: relativePath) else {
-                    return nil
+                    return (current, nil, [])
                 }
-                return (text, LineDiff.rows(old: text, new: currentText))
+                return (current, text, LineDiff.rows(old: text, new: current))
             }
             guard generation == self.generation else { return }
-            selectedContent = loaded?.0
-            diffRows = loaded?.1 ?? []
+            resolvedCurrentText = loaded.current
+            selectedContent = loaded.content
+            diffRows = loaded.rows
+            restorePlan = plannedRestore()
             isLoading = false
         }
     }
 
     // MARK: - Restore
 
-    /// The plan for restoring the selected revision over `currentText`, or `nil`
-    /// when there is nothing to do.
+    /// Build ``restorePlan`` from the state the landed selection just published.
     ///
-    /// Pure, and deliberately answers `nil` in the two cases where a restore
-    /// would be a no-op the user could not tell from a bug: nothing is selected
-    /// (or its content is not in hand — a revision reclaimed between the listing
-    /// and the click), and a revision whose text the buffer already holds.
-    /// Refusing the identical case is what keeps a restore from marking a clean
-    /// tab dirty and writing a `.restore` snapshot of bytes that are already the
-    /// newest revision.
-    ///
-    /// **The sameness test is `NSString`'s, not `String`'s**, and that is the same
-    /// hazard `SaveTransformController.applyRestore` guards one layer up: Swift's
-    /// `==` compares by canonical equivalence, so it calls a decomposed and a
-    /// precomposed spelling of one word equal — while this feature identifies a
-    /// revision by SHA-256 over its *UTF-8 bytes*, which stores those two
-    /// spellings as genuinely different revisions. Comparing canonically here
-    /// would refuse to plan the one restore that does change bytes, silently: the
-    /// button is armed, the click does nothing, and the buffer keeps the encoding
-    /// the user asked to replace.
-    public func restore(currentText: String) -> LocalHistoryRestore? {
+    /// Private and total: every refusal is spelled here, so the sameness question
+    /// — and the byte-wise `NSString` comparison that answers it — exists exactly
+    /// once in the app. The reasoning for both lives on ``restorePlan``, which is
+    /// what the window reads.
+    private func plannedRestore() -> LocalHistoryRestore? {
         guard let fileURL, let root, let relativePath,
-              let snapshot = selected, let text = selectedContent else { return nil }
+              let snapshot = selected, let text = selectedContent,
+              let currentText = resolvedCurrentText else { return nil }
         guard !(text as NSString).isEqual(to: currentText) else { return nil }
         return LocalHistoryRestore(
             fileURL: fileURL,
