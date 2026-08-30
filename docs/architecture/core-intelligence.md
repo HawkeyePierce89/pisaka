@@ -1110,13 +1110,13 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     | rust | `"…"` `\`; raw `r"…"`, `r#"…"#`, `br#"…"#` (no escapes). `'` is deliberately not a string delimiter | yes | `//`; `/* */` **nesting** |
     | css | `'…'`, `"…"` single-line `\` | yes | `/* */` non-nesting |
     | sql | `'…'` multi-line, escape by doubling (`''`). `"` deliberately not modeled | yes | `--` anywhere; `/* */` non-nesting |
-    | dockerfile | `'…'`, `"…"` single-line `\` | yes | `#` at line start only |
+    | dockerfile | `'…'`, `"…"` single-line `\` | yes | `#` after indent |
     | json | `"…"` single-line `\` | **no** | none |
     | yaml | `'…'` (doubling escape), `"…"` (`\`), single-line | **no** | `#` at line start or after whitespace |
     | html | `'…'`, `"…"` attribute values, single-line, no escapes | **no** | `<!-- -->` non-nesting |
-    | dotenv | `'…'`, `"…"` single-line | **no** | `#` at line start |
-    | gitignore | none | — | `#` at line start |
-    | editorconfig | none | — | `#` and `;` at line start |
+    | dotenv | `'…'`, `"…"` single-line, escape **`.none`** (see below) | **no** | `#` after indent |
+    | gitignore | none | — | `#` at **true line start** (column zero) |
+    | editorconfig | none | — | `#` and `;` after indent |
     | markdown | none | none | **completely ungated** |
 
     Reasons, carried in the source doc comments and restated here so the table is
@@ -1134,6 +1134,15 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
       inside a quoted YAML scalar from reading as a comment and `<!--` inside an
       attribute value from reading as one.
     - **Markdown**: prose all the way down, with no vocabulary to speak of.
+    - **dotenv's escape rule is `.none`, deliberately.** dotenv has no normative
+      grammar and escape handling differs per loader, so borrowing another
+      language's backslash convention would be inventing a rule rather than
+      modelling one. Nothing anywhere depends on the choice: the escape rule's only
+      effect in this scanner is *where a literal ends*, dotenv strings never
+      suppress completion, and its `#` is anchored to the line's indentation rather
+      than to a string boundary. The vocabulary therefore states the lexically
+      conservative reading — the first matching quote closes the literal — recorded
+      in `dotenvStringForms`'s doc comment and pinned by a test.
     - **Regex literals are not modeled** (JS/TS) and neither are
       `<script>`/`<style>` bodies in HTML: distinguishing `/` division from a regex
       opener needs a parser, and an embedded-language body needs a second grammar.
@@ -1142,8 +1151,27 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     The value types are `StringForm` (`open`/`close`, `spansLines`, `EscapeRule`
     `none`/`backslash`/`doubledDelimiter`, optional `allowedPrefixLetters`,
     `allowsPoundPadding`, `InterpolationHole`) and `CommentForm` (line with
-    `LineAnchor` `anywhere`/`lineStart`/`afterWhitespace` or block with
-    `nestable`). `Vocabulary` is those two arrays plus `stringsSuppressCompletion`.
+    `LineAnchor` `anywhere`/`trueLineStart`/`afterIndent`/`afterWhitespace`, or
+    block with `nestable`).
+    **`LineAnchor` has four cases, and the two line-start readings are separate on
+    purpose**: a single `lineStart` name hid the question of whether leading
+    whitespace is tolerated, and the languages that answer it differently were
+    silently sharing one answer. `.anywhere` is every language whose comment token
+    is unambiguous (swift, javascript, typescript, python, go, rust, sql);
+    `.trueLineStart` is column zero exactly — offset 0 or immediately after a line
+    separator, with no whitespace tolerated — and is held by **gitignore** alone,
+    because gitignore(5) makes a line a comment only when it *begins* with `#`, so
+    an indented `#` is a literal pattern matching a file whose name starts with a
+    hash; `.afterIndent` is the first non-whitespace character on the line and is
+    held by **dockerfile** (the builder skips leading whitespace before an
+    instruction or a comment), **dotenv** (no normative grammar; the loaders in the
+    wild trim) and **editorconfig** (this repository's own `EditorConfigFile` parser
+    trims the line and *then* tests `#`/`;`, and the two must not disagree about the
+    same file); `.afterWhitespace` is anywhere the token is not glued to the
+    preceding character and is held by **yaml** alone. Deleting the name
+    `.lineStart` rather than redefining it was the point: every use site became a
+    compile error and had to be re-decided instead of inheriting a silently changed
+    meaning. `Vocabulary` is those two arrays plus `stringsSuppressCompletion`.
     `languagesWithoutStringVocabulary` (`markdown`, `gitignore`, `editorconfig`) and
     the per-language `stringsSuppressCompletion` flag (false for `json`, `yaml`,
     `html`, `dotenv`) make the "ungated but lexed" vs. "no vocabulary" distinction
@@ -1190,8 +1218,55 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     ceilings (`cyclomatic_complexity` 22, `function_body_length` 140 — honest
     ceilings, not disables). Nesting block comments (Swift, Rust) track depth;
     non-nesting ones do not; line comments end at a line separator. Anchored line
-    comments (`#` at line start or after whitespace) consult the line's leading
-    whitespace rather than `hasPrefix`. One call site, one scan per request.
+    comments consult the line's leading whitespace rather than `hasPrefix`, and
+    which of the three anchors they consult it *for* is the vocabulary's
+    (`isAnchorSatisfied`; `.trueLineStart` tolerates no whitespace at all). One
+    call site, one scan per request.
+
+    **One `Scan` object carries a whole call**, created per `runScan(text:upTo:language:)` and passed to
+    every helper in place of a bare `NSString`, so there is exactly one way to read
+    a character and exactly one place the per-scan work is done. It settles three
+    things the walk previously redid per character or per candidate:
+    - **The chunk is actually spent.** The bulk read was filled by the outer loop
+      and then bypassed by every helper, each reading `NSString` directly — the
+      buffer was half-used. Every read now goes through `Scan.character(at:)`. A
+      look-ahead past the loaded chunk still falls back to a direct read rather
+      than re-loading, so alternating near/far reads cannot thrash the buffer.
+    - **The string forms are ordered once**, longest open delimiter first at
+      construction, rather than sorted again at every offset the walk considers.
+    - **The two validated-open walks became resumable forward cursors.**
+      `yamlFlowDepth(upTo:)` (position, depth, in-single, in-double) and
+      `isInsideHtmlTag(at:)` (position, in-tag, in-single, in-double) used to walk
+      from offset zero for *every* candidate quote, which is quadratic in a
+      quote-dense document. They now carry their state forward on the `Scan`.
+      **A backwards query restarts from zero** — the scan's monotonic candidate
+      order never issues one, and that fallback is what makes the resumed answers
+      *identical* to the walk-from-zero rather than merely usually identical.
+      **Both** cursors additionally refuse to record a **target-clamped**
+      decision, under one rule rather than two: a branch that consults the target
+      (or the limit) itself reaches a state that is a fact about *this* query
+      rather than about the buffer, so the cursor commits the state from before
+      that character while the answer returned is still the full walk's, clamps
+      included. Without that rule a later, longer query would inherit a truncated
+      comment — or a truncated quote — as though it were real. The HTML walk
+      clamps on two branches (a `<!--` whose fourth character sits at or past the
+      target, and a comment finding no `-->` before it); the YAML walk clamps on
+      two of its own (a `''` doubled-quote escape straddling the limit, and a `#`
+      comment running past it).
+
+    `validatorStepCount(in:at:language:)` is an `internal` **test seam and nothing
+    else** — no app code reads it — returning how many characters those two walks
+    visited in one scan. It exists so the characterization suite can assert they
+    scale roughly linearly (a 4× document costing well under 6× the steps) without
+    consulting a clock: a walk restarted from zero per candidate blows the count up
+    by an order of magnitude, which is a difference no scheduling noise can hide
+    and no wall-clock bound can measure honestly. The refactor itself is pinned by
+    `SyntaxContextScannerCharacterizationTests`, which records the context at
+    *every* offset of a per-language corpus as run-length-encoded goldens captured
+    from the pre-refactor implementation; they assert nothing about what is
+    *right*, only that the performance work changed nothing (the one deliberate
+    golden edit is the gitignore run the `.trueLineStart` anchor legitimately
+    moved).
 
   - `UsageResult.swift` — the row Find Usages draws and the answer it draws it
     from. `UsageResult` is a **location, not a declaration**: the question "where is

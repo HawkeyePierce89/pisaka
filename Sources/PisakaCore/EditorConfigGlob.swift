@@ -162,6 +162,37 @@ public struct EditorConfigGlob: Equatable {
     /// every section of every `.editorconfig` on the walk — is bounded as a
     /// whole rather than once per pair (see `maximumMatchSteps`).
     func matches(relativePath: String, budget: inout Int) -> Bool {
+        var work = MatchWork(budget: budget)
+        defer { budget = work.budget }
+        return matches(relativePath: relativePath, work: &work)
+    }
+
+    /// How many units of work the backtracking search actually did while
+    /// answering `matches(relativePath:)` — the machine-independent stand-in for
+    /// the wall clock the pathological-section-name tests used to read.
+    ///
+    /// A test seam and nothing else — no app code reads it, which is why it is
+    /// `internal` — and it exists because *exhaustion is not the property those
+    /// tests mean*. Their inputs backtrack through charged states as well as
+    /// uncharged ones, so the ceiling lands at zero either way: the same pair
+    /// that answers in 9 ms today answers in 30 s with one `spend(_:)` removed,
+    /// and an assertion reading `budget` alone stays green through that.
+    ///
+    /// What separates the two is work done against ceiling spent, which is why
+    /// `MatchWork` books each site twice — `record(_:)` for what the step really
+    /// costs, `spend(_:)` for what the search is charged. When the two agree the
+    /// budget stops the search at the ceiling and `performed` lands there with
+    /// it; when a charge is deleted, misplaced or *undersized*, the search keeps
+    /// doing recorded work the ceiling never paid for and this number runs into
+    /// the millions. All three historical regressions are of that shape, and
+    /// none is visible to a counter the charge itself increments.
+    func matchWorkUnits(relativePath: String) -> Int {
+        var work = MatchWork(budget: EditorConfigGlob.maximumMatchSteps)
+        _ = matches(relativePath: relativePath, work: &work)
+        return work.performed
+    }
+
+    private func matches(relativePath: String, work: inout MatchWork) -> Bool {
         guard !exceedsLengthLimit, !exceedsCompileBudget else { return false }
         var path = relativePath
         if path.hasPrefix("/") { path.removeFirst() }
@@ -169,13 +200,13 @@ public struct EditorConfigGlob: Equatable {
 
         // One budget for the whole question, so a pattern cannot buy itself more
         // work by having many component starts to try.
-        if EditorConfigGlob.match(tokens, from: 0, characters, from: 0, budget: &budget) { return true }
+        if EditorConfigGlob.match(tokens, from: 0, characters, from: 0, work: &work) { return true }
         guard !anchored else { return false }
         // Unanchored ⇒ "at any depth": the pattern may start at the beginning of
         // any component. An unanchored pattern names no `/`, so trying each
         // component start is exactly what a leading `**/` would express.
         for index in characters.indices where characters[index] == "/" {
-            if EditorConfigGlob.match(tokens, from: 0, characters, from: index + 1, budget: &budget) {
+            if EditorConfigGlob.match(tokens, from: 0, characters, from: index + 1, work: &work) {
                 return true
             }
         }
@@ -202,6 +233,50 @@ public struct EditorConfigGlob: Equatable {
 
     // MARK: - Matching
 
+    /// The match ceiling, and the work actually done under it — **double-entry
+    /// bookkeeping**, deliberately two numbers rather than one.
+    ///
+    /// The budget alone says "this search stopped"; it does not say the search
+    /// could not have run for thirty seconds first, which is exactly what
+    /// happens when a step's real cost is not the cost it is charged. And a
+    /// counter incremented *by the charging call itself* cannot say it either:
+    /// the moment a charge is deleted or undersized, such a counter shrinks with
+    /// it, so `counted <= budget` survives the very regression it was written to
+    /// name. All three of this matcher's historical regressions are of that
+    /// shape: one deleted the charge outright, one charged a constant for a step
+    /// that copies the whole compiled pattern, and one charged a length that is
+    /// zero for a step which is never free.
+    ///
+    /// So each site books its step twice, the two arguments written out
+    /// separately rather than hoisted into a shared local — a local re-couples
+    /// the books and the mechanism is lost. `record(_:)` says what the step
+    /// *costs*, `spend(_:)` says what the search is *charged* for it. When the two agree — which is the invariant every
+    /// call site below is written to keep — the budget halts the search at the
+    /// ceiling and `performed` lands there with it. When they disagree the
+    /// search keeps doing recorded work nobody paid for, and `performed` runs
+    /// into the millions while `budget` sits at zero looking healthy.
+    /// `matchWorkUnits(relativePath:)` is what reads it, and only tests do.
+    struct MatchWork {
+        /// What is left of `maximumMatchSteps`. Spent, not merely watched: a
+        /// step is charged before it is taken.
+        var budget: Int
+        /// Units of work the search really did, whatever it was charged for them.
+        private(set) var performed = 0
+
+        /// Records `units` of work the search is about to do. Always paired with
+        /// the `spend(_:)` that pays for it; see the type's note for why the pair
+        /// is two calls and not one.
+        mutating func record(_ units: Int) {
+            performed += units
+        }
+
+        /// Spends `cost` steps of the ceiling for the work just recorded. `cost`
+        /// is always at least one.
+        mutating func spend(_ cost: Int) {
+            budget -= cost
+        }
+    }
+
     /// Recursive backtracking match of `tokens[tokenIndex...]` against
     /// `characters[characterIndex...]`, both of which must be consumed whole.
     ///
@@ -215,13 +290,14 @@ public struct EditorConfigGlob: Equatable {
         from tokenIndex: Int,
         _ characters: [Character],
         from characterIndex: Int,
-        budget: inout Int
+        work: inout MatchWork
     ) -> Bool {
         var tokenIndex = tokenIndex
         var characterIndex = characterIndex
         while tokenIndex < tokens.count {
-            guard budget > 0 else { return false }
-            budget -= 1
+            guard work.budget > 0 else { return false }
+            work.record(1)
+            work.spend(1)
             switch tokens[tokenIndex] {
             case .literal(let expected):
                 guard characterIndex < characters.count, characters[characterIndex] == expected else { return false }
@@ -244,21 +320,21 @@ public struct EditorConfigGlob: Equatable {
                 if crossesSeparators,
                    tokenIndex + 1 < tokens.count, tokens[tokenIndex + 1] == .literal("/"),
                    tokenIndex == 0 || tokens[tokenIndex - 1] == .literal("/"),
-                   match(tokens, from: tokenIndex + 2, characters, from: characterIndex, budget: &budget) {
+                   match(tokens, from: tokenIndex + 2, characters, from: characterIndex, work: &work) {
                     return true
                 }
                 return matchWildcard(
                     tokens, after: tokenIndex, characters, from: characterIndex,
-                    crossesSeparators: crossesSeparators, budget: &budget
+                    crossesSeparators: crossesSeparators, work: &work
                 )
             case .alternation(let branches):
                 return matchAlternation(
-                    branches, tokens, after: tokenIndex, characters, from: characterIndex, budget: &budget
+                    branches, tokens, after: tokenIndex, characters, from: characterIndex, work: &work
                 )
             case .numericRange(let lower, let upper):
                 return matchNumericRange(
                     lower: lower, upper: upper,
-                    tokens, after: tokenIndex, characters, from: characterIndex, budget: &budget
+                    tokens, after: tokenIndex, characters, from: characterIndex, work: &work
                 )
             }
             tokenIndex += 1
@@ -269,18 +345,42 @@ public struct EditorConfigGlob: Equatable {
 
     /// `*`/`**`: try every run length from the shortest up, stopping at a `/`
     /// unless the token is allowed to cross one.
+    ///
+    /// Each run length is one attempt and is booked as one, here rather than in
+    /// the recursion it makes. Ordinarily the recursion would charge it — it
+    /// enters `match`'s loop and pays on the first token — but a wildcard that is
+    /// the *last* token recurses into `tokens[tokens.count...]`, which returns
+    /// before that loop ever runs. Left to the recursion, that one shape spends
+    /// nothing and records nothing: the search walks the whole path component per
+    /// attempt while both books read healthy, which is the exact failure
+    /// `MatchWork`'s double entry exists to make visible. Measured on
+    /// `*a*a*a*a*a*a*a*a*a*a*` against `"a"×3200 + "/b"`: 3.6 s of main-thread
+    /// work reporting an at-the-ceiling 200 000 units, against 8 ms for the same
+    /// pattern with one literal appended so the recursion charges. The section-
+    /// name cap bounds the pattern; nothing bounds the path, so the cost grew
+    /// linearly with it.
     private static func matchWildcard(
         _ tokens: [EditorConfigGlobToken],
         after tokenIndex: Int,
         _ characters: [Character],
         from characterIndex: Int,
         crossesSeparators: Bool,
-        budget: inout Int
+        work: inout MatchWork
     ) -> Bool {
         var end = characterIndex
+        // The two books are kept even further apart here than at the other
+        // sites: the charge is per attempt, inside the loop, while the record is
+        // the distance the walk actually covered, taken once on the way out. A
+        // `spend(_:)` deleted as "redundant, the recursion charges it" — which is
+        // true of every wildcard except a trailing one — then leaves this record
+        // standing and the recorded work runs away from the ceiling, which is the
+        // whole point of booking a step twice.
+        defer { work.record(end - characterIndex + 1) }
         while true {
-            if match(tokens, from: tokenIndex + 1, characters, from: end, budget: &budget) { return true }
-            guard end < characters.count, budget > 0 else { return false }
+            guard work.budget > 0 else { return false }
+            work.spend(1)
+            if match(tokens, from: tokenIndex + 1, characters, from: end, work: &work) { return true }
+            guard end < characters.count else { return false }
             if !crossesSeparators, characters[end] == "/" { return false }
             end += 1
         }
@@ -295,7 +395,7 @@ public struct EditorConfigGlob: Equatable {
         after tokenIndex: Int,
         _ characters: [Character],
         from characterIndex: Int,
-        budget: inout Int
+        work: inout MatchWork
     ) -> Bool {
         let rest = Array(tokens[(tokenIndex + 1)...])
         for branch in branches {
@@ -316,10 +416,15 @@ public struct EditorConfigGlob: Equatable {
             // hundreds of free iterations at every backtracking state the budget
             // does allow, which is exactly the multiplication the ceiling exists
             // to refuse.
-            budget -= 1 + branch.count + rest.count
-            guard budget > 0 else { return false }
-            if match(branch + rest, from: 0, characters, from: characterIndex, budget: &budget) { return true }
-            guard budget > 0 else { return false }
+            guard work.budget > 0 else { return false }
+            // The two arguments are written out twice rather than hoisted into
+            // a local, and that duplication is the whole mechanism: a local
+            // would re-couple the books, so an undersized charge would shrink
+            // the record with it and vanish. See `MatchWork`.
+            work.record(1 + branch.count + rest.count)
+            work.spend(1 + branch.count + rest.count)
+            guard work.budget > 0 else { return false }
+            if match(branch + rest, from: 0, characters, from: characterIndex, work: &work) { return true }
         }
         return false
     }
@@ -334,7 +439,7 @@ public struct EditorConfigGlob: Equatable {
         after tokenIndex: Int,
         _ characters: [Character],
         from characterIndex: Int,
-        budget: inout Int
+        work: inout MatchWork
     ) -> Bool {
         var digitsStart = characterIndex
         if digitsStart < characters.count, characters[digitsStart] == "-" { digitsStart += 1 }
@@ -351,14 +456,17 @@ public struct EditorConfigGlob: Equatable {
             // ceiling by the path's digit-run length: `*1*1…{0..0}` against a
             // 200-digit path spends tens of seconds inside a keystroke while
             // staying under every cap.
-            budget -= length - characterIndex
-            guard budget > 0 else { return false }
+            guard work.budget > 0 else { return false }
+            // Written out twice on purpose; see `matchAlternation`'s note and
+            // `MatchWork`.
+            work.record(length - characterIndex)
+            work.spend(length - characterIndex)
+            guard work.budget > 0 else { return false }
             if let value = Int(String(characters[characterIndex..<length])),
                value >= lower, value <= upper,
-               match(tokens, from: tokenIndex + 1, characters, from: length, budget: &budget) {
+               match(tokens, from: tokenIndex + 1, characters, from: length, work: &work) {
                 return true
             }
-            guard budget > 0 else { return false }
             length -= 1
         }
         return false

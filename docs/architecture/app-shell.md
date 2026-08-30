@@ -597,7 +597,23 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     would discard edits nobody asked to lose) and is also what closes the write
     pass's hop: a tab typed into while the disk half ran is skipped and **reported**
     in a "Rename incomplete" alert naming it, never overwritten from a text it no
-    longer holds. That is Replace All's rule for the identical window — compute off
+    longer holds.
+
+    **That sameness question is `NSString`'s, not Swift's**, on both sides of the
+    layer. The plan's edits are UTF-16 offsets measured against exact bytes, and
+    `String` equality is canonical equivalence: it would vouch for a tab holding a
+    different spelling of the same text — U+212B and U+00C5 are `==` and are
+    different bytes, at the same UTF-16 length — and the plan's offsets would then
+    rewrite something nobody asked to change. So `applyRename` matches each tab
+    with `isEqual(to:)`, and the verification it names as its premise,
+    `RenameFilePlan.holds(in:)`, asks the same question of the text it read; the
+    two layers have to agree about the rule or the premise means nothing. It is
+    the codebase's one sameness rule — the same one
+    `SaveTransformController.applyRestore`, the usages reveal and
+    `LocalHistoryBrowserModel.plannedRestore` ask. A tab with no verified text
+    matches nothing, and its file is reported unrewritten.
+
+    That is Replace All's rule for the identical window — compute off
     main, re-read the buffer afterwards, skip and count a buffer that moved rather
     than clobber it. Afterwards comes the resync a project-wide Replace All already
     runs — `refreshLocalChanges()`, `model.bumpTreeRevision()`,

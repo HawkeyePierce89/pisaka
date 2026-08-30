@@ -247,77 +247,176 @@ final class EditorConfigGlobTests: XCTestCase {
     }
 
     // MARK: - The match budget
+    //
+    // Every case below is pathological in exactly one way, and each asserts two
+    // numbers rather than a wall clock: the ceiling is *spent*, and the work the
+    // search really did stayed inside what that ceiling could pay for.
+    //
+    // The second half is the load-bearing one, and exhaustion alone cannot stand
+    // in for it. Every one of these inputs also backtracks through *charged*
+    // states, so it drives the budget to zero whether or not the quadratic work
+    // in question is charged: restoring the numeric-range regression leaves the
+    // exhaustion assertion green while the pair takes 30 s, and the empty-branch
+    // one leaves it green at 6.6 s.
+    //
+    // What tells the two apart is work done against ceiling spent — and *done*
+    // has to be counted somewhere other than the charge, or the assertion is a
+    // tautology. `MatchWork` therefore books each step twice, `record(_:)` for
+    // what it costs and `spend(_:)` for what it is charged; a charge that is
+    // deleted, misplaced or undersized leaves recorded work the ceiling never
+    // paid for, and these assertions fire in the millions. See
+    // `EditorConfigGlob.matchWorkUnits(relativePath:)`. The measured pre-fix
+    // numbers stay in each comment as the evidence for why the input is
+    // pathological in the first place.
 
-    func testAPathologicalSectionNameAnswersQuicklyInsteadOfHanging() {
+    /// Runs the match against a budget *this suite* owns, answering all three
+    /// parts: what the glob said, what was left of the ceiling, and how many
+    /// units of work the search really did. The pathological cases assert on the
+    /// last two, neither of which a `matches(_:_:)` owning its own budget
+    /// internally can report.
+    private func matchSpendingBudget(
+        _ pattern: String,
+        _ path: String
+    ) -> (answer: Bool, remaining: Int, work: Int) {
+        let glob = EditorConfigGlob(pattern: pattern)
+        var budget = EditorConfigGlob.maximumMatchSteps
+        let answer = glob.matches(relativePath: path, budget: &budget)
+        return (answer, budget, glob.matchWorkUnits(relativePath: path))
+    }
+
+    /// The property every pathological case below shares: the ceiling is spent,
+    /// and the work actually done stayed within what the ceiling could pay for.
+    ///
+    /// The bound is *twice* the ceiling rather than the ceiling itself, and the
+    /// slack is one step's overshoot: a step records what it costs before it
+    /// learns the budget cannot cover it, and the dearest single step here — an
+    /// alternation splice copying a whole compiled pattern, or a numeric-range
+    /// candidate spanning a whole digit run — is bounded by the section-name cap
+    /// and the path length, never by the ceiling. Doubling absorbs that with
+    /// room to spare while staying more than an order of magnitude below the
+    /// millions an under-charged search records.
+    private func assertBoundedByItsCeiling(
+        _ result: (answer: Bool, remaining: Int, work: Int),
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertLessThanOrEqual(result.remaining, 0, "the ceiling was not spent", file: file, line: line)
+        XCTAssertLessThanOrEqual(
+            result.work, 2 * EditorConfigGlob.maximumMatchSteps,
+            "the search did \(result.work) units of work against a ceiling of "
+                + "\(EditorConfigGlob.maximumMatchSteps) — that is work the budget is not charged for",
+            file: file, line: line
+        )
+    }
+
+    func testAPathologicalSectionNameSpendsItsBudgetAndAnswers() {
         // The length cap above does *not* bound the backtracking match — its cost
         // is exponential in the number of wildcards. This 24-character section
         // name against a 42-character path took ~34 s before the step budget
-        // existed, on the main thread, inside the Enter and Tab key handlers. The
-        // budget is what makes the bound real; a wall clock is the only honest
-        // way to assert it.
+        // existed, on the main thread, inside the Enter and Tab key handlers.
         let pattern = String(repeating: "*a", count: 11) + "*b.c"
         XCTAssertLessThan(pattern.count, EditorConfigGlob.maximumSectionNameLength)
         let path = String(repeating: "a", count: 40) + ".x"
-        let started = Date()
-        XCTAssertFalse(matches(pattern, path))
-        XCTAssertLessThan(-started.timeIntervalSinceNow, 1.0)
+        let result = matchSpendingBudget(pattern, path)
+        XCTAssertFalse(result.answer)
+        assertBoundedByItsCeiling(result)
     }
 
-    func testAnAlternationHeavySectionNameAnswersQuicklyInsteadOfHanging() {
-        // A second pathological shape, and the one the step count alone does not
-        // catch: `matchAlternation` splices each branch in front of everything
-        // that follows the group, so one "step" copies up to the whole compiled
-        // pattern. Charging only the step let this 1_008-character name — well
-        // inside the length cap — spend ~0.6 s inside a keystroke.
+    func testAnAlternationHeavySectionNameSpendsItsBudgetAndAnswers() {
+        // A second pathological shape, and the one a *count of states* cannot
+        // catch at all: `matchAlternation` splices each branch in front of
+        // everything that follows the group, so one "step" copies up to the whole
+        // compiled pattern. Charging only the step let this 1_008-character name
+        // — well inside the length cap — spend ~0.6 s inside a keystroke, and it
+        // does so while entering no more states than the ceiling allows, because
+        // the fault is the *size* of each step rather than their number. The
+        // recorded units below are the splice's real cost, booked separately from
+        // what it is charged: restore `spend(1)` here and the search records
+        // 54 205 132 units against a ceiling of 200 000.
         let pattern = String(repeating: "{a,aa}", count: 18) + String(repeating: "b", count: 900)
         XCTAssertLessThan(pattern.count, EditorConfigGlob.maximumSectionNameLength)
-        let started = Date()
-        XCTAssertFalse(matches(pattern, String(repeating: "a", count: 26)))
-        XCTAssertLessThan(-started.timeIntervalSinceNow, 1.0)
+        let result = matchSpendingBudget(pattern, String(repeating: "a", count: 26))
+        XCTAssertFalse(result.answer)
+        assertBoundedByItsCeiling(result)
     }
 
-    func testASectionNameEndingInEmptyAlternationBranchesAnswersQuickly() {
+    func testASectionNameEndingInEmptyAlternationBranchesSpendsItsBudget() {
         // The third pathological shape, and the one a length-derived charge alone
         // misses: an empty branch spliced in front of an empty remainder copies
         // nothing, so `branch.count + rest.count` charged zero and a trailing run
         // of `,`s bought hundreds of free iterations at every backtracking state
         // the budget did allow. Measured at ~0.5 s inside a keystroke before the
         // per-attempt step, and it scales with both the comma count and the path.
+        // Those free iterations are exactly "quadratic and uncharged": restore
+        // them and this pair takes 6.6 s while *still* spending the ceiling on
+        // the wildcards around it — so it is the recorded work, not the
+        // exhaustion, that fails here.
         let pattern = String(repeating: "*a", count: 10)
             + "{" + String(repeating: ",", count: 460) + "}"
         XCTAssertLessThan(pattern.count, EditorConfigGlob.maximumSectionNameLength)
         let path = String(repeating: "a", count: 60) + "z"
-        let started = Date()
-        XCTAssertFalse(matches(pattern, path))
-        XCTAssertLessThan(-started.timeIntervalSinceNow, 1.0)
+        let result = matchSpendingBudget(pattern, path)
+        XCTAssertFalse(result.answer)
+        assertBoundedByItsCeiling(result)
     }
 
-    func testANumericRangeAgainstALongDigitRunAnswersQuickly() {
+    func testANumericRangeAgainstALongDigitRunSpendsItsBudget() {
         // The fourth: `matchNumericRange` tries every candidate length longest
         // first, and a candidate whose value falls outside the bounds never
-        // reaches the recursive `match` that charges. Uncharged, the ceiling was
-        // multiplied by the path's digit-run length — this pair measured 13 s.
+        // reaches the recursive `match` that charges. Uncharged, the ceiling is
+        // multiplied by the path's digit-run length — measured at 29.7 s with the
+        // charge deleted, and it *still* spends the ceiling on the wildcards
+        // around it, so only the recorded work below separates the two: it lands
+        // at 302 150 769 units against a ceiling of 200 000.
         let pattern = String(repeating: "*1", count: 10) + "{0..0}"
         XCTAssertLessThan(pattern.count, EditorConfigGlob.maximumSectionNameLength)
         let path = String(repeating: "1", count: 200) + "zzz"
-        let started = Date()
-        XCTAssertFalse(matches(pattern, path))
-        XCTAssertLessThan(-started.timeIntervalSinceNow, 1.0)
+        let result = matchSpendingBudget(pattern, path)
+        XCTAssertFalse(result.answer)
+        assertBoundedByItsCeiling(result)
+    }
+
+    func testASectionNameEndingInAWildcardSpendsItsBudget() {
+        // The fifth, and the only one whose cost scales with the *path* rather
+        // than the pattern: `matchWildcard` tries every run length, and every
+        // attempt but the last one's is charged by the recursion it makes — a
+        // wildcard that is the last token recurses into an empty token list,
+        // which returns before `match`'s charging loop ever runs. Uncharged, each
+        // attempt walked the whole path component for free, so the section-name
+        // cap bounded the pattern while nothing at all bounded the path: measured
+        // at 0.14 s for a 200-character component, 3.6 s for 3 200 and ~22 s for
+        // 20 000, on the main thread, inside the Enter and Tab key handlers.
+        //
+        // Exhaustion cannot see it — the wildcards before the last one spend the
+        // ceiling either way, in 5 ms — and neither can a record taken inside the
+        // charge. It is the walk's *distance*, recorded on the way out of the
+        // loop, that separates the two: delete the `spend(1)` and this pair
+        // records 160 million units against a ceiling of 200 000, in 7 s.
+        let pattern = String(repeating: "*a", count: 10) + "*"
+        XCTAssertLessThan(pattern.count, EditorConfigGlob.maximumSectionNameLength)
+        let path = String(repeating: "a", count: 3200) + "/b"
+        let result = matchSpendingBudget(pattern, path)
+        XCTAssertFalse(result.answer)
+        assertBoundedByItsCeiling(result)
     }
 
     func testTheBudgetBoundsAWholeResolutionRatherThanOneSection() {
         // Nothing caps how many sections a `.editorconfig` declares, so a
         // per-section budget multiplies by the section count: fifty copies of the
         // pathological name above cost fifty times the ceiling on one keystroke
-        // (measured at ~30 s). One budget threaded through the file is the bound.
+        // (measured at ~30 s). One budget threaded through the file is the bound,
+        // and the assertion is that bound directly: the *file* — not each of its
+        // fifty sections — spends one ceiling and the resolution still answers.
+        // A per-section budget passes the exhaustion check just as happily but
+        // would leave `budget` at the ceiling here, since each section would have
+        // spent a private copy instead.
         let pattern = String(repeating: "{a,aa}", count: 18) + String(repeating: "b", count: 900)
         let text = String(repeating: "[\(pattern)]\nindent_size = 2\n", count: 50)
         let file = EditorConfigFile(text: text)
         XCTAssertEqual(file.sections.count, 50)
         var budget = EditorConfigGlob.maximumMatchSteps
-        let started = Date()
         XCTAssertTrue(file.sections(matching: String(repeating: "a", count: 26), budget: &budget).isEmpty)
-        XCTAssertLessThan(-started.timeIntervalSinceNow, 1.0)
+        XCTAssertLessThanOrEqual(budget, 0)
     }
 
     func testAHonestlyLargeConfigStaysFarInsideTheSharedBudget() {
@@ -347,47 +446,58 @@ final class EditorConfigGlobTests: XCTestCase {
 
     // MARK: - The compile budget
 
-    func testANestedBraceSectionNameCompilesInsteadOfStalling() {
+    func testANestedBraceSectionNameSpendsTheCompileBudget() {
         // Compilation is the *other* unbounded cost, and the match budget cannot
         // see it: the compiler scans forward for each group's closing `}`, so a
         // name of nested openers is quadratic — 1_023 of them cost ~500k character
         // steps for one section, before a single path has been matched against it.
+        //
+        // `exceedsCompileBudget` is the assertion because it is what bounds that
+        // scan: the quadratic is still quadratic, it is now *charged*, and the
+        // charge is what stops it. Un-charge it — the regression this input was
+        // found by — and compilation runs the full 500k steps while the flag
+        // stays `false`, which fails here on any machine at any speed.
         let pattern = String(repeating: "{", count: 1023)
         XCTAssertLessThanOrEqual(pattern.count, EditorConfigGlob.maximumSectionNameLength)
-        let started = Date()
         let glob = EditorConfigGlob(pattern: pattern)
-        XCTAssertLessThan(-started.timeIntervalSinceNow, 0.1)
-        // Degrades exactly as an over-long name does: it answers "no" to everything.
         XCTAssertTrue(glob.exceedsCompileBudget)
+        // Degrades exactly as an over-long name does: it answers "no" to everything.
         XCTAssertFalse(glob.matches(relativePath: pattern))
         XCTAssertFalse(glob.matches(relativePath: "a.txt"))
     }
 
-    func testANestedCharacterClassSectionNameCompilesInsteadOfStalling() {
+    func testANestedCharacterClassSectionNameSpendsTheCompileBudget() {
         // The same shape through the other forward scan: an unclosed `[` is read to
         // the end of the pattern before it degrades to a literal, so a run of them
-        // is quadratic too.
+        // is quadratic too — and, as above, the reading is that the scan is
+        // charged rather than that it happened to finish fast enough today.
         let pattern = String(repeating: "[", count: 1024)
-        let started = Date()
         let glob = EditorConfigGlob(pattern: pattern)
-        XCTAssertLessThan(-started.timeIntervalSinceNow, 0.1)
         XCTAssertTrue(glob.exceedsCompileBudget)
         XCTAssertFalse(glob.matches(relativePath: "a.txt"))
     }
 
-    func testAWholeFileOfPathologicalSectionNamesParsesInsideAKeystroke() {
-        // The budget is per section, so what a whole file costs is (sections ×
-        // ceiling) — and the 1 MB read cap holds a file of 1_024-character section
-        // names to about a thousand of them. Un-budgeted this measured ~0.9 s of
-        // main-thread work per resolution, repaid on every cache invalidation.
+    func testAWholeFileOfPathologicalSectionNamesChargesEverySection() {
+        // The compile budget is per section, so what a whole file costs is
+        // (sections × ceiling) — and the 1 MB read cap holds a file of
+        // 1_024-character section names to about a thousand of them. Un-budgeted
+        // this measured ~0.9 s of main-thread work per resolution, repaid on every
+        // cache invalidation.
+        //
+        // So the assertion is the multiplicand: *every* section degraded through
+        // the compile budget, which is what makes the file's total exactly
+        // (sections × ceiling) rather than (sections × quadratic). One section
+        // escaping the charge is one unbounded scan per resolution, and that is
+        // the regression — visible here as a `false` flag, with no clock read.
         let pattern = String(repeating: "{", count: 1023)
         let text = String(repeating: "[\(pattern)]\nindent_size = 2\n", count: 900)
-        let started = Date()
         let file = EditorConfigFile(text: text)
         XCTAssertEqual(file.sections.count, 900)
-        XCTAssertLessThan(-started.timeIntervalSinceNow, 1.0)
+        XCTAssertTrue(file.sections.allSatisfy { $0.glob.exceedsCompileBudget })
         var budget = EditorConfigGlob.maximumMatchSteps
         XCTAssertTrue(file.sections(matching: "a.txt", budget: &budget).isEmpty)
+        // And a file of names that never compiled costs the match budget nothing.
+        XCTAssertEqual(budget, EditorConfigGlob.maximumMatchSteps)
     }
 
     func testAnHonestSectionNameIsNowhereNearTheCompileBudget() {

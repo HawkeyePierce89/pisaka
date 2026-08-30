@@ -362,10 +362,65 @@ final class SyntaxContextScannerTests: XCTestCase {
         assertContext(text, at: hashOff, language: .gitignore, is: .code)
     }
 
+    /// gitignore(5): a line is a comment only when it *begins* with `#`.
+    func testGitignoreHashAtTrueLineStartIsComment() {
+        let text = "build/\n# comment\n*.log"
+        let comOff = (text as NSString).range(of: "comment").location + 1
+        assertContext(text, at: comOff, language: .gitignore, is: .comment)
+        assertSuppress(text, at: comOff, language: .gitignore, is: true)
+    }
+
+    /// The indented `#` is a literal pattern character — it matches a file whose
+    /// name starts with a hash — so completion is offered on that line.
+    func testGitignoreIndentedHashIsPatternNotComment() {
+        let text = "build/\n  # indented\n*.log"
+        let patOff = (text as NSString).range(of: "indented").location + 1
+        assertContext(text, at: patOff, language: .gitignore, is: .code)
+        assertSuppress(text, at: patOff, language: .gitignore, is: false)
+    }
+
+    /// A gitignore `#` at the very first offset of the buffer is a comment too —
+    /// offset 0 is a true line start with no separator before it.
+    func testGitignoreHashAtBufferStartIsComment() {
+        let text = "# comment\nbuild/"
+        let comOff = (text as NSString).range(of: "comment").location + 1
+        assertContext(text, at: comOff, language: .gitignore, is: .comment)
+    }
+
     func testEditorconfigHashMidLineNotComment() {
         let text = "key = value # comment"
         let hashOff = (text as NSString).range(of: "#").location + 1
         assertContext(text, at: hashOff, language: .editorconfig, is: .code)
+    }
+
+    /// The three `.afterIndent` languages skip leading whitespace before the
+    /// comment token, the way each format's own reader does — editorconfig's
+    /// citation being this repository's `EditorConfigFile`, which trims the line
+    /// and then tests `#`/`;`.
+    func testIndentedHashIsCommentForTheAfterIndentLanguages() {
+        for language in [SyntaxLanguage.dockerfile, .dotenv, .editorconfig] as [SyntaxLanguage] {
+            let text = "A=1\n   # indented\nB=2"
+            let comOff = (text as NSString).range(of: "indented").location + 1
+            assertContext(text, at: comOff, language: language, is: .comment)
+        }
+    }
+
+    func testEditorconfigIndentedSemicolonIsComment() {
+        let text = "root = true\n  ; indented\n[*]"
+        let comOff = (text as NSString).range(of: "indented").location + 1
+        assertContext(text, at: comOff, language: .editorconfig, is: .comment)
+    }
+
+    /// dotenv declares `.none` for both quote forms, so the first matching quote
+    /// closes the literal and a backslash before it escapes nothing. The `x`
+    /// after that quote is therefore code, not a continuation of the string.
+    func testDotenvLiteralClosesAtFirstMatchingQuote() {
+        let text = "KEY=\"a\\\"x\""
+        let ns = text as NSString
+        let aOff = ns.range(of: "a").location + 1
+        let xOff = ns.range(of: "x").location + 1
+        assertContext(text, at: aOff, language: .dotenv, is: .string)
+        assertContext(text, at: xOff, language: .dotenv, is: .code)
     }
 
     func testYamlHashAfterWhitespaceIsComment() {
@@ -445,6 +500,108 @@ final class SyntaxContextScannerTests: XCTestCase {
         let comOff = (text as NSString).range(of: "comment").location + 1
         assertContext(text, at: comOff, language: .html, is: .comment)
         assertSuppress(text, at: comOff, language: .html, is: true)
+    }
+
+    // MARK: - Chunk boundaries
+
+    /// The per-scan reader loads `chunkSize` UTF-16 units at a time and the
+    /// sequential outer loop is the only thing that moves the window; every
+    /// look-ahead past its end and every backwards walk below its start falls
+    /// back to a direct `NSString` read. **Nothing else in this suite is long
+    /// enough to leave one chunk** — the goldens' documents are tens of
+    /// characters and the scaling documents assert only a step count — so these
+    /// are the only tests that exercise the fallback at all. Replacing it with a
+    /// constant leaves every other scanner test in the repository green.
+    ///
+    /// Each case therefore places a delimiter *across* the boundary rather than
+    /// merely past it, which is the hazard the refactor's doc comment names.
+
+    private func assertContextAtBoundary(
+        _ text: String,
+        at offset: Int,
+        language: SyntaxLanguage,
+        is expected: SyntaxContext,
+        _ what: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let got = SyntaxContextScanner.context(in: text as NSString, at: offset, language: language)
+        XCTAssertEqual(got, expected, "\(what) (offset \(offset))", file: file, line: line)
+    }
+
+    /// `/*` split across the boundary: the `/` is the last unit of one chunk and
+    /// the `*` the first of the next, so recognizing the opener needs the read
+    /// past the chunk's end.
+    func testABlockCommentOpenerStraddlingTheChunkBoundaryStillOpens() {
+        let boundary = SyntaxContextScanner.chunkSize
+        let text = String(repeating: "x", count: boundary - 1) + "/* comment */ after"
+        XCTAssertEqual((text as NSString).character(at: boundary - 1), 47, "the `/` must sit at the last unit")
+
+        assertContextAtBoundary(
+            text, at: boundary + 4, language: .swift, is: .comment,
+            "a block comment whose opener straddles the chunk boundary"
+        )
+        assertContextAtBoundary(
+            text, at: (text as NSString).length, language: .swift, is: .code,
+            "…and still closes"
+        )
+    }
+
+    /// The mirror: `*/` split across the boundary. A closer that is not seen
+    /// leaves the rest of the file inside a comment forever.
+    func testABlockCommentCloserStraddlingTheChunkBoundaryStillCloses() {
+        let boundary = SyntaxContextScanner.chunkSize
+        let head = "/*"
+        let text = head + String(repeating: "x", count: boundary - 1 - head.count) + "*/ after"
+        XCTAssertEqual((text as NSString).character(at: boundary - 1), 42, "the `*` must sit at the last unit")
+
+        assertContextAtBoundary(
+            text, at: boundary - 10, language: .swift, is: .comment,
+            "inside the comment, before the boundary"
+        )
+        assertContextAtBoundary(
+            text, at: (text as NSString).length, language: .swift, is: .code,
+            "a block comment whose closer straddles the chunk boundary must still close"
+        )
+    }
+
+    /// A three-unit opener (`"""`) split two-one across the boundary — the
+    /// longest delimiter the vocabulary orders first, and the one whose partial
+    /// match would otherwise read as an empty `""` literal.
+    func testAMultiLineStringOpenerStraddlingTheChunkBoundaryStillOpens() {
+        let boundary = SyntaxContextScanner.chunkSize
+        let text = String(repeating: "x", count: boundary - 2) + "\"\"\"\nbody\n\"\"\" after"
+
+        assertContextAtBoundary(
+            text, at: boundary + 3, language: .swift, is: .string,
+            "a multi-line string whose opener straddles the chunk boundary"
+        )
+        assertContextAtBoundary(
+            text, at: (text as NSString).length, language: .swift, is: .code,
+            "…and still closes"
+        )
+    }
+
+    /// The *backwards* direction, which no forward look-ahead covers: an
+    /// `.afterIndent` comment token whose line begins in the previous chunk, so
+    /// deciding whether only whitespace precedes it reads below the window's
+    /// start.
+    func testAnAfterIndentCommentWhoseLineBeganInThePreviousChunkStillOpens() {
+        let boundary = SyntaxContextScanner.chunkSize
+        let lineStart = boundary - 96
+        let filler = String(repeating: "x\n", count: lineStart / 2)
+        XCTAssertEqual((filler as NSString).length, lineStart)
+
+        let indent = String(repeating: " ", count: 300)
+        let text = filler + indent + "# comment"
+        let hash = lineStart + indent.count
+        XCTAssertGreaterThan(hash, boundary, "the token must be read from the second chunk")
+        XCTAssertLessThan(lineStart, boundary, "…while its line begins in the first")
+
+        assertContextAtBoundary(
+            text, at: hash + 3, language: .editorconfig, is: .comment,
+            "an indented comment whose line begins in the previous chunk"
+        )
     }
 
     // MARK: - Out of range

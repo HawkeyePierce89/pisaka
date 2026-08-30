@@ -283,6 +283,89 @@ final class LocalHistorySourceGatingTests: XCTestCase {
         )
     }
 
+    func testTheRestoreReAsksThePlansSamenessQuestionBeforeCapturing() throws {
+        let app = try code(ofFileNamed: "PisakaApp.swift", under: "Sources/Pisaka")
+        XCTAssertEqual(
+            try occurrences(of: "displaced as NSString\\)\\.isEqual\\(to: plan\\.text\\)", in: app),
+            1,
+            "The published plan answers the sameness question against the text the window resolved, refreshed "
+                + "when it becomes key — and a buffer can move without either happening. A plan gone stale that "
+                + "way re-creates the armed button whose click does nothing, and adds a side effect to it: "
+                + "applyRestore bails at its own guard, but the capture in front of it has already filed a "
+                + ".restore revision of bytes nothing displaced. So the question is re-asked here, against the "
+                + "buffer actually in hand, before the capture — and by bytes, like every other sameness test in "
+                + "this feature."
+        )
+    }
+
+    func testTheRestoreAsksItsRefusalsBeforeOpeningAnything() throws {
+        let app = try code(ofFileNamed: "PisakaApp.swift", under: "Sources/Pisaka")
+        let asks = try offsets(of: "localHistoryRestoreRefused\\(displacing:", in: app)
+        let opens = try offsets(of: "model\\.open\\(url: plan\\.fileURL\\)", in: app)
+        XCTAssertEqual(
+            asks.count,
+            2,
+            "Both refusals are one question asked at two moments: once against the text the restore can already "
+                + "see it would displace, once against the buffer the open produced. Collapsing them back to one "
+                + "is what re-introduces the side effect below."
+        )
+        XCTAssertEqual(opens.count, 1, "The restore opens the file it is restoring exactly once.")
+        guard asks.count == 2, let open = opens.first else { return }
+        XCTAssertLessThan(
+            asks[0],
+            open,
+            "The question must be put before WorkspaceModel.open — which selects a tab, and adds one for a file "
+                + "no tab holds. Asking only afterwards turns a click that does nothing into a click that pulls "
+                + "the editor onto another file and beeps."
+        )
+        XCTAssertGreaterThan(
+            asks[1],
+            open,
+            "It is re-asked after the open, because the open is what the capture and the replacement act on and "
+                + "the file can move between the two reads; the pre-open ask exists to keep a refusal from "
+                + "costing a tab, not to decide it."
+        )
+
+        let preflights = try offsets(of: "localHistoryTextToDisplace\\(", in: app)
+        XCTAssertEqual(
+            preflights.count,
+            2,
+            "The pre-open ask is fed by one seam — its declaration and its single call site. A file with no tab "
+                + "has no buffer to judge, so without it the whole no-tab case reaches the open before it can be "
+                + "refused, which is the side effect above wearing a narrower hat."
+        )
+        guard let preflight = preflights.min() else { return }
+        XCTAssertLessThan(
+            preflight,
+            open,
+            "The seam is asked before the open, not after it."
+        )
+    }
+
+    func testThePreOpenAskReadsDiskWithoutTheWindowsCeiling() throws {
+        let app = try code(ofFileNamed: "PisakaApp.swift", under: "Sources/Pisaka")
+        guard let start = app.range(of: "private func localHistoryTextToDisplace(")?.lowerBound,
+              let end = app.range(
+                  of: "private func localHistoryRestoreRefused(",
+                  range: start..<app.endIndex
+              )?.lowerBound
+        else {
+            XCTFail("localHistoryTextToDisplace must exist and sit beside the refusal it feeds")
+            return
+        }
+        let body = String(app[start..<end])
+        XCTAssertTrue(
+            body.contains("fileService.read(url:"),
+            "The no-tab half reads the file the plain way, exactly as WorkspaceModel.open is about to."
+        )
+        XCTAssertFalse(
+            LSPSourceGatingTests.containsToken("readTextIfNotBinary", in: body),
+            "It must not use the window's capped read: that ceiling is LocalHistoryPolicy.maxContentBytes to "
+                + "the byte, so a capped preflight answers the empty string for exactly the file the policy is "
+                + "about to refuse as tooLarge — waving through the one case it most needs to catch."
+        )
+    }
+
     func testTheRestoreRefusesWhatThePolicyWillNotCapture() throws {
         let app = try code(ofFileNamed: "PisakaApp.swift", under: "Sources/Pisaka")
         XCTAssertEqual(

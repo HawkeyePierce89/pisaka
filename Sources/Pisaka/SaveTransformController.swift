@@ -311,7 +311,7 @@ final class SaveTransformController {
     ///
     /// A restore whose text the buffer already holds does nothing at all. The
     /// browser model refuses that case before it ever becomes a plan
-    /// (`LocalHistoryBrowserModel.restore(currentText:)`); it is re-checked here
+    /// (`LocalHistoryBrowserModel.restorePlan`); it is re-checked here
     /// because this method is reachable with any text, and rewriting a buffer
     /// with itself would dirty a clean tab for no change. Compared as `NSString`
     /// for `prepare`'s reason: canonical equivalence would call a decomposed and

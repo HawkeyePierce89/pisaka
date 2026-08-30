@@ -121,12 +121,23 @@ public struct RenameFilePlan: Equatable, Sendable {
     /// this is asked about a buffer that may have been rewritten wholesale since
     /// the plan was made, and "the file shrank" is an ordinary staleness, not a
     /// programming error.
+    ///
+    /// The sameness question is `NSString`'s, not Swift's, for the reason every
+    /// other site in this codebase asks it that way (`SaveTransformController
+    /// .applyRestore`, the usages reveal, `LocalHistoryBrowserModel
+    /// .plannedRestore`): a plan's edits are UTF-16 offsets measured against
+    /// exact bytes, and `String` equality is canonical equivalence — it would
+    /// vouch for a decomposed spelling where the server saw a precomposed one,
+    /// whose UTF-16 length differs, and every later offset in the plan would then
+    /// land in the wrong place. `PisakaApp.applyRename` names this verification
+    /// as its premise when it matches an open tab byte-for-byte; the two layers
+    /// have to be asking the same question for that to mean anything.
     public func holds(in text: String) -> Bool {
         let source = text as NSString
         return edits.allSatisfy { edit in
             guard edit.range.location >= 0,
                   NSMaxRange(edit.range) <= source.length else { return false }
-            return source.substring(with: edit.range) == edit.expectedText
+            return (source.substring(with: edit.range) as NSString).isEqual(to: edit.expectedText)
         }
     }
 

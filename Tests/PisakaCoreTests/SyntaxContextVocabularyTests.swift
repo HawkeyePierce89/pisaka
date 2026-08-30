@@ -214,4 +214,52 @@ final class SyntaxContextVocabularyTests: XCTestCase {
         XCTAssertFalse(v.stringsSuppressCompletion)
         XCTAssertFalse(SyntaxContextVocabulary.canSuppressCompletion(.markdown))
     }
+
+    // MARK: - Line anchors
+
+    /// The anchor each language holds, by whole-set equality, so a new language
+    /// or a re-pointed one has to be decided here rather than inherited.
+    func testLineAnchorAssignmentPerLanguage() {
+        var byAnchor: [SyntaxContextVocabulary.LineAnchor: Set<SyntaxLanguage>] = [:]
+        for language in SyntaxLanguage.allCases {
+            for form in SyntaxContextVocabulary.commentForms(for: language) {
+                guard case .line(_, let anchor) = form else { continue }
+                byAnchor[anchor, default: []].insert(language)
+            }
+        }
+        // The key set closes the vocabulary from the other side: a fifth
+        // `LineAnchor` case would otherwise add a key nothing below looks at, and
+        // the four assertions would all still pass while a whole reading of what
+        // starts a comment went unstated.
+        XCTAssertEqual(Set(byAnchor.keys), [.anywhere, .trueLineStart, .afterIndent, .afterWhitespace])
+        XCTAssertEqual(byAnchor[.anywhere], [.swift, .javascript, .typescript, .python, .go, .rust, .sql])
+        XCTAssertEqual(byAnchor[.trueLineStart], [.gitignore])
+        XCTAssertEqual(byAnchor[.afterIndent], [.dockerfile, .dotenv, .editorconfig])
+        XCTAssertEqual(byAnchor[.afterWhitespace], [.yaml])
+    }
+
+    /// editorconfig anchors *both* of its tokens the same way — the `;` must not
+    /// quietly hold a different reading from the `#`.
+    func testEditorconfigAnchorsBothCommentTokensAfterIndent() {
+        XCTAssertEqual(
+            SyntaxContextVocabulary.commentForms(for: .editorconfig),
+            [.line(token: "#", anchor: .afterIndent), .line(token: ";", anchor: .afterIndent)]
+        )
+    }
+
+    // MARK: - The dotenv escape decision
+
+    /// dotenv has no normative grammar and its loaders disagree about escapes,
+    /// so the vocabulary states the lexically conservative reading — the first
+    /// matching quote closes the literal — rather than borrowing another
+    /// language's backslash convention. Nothing depends on the choice; this test
+    /// pins the stated reading so a future edit is a decision, not a drift.
+    func testDotenvStringFormsDeclareNoEscape() {
+        let forms = SyntaxContextVocabulary.stringForms(for: .dotenv)
+        XCTAssertEqual(forms.count, 2)
+        XCTAssertEqual(Set(forms.map(\.open)), ["'", "\""])
+        for form in forms {
+            XCTAssertEqual(form.escape, .none, "dotenv \(form.open) must declare no escape rule")
+        }
+    }
 }

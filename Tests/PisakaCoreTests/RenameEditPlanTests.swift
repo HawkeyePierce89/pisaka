@@ -381,6 +381,48 @@ final class RenameEditPlanTests: XCTestCase {
         )
     }
 
+    /// Verification asks `NSString`'s sameness question, not Swift's.
+    ///
+    /// The discriminating case is a *singleton* composition — U+212B ANGSTROM
+    /// SIGN and U+00C5 are canonically equivalent, one UTF-16 unit each, and
+    /// different bytes — because it keeps every offset in the plan valid while
+    /// changing what the text actually holds. Swift's `==` is canonical
+    /// equivalence and vouches for it; the plan's ranges are UTF-16 offsets
+    /// measured against exact bytes, and rewriting a buffer the server was never
+    /// shown is the thing verification exists to refuse. This is the rule
+    /// `SaveTransformController.applyRestore` and `LocalHistoryBrowserModel
+    /// .plannedRestore` already ask, and it is the premise `PisakaApp.applyRename`
+    /// names when it matches an open tab byte-for-byte.
+    func testVerificationComparesBytesRatherThanCanonicalEquivalence() {
+        let expected = "\u{212B}ngstrom"
+        let equivalent = "\u{00C5}ngstrom"
+        XCTAssertEqual(expected, equivalent, "the two spellings are canonically equivalent")
+        XCTAssertEqual(
+            (expected as NSString).length,
+            (equivalent as NSString).length,
+            "…and the same UTF-16 length, so every offset in the plan stays in bounds"
+        )
+        XCTAssertNotEqual(Array(expected.utf8), Array(equivalent.utf8), "…and are different bytes")
+
+        let file = RenameFilePlan(
+            fileURL: root.appendingPathComponent("a.swift"),
+            relativePath: "a.swift",
+            edits: [
+                RenameEdit(
+                    range: NSRange(location: 0, length: (expected as NSString).length),
+                    newText: "Renamed",
+                    expectedText: expected
+                ),
+            ]
+        )
+
+        XCTAssertTrue(file.holds(in: expected))
+        XCTAssertFalse(
+            file.holds(in: equivalent),
+            "a buffer holding other bytes must read as stale, not as a match"
+        )
+    }
+
     // MARK: - Application
 
     func testAppliedRewritesEveryEditAndRemapsPositions() throws {

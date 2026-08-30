@@ -864,7 +864,8 @@ Thin by convention: the views wire keys to the rules and decide nothing.
     reports through `onBufferReplaced` like every other off-screen rewrite (a
     restore always has a url, since the store is keyed by one). A restore whose
     text the buffer already holds does nothing: `LocalHistoryBrowserModel
-    .restore(currentText:)` refuses that case before it becomes a plan, and it is
+    .restorePlan` is `nil` in that case — the plan is never built, which is also
+    what greys the window's Restore button out — and it is
     re-checked here because this method is reachable with any text and rewriting a
     buffer with itself would dirty a clean tab for no change — compared as
     `NSString` for `prepare`'s reason, since canonical equivalence would call a
@@ -932,14 +933,91 @@ over in-memory trees (no committed `.editorconfig`):
     literal brace groups, nested braces, numeric ranges (negatives included, a
     non-integer refused), escapes, the 1024-character boundary accepted at the
     limit and ignored beyond it, and the "no slash ⇒ any depth" vs. "slash ⇒
-    anchored" split. Plus the budget from six sides, each asserted on a wall
-    clock because a bound on work is the only honest way to state one: the
-    wildcard-heavy pathological name, the alternation-heavy one (the shape a flat
-    step count under-reports), a name ending in empty alternation branches and a
-    numeric range against a long digit run (the two shapes a *length*-derived
-    charge under-reports), fifty copies of one of them in a single file (the
-    per-pair-vs-per-resolution scope), and a 200-section but honest config
-    spending under half the ceiling while every matching section still answers.
+    anchored" split. Plus the budget from both sides — and **asserted on the
+    charged work rather than on a wall clock**, which the suite no longer consults
+    anywhere. Every pathological input is one whose real cost is *charged* against
+    a ceiling; that charging was the fix each test was written for, so the ceiling
+    is the honest statement of the bound. The match shapes run against a
+    caller-owned budget and assert it was driven to exhaustion **and** that the
+    call still answered **and** that it entered no more attempts than that
+    ceiling could pay for: the wildcard-heavy pathological name, the
+    alternation-heavy one (the shape a flat step count under-reports), a name
+    ending in empty alternation branches and a numeric range against a long digit
+    run (the two shapes a *length*-derived charge under-reports), a name ending in
+    a **trailing wildcard** (the one shape whose cost scales with the *path*
+    rather than the pattern — see below), and fifty copies of one of them in a
+    single file (the per-pair-vs-per-resolution scope, where a
+    per-section budget would leave the shared one at its ceiling). The compile
+    shapes assert `exceedsCompileBudget` directly, and the whole-file case asserts
+    every section degraded that way, so the file's total work is sections × the
+    ceiling. The two "nowhere near the budget" tests are the other side of the
+    bound and were always clock-free: a 200-section but honest config spending
+    under half the ceiling while every matching section still answers, and an
+    ordinary pattern against a deep path still matching.
+
+    **Why that still catches the regression the clock was standing in for — and
+    why exhaustion alone does not.** Two numbers are asserted, not one, because
+    the first on its own is vacuous here. Exhaustion says only that the search
+    stopped; it does not say the search could not have run for thirty seconds
+    first. Every one of these inputs backtracks through *charged* wildcard states
+    as well as the uncharged work each was found by, so it drives the ceiling to
+    zero **either way**: restoring the numeric-range regression leaves an
+    exhaustion-only assertion green while the pair takes 29.7 s, and the
+    empty-branch one leaves it green at 6.6 s. Both were measured that way, which
+    is why the assertion is not written that way.
+
+    What separates the two is the *ratio* between work done and ceiling spent,
+    and `EditorConfigGlob.matchWorkUnits(relativePath:)` is the seam that reports
+    it — an `internal` counter read by the suite and by nothing in the app, the
+    shape `SyntaxContextScanner.validatorStepCount` uses for the same reason.
+
+    **The counter is deliberately not incremented by the charge.** That is the
+    part a first attempt at this got wrong, and it is the whole mechanism. If
+    entering a state and paying for it are one call, then `counted <= budget`
+    holds no matter what: delete the charge and the count disappears with it, so
+    the assertion stays green through exactly the regression it was written to
+    name — measured, with the numeric-range charge removed the suite passed in
+    29.7 s. `MatchWork` therefore keeps **double-entry books**: `record(_:)` says
+    what a step costs, `spend(_:)` says what the search is charged for it, and
+    the two are kept apart at each of the four sites rather than hoisted into a
+    shared local (a local re-couples them — with one,
+    the empty-branch regression escapes again, also measured). When the books
+    agree the budget halts the search and the recorded work lands at the ceiling
+    with it; when they disagree the search keeps doing work nobody paid for. All
+    four historical regressions are now caught, each at three orders of
+    magnitude above the bound: 54 million units for the alternation splice
+    charged as a constant, 302 million for the deleted numeric-range charge, 41
+    million for the empty branches, 160 million for the trailing wildcard.
+
+    **`matchWildcard` is the fourth site, and the one that had neither book.**
+    Every wildcard attempt is charged by the recursion it makes — except a
+    wildcard that is the *last* token, which recurses into an empty token list and
+    returns before `match`'s charging loop ever runs. That one shape therefore
+    spent nothing and recorded nothing: the search walked the whole path component
+    per attempt while both books read healthy at the ceiling. The section-name cap
+    bounds the pattern, but nothing bounds the path, so the cost grew linearly
+    with it — `*a*a*a*a*a*a*a*a*a*a*` measured 0.14 s against a 200-character
+    component, 3.6 s against 3 200 and ~22 s against 20 000, on the main thread
+    inside the Enter and Tab key handlers, all three reporting an at-the-ceiling
+    200 000 units. It is now charged per attempt, and the record it is checked
+    against is the *distance the walk covered*, taken once on the way out of the
+    loop rather than beside the charge — so a `spend(_:)` deleted as "redundant,
+    the recursion charges it" (true of every wildcard but this one) leaves the
+    record standing instead of vanishing with it. Fixed, the same pair answers in
+    5 ms at any path length.
+
+    The bound itself is *twice* the ceiling, the
+    slack being one step's overshoot — a step records its cost before it learns
+    the budget cannot cover it, and the dearest single step is bounded by the
+    section-name cap and the path length, never by the ceiling.
+
+    That is the "cannot hang" property the clock approximated, stated as an
+    invariant rather than as a reading off whichever machine happened to run it
+    (one of the old bounds fired on a slow release-run machine, which is what
+    started this).
+    The measured pre-fix numbers stay in each test's comment as the evidence for
+    why the input is pathological in the first place; the pathological inputs
+    themselves are unchanged, because the coverage is the input, not the clock.
   - `SaveTransformTests` — the acceptance list, engine-level: trimming with
     spaces, tabs and mixed runs (a whitespace-only line, the unterminated last
     line, a buffer trimmed on every line); the spared line from six sides (a
