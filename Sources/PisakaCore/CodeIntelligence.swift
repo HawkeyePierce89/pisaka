@@ -51,11 +51,39 @@ public protocol CodeIntelligenceProviding: AnyObject {
     /// both iOS surfaces answer "nothing to show" by not implementing anything,
     /// and no existing call site changes.
     func hover(for request: HoverRequest) async -> HoverAnswer?
+    /// Every place the identifier at `request.offset` is used, as the thing that
+    /// resolved the symbol reports them — best understood as "the answer only a
+    /// compiler can give".
+    ///
+    /// Defaulted to `[]` for `hover`'s reason, and it is the same reason twice: an
+    /// index of declarations cannot enumerate *references*, because a reference is
+    /// not declared anywhere and nothing in a `symbols.scm` capture names one. So
+    /// the tree-sitter provider and both iOS surfaces answer "nothing" by not
+    /// implementing anything.
+    ///
+    /// **An empty answer is not the end of the question here**, which is where
+    /// this parts company with `hover`. There *is* an honest second answer — a
+    /// whole-word text scan, which claims far less and says so — but it costs a
+    /// project walk, so it is not a provider's to run: `FindUsagesModel` runs it
+    /// itself when this returns nothing (decision 1). Nothing in the provider
+    /// chain ever walks the project.
+    func references(for request: UsagesRequest) async -> [UsageResult]
+    /// The whole-workspace edit that renames the symbol at `request.offset` to
+    /// `request.newName`, or `nil` when nothing can answer.
+    ///
+    /// Defaulted to `nil`, and **there is no second answer at all**: a textual
+    /// rename is right until the moment two symbols share a spelling, and then it
+    /// silently corrupts the one nobody was looking at. That is a worse outcome
+    /// than the command being unavailable, so no server means no rename — hover's
+    /// rule (D25), applied to the one command in this seam that writes.
+    func renameEdits(for request: RenameRequest) async -> RenameAnswer?
 }
 
 public extension CodeIntelligenceProviding {
     func resolveEdits(for item: CompletionItem) async -> [CompletionEdit] { [] }
     func hover(for request: HoverRequest) async -> HoverAnswer? { nil }
+    func references(for request: UsagesRequest) async -> [UsageResult] { [] }
+    func renameEdits(for request: RenameRequest) async -> RenameAnswer? { nil }
 }
 
 // MARK: - Go to definition
@@ -422,5 +450,140 @@ public struct HoverAnswer: Equatable, Sendable {
     public init(content: HoverContent, range: NSRange) {
         self.content = content
         self.range = range
+    }
+}
+
+// MARK: - Find usages
+
+/// "Where is this name used?" — what ⌃⌘U asks.
+///
+/// Carries the same four things a `DefinitionRequest` does, and for the same
+/// reasons, but none of them are optional-by-history here: nothing predates this
+/// question, so `text` is required rather than defaulted and the forgotten-buffer
+/// hazard `DefinitionRequest.text` documents does not exist. The LSP provider
+/// still applies D2's guard, because an empty buffer is a legitimate document.
+///
+/// `identifier` is what the caret resolved through `IdentifierScanner`. A server
+/// never reads it — it is asked about a *position* — but the model does: it is the
+/// word the textual scan searches for when no server answers, and the word the
+/// panel's header names.
+public struct UsagesRequest: Equatable, Sendable {
+    /// The identifier under the caret, already resolved by `IdentifierScanner`.
+    public let identifier: String
+    /// The file the question was asked from, or `nil` for a url-less buffer —
+    /// which is unanswerable by a server, since it is only ever asked about a
+    /// document it has.
+    public let fileURL: URL?
+    /// The UTF-16 offset of the identifier's **first character**, so the same word
+    /// always asks the same question wherever in it the caret stood.
+    public let offset: Int
+    /// The buffer's *live* text (D2: sync is request-driven, so the text travels
+    /// with the question).
+    public let text: String
+    /// The text of **every other document a server holds open**, keyed by file
+    /// URL — empty when the caller has none to offer.
+    ///
+    /// **D2 again, one file wider, and this question is the reason it has to be.**
+    /// Every other request in this seam is about a single document, so `text`
+    /// alone is the whole live state that matters. A references answer is not: it
+    /// names ranges in *other* files, and the diagnostics push channel (D29/D30)
+    /// has already told the server about every open served buffer — so a server
+    /// asked about a project with a dirty background tab answers in that tab's
+    /// **buffer** coordinates. Mapping those against the disk copy is the one way
+    /// this layer can produce a row that is wrong rather than absent: a plausible
+    /// line, a preview drawn from the wrong offsets, and a reveal that then
+    /// refuses the range.
+    ///
+    /// **This is what the server was told, not what the tab now holds**, and the
+    /// two are not the same map. The push channel is debounced (D30), so a
+    /// background tab typed in since the last push is a buffer no server has seen;
+    /// planning against it reintroduces the wrong-offsets row one step further
+    /// out. Fill it from `LSPWorkspace.lastSentTexts()` — the same snapshot the
+    /// rename path plans against, for the same reason. A file the map does not
+    /// name is one no server holds open, which means the server answered about the
+    /// bytes on **disk**, so the fallback for it is the disk and never a buffer.
+    ///
+    /// The textual scan prefers the live buffer for every file it reads, which is
+    /// right for *it*: it computes its own offsets, so the text it reads is the
+    /// coordinate space by construction. The two provenances therefore read
+    /// different maps on purpose, and each reads the only one its own offsets are
+    /// meaningful in.
+    ///
+    /// A url-less buffer names no file a row could point at and is left out.
+    public let openTexts: [URL: String]
+
+    public init(
+        identifier: String,
+        fileURL: URL?,
+        offset: Int,
+        text: String,
+        openTexts: [URL: String] = [:]
+    ) {
+        self.identifier = identifier
+        self.fileURL = fileURL
+        self.offset = offset
+        self.text = text
+        self.openTexts = openTexts
+    }
+}
+
+// MARK: - Rename
+
+/// "Rename this symbol to that." — what ⌃⌘R asks, once the name dialog has
+/// closed.
+///
+/// A `UsagesRequest` plus the new name. Deliberately a separate type rather than
+/// an optional field on that one: these are two different acts — one reads, one
+/// is the read half of a write — and a single type with a `newName?` would make
+/// "no new name" a state every call site has to think about.
+public struct RenameRequest: Equatable, Sendable {
+    public let identifier: String
+    public let fileURL: URL?
+    public let offset: Int
+    public let text: String
+    /// What the symbol becomes. Validated by the dialog before it is built
+    /// (`IdentifierScanner.isIdentifier(_:)`, and it must differ from
+    /// `identifier`), so a request that exists is one worth sending.
+    public let newName: String
+
+    public init(identifier: String, fileURL: URL?, offset: Int, text: String, newName: String) {
+        self.identifier = identifier
+        self.fileURL = fileURL
+        self.offset = offset
+        self.text = text
+        self.newName = newName
+    }
+}
+
+/// What a server says a rename changes.
+///
+/// **The one place this seam carries a protocol type through**, and the exception
+/// is argued rather than accidental. Every other LSP shape is kept behind the
+/// provider — `CompletionItem.resolveHandle` is an opaque number precisely so an
+/// `LSPCompletionItem` cannot escape — because those shapes are *session state*: a
+/// resolve handle means something only to the process that issued it. A
+/// `WorkspaceEdit` is not state, it is a value: a list of files and, in each, a
+/// list of `(line, character)` ranges and their replacements, with no affinity to
+/// the process that produced it and nothing that can go stale but the buffers it
+/// describes.
+///
+/// Mapping those ranges into buffer offsets is exactly where a rename's refusals
+/// live — an unmappable range, a file outside the root, two edits that overlap —
+/// and every one of them needs the *file's text*, which the provider does not have
+/// for a file no editor holds. So the mapping happens once, in `RenameEditPlan`,
+/// with the texts in hand and each refusal named and tested; re-mapping in the
+/// provider would either duplicate that judgment or throw away the information it
+/// needs to make it.
+public struct RenameAnswer: Equatable, Sendable {
+    /// The name the symbol is being given — carried so the answer describes itself
+    /// without the caller having to hold the request that produced it.
+    public let newName: String
+    /// The edit, exactly as the server sent it (normalised across the two
+    /// spellings by `LSPWorkspaceEdit`, and no further).
+    public let edit: LSPWorkspaceEdit
+
+    public init(newName: String, edit: LSPWorkspaceEdit) {
+        self.newName = newName
+        self.edit = edit
     }
 }

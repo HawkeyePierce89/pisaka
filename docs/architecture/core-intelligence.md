@@ -1193,6 +1193,254 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     comments (`#` at line start or after whitespace) consult the line's leading
     whitespace rather than `hasPrefix`. One call site, one scan per request.
 
+  - `UsageResult.swift` — the row Find Usages draws and the answer it draws it
+    from. `UsageResult` is a **location, not a declaration**: the question "where is
+    this used" has no kind in its answer at all — not even the optional one
+    `DefinitionCandidate` carries — because every row is by construction a
+    *reference* rather than a thing that was declared. So the type is flat: a file,
+    a UTF-16 range, the 1-based line the gutter would print beside it (counted with
+    `LineStartIndex`, so the row's number is the gutter's number and not the
+    protocol's — D1), the relative path the group header shows, and a `MatchPreview`
+    — Find in Files' own shape, so a usages row and a search row read and clip
+    alike.
+    **`isTextual` is the honesty flag, and it travels on the row rather than only on
+    the answer.** A row from a language server is a resolved reference; a row from
+    `TextualUsageScanner` is a whole-word string match that may name a completely
+    unrelated symbol with the same spelling. The two are the same *shape* and must
+    never be presented as the same *claim*. `UsageProvenance` says which for the
+    answer as a whole and has **two cases and no third**: an answer is never a
+    mixture, because the model asks the server first and falls to the scan only when
+    the server produced nothing at all, so there is no state in which half the rows
+    mean one thing and half the other — and a `mixed` case would be exactly the blur
+    the type exists to prevent.
+    `UsagesAnswer.make` is the hygiene, in the one order that makes each step mean
+    what it says: **dedup, then order, then cap**. Dedup is by *(canonical file,
+    range)* — canonical because the two sources spell files differently on purpose
+    (a server answers with the path it resolved, the walk with the path the user
+    opened), and two rows over the same bytes are one usage however they are spelled
+    — with the first row kept and the canonical path memoised per spelling, since a
+    two-thousand-row answer over a hundred files would otherwise resolve symlinks
+    two thousand times for a hundred distinct results. Ordering is **the requesting
+    file first, then relative path, then the file path, then buffer offset**: the
+    usages nearest the caret are the ones the question was really about, and
+    scrolling to find the line you started on is the first thing that makes such a
+    panel feel wrong. The file path is a key of its own because `relativePath` is a
+    *display* path and two files legitimately share one — every row outside the root
+    falls back to its file name, so two crates' `lib.rs` display alike. Ordering on
+    the display path alone would interleave their rows by offset, and
+    `UsageFileGroup.grouped` (consecutive runs of one file) would then emit that
+    file as two separate groups, which the panel draws with a duplicate `ForEach`
+    identity. The cap is
+    last, so what survives is the head of the list the reader is reading.
+    **The cap is 2 000**, deliberately far below Find in Files' 10 000: that number
+    is sized for arbitrary patterns over a whole project, where a broad pattern
+    legitimately matches thousands of lines someone then narrows. This list answers
+    one question about one name, and an identifier used more than two thousand times
+    is not a list anyone reads to the end. `isTruncated` is set when the cap
+    actually removed something **or when the caller says it stopped reading**
+    (`make`'s `stoppedEarly`), and the panel says so — as “more not shown” rather than
+    as the number, precisely because the second half of the flag can leave fewer rows
+    than the cap — so a truncated answer is never mistaken for a complete one.
+    **The second half of that flag is not derivable from the rows, which is why it
+    is a parameter.** The walk stops on the *raw* count passing the cap while `make`
+    measures the *deduplicated* one, and the two disagree by construction: the
+    requesting file is collected twice whenever the walk spells it differently (a
+    symlinked root is the ordinary case), and those rows collapse in dedup. Left to
+    infer truncation from its own count, `make` would call a list built from part of
+    the project complete — the one guarantee the cap makes, broken in exactly the
+    case it exists for. Whoever stopped reading says so.
+    `CanonicalPathMemo` is the memo dedup and ordering both take, and it is a
+    **reference type held by the caller** rather than a cache inside one call: the
+    walk re-runs the whole hygiene over everything collected so far for *every chunk
+    that matched*, on the main actor, and `CanonicalPath.canonical` is a file-system
+    round trip — so a per-call cache would make a streaming publish quadratic in the
+    projects it exists for. It is scoped to one question deliberately: a file's
+    canonical path is not a constant (a symlink can be repointed), so a memo that
+    outlived its answer would be a stale-path cache, which is the bug `CanonicalPath`
+    exists to avoid.
+    `revealRange(naming:in:)` is the row-activation rule, and it is **in Core rather
+    than in the view** for the reason every decision here is. A row is a position in
+    a text that was read once; between that read and the click the file may have
+    been typed in, rewritten by an operation, or renamed. So the check is the *text*
+    and not the geometry: a range is worth revealing only when the bytes it covers
+    still spell the identifier the answer is about. That rejects both failure modes
+    at once — a range past the end of a shortened buffer (which would raise on
+    `NSString`, i.e. crash the click) and a range still inside a *changed* buffer,
+    where the same offsets now cover something else and a confident selection would
+    silently claim a usage is there. The degradation is opening the file with
+    nothing selected, which is the honest outcome: the place is gone, the file is
+    still the right file to be looking at.
+  - `TextualUsageScanner.swift` — the honest half of Find Usages: every place one
+    text spells an identifier as a **whole word**, pure and `NSString`/UTF-16 like
+    every other editor engine, so a range it returns can be handed straight to the
+    text view. It is what answers when no language server serves the language, or
+    when the one that does has nothing to say; it knows nothing about scope,
+    shadowing, imports or types, so what it finds are *occurrences of a name* and
+    the panel says exactly that. The alternative — answering nothing — would make
+    the command a menu item that never works in the majority of this editor's
+    languages.
+    **The boundary rule is not restated here**, and that is the file's one real
+    decision: a candidate substring is a usage exactly when
+    `IdentifierScanner.identifier(in:at:)` — the same call a ⌘-click makes —
+    resolves *that* range to *that* text at the candidate's own start offset. So
+    `foo` is found in `foo.bar` and `foo(1)` but not inside `foobar`, `_foo` or
+    `foo_`, and a Unicode name (`имя`, `número`) works because the classification is
+    Unicode-based rather than ASCII. Delegating inherits the surprises too — a run
+    that *starts* with digits is not an identifier, so `123foo` reports `foo`,
+    exactly as ⌘-clicking that `f` would resolve `foo` — which is cheaper than two
+    rules that agree almost always. A regular expression was the other candidate and
+    is the wrong tool twice over: an identifier may contain characters a pattern
+    would have to escape, and `\b` is ASCII-shaped in a way that would quietly
+    disagree with the scanner about every non-ASCII name.
+    A query that is not one identifier — empty, `run(_:)`, `.btn-primary`, `9foo`, a
+    phrase with a space — answers `[]` rather than a partial or approximate list: it
+    cannot occur as a word by construction, and taking it as a plain substring
+    search would silently turn this command into a different one. Matching is
+    `.literal` (exact UTF-16 units, no canonical equivalence), because the ranges go
+    to a text view and a match found by folding a decomposed accent into a
+    precomposed one would name a span of a different length than the identifier the
+    caller asked about. The scan advances past each occurrence rather than past its
+    start — identifiers cannot overlap themselves as whole words — and line numbers
+    come from `LineStartIndex`, so CRLF is one break and NEL/LS/PS are breaks at
+    all. That index is built **only once ranges are in hand**
+    (`TextSearchEngine.matches`'s rule, for a sharper reason here): it is a full
+    pass over the text, and this scanner runs against every file the project walk
+    yields — the overwhelming majority of which contain the name nowhere — so
+    building it up front would make the one answer every server-less language has
+    read each of those files twice to report nothing.
+  - `FindUsagesModel.swift` — the Usages panel's state and the second half of
+    decision D36 in `core-lsp.md`: what was asked, what came back, what it *means*,
+    and whether the walk is still running. `ProjectSearchModel`'s shape throughout —
+    a `@MainActor ObservableObject` whose I/O is injected behind `FileServicing`,
+    whose traversal is the shared `ProjectFileWalk`, whose off-main work runs on a
+    private serial queue, and whose overlapping requests are ordered by a generation
+    token captured **synchronously** before any `Task` hop. Foundation only: the
+    provider arrives as a *closure*, so Core never learns where one comes from —
+    and, just as importantly, the app installs a routing provider during its own
+    `init`, so a model that captured today's answer would keep asking it forever.
+    **Why this type knows about the second answer and the provider chain does not.**
+    The seam's `references` is LSP-or-nothing (hover's rule): an index of
+    declarations cannot enumerate references. The weaker answer exists all the same,
+    but it costs a walk of the whole project, and putting that inside the provider
+    chain would make every unserved ⌃⌘U a traversal disguised as a protocol call —
+    inside a deadline race whose loser is abandoned mid-walk. So the fallback is a
+    *model* decision, taken where the walk, the file service and the open buffers
+    already live, and the panel is told which of the two it is holding.
+    **The flow.** Ask the provider; on an empty answer walk
+    `ProjectFileWalk.collectFiles` (gitignore honored, `readTextIfNotBinary`'s
+    binary/oversize refusals and `ProjectSearchModel.defaultMaxFileBytes` referenced
+    rather than restated, so the two walks decline exactly the same files),
+    scanning in chunks off the main actor and publishing per chunk so a long walk
+    fills the panel as it goes — publishing only from a chunk that actually
+    *matched*, because `UsagesAnswer.make` re-deduplicates and re-sorts everything
+    collected so far and resolves a symlink per distinct file while doing it, and
+    most chunks of most projects contain no occurrence at all. **The walk always
+    ends in an answer**, published once after the loop: without it the two cases the
+    loop cannot publish from — a walk that yielded no file at all (an unreadable
+    root, or one where everything is excluded) and one where no chunk matched —
+    would leave `provenance` and `emptyReason` both `nil`, which the panel draws as
+    "nothing has been asked yet" for a question that was just asked and just
+    answered. One `CanonicalPathMemo` is handed to every one of those `make` calls
+    for that type's reason — otherwise each chunk re-resolves every distinct file's
+    symlinks on the main actor. **Two text seams, not one**, both read on the main
+    actor (each closure reaches into app state, so both must). The walk's per-file
+    preference is `openBuffers` — the *live* tabs, so the textual rows describe what
+    the user is looking at. The semantic request's `openTexts` is `serverTexts`,
+    i.e. `LSPWorkspace.lastSentTexts()`: what each document was last *pushed* as.
+    They differ, and the difference is the whole reason there are two. A server's
+    ranges are in the coordinate space it was told about, and the push channel is
+    debounced — so a background tab typed in a moment ago is a buffer no server has
+    seen, and mapping its answers onto it yields a row with a plausible line number
+    and the wrong offsets: wrong rather than absent, which is the one failure
+    `UsagesRequest.openTexts` exists to prevent. The walk needs no such care because
+    it computes its own offsets in the very text it read. A file `serverTexts` does
+    not name is one no server holds open, so the server answered about the bytes on
+    disk and the fallback is the disk. Collection stops the moment one row *more* than the
+    cap is in hand — walking past it would read the rest of the project to build
+    rows the cap discards — and the walk **tells** `make` it stopped
+    (`stoppedEarly`) rather than leaving it to infer truncation from a row count
+    that has since been deduplicated. **The requesting file is always in the scanned set**, prepended to
+    the walk's list when the walk does not already yield it: a tab may hold a file
+    the project's `.gitignore` excludes, or one opened from outside the root
+    entirely, and neither is a file `ProjectFileWalk` visits — so without this the
+    panel would answer "No usages" for the name the caret is sitting on, the one
+    wrong answer the user can see is wrong. The coverage test is a plain path
+    comparison rather than a canonical one, because canonicalizing every walked file
+    would resolve a symlink per file across the whole project while the cost of
+    getting it wrong is nil: the extra file goes through the same `scanChunk` and
+    produces byte-identical rows, which `make`'s canonical dedup collapses. With no
+    folder open the scan falls back to the requesting buffer
+    alone — one file's usages honestly labelled beats an empty panel for a command
+    the user just invoked.
+    **Two generation tokens, answering two different questions.** The *request*
+    token says "a newer question was asked" and gates what may be **published**; it
+    is re-checked after every `await`, so a superseded query drops its partial rows
+    rather than interleaving them with the newer one's. A caller that defers `find`
+    across a `Task` hop **reserves** its token with `prepareForQuery(for:)` rather
+    than reading the current one, and `find` accepts only that reservation without
+    bumping again: two presses that merely read the same value would be ordered by
+    whichever task the runtime happened to start first, which is the outcome the
+    token is there to prevent. The reservation carries the **identifier** as well
+    as the token, because between reserving and running there is a question this
+    model is committed to publishing and cannot name — `identifier` still holds the
+    previous answer's subject until the hop lands — and `clearIfNaming` has to be
+    able to reach it. The *project* token says
+    "these files belong to a folder the user has left" and gates whether the walk
+    **continues at all**; `find` records the root it was asked about and bumps the
+    project token when it differs (`ProjectSearchModel.search`'s rule, so the model
+    never depends on having been *told* about a folder to know which one its rows
+    belong to), and `prepareForFolderChange(root:)` bumps both synchronously
+    in the same main-actor turn that handles the folder open
+    (`LocalChangesModel.prepareForFolderChange`'s precedent) and clears the rows up
+    front, because a usage list belongs to the project it was asked in and leaving
+    it clickable across a switch would open files the window no longer shows.
+    `UsagesEmptyReason` is why an empty panel must say *which* nothing it means:
+    `noQuery`, `notAnIdentifier` and `noUsages` look identical as an empty list and
+    mean entirely different things. `UsageFileGroup.grouped` groups by walking
+    **consecutive runs** of the ordered answer rather than bucketing by URL and
+    sorting the buckets — the answer already decided the order, and re-deriving it
+    would put the requesting file back in the alphabet — and it keys on the file
+    *URL*, not the relative path, because two files can display the same relative
+    path (a row outside the root shows its file name) and merging those would draw
+    one header over two different files.
+    `clearIfNaming(_:)` is the post-rename bookkeeping, and it **clears rather than
+    re-runs**: re-asking would spend a server round trip or a whole project walk on
+    a question nobody asked again, and every row on screen names a spelling that no
+    longer exists. The generation is bumped with it, so a walk still in flight for
+    the old name cannot publish over the cleared panel. It matches the **reserved**
+    question as well as the displayed one: a ⌃⌘U pressed while the rename's round
+    trip was in flight holds a token but has not reached `identifier` yet, so
+    comparing the displayed subject alone would read that rename as being about
+    some other name and let the queued walk publish the spelling the rename had
+    just removed. Invalidating the token is the whole of what that case needs — the
+    rows on screen still describe whatever they described — so the *clear* stays
+    conditional on the displayed subject, and an answer about another name (and a
+    reservation for one) survives a rename either way. The **bump** is conditional
+    too, and on the reservation rather than the display: it exists to strand a walk
+    in flight for the old name, but a standing reservation already holds the
+    current token, so such a walk was superseded the moment `prepareForQuery`
+    handed that token out and a second bump has nothing left to strand — it would
+    land on the one question that *is* current, the newer unrelated one, and get it
+    rejected at `find`'s guard. So it runs only when no reservation stands or the
+    standing one is itself about the old name.
+    A bump that *does* run also has to **end the loading state it strands**, which
+    is a different act from clearing the displayed subject. `isSearching` is only
+    ever true for a search whose token this model still expects someone to redeem,
+    and the reservation the bump retires is exactly that redeemer: a walk for some
+    other name, already superseded by `prepareForQuery(for: oldName)`, was going to
+    be replaced on screen by the reserved question's own `find` — which now returns
+    at its guard instead, leaving nobody to set the flag down and the panel saying
+    "Searching…" forever over rows from a walk abandoned mid-flight. Those rows are
+    a partial answer by construction (`isSearching` goes false the instant one
+    settles), so the honest state is the one a folder switch leaves: no query. With
+    no walk running there is nothing to end, and a *settled* answer about another
+    name still survives the bump.
+    **A reader, like the index**: it takes no writer gate, is not gated by one, and
+    writes nothing anywhere. **Out of scope** (follow-ups): an iOS surface — the
+    scanner and the model are Foundation-only and would work there unchanged, but
+    there is no panel, no command and no entry point on that platform, so iOS has
+    no usages answer at all.
+
 ## The query resources, and the runtime half `swift test` cannot reach
 
 The language knowledge itself lives outside Core, in

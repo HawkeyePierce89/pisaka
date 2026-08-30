@@ -43,6 +43,15 @@ public enum LocalHistoryEvent: String, CaseIterable, Equatable, Sendable {
     /// a restore is reversible from the history as well as by one ⌘Z.
     case restore
 
+    /// Before a project-wide rename rewrote every file the language server's
+    /// `WorkspaceEdit` named.
+    ///
+    /// The one event whose snapshots are the *whole* recovery story rather than a
+    /// second one: a rename lands as one undoable step only in the tab that was on
+    /// screen, so every other file it touched — open in a background tab or held by
+    /// no tab at all — is recoverable here and nowhere else.
+    case rename
+
     /// The on-disk token. Lowercase ASCII with no `-`, because `-` is the file
     /// name's field separator.
     public var tag: String { rawValue }
@@ -64,6 +73,7 @@ public enum LocalHistoryEvent: String, CaseIterable, Equatable, Sendable {
         case .branch: return "Before Branch Change"
         case .commit: return "Before Commit"
         case .restore: return "Before Restore"
+        case .rename: return "Before Rename"
         }
     }
 }

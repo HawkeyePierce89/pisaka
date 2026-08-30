@@ -81,6 +81,27 @@ public actor LSPSession {
         /// worth nothing, and waiting a definition's three seconds for it only
         /// keeps a request alive past its own usefulness.
         public var hover: TimeInterval
+        /// `textDocument/references` — definition's number, and for definition's
+        /// reason. It is an explicit command someone typed a shortcut for, not a
+        /// pointer that happened to stop moving: the answer is still wanted when
+        /// it arrives late, so it is worth the deliberate act's three seconds
+        /// rather than the dwell's one and a half. Expiry here is cheap —
+        /// `FindUsagesModel` walks the project textually instead and says so.
+        public var references: TimeInterval
+        /// `textDocument/rename` — **not** `references`' number, though the two
+        /// are the same act asked two ways. Three seconds is the span of a
+        /// question whose expiry costs nothing: a references timeout degrades to
+        /// the textual scan, and a definition's to tree-sitter. A rename has no
+        /// second answer of any kind (D35), and by the time it is sent the user
+        /// has already been made to fill in a modal dialog — so its expiry is not
+        /// a degraded answer but a bare refusal of a command they deliberately
+        /// invoked. It is also a categorically heavier question: `references`
+        /// reads an index, while a workspace rename type-checks the reverse
+        /// dependency graph, which on a mid-sized module is ordinarily seconds
+        /// rather than milliseconds. Timing out a rename that would have
+        /// succeeded is the one failure this layer cannot make invisible, so the
+        /// span is the one a person waiting on a dialog will tolerate.
+        public var rename: TimeInterval
         /// How long a polite `shutdown` may take before we stop being polite.
         /// Short on purpose: the process is being killed either way, and this is
         /// only the difference between a clean exit and a SIGTERM.
@@ -92,6 +113,8 @@ public actor LSPSession {
             completion: TimeInterval = 1.5,
             resolve: TimeInterval = 1.5,
             hover: TimeInterval = 1.5,
+            references: TimeInterval = 3,
+            rename: TimeInterval = 20,
             shutdown: TimeInterval = 2
         ) {
             self.handshake = handshake
@@ -99,6 +122,8 @@ public actor LSPSession {
             self.completion = completion
             self.resolve = resolve
             self.hover = hover
+            self.references = references
+            self.rename = rename
             self.shutdown = shutdown
         }
 
@@ -409,6 +434,35 @@ public actor LSPSession {
             timeout: budgets.hover
         )
         return try decode(result, as: LSPHoverResponse.self, method: LSPMethod.hover)
+    }
+
+    /// Every reference to the symbol at the position, declaration included.
+    ///
+    /// Whether the server advertised `referencesProvider` is the caller's check,
+    /// exactly as it is for `hover`: a session answers what it is asked.
+    public func references(
+        _ params: LSPReferenceParams
+    ) async throws -> LSPReferencesResponse {
+        let result = try await request(
+            LSPMethod.references,
+            params: try JSONValue(encoding: params),
+            timeout: budgets.references
+        )
+        return try decode(result, as: LSPReferencesResponse.self, method: LSPMethod.references)
+    }
+
+    /// The whole-workspace edit that renames the symbol at the position.
+    ///
+    /// Nothing is written here — this is a read like every other exchange in this
+    /// actor, and what to do with the answer (verify it, then apply it or abort)
+    /// belongs to the layer that owns the writer gate.
+    public func rename(_ params: LSPRenameParams) async throws -> LSPWorkspaceEdit {
+        let result = try await request(
+            LSPMethod.rename,
+            params: try JSONValue(encoding: params),
+            timeout: budgets.rename
+        )
+        return try decode(result, as: LSPWorkspaceEdit.self, method: LSPMethod.rename)
     }
 
     public func completion(

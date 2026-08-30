@@ -528,7 +528,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     highlighted row, so the stock path stays the path;
     `goToDefinitionAtCaret()` uses
     the selection's **start**, so the command behaves the same whether the user
-    placed a caret in a name or double-clicked it; and `mouseDown(with:)` claims
+    placed a caret in a name or double-clicked it — and `findUsagesAtCaret()`
+    (⌃⌘U) and `renameAtCaret()` (⌃⌘R) are its two siblings, resolved the same way
+    and reached the same way, as the key window's first responder; and `mouseDown(with:)` claims
     only a plain, single Command-click. **Command-*drag* must still select**, and
     AppKit gives no way to learn that from the mouse-down alone (`super.mouseDown`
     runs its own modal tracking loop until the button comes up, so a `mouseUp`
@@ -545,6 +547,52 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     coordinator just beeps) is swallowed whole and the click has no effect at all,
     and a ⌘-click into an editor that is not yet focused jumps without ever
     focusing it.
+    **The three code-intelligence commands also live on a context menu, and the
+    click is the whole reason they do.** `menu(for:)` *appends to* `super`'s menu —
+    so Cut/Copy/Paste, Look Up, Services and the substitution submenus all survive —
+    adding a separator plus Go to Definition, Find Usages and Rename…, each acting
+    on the identifier under the **click** rather than under the caret. A
+    right-click does not move the insertion point, so a menu built from
+    `selectedRange()` would answer about wherever the caret was last left, which is
+    exactly the wrong word and silently so; the resolved offset is therefore
+    stashed at menu-build time and re-read when an item fires (kept as an *offset*
+    rather than a resolved word, so the identifier is read from the buffer as it is
+    when the item runs). What `super` hands back is not promised to be a fresh
+    menu — `NSTextView` builds one from a template it shares across every
+    instance — so the tagged additions are **removed and re-made** on each
+    right-click rather than skipped when they are already there. Appending
+    unconditionally would grow a reused menu by four items per click; *skipping* a
+    reused menu would be the worse bug, because the items it already carries are
+    targeted at whichever text view built them, and a second editor would then run
+    Find Usages and Rename against the first one's buffer. Rebuilding is right
+    under both behaviours and costs three items. Enablement stays AppKit's:
+    `autoenablesItems` is left alone (turning it off for our three would turn it off
+    for every stock item too), and **both** validation entry points answer it —
+    `validateMenuItem(_:)` and `validateUserInterfaceItem(_:)`, each deferring to
+    one private predicate so the two cannot disagree about the same click. That is
+    not belt-and-braces: `NSTextView` conforms to `NSMenuItemValidation`, and a menu
+    validating an `NSMenuItem` asks a target that implements `validateMenuItem(_:)`
+    and never falls through to `validateUserInterfaceItem(_:)`, so overriding only
+    the latter would leave all three items permanently enabled on a right-click that
+    resolved no name — and silently inert, since the handlers guard on the same
+    question. `validateUserInterfaceItem(_:)` is kept for every other validating
+    client, and both defer to `super` for everything else, including any command
+    reaching this view through the responder chain.
+    **One place turns a caret into a question**, shared by both commands so they
+    can never disagree about what a name is or where the question is asked:
+    `IdentifierScanner` decides — the same rule Go to Definition, completion and the
+    textual scan use — and the *first* character of the resolved word is what
+    travels, so the answer does not depend on where inside a name the caret stood.
+    The live buffer travels with it (D2), because the seam may reach a server and a
+    server must be told the text before it can be asked about an offset in it. The
+    coordinator hands the result to the app as a `UsagesRequest` — *both* commands,
+    including rename, because the read half of a rename asks exactly the same four
+    things and the new name does not exist yet at that point; the dialog, the writer
+    gate and the Local History capture are all the app's (`app-shell.md`). Nothing
+    resolved is a **beep**, exactly as a ⌘-click on whitespace is: the command did
+    not happen, and an alert for a misplaced caret would be worse than the caret.
+    Every other rename refusal — no server, a server with no rename capability, an
+    answer with no edits — belongs to the app for the same reason.
     **Per-tab viewport memory** (the caret and the scroll position surviving a tab
     switch) is the third thing keyed by `fileID` in the coordinator, alongside the
     per-file undo managers it deliberately mirrors: `private var viewports =

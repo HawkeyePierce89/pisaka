@@ -103,7 +103,7 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
 - `EditorConfigModel.swift` — the synchronous per-file cache; two wholesale invalidations.
 - `IndentUnitRule.swift` — the hybrid unit rule, the stricter Tab rule, the Tab plan.
 - `SaveTransform.swift` — the pure on-save engine: the three transforms, the spared line, the position remap.
-- `SaveTransformController.swift` (app, macOS) — the one save funnel; through the editor when it holds the buffer.
+- `SaveTransformController.swift` (app, macOS) — the one save funnel; through the editor when it holds the buffer; also the two non-save buffer rewrites (restore, rename).
 
 `docs/architecture/core-search.md` — Find in Files:
 - `GitignoreMatcher.swift` — gitignore(5) matching; oracle-tested against `git check-ignore`.
@@ -122,8 +122,11 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
 - `SymbolIntelligenceProvider.swift` — index-backed provider; every ranking rule + the completion-candidate rule.
 - `SyntaxContextVocabulary.swift` — per-language string/comment vocabulary and the gating policy.
 - `SyntaxContextScanner.swift` — pure syntax-context scanner (`code`/`string`/`comment`); single-offset boundary rule and hole re-entry.
+- `UsageResult.swift` — the usages row/answer value types; dedup, ordering, the 2 000 cap and the reveal-or-open clamp.
+- `TextualUsageScanner.swift` — the pure whole-word scan; boundaries delegated to `IdentifierScanner`.
+- `FindUsagesModel.swift` — the usages panel's model: the server first, the project walk second (never a provider fallback), two generation tokens.
 
-`docs/architecture/core-lsp.md` — the LSP client (sourcekit-lsp, gopls, rust-analyzer), incl. decisions D1–D10 + D17–D34:
+`docs/architecture/core-lsp.md` — the LSP client (sourcekit-lsp, gopls, rust-analyzer), incl. decisions D1–D10 + D17–D37:
 - `LSPMessage.swift` — JSON-RPC envelopes; `null` vs. absent.
 - `LSPFraming.swift` — `Content-Length` framing; a framing error is terminal.
 - `LSPProtocolTypes.swift` — decode leniently, encode exactly; the closed capability tree.
@@ -133,6 +136,7 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
 - `LSPServerDescription.swift` — description + registry (D9); the per-server `configuration` (D27).
 - `LSPWorkspace.swift` — one server per `(server, root)`; the D2 flush, D7 backoff, `updateRegistry(_:)` (D16); push routing + teardown clears (D31/D33).
 - `CompletionEditPlan.swift` — the pure auto-import rule.
+- `RenameEditPlan.swift` — `WorkspaceEdit` → the pure per-file rename plan: the five refusals, the `expectedText` verification, the disk/buffer split (+ `RenameNameRule`, what the dialog accepts).
 - `HoverContent.swift` — hover markup → renderable segments; the dwell delay and the three-dimensional cap (D25/D26).
 - `LSPIntelligenceProvider.swift` — protocol answers as seam values (D6 ranking).
 - `RoutingIntelligenceProvider.swift` — LSP first, tree-sitter otherwise; the whole-attempt budget.
@@ -305,6 +309,7 @@ in `Sources/Pisaka/Platform/` bridges per-platform APIs. Untested by convention.
 - `ContentView.swift` — window layout; deliberately non-observed `commitDialog`.
 - `ProjectSwitcherView.swift` — bottom-bar project switcher; read-at-open, empty state, delegates actions.
 - `ProblemsPanelView.swift` — the Problems dock panel: grouped rows, counts header, open-and-reveal callback.
+- `UsagesPanelView.swift` — the Usages dock panel beside Problems: the identifier header, the semantic/textual honesty line, grouped rows, row activation as a whole `UsageResult`.
 - `DiffWindowContent.swift` / `DiffWindowController.swift` — separate diff windows.
 - `SourceViewerWindowController.swift` / `SourceViewerContent.swift` — the read-only out-of-project definition window.
 - `ProjectTreeView.swift` — project tree (lazy children, `treeRevision` reloads).
@@ -361,8 +366,9 @@ ci.yml's `lint` job, and the version-bump procedure.
 - **Generation tokens**: every async git/search model orders overlapping work by
   monotonic tokens captured *synchronously* before the `Task` hop; superseded
   work discards its result instead of publishing over newer state.
-- **Disk-writer coordination**: every git-mutating operation (revert, merge
-  apply, branch switch/create, project Replace All, commit) raises
+- **Disk-writer coordination**: every worktree-mutating operation (revert, merge
+  apply, branch switch/create, project Replace All, commit, and — the seventh,
+  the one that is not git's — a language server's project-wide **rename**) raises
   `autosave.suspend()` + `localChanges.beginRevert()` synchronously before its
   first `await` (balanced by `defer`); the project-tree file ops, ⌘S and the
   run/test saves refuse while the gate is up.
@@ -379,10 +385,20 @@ ci.yml's `lint` job, and the version-bump procedure.
   and four failures mark that `(server, root)` unavailable for the app run. A
   **reader**, like the index. `Process` lives only in `Sources/Pisaka` behind
   `LSPTransport` — `LSPSourceGatingTests` asserts that. Registration is dynamic
-  (`updateRegistry(_:)`): un-registering a server shuts its process down. **Hover
-  is the one question with no fallback** (D25): tree-sitter knows names, not
-  types, so no server means no popover — and the popover itself is chrome, not a
-  code surface, because the pointer cannot reach it (D26, `core-lsp.md`).
+  (`updateRegistry(_:)`): un-registering a server shuts its process down. **Three
+  questions are exceptions to the silent tree-sitter fallback.** *Hover* (D25) and
+  *rename* (D35) have no second answer at all — tree-sitter knows names, not types
+  or references, so no server means no popover and no rename — and hover's popover
+  is itself chrome, not a code surface, because the pointer cannot reach it (D26,
+  `core-lsp.md`). *`references`* (D36) has a second answer that is **not this
+  layer's**: nothing in the provider chain ever walks the project, because a walk
+  inside the router's deadline race would be abandoned mid-flight with nobody left
+  to say so, so `FindUsagesModel` runs `TextualUsageScanner` where the walk, the
+  file service and the buffers already live. The panel always states which of the
+  two it is holding, and an answer is **never a mixture** (`UsageProvenance` has
+  two cases and no third). Rename is also the one answer in the layer that becomes
+  a *write*, applied by the app under the seventh writer bracket — the layer itself
+  still writes nothing (D10).
 - **Provisioned servers**: nothing downloads without per-server consent; what
   *may* be downloaded is pinned data in Core (URL + SHA-256 + size), changed
   only by shipping a new app version. Every install verifies before unpacking
@@ -421,7 +437,7 @@ ci.yml's `lint` job, and the version-bump procedure.
   one Core file, every operation requires a login, and opening a problem never
   changes the project root (`core-leetcode.md`).
 - **Local History is a reader with a store of its own** (macOS only): it snapshots
-  every buffer the app writes and, under a label, every file the **six** gated
+  every buffer the app writes and, under a label, every file the **seven** gated
   operations are about to overwrite, into
   `…/Application Support/Pisaka/LocalHistory` — outside the project, keyed by
   (root, project-relative path), the file *name* carrying timestamp/event/hash so

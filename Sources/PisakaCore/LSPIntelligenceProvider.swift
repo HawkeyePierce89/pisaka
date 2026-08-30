@@ -250,6 +250,178 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
         )
     }
 
+    // MARK: - Find usages
+
+    /// Every place the server says the symbol at the caret is used.
+    ///
+    /// `definitions(for:)` step for step — D2's guard, the language off the file
+    /// name, `prepare` so the live buffer reaches the server before the question,
+    /// `LSPPositionMap` on the way in and on the way out, `stillHolds` before the
+    /// answer is read — with `hover`'s capability gate in front of it. The gate is
+    /// worth a line here for a different reason than hover's: this request is not
+    /// asked on a timer, but a server that cannot answer it would still cost the
+    /// user the whole budget before the model gives up and walks the project, and
+    /// the walk is the answer they are actually going to get.
+    ///
+    /// **An empty answer is returned as an empty answer**, not converted into
+    /// anything. What replaces it is `FindUsagesModel`'s decision, not this
+    /// layer's (decision 1): a provider that walked the project to fill in a gap
+    /// would put a project-wide file scan inside the router's budget race, where
+    /// the loser is abandoned mid-walk and nobody is left to say so.
+    public func references(for request: UsagesRequest) async -> [UsageResult] {
+        guard !request.identifier.isEmpty else { return [] }
+        // D2's guard, in the words the definition path states it in: an empty
+        // buffer is a legitimate document, but only at offset 0.
+        guard !(request.text.isEmpty && request.offset != 0) else { return [] }
+        guard let fileURL = request.fileURL,
+              let language = SyntaxLanguage(forFileName: fileURL.lastPathComponent),
+              let prepared = await workspace.prepare(
+                  url: fileURL,
+                  language: language,
+                  text: request.text
+              ),
+              await prepared.session.capabilities?.supportsReferences == true
+        else { return [] }
+
+        let source = request.text as NSString
+        let position = LSPPositionMap.position(forOffset: request.offset, in: source)
+        guard let response = try? await prepared.session.references(
+            LSPReferenceParams(uri: prepared.uri, position: position)
+        ) else { return [] }
+        // The same staleness gate every mapped answer takes, for the same reason:
+        // a row is a *range in a buffer*, and a range computed against a document
+        // some other request talked the server out of underneath this one points
+        // at text that has moved.
+        guard await workspace.stillHolds(prepared) else { return [] }
+
+        let root = await workspace.root
+        // Resolved once for the whole answer: `CanonicalPath.canonical` resolves
+        // symlinks on the file system, and asking it per row would put one such
+        // resolution of the project root behind every one of up to two thousand
+        // rows.
+        let rootComponents = root.map { CanonicalPath.canonical($0).pathComponents }
+        var texts = FileTextCache(
+            requestURL: fileURL,
+            requestText: source,
+            rootComponents: rootComponents,
+            openTexts: request.openTexts
+        )
+        var rows: [UsageResult] = []
+        // Bounded by the cap the answer is built with, not by the server's count:
+        // a `references` reply is the one answer here whose length is the
+        // server's to choose, and reserving for tens of thousands of locations
+        // that `UsagesAnswer.make` discards past two thousand would allocate for
+        // the reply rather than for the answer. Growth past this is amortised.
+        rows.reserveCapacity(min(response.locations.count, UsagesAnswer.cap))
+        for location in response.locations {
+            // **The one loop in this file that can outlive the question.** A
+            // references answer is the only one whose mapping is unbounded — a
+            // server naming a widely-used symbol legitimately returns tens of
+            // thousands of locations, each of which reads and indexes a file the
+            // cache then holds — and `RoutingIntelligenceProvider` abandons this
+            // call after its budget, cancelling the task around it. Without a
+            // check the loser would go on reading the project for rows nobody is
+            // waiting for, alongside the textual walk the model has already
+            // started in its place. Every other mapped answer here is bounded by
+            // a popup's worth of items and needs no such stop.
+            if Task.isCancelled { return [] }
+            if let row = usage(at: location, texts: &texts) { rows.append(row) }
+        }
+        return rows
+    }
+
+    /// One location turned into a row the panel can draw and the editor can
+    /// reveal.
+    ///
+    /// `nil` — one fewer row, silently — for `candidate(for:…)`'s two refusals and
+    /// for its reasons: a URI that is not a file URL names nothing this editor can
+    /// open, and a file whose text cannot be read has no offsets to navigate by,
+    /// only protocol line numbers that would be right in most files and wrong in
+    /// exactly the ones D1 is about.
+    private func usage(
+        at location: LSPLocation,
+        texts: inout FileTextCache
+    ) -> UsageResult? {
+        guard let url = URL(string: location.uri), url.isFileURL else { return nil }
+        let file = url.standardizedFileURL
+        guard let content = texts.text(for: file, loadText: loadText) else { return nil }
+
+        let range = LSPPositionMap.range(
+            for: location.range, in: content.text, lineStarts: content.lspLineStarts
+        )
+        // The *display* line is the editor's, not the server's (D1).
+        let line = TextSearchEngine.lineNumber(forOffset: range.location, in: content.lineStarts)
+        return UsageResult(
+            fileURL: file,
+            range: range,
+            line: line,
+            // Off the cache entry, not recomputed here: the display path is
+            // canonical components rather than a lexical strip, for
+            // `candidate(for:…)`'s reason — a server answers with the path *it*
+            // resolved, and `/private/tmp/…` for a project opened as `/tmp/…` is
+            // a real answer a prefix comparison reads as "outside the root" — and
+            // that resolution is a file-system round trip the cache key already
+            // paid for once per file.
+            relativePath: content.relativePath,
+            preview: ProjectSearchModel.preview(
+                for: SearchMatch(range: range, lineNumber: line),
+                in: content.text
+            ),
+            // A server resolved the symbol: this row means what it says.
+            isTextual: false
+        )
+    }
+
+    // MARK: - Rename
+
+    /// The workspace-wide edit that renames the symbol at the caret.
+    ///
+    /// The same seven steps as `references(for:)`, plus two refusals of its own,
+    /// and every one of its outcomes is `nil` — there is nothing else this can
+    /// answer, because there is no second source for a rename (decision 4, and
+    /// D25's reasoning applied to a command that writes).
+    ///
+    /// **A name that changes nothing is refused before the wire.** An empty new
+    /// name is not a rename, and a new name equal to the old one is a
+    /// `WorkspaceEdit` full of edits that replace text with itself — which would
+    /// pass every verification in `RenameEditPlan` and rewrite a project's worth of
+    /// files to no effect, taking each one's undo stack with it. The dialog refuses
+    /// both too; this refuses them again because the dialog is not the only thing
+    /// that can build a request.
+    ///
+    /// **A server that answers with no edits answers `nil`.** "No edits" and "I
+    /// cannot rename this" are the same fact to every caller — the command beeps —
+    /// and collapsing them here is what keeps the writer bracket from being raised
+    /// around a plan that touches nothing.
+    public func renameEdits(for request: RenameRequest) async -> RenameAnswer? {
+        guard !request.identifier.isEmpty,
+              !request.newName.isEmpty,
+              request.newName != request.identifier else { return nil }
+        guard !(request.text.isEmpty && request.offset != 0) else { return nil }
+        guard let fileURL = request.fileURL,
+              let language = SyntaxLanguage(forFileName: fileURL.lastPathComponent),
+              let prepared = await workspace.prepare(
+                  url: fileURL,
+                  language: language,
+                  text: request.text
+              ),
+              await prepared.session.capabilities?.supportsRename == true
+        else { return nil }
+
+        let source = request.text as NSString
+        let position = LSPPositionMap.position(forOffset: request.offset, in: source)
+        guard let edit = try? await prepared.session.rename(
+            LSPRenameParams(uri: prepared.uri, position: position, newName: request.newName)
+        ) else { return nil }
+        // Load-bearing here in a way it is nowhere else in this file: every other
+        // answer that survives a stale document is a wrong *reading*, and this one
+        // would be a wrong *write*.
+        guard await workspace.stillHolds(prepared) else { return nil }
+        guard edit.documents.contains(where: { !$0.edits.isEmpty }) else { return nil }
+
+        return RenameAnswer(newName: request.newName, edit: edit)
+    }
+
     // MARK: - Hover
 
     /// What the server says the thing under the pointer *is* (D25).
@@ -860,6 +1032,152 @@ extension LSPIntelligenceProvider: LSPIntelligenceSource {
     /// folder — `LSPWorkspace.canServe`, which starts nothing.
     public func canServe(_ language: SyntaxLanguage) async -> Bool {
         await workspace.canServe(language)
+    }
+
+    /// Whether a rename is worth offering for `language` — the question the
+    /// command asks *before* it puts a dialog on screen (decision 4).
+    ///
+    /// `canServe`, and deliberately no more. The stronger answer — does this
+    /// server advertise `renameProvider` — is only knowable from a server that has
+    /// finished its handshake, and starting one to decide whether to show a sheet
+    /// is precisely what a free policy check must not do: on a cold project that is
+    /// twenty seconds of a menu item deciding whether it is a menu item. So the
+    /// capability is read where every other capability is, after `prepare` and
+    /// inside `renameEdits(for:)`, and a server that turns out not to rename beeps
+    /// after the request instead of before the dialog.
+    ///
+    /// Named separately from `canServe` rather than spelled at the call site
+    /// because the two are the same answer today and need not stay so: this is the
+    /// question the app asks, and the day it grows a second condition, the call
+    /// site should not have to learn about it.
+    public func canRename(_ language: SyntaxLanguage) async -> Bool {
+        await canServe(language)
+    }
+}
+
+/// The texts the rows of one answer are measured against, plus each one's line
+/// starts.
+///
+/// The definition path caches only the text, because a jump answers with one
+/// or two locations. A usages answer routinely holds hundreds in a single
+/// file, and every row needs both a mapped range and a display line — so
+/// recomputing `LineStartIndex.offsets(in:)` per row would scan the file once
+/// per usage in it, which on the identifier that motivates the 2 000 cap is
+/// the difference between a list and a hang.
+///
+/// The requesting file is seeded with the *buffer*, for the index's reason:
+/// what the user is reading is the edited text, and a row in the file being
+/// edited must point where the caret would go rather than where the last save
+/// put it.
+///
+/// At file scope rather than nested inside the provider: it needs a nested
+/// `Entry` of its own, and that is one level deeper than this repository's style
+/// allows a type to be nested.
+private struct FileTextCache {
+    struct Entry {
+        let text: NSString
+        /// The editor's line starts (`LineStartIndex`), for the row's display
+        /// line — the gutter's numbering, not the protocol's (D1).
+        let lineStarts: [Int]
+        /// The *protocol's* line starts (`LSPPositionMap`), for mapping each
+        /// location's `(line, character)` back to a buffer range. A second table
+        /// rather than a reuse of the one above because the two disagree on
+        /// purpose: NEL/LS/PS start an editor line and not an LSP one (D1). Held
+        /// here for the same reason the text is — `LSPPositionMap.range(for:in:)`
+        /// rebuilds this table on every call, so mapping a file's rows one at a
+        /// time would scan it once per row.
+        let lspLineStarts: [Int]
+        /// The row's display path. Derived from the *same* canonicalization that
+        /// produced this entry's key, and held here for the reason the root's own
+        /// is hoisted out of the loop: `CanonicalPath.canonical` resolves symlinks
+        /// on the file system, and the answer is one constant per file, so asking
+        /// it again per row would put a second round trip behind every one of up
+        /// to two thousand rows.
+        let relativePath: String
+
+        init(_ text: NSString, relativePath: String) {
+            self.text = text
+            self.relativePath = relativePath
+            lineStarts = LineStartIndex.offsets(in: text)
+            lspLineStarts = LSPPositionMap.lineStarts(in: text)
+        }
+    }
+
+    private var entries: [String: Entry]
+    private let rootComponents: [String]?
+    /// The live text of the other open tabs, keyed canonically — consulted
+    /// *before* the disk, for `UsagesRequest.openTexts`'s reason.
+    ///
+    /// Keys are canonicalized up front (one resolution per open tab, a handful)
+    /// rather than the lookup being a scan, because the URL a server names and
+    /// the URL a tab was opened as are the two spellings this whole cache is
+    /// keyed canonically to reconcile. The texts themselves are held as `String`
+    /// and bridged only for a file that actually has a row: building line-start
+    /// tables for every open tab would pay the cost of the whole workspace to
+    /// answer about the few files a reference list names.
+    private let openTexts: [String: String]
+
+    init(
+        requestURL: URL,
+        requestText: NSString,
+        rootComponents: [String]?,
+        openTexts: [URL: String] = [:]
+    ) {
+        self.rootComponents = rootComponents
+        var canonicalTexts: [String: String] = [:]
+        canonicalTexts.reserveCapacity(openTexts.count)
+        for (url, text) in openTexts {
+            canonicalTexts[CanonicalPath.canonical(url).path] = text
+        }
+        self.openTexts = canonicalTexts
+        let canonical = CanonicalPath.canonical(requestURL)
+        let entry = Entry(
+            requestText,
+            relativePath: Self.relativePath(
+                ofCanonical: canonical,
+                fallbackName: requestURL.lastPathComponent,
+                under: rootComponents
+            )
+        )
+        entries = [canonical.path: entry]
+    }
+
+    /// Keyed canonically rather than by `path`, so the same file named two
+    /// ways — which is exactly what a server that resolved `/private/tmp/…`
+    /// hands back for a buffer opened as `/tmp/…` — is read, scanned and
+    /// path-resolved once.
+    ///
+    /// **An open tab's text beats the disk copy**: the server's coordinates for
+    /// such a file are the buffer's (the push channel gave it that text), so the
+    /// disk copy is the wrong coordinate space and not merely a stale one.
+    mutating func text(
+        for file: URL,
+        loadText: LSPIntelligenceProvider.TextLoader
+    ) -> Entry? {
+        let canonical = CanonicalPath.canonical(file)
+        if let cached = entries[canonical.path] { return cached }
+        guard let loaded = openTexts[canonical.path] ?? loadText(file) else { return nil }
+        let entry = Entry(
+            loaded as NSString,
+            relativePath: Self.relativePath(
+                ofCanonical: canonical,
+                fallbackName: file.lastPathComponent,
+                under: rootComponents
+            )
+        )
+        entries[canonical.path] = entry
+        return entry
+    }
+
+    private static func relativePath(
+        ofCanonical canonical: URL,
+        fallbackName: String,
+        under rootComponents: [String]?
+    ) -> String {
+        let inside = rootComponents.flatMap {
+            CanonicalPath.relativeComponents(of: canonical.pathComponents, under: $0)
+        }
+        return inside?.joined(separator: "/") ?? fallbackName
     }
 }
 

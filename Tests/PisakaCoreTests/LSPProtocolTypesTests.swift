@@ -53,6 +53,13 @@ final class LSPProtocolTypesTests: XCTestCase {
         return try value.decoded(as: T.self)
     }
 
+    /// A bare JSON body — the `result` member of a response, written inline
+    /// where a recorded transcript would be more ceremony than the shape being
+    /// pinned deserves.
+    private func decodeResult<T: Decodable>(_ body: String, as type: T.Type) throws -> T {
+        try JSONDecoder().decode([T].self, from: Data("[\(body)]".utf8))[0]
+    }
+
     private func json(_ value: some Encodable) throws -> String {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
@@ -154,6 +161,64 @@ final class LSPProtocolTypesTests: XCTestCase {
         XCTAssertFalse(capabilities.supportsCompletion)
     }
 
+    func testReferencesAndRenameDecodeThroughTheSameCollapse() throws {
+        // Both providers are `boolean | Options` like every other one here, and
+        // `renameProvider`'s options spelling is the one servers actually use
+        // (it is where `prepareProvider` lives).
+        let optionsSpelling = try JSONDecoder().decode(
+            LSPServerCapabilities.self,
+            from: (
+                #"{"referencesProvider":{"workDoneProgress":true},"#
+                    + #""renameProvider":{"prepareProvider":true}}"#
+            ).utf8Data
+        )
+        XCTAssertTrue(optionsSpelling.supportsReferences)
+        XCTAssertTrue(optionsSpelling.supportsRename)
+
+        let booleanSpelling = try JSONDecoder().decode(
+            LSPServerCapabilities.self,
+            from: Data(#"{"referencesProvider":true,"renameProvider":true}"#.utf8)
+        )
+        XCTAssertTrue(booleanSpelling.supportsReferences)
+        XCTAssertTrue(booleanSpelling.supportsRename)
+
+        let empty = try JSONDecoder().decode(
+            LSPServerCapabilities.self,
+            from: Data(#"{"referencesProvider":{},"renameProvider":{}}"#.utf8)
+        )
+        XCTAssertTrue(empty.supportsReferences)
+        XCTAssertTrue(empty.supportsRename)
+    }
+
+    func testEveryWayOfSayingNoToReferencesAndRename() throws {
+        // Stated false, explicitly null, and never mentioned at all — three
+        // spellings of the same answer, and the initializer's own defaults are
+        // the fourth.
+        let stated = try JSONDecoder().decode(
+            LSPServerCapabilities.self,
+            from: Data(#"{"referencesProvider":false,"renameProvider":false}"#.utf8)
+        )
+        XCTAssertFalse(stated.supportsReferences)
+        XCTAssertFalse(stated.supportsRename)
+
+        let explicitNull = try JSONDecoder().decode(
+            LSPServerCapabilities.self,
+            from: Data(#"{"referencesProvider":null,"renameProvider":null}"#.utf8)
+        )
+        XCTAssertFalse(explicitNull.supportsReferences)
+        XCTAssertFalse(explicitNull.supportsRename)
+
+        let absent = try JSONDecoder().decode(
+            LSPServerCapabilities.self,
+            from: Data(#"{"definitionProvider":true}"#.utf8)
+        )
+        XCTAssertFalse(absent.supportsReferences)
+        XCTAssertFalse(absent.supportsRename)
+
+        XCTAssertFalse(LSPServerCapabilities().supportsReferences)
+        XCTAssertFalse(LSPServerCapabilities().supportsRename)
+    }
+
     func testAServerThatNeverMentionsHoverDoesNotSupportIt() throws {
         let capabilities = try JSONDecoder().decode(
             LSPServerCapabilities.self,
@@ -168,7 +233,11 @@ final class LSPProtocolTypesTests: XCTestCase {
     /// `snippetSupport` would start `${1:placeholder}` arriving in `newText`
     /// (D5); dropping `linkSupport` would cost every jump its identifier range;
     /// omitting `resolveSupport` would mean auto-import edits never arrive at all
-    /// (D4). None of those fail a build or throw — they just make the feature
+    /// (D4); and `workspace.workspaceEdit.resourceOperations: []` is what tells a
+    /// server not to answer a rename with a create/rename/delete entry —
+    /// `LSPWorkspaceEdit` drops one and applies the textual half, which for a
+    /// module rename is every reference renamed and the file still under its old
+    /// name. None of those fail a build or throw — they just make the feature
     /// quietly worse — so the exact promise is pinned here.
     func testClientCapabilitiesAdvertiseExactlyThisPhasesSurface() throws {
         XCTAssertEqual(
@@ -191,9 +260,15 @@ final class LSPProtocolTypesTests: XCTestCase {
             "definition":{"dynamicRegistration":false,"linkSupport":true},\
             "hover":{"contentFormat":["markdown","plaintext"],"dynamicRegistration":false},\
             "publishDiagnostics":{"relatedInformation":false,"versionSupport":true},\
+            "references":{"dynamicRegistration":false},\
+            "rename":{"dynamicRegistration":false,"honorsChangeAnnotations":false,\
+            "prepareSupport":false},\
             "synchronization":{"didSave":false,"dynamicRegistration":false,\
             "willSave":false,"willSaveWaitUntil":false}},\
-            "workspace":{"configuration":false,"workspaceFolders":false}}
+            "workspace":{"configuration":false,\
+            "workspaceEdit":{"documentChanges":false,"failureHandling":"abort",\
+            "normalizesLineEndings":false,"resourceOperations":[]},\
+            "workspaceFolders":false}}
             """
         )
     }
@@ -561,6 +636,361 @@ final class LSPProtocolTypesTests: XCTestCase {
         XCTAssertThrowsError(try hover(#""nonsense""#))
     }
 
+    // MARK: - textDocument/references
+
+    func testReferenceParamsAlwaysAskForTheDeclarationToo() throws {
+        // The context is written every time, and `includeDeclaration` is `true`:
+        // a usages list that omits the declaration the caret is sitting on reads
+        // as a list that lost a row.
+        XCTAssertEqual(
+            try json(LSPReferenceParams(
+                uri: "file:///a/b.swift",
+                position: LSPPosition(line: 12, character: 4)
+            )),
+            #"{"context":{"includeDeclaration":true},"position":{"character":4,"line":12},"# +
+                #""textDocument":{"uri":"file:///a/b.swift"}}"#
+        )
+    }
+
+    func testAReferencesArrayDecodesEveryLocationInOrder() throws {
+        let response = try decodeResult(
+            """
+            [
+              {"uri":"file:///p/a.swift",
+               "range":{"start":{"line":1,"character":2},"end":{"line":1,"character":5}}},
+              {"uri":"file:///p/b.swift",
+               "range":{"start":{"line":9,"character":0},"end":{"line":9,"character":3}}}
+            ]
+            """,
+            as: LSPReferencesResponse.self
+        )
+        XCTAssertEqual(response.locations.map(\.uri), ["file:///p/a.swift", "file:///p/b.swift"])
+        XCTAssertEqual(
+            response.locations.first?.range,
+            LSPRange(start: LSPPosition(line: 1, character: 2), end: LSPPosition(line: 1, character: 5))
+        )
+        XCTAssertFalse(response.isEmpty)
+    }
+
+    func testANullReferencesResultIsTheSameAnswerAsAnEmptyArray() throws {
+        XCTAssertTrue(try decodeResult("null", as: LSPReferencesResponse.self).isEmpty)
+        XCTAssertTrue(try decodeResult("[]", as: LSPReferencesResponse.self).isEmpty)
+    }
+
+    func testOneMalformedReferenceIsDroppedWhileItsSiblingsSurvive() throws {
+        let response = try decodeResult(
+            """
+            [
+              {"uri":"file:///p/a.swift","range":{"start":{"line":1}}},
+              {"uri":"file:///p/b.swift",
+               "range":{"start":{"line":9,"character":0},"end":{"line":9,"character":3}}}
+            ]
+            """,
+            as: LSPReferencesResponse.self
+        )
+        XCTAssertEqual(response.locations.map(\.uri), ["file:///p/b.swift"])
+    }
+
+    func testAReferencesShapeThatIsNeitherNullNorAnArrayThrows() {
+        // "found nothing" and "could not read the answer" stay different facts.
+        XCTAssertThrowsError(
+            try decodeResult(#"{"locations":[]}"#, as: LSPReferencesResponse.self)
+        )
+    }
+
+    // MARK: - textDocument/rename
+
+    func testRenameParamsCarryThePositionAndTheNewName() throws {
+        XCTAssertEqual(
+            try json(LSPRenameParams(
+                uri: "file:///a/b.swift",
+                position: LSPPosition(line: 12, character: 4),
+                newName: "greeting"
+            )),
+            #"{"newName":"greeting","position":{"character":4,"line":12},"# +
+                #""textDocument":{"uri":"file:///a/b.swift"}}"#
+        )
+    }
+
+    func testAChangesMapDecodesEveryDocumentSortedByURI() throws {
+        // A JSON object has no order of its own, so the same answer must not
+        // produce two different plans on two runs: URI order is the tiebreak.
+        let edit = try decodeResult(
+            """
+            {"changes":{
+              "file:///p/z.swift":[{"range":{"start":{"line":0,"character":0},
+                                             "end":{"line":0,"character":3}},"newText":"bar"}],
+              "file:///p/a.swift":[{"range":{"start":{"line":4,"character":1},
+                                             "end":{"line":4,"character":4}},"newText":"bar"},
+                                   {"range":{"start":{"line":7,"character":2},
+                                             "end":{"line":7,"character":5}},"newText":"bar"}]
+            }}
+            """,
+            as: LSPWorkspaceEdit.self
+        )
+        XCTAssertEqual(edit.documents.map(\.uri), ["file:///p/a.swift", "file:///p/z.swift"])
+        XCTAssertEqual(edit.documents.map(\.edits.count), [2, 1])
+        XCTAssertEqual(edit.documents.map(\.version), [nil, nil])
+        XCTAssertFalse(edit.isEmpty)
+    }
+
+    func testDocumentChangesDecodeWithTheirVersionsAndKeepWireOrder() throws {
+        let edit = try decodeResult(
+            """
+            {"documentChanges":[
+              {"textDocument":{"uri":"file:///p/z.swift","version":7},
+               "edits":[{"range":{"start":{"line":0,"character":0},
+                                  "end":{"line":0,"character":3}},"newText":"bar"}]},
+              {"textDocument":{"uri":"file:///p/a.swift","version":null},
+               "edits":[{"range":{"start":{"line":4,"character":1},
+                                  "end":{"line":4,"character":4}},"newText":"bar"}]}
+            ]}
+            """,
+            as: LSPWorkspaceEdit.self
+        )
+        XCTAssertEqual(edit.documents.map(\.uri), ["file:///p/z.swift", "file:///p/a.swift"])
+        XCTAssertEqual(edit.documents.map(\.version), [7, nil])
+    }
+
+    func testDocumentChangesWinWhenAServerSendsBothSpellings() throws {
+        let edit = try decodeResult(
+            """
+            {"changes":{"file:///p/legacy.swift":[{"range":{"start":{"line":0,"character":0},
+                                                            "end":{"line":0,"character":3}},
+                                                   "newText":"bar"}]},
+             "documentChanges":[
+              {"textDocument":{"uri":"file:///p/rich.swift","version":2},
+               "edits":[{"range":{"start":{"line":0,"character":0},
+                                  "end":{"line":0,"character":3}},"newText":"bar"}]}
+            ]}
+            """,
+            as: LSPWorkspaceEdit.self
+        )
+        XCTAssertEqual(edit.documents.map(\.uri), ["file:///p/rich.swift"])
+    }
+
+    /// **Present includes present and empty.** `documentChanges: []` is the
+    /// richer member saying there is nothing to rewrite; falling through to
+    /// `changes` there would turn the one answer that means "no rename" into a
+    /// write of the very edit set the member above supersedes. A non-empty array
+    /// of nothing but file operations already decodes to no documents, so the
+    /// emptier answer must not be the more dangerous one.
+    func testAnEmptyDocumentChangesArrayIsAnAnswerRatherThanAFallThrough() throws {
+        let edit = try decodeResult(
+            """
+            {"documentChanges":[],
+             "changes":{"file:///p/legacy.swift":[{"range":{"start":{"line":0,"character":0},
+                                                            "end":{"line":0,"character":3}},
+                                                   "newText":"bar"}]}}
+            """,
+            as: LSPWorkspaceEdit.self
+        )
+        XCTAssertTrue(edit.documents.isEmpty)
+    }
+
+    /// A server that offers to rename the *file* too, and one that sends an
+    /// operation no version of the spec names. Both are ignored: the textual
+    /// half of the answer is still exactly right, and refusing the whole edit
+    /// would turn a helpful server into one that cannot rename at all.
+    func testFileOperationsInDocumentChangesAreIgnoredRatherThanFailingTheDecode() throws {
+        let edit = try decodeResult(
+            """
+            {"documentChanges":[
+              {"kind":"create","uri":"file:///p/new.swift"},
+              {"textDocument":{"uri":"file:///p/a.swift"},
+               "edits":[{"range":{"start":{"line":4,"character":1},
+                                  "end":{"line":4,"character":4}},"newText":"bar"}]},
+              {"kind":"rename","oldUri":"file:///p/a.swift","newUri":"file:///p/b.swift"},
+              {"kind":"teleport","uri":"file:///p/a.swift"},
+              {"kind":"delete","uri":"file:///p/old.swift"}
+            ]}
+            """,
+            as: LSPWorkspaceEdit.self
+        )
+        XCTAssertEqual(edit.documents.map(\.uri), ["file:///p/a.swift"])
+        XCTAssertEqual(edit.documents.first?.edits.count, 1)
+    }
+
+    /// **A `documentChanges` entry that is not an object fails the whole
+    /// answer**, where a file operation only removes itself. The two look alike
+    /// through `JSONValue`'s subscript — both answer `nil` for `textDocument` —
+    /// and reading a string or an array as "a kind this client declines to
+    /// perform" would keep its siblings and rename the project in four files out
+    /// of five. A file operation is a *stated* non-edit; a scalar is a malformed
+    /// answer, and this client cannot tell what it was supposed to rewrite.
+    func testANonObjectDocumentChangesEntryFailsTheWholeAnswer() {
+        for entry in ["\"nope\"", "7", "[]", "null", "true"] {
+            let json = """
+                {"documentChanges":[
+                  \(entry),
+                  {"textDocument":{"uri":"file:///p/a.swift"},
+                   "edits":[{"range":{"start":{"line":4,"character":1},
+                                      "end":{"line":4,"character":4}},"newText":"bar"}]}
+                ]}
+                """
+            XCTAssertThrowsError(
+                try decodeResult(json, as: LSPWorkspaceEdit.self),
+                "a \(entry) entry must not decode as a file operation"
+            )
+        }
+    }
+
+    func testANullRenameResultAndAnEditWithNoChangesAreBothEmpty() throws {
+        XCTAssertTrue(try decodeResult("null", as: LSPWorkspaceEdit.self).documents.isEmpty)
+        XCTAssertTrue(try decodeResult("{}", as: LSPWorkspaceEdit.self).documents.isEmpty)
+        // A document named with nothing to do in it is still nothing to apply.
+        let empty = try decodeResult(
+            #"{"documentChanges":[{"textDocument":{"uri":"file:///p/a.swift"},"edits":[]}]}"#,
+            as: LSPWorkspaceEdit.self
+        )
+        XCTAssertEqual(empty.documents.count, 1)
+        XCTAssertTrue(empty.isEmpty)
+    }
+
+    /// **An edit this cannot read fails the whole answer**, in both wire
+    /// spellings. Dropping it and keeping its siblings would build a plan that
+    /// passes every refusal in `RenameEditPlan` and renames a project in four
+    /// places out of five — the half-renamed state the whole feature is built to
+    /// refuse. The command's answer to a throw here is the beep it gives a server
+    /// that refused outright.
+    func testOneMalformedEditFailsTheWholeAnswer() {
+        let documentChanges = """
+            {"documentChanges":[
+              {"textDocument":{"uri":"file:///p/a.swift"},
+               "edits":[{"range":{"start":{"line":4,"character":1}},"newText":"bar"},
+                        {"range":{"start":{"line":7,"character":2},
+                                  "end":{"line":7,"character":5}},"newText":"bar"}]}
+            ]}
+            """
+        XCTAssertThrowsError(try decodeResult(documentChanges, as: LSPWorkspaceEdit.self))
+
+        let changes = """
+            {"changes":{"file:///p/a.swift":[
+               {"range":{"start":{"line":4,"character":1}},"newText":"bar"},
+               {"range":{"start":{"line":7,"character":2},
+                         "end":{"line":7,"character":5}},"newText":"bar"}]}}
+            """
+        XCTAssertThrowsError(try decodeResult(changes, as: LSPWorkspaceEdit.self))
+    }
+
+    /// A `changes` entry that is not an array of edits fails the whole decode
+    /// too, and unlike `documentChanges` it has no file-operation reading to be
+    /// tolerant of: every value in that map is one document's edits, so dropping
+    /// the unreadable one would keep the other four documents and write exactly
+    /// the half-renamed project the rule above refuses.
+    func testAMalformedChangesEntryFailsTheWholeAnswer() {
+        let changes = """
+            {"changes":{
+               "file:///p/a.swift":[{"range":{"start":{"line":1,"character":0},
+                                              "end":{"line":1,"character":3}},"newText":"bar"}],
+               "file:///p/b.swift":"not an array"}}
+            """
+        XCTAssertThrowsError(try decodeResult(changes, as: LSPWorkspaceEdit.self))
+    }
+
+    /// **An entry that claims to be a text edit and is not readable as one fails
+    /// the whole answer too.** `textDocument` is what separates a document this
+    /// rename must rewrite from a file operation it declines to perform, so an
+    /// entry carrying one whose `uri` or `edits` cannot be read is a malformed
+    /// answer and not a kind this client passes on. Reading it as a file
+    /// operation would keep its sibling and write `b.swift` renamed while
+    /// `a.swift` keeps the old name — one level up from the single dropped edit
+    /// the case above refuses, and the same half-renamed project.
+    func testADocumentChangesEntryNamingADocumentItCannotReadFailsTheWholeAnswer() {
+        let unreadableEdits = """
+            {"documentChanges":[
+              {"textDocument":{"uri":"file:///p/a.swift"},"edits":null},
+              {"textDocument":{"uri":"file:///p/b.swift"},
+               "edits":[{"range":{"start":{"line":7,"character":2},
+                                  "end":{"line":7,"character":5}},"newText":"bar"}]}
+            ]}
+            """
+        XCTAssertThrowsError(try decodeResult(unreadableEdits, as: LSPWorkspaceEdit.self))
+
+        let missingEdits = """
+            {"documentChanges":[
+              {"textDocument":{"uri":"file:///p/a.swift"}},
+              {"textDocument":{"uri":"file:///p/b.swift"},
+               "edits":[{"range":{"start":{"line":7,"character":2},
+                                  "end":{"line":7,"character":5}},"newText":"bar"}]}
+            ]}
+            """
+        XCTAssertThrowsError(try decodeResult(missingEdits, as: LSPWorkspaceEdit.self))
+
+        let unreadableURI = """
+            {"documentChanges":[
+              {"textDocument":{"uri":42},
+               "edits":[{"range":{"start":{"line":4,"character":1},
+                                  "end":{"line":4,"character":4}},"newText":"bar"}]},
+              {"textDocument":{"uri":"file:///p/b.swift"},
+               "edits":[{"range":{"start":{"line":7,"character":2},
+                                  "end":{"line":7,"character":5}},"newText":"bar"}]}
+            ]}
+            """
+        XCTAssertThrowsError(try decodeResult(unreadableURI, as: LSPWorkspaceEdit.self))
+    }
+
+    /// **A `documentChanges` member that is present and is not an array fails
+    /// the whole answer**, one level further out than the two cases above.
+    /// Swallowing it falls through to `changes` and writes exactly the edit set
+    /// `testDocumentChangesWinWhenAServerSendsBothSpellings` says is superseded
+    /// — the unversioned, differently-shaped half of an answer whose richer half
+    /// this client could not read — or, with no `changes` beside it, reports the
+    /// empty answer a server gives when it recognised the symbol and has nothing
+    /// to rewrite, so the command beeps as though the rename were a no-op rather
+    /// than unreadable. A `changes` member that is not an object fails for the
+    /// same reason.
+    func testAMalformedDocumentChangesMemberFailsTheWholeAnswer() throws {
+        let besideChanges = """
+            {"changes":{"file:///p/legacy.swift":[{"range":{"start":{"line":0,"character":0},
+                                                            "end":{"line":0,"character":3}},
+                                                   "newText":"bar"}]},
+             "documentChanges":{"textDocument":{"uri":"file:///p/a.swift"},"edits":[]}}
+            """
+        XCTAssertThrowsError(try decodeResult(besideChanges, as: LSPWorkspaceEdit.self))
+
+        let alone = #"{"documentChanges":"nope"}"#
+        XCTAssertThrowsError(try decodeResult(alone, as: LSPWorkspaceEdit.self))
+
+        let malformedChanges = #"{"changes":"nope"}"#
+        XCTAssertThrowsError(try decodeResult(malformedChanges, as: LSPWorkspaceEdit.self))
+
+        // `null` and absent are still not present, which is what lets a server
+        // spell "I have no rich answer" either way and be read as `changes`.
+        let nullBesideChanges = try decodeResult(
+            """
+            {"documentChanges":null,
+             "changes":{"file:///p/legacy.swift":[{"range":{"start":{"line":0,"character":0},
+                                                            "end":{"line":0,"character":3}},
+                                                   "newText":"bar"}]}}
+            """,
+            as: LSPWorkspaceEdit.self
+        )
+        XCTAssertEqual(nullBesideChanges.documents.map(\.uri), ["file:///p/legacy.swift"])
+        XCTAssertTrue(
+            try decodeResult(#"{"changes":null}"#, as: LSPWorkspaceEdit.self).documents.isEmpty
+        )
+    }
+
+    /// The tolerance that *remains*: an entry that is not a text edit at all — a
+    /// file operation, or a kind no version of the spec names — is ignored, and
+    /// the textual half of the answer is still exactly right.
+    func testFileOperationEntriesAreIgnoredRatherThanFailing() throws {
+        let edit = try decodeResult(
+            """
+            {"documentChanges":[
+              {"kind":"rename","oldUri":"file:///p/a.swift","newUri":"file:///p/b.swift"},
+              {"textDocument":{"uri":"file:///p/a.swift"},
+               "edits":[{"range":{"start":{"line":7,"character":2},
+                                  "end":{"line":7,"character":5}},"newText":"bar"}]}
+            ]}
+            """,
+            as: LSPWorkspaceEdit.self
+        )
+        XCTAssertEqual(edit.documents.count, 1)
+        XCTAssertEqual(edit.documents.first?.edits.first?.range.start.line, 7)
+    }
+
     // MARK: - textDocument/completion
 
     func testCompletionParamsCarryTheMemberTriggerCharacter() throws {
@@ -904,6 +1334,8 @@ final class LSPProtocolTypesTests: XCTestCase {
         XCTAssertEqual(LSPMethod.didClose, "textDocument/didClose")
         XCTAssertEqual(LSPMethod.definition, "textDocument/definition")
         XCTAssertEqual(LSPMethod.hover, "textDocument/hover")
+        XCTAssertEqual(LSPMethod.references, "textDocument/references")
+        XCTAssertEqual(LSPMethod.rename, "textDocument/rename")
         XCTAssertEqual(LSPMethod.completion, "textDocument/completion")
         XCTAssertEqual(LSPMethod.resolveCompletionItem, "completionItem/resolve")
         XCTAssertEqual(LSPMethod.workspaceConfiguration, "workspace/configuration")

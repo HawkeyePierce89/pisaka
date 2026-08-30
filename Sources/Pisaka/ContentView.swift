@@ -158,6 +158,28 @@ struct ContentView: View {
     /// `PisakaApp.activateSearchMatch(url:range:)` a Find in Files activation and
     /// Go to Definition use. Default no-op for previews/tests.
     var onActivateProblem: (URL, NSRange) -> Void = { _, _ in }
+    /// The Find Usages panel's model — what ⌃⌘U asked and what came back.
+    /// Owned by `PisakaApp` and threaded straight into `UsagesPanelView`, which
+    /// observes it itself; deliberately **not** `@ObservedObject` and optional
+    /// (`nil` in previews/tests shows the empty panel), both for the
+    /// `diagnostics` reasons above and doubly so because a textual scan
+    /// republishes once per walked chunk, which must not re-render the project
+    /// tree, the tab list and `CodeEditorView.updateNSView` with it.
+    var usages: FindUsagesModel?
+    /// Invoked when a Usages-panel row is activated. Takes the whole row rather
+    /// than a `(url, range)` pair because the range worth revealing depends on
+    /// the file's text at click time, which only the app can read
+    /// (`UsageResult.revealRange(naming:in:)`). Default no-op for
+    /// previews/tests.
+    var onActivateUsage: (UsageResult) -> Void = { _ in }
+    /// Invoked when the editor asks "where is this name used" (⌃⌘U or the
+    /// editor's context menu). Wired to `PisakaApp`, which owns the model and
+    /// shows the panel. Default no-op for previews/tests.
+    var onFindUsages: (UsagesRequest) -> Void = { _ in }
+    /// Invoked when the editor asks to rename the identifier under the caret
+    /// (⌃⌘R or the editor's context menu). Wired to `PisakaApp`, which puts up
+    /// the dialog and runs the gated apply. Default no-op for previews/tests.
+    var onRenameSymbol: (UsagesRequest) -> Void = { _ in }
     /// Invoked when a tab requests to close (button or command). Defaults to a
     /// no-op so previews/tests can construct the view without the app wiring.
     var onClose: (UUID) -> Void = { _ in }
@@ -648,6 +670,8 @@ struct ContentView: View {
             )
         case .problems:
             problemsPanel
+        case .usages:
+            usagesPanel
         }
     }
 
@@ -672,8 +696,25 @@ struct ContentView: View {
         }
     }
 
-    /// The always-visible bottom bar: Terminal/Git/Changes/Problems toggle
-    /// buttons, the active one highlighted. Clicking goes through `onTogglePanel`
+    /// The Usages panel, hosted like its four siblings. `usages` is optional
+    /// (`nil` in previews/tests) for `problemsPanel`'s reason — a
+    /// default-constructed throwaway model would allocate a second file service
+    /// per body evaluation and never answer anything — so the nil branch renders
+    /// the same sentence the real model shows before anything has been asked.
+    @ViewBuilder
+    private var usagesPanel: some View {
+        if let usages {
+            UsagesPanelView(model: usages, onActivate: onActivateUsage)
+        } else {
+            Text("Find Usages on a name to list where it is used")
+                .font(metrics.scaledFont(.callout))
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    /// The always-visible bottom bar: Terminal/Git/Changes/Problems/Usages
+    /// toggle buttons, the active one highlighted. Clicking goes through `onTogglePanel`
     /// (shared with the View menu) so a button and its matching command behave
     /// identically.
     private var bottomBar: some View {
@@ -682,6 +723,7 @@ struct ContentView: View {
             bottomBarButton(title: "Git", systemImage: "arrow.triangle.branch", panel: .log)
             bottomBarButton(title: "Changes", systemImage: "arrow.triangle.pull", panel: .changes)
             bottomBarButton(title: "Problems", systemImage: "exclamationmark.triangle", panel: .problems)
+            bottomBarButton(title: "Usages", systemImage: "text.magnifyingglass", panel: .usages)
             Spacer()
             // Recent-projects switcher widget.
             ProjectSwitcherView(
@@ -906,7 +948,9 @@ struct ContentView: View {
                     lspSync: lspSync,
                     diagnostics: diagnostics,
                     onGoToDefinition: onGoToDefinition,
-                    onViewDefinitionOutsideProject: onViewDefinitionOutsideProject
+                    onViewDefinitionOutsideProject: onViewDefinitionOutsideProject,
+                    onFindUsages: onFindUsages,
+                    onRenameSymbol: onRenameSymbol
                 )
             }
         } else {

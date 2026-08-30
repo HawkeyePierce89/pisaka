@@ -28,6 +28,25 @@ struct PisakaApp: App {
     /// open tab is searched — and replaced — through these closures instead of on
     /// disk, which is what lets Replace All keep a dirty tab's unsaved edits.
     @StateObject private var projectSearch: ProjectSearchModel
+    /// Observable state for the Find Usages bottom dock panel (⌃⌘U).
+    ///
+    /// Built in `init()` for `projectSearch`'s reason and one more: it needs the
+    /// same open-buffer closure — so a dirty tab is scanned as the user sees it,
+    /// not as the disk holds it — *and* the installed intelligence provider, so
+    /// the question reaches a language server when one serves the language and
+    /// falls to the whole-word scan only when nothing does.
+    ///
+    /// A plain stored property, deliberately **not** `@StateObject` — the
+    /// `commitDialog`/`diagnostics` rule, and this model is the strongest case
+    /// for it in the app: a textual scan republishes once per walked chunk, and
+    /// `@StateObject` subscribes this scene's `body` to every one of them, which
+    /// re-creates `ContentView` with its non-`Equatable` closure parameters and
+    /// puts the project tree, the tab list and `CodeEditorView.updateNSView` on
+    /// the walk's republish path. `UsagesPanelView` observes it itself, which is
+    /// what makes the rows appear; nothing in this scene's `body` reads a
+    /// published property of it. `ContentView` states the same rule where it
+    /// holds this model non-observed.
+    private let usages: FindUsagesModel
     @StateObject private var localChanges = LocalChangesModel(gitService: GitCLIService())
     @StateObject private var commitLog = CommitLogModel(gitService: GitCLIService())
     /// Observable state for the branch-switcher bottom-bar widget. Constructed
@@ -149,6 +168,19 @@ struct PisakaApp: App {
     /// same reason.
     private let lspWorkspace: LSPWorkspace
 
+    /// The composed intelligence provider — a language server's answer where there
+    /// is one, the symbol index everywhere else — held here as well as installed on
+    /// `symbolIndexController`.
+    ///
+    /// The *same instance* the controller hands out, so nothing about which side
+    /// answers differs between the editor's questions and this one. It is held
+    /// because the rename command asks one question the seam deliberately does not
+    /// carry: `canRename(_:)` is a policy answer about whether a *dialog* should
+    /// appear at all (decision 4), which no `CodeIntelligenceProviding` has,
+    /// and the router forwards it precisely so the app never reaches past it into
+    /// the LSP layer.
+    private let intelligence: RoutingIntelligenceProvider
+
     /// Every language server's published diagnostics, with the sync/revision
     /// bookkeeping that decides which pushes may land (D31/D32): what the
     /// editor's overlays, the gutter and the Problems panel read. A plain
@@ -261,7 +293,7 @@ struct PisakaApp: App {
     /// **A reader of the user's files and a writer only of its own store**, like
     /// the symbol index and the `.editorconfig` cache: it never raises
     /// `autosave.suspend()` / `localChanges.beginRevert()` and is never gated by
-    /// them. What it takes from the six gated operations is *timing* alone — each
+    /// them. What it takes from the seven gated operations is *timing* alone — each
     /// awaits `captureBeforeOperation` as the first `await` inside its bracket, so
     /// every byte stored is pre-operation by construction.
     ///
@@ -365,12 +397,12 @@ struct PisakaApp: App {
         // Installed on the controller rather than plumbed through the views: they
         // read `symbolIndex.provider` already, so composition here changes no view
         // signature and no view can tell which side answered.
-        symbolIndexController.installProvider(
-            RoutingIntelligenceProvider(
-                lsp: LSPIntelligenceProvider(workspace: lspWorkspace),
-                fallback: symbolIndex.provider
-            )
+        let intelligence = RoutingIntelligenceProvider(
+            lsp: LSPIntelligenceProvider(workspace: lspWorkspace),
+            fallback: symbolIndex.provider
         )
+        self.intelligence = intelligence
+        symbolIndexController.installProvider(intelligence)
         // The diagnostics channel (D29–D32), composed beside the routing above:
         // the workspace's push sink feeds the model — clears included, so every
         // teardown path blanks the three surfaces synchronously — and the sync
@@ -539,6 +571,26 @@ struct PisakaApp: App {
                     return workspace.replaceText(text, for: id)
                 }
             )
+        )
+
+        // The usages panel's model, over the same two seams. The provider is read
+        // through a closure rather than captured as a value for the reason the
+        // model states: the routing provider is *installed* on the controller
+        // during this very `init`, and a later phase may install another, so a
+        // model holding today's answer would keep asking it forever.
+        usages = FindUsagesModel(
+            fileService: FileService(),
+            provider: { [weak symbolIndexController] in symbolIndexController?.provider },
+            openBuffers: openBuffers,
+            // The textual walk gets the live buffers above; the *semantic* half
+            // gets what the servers were actually told, which is a different map
+            // (`FindUsagesModel.serverTexts`, and `renameSymbol`'s reason one file
+            // over): the document-sync debounce means a tab typed in a moment ago
+            // is a buffer no server has seen, and mapping its answers onto that
+            // buffer is how a row ends up with a plausible line number and the
+            // wrong offsets. `lspWorkspace` is `@MainActor`, as is the model that
+            // calls this, so the snapshot is taken in the asking turn.
+            serverTexts: { [weak lspWorkspace] in lspWorkspace?.lastSentTexts() ?? [:] }
         )
     }
 
@@ -849,6 +901,10 @@ struct PisakaApp: App {
                 bottomPanel: $bottomPanel,
                 onTogglePanel: { togglePanel($0) },
                 onActivateProblem: { url, range in activateSearchMatch(url: url, range: range) },
+                usages: usages,
+                onActivateUsage: { activateUsage($0) },
+                onFindUsages: { findUsages($0) },
+                onRenameSymbol: { renameSymbol($0) },
                 onClose: { closeFile(id: $0) },
                 onOpenFile: { openFile(url: $0) },
                 onOpenFolder: { openFolder() },
@@ -1252,6 +1308,16 @@ struct PisakaApp: App {
                     togglePanel(.problems)
                 }
                 .keyboardShortcut("m", modifiers: [.command, .shift])
+
+                // Toggle the Usages bottom dock panel. Same handler as the
+                // bottom bar's Usages button; the panel renders whatever the
+                // last ⌃⌘U asked, so showing it fetches nothing — a panel that
+                // re-ran the previous query on every open would spend a project
+                // walk on a question nobody re-asked.
+                Button(bottomPanel == .usages ? "Hide Usages" : "Show Usages") {
+                    togglePanel(.usages)
+                }
+                .keyboardShortcut("u", modifiers: [.command, .shift])
             }
 
             CommandMenu("Find") {
@@ -1299,6 +1365,26 @@ struct PisakaApp: App {
                 // can still jump within itself.
                 Button("Go to Definition") { goToDefinitionAtCaret() }
                     .keyboardShortcut("j", modifiers: [.control, .command])
+                    .disabled(model.selectedID == nil)
+
+                // ⌃⌘U — free here, and deliberately not ⌘U, which is Run Test.
+                // Gated on a tab being open rather than on a project, exactly as
+                // Go to Definition is: with no folder open the textual scan
+                // still answers for the buffer the question was asked in, which
+                // is a better answer to a command the user just invoked than an
+                // empty panel.
+                Button("Find Usages") { findUsagesAtCaret() }
+                    .keyboardShortcut("u", modifiers: [.control, .command])
+                    .disabled(model.selectedID == nil)
+
+                // ⌃⌘R — free here, and deliberately not ⌘R, which is Run File.
+                // Enabled whenever a tab is open (decision 4): whether a rename
+                // is *possible* is a question about the language server, and it
+                // is answered on invocation — before any sheet appears — rather
+                // than by greying the item out for reasons the menu cannot
+                // explain.
+                Button("Rename…") { renameAtCaret() }
+                    .keyboardShortcut("r", modifiers: [.control, .command])
                     .disabled(model.selectedID == nil)
 
                 // The explicit "complete this word now" command, in addition to
@@ -2024,6 +2110,14 @@ struct PisakaApp: App {
         // for one.
         projectSearch.prepareForSearch(root: url)
 
+        // And with the usages panel, in this same turn and for the same reason:
+        // it drops the previous project's rows — which are file positions in
+        // files this window no longer shows — and bumps both of its tokens, so a
+        // walk suspended on its off-main I/O abandons instead of filling the new
+        // project's panel with the old one's matches. No query is spawned: the
+        // panel answers a question the user asks, never one it asks itself.
+        usages.prepareForFolderChange(root: url)
+
         // Register the switch with the commit dialog *synchronously* too, for the
         // same reason and with sharper consequences: it clears the previous
         // project's file selection and message, and it bumps the token an
@@ -2702,6 +2796,563 @@ struct PisakaApp: App {
         editor.goToDefinitionAtCaret()
     }
 
+    // MARK: - Find usages / rename
+
+    /// The Find menu's "Find Usages" (⌃⌘U): ask the focused editor about the
+    /// identifier under its caret.
+    ///
+    /// Routed through the first responder for `goToDefinitionAtCaret()`'s reason
+    /// — the command carries no state, and the responder chain already names the
+    /// one view that can answer. Anything else focused has no caret in code and
+    /// beeps.
+    private func findUsagesAtCaret() {
+        guard let editor = NSApp.keyWindow?.firstResponder as? EditorTextView else {
+            PlatformFeedback.warning()
+            return
+        }
+        editor.findUsagesAtCaret()
+    }
+
+    /// The Find menu's "Rename…" (⌃⌘R): ask the focused editor about the
+    /// identifier under its caret. Routed and refused exactly as
+    /// `findUsagesAtCaret()` is.
+    private func renameAtCaret() {
+        guard let editor = NSApp.keyWindow?.firstResponder as? EditorTextView else {
+            PlatformFeedback.warning()
+            return
+        }
+        editor.renameAtCaret()
+    }
+
+    /// Run a usages query and show the panel holding its answer.
+    ///
+    /// The panel is *shown* rather than toggled: this is the answer to a command
+    /// the user just invoked, and a ⌃⌘U that hid the results because they
+    /// happened to be on screen would be the opposite of what was asked.
+    ///
+    /// The request generation is **reserved** synchronously, before the `Task`
+    /// hop, and handed back to the model — the generation-token rule, applied
+    /// here because unstructured tasks are not guaranteed to start in creation
+    /// order, so two quick ⌃⌘U presses must settle on the later question
+    /// whichever task runs first. Reserved rather than merely read: two presses
+    /// that read the same token would be ordered by whichever task started first,
+    /// which is the thing this is here to stop. The identifier is reserved along
+    /// with the token so a rename landing in the same window can invalidate a
+    /// question about the name it removed before that question has run
+    /// (`FindUsagesModel.clearIfNaming`).
+    private func findUsages(_ request: UsagesRequest) {
+        bottomPanel = .usages
+        let root = model.projectRoot
+        let generation = usages.prepareForQuery(for: request.identifier)
+        Task { await usages.find(request, root: root, request: generation) }
+    }
+
+    /// Open the file a usages row names and reveal the occurrence — when it is
+    /// still there.
+    ///
+    /// The open goes through `activateSearchMatch`'s three steps, but the range
+    /// is not the row's own: a row is a position in a text that was read once,
+    /// and the buffer the click lands in may have been typed in, rewritten or
+    /// renamed since. `UsageResult.revealRange(naming:in:)` is asked against the
+    /// text as it *now* is, and a row that no longer holds its identifier
+    /// degrades to opening the file with nothing selected — never a crash on an
+    /// out-of-bounds range, never a confident selection of a span that is now
+    /// something else.
+    ///
+    /// A row **outside the opened folder that no tab already holds** goes to the
+    /// read-only viewer instead,
+    /// for `viewDefinitionOutsideProject`'s reason and D3's: a language server
+    /// answers `textDocument/references` with every reference it resolved, and an
+    /// SDK header or a dependency checkout is a perfectly ordinary one. Opening it
+    /// through `openFile` would put a file the user did not open a project for
+    /// into `WorkspaceModel`, where the autosave gate, the session snapshot and ⌘S
+    /// all then apply to it — the very thing a semantic *jump* outside the project
+    /// is prevented from doing, arriving through the panel instead. The viewer
+    /// takes the row's range as it stands: it reads the file when it opens the
+    /// window and is structurally read-only, so nothing can type under the range
+    /// the way an editor tab can. The one gap that leaves is a *reused* window —
+    /// `SourceViewerWindowController` keeps one viewer per file and re-reveals
+    /// into text it read when that window first opened, so a file changed on disk
+    /// since can be scrolled to the wrong span. It is a stated limit rather than
+    /// a check because the reveal is clamped to the shown text (no crash), the
+    /// files this branch reaches are SDK sources and dependency checkouts that do
+    /// not change while a window onto them is open, and closing it means the
+    /// viewer handing its text back out — the one thing "structurally read-only"
+    /// is easiest to keep true by not doing.
+    ///
+    /// **A file a tab already holds never takes that branch, wherever it lives.**
+    /// The reason above is entirely about what `openFile` would *add* to
+    /// `WorkspaceModel`, and there is nothing to add to a file already in it: the
+    /// user opened it themselves, the autosave gate and ⌘S already apply, and
+    /// showing a second, read-only window onto a file whose editable tab is on
+    /// screen is the wrong answer to a click. It is also the *unsafe* one — the
+    /// viewer reads the file from disk while a row is a position in a buffer, so
+    /// a dirty out-of-root tab would have the row's range revealed against text
+    /// it was never computed for, which is exactly the confident reveal of a
+    /// wrong span `revealRange(naming:in:)` exists to refuse. Both paths out of
+    /// this are ordinary: Find Usages always scans the requesting file, even one
+    /// opened from outside the root entirely (`FindUsagesModel.scanTextually`),
+    /// and a semantic answer maps every location against the open buffers.
+    private func activateUsage(_ row: UsageResult) {
+        if let root = model.projectRoot,
+           !isInsideProject(row.fileURL, root: root),
+           model.fileID(forURL: row.fileURL) == nil {
+            viewDefinitionOutsideProject(url: row.fileURL, range: row.range)
+            return
+        }
+        openFile(url: row.fileURL)
+        guard let id = model.fileID(forURL: row.fileURL),
+              let text = model.openFiles.first(where: { $0.id == id })?.text
+        else { return }
+        guard let range = row.revealRange(naming: usages.identifier, in: text as NSString) else {
+            return
+        }
+        reveal.reveal(fileID: id, range: range)
+    }
+
+    /// Rename the symbol the editor resolved: ask, then write.
+    ///
+    /// Three refusals happen before anything is shown, and every one of them is a
+    /// beep and nothing more — the fallback vocabulary of this layer, where a
+    /// language server's absence is never an error the user is made to read
+    /// (decision 4). No project root, no file behind the buffer, or a language
+    /// `canRename` declines: the dialog does not appear at all, because a name
+    /// prompt whose OK cannot do anything is worse than no prompt. A fourth,
+    /// `revertInFlight()`, joins them and is the one that speaks: a raised writer
+    /// gate is the same alert every other gated operation gives.
+    ///
+    /// `canRename` is a policy question — it starts no server and probes none — so
+    /// asking it before the sheet costs one actor hop, not a launch.
+    private func renameSymbol(_ request: UsagesRequest) {
+        guard let root = model.projectRoot,
+              let fileURL = request.fileURL,
+              let language = SyntaxLanguage(forFileName: fileURL.lastPathComponent)
+        else {
+            PlatformFeedback.warning()
+            return
+        }
+        Task {
+            guard await intelligence.canRename(language) else {
+                PlatformFeedback.warning()
+                return
+            }
+            // The writer gate, asked *before* the dialog rather than only after
+            // the round trip. `applyRename` asks it again and must — that check
+            // closes the window the modal and the server open — but asking only
+            // there makes the user name the symbol and wait out the server before
+            // being told the command was never going to run. Every other gated
+            // operation refuses before it costs anything, and this one costs the
+            // most.
+            guard !revertInFlight() else { return }
+            guard let newName = promptForNewName(replacing: request.identifier) else { return }
+            // **Read before the request goes out, never after it comes back.**
+            // This map is the baseline every *other* file's plan is built
+            // against, so it has to be the text the server computed its answer
+            // from. A server processes notifications in order, so everything
+            // sent by now is text it will have seen by the time it reads the
+            // rename request. Reading it *after* the round trip instead admits
+            // the one text that is definitionally not that: a background tab
+            // typed in while the request was in flight, pushed by
+            // `LSPDocumentSyncController`'s 400 ms debounce after the server had
+            // already answered. Planning against that text would map the
+            // server's `(line, character)` coordinates onto bytes it never saw
+            // and then record those same bytes as `expectedText`, so
+            // `RenameFilePlan.holds` would pass by construction and the rename
+            // would silently rewrite the wrong spans.
+            //
+            // Snapshotting early can only err the safe way round: if a push
+            // lands between here and the server reading the request, this map is
+            // *older* than the server's baseline, `holds` fails against the live
+            // buffer, and the command refuses instead of writing.
+            var serverTexts: [String: String] = [:]
+            for (url, text) in lspWorkspace.lastSentTexts() { serverTexts[Self.canonicalKey(url)] = text }
+            // The request is a *read*, so it runs outside the writer bracket: it
+            // can take as long as the server takes, and holding autosave and the
+            // git gate down for a round trip that may time out would stall every
+            // other writer for a rename that has not been decided on yet.
+            let answer = await intelligence.renameEdits(
+                for: RenameRequest(
+                    identifier: request.identifier,
+                    fileURL: request.fileURL,
+                    offset: request.offset,
+                    text: request.text,
+                    newName: newName
+                )
+            )
+            // A server that advertises no rename, one that answered nothing, and
+            // one whose answer touches no file are the same outcome here: there is
+            // nothing to write, and the bracket must not be raised for it.
+            guard let answer, !answer.edit.isEmpty else {
+                PlatformFeedback.warning()
+                return
+            }
+            await applyRename(answer, for: request, root: root, serverTexts: serverTexts)
+        }
+    }
+
+    /// The name dialog: prefilled with the old name, validated on every keystroke
+    /// by the Core rule that owns what a new name may be (`RenameNameRule`).
+    ///
+    /// Both reasons are inline in the dialog rather than an alert after OK,
+    /// because both are knowable while the user types.
+    private func promptForNewName(replacing oldName: String) -> String? {
+        FilePanels.promptName(
+            title: "Rename “\(oldName)”",
+            defaultValue: oldName,
+            validator: { RenameNameRule.rejection(of: $0, replacing: oldName) }
+        )
+    }
+
+    /// Apply a server's rename — **the seventh gated worktree operation**.
+    ///
+    /// The plan is built *before* the bracket: every refusal
+    /// (`RenameRefusal`) is a question about the answer in hand and the texts in
+    /// hand, so it costs nothing and stops nothing, and a rename that is going to
+    /// be refused must never suspend autosave or capture a revision.
+    ///
+    /// Inside the bracket the order is capture, verify, write — and it is that way
+    /// round on purpose (decision 6). The capture is the **first `await` inside the
+    /// bracket**, which is what makes every "Before Rename" revision pre-operation
+    /// by construction; verification then happens against the texts as they are at
+    /// that moment, and an abort leaves behind one harmless extra snapshot that
+    /// retention prunes. The reverse order — verify, then capture — would leave a
+    /// window between the two in which the thing verified could change.
+    ///
+    /// The writes are `RenameEditPlan.apply`'s: files no tab holds go to disk,
+    /// files a tab holds come back as buffer plans and are applied through
+    /// `SaveTransformController` — the displayed tab as one undoable step, every
+    /// other tab through `WorkspaceModel.replaceText` at the cost of its undo stack
+    /// (decision 5).
+    ///
+    /// **Every file is planned against the text the *server* was given, and no
+    /// file against a live buffer.** The dialog is modal, but the round trip that
+    /// follows it is not: the editor is live for however long the server takes,
+    /// and a keystroke in that window moves every offset after it. Planning
+    /// against the current buffer would map the server's `(line, character)`
+    /// coordinates onto text they were never computed for and then record
+    /// whatever bytes happen to sit there as `expectedText` — a verification that
+    /// passes by construction, and a rename that silently replaces the wrong
+    /// spans. Planning against what the server was told instead makes the
+    /// mismatch visible: `apply` re-reads the live buffer, `holds` fails, and the
+    /// command says the file changed and writes nothing.
+    ///
+    /// The requesting file's copy of that text is `request.text` — definitionally
+    /// what `LSPIntelligenceProvider` prepared the document with. Every *other*
+    /// file is one nobody prepared, and its copy is `serverTexts` — the caller's
+    /// `LSPWorkspace.lastSentTexts()` snapshot, **taken before the request went
+    /// out and handed down here** rather than read on arrival, because only the
+    /// earlier read is the text the server answered against: a background tab
+    /// typed in during the round trip is pushed by `LSPDocumentSyncController`'s
+    /// 400 ms debounce *after* the answer was computed, and a map read here would
+    /// carry it. `LSPWorkspace.stillHolds` cannot see that either — it compares
+    /// the *prepared* document's version and nothing else — so the two halves are
+    /// closed together, or the one left open is the one with no undo behind it
+    /// (decision 5).
+    ///
+    /// A file the map does not name is a file **no server holds open**, so the
+    /// server answered about the bytes on disk: the fallback is `FileService`,
+    /// never `WorkspaceModel`. A dirty tab over such a file therefore ends in the
+    /// stale refusal below rather than in a write — which is the honest answer,
+    /// because the edits were computed for text that tab has already replaced.
+    ///
+    /// **It refuses outright once the project root has moved.** `root` is the
+    /// folder that was open when the command was invoked; the round trip in front
+    /// of this is a *read* outside the bracket, and `openFolder(url:)` refuses only
+    /// while the gate is up, so nothing stops an Open Folder in that window. Every
+    /// other async model on this branch orders across that switch with a token —
+    /// `FindUsagesModel` grew `rootGeneration` for it — and this command has more
+    /// to lose than they do: the plan is built against the *old* root while
+    /// `captureBeforeOperation` is handed the *new* one, and `LocalHistoryModel`
+    /// drops every target outside the root it is given. The writes would still
+    /// land, in a project the user has left, with none of the "Before Rename"
+    /// revisions the failure alert promises. So the switch ends the command, and
+    /// says nothing: the user has moved on.
+    ///
+    /// It refuses outright while another writer holds the gate too, through
+    /// `revertInFlight()` — the same alert every other gated operation gives,
+    /// because a rename arriving mid-`git checkout` is refused for the same reason
+    /// ⌘S is and deserves the same explanation.
+    private func applyRename(
+        _ answer: RenameAnswer, for request: UsagesRequest, root: URL, serverTexts: [String: String]
+    ) async {
+        guard model.isCurrentProjectRoot(root) else { return }
+        guard !revertInFlight() else { return }
+        let oldName = request.identifier
+        let fileService = FileService()
+        let requestKey = request.fileURL.map(Self.canonicalKey)
+        let requestText = request.text
+        let maxBytes = LSPIntelligenceProvider.maximumTargetFileBytes
+        let edit = answer.edit
+        // **Off the main thread**, the `ProjectSearchModel.replaceAll` shape and
+        // for its reason: building the plan resolves symlinks three times and
+        // reads one file per document the server named, and a server naming a
+        // widely-used type names hundreds — which is the ordinary case for the
+        // command this is, not the pathological one. Run here it would freeze the
+        // window for the whole read pass with nothing on screen to say why.
+        // Nothing is written in this pass and no gate is up yet, so the hop costs
+        // only the two re-checks below.
+        //
+        // `readTextIfNotBinary` rather than `read`: this is the one file read in
+        // the app that a *server* chooses the targets of, and an unbounded `read`
+        // of a binary file it happens to name would load the whole thing into
+        // memory to look for identifiers that cannot be there.
+        //
+        // The cap is `LSPIntelligenceProvider.maximumTargetFileBytes` — the one
+        // this layer already uses for a file whose path a *server* named — and
+        // deliberately not the project search's 1 MiB. Declining here is a
+        // `RenameRefusal.unreadable`, i.e. the *whole* rename refuses rather than
+        // silently skipping a file, so the grep cap would make ⌃⌘R permanently
+        // impossible for any symbol that also appears in a large generated source
+        // file — and report it as a file that "could not be read", which is not
+        // what happened. The asymmetry is the other half of the argument: the
+        // requesting buffer and every text the server was sent bypass the cap
+        // entirely, so at 1 MiB whether a rename works would depend on which tabs
+        // happen to be open. Binary content is still declined by content, which is
+        // what this read is actually protecting against.
+        let made = await Self.offMain {
+            RenameEditPlan.make(
+                from: edit,
+                root: root,
+                texts: { url in
+                    let key = Self.canonicalKey(url)
+                    if key == requestKey { return requestText }
+                    if let sent = serverTexts[key] { return sent }
+                    return (try? fileService.readTextIfNotBinary(url: url, maxBytes: maxBytes))
+                        ?? nil
+                }
+            )
+        }
+        // Re-asked after the hop, not merely repeated: the folder can be switched
+        // and another writer can raise the gate while the read pass runs, and a
+        // plan built for a project the window has left must not be applied to the
+        // one it is showing now.
+        guard model.isCurrentProjectRoot(root) else { return }
+        guard !revertInFlight() else { return }
+        let plan: RenameEditPlan
+        switch made {
+        case .success(let made):
+            guard !made.isEmpty else {
+                PlatformFeedback.warning()
+                return
+            }
+            plan = made
+        case .failure(let refusal):
+            PlatformFeedback.warning()
+            PlatformAlert.presentMessage(title: "Rename not applied", message: refusal.reason)
+            return
+        }
+
+        autosave.suspend()
+        localChanges.beginRevert()
+        // No `defer`: the two exits below lower the gates by hand, the commit
+        // path's rule and for its reason — `PlatformAlert.presentMessage` is
+        // `NSAlert.runModal()`, a nested run loop, and `AutosaveController
+        // .flushNow()` bails while `suspendCount > 0`, so a ⌘Q while a rename
+        // alert sits on screen would skip the termination flush for every dirty
+        // buffer. The two `await`s below (the capture and the write pass) add no
+        // third way out — neither is cancellable and both resume — so the two
+        // exits are still the only paths out and a `defer` would buy nothing but
+        // the ordering hazard.
+        // Pre-empting a write the user cannot see all of: a rename changes files
+        // no tab holds, and unlike a git operation nothing can put them back. The
+        // targets are the plan's own files, which is also the whole set the write
+        // below touches — though not necessarily the whole set *captured*:
+        // `LocalHistoryPolicy.maxPreOperationFiles` caps the disk half and binary
+        // and oversize files are skipped, so this is a safety net and not a
+        // guarantee, which is why the incomplete-write alert below does not
+        // promise one. First `await` in the body, ahead of every write.
+        await captureBeforeOperation(
+            .rename,
+            buffers: openBufferTexts(),
+            targets: plan.fileURLs
+        )
+        // Re-read *now*: the buffers may have been typed in and the disk written
+        // to while the dialog was up and the server was thinking.
+        let current = bufferTextsByCanonicalPath()
+        // Off the main thread again, for the read pass's reason one step further
+        // on: this is where every remaining file is re-read, vouched for and
+        // written. The verification stays all-or-nothing inside the hop — nothing
+        // is written until every file's text has been checked against the plan —
+        // and the buffer snapshot it verifies against is the one taken just above,
+        // on the main actor, so what the hop decides about a tab is decided about
+        // a text that existed. A tab typed into *during* the hop is caught below
+        // rather than clobbered, the same rule Replace All applies to the same
+        // window.
+        let outcome = await Self.offMain {
+            plan.apply(
+                bufferText: { url in current[Self.canonicalKey(url)] },
+                fileService: fileService
+            )
+        }
+        let application: RenameApplication
+        switch outcome {
+        case .applied(let applied):
+            application = applied
+        case .stale(let url):
+            // Nothing was written — the verification is what makes that true, and
+            // it is the one refusal worth an alert rather than a beep: the user
+            // asked for a write, the write did not happen, and the reason is
+            // something they can act on. Gates down *before* the modal.
+            localChanges.endRevert()
+            autosave.resume()
+            PlatformFeedback.warning()
+            PlatformAlert.presentMessage(
+                title: "Rename not applied",
+                message: "\(url.lastPathComponent) changed since the language server answered, "
+                    + "so nothing was renamed. Try again."
+            )
+            return
+        }
+
+        // The buffer half, and the resync every worktree rewrite runs.
+        //
+        // **Every tab on the file, not the first one `fileID(forURL:)` finds.**
+        // Two tabs may legitimately show one file — opened once by path, once
+        // through a symlink — and `bufferTextsByCanonicalPath` collapses them to
+        // the single text the plan was verified against. Rewriting only one of
+        // them leaves the other holding the old name *and clean*, so nothing
+        // flags it and the next save through it writes the pre-rename text back
+        // over the file: the rename silently undone in that file, with no beep
+        // and no alert. The plan's edits are one file's, so applying them to
+        // every tab on that file is the same write, not a repeated one.
+        //
+        // **And only to a tab still holding the verified text.** That is both the
+        // check that makes the collapse safe (two tabs whose texts differ were
+        // not both vouched for, and replacing the unvouched one wholesale would
+        // discard edits nobody asked to lose) and the one that closes the write
+        // pass's hop: a tab typed into while the disk half ran is skipped and
+        // reported, never overwritten from a text it no longer holds — Replace
+        // All's rule for the identical window.
+        var rewrittenTabs: [(id: UUID, url: URL)] = []
+        var unrewritten: [URL] = []
+        for rewrite in application.bufferRewrites {
+            let key = Self.canonicalKey(rewrite.fileURL)
+            let verified = current[key]
+            var matched = false
+            for file in model.openFiles {
+                guard file.url.map(Self.canonicalKey) == key, file.text == verified else { continue }
+                saveTransform.applyRename(rewrite.plan, to: file.id)
+                rewrittenTabs.append((file.id, rewrite.fileURL))
+                matched = true
+            }
+            if !matched { unrewritten.append(rewrite.fileURL) }
+        }
+        refreshLocalChanges()
+        model.bumpTreeRevision()
+        // The files with no tab changed on disk and their symbols are stale until
+        // a stamp-gated refresh re-extracts them…
+        notifyIndexOfProjectFileChanges()
+        // …and a file that *does* have a tab was replaced in the buffer, which is
+        // exactly what that refresh declines to re-extract. Same resync a
+        // project-wide Replace All runs, for its reason.
+        for tab in rewrittenTabs {
+            reindexReloadedBuffer(id: tab.id, url: tab.url)
+        }
+        // Decision 7: the panel is cleared rather than re-run when it is showing
+        // the name that no longer exists. Re-running would spend a walk or a round
+        // trip on a question nobody asked, and every row it holds now names a
+        // string this rename just removed.
+        usages.clearIfNaming(oldName)
+        // Every write and every resync is done: gates down before the one modal
+        // this path can still present, for the reason stated above the bracket.
+        localChanges.endRevert()
+        autosave.resume()
+        if !unrewritten.isEmpty, application.writeFailure == nil {
+            // A tab moved under the write pass, so its file is the one thing the
+            // plan vouched for and did not change. Said rather than swallowed for
+            // the write-failure alert's reason: the user asked for a rename, part
+            // of it did not happen, and which part is something they can act on.
+            PlatformFeedback.warning()
+            PlatformAlert.presentMessage(
+                title: "Rename incomplete",
+                message: "\(unrewritten.map(\.lastPathComponent).joined(separator: ", ")) "
+                    + "changed while the rename was being written, so "
+                    + (unrewritten.count == 1 ? "it still holds" : "they still hold")
+                    + " the old name. Every other file was renamed."
+            )
+        }
+        if let failed = application.writeFailure {
+            // Deliberately *not* "the other files were renamed": `apply` stops at
+            // the first write that throws, so the files it had not reached yet
+            // still hold the old name, while every open buffer above has been
+            // rewritten regardless. And the pre-operation capture is neither
+            // complete nor guaranteed — `LocalHistoryModel` reads at most
+            // `LocalHistoryPolicy.maxPreOperationFiles` from disk and skips
+            // binary and oversize files silently — so the alert points at Local
+            // History without promising what is in it. Naming a state the user
+            // can check beats naming one that sounds tidier and may be false.
+            //
+            // "the open editors do not" is true of every buffer this pass
+            // rewrote and false of the ones it skipped, so a run that both failed
+            // a write *and* had a tab move under it says which tabs those are
+            // rather than asserting a consistency they do not have. The skipped
+            // list is reported here instead of in its own alert above for that
+            // reason: one incomplete rename is one sentence about one state.
+            let skipped = unrewritten.isEmpty
+                ? ""
+                : " \(unrewritten.map(\.lastPathComponent).joined(separator: ", ")) "
+                    + "changed while the rename was being written, so "
+                    + (unrewritten.count == 1 ? "that editor" : "those editors")
+                    + " still hold\(unrewritten.count == 1 ? "s" : "") the old name too."
+            PlatformAlert.presentMessage(
+                title: "Rename incomplete",
+                message: "\(failed.lastPathComponent) could not be written, so the rename stopped "
+                    + "there: some files still hold the old name and the open editors do not."
+                    + skipped
+                    + " Local History may hold a “Before Rename” revision of the files "
+                    + "that changed."
+            )
+        }
+    }
+
+    /// Every open buffer's text, keyed by its file's canonical path.
+    ///
+    /// Keyed canonically rather than by URL because the two sides of this question
+    /// spell paths differently on purpose: a tab is opened as the user spelled it
+    /// and a language server answers with whatever its own resolution produced
+    /// (`/private/var` against `/var` being the standing example). A URL-keyed
+    /// lookup would miss the buffer and quietly write the server's edits into the
+    /// disk copy beneath an open, possibly dirty, tab.
+    ///
+    /// The key is spelled by `canonicalKey(_:)` — the same symlink-resolving
+    /// transform `CanonicalPath` applies inside Core, restated here for
+    /// `isInsideProject`'s reason (that type is Core-internal) and matching it
+    /// exactly, which is what keeps this lookup and the plan's own path
+    /// comparisons answering the same question.
+    private nonisolated static func canonicalKey(_ url: URL) -> String {
+        url.standardizedFileURL.resolvingSymlinksInPath().path
+    }
+
+    /// The one queue the rename's disk passes run on.
+    ///
+    /// A queue of its own rather than the cooperative pool: both passes are
+    /// *blocking* file I/O over a set the server chose the size of, and handing
+    /// that to a `Task.detached` would park a pool thread per pass. Serial because
+    /// the two passes of one rename are ordered anyway and two renames cannot
+    /// overlap — the writer gate sees to the second one.
+    private nonisolated static let renameQueue = DispatchQueue(
+        label: "com.pisaka.rename", qos: .userInitiated
+    )
+
+    /// Run `work` on `renameQueue` and resume with its result — the
+    /// `ProjectSearchModel.offMain` shape, so the rename's reads and writes never
+    /// land on the main thread while everything that decides *around* them stays
+    /// on the main actor.
+    private nonisolated static func offMain<T>(_ work: @escaping () -> T) async -> T {
+        await withCheckedContinuation { continuation in
+            renameQueue.async { continuation.resume(returning: work()) }
+        }
+    }
+
+    private func bufferTextsByCanonicalPath() -> [String: String] {
+        var texts: [String: String] = [:]
+        for file in model.openFiles {
+            guard let url = file.url else { continue }
+            texts[Self.canonicalKey(url)] = file.text
+        }
+        return texts
+    }
+
     /// The Edit menu's "Toggle Comment": ask the focused editor to toggle comments
     /// for its selection or line.
     ///
@@ -3328,7 +3979,7 @@ struct PisakaApp: App {
         return openBufferTexts().filter { wanted.contains($0.key) }
     }
 
-    /// The one spelling of a pre-operation capture, so the six bracket sites each
+    /// The one spelling of a pre-operation capture, so the seven bracket sites each
     /// read as a single line naming what they are pre-empting rather than as four
     /// repetitions of the same two boilerplate arguments.
     ///

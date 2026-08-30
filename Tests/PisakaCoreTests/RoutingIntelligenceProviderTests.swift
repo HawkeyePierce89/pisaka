@@ -78,21 +78,60 @@ final class RoutingIntelligenceProviderTests: XCTestCase {
         completion: 5,
         resolve: 5,
         hover: 5,
+        references: 5,
         shutdown: 1
     )
 
-    /// A fallback that *would* answer a hover — which no real one does.
+    /// A fallback that *would* answer the three questions no real one does —
+    /// hover, references and rename.
     ///
     /// The only way to assert "the wrapped provider is never consulted" rather
     /// than merely observe that nothing came back: with a stock
     /// `SymbolIntelligenceProvider` underneath, a routed `nil` and a fallen-through
-    /// `nil` are the same value, and the rule with no fallback would be the one
-    /// rule in this file no test could see.
-    private final class HoverAnsweringFallback: CodeIntelligenceProviding {
+    /// `nil` are the same value, and the rules with no fallback would be the rules
+    /// in this file no test could see.
+    private final class AnsweringFallback: CodeIntelligenceProviding {
         let wrapped: SymbolIntelligenceProvider
         private(set) var hoverCalls = 0
+        private(set) var referencesCalls = 0
+        private(set) var renameCalls = 0
 
         init(_ wrapped: SymbolIntelligenceProvider) { self.wrapped = wrapped }
+
+        func references(for request: UsagesRequest) async -> [UsageResult] {
+            referencesCalls += 1
+            return [
+                UsageResult(
+                    fileURL: URL(fileURLWithPath: "/private/tmp/PisakaRouting/pkg/from-the-index.swift"),
+                    range: NSRange(location: 0, length: 7),
+                    line: 1,
+                    relativePath: "from-the-index.swift",
+                    preview: MatchPreview(text: "Greeter", matchRange: NSRange(location: 0, length: 7)),
+                    isTextual: true
+                ),
+            ]
+        }
+
+        func renameEdits(for request: RenameRequest) async -> RenameAnswer? {
+            renameCalls += 1
+            return RenameAnswer(
+                newName: request.newName,
+                edit: LSPWorkspaceEdit(documents: [
+                    LSPDocumentEdits(
+                        uri: "file:///private/tmp/PisakaRouting/pkg/from-the-index.swift",
+                        edits: [
+                            LSPTextEdit(
+                                range: LSPRange(
+                                    start: LSPPosition(line: 0, character: 0),
+                                    end: LSPPosition(line: 0, character: 7)
+                                ),
+                                newText: request.newName
+                            ),
+                        ]
+                    ),
+                ])
+            )
+        }
 
         func definitions(for request: DefinitionRequest) async -> [DefinitionCandidate] {
             await wrapped.definitions(for: request)
@@ -302,7 +341,7 @@ final class RoutingIntelligenceProviderTests: XCTestCase {
     /// types. A server with nothing to say is the end of the question.
     func testAServerWithNothingToSayIsNotFollowedByTheIndex() async {
         transport.script(LSPMethod.hover, .reply(.null))
-        let fallback = HoverAnsweringFallback(makeFallback(makeIndex()))
+        let fallback = AnsweringFallback(makeFallback(makeIndex()))
         let router = makeRouter(index: makeIndex(), fallback: fallback)
 
         let answer = await router.hover(for: hoverRequest())
@@ -317,7 +356,7 @@ final class RoutingIntelligenceProviderTests: XCTestCase {
     /// is spent.
     func testAHoverForALanguageWithNoServerNeverEntersTheStack() async {
         transport.script(LSPMethod.hover, .reply(serverHoverReply()))
-        let fallback = HoverAnsweringFallback(makeFallback(makeIndex()))
+        let fallback = AnsweringFallback(makeFallback(makeIndex()))
         let router = makeRouter(index: makeIndex(), registry: .empty, fallback: fallback)
 
         let answer = await router.hover(for: hoverRequest())
@@ -384,6 +423,233 @@ final class RoutingIntelligenceProviderTests: XCTestCase {
         let candidates = await router.definitions(for: definitionRequest())
         XCTAssertEqual(candidates.map(\.relativePath), ["Sources/Legacy/Greeter.swift"])
         XCTAssertEqual(harness.launches, 4)
+    }
+
+    // MARK: - Usages and rename: the server or nothing
+
+    private func usagesRequest(text: String? = nil) -> UsagesRequest {
+        UsagesRequest(
+            identifier: "Greeter",
+            fileURL: mainFile,
+            offset: greeterReference,
+            text: text ?? mainSource
+        )
+    }
+
+    private func renameRequest(newName: String = "Welcomer") -> RenameRequest {
+        RenameRequest(
+            identifier: "Greeter",
+            fileURL: mainFile,
+            offset: greeterReference,
+            text: mainSource,
+            newName: newName
+        )
+    }
+
+    /// The server's answer: the declaration in `Greeter.swift` plus the use on
+    /// line 2 of `main.swift`, which is the file the question came from.
+    private func serverReferencesReply() -> JSONValue {
+        .array([
+            .object([
+                "uri": .string(LSPWorkspace.documentURI(for: serverFile)),
+                "range": .object([
+                    "start": .object(["line": .int(0), "character": .int(14)]),
+                    "end": .object(["line": .int(0), "character": .int(21)]),
+                ]),
+            ]),
+            .object([
+                "uri": .string(LSPWorkspace.documentURI(for: mainFile)),
+                "range": .object([
+                    "start": .object(["line": .int(2), "character": .int(14)]),
+                    "end": .object(["line": .int(2), "character": .int(21)]),
+                ]),
+            ]),
+        ])
+    }
+
+    private func serverRenameReply() -> JSONValue {
+        .object([
+            "changes": .object([
+                LSPWorkspace.documentURI(for: serverFile): .array([
+                    .object([
+                        "newText": .string("Welcomer"),
+                        "range": .object([
+                            "start": .object(["line": .int(0), "character": .int(14)]),
+                            "end": .object(["line": .int(0), "character": .int(21)]),
+                        ]),
+                    ]),
+                ]),
+            ]),
+        ])
+    }
+
+    func testALiveServerAnswersTheUsagesAndTheIndexIsNotConsulted() async throws {
+        transport.script(LSPMethod.references, .reply(serverReferencesReply()))
+        let fallback = AnsweringFallback(makeFallback(makeIndex()))
+        let router = makeRouter(index: makeIndex(), fallback: fallback)
+
+        let usages = await router.references(for: usagesRequest())
+
+        XCTAssertEqual(usages.map(\.relativePath), [
+            "Sources/Core/Greeter.swift",
+            "Sources/App/main.swift",
+        ])
+        // Every row is a resolved reference — the flag is what the panel says out
+        // loud, so a semantic answer that claimed to be textual would be a lie in
+        // the safe direction and still a lie.
+        XCTAssertEqual(usages.map(\.isTextual), [false, false])
+        XCTAssertEqual(fallback.referencesCalls, 0, "references has no provider fallback")
+        XCTAssertEqual(harness.launches, 1)
+    }
+
+    func testALiveServerAnswersTheRenameAndTheIndexIsNotConsulted() async throws {
+        transport.script(LSPMethod.rename, .reply(serverRenameReply()))
+        let fallback = AnsweringFallback(makeFallback(makeIndex()))
+        let router = makeRouter(index: makeIndex(), fallback: fallback)
+
+        let renamed = await router.renameEdits(for: renameRequest())
+        let answer = try XCTUnwrap(renamed)
+
+        XCTAssertEqual(answer.newName, "Welcomer")
+        XCTAssertEqual(answer.edit.documents.count, 1)
+        XCTAssertEqual(answer.edit.documents.first?.edits.map(\.newText), ["Welcomer"])
+        XCTAssertEqual(fallback.renameCalls, 0, "rename has no fallback at all")
+    }
+
+    /// The rule this layer states for both new questions: a server with nothing to
+    /// say ends them. For rename that is the whole story; for usages it is only
+    /// this layer's half — the honest second answer is a project walk, and that is
+    /// `FindUsagesModel`'s to run, not a provider's (decision 1).
+    func testAServerWithNothingToSayIsNotFollowedByTheIndexForEitherQuestion() async {
+        transport.script(LSPMethod.references, .reply(.null))
+        transport.script(LSPMethod.rename, .reply(.null))
+        let fallback = AnsweringFallback(makeFallback(makeIndex()))
+        let router = makeRouter(index: makeIndex(), fallback: fallback)
+
+        let usages = await router.references(for: usagesRequest())
+        let renamed = await router.renameEdits(for: renameRequest())
+
+        XCTAssertTrue(usages.isEmpty)
+        XCTAssertNil(renamed)
+        XCTAssertEqual(transport.requests(for: LSPMethod.references).count, 1)
+        XCTAssertEqual(transport.requests(for: LSPMethod.rename).count, 1)
+        XCTAssertEqual(fallback.referencesCalls, 0)
+        XCTAssertEqual(fallback.renameCalls, 0)
+    }
+
+    /// A language nothing serves never enters the LSP stack, for these two exactly
+    /// as for the other four — and the answers are the *untouched* ones: an empty
+    /// list and no rename, equal to what a provider that implements neither
+    /// returns, rather than to what the probe underneath would have said.
+    func testUsagesAndRenameForALanguageWithNoServerNeverEnterTheStack() async {
+        transport.script(LSPMethod.references, .reply(serverReferencesReply()))
+        transport.script(LSPMethod.rename, .reply(serverRenameReply()))
+        let fallback = AnsweringFallback(makeFallback(makeIndex()))
+        let router = makeRouter(index: makeIndex(), registry: .empty, fallback: fallback)
+
+        let usages = await router.references(for: usagesRequest())
+        let renamed = await router.renameEdits(for: renameRequest())
+
+        XCTAssertTrue(usages.isEmpty)
+        XCTAssertNil(renamed)
+        XCTAssertEqual(harness.launches, 0)
+        XCTAssertTrue(transport.sentMethods.isEmpty)
+        XCTAssertEqual(fallback.referencesCalls, 0)
+        XCTAssertEqual(fallback.renameCalls, 0)
+        // And the command asks the same question before it would show a dialog:
+        // free, and `false` for a language nothing serves.
+        let offered = await router.canRename(.swift)
+        XCTAssertFalse(offered)
+        XCTAssertEqual(harness.launches, 0)
+    }
+
+    /// A server that does not answer in time answers nothing — raced against
+    /// `references`' own budget rather than a definition's or a hover's.
+    func testATimeoutOnUsagesAnswersNothingAndCancelsTheRequest() async {
+        transport.script(LSPMethod.references, .drop)
+        // Every other span — rename's included — is set far past this test's own
+        // runtime, so the elapsed assertion pins *which* budget the whole-attempt
+        // race is run against.
+        let router = makeRouter(
+            index: makeIndex(),
+            budgets: RoutingIntelligenceProvider.Budgets(
+                definition: 30,
+                completion: 30,
+                resolve: 30,
+                hover: 30,
+                references: 0.05,
+                rename: 30
+            )
+        )
+
+        let started = Date()
+        let usages = await router.references(for: usagesRequest())
+
+        XCTAssertTrue(usages.isEmpty)
+        XCTAssertLessThan(
+            Date().timeIntervalSince(started), 2,
+            "the attempt was raced against a budget other than its own"
+        )
+        await untilTrue("the abandoned question is cancelled") {
+            self.transport.notifications(for: LSPMethod.cancelRequest).count == 1
+        }
+    }
+
+    /// **Rename is raced against a budget of its own, not `references`'.**
+    ///
+    /// The two are the same act asked two ways, but only one of them has a second
+    /// answer behind it: a references timeout degrades to `FindUsagesModel`'s
+    /// textual walk, while a rename timeout is a bare refusal of a command the
+    /// user has already filled in a modal dialog for. Asserted the same way round
+    /// — rename's span is the small one here and `references`' is wide, so a
+    /// router still sharing one number would overrun.
+    func testATimeoutOnRenameAnswersNothingAndCancelsTheRequest() async {
+        transport.script(LSPMethod.rename, .drop)
+        let router = makeRouter(
+            index: makeIndex(),
+            budgets: RoutingIntelligenceProvider.Budgets(
+                definition: 30,
+                completion: 30,
+                resolve: 30,
+                hover: 30,
+                references: 30,
+                rename: 0.05
+            )
+        )
+
+        let started = Date()
+        let renamed = await router.renameEdits(for: renameRequest())
+
+        XCTAssertNil(renamed)
+        XCTAssertLessThan(
+            Date().timeIntervalSince(started), 2,
+            "the attempt was raced against a budget other than its own"
+        )
+        await untilTrue("the abandoned question is cancelled") {
+            self.transport.notifications(for: LSPMethod.cancelRequest).count == 1
+        }
+    }
+
+    /// The default table gives rename materially more room than every reading
+    /// question, which is the whole point of splitting it out.
+    func testTheDefaultRenameBudgetIsWiderThanTheReadingBudgets() {
+        let standard = RoutingIntelligenceProvider.Budgets.standard
+        XCTAssertGreaterThan(standard.rename, standard.references)
+        XCTAssertGreaterThan(standard.rename, standard.definition)
+        XCTAssertGreaterThanOrEqual(standard.rename, 15)
+    }
+
+    /// `canRename` is the free policy answer the command asks before it puts a
+    /// dialog on screen (decision 4): `true` where a server serves the language,
+    /// and asking it starts nothing.
+    func testCanRenameIsTrueForAServedLanguageAndStartsNothing() async {
+        let router = makeRouter(index: makeIndex())
+
+        let offered = await router.canRename(.swift)
+
+        XCTAssertTrue(offered)
+        XCTAssertEqual(harness.launches, 0, "a policy answer starts no process")
+        XCTAssertTrue(transport.sentMethods.isEmpty)
     }
 
     // MARK: - Waiting

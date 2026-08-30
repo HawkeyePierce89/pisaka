@@ -786,6 +786,56 @@ final class LSPWorkspaceTests: XCTestCase {
         XCTAssertTrue(workspace.stillHolds(second))
     }
 
+    // MARK: - The texts a server was last given (the rename plan's source)
+
+    /// The rename plan is built against what the server was *told*, never against
+    /// a live buffer — so the map reports the last text flushed per document,
+    /// keyed by file URL, for documents the caller never prepared as well as the
+    /// one it did.
+    func testLastSentTextsReportsTheTextEachDocumentWasFlushedWith() async {
+        let harness = ServerHarness()
+        let workspace = makeWorkspace(harness: harness)
+
+        _ = await workspace.prepare(url: mainFile, language: .swift, text: "let a = 1\n")
+        _ = await workspace.prepare(url: greeterFile, language: .swift, text: "let b = 2\n")
+
+        XCTAssertEqual(
+            workspace.lastSentTexts(),
+            [
+                mainFile.standardizedFileURL: "let a = 1\n",
+                greeterFile.standardizedFileURL: "let b = 2\n",
+            ]
+        )
+    }
+
+    /// A buffer typed in but not yet re-flushed still reports the *old* text:
+    /// that is the whole point — the server's coordinates were computed against
+    /// it, and the rename plan must be too.
+    func testLastSentTextsLagsABufferThatHasNotBeenFlushedAgain() async {
+        let harness = ServerHarness()
+        let workspace = makeWorkspace(harness: harness)
+
+        _ = await workspace.prepare(url: mainFile, language: .swift, text: "let a = 1\n")
+        XCTAssertEqual(workspace.lastSentTexts()[mainFile.standardizedFileURL], "let a = 1\n")
+
+        _ = await workspace.prepare(url: mainFile, language: .swift, text: "\nlet a = 1\n")
+        XCTAssertEqual(workspace.lastSentTexts()[mainFile.standardizedFileURL], "\nlet a = 1\n")
+    }
+
+    /// A document nothing holds open is absent rather than empty: the caller
+    /// reads the disk for it, which is what the server did.
+    func testLastSentTextsIsEmptyBeforeAnyDocumentIsOpenedAndAfterOneCloses() async {
+        let harness = ServerHarness()
+        let workspace = makeWorkspace(harness: harness)
+
+        XCTAssertTrue(workspace.lastSentTexts().isEmpty)
+
+        _ = await workspace.prepare(url: mainFile, language: .swift, text: "let a = 1\n")
+        await workspace.didClose(url: mainFile)
+
+        XCTAssertTrue(workspace.lastSentTexts().isEmpty)
+    }
+
     // MARK: - Termination
 
     func testTerminateNowStopsEveryServerWithoutAwaitingAnything() async {

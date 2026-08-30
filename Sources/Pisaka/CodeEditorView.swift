@@ -184,6 +184,24 @@ struct CodeEditorView: NSViewRepresentable {
     /// tree-sitter path this is never called.
     var onViewDefinitionOutsideProject: (URL, NSRange) -> Void = { _, _ in }
 
+    /// Ask "where is this name used" about the identifier the caret (or a
+    /// right-click) resolved. Wired to `PisakaApp`, which owns the
+    /// `FindUsagesModel`, shows the bottom dock's Usages panel and runs the
+    /// query — none of which is this view's to do. Default no-op so a
+    /// default-constructed view (previews/tests) still compiles.
+    var onFindUsages: (UsagesRequest) -> Void = { _ in }
+
+    /// Ask to rename the identifier the caret (or a right-click) resolved.
+    ///
+    /// Carries a `UsagesRequest` rather than a `RenameRequest` on purpose: the
+    /// *read* half of a rename asks exactly the four things a usages query does
+    /// — the name, the file, the offset and the live buffer — and the new name
+    /// does not exist yet at this point. It is the app that puts up the dialog
+    /// and builds the `RenameRequest` from the answer, because the dialog, the
+    /// writer gate and the Local History capture are all its. Default no-op so a
+    /// default-constructed view (previews/tests) still compiles.
+    var onRenameSymbol: (UsagesRequest) -> Void = { _ in }
+
     func makeCoordinator() -> Coordinator {
         Coordinator(text: $text)
     }
@@ -246,6 +264,18 @@ struct CodeEditorView: NSViewRepresentable {
         // deallocated coordinator simply navigates nowhere.
         textView.onGoToDefinition = { [weak coordinator = context.coordinator] tv, offset in
             coordinator?.goToDefinition(in: tv, at: offset)
+        }
+        // ⌃⌘U / the context menu → the coordinator's find-usages entry point.
+        // Weakly captured for the same retain-cycle reason as the closures
+        // above; a deallocated coordinator simply asks nothing.
+        textView.onFindUsages = { [weak coordinator = context.coordinator] tv, offset in
+            coordinator?.findUsages(in: tv, at: offset)
+        }
+        // ⌃⌘R / the context menu → the coordinator's rename entry point, which
+        // resolves the word and hands it to the app; the dialog and the write
+        // are the app's (see `onRenameSymbol`).
+        textView.onRenameSymbol = { [weak coordinator = context.coordinator] tv, offset in
+            coordinator?.renameSymbol(in: tv, at: offset)
         }
         // ⌃Space (and the Find menu's "Complete") → an undebounced candidate
         // refresh, which opens the popup itself once the provider answers. Weakly
@@ -444,6 +474,8 @@ struct CodeEditorView: NSViewRepresentable {
         context.coordinator.attachDiagnostics(model: diagnostics)
         context.coordinator.navigateToDefinition = onGoToDefinition
         context.coordinator.viewDefinitionOutsideProject = onViewDefinitionOutsideProject
+        context.coordinator.requestUsages = onFindUsages
+        context.coordinator.requestRename = onRenameSymbol
         // Seed the retarget comparison so the first update after creation does
         // not read as one: the immediate sync below already happened here.
         context.coordinator.syncedProjectRoot = projectRoot
@@ -746,6 +778,8 @@ struct CodeEditorView: NSViewRepresentable {
         // same reason.
         context.coordinator.navigateToDefinition = onGoToDefinition
         context.coordinator.viewDefinitionOutsideProject = onViewDefinitionOutsideProject
+        context.coordinator.requestUsages = onFindUsages
+        context.coordinator.requestRename = onRenameSymbol
         if switchedFile || contentReplaced || retargetedBuffer {
             context.coordinator.reindexSymbols(
                 text: textView.string,
@@ -1273,6 +1307,67 @@ struct CodeEditorView: NSViewRepresentable {
                     }
                 }
             }
+        }
+
+        // MARK: - Find usages / rename
+
+        /// Ask the app "where is this used" about the identifier at `offset`.
+        /// Assigned from `CodeEditorView` on every update, because it captures
+        /// the app's scene state (see the property's note there).
+        var requestUsages: (UsagesRequest) -> Void = { _ in }
+
+        /// Ask the app to rename the identifier at `offset`. Assigned from
+        /// `CodeEditorView` on every update, like `requestUsages`, and for the
+        /// same reason.
+        var requestRename: (UsagesRequest) -> Void = { _ in }
+
+        /// The one place the caret's word becomes a question, shared by the two
+        /// commands below so they can never disagree about what a name is or
+        /// which offset the question is asked at.
+        ///
+        /// `IdentifierScanner` decides — the same rule Go to Definition,
+        /// completion and the textual scan all use — and the *first* character
+        /// of the resolved word is what travels, so the answer does not depend
+        /// on where inside a name the caret happened to be. The live buffer
+        /// travels with it (D2), for `goToDefinition(in:at:)`'s reason: the seam
+        /// may reach a server, and a server must be told the text before it can
+        /// be asked about an offset in it.
+        private func caretQuery(in textView: NSTextView, at offset: Int) -> UsagesRequest? {
+            let text = textView.string
+            guard let match = IdentifierScanner.identifier(in: text as NSString, at: offset) else {
+                return nil
+            }
+            return UsagesRequest(
+                identifier: match.text,
+                fileURL: fileURL,
+                offset: match.range.location,
+                text: text
+            )
+        }
+
+        /// Find Usages at `offset` — ⌃⌘U's and the context menu's one entry
+        /// point. Nothing resolved is a beep, exactly as a ⌘-click on whitespace
+        /// is: the command did not happen, and an alert for a misplaced caret
+        /// would be worse than the caret.
+        func findUsages(in textView: NSTextView, at offset: Int) {
+            guard let query = caretQuery(in: textView, at: offset) else {
+                PlatformFeedback.warning()
+                return
+            }
+            requestUsages(query)
+        }
+
+        /// Rename at `offset` — ⌃⌘R's and the context menu's one entry point.
+        /// Beeps on an unresolved word for `findUsages(in:at:)`'s reason; every
+        /// other refusal (no server, a server with no rename capability, an
+        /// answer with no edits) belongs to the app, which is where the sheet
+        /// and the writer gate are.
+        func renameSymbol(in textView: NSTextView, at offset: Int) {
+            guard let query = caretQuery(in: textView, at: offset) else {
+                PlatformFeedback.warning()
+                return
+            }
+            requestRename(query)
         }
 
         /// Land on a chosen declaration: a tab for a file inside the opened folder,
@@ -2747,6 +2842,17 @@ final class EditorTextView: NSTextView, ZoomSurfaceProviding {
     /// `goToDefinition(in:at:)`; `nil` until then.
     var onGoToDefinition: ((NSTextView, Int) -> Void)?
 
+    /// Lists every usage of the identifier at a UTF-16 offset (the caret's for
+    /// ⌃⌘U, the clicked one for the context menu). Set by
+    /// `CodeEditorView.makeNSView` to the coordinator's `findUsages(in:at:)`;
+    /// `nil` until then.
+    var onFindUsages: ((NSTextView, Int) -> Void)?
+
+    /// Renames the identifier at a UTF-16 offset (the caret's for ⌃⌘R, the
+    /// clicked one for the context menu). Set by `CodeEditorView.makeNSView` to
+    /// the coordinator's `renameSymbol(in:at:)`; `nil` until then.
+    var onRenameSymbol: ((NSTextView, Int) -> Void)?
+
     /// Toggles the comment state of the selected lines on Cmd+/. Set by
     /// `CodeEditorView.makeNSView` to the coordinator's
     /// `toggleComment(in:)`; `nil` until then.
@@ -2841,6 +2947,152 @@ final class EditorTextView: NSTextView, ZoomSurfaceProviding {
     /// typing one.
     func goToDefinitionAtCaret() {
         onGoToDefinition?(self, selectedRange().location)
+    }
+
+    /// Find Usages from the caret — the Find menu's ⌃⌘U entry point, which
+    /// reaches this view as the key window's first responder for the reason
+    /// `goToDefinitionAtCaret()` states.
+    ///
+    /// The *start* of the selection, for that method's reason too: the command
+    /// behaves the same whether the user placed a caret in a name or
+    /// double-clicked to select it.
+    func findUsagesAtCaret() {
+        onFindUsages?(self, selectedRange().location)
+    }
+
+    /// Rename from the caret — the Find menu's ⌃⌘R entry point, reached and
+    /// resolved exactly as `findUsagesAtCaret()` is. What happens after the word
+    /// resolves is the app's: this view knows nothing about servers, dialogs or
+    /// the writer gate.
+    func renameAtCaret() {
+        onRenameSymbol?(self, selectedRange().location)
+    }
+
+    // MARK: - Context menu
+
+    /// The stock text menu plus the three code-intelligence commands, each
+    /// acting on the identifier under the **click** rather than under the caret.
+    ///
+    /// The click is the whole reason these three exist here as well as in the
+    /// Find menu: a right-click does not move the insertion point, so a menu
+    /// built from `selectedRange()` would answer about wherever the caret was
+    /// last left — which is exactly the wrong word, and silently so. The
+    /// resolved offset is therefore stashed here and read by the actions below.
+    ///
+    /// `super`'s menu is *appended to* rather than replaced, so Cut/Copy/Paste,
+    /// Look Up, Services and the substitution submenus all survive. What `super`
+    /// hands back is not promised to be a fresh menu — `NSTextView` builds one
+    /// from a template it shares across every instance — so the additions are
+    /// **removed and re-made** rather than skipped when they are already there.
+    /// Appending unconditionally would grow a reused menu by four items per
+    /// click; *skipping* a reused menu would be worse, because the items it
+    /// already carries are targeted at whichever text view built them, and a
+    /// second editor would then run Find Usages and Rename against the first
+    /// one's buffer. Rebuilding is right under both behaviours and costs three
+    /// items. Enablement stays AppKit's — `autoenablesItems` is left
+    /// alone, because turning it off for our three items would turn it off for
+    /// every stock item too — and is answered in `validateMenuItem(_:)`.
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let menu = super.menu(for: event) ?? NSMenu()
+        contextMenuOffset = characterIndexForInsertion(
+            at: convert(event.locationInWindow, from: nil)
+        )
+        for item in menu.items where item.tag == Self.intelligenceMenuTag {
+            menu.removeItem(item)
+        }
+
+        let separator = NSMenuItem.separator()
+        separator.tag = Self.intelligenceMenuTag
+        menu.addItem(separator)
+
+        let commands: [(String, Selector, String, NSEvent.ModifierFlags)] = [
+            ("Go to Definition", #selector(goToDefinitionFromMenu(_:)), "j", [.control, .command]),
+            ("Find Usages", #selector(findUsagesFromMenu(_:)), "u", [.control, .command]),
+            ("Rename…", #selector(renameFromMenu(_:)), "r", [.control, .command]),
+        ]
+        for (title, action, key, modifiers) in commands {
+            let item = NSMenuItem(title: title, action: action, keyEquivalent: key)
+            item.keyEquivalentModifierMask = modifiers
+            item.target = self
+            item.tag = Self.intelligenceMenuTag
+            menu.addItem(item)
+        }
+        return menu
+    }
+
+    /// The three context-menu items are live only where a name is. Everything
+    /// else — the stock items, and any command reaching this view through the
+    /// responder chain — stays `super`'s answer.
+    ///
+    /// **Both validation entry points, and that is not belt-and-braces.**
+    /// `NSTextView` conforms to `NSMenuItemValidation`, and a menu validating an
+    /// `NSMenuItem` asks a target that implements `validateMenuItem(_:)` and never
+    /// falls through to `validateUserInterfaceItem(_:)` — so overriding only the
+    /// latter would leave all three items permanently enabled and silently
+    /// inert on a right-click that resolved no name, which is precisely the state
+    /// the enablement exists to avoid. `validateUserInterfaceItem(_:)` is kept for
+    /// every other validating client (a toolbar item, a `NSUserInterfaceValidations`
+    /// walk of the responder chain), and both defer to `super` for anything else.
+    override func validateMenuItem(_ item: NSMenuItem) -> Bool {
+        guard let enabled = intelligenceItemEnablement(for: item.action) else {
+            return super.validateMenuItem(item)
+        }
+        return enabled
+    }
+
+    override func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
+        guard let enabled = intelligenceItemEnablement(for: item.action) else {
+            return super.validateUserInterfaceItem(item)
+        }
+        return enabled
+    }
+
+    /// Whether one of the three added items may fire, or `nil` when the action is
+    /// not one of them — the single answer both validation overrides give, so the
+    /// two entry points cannot disagree about the same click.
+    private func intelligenceItemEnablement(for action: Selector?) -> Bool? {
+        switch action {
+        case #selector(goToDefinitionFromMenu(_:)),
+             #selector(findUsagesFromMenu(_:)),
+             #selector(renameFromMenu(_:)):
+            return clickedIdentifierOffset() != nil
+        default:
+            return nil
+        }
+    }
+
+    /// The offset the last right-click resolved to, or `nil` before the first
+    /// one. Kept as an offset rather than a resolved word so the identifier is
+    /// re-read from the buffer as it is when the item fires, not as it was when
+    /// the menu opened.
+    private var contextMenuOffset: Int?
+
+    /// Marks the items this view adds to the stock menu, so a second right-click
+    /// appends nothing.
+    private static let intelligenceMenuTag = 0x5D5A
+
+    /// The clicked offset, but only when it actually names an identifier — the
+    /// one question the three items' enablement asks.
+    private func clickedIdentifierOffset() -> Int? {
+        guard let offset = contextMenuOffset,
+              IdentifierScanner.identifier(in: string as NSString, at: offset) != nil
+        else { return nil }
+        return offset
+    }
+
+    @objc private func goToDefinitionFromMenu(_ sender: Any?) {
+        guard let offset = clickedIdentifierOffset() else { return }
+        onGoToDefinition?(self, offset)
+    }
+
+    @objc private func findUsagesFromMenu(_ sender: Any?) {
+        guard let offset = clickedIdentifierOffset() else { return }
+        onFindUsages?(self, offset)
+    }
+
+    @objc private func renameFromMenu(_ sender: Any?) {
+        guard let offset = clickedIdentifierOffset() else { return }
+        onRenameSymbol?(self, offset)
     }
 
     /// Exposes the `onToggleComment` routing closure to the macOS first-responder

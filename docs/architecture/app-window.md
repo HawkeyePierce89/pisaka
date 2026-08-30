@@ -125,9 +125,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     open" branch is deliberately left bare (no bar without a file). The window
     body is a
     `VStack(spacing: 0) { mainArea; Divider(); bottomBar }`: an always-visible
-    `bottomBar` of four toggle buttons (Terminal / Git / Changes /
-    Problems, the active one highlighted, `arrow.triangle.pull` for Changes,
-    `exclamationmark.triangle` for Problems) sits flush at
+    `bottomBar` of five toggle buttons (Terminal / Git / Changes /
+    Problems / Usages, the active one highlighted, `arrow.triangle.pull` for
+    Changes, `exclamationmark.triangle` for Problems, `text.magnifyingglass` for
+    Usages) sits flush at
     the bottom, and `mainArea` is the three-column `editorSplit` alone, or — when a
     `BottomPanel` is shown — `editorSplit` over the panel. The bottom bar also hosts
     the `BranchSwitcherView` (JetBrains status-bar convention) showing the current
@@ -212,7 +213,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     satisfied — the child cannot make the slot grow, so its only available outcome
     is to overflow, over the divider above and the bottom bar below. The three
     former `.frame(minHeight:)` modifiers at the call site (Log's 160, Changes'
-    and Problems' 120) are deleted for that reason; Log's 160 was the visible
+    and Problems' 120) are deleted for that reason — and `UsagesPanelView`, added
+    later, states none anywhere, for exactly this rule; Log's 160 was the visible
     bleed, spilling at any dragged height between the 120 floor and it, in a large
     window with the editor nowhere near its own minimum. The call site is only
     half of the precondition, though: what lands in the slot is a *view*, and a
@@ -221,7 +223,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     metrics.scaled(120)` on its body — a tie with the floor, so invisible in the
     ordinary case and live on the degenerate path, where it would have slid the
     terminal's tab bar (the only way to switch or close a session) out from under
-    the clip. It is deleted too, and the rule now holds for all four panels in
+    the clip. It is deleted too, and the rule now holds for all five panels in
     their own files. The *guarantee* is `.clipped()` on the column,
     **pinned to the area first** — `.frame(width: geo.size.width, height:
     geo.size.height, alignment: .topLeading)` — because `.clipped()` clips a view
@@ -324,12 +326,19 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     onOpenCommitDiff:)`, `.changes` →
     `LocalChangesView(model: localChanges, projectRoot:, onRevert:, onOpenDiff:)`
     rendered as the file list only (the diff opens in a separate window on
-    double-click via `onOpenDiff`), and `.problems` → `ProblemsPanelView(model:
-    diagnostics, projectRoot:, onActivate:)` — full entry below. The diagnostics
-    model is optional here (`nil` in previews/tests), and a throwaway default
-    would both allocate per body evaluation and never update, so the nil branch
-    renders the same empty state a real model shows before any server has
-    reported. A bottom-bar button click routes through
+    double-click via `onOpenDiff`), `.problems` → `ProblemsPanelView(model:
+    diagnostics, projectRoot:, onActivate:)` and `.usages` →
+    `UsagesPanelView(model: usages, onActivate:)` — full entries below. The
+    diagnostics model is optional here (`nil` in previews/tests), and a throwaway
+    default would both allocate per body evaluation and never update, so the nil
+    branch renders the same empty state a real model shows before any server has
+    reported. `usages` is optional for the same reason and one more: a textual scan
+    republishes once per walked chunk, and a `@ObservedObject` here would re-render
+    the project tree, the tab list and `CodeEditorView.updateNSView` with every one
+    of them — so the model is threaded straight into the panel, which observes it
+    itself. Its row callback is likewise the whole `UsageResult` rather than a
+    `(url, range)` pair, because the range worth revealing depends on the file's
+    text *at click time*, which only the app can read. A bottom-bar button click routes through
     `onTogglePanel` (shared with the View menu, owned by `PisakaApp`) so a button
     and its matching command behave identically. Empty-gap fix: the `.terminal`
     panel renders only while `terminalSessions.sessions` is non-empty (a private
@@ -435,6 +444,44 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     second open-and-reveal path for it would be how the two stop agreeing. An empty
     list draws a centered "No problems" placeholder rather than collapsing, so the
     dock height does not jump when the last squiggle clears.
+  - `UsagesPanelView.swift` (macOS) — the Usages panel: every place the identifier
+    the user asked about (⌃⌘U) is used, grouped by file. `ProblemsPanelView`'s shape
+    throughout — header, divider, one group per file, rows that activate through the
+    app's single open-and-reveal entry point — because the two panels answer the
+    same kind of question (where in this project is *this*) and a second row idiom
+    would be a second thing to learn for nothing. It observes `FindUsagesModel`
+    (`@ObservedObject`, for the reason above: this view is *for* that state) and
+    holds **no domain logic at all** — grouping, ordering, the cap and the empty
+    reason are all published state, and the one thing that looks like a decision
+    here, what a click does, is `UsageResult.revealRange(naming:in:)` in Core, asked
+    by the app against the buffer the click actually lands in.
+    What it adds over Problems is the **honesty line**: the header names the
+    identifier in the monospaced interface font and then says, in words, whether the
+    rows are a language server's resolved references or whole-word text matches
+    ("textual matches"). In words rather than through an icon, because the
+    difference is a difference in what the list *claims* and not a difference in
+    severity — a panel that blurred the two would be a panel confidently listing
+    coincidences. The count sits at the trailing edge and says
+    “more not shown” whenever `isTruncated` is set. It deliberately does **not**
+    print `UsagesAnswer.cap`: that flag is true for two reasons and only one of them
+    is the cap — a walk that abandoned the project once it held one row past the cap
+    can still hand over a deduplicated list below it — so a header naming 2 000
+    beside a count of 1 431 would be a header contradicting itself. What is true in
+    both cases is that there are more, and the number beside it is the number drawn. A spinner shows while a
+    walk is still filling it, since a textual answer arrives per chunk.
+    The empty state says **which** nothing it means (`UsagesEmptyReason`'s three
+    cases spelled as three sentences), rather than drawing an empty list that reads
+    the same whether the question was never asked, refused, or genuinely answered
+    with nothing. Rows draw the line number and the preview line with the
+    occurrence emphasized, assembled from `MatchPreview.matchRange` — already
+    clamped to the clipped window, so a match the clip cut still draws (unemphasized
+    at worst) rather than dropping the row.
+    Chrome, not a code surface: everything sizes through `\.interfaceMetrics`, the
+    preview is drawn in the *interface* font rather than the editor's (this is a
+    list of places, not a view of code — and drawing it at the code font would make
+    the panel a zoom surface its dock siblings are not), it declares **no** zoom
+    surface, and it states no minimum height. `BottomPanelSourceGatingTests` pins
+    all of that.
   - `DiffWindowContent.swift` — the SwiftUI content of a separate diff window
     (opened on double-click of a Local Changes row or a commit's file). Independent
     of the main window's selection: it takes `fileID`, `fileName`, a model-

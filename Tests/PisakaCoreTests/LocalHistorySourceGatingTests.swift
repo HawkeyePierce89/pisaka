@@ -77,8 +77,8 @@ final class LocalHistorySourceGatingTests: XCTestCase {
     }
 
     /// Where each match starts, so a rule can be about *order* rather than about
-    /// totals — the difference between "six brackets and six captures" and "six
-    /// brackets each of which captures".
+    /// totals — the difference between "seven brackets and seven captures" and
+    /// "seven brackets each of which captures".
     private func offsets(of pattern: String, in code: String) throws -> [Int] {
         let regex = try NSRegularExpression(pattern: pattern)
         return regex
@@ -141,13 +141,13 @@ final class LocalHistorySourceGatingTests: XCTestCase {
 
         XCTAssertEqual(
             suspends,
-            6,
-            "There are six gated worktree operations. If this changed, a write path was added or removed — "
+            7,
+            "There are seven gated worktree operations. If this changed, a write path was added or removed — "
                 + "and the capture count below must move with it."
         )
         XCTAssertEqual(
             gates,
-            6,
+            7,
             "Every gated operation raises both halves of the writer bracket; the two counts must agree."
         )
         XCTAssertEqual(

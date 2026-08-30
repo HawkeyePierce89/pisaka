@@ -90,6 +90,38 @@ no consent surface and no iOS UI: diagnostics are what a registered server alrea
 computes for a document it already holds, so absence of a server remains the one way
 to have none.
 
+**What rename and find usages added, and why one of them is a writer.** Two
+commands sit on everything above: **Find Usages** (⌃⌘U) lists every place the
+identifier under the caret is used, in a bottom-dock panel beside Problems, and
+**Rename** (⌃⌘R) renames the symbol project-wide through the server's
+`WorkspaceEdit`. They ask two more requests — `textDocument/references` and
+`textDocument/rename` — read two more capability fields, and take **two budgets,
+not one**. `references` gets a definition's three seconds (a command somebody
+typed a shortcut for, not a pointer that stopped moving), because its expiry is
+free: the model walks the project textually instead and the panel says so. Rename
+gets twenty, because its expiry is not free — it has no second answer of any kind,
+it arrives *after* the user has filled in a modal dialog, and a workspace rename
+type-checks the reverse dependency graph where `references` reads an index. The
+two are the same act asked two ways, but only one of them can fail invisibly. Everything else about them is new *policy* rather
+than new plumbing, and it is written down as D35–D37. **Rename has no fallback of
+any kind** (D35): hover's rule applied to the one question in this layer that
+leads to a write, because the only non-semantic rename available is a textual
+replace, which is indistinguishable from a correct one until it silently rewrites
+a same-spelled symbol in a file nobody opened. **Find usages does have a second
+answer, and it is not this layer's** (D36): the seam's `references` is
+LSP-or-nothing, and the whole-word scan that answers when it says nothing belongs
+to `FindUsagesModel`, because it costs a walk of the project and nothing in the
+provider chain may walk a project. And **the document version a `WorkspaceEdit`
+carries is decoded and never compared** (D37) — every range is verified against
+the exact text it was computed over, which is the stronger check and the one that
+also holds for a server that sends no version. The pure edit-plan half is
+`RenameEditPlan.swift`, entered below beside `CompletionEditPlan`; the rows, the
+panel model and the textual scanner are code-intelligence types and live in
+`core-intelligence.md`; the app half — the menu items, the editor's context menu,
+the name dialog and the seventh writer bracket — is in `app-editor.md`,
+`app-window.md` and `app-shell.md`, with the "Before Rename" captures in
+`core-local-history.md`.
+
 **Where the platform boundary is.** All of it is in `PisakaCore` except one
 thing: the `Process` and its three pipes, which live macOS-gated in
 `Sources/Pisaka/LSPProcessTransport.swift` behind the `LSPTransport` protocol.
@@ -119,9 +151,10 @@ positions) → `LSPTransport` (the platform seam) → `LSPSession` (one conversa
 → `LSPServerDescription`/`LSPServerRegistry` + `LSPWorkspace` (which server, which
 root, when to give up) → `LSPIntelligenceProvider` (protocol answers as seam
 values) → `RoutingIntelligenceProvider` (LSP first, tree-sitter otherwise).
-`CompletionEditPlan` and `HoverContent` hang off the side of the last two: the
-pure rule the editor applies an auto-import with, and the pure normalization a
-hover answer is drawn from. Beside them, not below anything, runs the push
+`CompletionEditPlan`, `HoverContent` and `RenameEditPlan` hang off the side of
+the last two: the pure rule the editor applies an auto-import with, the pure
+normalization a hover answer is drawn from, and the pure plan a `WorkspaceEdit`
+becomes before anything is allowed to write it. Beside them, not below anything, runs the push
 channel: `Diagnostic`/`DiagnosticShift`/`DiagnosticStore` are the pure half of
 it, `DiagnosticsModel` its one observable, fed by `LSPWorkspace.onDiagnostics`
 and read by three macOS surfaces.
@@ -253,6 +286,25 @@ document, together with the limits they carry.
     it so a server with no markdown renderer answers instead of declining. That is
     the closed tree's own rule applied to a new node: what is advertised is what
     there is code for, and there is code for exactly these two.
+    D35/D36 add three more nodes under the same rule, because the two requests they
+    introduced are requests this client *sends*: `textDocument.references` and
+    `textDocument.rename` (both `dynamicRegistration: false`, and rename with
+    `prepareSupport: false` — `textDocument/prepareRename` is never sent, since
+    `RenameNameRule` already decides what the caret is on and what a new name may
+    be, and a second round trip to be told the same thing would only add a failure
+    mode between the shortcut and the dialog), plus `workspace.workspaceEdit`, which
+    is where the promise actually bites. It states `documentChanges: false` (the
+    per-document versions the richer spelling adds are the one thing
+    `RenameEditPlan` deliberately does not compare — it verifies the bytes instead —
+    so it buys nothing), `failureHandling: "abort"` (what `apply` does: it stops at
+    the first write that throws and the writes before it stay written) and
+    **`resourceOperations: []`**, the load-bearing one. A create/rename/delete entry
+    is not something this editor performs: `LSPWorkspaceEdit` drops it and applies
+    the textual half, which for a module rename would leave every reference renamed
+    and the file still under its old name. Declaring the empty set is what tells a
+    conforming server not to offer one, so that drop stays *unreachable* rather than
+    merely unlikely — and a server that would have answered with a file move refuses
+    the rename outright instead, which is the honest outcome.
     The diagnostics wire shape (D29–D31) follows both file rules. **Decode
     leniently**: `LSPDiagnostic` requires only `range`/`message` — the spec types
     everything else optional — and each optional reads through a failure-tolerant
@@ -310,6 +362,90 @@ document, together with the limits they carry.
     (D25): the other requests would merely waste a round trip on a server that
     cannot answer them, while hover fires whenever the pointer stops moving, so an
     unanswerable question there is a question asked forever.
+    `supportsReferences` and `supportsRename` are read the same way and through the
+    same collapse (`referencesProvider`/`renameProvider` are `boolean | Options`
+    too, and `renameProvider`'s options spelling carries `prepareProvider`, which is
+    read as nothing more than the presence that makes the collapse say yes —
+    `textDocument/prepareRename` is deliberately never sent, because the app asks
+    for the new name through its own validating dialog). Both are *read before
+    asking*, for a reason that is neither definition's nor hover's: an unanswerable
+    references request costs the user the whole three-second budget before the model
+    gives up and walks the project — which is the answer they were going to get —
+    and an unanswerable rename request costs them the same wait to be told the
+    command is not available.
+    **The references pair.** `LSPReferenceParams` is a position request plus
+    `LSPReferenceContext`, whose single member is `includeDeclaration` and whose
+    value on the wire is always `true`: the declaration is a usage the person who
+    asked expects to see, and a list that silently omits the row they were looking
+    at is worse than no list. `LSPReferencesResponse` folds `null`, an absent
+    `result` and an empty array into one empty answer, exactly as
+    `LSPDefinitionResponse` does; leniency is **per element** (`publishDiagnostics`'
+    rule — one unreadable location must not cost the other four hundred), while a
+    top level that is neither `null` nor an array still throws, because "found
+    nothing" and "could not read the answer" stay different facts.
+    **The rename pair.** `LSPRenameParams` adds `newName` and nothing else.
+    `LSPWorkspaceEdit` is the one type here that normalises across two *spellings of
+    the same answer*: `changes` (a uri → `[TextEdit]` map) and `documentChanges` (an
+    ordered array of `{textDocument: {uri, version}, edits}`). `documentChanges`
+    wins when both are present — it is ordered, it carries the version, and it is
+    what a client advertising support for it is supposed to receive — and `changes`
+    entries are **sorted by URI**, because an unordered dictionary must not let one
+    answer produce two different plans on two runs. A `documentChanges` array may
+    also hold `CreateFile`/`RenameFile`/`DeleteFile` operations (or a kind no
+    version of the spec names): those are **ignored rather than fatal**, since
+    nothing here performs file operations and refusing the whole answer would turn
+    a server that helpfully offers to rename the file too into a server that cannot
+    rename at all. **The leniency stops at the edits themselves**: a
+    *`documentChanges` entry that is not a text edit at all* is dropped, and
+    everything that claims to be one and cannot be read as one fails the whole
+    decode, at which point the command beeps as it does for a server that refused.
+    The two are not the same case — dropping a non-text-edit entry loses nothing
+    the rename promised, while dropping one edit out of a document's five yields a
+    `WorkspaceEdit` that is internally consistent, passes every refusal in
+    `RenameEditPlan`, and writes a project renamed in four places out of five. This
+    is the one answer in the file that becomes a write, so it is the one decoded
+    all-or-nothing. **`textDocument` is what tells the two apart**, and it is the
+    only thing that does: a file operation names its files with
+    `uri`/`oldUri`/`newUri` and never carries one, so an entry that *does* carry a
+    `textDocument` is a document this rename must rewrite and an unreadable `uri`
+    or `edits` on it **throws** rather than being read as an operation to decline —
+    and the entry is required to be a JSON **object** before that question is even
+    asked, because `JSONValue`'s subscript is `objectValue?[key]`: a string, a
+    number or an array answers `nil` for `textDocument`, indistinguishably from a
+    file operation, so without the object test a garbled entry beside four good
+    ones would be *dropped* and produce exactly the half-renamed project this rule
+    refuses. A file operation is a stated non-edit; a scalar is a malformed answer
+    whose intended target this client cannot know —
+    reading it as one would keep its siblings and produce the half-renamed project
+    one level up from the single dropped edit. For the same reason an unreadable
+    entry of the **`changes`** map throws rather than being dropped: that map holds
+    no file operations to be tolerant of, so every value in it is one document's
+    edits and skipping one is precisely the half-renamed project, arriving through
+    the third spelling. **The rule holds at the member level too**, which is where
+    it is easiest to lose: a `documentChanges` that is *present and is not an
+    array* throws rather than being swallowed, because falling through to
+    `changes` would write the unversioned half of an answer whose richer half this
+    client could not read — the very edit set "`documentChanges` wins" says is
+    superseded — and falling through with no `changes` beside it would report the
+    empty answer a server gives when it has nothing to rewrite, so the command
+    would beep as though the rename were a no-op rather than unreadable. A
+    `changes` that is present and is not a map throws for the same reason. Only
+    *absent* — which includes `null`, since that is what `decodeIfPresent` says —
+    is "this server sent no such member". **An empty array is present**, and is
+    therefore the answer: `documentChanges: []` is the richer member saying there
+    is nothing to rewrite, and falling through to `changes` there would turn the
+    one answer that means "no rename" into a write of the edit set that member
+    supersedes. A non-empty array of nothing but file operations already decodes to
+    no documents by the drop rule above, so reading the empty array any other way
+    would make the emptier answer the more dangerous one.
+    One document may legitimately appear more than once; entries stay
+    in wire order and grouping is `RenameEditPlan`'s job, not the decoder's.
+    `LSPDocumentEdits.version` is **kept and never compared** (D37): the plan
+    verifies each range still holds the exact text the edit was computed against,
+    which catches everything a version would and also holds for the servers that
+    send none. `isEmpty` — no edit anywhere — is the answer a server gives when it
+    recognised the symbol but has nothing to rewrite, and the command treats it
+    exactly as it treats a refusal.
 
   - `LSPPositionMap.swift` — the bridge between the editor's one coordinate (a
     UTF-16 buffer offset) and LSP's `(line, character)` pair. **It deliberately does
@@ -395,7 +531,20 @@ document, together with the limits they carry.
     `decode(_:as:method:)` so a missing `result` and an explicit `null` stay one
     answer; whether the server was worth asking at all
     (`capabilities.supportsHover`) is the *provider's* check, not this layer's — a
-    session answers what it is asked. A request that outlives its
+    session answers what it is asked.
+    `references` 3 s is the seventh budget and the one shared by two methods:
+    `references(_:)` and `rename(_:)` both take **definition's number, for
+    definition's reason** — each is a command someone typed a shortcut for rather
+    than a pointer that happened to stop, so the answer is still wanted when it
+    arrives late — and they share one span because they are the same act asked two
+    ways, where two numbers would only be two numbers to keep in step.
+    `references(_:)` and `rename(_:)` are the exchanges themselves, in `hover(_:)`'s
+    exact shape (encode the params, `request` with the budget, `decode`), and
+    `supportsReferences`/`supportsRename` are the provider's check for the same
+    reason `supportsHover` is. **Nothing is written here**: a rename request is a
+    *read* like every other exchange in this actor, and what to do with the answer —
+    verify it, then apply it or abort — belongs to the layer that holds the writer
+    bracket. A request that outlives its
     budget fails **alone**: nothing else in the table is touched, because one slow
     answer is not evidence the server is broken, and the server is sent
     `$/cancelRequest` since we will not read the reply.
@@ -644,6 +793,20 @@ document, together with the limits they carry.
     serialise every other question about that file behind a server that is allowed to
     take seconds, and the cost of the conservative answer is one tree-sitter fallback
     in a case where the world had moved on anyway.
+    **`lastSentTexts()` answers the same question for the documents nobody
+    prepared**, and by bytes rather than by version: the text each open document
+    was last *sent*, keyed by the file URL its URI names. `stillHolds` is enough
+    for every answer this layer only *reads*, because each of those is about the
+    one file the question was asked in; a **rename** is the exception, since it
+    answers about files no request prepared, whose coordinates the server computed
+    against whatever it was last told. `PisakaApp.renameSymbol` is the one caller,
+    and it reads the map **before** it sends the rename request rather than after
+    the answer lands (see D37 below for why that ordering is the whole point). A file absent from the map is one
+    no server holds open — the server read it from disk, and so does the caller.
+    `LSPWorkspaceTests` `.testLastSentTextsReportsTheTextEachDocumentWasFlushedWith`
+    / `.testLastSentTextsLagsABufferThatHasNotBeenFlushedAgain` /
+    `.testLastSentTextsIsEmptyBeforeAnyDocumentIsOpenedAndAfterOneCloses` pin the
+    three cases, the middle one being the whole point.
     **When to give up** (D7): three restarts with 1 s / 2 s / 4 s of backoff — the
     `backoffDelays` array's length *is* the budget — and the fourth failure marks
     that `(server, root)` unavailable for the rest of the app run. The budget is per
@@ -1271,6 +1434,126 @@ document, together with the limits they carry.
     is then collapsed away, so a lone `---` between two paragraphs leaves one
     separating blank line rather than a gap or a stray glyph.
 
+  - `RenameEditPlan.swift` — a server's `WorkspaceEdit` turned into something this
+    editor can *verify* and *apply*, and nothing else. `CompletionEditPlan`'s
+    position in the stack and `CompletionEditPlan`'s reason for existing: the rule
+    is pure, so the whole rename decision is unit-tested and the disk writes stay in
+    the one place that holds the writer bracket. **It reads no file and writes
+    none** — the texts arrive as a closure the caller answers from the open buffers
+    first and the disk second, and what comes back is per-file replacements.
+    **Two moments, two methods, on purpose.** `make(from:root:texts:)` builds
+    the plan against the texts in hand *before* the bracket is raised, which is
+    where every refusal happens — nothing captured, nothing suspended, nothing to
+    undo. `apply(bufferText:fileService:)` re-reads *inside* the bracket, after the
+    Local History capture, and verifies every file before writing any; that
+    verification pass is the last moment anything can abort. It is deliberately not
+    a `verify` method of its own — a separate call would be a second read of the
+    same texts with a window between it and the write in which the thing verified
+    could change again, and the pass `apply` already runs closes exactly that
+    window. Both moments check `holds`, and that is not redundant: `make`'s texts
+    may be minutes old by the time `apply` runs, and `apply` is the one that must
+    not write into a file that moved.
+    **Five named refusals, each fatal to the whole rename** (`RenameRefusal`):
+    `notAFile` (a document URI that is not a file URL), `outsideRoot` (a file
+    outside the opened project — compared **canonically**, because a server
+    answering `/private/tmp/…` about a project opened as `/tmp/…` is naming a file
+    that *is* inside the root and a lexical prefix test would refuse every such
+    project), `unreadable`, `unmappable` and `overlapping`. All-or-nothing is the
+    point: a rename applied to four files out of five leaves a project that no
+    longer compiles and no single step to undo, which is strictly worse than a
+    rename that did not happen. They are separate cases rather than one string
+    because they are not equally surprising — only `unmappable` and `unreadable`
+    are worth putting a file name in front of a user, and a caller cannot tell
+    those apart from a rendered sentence.
+    **`unmappable` is where this file disagrees with `LSPPositionMap` on purpose.**
+    That type *clamps* an impossible position to the nearest real one, which is
+    right for every other caller because they are all navigating and the nearest
+    real position beats refusing to move. A write is the one case where the clamp
+    *is* the bug — it would silently move the edit onto text the server never meant
+    — so each offset is round-tripped back into a position and refused when what
+    comes back differs from what went in. That is the clamp, detected rather than
+    re-implemented.
+    **`expectedText` is the whole staleness story** (D37). A rename's request, its
+    answer and its application are three moments with awaits between them, and in
+    them a git operation, another editor or the user's own typing can move the text
+    under a range the server computed against something else. Each `RenameEdit`
+    therefore carries what its range held when the plan was built, and `apply`
+    compares the bytes — the first mismatch answers `.stale(URL)` and the rename is
+    over. There is no count of stale files, because the answer to "which ones"
+    changes nothing a caller does.
+    **What the plan is built *against* is what makes that comparison mean
+    anything**, and it is the app's half of D37: `PisakaApp.applyRename` builds the
+    plan against **the text the server was given, for every file, and against a live
+    buffer for none**. The dialog is modal but the round trip after it is not, so a
+    keystroke during it moves every offset after the caret; planning against the
+    current buffer would map the server's coordinates onto text they were never
+    computed for and then record whatever bytes sit there as `expectedText`, a
+    verification that passes by construction. Planning against what the server was
+    told turns that case into the honest one: `apply` re-reads the live buffer,
+    `holds` fails, and the command says the file changed and writes nothing.
+    The *requesting* file's copy of that text is `request.text` — the buffer as it
+    was when the question was asked, which is definitionally what
+    `LSPIntelligenceProvider` prepared the document with. Every **other** file in
+    the answer is one nobody prepared, and its copy is
+    `LSPWorkspace.lastSentTexts()`: a background tab typed in less than the 400 ms
+    document-sync debounce ago (D30) is a buffer the server has never seen, and
+    mapping its references onto that buffer is the same hazard one file further
+    out — with no undo behind it, because a tab that is not the displayed one is
+    rewritten through `WorkspaceModel.replaceText` (decision 5). That snapshot is
+    taken by `renameSymbol` **before the rename request is sent** and handed down
+    to `applyRename`, never read when the answer comes back: a server reads
+    notifications in order, so the earlier map is what it answered against, while
+    the later one can already carry a tab typed in *during* the round trip and
+    pushed on the debounce after the answer was computed — the exact text that
+    would make `expectedText` agree with the live buffer and let the wrong spans
+    through. Read early the map can only be *older* than the server's baseline,
+    and `holds` refuses that; read late it can be newer, and `holds` cannot see
+    it. `stillHolds`
+    cannot see either case: it compares the *prepared* document's version and
+    nothing else, so both halves are closed here instead, together. A file
+    `lastSentTexts()` does not name is a file no server holds open, which means the
+    server answered about the bytes on **disk** — so the fallback is `FileService`
+    and never `WorkspaceModel`, and a dirty tab over such a file ends in the stale
+    refusal rather than in a write.
+    Edits are grouped by **canonical path** and sorted together — `documentChanges`
+    is a list, so one document may appear twice, and sorting two entries separately
+    would produce a descending pair no back-to-front application can survive — then
+    ordered ascending and checked for overlap (including the two-zero-length-edits-
+    at-one-offset case, which the ascending test cannot see and which can only be a
+    server contradicting itself). The result is `SaveTransformPlan`'s shape, and
+    that is deliberate rather than convenient: it is literally the same thing —
+    ascending non-overlapping replacements, the text they produce, and one
+    arithmetic for moving a caret, a selection and a scroll anchor through them — so
+    the displayed tab's application path is the one the app already has.
+    **`apply(bufferText:fileService:)` is the one method here that touches the
+    disk**, and it is where the rename's atomicity lives: *every* file is read and
+    verified before *any* file is written. It hands back a `RenameApplication`
+    splitting the work in two, which is decision 5 rather than an implementation
+    detail — a file no tab holds is disk (the engine writes it; there is no undo for
+    it anywhere but Local History), a file a tab holds is a buffer (rewriting it on
+    disk under an open editor would leave the tab showing old text over new bytes),
+    so the engine writes nothing for it and the app rewrites the buffer through
+    `SaveTransformController`. A file that cannot be *read* here is reported as
+    `.stale` rather than as a separate failure: it was readable when the plan was
+    built, so whatever happened to it since is exactly what staleness refuses. A
+    disk write that *throws* is the one thing that cannot be undone by refusing —
+    the files before it have changed — so it is reported as `writeFailure` rather
+    than swallowed or dressed up as an abort, and the app says which file and where
+    the "Before Rename" revisions are.
+    `RenameNameRule` lives here too, and in Core rather than in the dialog because
+    it is a decision and not a widget: a new name must satisfy
+    `IdentifierScanner.isIdentifier(_:)` — the very rule that decided what the caret
+    was pointing at, so a name this accepts is one the editor can resolve back to a
+    symbol — and must differ from the old one. Blank input is deliberately *not* a
+    refusal: an empty field is incomplete input rather than a mistake, and the
+    dialog disables OK for it without saying anything.
+    **Out of scope** (follow-ups): a rename *preview* (a list of the edits with
+    per-file opt-out before anything is written), `textDocument/prepareRename` (the
+    server's own opinion on whether the caret names something renameable, and its
+    suggested placeholder), and cross-file undo — the three things that would make
+    a rename a single reversible act rather than one undoable tab plus a Local
+    History revision per file.
+
   - `LSPIntelligenceProvider.swift` — the `CodeIntelligenceProviding`
     implementation that answers from a server, and the one place the two coordinate
     systems meet. Three rules run through it.
@@ -1516,6 +1799,94 @@ document, together with the limits they carry.
     The `LSPIntelligenceSource` conformance lives here because the answer is the
     workspace's and **the workspace is private to this provider** — nothing above the
     seam can reach past it to start, stop or interrogate a server.
+    **`references(for:)` is `definitions(for:)` step for step**, plus hover's
+    capability gate in front of it: D2's empty-buffer guard, the language off the
+    file name, `prepare` so the live buffer reaches the server *before* the
+    question, `LSPPositionMap` in and out, and `stillHolds` before the answer is
+    read — a range computed against a document some other request talked the server
+    out of underneath this one points at text that has moved. Every location becomes
+    a `UsageResult` whose **display line is the editor's, not the server's** (D1),
+    whose relative path is built from canonical components (a server answering
+    `/private/tmp/…` about a project opened as `/tmp/…` is not outside the root),
+    and whose `isTextual` is `false` — a server resolved the symbol, so the row
+    means what it says. An **empty answer is returned as an empty answer** and
+    converted into nothing (D36): what replaces it is `FindUsagesModel`'s decision,
+    because a provider that walked the project to fill the gap would put a
+    project-wide file scan inside the router's budget race, where the loser is
+    abandoned mid-walk and nobody is left to say so.
+    `FileTextCache` is the one thing this path adds that the definition path does
+    not need: a jump answers with one or two locations, while a usages answer
+    routinely holds hundreds in one file and every row needs both a mapped range and
+    a display line — so the *line starts* are cached beside the text, keyed
+    canonically, and seeded with the requesting file's **buffer** rather than its
+    disk copy. Without it, `LineStartIndex.offsets(in:)` would run once per usage in
+    a file, which on the identifier that motivates the 2 000 cap is the difference
+    between a list and a hang.
+    **Every *other* open tab's buffer beats its disk copy too**, and this is the one
+    request in the layer where that matters. D2 says the live buffer travels with
+    the question, and for every other request the question is about a single
+    document, so `text` is the whole of it. A references answer is not: it names
+    ranges in *other* files, and the diagnostics push channel (D29/D30) has already
+    given the server every open served buffer — so a server asked about a project
+    with a dirty background tab answers in that tab's **buffer** coordinates.
+    Mapping those against the disk copy is not staleness but the wrong coordinate
+    space, and it is the one way this path can produce a row that is *wrong* rather
+    than absent: a plausible line, a preview drawn from unrelated text, and a reveal
+    that `revealRange(naming:in:)` then correctly refuses. So `UsagesRequest` carries
+    `openTexts` — keyed by URL, filled in by `FindUsagesModel` — and the cache
+    consults them, canonically keyed like everything else here, before it reads a
+    byte.
+    **What fills it is `LSPWorkspace.lastSentTexts()`, not the live buffers**, and
+    the distinction is the same one the rename path draws one file over: the push
+    channel is *debounced*, so a background tab typed in less than 400 ms ago is a
+    buffer no server has seen, and planning against it reintroduces the wrong
+    coordinate space one step further out — with a `holds`-style check nowhere in
+    sight, because a reading answer has none. A file that snapshot does not name is
+    a file no server holds open, which means the server read it from **disk**, so
+    the fallback there is `FileService` and never a buffer. The textual scan does
+    prefer the live buffer for every file it reads, and that is right for *it*: it
+    computes its own offsets, so the text it reads is its coordinate space by
+    construction. The two provenances therefore consult different maps on purpose,
+    and each consults the only one its offsets mean anything in — which is what
+    keeps `UsageProvenance` from blurring rather than what would blur it.
+    **The mapping loop is the one loop here that checks for cancellation**, because
+    it is the one that can outlive its question and the one that is unbounded: a
+    server naming a widely-used symbol legitimately answers tens of thousands of
+    locations, each of which reads and indexes a file the cache then holds, while
+    `RoutingIntelligenceProvider` has already abandoned the call at its budget and
+    `FindUsagesModel` has started the project walk in its place. A loser that does
+    not notice goes on reading the project beside the walk that replaced it. Every
+    other mapped answer in this file is bounded by a popup's worth of items and
+    needs no such stop. The row's **display path is cached on the same
+    entry**, for the reason the canonical *root* is hoisted out of the loop above
+    it: `CanonicalPath.canonical` is a symlink resolution on the file system and
+    the answer is one constant per file, so deriving it per row would put a second
+    round trip behind every one of up to two thousand rows — on top of the one the
+    cache key already pays. The entry is what that key was computed from, so the
+    two cannot disagree.
+    **`renameEdits(for:)` is the same seven steps with two refusals of its own, and
+    every outcome is `nil`** — there is nothing else it can answer (D35). A new name
+    that is empty, or equal to the old one, is refused *before the wire*: the second
+    would come back as a `WorkspaceEdit` full of edits replacing text with itself,
+    which passes every verification in `RenameEditPlan` and rewrites a project's
+    worth of files to no effect, taking each one's undo stack with it. The dialog
+    refuses both too; this refuses them again because the dialog is not the only
+    thing that can build a request. A server that answers with **no edits** answers
+    `nil` here, because "no edits" and "I cannot rename this" are one fact to every
+    caller and collapsing them is what keeps the writer bracket from being raised
+    around a plan that touches nothing. `stillHolds` is load-bearing here in a way it
+    is nowhere else in this file: every other answer that survives a stale document
+    is a wrong *reading*, and this one would be a wrong *write*.
+    **`canRename(_:)` is `canServe` and deliberately no more.** The stronger answer
+    — does this server advertise `renameProvider` — is only knowable from a server
+    that has finished its handshake, and starting one to decide whether to show a
+    *sheet* is exactly what a free policy check must not do: on a cold project that
+    is twenty seconds of a menu item deciding whether it is a menu item. So the
+    capability is read where every other capability is (after `prepare`, inside
+    `renameEdits(for:)`) and a server that turns out not to rename beeps after the
+    request rather than before the dialog. It is named separately from `canServe`
+    rather than spelled at the call site because the two are the same answer *today*
+    and need not stay so.
 
   - `RoutingIntelligenceProvider.swift` — the one `CodeIntelligenceProviding` the
     editor surfaces hold, and the whole of phase 2a's user-visible contract.
@@ -1547,6 +1918,27 @@ document, together with the limits they carry.
     the index has one has failed to answer the question, so an empty LSP result
     falls through, and only an empty result from *both* is empty — the case the
     editor beeps at, once.
+    **Three questions are exempt from that rule, for two different reasons.**
+    `hover` has no second source at all (D25). `renameEdits` has none either, and
+    the argument is sharper because the command writes: the only thing tree-sitter
+    could offer is a textual replace, which is indistinguishable from a correct
+    rename right up to the moment two symbols share a spelling — at which point it
+    has silently rewritten the one nobody was looking at, in files the user never
+    opened. A command that is *unavailable* is a smaller harm than a command that
+    is *usually right*. `references` is the third and the different one: it does
+    have a second answer, but that answer is a walk of the project, which is a
+    **model's** job and not a provider's (D36) — so what this layer owes there is a
+    clean empty result, which `FindUsagesModel` reads as "ask the files". Both new
+    methods are `canServe`-gated and budget-raced like every other — `references`
+    on the `references` budget (definition's three seconds) and `renameEdits` on a
+    `rename` budget of its own (twenty). The split is the point: every other span
+    in these two tables bounds a race whose loser has something behind it, and this
+    is the one that does not, so timing out a rename that would have succeeded is
+    the single failure the layer cannot make invisible.
+    `canRename(_:)` is **forwarded** rather than left reachable on the wrapped
+    source, because the app holds *this* object: the seam's whole point is that
+    nothing above it names the LSP layer, and a command reaching past the router for
+    one question would be the first thing that did.
     **Two budgets over two different spans, both D7's numbers.** `LSPSession.Budgets`
     bounds the *server's* part of one exchange — it starts when the request is
     written. `RoutingIntelligenceProvider.Budgets` bounds the whole attempt:
@@ -2238,6 +2630,13 @@ descriptions composed from a pinned manifest, and no client code moved. See
 same rule already written for the symbol index. It reads buffers and answers
 questions; it writes nothing to disk.
 
+**Rename does not change this, and it is worth saying why** (D35/D37):
+`textDocument/rename` is a *read* like every other exchange in this layer — the
+session verifies nothing, applies nothing and writes nothing — and the
+`WorkspaceEdit` it answers with is turned into bytes by the **app**, inside the
+seventh writer bracket, through `RenameEditPlan`. The gate stays where the disk
+writes are.
+
 **D17 — gopls is discovered, never downloaded, and 2b is not touched.** There are
 no official prebuilt gopls binaries; it is distributed as source and installed
 with `go install`. So the manifest gains nothing:
@@ -2681,6 +3080,60 @@ so jitter within diagnosed text neither re-asks nor dismisses. D25 is untouched 
 a diagnostic comes from a server, so this is still "a server or nobody" — and D26's
 pass-through-chrome rule still governs the popover itself.
 
+**D35 — Rename is answered by a server or by nobody, and it is the one question
+here that writes.** `textDocument/rename` has **no tree-sitter fallback and no
+textual one**. D25's reasoning, restated where the stakes are higher: hover has no
+second answer because the index knows names and not types; rename has none because
+the only second answer available — replace every whole-word occurrence — is
+indistinguishable from a correct rename until two symbols share a spelling, and
+then it has silently rewritten the one nobody was looking at, in files the user
+never opened. There is no alert and no banner when it is unavailable: the menu item
+stays enabled whenever a tab is open, the command pre-checks `canRename(_:)`
+(policy-only, free, starts nothing) and **beeps without showing the sheet** when
+that is false, and a server that turns out to advertise no `renameProvider`, or
+answers with no edits, beeps after the request. Enabling the item on a *capability*
+would mean starting a server to decide whether a menu item is a menu item; greying
+it out would mean explaining, in a menu, a reason a menu cannot state. The rest of
+the rename — the plan, the five refusals, the verification and the disk/buffer
+split — is `RenameEditPlan`'s entry above, and the writer bracket that applies it
+is the app's seventh (`core-local-history.md`, `app-shell.md`).
+
+**D36 — The textual usages answer is a *model* decision, not a provider
+fallback.** `CodeIntelligenceProviding.references(for:)` is LSP-or-nothing, exactly
+like hover: an index of declarations cannot enumerate references, because a
+reference is not declared anywhere and nothing in a `symbols.scm` capture names
+one. But unlike hover, an empty answer here is **not the end of the question** —
+there is an honest second answer, `TextualUsageScanner`'s whole-word scan, which
+claims far less and says so in the panel. It is not run in
+`RoutingIntelligenceProvider` for two reasons that would each be enough. It costs a
+**walk of every file in the project**, and the router's contract is a deadline race
+whose loser is abandoned where it stands — a walk abandoned mid-flight leaves
+nobody to say so and nothing to show. And the walk needs the file service, the
+gitignore rules and the open buffers, none of which the provider chain has or
+should acquire. So `FindUsagesModel` runs it, where all three already live, and the
+panel is told which of the two answers it is holding (`UsageProvenance`). The rule
+that follows and is worth stating because it is the *inverse* of D6's: **nothing in
+the provider chain ever walks the project.**
+
+**D37 — The document version is decoded and never compared; the text is.** A
+`WorkspaceEdit`'s `documentChanges` entries carry an optional
+`OptionalVersionedTextDocumentIdentifier.version`, and this client keeps it and
+compares it to nothing. Comparing versions would only catch the servers that
+bothered to number, and would still say nothing about a file **no editor holds** —
+which a project-wide rename routinely rewrites, and whose version this client has
+never issued. So the check is the bytes: every `RenameEdit` carries the
+`expectedText` its range held when the plan was built, and the whole plan is
+re-verified against the current text of every file it touches *inside* the writer
+bracket, after the Local History capture and before the first write. That catches
+everything a version would (the user typed, a git operation ran, another editor
+saved) plus everything it would not, and it is what makes the rename all-or-nothing
+in the only place that matters — up to the first byte written. The order inside the
+bracket is capture, verify, write, and it is that way round on purpose: the capture
+must be the first `await` in the bracket for the Local History invariant, and
+verifying first would leave a window between the verification and the capture in
+which the thing verified could change. An aborted rename therefore leaves one
+harmless extra snapshot behind, which retention prunes.
+
 ## Known limits
 
 - **NEL / U+2028 / U+2029 line separators.** In a file delimited by those, the
@@ -2832,6 +3285,32 @@ pass-through-chrome rule still governs the popover itself.
   going through the ruler's own geometry, so the divergence stays invisible; the
   panel's `:N` suffix reads the store's zero-based line plus one, which in such a
   file may differ from the gutter's number on the same row.
+- **A rename is not undoable as a unit** (D35, decision 5). Only the tab that is
+  on screen when the rename is applied gets one undoable step; every other open tab
+  is rewritten through `WorkspaceModel.replaceText(_:for:)` and loses its undo
+  stack, exactly as an off-screen save transform does, and a file no tab holds
+  changes on disk with no undo at all. The recovery story is Local History's
+  "Before Rename" revision, which is why that event exists — a **safety net and not
+  a guarantee**: the capture reads at most `LocalHistoryPolicy.maxPreOperationFiles`
+  (200) files from disk and skips binary and oversize ones silently, so a rename
+  touching more than that has revisions for only the first 200. The
+  "Rename incomplete" alert is worded for that, and for the other half of the same
+  story: `apply` stops at the first write that throws, so the files it had not
+  reached still hold the old name while every open buffer has been rewritten
+  regardless. Cross-file undo is a follow-up, not a hidden intention.
+- **There is no rename preview and no `prepareRename`.** What a rename will change
+  is knowable only after the server has answered, and it is applied without showing
+  the user that list; there is likewise no way to opt one file out. Both are
+  follow-ups recorded on `RenameEditPlan`'s entry.
+- **A usages answer is a snapshot, and a row can go stale.** Rows are positions in
+  texts that were read once, and nothing re-runs the query when a file changes — a
+  walk per keystroke is not a trade worth making. Activation therefore checks the
+  bytes (`UsageResult.revealRange(naming:in:)`) and degrades to opening the file
+  with nothing selected when the range no longer spells the identifier, which also
+  means a semantic row whose server answered with a range *wider* than the name
+  degrades even when nothing changed. Every server this app speaks to answers with
+  the name's own range, so that is theoretical; the direction it fails in is the
+  one that cannot mislead.
 
 ## Test fixtures
 

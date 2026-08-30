@@ -306,7 +306,7 @@ items, and applies the three scales to views.
     cross-application half wrong. The point is converted screen → window →
     content view once, then `candidates(under:in:depth:)` walks recursively under
     two load-bearing rules: **a hidden view and its whole subtree are skipped**
-    (the four bottom panels and the terminal's inactive tabs stay in the
+    (the five bottom panels and the terminal's inactive tabs stay in the
     hierarchy while hidden, and a hidden terminal under the pointer would
     otherwise claim every gesture aimed at whatever replaced it), and
     **`bounds.intersection(visibleRect)`, not either alone** (`visibleRect` is

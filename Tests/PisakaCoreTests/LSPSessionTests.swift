@@ -60,6 +60,43 @@ final class LSPSessionTests: XCTestCase {
         ]),
     ])
 
+    private let referencesResult: JSONValue = .array([
+        .object([
+            "uri": .string("file:///tmp/Project/Sources/App/main.swift"),
+            "range": .object([
+                "start": .object(["line": .int(3), "character": .int(12)]),
+                "end": .object(["line": .int(3), "character": .int(17)]),
+            ]),
+        ]),
+        .object([
+            "uri": .string("file:///tmp/Project/Sources/Greeter/Greeter.swift"),
+            "range": .object([
+                "start": .object(["line": .int(4), "character": .int(15)]),
+                "end": .object(["line": .int(4), "character": .int(20)]),
+            ]),
+        ]),
+    ])
+
+    private let renameResult: JSONValue = .object([
+        "documentChanges": .array([
+            .object([
+                "textDocument": .object([
+                    "uri": .string("file:///tmp/Project/Sources/App/main.swift"),
+                    "version": .int(7),
+                ]),
+                "edits": .array([
+                    .object([
+                        "range": .object([
+                            "start": .object(["line": .int(3), "character": .int(12)]),
+                            "end": .object(["line": .int(3), "character": .int(17)]),
+                        ]),
+                        "newText": .string("welcome"),
+                    ]),
+                ]),
+            ]),
+        ]),
+    ])
+
     private let completionResult: JSONValue = .object([
         "isIncomplete": .bool(false),
         "items": .array([
@@ -118,6 +155,8 @@ final class LSPSessionTests: XCTestCase {
         let capabilities = await session.capabilities
         XCTAssertEqual(capabilities?.supportsDefinition, true)
         XCTAssertEqual(capabilities?.supportsHover, true)
+        XCTAssertEqual(capabilities?.supportsReferences, true)
+        XCTAssertEqual(capabilities?.supportsRename, true)
         XCTAssertEqual(capabilities?.supportsCompletion, true)
         XCTAssertEqual(capabilities?.resolvesCompletionItems, true)
         XCTAssertEqual(capabilities?.completionTriggerCharacters, [".", "("])
@@ -163,6 +202,34 @@ final class LSPSessionTests: XCTestCase {
             item?["resolveSupport"]?["properties"],
             .array([.string("detail"), .string("additionalTextEdits")])
         )
+
+        // The two requests D36/D35 added are declared, like every other request
+        // this client sends: the tree is closed, so a question asked without a
+        // capability beside it is the one shape a server is entitled to answer
+        // by refusing.
+        XCTAssertEqual(
+            capabilities["textDocument"]?["references"]?["dynamicRegistration"]?.boolValue,
+            false
+        )
+        XCTAssertEqual(
+            capabilities["textDocument"]?["rename"]?["dynamicRegistration"]?.boolValue,
+            false
+        )
+        // No `textDocument/prepareRename` is ever sent, so the promise is refused
+        // rather than left to a default.
+        XCTAssertEqual(
+            capabilities["textDocument"]?["rename"]?["prepareSupport"]?.boolValue,
+            false
+        )
+        // What a `WorkspaceEdit` may carry. `resourceOperations: []` is the
+        // load-bearing one: `LSPWorkspaceEdit` drops a create/rename/delete entry
+        // and applies the textual half, which for a module rename would leave
+        // every reference renamed and the file under its old name — so a
+        // conforming server is told not to send one.
+        let workspaceEdit = capabilities["workspace"]?["workspaceEdit"]
+        XCTAssertEqual(workspaceEdit?["documentChanges"]?.boolValue, false)
+        XCTAssertEqual(workspaceEdit?["resourceOperations"], .array([]))
+        XCTAssertEqual(workspaceEdit?["failureHandling"]?.stringValue, "abort")
     }
 
     func testAHandshakeThatNeverAnswersFailsAndLeavesNoLiveServer() async {
@@ -235,6 +302,240 @@ final class LSPSessionTests: XCTestCase {
 
         let response = try await session.definition(definitionParams)
         XCTAssertTrue(response.isEmpty)
+    }
+
+    // MARK: - textDocument/references and textDocument/rename
+
+    func testReferencesSendsThePositionAndTheContextAndDecodesEveryLocation() async throws {
+        let transport = makeTransport()
+        transport.script(LSPMethod.references, .reply(referencesResult))
+        let session = try await start(transport)
+
+        let response = try await session.references(
+            LSPReferenceParams(uri: documentURI, position: LSPPosition(line: 3, character: 12))
+        )
+        XCTAssertEqual(response.locations.count, 2)
+        XCTAssertEqual(response.locations.first?.uri, documentURI)
+        XCTAssertEqual(
+            response.locations.last?.range,
+            LSPRange(
+                start: LSPPosition(line: 4, character: 15),
+                end: LSPPosition(line: 4, character: 20)
+            )
+        )
+
+        // The declaration is asked for explicitly — a usages list that quietly
+        // drops the row the caret was on is a list with a hole in it.
+        let request = try XCTUnwrap(transport.requests(for: LSPMethod.references).first)
+        XCTAssertEqual(request.params?["textDocument"]?["uri"]?.stringValue, documentURI)
+        XCTAssertEqual(request.params?["position"]?["line"]?.intValue, 3)
+        XCTAssertEqual(request.params?["context"]?["includeDeclaration"]?.boolValue, true)
+        XCTAssertEqual(
+            request.params?.objectValue?.keys.sorted(),
+            ["context", "position", "textDocument"]
+        )
+
+        let pending = await session.pendingRequestCount
+        XCTAssertEqual(pending, 0)
+    }
+
+    func testANullReferencesResultIsAnEmptyAnswerRatherThanAFailure() async throws {
+        let transport = makeTransport()
+        transport.script(LSPMethod.references, .reply(.null))
+        let session = try await start(transport)
+
+        let response = try await session.references(
+            LSPReferenceParams(uri: documentURI, position: LSPPosition(line: 3, character: 12))
+        )
+        XCTAssertTrue(response.isEmpty)
+    }
+
+    func testAServerErrorOnReferencesReachesTheCallerAsThatError() async throws {
+        let transport = makeTransport()
+        transport.script(
+            LSPMethod.references,
+            .fail(LSPResponseError(code: .methodNotFound, message: "Unhandled method"))
+        )
+        let session = try await start(transport)
+
+        do {
+            _ = try await session.references(
+                LSPReferenceParams(uri: documentURI, position: LSPPosition(line: 3, character: 12))
+            )
+            XCTFail("A refused references request must not answer with an empty list")
+        } catch let error as LSPResponseError {
+            XCTAssertEqual(error.code, .methodNotFound)
+        }
+        let pending = await session.pendingRequestCount
+        XCTAssertEqual(pending, 0)
+    }
+
+    func testRenameSendsTheNewNameAndDecodesTheWorkspaceEdit() async throws {
+        let transport = makeTransport()
+        transport.script(LSPMethod.rename, .reply(renameResult))
+        let session = try await start(transport)
+
+        let edit = try await session.rename(
+            LSPRenameParams(
+                uri: documentURI,
+                position: LSPPosition(line: 3, character: 12),
+                newName: "welcome"
+            )
+        )
+        XCTAssertEqual(edit.documents.map(\.uri), [documentURI])
+        XCTAssertEqual(edit.documents.first?.version, 7)
+        XCTAssertEqual(edit.documents.first?.edits.first?.newText, "welcome")
+        XCTAssertFalse(edit.isEmpty)
+
+        let request = try XCTUnwrap(transport.requests(for: LSPMethod.rename).first)
+        XCTAssertEqual(request.params?["newName"]?.stringValue, "welcome")
+        XCTAssertEqual(request.params?["textDocument"]?["uri"]?.stringValue, documentURI)
+        XCTAssertEqual(
+            request.params?.objectValue?.keys.sorted(),
+            ["newName", "position", "textDocument"]
+        )
+    }
+
+    func testANullRenameResultIsNoEditsRatherThanAFailure() async throws {
+        // A server that recognised the symbol and has nothing to rewrite. The
+        // command treats it exactly as it treats a refusal — but it must reach
+        // that decision, not a decode error.
+        let transport = makeTransport()
+        transport.script(LSPMethod.rename, .reply(.null))
+        let session = try await start(transport)
+
+        let edit = try await session.rename(
+            LSPRenameParams(
+                uri: documentURI,
+                position: LSPPosition(line: 3, character: 12),
+                newName: "welcome"
+            )
+        )
+        XCTAssertTrue(edit.documents.isEmpty)
+        XCTAssertTrue(edit.isEmpty)
+    }
+
+    /// The server that refuses the rename outright — sourcekit-lsp answers this
+    /// way for a symbol it will not touch. It is an *error*, not an empty edit,
+    /// and it must stay one all the way to the caller.
+    func testAServerErrorOnRenameReachesTheCallerAsThatError() async throws {
+        let transport = makeTransport()
+        transport.script(
+            LSPMethod.rename,
+            .fail(LSPResponseError(code: .invalidParams, message: "Cannot rename this symbol"))
+        )
+        let session = try await start(transport)
+
+        do {
+            _ = try await session.rename(
+                LSPRenameParams(
+                    uri: documentURI,
+                    position: LSPPosition(line: 3, character: 12),
+                    newName: "welcome"
+                )
+            )
+            XCTFail("A refused rename must not answer with an empty edit")
+        } catch let error as LSPResponseError {
+            XCTAssertEqual(error.code, .invalidParams)
+            XCTAssertEqual(error.message, "Cannot rename this symbol")
+        }
+        let pending = await session.pendingRequestCount
+        XCTAssertEqual(pending, 0)
+    }
+
+    /// `references` is a deliberate act, so it is worth the definition span rather
+    /// than the pointer dwell's — asserted by spending it, with every *other*
+    /// budget (rename's included) set wide enough that spending one of those
+    /// instead would overrun the assertion.
+    func testReferencesSpendsTheDefinitionSpanRatherThanHovers() async throws {
+        let transport = makeTransport()
+        transport.script(LSPMethod.references, .drop)
+        let session = try await start(
+            transport,
+            budgets: LSPSession.Budgets(
+                handshake: 2,
+                definition: 30,
+                completion: 30,
+                resolve: 30,
+                hover: 30,
+                references: 0.05,
+                rename: 30
+            )
+        )
+
+        let started = Date()
+        do {
+            _ = try await session.references(
+                LSPReferenceParams(uri: documentURI, position: LSPPosition(line: 3, character: 12))
+            )
+            XCTFail("A dropped references request must not hang forever")
+        } catch {
+            XCTAssertEqual(error as? LSPSessionError, .timedOut(method: LSPMethod.references))
+        }
+        XCTAssertLessThan(
+            Date().timeIntervalSince(started), 4,
+            "references spent a budget other than its own"
+        )
+
+        XCTAssertEqual(transport.notifications(for: LSPMethod.cancelRequest).count, 1)
+        let pending = await session.pendingRequestCount
+        XCTAssertEqual(pending, 0)
+    }
+
+    /// **Rename does not share `references`' span.** They are the same act asked
+    /// two ways, but only one of them has a second answer behind it: a references
+    /// timeout degrades to the textual scan, while a rename timeout is a bare
+    /// refusal of a command the user has already filled in a dialog for — and a
+    /// workspace rename is the heavier request besides. Asserted the same way
+    /// round: rename's own budget is the small one, `references`' is wide, and
+    /// spending the shared number would overrun.
+    func testRenameSpendsItsOwnBudgetRatherThanReferences() async throws {
+        let transport = makeTransport()
+        transport.script(LSPMethod.rename, .drop)
+        let session = try await start(
+            transport,
+            budgets: LSPSession.Budgets(
+                handshake: 2,
+                definition: 30,
+                completion: 30,
+                resolve: 30,
+                hover: 30,
+                references: 30,
+                rename: 0.05
+            )
+        )
+
+        let started = Date()
+        do {
+            _ = try await session.rename(
+                LSPRenameParams(
+                    uri: documentURI,
+                    position: LSPPosition(line: 3, character: 12),
+                    newName: "welcome"
+                )
+            )
+            XCTFail("A dropped rename must not hang forever")
+        } catch {
+            XCTAssertEqual(error as? LSPSessionError, .timedOut(method: LSPMethod.rename))
+        }
+        XCTAssertLessThan(
+            Date().timeIntervalSince(started), 4,
+            "rename spent a budget other than its own"
+        )
+
+        XCTAssertEqual(transport.notifications(for: LSPMethod.cancelRequest).count, 1)
+        let pending = await session.pendingRequestCount
+        XCTAssertEqual(pending, 0)
+    }
+
+    /// The default table gives rename materially more room than `references`,
+    /// which is the whole point of splitting them: a number that merely differed
+    /// by rounding would be two numbers to keep in step and no more.
+    func testTheDefaultRenameBudgetIsWiderThanTheReadingBudgets() {
+        let standard = LSPSession.Budgets.standard
+        XCTAssertGreaterThan(standard.rename, standard.references)
+        XCTAssertGreaterThan(standard.rename, standard.definition)
+        XCTAssertGreaterThanOrEqual(standard.rename, 15)
     }
 
     func testHoverSendsThePositionItWasAskedAboutAndDecodesTheAnswer() async throws {

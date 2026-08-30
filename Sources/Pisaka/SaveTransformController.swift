@@ -332,20 +332,75 @@ final class SaveTransformController {
             ],
             text: text
         )
+        applyExternalRewrite(plan, to: id, in: model, current: current)
+    }
+
+    // MARK: - Rename
+
+    /// Rewrite the buffer `id` holds with a rename's per-file plan — the second
+    /// caller of this class that is not a save, and the second one that is a
+    /// buffer edit rather than a disk write.
+    ///
+    /// Only the *files no tab holds* are written to disk by the rename engine;
+    /// every open tab is rewritten here instead, because writing under an editor
+    /// would leave a tab showing text that is no longer what the file contains and
+    /// a dirty tab's own edits overwritten with no undo. The tab is left dirty and
+    /// the ordinary save funnel puts it on disk, exactly as a restore is.
+    ///
+    /// The plan is the engine's own (`RenameFilePlan.applied(to:)`), so nothing is
+    /// decided here: it is already ascending, non-overlapping and expressed against
+    /// the text this buffer is being asked to hold. Routing it through the same two
+    /// application paths is the whole point — the displayed tab gets one undoable
+    /// step with one change notification and a remapped caret, and every other tab
+    /// gets `WorkspaceModel.replaceText(_:for:)` and loses its undo stack, which is
+    /// the cost this feature states rather than hides.
+    ///
+    /// A buffer that already holds the plan's result is left untouched — the same
+    /// no-op guard `applyRestore` makes, and compared as `NSString` for the same
+    /// reason: rewriting a buffer with itself would dirty a clean tab for no
+    /// change. It is *not* a staleness check, and deliberately so: whether the
+    /// buffer is still what the plan was computed against was settled by
+    /// `RenameEditPlan.apply`, which verified every file before producing any of
+    /// these plans. That verification runs off the main thread, so there *is* an
+    /// `await` between it and this call; what closes it is the caller's own
+    /// re-check — `PisakaApp.applyRename` compares each tab's `file.text` against
+    /// the same main-actor snapshot the plan was verified against and skips (and
+    /// reports) any tab that has moved, so nothing reaching here is stale. A
+    /// second check in this method would need the plan's *input* text, which a
+    /// `SaveTransformPlan` does not carry, so it would be a check that could not
+    /// be written rather than one that was left out.
+    func applyRename(_ plan: SaveTransformPlan, to id: UUID) {
+        guard let model, let current = model.text(for: id) else { return }
+        let currentString = current as NSString
+        guard !plan.replacements.isEmpty, !currentString.isEqual(to: plan.text) else { return }
+        applyExternalRewrite(plan, to: id, in: model, current: current)
+    }
+
+    // MARK: - Internals
+
+    /// The two application paths, shared by the restore and the rename: the live
+    /// text view when it is showing this buffer and agrees with the model, and
+    /// `WorkspaceModel.replaceText(_:for:)` otherwise.
+    ///
+    /// One body rather than two copies because the *choice* between the paths is
+    /// the decision, and two spellings of it is how the off-screen half would
+    /// eventually stop telling its readers. The model path fires no change
+    /// notification, so the readers that track this buffer are told the way every
+    /// other off-screen rewrite tells them (see `onBufferReplaced`).
+    private func applyExternalRewrite(
+        _ plan: SaveTransformPlan,
+        to id: UUID,
+        in model: WorkspaceModel,
+        current: String
+    ) {
         let displayed = liveTextView(for: id)
         let live = (displayed?.string as NSString?)?.isEqual(to: current) == true ? displayed : nil
         if let live, apply(plan, in: live) { return }
-        model.replaceText(text, for: id)
-        // The model path fires no change notification, so the readers that track
-        // this buffer are told the way every other off-screen rewrite tells them.
-        // See `onBufferReplaced` — and note a restore always has a url, since the
-        // store is keyed by one.
+        model.replaceText(plan.text, for: id)
         if let url = model.openFiles.first(where: { $0.id == id })?.url {
             onBufferReplaced?(id, url)
         }
     }
-
-    // MARK: - Internals
 
     private func prepare(
         id: UUID,

@@ -19,7 +19,7 @@ final class LocalHistorySnapshotTests: XCTestCase {
     func testTheTagSetIsExactlyTheDocumentedVocabulary() {
         XCTAssertEqual(
             Set(LocalHistoryEvent.allCases.map(\.tag)),
-            ["save", "replace", "revert", "merge", "branch", "commit", "restore"]
+            ["save", "replace", "revert", "merge", "branch", "commit", "restore", "rename"]
         )
     }
 
@@ -53,6 +53,7 @@ final class LocalHistorySnapshotTests: XCTestCase {
         XCTAssertEqual(LocalHistoryEvent.branch.title, "Before Branch Change")
         XCTAssertEqual(LocalHistoryEvent.commit.title, "Before Commit")
         XCTAssertEqual(LocalHistoryEvent.restore.title, "Before Restore")
+        XCTAssertEqual(LocalHistoryEvent.rename.title, "Before Rename")
     }
 
     /// Only `save` records something that happened; every other event records

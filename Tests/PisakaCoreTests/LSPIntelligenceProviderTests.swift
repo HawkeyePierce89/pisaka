@@ -130,6 +130,7 @@ final class LSPIntelligenceProviderTests: XCTestCase {
         completion: 1,
         resolve: 1,
         hover: 1,
+        references: 1,
         shutdown: 1
     )
 
@@ -171,6 +172,25 @@ final class LSPIntelligenceProviderTests: XCTestCase {
     /// URIs exist at all: `/tmp` and `/private/tmp` are the same directory, and a
     /// fake that matched them by raw string would fail on the very paths this
     /// server really answers with.
+    /// Counts `loadText` calls from whatever thread the mapping runs on — the
+    /// only way to assert "read once per file" rather than "read at all".
+    private final class Counter: @unchecked Sendable {
+        private let lock = NSLock()
+        private var paths: [String] = []
+
+        func record(_ path: String) {
+            lock.lock()
+            paths.append(path)
+            lock.unlock()
+        }
+
+        var count: Int {
+            lock.lock()
+            defer { lock.unlock() }
+            return paths.count
+        }
+    }
+
     private func makeProvider(
         files: [String: String] = [:],
         completionLimit: Int = SymbolIntelligenceProvider.defaultCompletionLimit,
@@ -684,6 +704,537 @@ final class LSPIntelligenceProviderTests: XCTestCase {
         XCTAssertEqual(transport.requests(for: LSPMethod.hover).count, 1)
     }
 
+    // MARK: - Find usages
+
+    private func usagesRequest(
+        at offset: Int? = nil,
+        text: String? = nil,
+        openTexts: [URL: String] = [:]
+    ) -> UsagesRequest {
+        UsagesRequest(
+            identifier: "Greeter",
+            fileURL: mainFile,
+            offset: offset ?? greeterReference,
+            text: text ?? mainSource,
+            openTexts: openTexts
+        )
+    }
+
+    /// One `Location` on the wire.
+    private func location(_ url: URL, line: Int, from: Int, to: Int) -> JSONValue {
+        .object([
+            "uri": .string(LSPWorkspace.documentURI(for: url)),
+            "range": .object([
+                "start": .object(["line": .int(line), "character": .int(from)]),
+                "end": .object(["line": .int(line), "character": .int(to)]),
+            ]),
+        ])
+    }
+
+    /// The whole mapping in one case: two files, the requesting one included,
+    /// each row carrying a buffer range, the gutter's line number, the project
+    /// path and the single line the panel draws.
+    func testReferencesBecomeRowsWithBufferRangesGutterLinesAndPreviews() async throws {
+        transport.script(LSPMethod.references, .reply(.array([
+            // `public struct Greeter` on line 2 of the declaring file.
+            location(greeterFile, line: 1, from: 14, to: 21),
+            // `let greeter = Greeter()` on line 4 of the requesting file.
+            location(mainFile, line: 3, from: 14, to: 21),
+        ])))
+        let provider = makeProvider(files: [greeterFile.path: greeterSource])
+
+        let usages = await provider.references(for: usagesRequest())
+
+        XCTAssertEqual(usages.map(\.relativePath), [
+            "Sources/Core/Greeter.swift",
+            "Sources/App/main.swift",
+        ])
+        // 1-based display lines, derived from the offsets with `LineStartIndex`
+        // (D1) rather than from the server's zero-based numbering.
+        XCTAssertEqual(usages.map(\.line), [2, 4])
+        XCTAssertEqual(usages.map(\.isTextual), [false, false])
+        XCTAssertEqual(
+            (greeterSource as NSString).substring(with: usages[0].range),
+            "Greeter"
+        )
+        XCTAssertEqual(
+            (mainSource as NSString).substring(with: usages[1].range),
+            "Greeter"
+        )
+        // The preview is the row's whole logical line with the occurrence located
+        // inside it — Find in Files' shape, so the two kinds of row read alike.
+        XCTAssertEqual(usages.map(\.preview.text), [
+            "public struct Greeter {",
+            "let greeter = Greeter()",
+        ])
+        XCTAssertEqual(usages[0].preview.matchRange, NSRange(location: 14, length: 7))
+        XCTAssertEqual(usages[1].preview.matchRange, NSRange(location: 14, length: 7))
+    }
+
+    /// The buffer beats the disk for the file the question came from — the index's
+    /// rule, and here it decides both the range and the line number a row
+    /// navigates by. The `loadText` copy is deliberately a *different* file: if it
+    /// were consulted, every assertion below would land one line off.
+    func testAUsageInTheRequestingFileIsMeasuredAgainstTheBufferNotTheDiskCopy() async {
+        transport.script(LSPMethod.references, .reply(.array([
+            location(mainFile, line: 3, from: 14, to: 21),
+        ])))
+        let staleOnDisk = "// a line the buffer does not have\n" + mainSource
+        let provider = makeProvider(files: [mainFile.path: staleOnDisk])
+
+        let usages = await provider.references(for: usagesRequest())
+
+        XCTAssertEqual(usages.count, 1)
+        XCTAssertEqual(usages.first?.line, 4)
+        XCTAssertEqual(usages.first?.preview.text, "let greeter = Greeter()")
+        XCTAssertEqual(
+            (mainSource as NSString).substring(with: try XCTUnwrap(usages.first).range),
+            "Greeter"
+        )
+    }
+
+    /// A line whose characters are not one UTF-16 unit each: the position that
+    /// comes back has to survive the round trip into buffer offsets, or every row
+    /// in a file with an emoji in it points a few characters short.
+    func testAUsageOnANonASCIILineMapsToTheRightBufferRange() async throws {
+        let source = "let 🙂 = Greeter()\nlet other = Greeter()"
+        transport.script(LSPMethod.references, .reply(.array([
+            // `Greeter` on line 0, after a surrogate pair: UTF-16 characters 9…16.
+            location(mainFile, line: 0, from: 9, to: 16),
+            location(mainFile, line: 1, from: 12, to: 19),
+        ])))
+        let provider = makeProvider()
+
+        let usages = await provider.references(for: usagesRequest(at: 9, text: source))
+
+        XCTAssertEqual(usages.count, 2)
+        let text = source as NSString
+        XCTAssertEqual(text.substring(with: usages[0].range), "Greeter")
+        XCTAssertEqual(text.substring(with: usages[1].range), "Greeter")
+        XCTAssertEqual(usages.map(\.line), [1, 2])
+        XCTAssertEqual(usages[0].preview.text, "let 🙂 = Greeter()")
+        XCTAssertEqual(usages[0].preview.matchRange, NSRange(location: 9, length: 7))
+    }
+
+    /// A URI this editor cannot open, and a file whose text cannot be read, are
+    /// each one fewer row — silently, and without costing their siblings. A row
+    /// navigates by a *buffer range*, and there is no honest range to invent for
+    /// either.
+    func testAUsageWithAnUnopenableURIOrAnUnreadableFileIsDroppedSilently() async {
+        transport.script(LSPMethod.references, .reply(.array([
+            .object([
+                "uri": .string("untitled:Untitled-1"),
+                "range": .object([
+                    "start": .object(["line": .int(0), "character": .int(0)]),
+                    "end": .object(["line": .int(0), "character": .int(7)]),
+                ]),
+            ]),
+            location(greeterFile, line: 1, from: 14, to: 21),
+            location(mainFile, line: 3, from: 14, to: 21),
+        ])))
+        // `greeterFile` is deliberately absent from `files:`.
+        let provider = makeProvider()
+
+        let usages = await provider.references(for: usagesRequest())
+
+        XCTAssertEqual(usages.map(\.relativePath), ["Sources/App/main.swift"])
+    }
+
+    /// A server that does not advertise `referencesProvider` is not asked. The
+    /// gate is worth its line here for a reason hover's is not: the model's answer
+    /// when this returns nothing is a walk of the whole project, and paying the
+    /// budget first only delays the answer the user is going to get anyway.
+    func testAServerWithoutTheReferencesCapabilityIsNotAsked() async {
+        transport.script(LSPMethod.initialize, .reply(
+            ScriptedLSPTransport.initializeResult(references: false)
+        ))
+        transport.script(LSPMethod.references, .reply(.array([
+            location(mainFile, line: 3, from: 14, to: 21),
+        ])))
+        let provider = makeProvider()
+
+        let usages = await provider.references(for: usagesRequest())
+
+        XCTAssertTrue(usages.isEmpty)
+        XCTAssertTrue(transport.requests(for: LSPMethod.references).isEmpty)
+    }
+
+    /// `null`, an empty array and a server error are the same answer here — and it
+    /// is an *empty* answer rather than a converted one: what replaces it is
+    /// `FindUsagesModel`'s decision, not this layer's (decision 1).
+    func testAnEmptyNullOrFailedReferencesAnswerIsEmpty() async {
+        transport.script(LSPMethod.references, [
+            .reply(.null),
+            .reply(.array([])),
+            .fail(LSPResponseError(code: .internalError, message: "internal error")),
+        ])
+        let provider = makeProvider(files: [greeterFile.path: greeterSource])
+
+        for _ in 1...3 {
+            let usages = await provider.references(for: usagesRequest())
+            XCTAssertTrue(usages.isEmpty)
+        }
+        XCTAssertEqual(transport.requests(for: LSPMethod.references).count, 3)
+    }
+
+    /// **The staleness gate on the usages path.** A row is a *range in a buffer*,
+    /// and a list computed for the folder the user has just left points at files
+    /// the window no longer shows.
+    ///
+    /// Staged through the transport's write hook rather than a delay: the request
+    /// is held inside `send`, so the switch provably lands while the question is
+    /// outstanding, and the reply cannot arrive before it.
+    func testReferencesAreDroppedWhenTheFolderChangedWhileTheQuestionWasOutstanding() async throws {
+        transport.script(LSPMethod.references, .reply(.array([
+            location(greeterFile, line: 1, from: 14, to: 21),
+        ])))
+        let provider = makeProvider(files: [greeterFile.path: greeterSource])
+        let workspace = try XCTUnwrap(lastWorkspace)
+        let gate = Gate()
+        transport.onSend { method in
+            guard method == LSPMethod.references else { return }
+            gate.wait()
+        }
+
+        let asking = Task { await provider.references(for: self.usagesRequest()) }
+        await gate.waitUntilReached()
+
+        workspace.prepareForFolderChange(root: otherRoot)
+        gate.release()
+
+        let usages = await asking.value
+        XCTAssertTrue(
+            usages.isEmpty,
+            "rows for a folder the user has left would open files the window no longer shows"
+        )
+    }
+
+    /// **One read and one line-start scan per file, whatever the row count.** The
+    /// cache's whole reason: a busy identifier answers hundreds of rows in one
+    /// file, and re-reading it per row is the difference between a list and a
+    /// hang. The two spellings of `main.swift` are the second half of the rule —
+    /// a server answers with the path *it* resolved, and `/tmp` vs `/private/tmp`
+    /// is one file, not two.
+    func testEachFileIsReadOnceForAWholeUsagesAnswerHoweverManyRowsItHas() async throws {
+        transport.script(LSPMethod.references, .reply(.array([
+            location(greeterFile, line: 1, from: 14, to: 21),
+            location(greeterFile, line: 1, from: 14, to: 21),
+            location(greeterFile, line: 1, from: 14, to: 21),
+        ])))
+        let counter = Counter()
+        let workspace = makeWorkspace()
+        lastWorkspace = workspace
+        let source = greeterSource
+        let canonicalGreeter = CanonicalPath.canonical(greeterFile).path
+        let provider = LSPIntelligenceProvider(
+            workspace: workspace,
+            loadText: { url in
+                counter.record(url.path)
+                return CanonicalPath.canonical(url).path == canonicalGreeter ? source : nil
+            }
+        )
+
+        let usages = await provider.references(for: usagesRequest())
+
+        XCTAssertEqual(usages.count, 3)
+        XCTAssertEqual(counter.count, 1, "three rows in one file must cost one read, not three")
+    }
+
+    /// The requesting file is seeded from the *buffer*, so however many rows land
+    /// in it none of them is a disk read — the rule that makes a usages answer in
+    /// the file being edited describe what the user is looking at.
+    func testTheRequestingFileIsNeverLoadedFromDisk() async throws {
+        transport.script(LSPMethod.references, .reply(.array([
+            location(mainFile, line: 3, from: 14, to: 21),
+            location(mainFile, line: 3, from: 14, to: 21),
+        ])))
+        let counter = Counter()
+        let workspace = makeWorkspace()
+        lastWorkspace = workspace
+        let provider = LSPIntelligenceProvider(
+            workspace: workspace,
+            loadText: { url in
+                counter.record(url.path)
+                return nil
+            }
+        )
+
+        let usages = await provider.references(for: usagesRequest())
+
+        XCTAssertEqual(usages.count, 2)
+        XCTAssertEqual(counter.count, 0, "the requesting file is the buffer, never a disk read")
+    }
+
+    /// **A dirty background tab is mapped against its buffer, not its disk copy.**
+    ///
+    /// The push channel (D29/D30) has already given the server that tab's text, so
+    /// the coordinates it answers with are the *buffer's*. Reading the disk copy
+    /// here is not a staleness detail but the wrong coordinate space: it produces a
+    /// plausible-looking row on the wrong line, with a preview drawn from unrelated
+    /// text, that the editor then refuses to reveal. The fixture makes the two
+    /// spaces disagree by two lines, so a row mapped against the disk copy cannot
+    /// accidentally pass.
+    func testAnOpenTabsBufferIsPreferredOverItsDiskCopyWhenMappingUsages() async throws {
+        let editedGreeter = """
+            // A comment the user just typed.
+            // And a second line of it.
+            \(greeterSource)
+            """
+        // `public struct Greeter` sits on line 1 of the disk copy and line 3 of the
+        // buffer; the server answers about the buffer, because that is what it has.
+        transport.script(LSPMethod.references, .reply(.array([
+            location(greeterFile, line: 3, from: 14, to: 21),
+        ])))
+        let counter = Counter()
+        let workspace = makeWorkspace()
+        lastWorkspace = workspace
+        let source = greeterSource
+        let provider = LSPIntelligenceProvider(
+            workspace: workspace,
+            loadText: { url in
+                counter.record(url.path)
+                return source
+            }
+        )
+
+        let usages = await provider.references(
+            for: usagesRequest(openTexts: [greeterFile: editedGreeter])
+        )
+
+        XCTAssertEqual(usages.count, 1)
+        let row = try XCTUnwrap(usages.first)
+        XCTAssertEqual(row.line, 4, "the display line is the buffer's, not the disk copy's")
+        XCTAssertEqual(row.preview.text, "public struct Greeter {")
+        XCTAssertEqual(
+            (editedGreeter as NSString).substring(with: row.range),
+            "Greeter",
+            "the range must land on the symbol in the text the row was computed against"
+        )
+        XCTAssertEqual(counter.count, 0, "an open tab's text is never re-read from disk")
+    }
+
+    /// The same rule when the tab and the server spell the file differently —
+    /// which they routinely do, since a server answers with the path *it*
+    /// resolved. A lookup by raw `path` would miss the buffer and fall silently
+    /// back to the disk copy, i.e. to exactly the wrong coordinate space the test
+    /// above is about.
+    func testAnOpenTabIsMatchedCanonicallyRatherThanBySpelling() async throws {
+        let editedGreeter = """
+            // A comment the user just typed.
+            // And a second line of it.
+            \(greeterSource)
+            """
+        let asOpened = URL(fileURLWithPath: "/private/tmp/lspfix/pkg/Sources/App/../Core/Greeter.swift")
+        transport.script(LSPMethod.references, .reply(.array([
+            location(greeterFile, line: 3, from: 14, to: 21),
+        ])))
+        let workspace = makeWorkspace()
+        lastWorkspace = workspace
+        let source = greeterSource
+        let provider = LSPIntelligenceProvider(workspace: workspace, loadText: { _ in source })
+
+        let usages = await provider.references(
+            for: usagesRequest(openTexts: [asOpened: editedGreeter])
+        )
+
+        XCTAssertEqual(usages.first?.preview.text, "public struct Greeter {")
+    }
+
+    /// **A cancelled mapping stops reading the project.**
+    ///
+    /// `RoutingIntelligenceProvider` abandons this call at its budget and cancels
+    /// the task around it, and `FindUsagesModel` starts the textual walk in its
+    /// place. The mapping loop is unbounded — one file read and indexed per
+    /// location a server named — so a loser that does not notice goes on reading
+    /// the project alongside the walk that replaced it. The cancellation is staged
+    /// causally, from inside the first file's read, so there is no window to miss.
+    func testACancelledUsagesMappingStopsReadingFiles() async throws {
+        let otherFile = root.appendingPathComponent("Sources/Core/Other.swift")
+        transport.script(LSPMethod.references, .reply(.array([
+            location(greeterFile, line: 1, from: 14, to: 21),
+            location(otherFile, line: 1, from: 14, to: 21),
+        ])))
+        let workspace = makeWorkspace()
+        lastWorkspace = workspace
+        let counter = Counter()
+        let source = greeterSource
+        let provider = LSPIntelligenceProvider(
+            workspace: workspace,
+            loadText: { url in
+                counter.record(url.path)
+                // Cancelled from *inside* the loop, through the task running it,
+                // so there is no handle to publish and no window between arming
+                // the cancellation and the iteration that must observe it.
+                withUnsafeCurrentTask { $0?.cancel() }
+                return source
+            }
+        )
+
+        let usages = await Task { await provider.references(for: self.usagesRequest()) }.value
+
+        XCTAssertTrue(usages.isEmpty, "an abandoned mapping publishes nothing")
+        XCTAssertEqual(counter.count, 1, "and reads no file after the cancellation")
+    }
+
+    // MARK: - Rename
+
+    private func renameRequest(
+        newName: String = "Welcomer",
+        identifier: String = "Greeter",
+        offset: Int? = nil,
+        text: String? = nil
+    ) -> RenameRequest {
+        RenameRequest(
+            identifier: identifier,
+            fileURL: mainFile,
+            offset: offset ?? greeterReference,
+            text: text ?? mainSource,
+            newName: newName
+        )
+    }
+
+    /// The answer is the server's edit, carried through unmapped: turning
+    /// `(line, character)` into buffer ranges needs the text of files no editor
+    /// holds, so it happens once — in `RenameEditPlan`, where the refusals that
+    /// depend on it live too.
+    func testARenameAnswerCarriesTheServersEditVerbatim() async throws {
+        transport.script(LSPMethod.rename, .reply(.object([
+            "documentChanges": .array([
+                .object([
+                    "textDocument": .object([
+                        "uri": .string(LSPWorkspace.documentURI(for: greeterFile)),
+                        "version": .int(7),
+                    ]),
+                    "edits": .array([
+                        .object([
+                            "newText": .string("Welcomer"),
+                            "range": .object([
+                                "start": .object(["line": .int(1), "character": .int(14)]),
+                                "end": .object(["line": .int(1), "character": .int(21)]),
+                            ]),
+                        ]),
+                    ]),
+                ]),
+            ]),
+        ])))
+        let provider = makeProvider(files: [greeterFile.path: greeterSource])
+
+        let renamed = await provider.renameEdits(for: renameRequest())
+
+        let answer = try XCTUnwrap(renamed)
+        XCTAssertEqual(answer.newName, "Welcomer")
+        XCTAssertEqual(answer.edit.documents.count, 1)
+        XCTAssertEqual(answer.edit.documents.first?.version, 7)
+        XCTAssertEqual(answer.edit.documents.first?.edits.first?.newText, "Welcomer")
+        XCTAssertEqual(
+            answer.edit.documents.first?.edits.first?.range.start,
+            LSPPosition(line: 1, character: 14)
+        )
+        // The new name reached the server as the new name.
+        let sent = transport.requests(for: LSPMethod.rename).first
+        XCTAssertEqual(sent?.params?["newName"]?.stringValue, "Welcomer")
+    }
+
+    /// A name that changes nothing is refused before the wire. A new name equal to
+    /// the old one would come back as a `WorkspaceEdit` replacing text with
+    /// itself, which passes every verification and rewrites a project's worth of
+    /// files to no effect — taking each one's undo stack with it. An empty name is
+    /// not a rename at all.
+    func testARenameToTheSameNameOrToNothingAsksTheServerNothing() async {
+        transport.script(LSPMethod.rename, .reply(.object(["changes": .object([:])])))
+        let provider = makeProvider()
+
+        let same = await provider.renameEdits(for: renameRequest(newName: "Greeter"))
+        let empty = await provider.renameEdits(for: renameRequest(newName: ""))
+
+        XCTAssertNil(same)
+        XCTAssertNil(empty)
+        XCTAssertEqual(harness.launches, 0)
+        XCTAssertTrue(transport.requests(for: LSPMethod.rename).isEmpty)
+    }
+
+    /// A server that does not advertise `renameProvider` is not asked — and the
+    /// command beeps, because there is nothing else it could do (decision 4).
+    func testAServerWithoutTheRenameCapabilityIsNotAsked() async {
+        transport.script(LSPMethod.initialize, .reply(
+            ScriptedLSPTransport.initializeResult(rename: false)
+        ))
+        transport.script(LSPMethod.rename, .reply(.object(["changes": .object([:])])))
+        let provider = makeProvider()
+
+        let renamed = await provider.renameEdits(for: renameRequest())
+
+        XCTAssertNil(renamed)
+        XCTAssertTrue(transport.requests(for: LSPMethod.rename).isEmpty)
+        // But the policy question the command asks *first* is still `true`: the
+        // capability is only knowable from a started server, and starting one to
+        // decide whether to show a dialog is what that check exists not to do.
+        let offered = await provider.canRename(.swift)
+        XCTAssertTrue(offered)
+    }
+
+    /// An answer with no edits in it, a `null` answer and a server error are one
+    /// fact to every caller — the command beeps — and collapsing them here is what
+    /// keeps the writer bracket from being raised around a plan that touches
+    /// nothing.
+    func testARenameAnsweringNoEditsAnswersNil() async {
+        transport.script(LSPMethod.rename, [
+            .reply(.object(["changes": .object([:])])),
+            .reply(.object([
+                "changes": .object([
+                    LSPWorkspace.documentURI(for: greeterFile): .array([]),
+                ]),
+            ])),
+            .reply(.null),
+            .fail(LSPResponseError(code: .internalError, message: "internal error")),
+        ])
+        let provider = makeProvider(files: [greeterFile.path: greeterSource])
+
+        for _ in 1...4 {
+            let renamed = await provider.renameEdits(for: renameRequest())
+            XCTAssertNil(renamed)
+        }
+        XCTAssertEqual(transport.requests(for: LSPMethod.rename).count, 4)
+    }
+
+    /// **The same gate, on the one answer that becomes a write.** Every other
+    /// answer that survives a stale document is a wrong *reading*; this one would
+    /// be a wrong write, applied project-wide inside the writer bracket.
+    func testARenameIsDroppedWhenTheFolderChangedWhileTheQuestionWasOutstanding() async throws {
+        transport.script(LSPMethod.rename, .reply(.object([
+            "changes": .object([
+                LSPWorkspace.documentURI(for: greeterFile): .array([
+                    .object([
+                        "newText": .string("Welcomer"),
+                        "range": .object([
+                            "start": .object(["line": .int(1), "character": .int(14)]),
+                            "end": .object(["line": .int(1), "character": .int(21)]),
+                        ]),
+                    ]),
+                ]),
+            ]),
+        ])))
+        let provider = makeProvider(files: [greeterFile.path: greeterSource])
+        let workspace = try XCTUnwrap(lastWorkspace)
+        let gate = Gate()
+        transport.onSend { method in
+            guard method == LSPMethod.rename else { return }
+            gate.wait()
+        }
+
+        let renaming = Task { await provider.renameEdits(for: self.renameRequest()) }
+        await gate.waitUntilReached()
+
+        workspace.prepareForFolderChange(root: otherRoot)
+        gate.release()
+
+        let renamed = await renaming.value
+        XCTAssertNil(
+            renamed,
+            "a rename computed for a closed project may not become a write in the open one"
+        )
+    }
+
     // MARK: - The D2 guard
 
     /// The hazard `DefinitionRequest.text`'s default creates: a call site that
@@ -729,6 +1280,24 @@ final class LSPIntelligenceProviderTests: XCTestCase {
         XCTAssertNil(answer)
         XCTAssertEqual(harness.launches, 0)
         XCTAssertTrue(transport.requests(for: LSPMethod.hover).isEmpty)
+    }
+
+    /// And for the two commands, which are questions about a position exactly as
+    /// hover is: an empty buffer at a non-zero offset would clamp to `0:0` and
+    /// list — or rename — whatever stands at the top of the file.
+    func testAnEmptyBufferWithANonZeroOffsetAsksNoUsagesAndNoRename() async {
+        transport.script(LSPMethod.references, .reply(.array([])))
+        transport.script(LSPMethod.rename, .reply(.object(["changes": .object([:])])))
+        let provider = makeProvider()
+
+        let usages = await provider.references(for: usagesRequest(at: 45, text: ""))
+        let renamed = await provider.renameEdits(for: renameRequest(offset: 45, text: ""))
+
+        XCTAssertTrue(usages.isEmpty)
+        XCTAssertNil(renamed)
+        XCTAssertEqual(harness.launches, 0)
+        XCTAssertTrue(transport.requests(for: LSPMethod.references).isEmpty)
+        XCTAssertTrue(transport.requests(for: LSPMethod.rename).isEmpty)
     }
 
     /// The same rule for completion, expressed the way that request can go wrong:
