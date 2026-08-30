@@ -324,7 +324,7 @@ source file; a new ordinary Core test suite needs no index line).
 
 - Modify: `Tests/PisakaCoreTests/EditorConfigGlobTests.swift`
 
-- [ ] Replace **all eight** `-started.timeIntervalSinceNow` bounds (currently at
+- [x] Replace **all eight** `-started.timeIntervalSinceNow` bounds (currently at
   lines 263, 276, 292, 305, 320, 359, 373 and 388) with the charged-work
   assertion for each shape: the compile-budget cases assert
   `exceedsCompileBudget` (and, for the whole-file case, that every section
@@ -332,16 +332,16 @@ source file; a new ordinary Core test suite needs no index line).
   match cases run against a caller-owned budget and assert it was driven to
   exhaustion **and** that the call answered. Confirm with
   `grep -c "timeIntervalSinceNow"` that the file reaches zero.
-- [ ] Keep every pathological input exactly as it is — the coverage is the
+- [x] Keep every pathological input exactly as it is — the coverage is the
   input, not the clock — and keep the two "nowhere near the budget" tests, which
   are the other side of the bound and already clock-free.
-- [ ] Rewrite each test's comment to say what the assertion now proves and how it
+- [x] Rewrite each test's comment to say what the assertion now proves and how it
   fails on a quadratic regression: uncharged quadratic work leaves the budget
   unspent and fires the assertion; charged quadratic work is bounded by the
   budget, which is the property the clock stood in for. Keep the measured
   pre-fix numbers in the comments — they are the evidence for why the input is
   pathological.
-- [ ] Run `swift test` — must pass before Task 7.
+- [x] Run `swift test` — must pass before Task 7.
 
 ### Task 7: Verify acceptance criteria
 
