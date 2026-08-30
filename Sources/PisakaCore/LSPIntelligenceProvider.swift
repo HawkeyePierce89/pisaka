@@ -303,11 +303,26 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
         var texts = FileTextCache(
             requestURL: fileURL,
             requestText: source,
-            rootComponents: rootComponents
+            rootComponents: rootComponents,
+            openTexts: request.openTexts
         )
-        return response.locations.compactMap { location in
-            usage(at: location, texts: &texts)
+        var rows: [UsageResult] = []
+        rows.reserveCapacity(response.locations.count)
+        for location in response.locations {
+            // **The one loop in this file that can outlive the question.** A
+            // references answer is the only one whose mapping is unbounded — a
+            // server naming a widely-used symbol legitimately returns tens of
+            // thousands of locations, each of which reads and indexes a file the
+            // cache then holds — and `RoutingIntelligenceProvider` abandons this
+            // call after its budget, cancelling the task around it. Without a
+            // check the loser would go on reading the project for rows nobody is
+            // waiting for, alongside the textual walk the model has already
+            // started in its place. Every other mapped answer here is bounded by
+            // a popup's worth of items and needs no such stop.
+            if Task.isCancelled { return [] }
+            if let row = usage(at: location, texts: &texts) { rows.append(row) }
         }
+        return rows
     }
 
     /// One location turned into a row the panel can draw and the editor can
@@ -1085,9 +1100,31 @@ private struct FileTextCache {
 
     private var entries: [String: Entry]
     private let rootComponents: [String]?
+    /// The live text of the other open tabs, keyed canonically — consulted
+    /// *before* the disk, for `UsagesRequest.openTexts`'s reason.
+    ///
+    /// Keys are canonicalized up front (one resolution per open tab, a handful)
+    /// rather than the lookup being a scan, because the URL a server names and
+    /// the URL a tab was opened as are the two spellings this whole cache is
+    /// keyed canonically to reconcile. The texts themselves are held as `String`
+    /// and bridged only for a file that actually has a row: building line-start
+    /// tables for every open tab would pay the cost of the whole workspace to
+    /// answer about the few files a reference list names.
+    private let openTexts: [String: String]
 
-    init(requestURL: URL, requestText: NSString, rootComponents: [String]?) {
+    init(
+        requestURL: URL,
+        requestText: NSString,
+        rootComponents: [String]?,
+        openTexts: [URL: String] = [:]
+    ) {
         self.rootComponents = rootComponents
+        var canonicalTexts: [String: String] = [:]
+        canonicalTexts.reserveCapacity(openTexts.count)
+        for (url, text) in openTexts {
+            canonicalTexts[CanonicalPath.canonical(url).path] = text
+        }
+        self.openTexts = canonicalTexts
         let canonical = CanonicalPath.canonical(requestURL)
         let entry = Entry(
             requestText,
@@ -1104,13 +1141,17 @@ private struct FileTextCache {
     /// ways — which is exactly what a server that resolved `/private/tmp/…`
     /// hands back for a buffer opened as `/tmp/…` — is read, scanned and
     /// path-resolved once.
+    ///
+    /// **An open tab's text beats the disk copy**: the server's coordinates for
+    /// such a file are the buffer's (the push channel gave it that text), so the
+    /// disk copy is the wrong coordinate space and not merely a stale one.
     mutating func text(
         for file: URL,
         loadText: LSPIntelligenceProvider.TextLoader
     ) -> Entry? {
         let canonical = CanonicalPath.canonical(file)
         if let cached = entries[canonical.path] { return cached }
-        guard let loaded = loadText(file) else { return nil }
+        guard let loaded = openTexts[canonical.path] ?? loadText(file) else { return nil }
         let entry = Entry(
             loaded as NSString,
             relativePath: Self.relativePath(

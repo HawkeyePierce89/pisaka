@@ -1750,7 +1750,33 @@ document, together with the limits they carry.
     canonically, and seeded with the requesting file's **buffer** rather than its
     disk copy. Without it, `LineStartIndex.offsets(in:)` would run once per usage in
     a file, which on the identifier that motivates the 2 000 cap is the difference
-    between a list and a hang. The row's **display path is cached on the same
+    between a list and a hang.
+    **Every *other* open tab's buffer beats its disk copy too**, and this is the one
+    request in the layer where that matters. D2 says the live buffer travels with
+    the question, and for every other request the question is about a single
+    document, so `text` is the whole of it. A references answer is not: it names
+    ranges in *other* files, and the diagnostics push channel (D29/D30) has already
+    given the server every open served buffer — so a server asked about a project
+    with a dirty background tab answers in that tab's **buffer** coordinates.
+    Mapping those against the disk copy is not staleness but the wrong coordinate
+    space, and it is the one way this path can produce a row that is *wrong* rather
+    than absent: a plausible line, a preview drawn from unrelated text, and a reveal
+    that `revealRange(naming:in:)` then correctly refuses. So `UsagesRequest` carries
+    `openTexts` — the tabs, keyed by URL, filled in by `FindUsagesModel`, which is
+    where the buffers live — and the cache consults them, canonically keyed like
+    everything else here, before it reads a byte. The textual scan already preferred
+    the buffer for every file it read; without this the two provenances would
+    disagree about what "the file" is, which is the blur `UsageProvenance` exists to
+    prevent.
+    **The mapping loop is the one loop here that checks for cancellation**, because
+    it is the one that can outlive its question and the one that is unbounded: a
+    server naming a widely-used symbol legitimately answers tens of thousands of
+    locations, each of which reads and indexes a file the cache then holds, while
+    `RoutingIntelligenceProvider` has already abandoned the call at its budget and
+    `FindUsagesModel` has started the project walk in its place. A loser that does
+    not notice goes on reading the project beside the walk that replaced it. Every
+    other mapped answer in this file is bounded by a popup's worth of items and
+    needs no such stop. The row's **display path is cached on the same
     entry**, for the reason the canonical *root* is hoisted out of the loop above
     it: `CanonicalPath.canonical` is a symlink resolution on the file system and
     the answer is one constant per file, so deriving it per row would put a second

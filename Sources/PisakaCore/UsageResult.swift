@@ -109,8 +109,10 @@ public struct UsagesAnswer: Equatable, Sendable {
     public let rows: [UsageResult]
     /// What the rows mean. See `UsageProvenance`.
     public let provenance: UsageProvenance
-    /// Whether `rows` is the head of a longer list — set only by `make`, and only
-    /// when the cap actually removed something.
+    /// Whether `rows` is the head of a longer list — either because the cap
+    /// removed something, or because whoever collected the rows stopped reading
+    /// before the end (`make`'s `stoppedEarly`). Both mean the same thing to the
+    /// panel: there is more, and this is not all of it.
     public let isTruncated: Bool
 
     public init(
@@ -152,24 +154,37 @@ public struct UsagesAnswer: Equatable, Sendable {
     /// `requestingFile` is optional because the textual scan can be asked from a
     /// tab whose file has been deleted underneath it; `nil` simply drops the
     /// first ordering key.
+    ///
+    /// `stoppedEarly` is the caller's own answer to "was there more to read?",
+    /// and it is **not** derivable here. A walk that abandons the project once it
+    /// holds one row past the cap can still hand over a deduplicated list at or
+    /// below it — the requesting file is deliberately scanned twice whenever the
+    /// walk spells it differently — and the row count alone would then report a
+    /// list built from part of the project as complete. Whoever stopped reading
+    /// says so.
     public static func make(
         identifier: String,
         rows: [UsageResult],
         provenance: UsageProvenance,
-        requestingFile: URL?
+        requestingFile: URL?,
+        stoppedEarly: Bool = false,
+        paths: CanonicalPathMemo = CanonicalPathMemo()
     ) -> UsagesAnswer {
-        let deduplicated = deduplicated(rows)
-        let ordered = ordered(deduplicated, requestingFile: requestingFile)
+        let deduplicated = deduplicated(rows, paths: paths)
+        let ordered = ordered(deduplicated, requestingFile: requestingFile, paths: paths)
         return UsagesAnswer(
             identifier: identifier,
             rows: Array(ordered.prefix(cap)),
             provenance: provenance,
-            isTruncated: ordered.count > cap
+            isTruncated: stoppedEarly || ordered.count > cap
         )
     }
 
     /// One row per *(canonical file, range)*, keeping the first.
-    static func deduplicated(_ rows: [UsageResult]) -> [UsageResult] {
+    static func deduplicated(
+        _ rows: [UsageResult],
+        paths: CanonicalPathMemo = CanonicalPathMemo()
+    ) -> [UsageResult] {
         struct Key: Hashable {
             let path: String
             let location: Int
@@ -179,20 +194,12 @@ public struct UsagesAnswer: Equatable, Sendable {
         var seen = Set<Key>()
         var kept: [UsageResult] = []
         kept.reserveCapacity(rows.count)
-        // The canonical path is computed once per row and cached by spelling: a
-        // two-thousand-row answer over a hundred files would otherwise resolve
-        // symlinks two thousand times for a hundred distinct results.
-        var canonicalPaths: [String: String] = [:]
         for row in rows {
-            let spelled = row.fileURL.path
-            let canonical: String
-            if let cached = canonicalPaths[spelled] {
-                canonical = cached
-            } else {
-                canonical = CanonicalPath.canonical(row.fileURL).path
-                canonicalPaths[spelled] = canonical
-            }
-            let key = Key(path: canonical, location: row.range.location, length: row.range.length)
+            let key = Key(
+                path: paths.path(of: row.fileURL),
+                location: row.range.location,
+                length: row.range.length
+            )
             if seen.insert(key).inserted { kept.append(row) }
         }
         return kept
@@ -215,16 +222,15 @@ public struct UsagesAnswer: Equatable, Sendable {
     /// total order on *(isRequestingFile, relativePath, path, location, length)*,
     /// so two rows can compare equal only when they are duplicates dedup already
     /// removed.
-    static func ordered(_ rows: [UsageResult], requestingFile: URL?) -> [UsageResult] {
-        let requestingPath = requestingFile.map { CanonicalPath.canonical($0).path }
-        var canonicalPaths: [String: String] = [:]
+    static func ordered(
+        _ rows: [UsageResult],
+        requestingFile: URL?,
+        paths: CanonicalPathMemo = CanonicalPathMemo()
+    ) -> [UsageResult] {
+        let requestingPath = requestingFile.map { paths.path(of: $0) }
         func isRequesting(_ row: UsageResult) -> Bool {
             guard let requestingPath else { return false }
-            let spelled = row.fileURL.path
-            if let cached = canonicalPaths[spelled] { return cached == requestingPath }
-            let canonical = CanonicalPath.canonical(row.fileURL).path
-            canonicalPaths[spelled] = canonical
-            return canonical == requestingPath
+            return paths.path(of: row.fileURL) == requestingPath
         }
 
         return rows.sorted { lhs, rhs in
@@ -275,5 +281,42 @@ extension UsageResult {
         guard range.location <= text.length, NSMaxRange(range) <= text.length else { return nil }
         guard text.substring(with: range) == identifier else { return nil }
         return range
+    }
+}
+
+// MARK: - The canonical-path memo
+
+/// One query's answers to "what does this file spelling canonicalize to".
+///
+/// A reference type, and that is the whole point: `UsagesAnswer.make` is called
+/// again for **every chunk the textual walk finds something in**, over the rows
+/// collected so far — so a cache that lived inside one call would resolve every
+/// distinct file's symlinks again on the next one, on the main actor, once per
+/// chunk. `CanonicalPath.canonical` is a file-system round trip
+/// (`resolvingSymlinksInPath`), which makes that cost quadratic in a walk whose
+/// whole point is to stream. Held by the caller, it is paid once per distinct
+/// spelling per question instead.
+///
+/// **Scoped to one question deliberately.** A file's canonical path is not a
+/// constant — a symlink can be repointed, a directory replaced — so a memo that
+/// outlived the answer it was built for would be a stale-path cache, which is
+/// exactly the bug `CanonicalPath` exists to avoid. One question's walk is short
+/// enough that nothing it resolves changes underneath it, and long enough that
+/// re-resolving is what hurts.
+///
+/// Not `Sendable`: it is mutable state with no synchronization, used only from
+/// the main actor (`FindUsagesModel`) or from within a single call.
+public final class CanonicalPathMemo {
+    private var resolved: [String: String] = [:]
+
+    public init() {}
+
+    /// `url`'s canonical path, resolved once per distinct spelling.
+    public func path(of url: URL) -> String {
+        let spelled = url.path
+        if let cached = resolved[spelled] { return cached }
+        let canonical = CanonicalPath.canonical(url).path
+        resolved[spelled] = canonical
+        return canonical
     }
 }

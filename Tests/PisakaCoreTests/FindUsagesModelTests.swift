@@ -13,6 +13,9 @@ final class FindUsagesModelTests: XCTestCase {
     private final class StubProvider: CodeIntelligenceProviding {
         var referenceRows: [UsageResult] = []
         private(set) var referenceCalls = 0
+        /// The last request as the model actually assembled it — which is not the
+        /// one the caller handed `find`, since the buffers are added on the way.
+        private(set) var lastRequest: UsagesRequest?
 
         /// Run on the main actor *while `find` is suspended on this answer* — the
         /// causal rendezvous the semantic checkpoint needs, with no timing in it:
@@ -26,6 +29,7 @@ final class FindUsagesModelTests: XCTestCase {
 
         func references(for request: UsagesRequest) async -> [UsageResult] {
             referenceCalls += 1
+            lastRequest = request
             if let whileAnswering { await MainActor.run { whileAnswering() } }
             return referenceRows
         }
@@ -265,6 +269,84 @@ final class FindUsagesModelTests: XCTestCase {
 
         XCTAssertEqual(model.rows.count, UsagesAnswer.cap)
         XCTAssertFalse(model.isTruncated)
+    }
+
+    /// **The walk abandons the project once it is past the cap, and reports it.**
+    ///
+    /// The truncation flag is the walk's own answer to "was there more to read?"
+    /// rather than a count comparison, because the two can disagree: the loop
+    /// stops on the *raw* count while the answer measures the *deduplicated* one,
+    /// and the requesting file is deliberately collected twice whenever the walk
+    /// spells it differently (a symlinked root is the ordinary case), so those
+    /// rows collapse afterwards. `UsagesAnswerTests` pins the below-the-cap half
+    /// of that contract, which needs no project to state; this pins that the walk
+    /// both stops and says so.
+    func testAWalkAbandonedWithFilesLeftUnreadIsTruncatedAndReadsNoFurther() async {
+        let over = Array(repeating: "count", count: UsagesAnswer.cap + 1).joined(separator: " ")
+        // More files than one chunk holds, so the walk provably has some left when
+        // the first chunk alone puts it past the cap.
+        var files = ["a.swift": over]
+        for index in 0..<(FindUsagesModel.chunkSize * 2) {
+            files["z\(index).swift"] = "nothing to find here"
+        }
+        let stub = StubFileTree(root: root, files: files)
+        let model = FindUsagesModel(fileService: stub)
+
+        await model.find(request("count"), root: root)
+
+        XCTAssertEqual(model.rows.count, UsagesAnswer.cap)
+        XCTAssertTrue(model.isTruncated, "files left unread is truncation")
+        XCTAssertLessThan(
+            stub.readPaths.count,
+            files.count,
+            "the point of stopping is that the rest of the project is not read"
+        )
+    }
+
+    // MARK: - The open buffers
+
+    /// **The semantic answer is told about the open tabs too.**
+    ///
+    /// A server's ranges in a dirty *background* tab are that buffer's — the push
+    /// channel gave it that text — so the provider needs the buffers to map them,
+    /// and only this model holds them. The textual scan has always preferred a
+    /// buffer over the disk; without this the two provenances would disagree about
+    /// what "the file" is.
+    func testTheOpenBuffersTravelWithTheSemanticQuestion() async {
+        let provider = StubProvider()
+        let other = root.appendingPathComponent("other.swift")
+        let model = FindUsagesModel(
+            fileService: StubFileTree(root: root, files: [:]),
+            provider: { provider },
+            openBuffers: { [other: "let count = 2"] }
+        )
+
+        await model.find(request("count"), root: root)
+
+        XCTAssertEqual(provider.lastRequest?.openTexts, [other: "let count = 2"])
+    }
+
+    /// A caller that filled `openTexts` itself keeps its own snapshot: the model
+    /// supplies buffers, it does not overrule a request that already carries them.
+    func testARequestThatAlreadyCarriesBuffersIsNotOverwritten() async {
+        let provider = StubProvider()
+        let stated = root.appendingPathComponent("stated.swift")
+        let model = FindUsagesModel(
+            fileService: StubFileTree(root: root, files: [:]),
+            provider: { provider },
+            openBuffers: { [self.root.appendingPathComponent("other.swift"): "ignored"] }
+        )
+        let carried = UsagesRequest(
+            identifier: "count",
+            fileURL: root.appendingPathComponent("a.swift"),
+            offset: 0,
+            text: "",
+            openTexts: [stated: "let count = 3"]
+        )
+
+        await model.find(carried, root: root)
+
+        XCTAssertEqual(provider.lastRequest?.openTexts, [stated: "let count = 3"])
     }
 
     // MARK: - Generation discipline

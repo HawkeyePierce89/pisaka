@@ -180,9 +180,11 @@ public final class FindUsagesModel: ObservableObject {
     ///     installed — is not an error: it simply means the textual answer is the
     ///     only one available.
     ///   - openBuffers: the *unsaved* text of every open tab that has a URL, keyed
-    ///     by that URL, called on the main actor **once** per textual scan. A
-    ///     tab's text is scanned instead of the file on disk, so the rows describe
-    ///     what the user is looking at. A url-less buffer names no file and is
+    ///     by that URL, called on the main actor **once per question** — first to
+    ///     fill the request's `openTexts` for the provider, and again for the
+    ///     textual walk if it runs. A tab's text is used instead of the file on
+    ///     disk in *both* answers, so the rows describe what the user is looking
+    ///     at whichever one produced them. A url-less buffer names no file and is
     ///     left out.
     public init(
         fileService: FileServicing = FileService(),
@@ -306,7 +308,19 @@ public final class FindUsagesModel: ObservableObject {
         emptyReason = nil
         isSearching = true
 
-        let semantic = await provider()?.references(for: usages) ?? []
+        // The open tabs travel with the question, for `UsagesRequest.openTexts`'s
+        // reason: a server's ranges in a dirty background tab are that buffer's,
+        // and only this model holds the buffers. Enriched here rather than at the
+        // call site so no caret command has to know which of the two answers needs
+        // them — and read on the main actor, where `openBuffers` must run.
+        let semanticRequest = UsagesRequest(
+            identifier: usages.identifier,
+            fileURL: usages.fileURL,
+            offset: usages.offset,
+            text: usages.text,
+            openTexts: usages.openTexts.isEmpty ? openBuffers() : usages.openTexts
+        )
+        let semantic = await provider()?.references(for: semanticRequest) ?? []
         guard token == generation else { return }
 
         if !semantic.isEmpty {
@@ -329,10 +343,10 @@ public final class FindUsagesModel: ObservableObject {
     /// project's readable text files.
     ///
     /// Published per chunk, so the panel fills as the walk proceeds. Collection
-    /// stops the moment one row more than the cap is in hand: the surplus row is
-    /// what sets `isTruncated` through `UsagesAnswer.make`'s own `> cap` test, and
-    /// walking on past it would read the rest of the project to build rows the cap
-    /// discards.
+    /// stops the moment one row more than the cap is in hand — walking on past it
+    /// would read the rest of the project to build rows the cap discards — and the
+    /// walk tells `make` it stopped (`stoppedEarly`) rather than leaving it to
+    /// infer truncation from a row count that has since been deduplicated.
     private func scanTextually(
         _ usages: UsagesRequest,
         root: URL?,
@@ -383,6 +397,13 @@ public final class FindUsagesModel: ObservableObject {
 
         var collected: [UsageResult] = []
         var index = 0
+        // One memo for the whole walk, not one per `make` call: see
+        // `CanonicalPathMemo`. Every chunk that finds something re-runs the
+        // hygiene over everything collected so far, and each of those resolves a
+        // symlink per distinct file — on the main actor — so a per-call cache
+        // would make the streaming publish quadratic in the very projects it
+        // exists for.
+        let paths = CanonicalPathMemo()
 
         while index < files.count && collected.count <= UsagesAnswer.cap {
             let end = min(index + Self.chunkSize, files.count)
@@ -414,7 +435,9 @@ public final class FindUsagesModel: ObservableObject {
                     identifier: name,
                     rows: collected,
                     provenance: .textual,
-                    requestingFile: usages.fileURL
+                    requestingFile: usages.fileURL,
+                    stoppedEarly: index < files.count && collected.count > UsagesAnswer.cap,
+                    paths: paths
                 )
             )
         }
@@ -431,7 +454,18 @@ public final class FindUsagesModel: ObservableObject {
                 identifier: name,
                 rows: collected,
                 provenance: .textual,
-                requestingFile: usages.fileURL
+                requestingFile: usages.fileURL,
+                // **Files left unread is truncation, whatever the row count says.**
+                // The loop stops on the *raw* count passing the cap while `make`
+                // measures the *deduplicated* one, and the two disagree by
+                // construction: the requesting file is inserted at index 0 whenever
+                // the walk spells it differently, so its rows are collected twice
+                // and collapse here. Left to infer truncation from its own count,
+                // `make` would then call a list built from part of the project
+                // complete — the one guarantee the cap makes, broken exactly when
+                // it bites.
+                stoppedEarly: index < files.count,
+                paths: paths
             )
         )
         isSearching = false

@@ -480,12 +480,37 @@ public struct UsagesRequest: Equatable, Sendable {
     /// The buffer's *live* text (D2: sync is request-driven, so the text travels
     /// with the question).
     public let text: String
+    /// The live text of **every other open tab that has a URL**, keyed by that
+    /// URL — empty when the caller has no buffers to offer.
+    ///
+    /// **D2 again, one file wider, and this question is the reason it has to be.**
+    /// Every other request in this seam is about a single document, so `text`
+    /// alone is the whole live state that matters. A references answer is not: it
+    /// names ranges in *other* files, and the diagnostics push channel (D29/D30)
+    /// has already told the server about every open served buffer — so a server
+    /// asked about a project with a dirty background tab answers in that tab's
+    /// **buffer** coordinates. Mapping those against the disk copy is the one way
+    /// this layer can produce a row that is wrong rather than absent: a plausible
+    /// line, a preview drawn from the wrong offsets, and a reveal that then
+    /// refuses the range. The textual scan already prefers the buffer for every
+    /// file it reads, so without this the two provenances would disagree about
+    /// what "the file" is — the blur `UsageProvenance` exists to prevent.
+    ///
+    /// A url-less buffer names no file a row could point at and is left out.
+    public let openTexts: [URL: String]
 
-    public init(identifier: String, fileURL: URL?, offset: Int, text: String) {
+    public init(
+        identifier: String,
+        fileURL: URL?,
+        offset: Int,
+        text: String,
+        openTexts: [URL: String] = [:]
+    ) {
         self.identifier = identifier
         self.fileURL = fileURL
         self.offset = offset
         self.text = text
+        self.openTexts = openTexts
     }
 }
 

@@ -706,12 +706,17 @@ final class LSPIntelligenceProviderTests: XCTestCase {
 
     // MARK: - Find usages
 
-    private func usagesRequest(at offset: Int? = nil, text: String? = nil) -> UsagesRequest {
+    private func usagesRequest(
+        at offset: Int? = nil,
+        text: String? = nil,
+        openTexts: [URL: String] = [:]
+    ) -> UsagesRequest {
         UsagesRequest(
             identifier: "Greeter",
             fileURL: mainFile,
             offset: offset ?? greeterReference,
-            text: text ?? mainSource
+            text: text ?? mainSource,
+            openTexts: openTexts
         )
     }
 
@@ -958,6 +963,117 @@ final class LSPIntelligenceProviderTests: XCTestCase {
 
         XCTAssertEqual(usages.count, 2)
         XCTAssertEqual(counter.count, 0, "the requesting file is the buffer, never a disk read")
+    }
+
+    /// **A dirty background tab is mapped against its buffer, not its disk copy.**
+    ///
+    /// The push channel (D29/D30) has already given the server that tab's text, so
+    /// the coordinates it answers with are the *buffer's*. Reading the disk copy
+    /// here is not a staleness detail but the wrong coordinate space: it produces a
+    /// plausible-looking row on the wrong line, with a preview drawn from unrelated
+    /// text, that the editor then refuses to reveal. The fixture makes the two
+    /// spaces disagree by two lines, so a row mapped against the disk copy cannot
+    /// accidentally pass.
+    func testAnOpenTabsBufferIsPreferredOverItsDiskCopyWhenMappingUsages() async throws {
+        let editedGreeter = """
+            // A comment the user just typed.
+            // And a second line of it.
+            \(greeterSource)
+            """
+        // `public struct Greeter` sits on line 1 of the disk copy and line 3 of the
+        // buffer; the server answers about the buffer, because that is what it has.
+        transport.script(LSPMethod.references, .reply(.array([
+            location(greeterFile, line: 3, from: 14, to: 21),
+        ])))
+        let counter = Counter()
+        let workspace = makeWorkspace()
+        lastWorkspace = workspace
+        let source = greeterSource
+        let provider = LSPIntelligenceProvider(
+            workspace: workspace,
+            loadText: { url in
+                counter.record(url.path)
+                return source
+            }
+        )
+
+        let usages = await provider.references(
+            for: usagesRequest(openTexts: [greeterFile: editedGreeter])
+        )
+
+        XCTAssertEqual(usages.count, 1)
+        let row = try XCTUnwrap(usages.first)
+        XCTAssertEqual(row.line, 4, "the display line is the buffer's, not the disk copy's")
+        XCTAssertEqual(row.preview.text, "public struct Greeter {")
+        XCTAssertEqual(
+            (editedGreeter as NSString).substring(with: row.range),
+            "Greeter",
+            "the range must land on the symbol in the text the row was computed against"
+        )
+        XCTAssertEqual(counter.count, 0, "an open tab's text is never re-read from disk")
+    }
+
+    /// The same rule when the tab and the server spell the file differently —
+    /// which they routinely do, since a server answers with the path *it*
+    /// resolved. A lookup by raw `path` would miss the buffer and fall silently
+    /// back to the disk copy, i.e. to exactly the wrong coordinate space the test
+    /// above is about.
+    func testAnOpenTabIsMatchedCanonicallyRatherThanBySpelling() async throws {
+        let editedGreeter = """
+            // A comment the user just typed.
+            // And a second line of it.
+            \(greeterSource)
+            """
+        let asOpened = URL(fileURLWithPath: "/private/tmp/lspfix/pkg/Sources/App/../Core/Greeter.swift")
+        transport.script(LSPMethod.references, .reply(.array([
+            location(greeterFile, line: 3, from: 14, to: 21),
+        ])))
+        let workspace = makeWorkspace()
+        lastWorkspace = workspace
+        let source = greeterSource
+        let provider = LSPIntelligenceProvider(workspace: workspace, loadText: { _ in source })
+
+        let usages = await provider.references(
+            for: usagesRequest(openTexts: [asOpened: editedGreeter])
+        )
+
+        XCTAssertEqual(usages.first?.preview.text, "public struct Greeter {")
+    }
+
+    /// **A cancelled mapping stops reading the project.**
+    ///
+    /// `RoutingIntelligenceProvider` abandons this call at its budget and cancels
+    /// the task around it, and `FindUsagesModel` starts the textual walk in its
+    /// place. The mapping loop is unbounded — one file read and indexed per
+    /// location a server named — so a loser that does not notice goes on reading
+    /// the project alongside the walk that replaced it. The cancellation is staged
+    /// causally, from inside the first file's read, so there is no window to miss.
+    func testACancelledUsagesMappingStopsReadingFiles() async throws {
+        let otherFile = root.appendingPathComponent("Sources/Core/Other.swift")
+        transport.script(LSPMethod.references, .reply(.array([
+            location(greeterFile, line: 1, from: 14, to: 21),
+            location(otherFile, line: 1, from: 14, to: 21),
+        ])))
+        let workspace = makeWorkspace()
+        lastWorkspace = workspace
+        let counter = Counter()
+        let source = greeterSource
+        let provider = LSPIntelligenceProvider(
+            workspace: workspace,
+            loadText: { url in
+                counter.record(url.path)
+                // Cancelled from *inside* the loop, through the task running it,
+                // so there is no handle to publish and no window between arming
+                // the cancellation and the iteration that must observe it.
+                withUnsafeCurrentTask { $0?.cancel() }
+                return source
+            }
+        )
+
+        let usages = await Task { await provider.references(for: self.usagesRequest()) }.value
+
+        XCTAssertTrue(usages.isEmpty, "an abandoned mapping publishes nothing")
+        XCTAssertEqual(counter.count, 1, "and reads no file after the cancellation")
     }
 
     // MARK: - Rename

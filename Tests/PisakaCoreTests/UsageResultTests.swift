@@ -284,6 +284,66 @@ final class UsageResultTests: XCTestCase {
         XCTAssertFalse(answer.isTruncated)
     }
 
+    /// **A collector that stopped reading is truncated however few rows survived.**
+    ///
+    /// The direct counter-case to the test above, and the reason `stoppedEarly`
+    /// exists rather than the flag being inferred here. A walk stops on the *raw*
+    /// count passing the cap, and dedup then runs: the same four thousand rows
+    /// collapsing to two thousand mean "complete" when the whole project was read
+    /// and "the first two thousand of more" when it was abandoned midway. Nothing
+    /// in the rows tells the two apart, so whoever stopped reading says so — and a
+    /// list built from part of a project is never presented as the whole of it.
+    func testACollectorThatStoppedEarlyIsTruncatedEvenAfterDedupBringsItUnderTheCap() {
+        let distinct = (0..<UsagesAnswer.cap).map { row("/p/root/a.swift", at: $0 * 10, relativePath: "a.swift") }
+
+        let answer = UsagesAnswer.make(
+            identifier: "foo",
+            rows: distinct + distinct,
+            provenance: .textual,
+            requestingFile: nil,
+            stoppedEarly: true
+        )
+
+        XCTAssertEqual(answer.rows.count, UsagesAnswer.cap)
+        XCTAssertTrue(answer.isTruncated)
+    }
+
+    /// The flag only ever adds: a complete walk still reports what the cap did.
+    func testStoppingEarlyIsNotTheOnlyWayAnAnswerIsTruncated() {
+        let rows = (0...UsagesAnswer.cap).map { row("/p/root/a.swift", at: $0 * 10, relativePath: "a.swift") }
+
+        let answer = UsagesAnswer.make(
+            identifier: "foo",
+            rows: rows,
+            provenance: .textual,
+            requestingFile: nil,
+            stoppedEarly: false
+        )
+
+        XCTAssertTrue(answer.isTruncated)
+    }
+
+    // MARK: - The memo
+
+    /// One resolution per distinct spelling, and the same answer every time — the
+    /// property the streaming walk depends on, since it hands one memo to every
+    /// chunk's `make` instead of paying a symlink resolution per file per chunk.
+    func testTheCanonicalMemoAnswersOncePerSpellingAndAgreesWithCanonicalPath() {
+        let memo = CanonicalPathMemo()
+        let url = URL(fileURLWithPath: "/p/root/./sub/../a.swift")
+
+        let first = memo.path(of: url)
+        let second = memo.path(of: url)
+
+        XCTAssertEqual(first, CanonicalPath.canonical(url).path)
+        XCTAssertEqual(second, first)
+        XCTAssertNotEqual(
+            memo.path(of: URL(fileURLWithPath: "/p/root/b.swift")),
+            first,
+            "a second spelling is a second answer, not the cached one"
+        )
+    }
+
     // MARK: - The answer itself
 
     func testAnswerCarriesTheIdentifierAndProvenanceUnchanged() {

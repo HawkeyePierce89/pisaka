@@ -1236,9 +1236,27 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     is sized for arbitrary patterns over a whole project, where a broad pattern
     legitimately matches thousands of lines someone then narrows. This list answers
     one question about one name, and an identifier used more than two thousand times
-    is not a list anyone reads to the end. `isTruncated` is set only when the cap
-    actually removed something, and the panel says so, so a truncated answer is
-    never mistaken for a complete one.
+    is not a list anyone reads to the end. `isTruncated` is set when the cap
+    actually removed something **or when the caller says it stopped reading**
+    (`make`'s `stoppedEarly`), and the panel says so, so a truncated answer is never
+    mistaken for a complete one.
+    **The second half of that flag is not derivable from the rows, which is why it
+    is a parameter.** The walk stops on the *raw* count passing the cap while `make`
+    measures the *deduplicated* one, and the two disagree by construction: the
+    requesting file is collected twice whenever the walk spells it differently (a
+    symlinked root is the ordinary case), and those rows collapse in dedup. Left to
+    infer truncation from its own count, `make` would call a list built from part of
+    the project complete — the one guarantee the cap makes, broken in exactly the
+    case it exists for. Whoever stopped reading says so.
+    `CanonicalPathMemo` is the memo dedup and ordering both take, and it is a
+    **reference type held by the caller** rather than a cache inside one call: the
+    walk re-runs the whole hygiene over everything collected so far for *every chunk
+    that matched*, on the main actor, and `CanonicalPath.canonical` is a file-system
+    round trip — so a per-call cache would make a streaming publish quadratic in the
+    projects it exists for. It is scoped to one question deliberately: a file's
+    canonical path is not a constant (a symlink can be repointed), so a memo that
+    outlived its answer would be a stale-path cache, which is the bug `CanonicalPath`
+    exists to avoid.
     `revealRange(naming:in:)` is the row-activation rule, and it is **in Core rather
     than in the view** for the reason every decision here is. A row is a position in
     a text that was read once; between that read and the click the file may have
@@ -1321,14 +1339,17 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     root, or one where everything is excluded) and one where no chunk matched —
     would leave `provenance` and `emptyReason` both `nil`, which the panel draws as
     "nothing has been asked yet" for a question that was just asked and just
-    answered. Open buffers are snapshotted **once**, before the
-    walk, exactly as the project search snapshots them — the closure reads the
-    workspace and so must run on the main actor — and a tab's text is scanned in
-    preference to the disk copy, so the rows describe what the user is looking at.
-    Collection stops the moment one row *more* than the cap is in hand: that surplus
-    row is what sets `isTruncated` through `UsagesAnswer.make`'s own `> cap` test,
-    and walking past it would read the rest of the project to build rows the cap
-    discards. **The requesting file is always in the scanned set**, prepended to
+    answered. One `CanonicalPathMemo` is handed to every one of those `make` calls
+    for that type's reason — otherwise each chunk re-resolves every distinct file's
+    symlinks on the main actor. Open buffers are snapshotted on the main actor
+    (the closure reads the workspace, so it must) and travel into **both** answers:
+    into the request's `openTexts` for the provider, and into the walk's
+    per-file preference, so the rows describe what the user is looking at whichever
+    of the two produced them. Collection stops the moment one row *more* than the
+    cap is in hand — walking past it would read the rest of the project to build
+    rows the cap discards — and the walk **tells** `make` it stopped
+    (`stoppedEarly`) rather than leaving it to infer truncation from a row count
+    that has since been deduplicated. **The requesting file is always in the scanned set**, prepended to
     the walk's list when the walk does not already yield it: a tab may hold a file
     the project's `.gitignore` excludes, or one opened from outside the root
     entirely, and neither is a file `ProjectFileWalk` visits — so without this the
