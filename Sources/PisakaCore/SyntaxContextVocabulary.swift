@@ -29,12 +29,29 @@ public enum SyntaxContextVocabulary {
     }
 
     /// Where a line comment token is recognized.
+    ///
+    /// The two line-start readings are separate cases on purpose: a single
+    /// `lineStart` name hid the question of whether leading whitespace is
+    /// tolerated, and the two languages that answer it differently — gitignore
+    /// says no, the config formats say yes — were silently sharing one answer.
     public enum LineAnchor: Equatable, Sendable {
         /// The token starts a comment wherever it appears.
+        /// Held by every language whose comment token is unambiguous:
+        /// swift, javascript, typescript, python, go, rust, sql.
         case anywhere
-        /// Only when it is the first non-ignored character on the line.
-        case lineStart
-        /// At the start of the line or after whitespace.
+        /// Only at column zero — offset 0 or immediately after a line
+        /// separator, with no whitespace tolerated before the token.
+        /// Held by **gitignore** alone: gitignore(5) says a line is a comment
+        /// only when it *begins* with `#`, so an indented `#` is a literal
+        /// pattern matching a file whose name starts with a hash.
+        case trueLineStart
+        /// The first non-whitespace character on the line — leading indentation
+        /// is skipped. Held by **dockerfile**, **dotenv** and **editorconfig**,
+        /// each of whose readers trims the line before testing the token.
+        case afterIndent
+        /// At the start of the line or after whitespace — anywhere the token is
+        /// not glued to the preceding character. Held by **yaml**, whose `#`
+        /// opens a comment mid-line but only when a space precedes it.
         case afterWhitespace
     }
 
@@ -174,7 +191,9 @@ public enum SyntaxContextVocabulary {
         case .sql:
             return [.line(token: "--", anchor: .anywhere), .block(open: "/*", close: "*/", nestable: false)]
         case .dockerfile:
-            return [.line(token: "#", anchor: .lineStart)]
+            // The builder skips leading whitespace before an instruction or a
+            // comment, so an indented `#` is still a comment line.
+            return [.line(token: "#", anchor: .afterIndent)]
         case .json:
             return []
         case .yaml:
@@ -182,11 +201,18 @@ public enum SyntaxContextVocabulary {
         case .html:
             return [.block(open: "<!--", close: "-->", nestable: false)]
         case .dotenv:
-            return [.line(token: "#", anchor: .lineStart)]
+            // No normative grammar; the loaders in the wild trim the line
+            // before testing for `#`, so an indented hash comments the line.
+            return [.line(token: "#", anchor: .afterIndent)]
         case .gitignore:
-            return [.line(token: "#", anchor: .lineStart)]
+            // gitignore(5): a line is a comment only when it *begins* with `#`.
+            // An indented `#` is a literal pattern, not a comment.
+            return [.line(token: "#", anchor: .trueLineStart)]
         case .editorconfig:
-            return [.line(token: "#", anchor: .lineStart), .line(token: ";", anchor: .lineStart)]
+            // This repository's own `EditorConfigFile` parser trims the line
+            // and then tests `#`/`;`; the two must not disagree about the same
+            // file, so the scanner skips indentation the same way.
+            return [.line(token: "#", anchor: .afterIndent), .line(token: ";", anchor: .afterIndent)]
         case .markdown:
             return []
         }
@@ -367,6 +393,15 @@ public enum SyntaxContextVocabulary {
     /// dotenv: `'…'` and `"…"` single-line, **not gating** — variable names and
     /// values are the completion vocabulary, so gating would silence them. Still
     /// lexed for the same completeness.
+    ///
+    /// The escape rule is deliberately `.none`: dotenv has no normative grammar
+    /// and escape handling differs per loader, so borrowing another language's
+    /// backslash convention would be inventing a rule rather than modelling one.
+    /// Nothing anywhere depends on the choice — the escape rule's only effect in
+    /// this scanner is *where a literal ends*, dotenv strings never suppress
+    /// completion, and its `#` is anchored to the line's indentation rather than
+    /// to a string boundary. So the vocabulary states the lexically conservative
+    /// reading instead: the first matching quote closes the literal.
     private static let dotenvStringForms: [StringForm] = [
         StringForm(open: "'", close: "'", spansLines: false, escape: .none),
         StringForm(open: "\"", close: "\"", spansLines: false, escape: .none),

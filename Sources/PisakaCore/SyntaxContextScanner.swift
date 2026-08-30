@@ -497,17 +497,25 @@ public enum SyntaxContextScanner {
         switch anchor {
         case .anywhere:
             return true
-        case .lineStart:
-            return isAtLineStart(at: idx, scan: scan)
+        case .trueLineStart:
+            // Column zero exactly: no whitespace tolerance, because the one
+            // language holding this anchor (gitignore) reads an indented token
+            // as a literal pattern character rather than a comment opener.
+            if idx == 0 { return true }
+            return isLineSeparator(scan.character(at: idx - 1))
+        case .afterIndent:
+            return isAfterIndent(at: idx, scan: scan)
         case .afterWhitespace:
-            if isAtLineStart(at: idx, scan: scan) { return true }
+            if isAfterIndent(at: idx, scan: scan) { return true }
             guard idx > 0 else { return true }
             let prev = scan.character(at: idx - 1)
             return isWhitespace(prev) || isLineSeparator(prev)
         }
     }
 
-    private static func isAtLineStart(at idx: Int, scan: Scan) -> Bool {
+    /// Whether `idx` is the first non-whitespace position on its line — the line
+    /// may be indented, but nothing else may precede the token.
+    private static func isAfterIndent(at idx: Int, scan: Scan) -> Bool {
         if idx == 0 { return true }
         // Find last line separator before idx
         var lineStart = 0
@@ -759,7 +767,7 @@ public enum SyntaxContextScanner {
         var pos = idx - 1
         while pos >= 0, isWhitespace(scan.character(at: pos)) { pos -= 1 }
         if pos < 0 { return true }
-        if isAtLineStart(at: idx, scan: scan) { return isYamlLineStartValueAllowed(at: idx, scan: scan) }
+        if isAfterIndent(at: idx, scan: scan) { return isYamlLineStartValueAllowed(at: idx, scan: scan) }
         let ch = scan.character(at: pos)
         if ch == 58 {
             // ':' is a value indicator only when followed by separation
@@ -852,7 +860,7 @@ public enum SyntaxContextScanner {
 
     private static func isYamlCommentStart(at idx: Int, scan: Scan) -> Bool {
         if idx == 0 { return true }
-        if isAtLineStart(at: idx, scan: scan) { return true }
+        if isAfterIndent(at: idx, scan: scan) { return true }
         let prev = scan.character(at: idx - 1)
         return isWhitespace(prev) || isLineSeparator(prev)
     }
@@ -998,7 +1006,7 @@ public enum SyntaxContextScanner {
         var pos = idx - 1
         while pos >= 0, isWhitespace(scan.character(at: pos)) { pos -= 1 }
         if pos < 0 { return true }
-        if isAtLineStart(at: idx, scan: scan) { return true }
+        if isAfterIndent(at: idx, scan: scan) { return true }
         let ch = scan.character(at: pos)
         return ch == 58 || ch == 44 || ch == 91 || ch == 123 // ':', ',', '[', '{'
     }

@@ -276,28 +276,28 @@ source file; a new ordinary Core test suite needs no index line).
   `Tests/PisakaCoreTests/SyntaxContextVocabularyTests.swift`,
   `Tests/PisakaCoreTests/SyntaxContextScannerCharacterizationTests.swift`
 
-- [ ] Replace `LineAnchor.lineStart` with two cases — `.trueLineStart` (column
+- [x] Replace `LineAnchor.lineStart` with two cases — `.trueLineStart` (column
   zero) and `.afterIndent` (first non-whitespace on the line) — so every use
   site must be re-decided rather than inherit a changed meaning. Each case's doc
   comment says which languages hold it and why.
-- [ ] Re-point the four affected languages: gitignore to `.trueLineStart`;
+- [x] Re-point the four affected languages: gitignore to `.trueLineStart`;
   dockerfile, dotenv and editorconfig to `.afterIndent`, each with its one-line
   reason on the entry (editorconfig's cites this repository's own
   `.editorconfig` parser, which trims before testing `#`/`;` — the two must
   agree about the same file).
-- [ ] Teach `isAnchorSatisfied` the exact case: satisfied at offset 0 or
+- [x] Teach `isAnchorSatisfied` the exact case: satisfied at offset 0 or
   immediately after a line separator, with no whitespace tolerance.
-- [ ] Record the dotenv escape decision (`.none`) in `dotenvStringForms`'s doc
+- [x] Record the dotenv escape decision (`.none`) in `dotenvStringForms`'s doc
   comment with the reason from the Decisions section above.
-- [ ] Tests: a gitignore `#` at true line start is a comment and suppresses
+- [x] Tests: a gitignore `#` at true line start is a comment and suppresses
   completion; an indented `#` is code and does not; the unchanged mid-line case
   still holds; the dockerfile/dotenv/editorconfig indented `#` (and `;`) stay
   comments; a dotenv literal closing at the first matching quote pins the
   `.none` reading.
-- [ ] Update the gitignore run in the Task 2 goldens, with a comment naming this
+- [x] Update the gitignore run in the Task 2 goldens, with a comment naming this
   item as the reason the expectation moved; every other language's golden stays
   byte-identical.
-- [ ] Run `swift test` — must pass before Task 5.
+- [x] Run `swift test` — must pass before Task 5.
 
 ### Task 5: Two one-line hardenings
 

@@ -267,6 +267,14 @@ final class SyntaxContextScannerCharacterizationTests: XCTestCase {
     // MARK: - gitignore
 
     /// A true comment, an indented `#`, a negation and a trailing `#`.
+    ///
+    /// This is the one golden in the file that legitimately moved: the anchor
+    /// vocabulary re-pointed gitignore from "first non-whitespace on the line"
+    /// to true column zero, because gitignore(5) reads an indented `#` as a
+    /// literal pattern rather than a comment. The `  # indented hash` run is
+    /// therefore code now — the second `9m` run in the previous expectation
+    /// (`1c,9m,10c,15m,31c`) is gone, and every other language's golden stays
+    /// byte-identical.
     func testGitignoreGolden() {
         let text = [
             #"# comment"#,
@@ -277,7 +285,7 @@ final class SyntaxContextScannerCharacterizationTests: XCTestCase {
             #"path/with#hash"#,
         ].joined(separator: "\n")
         assertGolden("gitignore", text, language: .gitignore, golden: [
-            "1c,9m,10c,15m,31c",
+            "1c,9m,56c",
         ])
     }
 

@@ -362,10 +362,65 @@ final class SyntaxContextScannerTests: XCTestCase {
         assertContext(text, at: hashOff, language: .gitignore, is: .code)
     }
 
+    /// gitignore(5): a line is a comment only when it *begins* with `#`.
+    func testGitignoreHashAtTrueLineStartIsComment() {
+        let text = "build/\n# comment\n*.log"
+        let comOff = (text as NSString).range(of: "comment").location + 1
+        assertContext(text, at: comOff, language: .gitignore, is: .comment)
+        assertSuppress(text, at: comOff, language: .gitignore, is: true)
+    }
+
+    /// The indented `#` is a literal pattern character — it matches a file whose
+    /// name starts with a hash — so completion is offered on that line.
+    func testGitignoreIndentedHashIsPatternNotComment() {
+        let text = "build/\n  # indented\n*.log"
+        let patOff = (text as NSString).range(of: "indented").location + 1
+        assertContext(text, at: patOff, language: .gitignore, is: .code)
+        assertSuppress(text, at: patOff, language: .gitignore, is: false)
+    }
+
+    /// A gitignore `#` at the very first offset of the buffer is a comment too —
+    /// offset 0 is a true line start with no separator before it.
+    func testGitignoreHashAtBufferStartIsComment() {
+        let text = "# comment\nbuild/"
+        let comOff = (text as NSString).range(of: "comment").location + 1
+        assertContext(text, at: comOff, language: .gitignore, is: .comment)
+    }
+
     func testEditorconfigHashMidLineNotComment() {
         let text = "key = value # comment"
         let hashOff = (text as NSString).range(of: "#").location + 1
         assertContext(text, at: hashOff, language: .editorconfig, is: .code)
+    }
+
+    /// The three `.afterIndent` languages skip leading whitespace before the
+    /// comment token, the way each format's own reader does — editorconfig's
+    /// citation being this repository's `EditorConfigFile`, which trims the line
+    /// and then tests `#`/`;`.
+    func testIndentedHashIsCommentForTheAfterIndentLanguages() {
+        for language in [SyntaxLanguage.dockerfile, .dotenv, .editorconfig] as [SyntaxLanguage] {
+            let text = "A=1\n   # indented\nB=2"
+            let comOff = (text as NSString).range(of: "indented").location + 1
+            assertContext(text, at: comOff, language: language, is: .comment)
+        }
+    }
+
+    func testEditorconfigIndentedSemicolonIsComment() {
+        let text = "root = true\n  ; indented\n[*]"
+        let comOff = (text as NSString).range(of: "indented").location + 1
+        assertContext(text, at: comOff, language: .editorconfig, is: .comment)
+    }
+
+    /// dotenv declares `.none` for both quote forms, so the first matching quote
+    /// closes the literal and a backslash before it escapes nothing. The `x`
+    /// after that quote is therefore code, not a continuation of the string.
+    func testDotenvLiteralClosesAtFirstMatchingQuote() {
+        let text = "KEY=\"a\\\"x\""
+        let ns = text as NSString
+        let aOff = ns.range(of: "a").location + 1
+        let xOff = ns.range(of: "x").location + 1
+        assertContext(text, at: aOff, language: .dotenv, is: .string)
+        assertContext(text, at: xOff, language: .dotenv, is: .code)
     }
 
     func testYamlHashAfterWhitespaceIsComment() {
