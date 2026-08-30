@@ -167,25 +167,29 @@ public struct EditorConfigGlob: Equatable {
         return matches(relativePath: relativePath, work: &work)
     }
 
-    /// How many attempts the backtracking search entered while answering
-    /// `matches(relativePath:)`.
+    /// How many units of work the backtracking search actually did while
+    /// answering `matches(relativePath:)` — the machine-independent stand-in for
+    /// the wall clock the pathological-section-name tests used to read.
     ///
     /// A test seam and nothing else — no app code reads it, which is why it is
-    /// `internal` — and it exists because *exhaustion is not the property the
-    /// pathological-section-name tests mean*. Those inputs backtrack through
-    /// charged states as well as uncharged ones, so the ceiling lands at zero
-    /// either way: the same pair that answers in 9 ms today answers in 14 s with
-    /// one `budget -=` removed, and an assertion reading `budget` alone stays
-    /// green through that. What separates the two is the ratio between work done
-    /// and ceiling spent. Every attempt counted here is charged at least one
-    /// step, so a correctly charged search satisfies
-    /// `attempts <= maximumMatchSteps` *by construction*, while an uncharged one
-    /// runs the ceiling many times over — which is the "cannot hang" property a
-    /// wall clock could only approximate on the machine it happened to run on.
-    func matchAttempts(relativePath: String) -> Int {
+    /// `internal` — and it exists because *exhaustion is not the property those
+    /// tests mean*. Their inputs backtrack through charged states as well as
+    /// uncharged ones, so the ceiling lands at zero either way: the same pair
+    /// that answers in 9 ms today answers in 30 s with one `spend(_:)` removed,
+    /// and an assertion reading `budget` alone stays green through that.
+    ///
+    /// What separates the two is work done against ceiling spent, which is why
+    /// `MatchWork` books each site twice — `record(_:)` for what the step really
+    /// costs, `spend(_:)` for what the search is charged. When the two agree the
+    /// budget stops the search at the ceiling and `performed` lands there with
+    /// it; when a charge is deleted, misplaced or *undersized*, the search keeps
+    /// doing recorded work the ceiling never paid for and this number runs into
+    /// the millions. All three historical regressions are of that shape, and
+    /// none is visible to a counter the charge itself increments.
+    func matchWorkUnits(relativePath: String) -> Int {
         var work = MatchWork(budget: EditorConfigGlob.maximumMatchSteps)
         _ = matches(relativePath: relativePath, work: &work)
-        return work.attempts
+        return work.performed
     }
 
     private func matches(relativePath: String, work: inout MatchWork) -> Bool {
@@ -229,27 +233,46 @@ public struct EditorConfigGlob: Equatable {
 
     // MARK: - Matching
 
-    /// The match ceiling, and the number of attempts it was charged for.
+    /// The match ceiling, and the work actually done under it — **double-entry
+    /// bookkeeping**, deliberately two numbers rather than one.
     ///
-    /// The two travel together because the *pair* is the bound that matters. The
-    /// budget alone says "this search stopped"; it does not say the search could
-    /// not have run for fourteen seconds first, which is exactly what happens
-    /// when a backtracking state is entered without being charged for. Every
-    /// site below that enters an attempt charges at least one step for it, so
-    /// `attempts` can never exceed the starting budget — and a charge deleted
-    /// anywhere breaks that inequality long before it breaks anything a user
-    /// could see. `matchAttempts(relativePath:)` is what reads it.
+    /// The budget alone says "this search stopped"; it does not say the search
+    /// could not have run for thirty seconds first, which is exactly what
+    /// happens when a step's real cost is not the cost it is charged. And a
+    /// counter incremented *by the charging call itself* cannot say it either:
+    /// the moment a charge is deleted or undersized, such a counter shrinks with
+    /// it, so `counted <= budget` survives the very regression it was written to
+    /// name. All three of this matcher's historical regressions are of that
+    /// shape: one deleted the charge outright, one charged a constant for a step
+    /// that copies the whole compiled pattern, and one charged a length that is
+    /// zero for a step which is never free.
+    ///
+    /// So each site books its step twice, the two arguments written out
+    /// separately rather than hoisted into a shared local — a local re-couples
+    /// the books and the mechanism is lost. `record(_:)` says what the step
+    /// *costs*, `spend(_:)` says what the search is *charged* for it. When the two agree — which is the invariant every
+    /// call site below is written to keep — the budget halts the search at the
+    /// ceiling and `performed` lands there with it. When they disagree the
+    /// search keeps doing recorded work nobody paid for, and `performed` runs
+    /// into the millions while `budget` sits at zero looking healthy.
+    /// `matchWorkUnits(relativePath:)` is what reads it, and only tests do.
     struct MatchWork {
         /// What is left of `maximumMatchSteps`. Spent, not merely watched: a
         /// step is charged before it is taken.
         var budget: Int
-        /// Every attempt entered, whatever it cost.
-        private(set) var attempts = 0
+        /// Units of work the search really did, whatever it was charged for them.
+        private(set) var performed = 0
 
-        /// Enters one attempt and charges `cost` steps for it. `cost` is always
-        /// at least one; see the type's note for why that is the invariant.
-        mutating func charge(_ cost: Int) {
-            attempts += 1
+        /// Records `units` of work the search is about to do. Always paired with
+        /// the `spend(_:)` that pays for it; see the type's note for why the pair
+        /// is two calls and not one.
+        mutating func record(_ units: Int) {
+            performed += units
+        }
+
+        /// Spends `cost` steps of the ceiling for the work just recorded. `cost`
+        /// is always at least one.
+        mutating func spend(_ cost: Int) {
             budget -= cost
         }
     }
@@ -273,7 +296,8 @@ public struct EditorConfigGlob: Equatable {
         var characterIndex = characterIndex
         while tokenIndex < tokens.count {
             guard work.budget > 0 else { return false }
-            work.charge(1)
+            work.record(1)
+            work.spend(1)
             switch tokens[tokenIndex] {
             case .literal(let expected):
                 guard characterIndex < characters.count, characters[characterIndex] == expected else { return false }
@@ -368,10 +392,15 @@ public struct EditorConfigGlob: Equatable {
             // hundreds of free iterations at every backtracking state the budget
             // does allow, which is exactly the multiplication the ceiling exists
             // to refuse.
-            work.charge(1 + branch.count + rest.count)
+            guard work.budget > 0 else { return false }
+            // The two arguments are written out twice rather than hoisted into
+            // a local, and that duplication is the whole mechanism: a local
+            // would re-couple the books, so an undersized charge would shrink
+            // the record with it and vanish. See `MatchWork`.
+            work.record(1 + branch.count + rest.count)
+            work.spend(1 + branch.count + rest.count)
             guard work.budget > 0 else { return false }
             if match(branch + rest, from: 0, characters, from: characterIndex, work: &work) { return true }
-            guard work.budget > 0 else { return false }
         }
         return false
     }
@@ -403,14 +432,17 @@ public struct EditorConfigGlob: Equatable {
             // ceiling by the path's digit-run length: `*1*1…{0..0}` against a
             // 200-digit path spends tens of seconds inside a keystroke while
             // staying under every cap.
-            work.charge(length - characterIndex)
+            guard work.budget > 0 else { return false }
+            // Written out twice on purpose; see `matchAlternation`'s note and
+            // `MatchWork`.
+            work.record(length - characterIndex)
+            work.spend(length - characterIndex)
             guard work.budget > 0 else { return false }
             if let value = Int(String(characters[characterIndex..<length])),
                value >= lower, value <= upper,
                match(tokens, from: tokenIndex + 1, characters, from: length, work: &work) {
                 return true
             }
-            guard work.budget > 0 else { return false }
             length -= 1
         }
         return false

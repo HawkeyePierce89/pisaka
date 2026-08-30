@@ -586,14 +586,20 @@ through `#filePath` the same way, and must be listed in the test target's
 `exclude:` (why, in `core-lsp.md`).
 
 **Performance bounds are charged, not timed.** A test pinning a pathological
-input asserts the *work* — a budget driven to exhaustion **plus** a count of the
-attempts that budget paid for (`EditorConfigGlob.matchAttempts(relativePath:)`),
-or a step count off an `internal` seam (`SyntaxContextScanner.validatorStepCount`)
-— never a wall clock. Exhaustion alone is not the property: these inputs
-backtrack through charged states too, so the ceiling lands at zero whether or not
-the quadratic work in question is charged, and only the ratio between work done
-and ceiling spent tells the two apart. Every attempt is charged at least one
-step, so a correct search cannot enter more attempts than its budget — an
+input asserts the *work* — a budget driven to exhaustion **plus** the work that
+budget actually paid for (`EditorConfigGlob.matchWorkUnits(relativePath:)`), or a
+step count off an `internal` seam (`SyntaxContextScanner.validatorStepCount`) —
+never a wall clock. Exhaustion alone is not the property: these inputs backtrack
+through charged states too, so the ceiling lands at zero whether or not the
+quadratic work in question is charged, and only the ratio between work done and
+ceiling spent tells the two apart. **The work must be counted somewhere other
+than the charge**, or the assertion is a tautology that dies with the regression
+it names: a counter the charging call increments shrinks the moment a charge is
+deleted or undersized, so `EditorConfigGlob.MatchWork` keeps *double-entry*
+books — `record(_:)` for what a step costs, `spend(_:)` for what it is charged,
+the two arguments written out separately at each site on purpose. When they agree
+the budget halts the search at the ceiling; when they disagree the recorded work
+runs into the millions while the budget sits at zero looking healthy. That is an
 invariant, where a clock is a reading off whichever machine ran it (one such
 bound fired spuriously in a release run, which is what started this). Two older
 suites still bound a *structural* cap with a generous clock rather than a budget

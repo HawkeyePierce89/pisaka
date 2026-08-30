@@ -956,26 +956,44 @@ over in-memory trees (no committed `.editorconfig`):
     **Why that still catches the regression the clock was standing in for — and
     why exhaustion alone does not.** Two numbers are asserted, not one, because
     the first on its own is vacuous here. Exhaustion says only that the search
-    stopped; it does not say the search could not have run for fourteen seconds
+    stopped; it does not say the search could not have run for thirty seconds
     first. Every one of these inputs backtracks through *charged* wildcard states
     as well as the uncharged work each was found by, so it drives the ceiling to
     zero **either way**: restoring the numeric-range regression leaves an
-    exhaustion-only assertion green while the pair takes 14 s, and the
+    exhaustion-only assertion green while the pair takes 29.7 s, and the
     empty-branch one leaves it green at 6.6 s. Both were measured that way, which
     is why the assertion is not written that way.
 
     What separates the two is the *ratio* between work done and ceiling spent,
-    and `EditorConfigGlob.matchAttempts(relativePath:)` is the seam that reports
-    it — an `internal` counter of attempts entered, read by the suite and by
-    nothing in the app, the shape `SyntaxContextScanner.validatorStepCount` uses
-    for the same reason. Every site that enters an attempt charges at least one
-    step for it, so a correctly charged search **cannot** enter more attempts than
-    its starting budget — the inequality holds by construction — while an
-    uncharged one runs the ceiling many times over: 6.4 million attempts against
-    200 000 for the numeric range, 41 million for the empty branches. That is the
-    "cannot hang" property the clock approximated, stated as an invariant rather
-    than as a reading off whichever machine happened to run it (one of the old
-    bounds fired on a slow release-run machine, which is what started this).
+    and `EditorConfigGlob.matchWorkUnits(relativePath:)` is the seam that reports
+    it — an `internal` counter read by the suite and by nothing in the app, the
+    shape `SyntaxContextScanner.validatorStepCount` uses for the same reason.
+
+    **The counter is deliberately not incremented by the charge.** That is the
+    part a first attempt at this got wrong, and it is the whole mechanism. If
+    entering a state and paying for it are one call, then `counted <= budget`
+    holds no matter what: delete the charge and the count disappears with it, so
+    the assertion stays green through exactly the regression it was written to
+    name — measured, with the numeric-range charge removed the suite passed in
+    29.7 s. `MatchWork` therefore keeps **double-entry books**: `record(_:)` says
+    what a step costs, `spend(_:)` says what the search is charged for it, and
+    the two arguments are written out separately at each of the three sites
+    rather than hoisted into a shared local (a local re-couples them — with one,
+    the empty-branch regression escapes again, also measured). When the books
+    agree the budget halts the search and the recorded work lands at the ceiling
+    with it; when they disagree the search keeps doing work nobody paid for. All
+    three historical regressions are now caught, each at three orders of
+    magnitude above the bound: 54 million units for the alternation splice
+    charged as a constant, 302 million for the deleted numeric-range charge, 41
+    million for the empty branches. The bound itself is *twice* the ceiling, the
+    slack being one step's overshoot — a step records its cost before it learns
+    the budget cannot cover it, and the dearest single step is bounded by the
+    section-name cap and the path length, never by the ceiling.
+
+    That is the "cannot hang" property the clock approximated, stated as an
+    invariant rather than as a reading off whichever machine happened to run it
+    (one of the old bounds fired on a slow release-run machine, which is what
+    started this).
     The measured pre-fix numbers stay in each test's comment as the evidence for
     why the input is pathological in the first place; the pathological inputs
     themselves are unchanged, because the coverage is the input, not the clock.

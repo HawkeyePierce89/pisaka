@@ -249,48 +249,61 @@ final class EditorConfigGlobTests: XCTestCase {
     // MARK: - The match budget
     //
     // Every case below is pathological in exactly one way, and each asserts two
-    // numbers rather than a wall clock: the ceiling is *spent*, and the search
-    // entered no more attempts than that ceiling could pay for.
+    // numbers rather than a wall clock: the ceiling is *spent*, and the work the
+    // search really did stayed inside what that ceiling could pay for.
     //
     // The second half is the load-bearing one, and exhaustion alone cannot stand
     // in for it. Every one of these inputs also backtracks through *charged*
     // states, so it drives the budget to zero whether or not the quadratic work
     // in question is charged: restoring the numeric-range regression leaves the
-    // exhaustion assertion green while the pair takes 14 s, and the empty-branch
-    // one leaves it green at 6.6 s. What tells the two apart is the ratio
-    // between work done and ceiling spent — every attempt is charged at least
-    // one step, so a correctly charged search cannot enter more attempts than
-    // its starting budget, while an uncharged one runs the ceiling many times
-    // over. See `EditorConfigGlob.matchAttempts(relativePath:)`. The measured
-    // pre-fix numbers stay in each comment as the evidence for why the input is
+    // exhaustion assertion green while the pair takes 30 s, and the empty-branch
+    // one leaves it green at 6.6 s.
+    //
+    // What tells the two apart is work done against ceiling spent — and *done*
+    // has to be counted somewhere other than the charge, or the assertion is a
+    // tautology. `MatchWork` therefore books each step twice, `record(_:)` for
+    // what it costs and `spend(_:)` for what it is charged; a charge that is
+    // deleted, misplaced or undersized leaves recorded work the ceiling never
+    // paid for, and these assertions fire in the millions. See
+    // `EditorConfigGlob.matchWorkUnits(relativePath:)`. The measured pre-fix
+    // numbers stay in each comment as the evidence for why the input is
     // pathological in the first place.
 
     /// Runs the match against a budget *this suite* owns, answering all three
     /// parts: what the glob said, what was left of the ceiling, and how many
-    /// attempts the search entered. The pathological cases assert on the last
-    /// two, neither of which a `matches(_:_:)` owning its own budget internally
-    /// can report.
+    /// units of work the search really did. The pathological cases assert on the
+    /// last two, neither of which a `matches(_:_:)` owning its own budget
+    /// internally can report.
     private func matchSpendingBudget(
         _ pattern: String,
         _ path: String
-    ) -> (answer: Bool, remaining: Int, attempts: Int) {
+    ) -> (answer: Bool, remaining: Int, work: Int) {
         let glob = EditorConfigGlob(pattern: pattern)
         var budget = EditorConfigGlob.maximumMatchSteps
         let answer = glob.matches(relativePath: path, budget: &budget)
-        return (answer, budget, glob.matchAttempts(relativePath: path))
+        return (answer, budget, glob.matchWorkUnits(relativePath: path))
     }
 
-    /// The invariant every pathological case below shares: the ceiling is spent,
-    /// and the search entered no more attempts than the ceiling could pay for.
+    /// The property every pathological case below shares: the ceiling is spent,
+    /// and the work actually done stayed within what the ceiling could pay for.
+    ///
+    /// The bound is *twice* the ceiling rather than the ceiling itself, and the
+    /// slack is one step's overshoot: a step records what it costs before it
+    /// learns the budget cannot cover it, and the dearest single step here — an
+    /// alternation splice copying a whole compiled pattern, or a numeric-range
+    /// candidate spanning a whole digit run — is bounded by the section-name cap
+    /// and the path length, never by the ceiling. Doubling absorbs that with
+    /// room to spare while staying more than an order of magnitude below the
+    /// millions an under-charged search records.
     private func assertBoundedByItsCeiling(
-        _ result: (answer: Bool, remaining: Int, attempts: Int),
+        _ result: (answer: Bool, remaining: Int, work: Int),
         file: StaticString = #filePath,
         line: UInt = #line
     ) {
         XCTAssertLessThanOrEqual(result.remaining, 0, "the ceiling was not spent", file: file, line: line)
         XCTAssertLessThanOrEqual(
-            result.attempts, EditorConfigGlob.maximumMatchSteps,
-            "the search entered \(result.attempts) attempts against a ceiling of "
+            result.work, 2 * EditorConfigGlob.maximumMatchSteps,
+            "the search did \(result.work) units of work against a ceiling of "
                 + "\(EditorConfigGlob.maximumMatchSteps) — that is work the budget is not charged for",
             file: file, line: line
         )
@@ -310,14 +323,16 @@ final class EditorConfigGlobTests: XCTestCase {
     }
 
     func testAnAlternationHeavySectionNameSpendsItsBudgetAndAnswers() {
-        // A second pathological shape, and the one the step count alone does not
-        // catch: `matchAlternation` splices each branch in front of everything
-        // that follows the group, so one "step" copies up to the whole compiled
-        // pattern. Charging only the step let this 1_008-character name — well
-        // inside the length cap — spend ~0.6 s inside a keystroke. Charging the
-        // splice is what the attempt count below reads: uncharged, the same
-        // search still drives the ceiling to zero through the wildcards around
-        // it, but enters far more attempts than the ceiling could have paid for.
+        // A second pathological shape, and the one a *count of states* cannot
+        // catch at all: `matchAlternation` splices each branch in front of
+        // everything that follows the group, so one "step" copies up to the whole
+        // compiled pattern. Charging only the step let this 1_008-character name
+        // — well inside the length cap — spend ~0.6 s inside a keystroke, and it
+        // does so while entering no more states than the ceiling allows, because
+        // the fault is the *size* of each step rather than their number. The
+        // recorded units below are the splice's real cost, booked separately from
+        // what it is charged: restore `spend(1)` here and the search records
+        // 54 205 132 units against a ceiling of 200 000.
         let pattern = String(repeating: "{a,aa}", count: 18) + String(repeating: "b", count: 900)
         XCTAssertLessThan(pattern.count, EditorConfigGlob.maximumSectionNameLength)
         let result = matchSpendingBudget(pattern, String(repeating: "a", count: 26))
@@ -334,7 +349,7 @@ final class EditorConfigGlobTests: XCTestCase {
         // per-attempt step, and it scales with both the comma count and the path.
         // Those free iterations are exactly "quadratic and uncharged": restore
         // them and this pair takes 6.6 s while *still* spending the ceiling on
-        // the wildcards around it — so it is the attempt count, not the
+        // the wildcards around it — so it is the recorded work, not the
         // exhaustion, that fails here.
         let pattern = String(repeating: "*a", count: 10)
             + "{" + String(repeating: ",", count: 460) + "}"
@@ -349,9 +364,10 @@ final class EditorConfigGlobTests: XCTestCase {
         // The fourth: `matchNumericRange` tries every candidate length longest
         // first, and a candidate whose value falls outside the bounds never
         // reaches the recursive `match` that charges. Uncharged, the ceiling is
-        // multiplied by the path's digit-run length — this pair measured 14 s,
-        // and it *still* spends the ceiling on the wildcards around it, so only
-        // the attempt count below separates the two.
+        // multiplied by the path's digit-run length — measured at 29.7 s with the
+        // charge deleted, and it *still* spends the ceiling on the wildcards
+        // around it, so only the recorded work below separates the two: it lands
+        // at 302 150 769 units against a ceiling of 200 000.
         let pattern = String(repeating: "*1", count: 10) + "{0..0}"
         XCTAssertLessThan(pattern.count, EditorConfigGlob.maximumSectionNameLength)
         let path = String(repeating: "1", count: 200) + "zzz"
