@@ -79,8 +79,14 @@ public enum TextualUsageScanner {
         let needle = identifier as NSString
         guard needle.length <= text.length else { return [] }
 
-        let lineStarts = LineStartIndex.offsets(in: text)
-        var matches: [Match] = []
+        // **The ranges first, the line index only if there are any**
+        // (`TextSearchEngine.matches`'s rule, and for a sharper reason here). The
+        // index is a full pass over the text, and this scanner is run against
+        // *every file the project walk yields* — the overwhelming majority of
+        // which contain the name nowhere. Building it up front would make the
+        // textual answer, which is the only answer for every language without a
+        // server, read each of those files twice to report nothing.
+        var ranges: [NSRange] = []
         var searchStart = 0
         while searchStart <= text.length - needle.length {
             let remaining = NSRange(location: searchStart, length: text.length - searchStart)
@@ -88,22 +94,27 @@ public enum TextualUsageScanner {
             guard found.location != NSNotFound else { break }
 
             if isWholeWord(found, of: identifier, in: text) {
-                let line = TextSearchEngine.lineNumber(forOffset: found.location, in: lineStarts)
-                let match = SearchMatch(range: found, lineNumber: line)
-                matches.append(
-                    Match(
-                        range: found,
-                        line: line,
-                        preview: ProjectSearchModel.preview(for: match, in: text)
-                    )
-                )
+                ranges.append(found)
             }
             // Advance past this occurrence rather than past its start: identifiers
             // cannot overlap themselves as whole words, and stepping one unit
             // would rescan the same name once per character of it.
             searchStart = NSMaxRange(found)
         }
-        return matches
+        guard !ranges.isEmpty else { return [] }
+
+        let lineStarts = LineStartIndex.offsets(in: text)
+        return ranges.map { found in
+            let line = TextSearchEngine.lineNumber(forOffset: found.location, in: lineStarts)
+            return Match(
+                range: found,
+                line: line,
+                preview: ProjectSearchModel.preview(
+                    for: SearchMatch(range: found, lineNumber: line),
+                    in: text
+                )
+            )
+        }
     }
 
     /// Whether the occupied range really is a standalone word — the one question

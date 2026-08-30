@@ -978,7 +978,9 @@ public struct LSPDocumentEdits: Equatable, Hashable, Sendable {
 /// readable as one: a `documentChanges` entry naming a `textDocument` whose
 /// `uri` or `edits` cannot be read, and an unreadable entry of the `changes`
 /// map, which has no file operations to be tolerant of and so carries nothing
-/// a drop could lose harmlessly. The command
+/// a drop could lose harmlessly. A `documentChanges` or `changes` *member* that
+/// is present and cannot be read as the shape it must be fails the decode for
+/// the same reason, one level further out. The command
 /// beeps as it does for a server that refused. The two are not the same case:
 /// dropping an entry that is not a text edit loses nothing the rename promised,
 /// while dropping one edit out of a document's five produces a `WorkspaceEdit`
@@ -1003,14 +1005,22 @@ public struct LSPWorkspaceEdit: Equatable, Hashable, Sendable, Decodable {
             return
         }
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        let documentChanges = try? container.decodeIfPresent(
+        // **The two container reads throw too.** A `documentChanges` that is
+        // present and is not an array is the answer this decoder is supposed to
+        // prefer, unreadable: swallowing it would fall through to `changes` and
+        // write the very edit set the member above says is superseded — or, with
+        // no `changes` to fall to, report the empty answer a server gives when it
+        // has nothing to rewrite. Both are this type's all-or-nothing rule broken
+        // at the one level the per-entry and per-edit reads below already close.
+        // Absent and `null` are still not present, which `decodeIfPresent` says.
+        let documentChanges = try container.decodeIfPresent(
             [JSONValue].self, forKey: .documentChanges
         )
         if let documentChanges, !documentChanges.isEmpty {
             documents = try documentChanges.compactMap(LSPWorkspaceEdit.documentEdits(of:))
             return
         }
-        let changes = try? container.decodeIfPresent(JSONValue.self, forKey: .changes)
+        let changes = try container.decodeIfPresent(JSONValue.self, forKey: .changes)
         documents = try LSPWorkspaceEdit.documentEdits(ofChanges: changes)
     }
 
@@ -1052,12 +1062,23 @@ public struct LSPWorkspaceEdit: Equatable, Hashable, Sendable, Decodable {
     /// Unlike `documentChanges`, this map has no file-operation entries to be
     /// tolerant *of*: every value in it is one document's edits, so a value that
     /// is not an array of edits is a malformed answer and not a kind this client
-    /// declines to perform. Dropping it would be the half-renamed project the
+    /// declines to perform — and so is a `changes` member that is not a map at
+    /// all, where only *absent* (which includes `null`, since `decodeIfPresent`
+    /// says so) means "this server sent no `changes`" and answers `[]`.
+    /// Dropping either would be the half-renamed project the
     /// type's rule above refuses — renamed in four files out of five, with every
     /// refusal in `RenameEditPlan` passing because what remains is internally
     /// consistent.
     private static func documentEdits(ofChanges changes: JSONValue?) throws -> [LSPDocumentEdits] {
-        guard let object = changes?.objectValue else { return [] }
+        guard let changes else { return [] }
+        guard let object = changes.objectValue else {
+            throw DecodingError.dataCorrupted(
+                .init(
+                    codingPath: [],
+                    debugDescription: "changes is present and is not a uri → edits map"
+                )
+            )
+        }
         return try object.keys.sorted().map { uri in
             guard let edits = object[uri]?.arrayValue else {
                 throw DecodingError.dataCorrupted(

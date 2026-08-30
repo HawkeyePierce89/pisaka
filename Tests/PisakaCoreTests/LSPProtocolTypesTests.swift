@@ -877,6 +877,48 @@ final class LSPProtocolTypesTests: XCTestCase {
         XCTAssertThrowsError(try decodeResult(unreadableURI, as: LSPWorkspaceEdit.self))
     }
 
+    /// **A `documentChanges` member that is present and is not an array fails
+    /// the whole answer**, one level further out than the two cases above.
+    /// Swallowing it falls through to `changes` and writes exactly the edit set
+    /// `testDocumentChangesWinWhenAServerSendsBothSpellings` says is superseded
+    /// — the unversioned, differently-shaped half of an answer whose richer half
+    /// this client could not read — or, with no `changes` beside it, reports the
+    /// empty answer a server gives when it recognised the symbol and has nothing
+    /// to rewrite, so the command beeps as though the rename were a no-op rather
+    /// than unreadable. A `changes` member that is not an object fails for the
+    /// same reason.
+    func testAMalformedDocumentChangesMemberFailsTheWholeAnswer() throws {
+        let besideChanges = """
+            {"changes":{"file:///p/legacy.swift":[{"range":{"start":{"line":0,"character":0},
+                                                            "end":{"line":0,"character":3}},
+                                                   "newText":"bar"}]},
+             "documentChanges":{"textDocument":{"uri":"file:///p/a.swift"},"edits":[]}}
+            """
+        XCTAssertThrowsError(try decodeResult(besideChanges, as: LSPWorkspaceEdit.self))
+
+        let alone = #"{"documentChanges":"nope"}"#
+        XCTAssertThrowsError(try decodeResult(alone, as: LSPWorkspaceEdit.self))
+
+        let malformedChanges = #"{"changes":"nope"}"#
+        XCTAssertThrowsError(try decodeResult(malformedChanges, as: LSPWorkspaceEdit.self))
+
+        // `null` and absent are still not present, which is what lets a server
+        // spell "I have no rich answer" either way and be read as `changes`.
+        let nullBesideChanges = try decodeResult(
+            """
+            {"documentChanges":null,
+             "changes":{"file:///p/legacy.swift":[{"range":{"start":{"line":0,"character":0},
+                                                            "end":{"line":0,"character":3}},
+                                                   "newText":"bar"}]}}
+            """,
+            as: LSPWorkspaceEdit.self
+        )
+        XCTAssertEqual(nullBesideChanges.documents.map(\.uri), ["file:///p/legacy.swift"])
+        XCTAssertTrue(
+            try decodeResult(#"{"changes":null}"#, as: LSPWorkspaceEdit.self).documents.isEmpty
+        )
+    }
+
     /// The tolerance that *remains*: an entry that is not a text edit at all — a
     /// file operation, or a kind no version of the spec names — is ignored, and
     /// the textual half of the answer is still exactly right.

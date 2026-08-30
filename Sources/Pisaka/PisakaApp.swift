@@ -2855,8 +2855,17 @@ struct PisakaApp: App {
     /// into `WorkspaceModel`, where the autosave gate, the session snapshot and ⌘S
     /// all then apply to it — the very thing a semantic *jump* outside the project
     /// is prevented from doing, arriving through the panel instead. The viewer
-    /// takes the row's range as it stands, because it holds the file's text as
-    /// read at that moment and there is no buffer to have moved under it.
+    /// takes the row's range as it stands: it reads the file when it opens the
+    /// window and is structurally read-only, so nothing can type under the range
+    /// the way an editor tab can. The one gap that leaves is a *reused* window —
+    /// `SourceViewerWindowController` keeps one viewer per file and re-reveals
+    /// into text it read when that window first opened, so a file changed on disk
+    /// since can be scrolled to the wrong span. It is a stated limit rather than
+    /// a check because the reveal is clamped to the shown text (no crash), the
+    /// files this branch reaches are SDK sources and dependency checkouts that do
+    /// not change while a window onto them is open, and closing it means the
+    /// viewer handing its text back out — the one thing "structurally read-only"
+    /// is easiest to keep true by not doing.
     private func activateUsage(_ row: UsageResult) {
         if let root = model.projectRoot, !isInsideProject(row.fileURL, root: root) {
             viewDefinitionOutsideProject(url: row.fileURL, range: row.range)

@@ -1283,7 +1283,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     caller asked about. The scan advances past each occurrence rather than past its
     start — identifiers cannot overlap themselves as whole words — and line numbers
     come from `LineStartIndex`, so CRLF is one break and NEL/LS/PS are breaks at
-    all.
+    all. That index is built **only once ranges are in hand**
+    (`TextSearchEngine.matches`'s rule, for a sharper reason here): it is a full
+    pass over the text, and this scanner runs against every file the project walk
+    yields — the overwhelming majority of which contain the name nowhere — so
+    building it up front would make the one answer every server-less language has
+    read each of those files twice to report nothing.
   - `FindUsagesModel.swift` — the Usages panel's state and the second half of
     decision D36 in `core-lsp.md`: what was asked, what came back, what it *means*,
     and whether the walk is still running. `ProjectSearchModel`'s shape throughout —

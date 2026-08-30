@@ -463,7 +463,16 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     would put a file the user did not open a project for into `WorkspaceModel`,
     where the autosave gate, the session snapshot and ⌘S all then apply to it, which
     is precisely what `viewDefinitionOutsideProject` exists to prevent and would
-    otherwise arrive through the panel instead.
+    otherwise arrive through the panel instead. That branch takes the row's range
+    **as it stands**: the viewer reads the file when it opens the window and is
+    structurally read-only, so nothing can type under the range the way a tab can.
+    The gap that leaves is a *reused* window — `SourceViewerWindowController` keeps
+    one viewer per file and re-reveals into the text it read when that window first
+    opened — and it is a **stated limit** rather than a check, because the reveal
+    is clamped to the shown text (no crash), the files this branch reaches are SDK
+    sources and dependency checkouts that do not change while a window onto them is
+    open, and closing it means the viewer handing its text back out, which is the
+    one thing "structurally read-only" is easiest to keep true by not doing.
     `renameSymbol(_:)` is the read half and refuses three things **before anything
     appears**, each with a beep and nothing more (the fallback vocabulary of this
     layer, where a language server's absence is never an error the user is made to

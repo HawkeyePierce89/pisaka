@@ -390,7 +390,17 @@ document, together with the limits they carry.
     entry of the **`changes`** map throws rather than being dropped: that map holds
     no file operations to be tolerant of, so every value in it is one document's
     edits and skipping one is precisely the half-renamed project, arriving through
-    the third spelling.
+    the third spelling. **The rule holds at the member level too**, which is where
+    it is easiest to lose: a `documentChanges` that is *present and is not an
+    array* throws rather than being swallowed, because falling through to
+    `changes` would write the unversioned half of an answer whose richer half this
+    client could not read — the very edit set "`documentChanges` wins" says is
+    superseded — and falling through with no `changes` beside it would report the
+    empty answer a server gives when it has nothing to rewrite, so the command
+    would beep as though the rename were a no-op rather than unreadable. A
+    `changes` that is present and is not a map throws for the same reason. Only
+    *absent* — which includes `null`, since that is what `decodeIfPresent` says —
+    is "this server sent no such member".
     One document may legitimately appear more than once; entries stay
     in wire order and grouping is `RenameEditPlan`'s job, not the decoder's.
     `LSPDocumentEdits.version` is **kept and never compared** (D37): the plan
