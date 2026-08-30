@@ -345,14 +345,14 @@ source file; a new ordinary Core test suite needs no index line).
 
 ### Task 7: Verify acceptance criteria
 
-- [ ] `swift test` — full suite green.
-- [ ] `swiftlint --strict` from the repository root — clean.
-- [ ] `xcodegen generate` if needed, then the macOS build
+- [x] `swift test` — full suite green.
+- [x] `swiftlint --strict` from the repository root — clean.
+- [x] `xcodegen generate` if needed, then the macOS build
   (`-configuration Release`, `platform=macOS`) and the iOS build
   (`generic/platform=iOS`) — both succeed.
-- [ ] Confirm the macOS build log emits **no** warning for the bracket overlay
+- [x] Confirm the macOS build log emits **no** warning for the bracket overlay
   file (grep the log for the file name).
-- [ ] Confirm the existing scanner suite is unmodified except the gitignore
+- [x] Confirm the existing scanner suite is unmodified except the gitignore
   expectations item 6 legitimately changed (`git diff` on that file).
 
 ### Task 8: Update documentation
