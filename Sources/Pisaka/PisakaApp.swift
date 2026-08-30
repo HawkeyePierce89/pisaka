@@ -2695,6 +2695,23 @@ struct PisakaApp: App {
             return
         }
         let displaced = model.text(for: file.id) ?? plan.captureText
+        // **The plan's sameness question, re-asked against the buffer actually in
+        // hand.** `restorePlan` answers it against the text the window resolved
+        // when the selection landed, refreshed when the window becomes key — and
+        // a buffer can move without either happening: an FSEvents-driven
+        // `reloadFromDisk`, a `resyncOpenTabs` after an operation or a rename all
+        // rewrite it while this window stays key. Left alone, a plan gone stale
+        // that way re-creates the armed-button-whose-click-does-nothing the
+        // published plan exists to remove, and adds a side effect to it:
+        // `applyRestore` bails at its own `NSString` guard, but the capture above
+        // it has already filed a `.restore` revision of bytes nothing displaced —
+        // `LocalHistoryStore.capture` dedups against the *newest* revision only,
+        // so a mid-list revision's bytes are stored again. The comparison is
+        // `NSString`'s for the reason spelled on `restorePlan`: this feature
+        // identifies a revision by SHA-256 over UTF-8 bytes, and Swift's `==`
+        // would call two spellings of one word equal and refuse the one restore
+        // that does change bytes.
+        //
         // **A restore that cannot be captured does not happen.** Step 2 is what
         // makes a restore reversible, and the policy can refuse it — a file that
         // had history when it was small and has since grown past
@@ -2708,11 +2725,11 @@ struct PisakaApp: App {
         // unreadable file above. `latestHash: nil` asks the one question that
         // matters here — *may* these bytes be stored — rather than whether they
         // would be deduplicated, which is a skip that loses nothing.
-        guard localHistory.store.policy.capture(
-            of: displaced,
-            relativePath: plan.relativePath,
-            latestHash: nil
-        ).hash != nil else {
+        //
+        // Both refusals answer the same way — beep and stop, like the unreadable
+        // file above — so they are one guard.
+        let decision = localHistory.store.policy.capture(of: displaced, relativePath: plan.relativePath, latestHash: nil)
+        guard !(displaced as NSString).isEqual(to: plan.text), decision.hash != nil else {
             PlatformFeedback.warning()
             return
         }

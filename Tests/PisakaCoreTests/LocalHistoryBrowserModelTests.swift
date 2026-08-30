@@ -452,6 +452,78 @@ final class LocalHistoryBrowserModelTests: XCTestCase {
         XCTAssertEqual(model.revisions.count, 1, "the standing listing must survive a refresh that asks nothing")
     }
 
+    /// A current text that has not moved is not a question either. The window
+    /// becomes key on every focus of it, and re-running the hop regardless costs
+    /// a store read and a whole-document diff per focus — and sets `isLoading`,
+    /// so the footer's spinner flashes on an event carrying no news.
+    ///
+    /// `isLoading` is the assertion because `load` raises it *synchronously*: a
+    /// refresh that took the hop would leave it true on the very next line.
+    func testRefreshingWithAnUnchangedBufferTakesNoHopAtAll() async {
+        capture("the old text", "a.swift", at: 1)
+        let model = makeModel()
+        model.open(file: projectFile("a.swift"), root: projectRoot)
+        await waitUntil("the listing to land") { model.revisions.count == 1 }
+
+        model.select(model.revisions[0], currentText: .text("in the buffer"))
+        await waitUntil("the content to land") { model.selectedContent != nil }
+        let plan = model.restorePlan
+        XCTAssertNotNil(plan)
+
+        model.refreshSelection(currentText: .text("in the buffer"))
+
+        XCTAssertFalse(model.isLoading, "an unchanged current text must not re-enter the hop")
+        XCTAssertEqual(model.restorePlan, plan, "and must leave the standing plan exactly as it was")
+        XCTAssertEqual(model.selectedContent, "the old text")
+    }
+
+    /// The short-circuit is the `.text(_:)` case's alone: `.deferred(_:)` cannot
+    /// be settled without the read it defers, so it re-asks even when the answer
+    /// turns out to be the same text.
+    func testRefreshingWithADeferredCurrentTextAlwaysReAsks() async {
+        capture("the old text", "a.swift", at: 1)
+        let model = makeModel()
+        model.open(file: projectFile("a.swift"), root: projectRoot)
+        await waitUntil("the listing to land") { model.revisions.count == 1 }
+
+        model.select(model.revisions[0], currentText: .text("on disk"))
+        await waitUntil("the content to land") { model.selectedContent != nil }
+
+        let record = ThreadRecord()
+        model.refreshSelection(currentText: .deferred {
+            record.note(isMain: Thread.isMainThread)
+            return "on disk"
+        })
+        await waitUntil("the refresh to land") { !model.isLoading }
+
+        XCTAssertEqual(record.calls, 1)
+        XCTAssertEqual(record.onMain, 0, "and it is still resolved off the main actor")
+    }
+
+    /// The sameness test the short-circuit makes is `NSString`'s, like every
+    /// other one in this feature: a buffer rewritten from one Unicode spelling of
+    /// a word to another *has* moved — the store keeps the two as different
+    /// revisions — and Swift's canonical `==` would call it unchanged and skip
+    /// the refresh the plan needs.
+    func testRefreshingComparesTheCurrentTextByBytes() async {
+        let precomposed = "caf\u{00E9}"
+        let decomposed = "cafe\u{0301}"
+        capture(precomposed, "a.swift", at: 1)
+        let model = makeModel()
+        model.open(file: projectFile("a.swift"), root: projectRoot)
+        await waitUntil("the listing to land") { model.revisions.count == 1 }
+
+        model.select(model.revisions[0], currentText: .text(precomposed))
+        await waitUntil("the content to land") { model.selectedContent != nil }
+        XCTAssertNil(model.restorePlan, "the buffer holds these very bytes")
+
+        model.refreshSelection(currentText: .text(decomposed))
+        await waitUntil("the refresh to land") { model.restorePlan != nil }
+
+        XCTAssertEqual(model.restorePlan?.text.utf8.map { $0 }, Array(precomposed.utf8))
+        XCTAssertEqual(model.restorePlan?.captureText.utf8.map { $0 }, Array(decomposed.utf8))
+    }
+
     /// A refresh takes the generation token on the same terms a selection does,
     /// so a refresh held up behind a slow read cannot publish over the selection
     /// that superseded it.

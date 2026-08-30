@@ -1223,7 +1223,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     (`isAnchorSatisfied`; `.trueLineStart` tolerates no whitespace at all). One
     call site, one scan per request.
 
-    **One `Scan` object carries a whole call**, created per `scan()` and passed to
+    **One `Scan` object carries a whole call**, created per `runScan(text:upTo:language:)` and passed to
     every helper in place of a bare `NSString`, so there is exactly one way to read
     a character and exactly one place the per-scan work is done. It settles three
     things the walk previously redid per character or per candidate:

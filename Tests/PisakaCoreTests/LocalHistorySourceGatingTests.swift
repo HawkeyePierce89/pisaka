@@ -283,6 +283,21 @@ final class LocalHistorySourceGatingTests: XCTestCase {
         )
     }
 
+    func testTheRestoreReAsksThePlansSamenessQuestionBeforeCapturing() throws {
+        let app = try code(ofFileNamed: "PisakaApp.swift", under: "Sources/Pisaka")
+        XCTAssertEqual(
+            try occurrences(of: "displaced as NSString\\)\\.isEqual\\(to: plan\\.text\\)", in: app),
+            1,
+            "The published plan answers the sameness question against the text the window resolved, refreshed "
+                + "when it becomes key — and a buffer can move without either happening. A plan gone stale that "
+                + "way re-creates the armed button whose click does nothing, and adds a side effect to it: "
+                + "applyRestore bails at its own guard, but the capture in front of it has already filed a "
+                + ".restore revision of bytes nothing displaced. So the question is re-asked here, against the "
+                + "buffer actually in hand, before the capture — and by bytes, like every other sameness test in "
+                + "this feature."
+        )
+    }
+
     func testTheRestoreRefusesWhatThePolicyWillNotCapture() throws {
         let app = try code(ofFileNamed: "PisakaApp.swift", under: "Sources/Pisaka")
         XCTAssertEqual(

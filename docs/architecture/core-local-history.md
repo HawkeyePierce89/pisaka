@@ -538,7 +538,15 @@ changes.)
     and a click racing each other resolve in issue order. No selection means no
     question and therefore no read: a `.deferred` current text is not resolved
     and disk is not touched, which matters because a window becomes key every
-    time it is clicked. That sameness test is `NSString`'s, not Swift's:
+    time it is clicked. **A current text that has not moved is not a question
+    either**: the `.text(_:)` case — the one that is free to compare — is checked
+    against the text the last landed load resolved and returns without taking the
+    token at all, because otherwise every focus of the window costs a store read
+    and a whole-document `LineDiff` and sets `isLoading`, so the footer's spinner
+    flashes on an event carrying no news — the very flicker the refresh avoids by
+    not blanking the panes, reappearing in the one place it could. `.deferred`
+    cannot be settled without the read it defers and so always re-asks. That
+    sameness test is `NSString`'s, not Swift's:
     `==` on `String` compares by canonical equivalence, while a revision is
     identified by a SHA-256 over its *UTF-8 bytes*, so a decomposed and a
     precomposed spelling are two real revisions the store keeps apart — and a
@@ -735,7 +743,22 @@ changes.)
     the right call when one is there; an unreadable file beeps and stops, since
     there is nothing to restore *into*), capture the displaced text under
     `.restore` — read back off the buffer **after** the open, `model.text(for:)`
-    being exactly what `applyRestore` displaces, with the plan's `captureText` as
+    being exactly what `applyRestore` displaces — but first **re-ask the plan's
+    sameness question against that buffer**, because it is the one thing in the
+    plan that can have gone stale since the window last resolved it. The
+    published plan is refreshed when the window becomes key; a buffer can move
+    without that happening (an FSEvents-driven `reloadFromDisk`, a
+    `resyncOpenTabs` after an operation, a rename — all while this window stays
+    key), and a plan stale that way re-creates the armed-button-whose-click-does-
+    nothing the published plan exists to remove, with a side effect on top:
+    `applyRestore` bails at its own `NSString` guard, but the capture in front of
+    it has already filed a `.restore` revision of bytes nothing displaced, since
+    `LocalHistoryStore.capture` dedups against the *newest* revision only. So a
+    displaced text already equal to `plan.text` beeps and stops, before the
+    `captureBuffers` that would file it — the same byte-wise `NSString` comparison `plannedRestore()` and
+    `applyRestore` make, for the same reason. The enablement stays the published
+    plan's; this is the refusal behind it, not a second answer to it. The plan's
+    `captureText` is
     the fallback when there is no buffer to ask; taking the plan's answer outright
     would store the empty string the *window* had to show for a file that has
     since grown past its 1 MiB read ceiling, which is the one place in this

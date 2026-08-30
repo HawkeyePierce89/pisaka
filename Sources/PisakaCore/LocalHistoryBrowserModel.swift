@@ -351,8 +351,27 @@ public final class LocalHistoryBrowserModel: ObservableObject {
     /// the same terms, so a refresh and a click racing each other resolve in
     /// issue order. No selection means no question, and no read: a `.deferred`
     /// current text is not resolved and disk is not touched.
+    ///
+    /// **A current text that has not moved is not a question either.** The key
+    /// event fires on every focus of the window — every click on it, every ⌘-tab
+    /// back, every app activation while it is frontmost — and the answer is
+    /// unchanged for almost all of them. Re-running the hop regardless costs a
+    /// store read and a whole-document `LineDiff` per focus, and sets
+    /// ``isLoading``, so the footer's spinner flashes on an event that carries no
+    /// news — the flicker this call avoids by not blanking the panes, reappearing
+    /// in the one place it can. So the ``LocalHistoryCurrentText/text(_:)`` case,
+    /// which is free to compare, short-circuits against the text the last landed
+    /// load resolved. ``LocalHistoryCurrentText/deferred(_:)`` cannot be settled
+    /// without the read it defers and so always re-asks.
+    ///
+    /// The comparison is `NSString`'s, for the reason spelled on ``restorePlan``:
+    /// a buffer rewritten from one Unicode spelling of a word to another *has*
+    /// moved as far as this feature is concerned, and Swift's `==` would call it
+    /// unchanged and skip the refresh the plan needs.
     public func refreshSelection(currentText: LocalHistoryCurrentText) {
         guard let snapshot = selected, root != nil, relativePath != nil else { return }
+        if case let .text(text) = currentText, let resolved = resolvedCurrentText,
+           (text as NSString).isEqual(to: resolved) { return }
         generation += 1
         load(snapshot, currentText: currentText)
     }
