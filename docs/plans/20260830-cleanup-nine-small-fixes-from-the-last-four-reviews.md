@@ -212,20 +212,20 @@ source file; a new ordinary Core test suite needs no index line).
 
 - Create: `Tests/PisakaCoreTests/SyntaxContextScannerCharacterizationTests.swift`
 
-- [ ] Build a corpus of documents chosen to hit every validator branch:
+- [x] Build a corpus of documents chosen to hit every validator branch:
   quote-dense YAML (flow collections, block plain scalars, comment-only lines,
   doubled-quote escapes), HTML (attribute values, `>` inside a value, comments,
   an unclosed comment), Swift (pound padding, interpolation holes), Python
   (prefixes, f-string braces), Rust (raw forms), Go, JSON, dotenv, gitignore,
   editorconfig, Dockerfile, SQL, CSS, Markdown.
-- [ ] For each document, assert the context at **every** offset `0…length`
+- [x] For each document, assert the context at **every** offset `0…length`
   against a run-length-encoded expectation string committed in the test.
-- [ ] Capture those expectations from the *current, unmodified* implementation
+- [x] Capture those expectations from the *current, unmodified* implementation
   (dump once, read the encodings, commit them), then run the suite green before
   changing any production code. State in the file's doc comment that these are
   characterization goldens: they assert nothing about what is *right*, only that
   the performance work in Task 3 changed nothing.
-- [ ] Run `swift test` — must pass before Task 3.
+- [x] Run `swift test` — must pass before Task 3.
 
 ### Task 3: The scanner's performance story
 
