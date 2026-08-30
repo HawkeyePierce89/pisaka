@@ -2685,8 +2685,27 @@ struct PisakaApp: App {
     /// and stops, like the two refusals below. `isCurrentProjectRoot` is the
     /// model's own canonical comparison, which is the rule for "same folder?"
     /// everywhere else in this file.
+    ///
+    /// **The two refusals are asked before the open, for a file with a tab and for
+    /// a file without one.** They judge the text a restore would displace, and
+    /// `model.open` is not free of consequence: it selects the tab — and, for a
+    /// file no tab holds, adds one. Asking only afterwards turns a click that does
+    /// nothing into a click that pulls the editor onto another file and beeps,
+    /// which is the armed-button-whose-click-does-nothing the published plan
+    /// exists to remove, wearing a side effect. Both answers are in hand before
+    /// the open: `localHistoryTextToDisplace(_:)` reads the buffer when a tab
+    /// holds the file and the same unbounded `read` the open itself makes when
+    /// none does. The refusal is nonetheless re-asked *after* the open, because
+    /// the open is what the capture and the replacement actually act on and the
+    /// file can move between the two reads; the pre-open ask is there to keep the
+    /// refusal from costing a tab, not to decide it.
     private func restoreFromLocalHistory(_ plan: LocalHistoryRestore) {
         guard model.isCurrentProjectRoot(plan.root) else {
+            PlatformFeedback.warning()
+            return
+        }
+        if let known = localHistoryTextToDisplace(plan.fileURL),
+           localHistoryRestoreRefused(displacing: known, plan) {
             PlatformFeedback.warning()
             return
         }
@@ -2695,41 +2714,7 @@ struct PisakaApp: App {
             return
         }
         let displaced = model.text(for: file.id) ?? plan.captureText
-        // **The plan's sameness question, re-asked against the buffer actually in
-        // hand.** `restorePlan` answers it against the text the window resolved
-        // when the selection landed, refreshed when the window becomes key — and
-        // a buffer can move without either happening: an FSEvents-driven
-        // `reloadFromDisk`, a `resyncOpenTabs` after an operation or a rename all
-        // rewrite it while this window stays key. Left alone, a plan gone stale
-        // that way re-creates the armed-button-whose-click-does-nothing the
-        // published plan exists to remove, and adds a side effect to it:
-        // `applyRestore` bails at its own `NSString` guard, but the capture above
-        // it has already filed a `.restore` revision of bytes nothing displaced —
-        // `LocalHistoryStore.capture` dedups against the *newest* revision only,
-        // so a mid-list revision's bytes are stored again. The comparison is
-        // `NSString`'s for the reason spelled on `restorePlan`: this feature
-        // identifies a revision by SHA-256 over UTF-8 bytes, and Swift's `==`
-        // would call two spellings of one word equal and refuse the one restore
-        // that does change bytes.
-        //
-        // **A restore that cannot be captured does not happen.** Step 2 is what
-        // makes a restore reversible, and the policy can refuse it — a file that
-        // had history when it was small and has since grown past
-        // `maxContentBytes` is captured by nothing, while `model.open` above has
-        // no ceiling and loaded the whole of it. Going ahead there would replace
-        // megabytes the store is about to decline to hold, leaving one ⌘Z as the
-        // only copy — the feature destroying exactly what it exists to keep. It
-        // is also the case the window renders least honestly: the same ceiling
-        // makes `currentTextForLocalHistory` answer the empty string, so the diff
-        // showed the revision as wholly added. So it beeps and stops, like the
-        // unreadable file above. `latestHash: nil` asks the one question that
-        // matters here — *may* these bytes be stored — rather than whether they
-        // would be deduplicated, which is a skip that loses nothing.
-        //
-        // Both refusals answer the same way — beep and stop, like the unreadable
-        // file above — so they are one guard.
-        let decision = localHistory.store.policy.capture(of: displaced, relativePath: plan.relativePath, latestHash: nil)
-        guard !(displaced as NSString).isEqual(to: plan.text), decision.hash != nil else {
+        guard !localHistoryRestoreRefused(displacing: displaced, plan) else {
             PlatformFeedback.warning()
             return
         }
@@ -2740,6 +2725,68 @@ struct PisakaApp: App {
             texts: [plan.fileURL: displaced]
         )
         saveTransform.applyRestore(plan.text, to: file.id)
+    }
+
+    /// The text a restore of `url` would displace, answered **without opening
+    /// anything** — or `nil` when nothing can answer it, which is a file the open
+    /// is about to fail on anyway.
+    ///
+    /// The buffer wins when a tab holds the file, for the reason
+    /// `currentTextForLocalHistory` spells: a dirty tab holds text that exists
+    /// nowhere else. With no tab on it, this is the *same* `read` the open makes
+    /// a moment later — unbounded on purpose, and deliberately not the window's
+    /// `readTextIfNotBinary` under `ProjectSearchModel.defaultMaxFileBytes`. That
+    /// ceiling is `LocalHistoryPolicy.maxContentBytes` to the byte, so a capped
+    /// read answers the empty string for exactly the file the policy is about to
+    /// refuse as `tooLarge`, and the preflight would wave through the one case it
+    /// most needs to catch: a file that had history when it was small, has since
+    /// grown past the ceiling, and would otherwise be loaded whole into a new tab
+    /// only to be refused.
+    ///
+    /// This does mean the successful restore of a file no tab holds reads it
+    /// twice. That is bounded by the ceiling the policy enforces — anything above
+    /// it is refused here and never opened at all, so the duplicated read is at
+    /// most 1 MiB — and it is paid once per explicit Restore click.
+    private func localHistoryTextToDisplace(_ url: URL) -> String? {
+        if let id = model.fileID(forURL: url) { return model.text(for: id) }
+        return try? fileService.read(url: url)
+    }
+
+    /// Whether the planned restore must not happen against `displaced` — the text
+    /// it would replace. Both refusals answer the same way, beep and stop, so they
+    /// are one question asked in one place.
+    ///
+    /// **The plan's sameness question, re-asked against the text actually in
+    /// hand.** `LocalHistoryBrowserModel.restorePlan` answers it against the text
+    /// the window resolved when the selection landed, refreshed when the window
+    /// becomes key — and a buffer can move without either happening: an
+    /// FSEvents-driven `reloadFromDisk`, a `resyncOpenTabs` after an operation or
+    /// a rename all rewrite it while this window stays key. Left alone, a plan
+    /// gone stale that way re-creates the armed button whose click does nothing,
+    /// and adds a side effect to it: `applyRestore` bails at its own `NSString`
+    /// guard, but the capture before it has already filed a `.restore` revision of
+    /// bytes nothing displaced — `LocalHistoryStore.capture` dedups against the
+    /// *newest* revision only, so a mid-list revision's bytes are stored again.
+    /// The comparison is `NSString`'s for the reason spelled on `restorePlan`:
+    /// this feature identifies a revision by SHA-256 over UTF-8 bytes, and Swift's
+    /// `==` would call two spellings of one word equal and refuse the one restore
+    /// that does change bytes.
+    ///
+    /// **A restore that cannot be captured does not happen.** The capture is what
+    /// makes a restore reversible, and the policy can refuse it — a file that had
+    /// history when it was small and has since grown past `maxContentBytes` is
+    /// captured by nothing, while `model.open` has no ceiling and loads the whole
+    /// of it. Going ahead there would replace megabytes the store is about to
+    /// decline to hold, leaving one ⌘Z as the only copy — the feature destroying
+    /// exactly what it exists to keep. It is also the case the window renders
+    /// least honestly: the same ceiling makes `currentTextForLocalHistory` answer
+    /// the empty string, so the diff showed the revision as wholly added.
+    /// `latestHash: nil` asks the one question that matters here — *may* these
+    /// bytes be stored — rather than whether they would be deduplicated, which is
+    /// a skip that loses nothing.
+    private func localHistoryRestoreRefused(displacing displaced: String, _ plan: LocalHistoryRestore) -> Bool {
+        if (displaced as NSString).isEqual(to: plan.text) { return true }
+        return localHistory.store.policy.capture(of: displaced, relativePath: plan.relativePath, latestHash: nil).hash == nil
     }
 
     /// The selected tab's url, or `nil` — what **File ▸ Local History…** acts on,

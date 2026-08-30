@@ -774,7 +774,26 @@ changes.)
     makes the current side of the diff the empty string, so the revision showed
     as wholly added). `latestHash: nil` asks the one question that matters —
     *may* these bytes be stored — rather than whether they would be
-    deduplicated, which is a skip that loses nothing. The tab is
+    deduplicated, which is a skip that loses nothing. **Both refusals are asked
+    twice, and the first ask comes before the open**
+    (`localHistoryRestoreRefused(displacing:_:)`, one function so the two moments
+    cannot drift): `model.open` is not free of consequence, since it selects the
+    tab holding the file and, for a file no tab holds, adds one, so asking only
+    afterwards turns a click that does nothing into a click that pulls the editor
+    onto another file and beeps — the armed button the published plan exists to
+    remove, wearing a side effect. The text the pre-open ask judges comes from
+    `localHistoryTextToDisplace(_:)`: the buffer when a tab holds the file, and
+    otherwise the *same unbounded* `FileServicing.read` the open itself is about
+    to make — deliberately **not** the window's `readTextIfNotBinary`, whose
+    ceiling is `LocalHistoryPolicy.maxContentBytes` to the byte and would
+    therefore answer the empty string for exactly the file the policy is about to
+    refuse as `tooLarge`, waving through the one case the preflight most needs to
+    catch. The cost is that a successful restore of a file no tab holds reads it
+    twice, bounded by that same ceiling (anything above it is refused before the
+    open) and paid once per Restore click. The refusal is still re-asked *after*
+    the open, which stays the authority: it is the text the capture and the
+    replacement actually act on, and the file can move between the two reads.
+    The tab is
     left **dirty**: the ordinary save funnel puts the restored text on disk when
     the user saves or the autosave fires, which is what keeps this feature a
     reader that takes no writer gate.
