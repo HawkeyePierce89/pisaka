@@ -97,8 +97,11 @@ public struct UsagesAnswer: Equatable, Sendable {
     /// matches thousands of lines someone then narrows. This list answers one
     /// question about one name, and an identifier used more than two thousand
     /// times is not a list anyone reads to the end — it is a signal to ask a
-    /// narrower question. The cap is stated in the header when it bites, so a
-    /// truncated answer is never mistaken for a complete one.
+    /// narrower question. `isTruncated` is what the header reads, so a truncated
+    /// answer is never mistaken for a complete one — the *number* is deliberately
+    /// not printed there, because `isTruncated` is also true for a walk that
+    /// stopped early holding fewer rows than this, and a header naming the cap
+    /// would then contradict the count beside it.
     public static let cap = 2_000
 
     /// The identifier the question was about, exactly as it is spelled in the

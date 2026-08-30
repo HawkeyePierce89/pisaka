@@ -579,7 +579,8 @@ user sees it.
   View menu, its bottom-bar button, or Cmd+Shift+U — showing it never re-runs
   anything, it holds whatever the last Ctrl+Cmd+U asked. The file you asked from
   comes first; everything after it is in path order, and the list is capped at
-  **2 000** usages with the header saying so when the cap bit.
+  **2 000** usages, with the header saying “more not shown” whenever what you are
+  looking at is only the head of a longer answer.
   **The header always says what the rows mean, and this is the part worth
   reading.** With a language server running for that language, the rows are the
   server's resolved references: every one of them really is that symbol. Without

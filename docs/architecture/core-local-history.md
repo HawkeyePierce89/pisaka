@@ -637,7 +637,13 @@ changes.)
     undo story is incomplete by design (decision 5 in `core-lsp.md`): the tab on
     screen gets one undoable step, every other open tab loses its undo stack, and a
     file no tab holds changes on disk with no undo at all — so the "Before Rename"
-    revision of each touched file *is* the recovery story rather than a second one.
+    revision *is* the recovery story rather than a second one. It is still capped
+    like every other pre-operation capture: `maxPreOperationFiles` (200) disk files,
+    binary and oversize ones skipped silently. The cap's own rationale (latency in
+    front of an operation the user asked for) argues for raising it here, where the
+    target set *is* the write set and no git command is waiting — recorded as a
+    follow-up rather than changed silently, and the rename's incomplete-write alert
+    is worded so it promises nothing the cap can falsify.
     Each is one line through a private `captureBeforeOperation(_:buffers:targets:)`
     helper that adds no decision of its own, so each site reads as a statement of
     what it is pre-empting. The buffer half is `openBufferTexts()` (every open

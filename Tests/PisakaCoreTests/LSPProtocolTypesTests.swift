@@ -233,7 +233,11 @@ final class LSPProtocolTypesTests: XCTestCase {
     /// `snippetSupport` would start `${1:placeholder}` arriving in `newText`
     /// (D5); dropping `linkSupport` would cost every jump its identifier range;
     /// omitting `resolveSupport` would mean auto-import edits never arrive at all
-    /// (D4). None of those fail a build or throw — they just make the feature
+    /// (D4); and `workspace.workspaceEdit.resourceOperations: []` is what tells a
+    /// server not to answer a rename with a create/rename/delete entry —
+    /// `LSPWorkspaceEdit` drops one and applies the textual half, which for a
+    /// module rename is every reference renamed and the file still under its old
+    /// name. None of those fail a build or throw — they just make the feature
     /// quietly worse — so the exact promise is pinned here.
     func testClientCapabilitiesAdvertiseExactlyThisPhasesSurface() throws {
         XCTAssertEqual(
@@ -256,9 +260,15 @@ final class LSPProtocolTypesTests: XCTestCase {
             "definition":{"dynamicRegistration":false,"linkSupport":true},\
             "hover":{"contentFormat":["markdown","plaintext"],"dynamicRegistration":false},\
             "publishDiagnostics":{"relatedInformation":false,"versionSupport":true},\
+            "references":{"dynamicRegistration":false},\
+            "rename":{"dynamicRegistration":false,"honorsChangeAnnotations":false,\
+            "prepareSupport":false},\
             "synchronization":{"didSave":false,"dynamicRegistration":false,\
             "willSave":false,"willSaveWaitUntil":false}},\
-            "workspace":{"configuration":false,"workspaceFolders":false}}
+            "workspace":{"configuration":false,\
+            "workspaceEdit":{"documentChanges":false,"failureHandling":"abort",\
+            "normalizesLineEndings":false,"resourceOperations":[]},\
+            "workspaceFolders":false}}
             """
         )
     }

@@ -461,9 +461,13 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     ("textual matches"). In words rather than through an icon, because the
     difference is a difference in what the list *claims* and not a difference in
     severity — a panel that blurred the two would be a panel confidently listing
-    coincidences. The count sits at the trailing edge and carries the cap's own note
-    when it bit, reading `UsagesAnswer.cap` rather than restating the number, so the
-    figure in the panel is the figure the answer was cut to. A spinner shows while a
+    coincidences. The count sits at the trailing edge and says
+    “more not shown” whenever `isTruncated` is set. It deliberately does **not**
+    print `UsagesAnswer.cap`: that flag is true for two reasons and only one of them
+    is the cap — a walk that abandoned the project once it held one row past the cap
+    can still hand over a deduplicated list below it — so a header naming 2 000
+    beside a count of 1 431 would be a header contradicting itself. What is true in
+    both cases is that there are more, and the number beside it is the number drawn. A spinner shows while a
     walk is still filling it, since a textual answer arrives per chunk.
     The empty state says **which** nothing it means (`UsagesEmptyReason`'s three
     cases spelled as three sentences), rather than drawing an empty list that reads

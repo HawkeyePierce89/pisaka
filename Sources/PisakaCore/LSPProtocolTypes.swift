@@ -1172,6 +1172,18 @@ public struct LSPClientCapabilities: Equatable, Hashable, Sendable, Encodable {
         try hover.encode(false, forKey: "dynamicRegistration")
         try hover.encode(["markdown", "plaintext"], forKey: "contentFormat")
 
+        var references = textDocument.nestedContainer(keyedBy: StringKey.self, forKey: "references")
+        try references.encode(false, forKey: "dynamicRegistration")
+
+        var rename = textDocument.nestedContainer(keyedBy: StringKey.self, forKey: "rename")
+        try rename.encode(false, forKey: "dynamicRegistration")
+        // `textDocument/prepareRename` is never sent: the command's own
+        // `RenameNameRule` decides what the caret is on and what a new name may
+        // be, and a second round trip to be told the same thing would only add a
+        // failure mode between the shortcut and the dialog.
+        try rename.encode(false, forKey: "prepareSupport")
+        try rename.encode(false, forKey: "honorsChangeAnnotations")
+
         var completion = textDocument.nestedContainer(keyedBy: StringKey.self, forKey: "completion")
         try completion.encode(false, forKey: "dynamicRegistration")
         try completion.encode(true, forKey: "contextSupport")
@@ -1196,6 +1208,30 @@ public struct LSPClientCapabilities: Equatable, Hashable, Sendable, Encodable {
         var workspace = root.nestedContainer(keyedBy: StringKey.self, forKey: "workspace")
         try workspace.encode(false, forKey: "workspaceFolders")
         try workspace.encode(false, forKey: "configuration")
+
+        // What this client will do with a `WorkspaceEdit`, stated rather than
+        // left to a server's default — the rename command is the one answer in
+        // the layer that becomes a write, so every limit on what it can carry
+        // out belongs in the closed tree beside the request that asks for it.
+        //
+        // - `documentChanges: false` because the versions it would add are the
+        //   one thing `RenameEditPlan` deliberately does not compare (it verifies
+        //   the bytes instead), so the richer spelling buys nothing — and the
+        //   plain `changes` map cannot carry the file operations below at all.
+        // - `resourceOperations: []` is the load-bearing half. A
+        //   create/rename/delete entry is not something this editor performs:
+        //   `LSPWorkspaceEdit` drops it and applies the textual half, which for a
+        //   module rename would leave every reference renamed and the file still
+        //   under its old name. Declaring the empty set is what tells a
+        //   conforming server not to offer one, so the drop stays unreachable
+        //   rather than merely unlikely.
+        // - `failureHandling: "abort"` is what `apply` actually does: it stops at
+        //   the first write that throws and the writes before it stay written.
+        var workspaceEdit = workspace.nestedContainer(keyedBy: StringKey.self, forKey: "workspaceEdit")
+        try workspaceEdit.encode(false, forKey: "documentChanges")
+        try workspaceEdit.encode([String](), forKey: "resourceOperations")
+        try workspaceEdit.encode("abort", forKey: "failureHandling")
+        try workspaceEdit.encode(false, forKey: "normalizesLineEndings")
     }
 
     /// A `CodingKey` that is just its string, so the capability tree above reads

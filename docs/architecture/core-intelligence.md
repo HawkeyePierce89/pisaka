@@ -1238,8 +1238,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     one question about one name, and an identifier used more than two thousand times
     is not a list anyone reads to the end. `isTruncated` is set when the cap
     actually removed something **or when the caller says it stopped reading**
-    (`make`'s `stoppedEarly`), and the panel says so, so a truncated answer is never
-    mistaken for a complete one.
+    (`make`'s `stoppedEarly`), and the panel says so — as “more not shown” rather than
+    as the number, precisely because the second half of the flag can leave fewer rows
+    than the cap — so a truncated answer is never mistaken for a complete one.
     **The second half of that flag is not derivable from the rows, which is why it
     is a parameter.** The walk stops on the *raw* count passing the cap while `make`
     measures the *deduplicated* one, and the two disagree by construction: the

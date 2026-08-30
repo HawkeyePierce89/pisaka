@@ -92,14 +92,20 @@ struct UsagesPanelView: View {
         }
     }
 
-    /// The count, plus the cap's own note when it bit. `UsagesAnswer.cap` is
-    /// read rather than restated so the number in the panel is the number the
-    /// answer was actually cut to.
+    /// The count, plus a note when the answer is only the head of a longer one.
+    ///
+    /// The note deliberately does *not* print `UsagesAnswer.cap`: `isTruncated`
+    /// is true for two reasons and only one of them is the cap. A walk that
+    /// abandoned the project once it held one row past the cap can still hand
+    /// over a deduplicated list below it (`FindUsagesModel`'s final publish says
+    /// so in full), and "first 2 000 — 1 431 in 12 files" is a header
+    /// contradicting itself. What is true in both cases is that there are more,
+    /// and the count beside it is the count of what is drawn.
     private var countLabel: String {
         let count = model.groups.reduce(0) { $0 + $1.rows.count }
         let files = model.groups.count
         let base = "\(count) in \(files) \(files == 1 ? "file" : "files")"
-        return model.isTruncated ? "first \(UsagesAnswer.cap) — \(base)" : base
+        return model.isTruncated ? "\(base) — more not shown" : base
     }
 
     @ViewBuilder

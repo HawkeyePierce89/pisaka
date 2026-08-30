@@ -3038,7 +3038,11 @@ struct PisakaApp: App {
         // Pre-empting a write the user cannot see all of: a rename changes files
         // no tab holds, and unlike a git operation nothing can put them back. The
         // targets are the plan's own files, which is also the whole set the write
-        // below touches. First `await` in the body, ahead of every write.
+        // below touches — though not necessarily the whole set *captured*:
+        // `LocalHistoryPolicy.maxPreOperationFiles` caps the disk half and binary
+        // and oversize files are skipped, so this is a safety net and not a
+        // guarantee, which is why the incomplete-write alert below does not
+        // promise one. First `await` in the body, ahead of every write.
         await captureBeforeOperation(
             .rename,
             buffers: openBufferTexts(),
@@ -3099,10 +3103,21 @@ struct PisakaApp: App {
         localChanges.endRevert()
         autosave.resume()
         if let failed = application.writeFailure {
+            // Deliberately *not* "the other files were renamed": `apply` stops at
+            // the first write that throws, so the files it had not reached yet
+            // still hold the old name, while every open buffer above has been
+            // rewritten regardless. And the pre-operation capture is neither
+            // complete nor guaranteed — `LocalHistoryModel` reads at most
+            // `LocalHistoryPolicy.maxPreOperationFiles` from disk and skips
+            // binary and oversize files silently — so the alert points at Local
+            // History without promising what is in it. Naming a state the user
+            // can check beats naming one that sounds tidier and may be false.
             PlatformAlert.presentMessage(
                 title: "Rename incomplete",
-                message: "\(failed.lastPathComponent) could not be written. The other files were "
-                    + "renamed; Local History holds a “Before Rename” revision of each."
+                message: "\(failed.lastPathComponent) could not be written, so the rename stopped "
+                    + "there: some files still hold the old name and the open editors do not. "
+                    + "Local History may hold a “Before Rename” revision of the files "
+                    + "that changed."
             )
         }
     }

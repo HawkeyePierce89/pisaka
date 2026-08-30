@@ -202,6 +202,34 @@ final class LSPSessionTests: XCTestCase {
             item?["resolveSupport"]?["properties"],
             .array([.string("detail"), .string("additionalTextEdits")])
         )
+
+        // The two requests D36/D35 added are declared, like every other request
+        // this client sends: the tree is closed, so a question asked without a
+        // capability beside it is the one shape a server is entitled to answer
+        // by refusing.
+        XCTAssertEqual(
+            capabilities["textDocument"]?["references"]?["dynamicRegistration"]?.boolValue,
+            false
+        )
+        XCTAssertEqual(
+            capabilities["textDocument"]?["rename"]?["dynamicRegistration"]?.boolValue,
+            false
+        )
+        // No `textDocument/prepareRename` is ever sent, so the promise is refused
+        // rather than left to a default.
+        XCTAssertEqual(
+            capabilities["textDocument"]?["rename"]?["prepareSupport"]?.boolValue,
+            false
+        )
+        // What a `WorkspaceEdit` may carry. `resourceOperations: []` is the
+        // load-bearing one: `LSPWorkspaceEdit` drops a create/rename/delete entry
+        // and applies the textual half, which for a module rename would leave
+        // every reference renamed and the file under its old name — so a
+        // conforming server is told not to send one.
+        let workspaceEdit = capabilities["workspace"]?["workspaceEdit"]
+        XCTAssertEqual(workspaceEdit?["documentChanges"]?.boolValue, false)
+        XCTAssertEqual(workspaceEdit?["resourceOperations"], .array([]))
+        XCTAssertEqual(workspaceEdit?["failureHandling"]?.stringValue, "abort")
     }
 
     func testAHandshakeThatNeverAnswersFailsAndLeavesNoLiveServer() async {

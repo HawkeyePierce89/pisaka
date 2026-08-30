@@ -281,6 +281,25 @@ document, together with the limits they carry.
     it so a server with no markdown renderer answers instead of declining. That is
     the closed tree's own rule applied to a new node: what is advertised is what
     there is code for, and there is code for exactly these two.
+    D35/D36 add three more nodes under the same rule, because the two requests they
+    introduced are requests this client *sends*: `textDocument.references` and
+    `textDocument.rename` (both `dynamicRegistration: false`, and rename with
+    `prepareSupport: false` — `textDocument/prepareRename` is never sent, since
+    `RenameNameRule` already decides what the caret is on and what a new name may
+    be, and a second round trip to be told the same thing would only add a failure
+    mode between the shortcut and the dialog), plus `workspace.workspaceEdit`, which
+    is where the promise actually bites. It states `documentChanges: false` (the
+    per-document versions the richer spelling adds are the one thing
+    `RenameEditPlan` deliberately does not compare — it verifies the bytes instead —
+    so it buys nothing), `failureHandling: "abort"` (what `apply` does: it stops at
+    the first write that throws and the writes before it stay written) and
+    **`resourceOperations: []`**, the load-bearing one. A create/rename/delete entry
+    is not something this editor performs: `LSPWorkspaceEdit` drops it and applies
+    the textual half, which for a module rename would leave every reference renamed
+    and the file still under its old name. Declaring the empty set is what tells a
+    conforming server not to offer one, so that drop stays *unreachable* rather than
+    merely unlikely — and a server that would have answered with a file move refuses
+    the rename outright instead, which is the honest outcome.
     The diagnostics wire shape (D29–D31) follows both file rules. **Decode
     leniently**: `LSPDiagnostic` requires only `range`/`message` — the spec types
     everything else optional — and each optional reads through a failure-tolerant
@@ -3205,8 +3224,14 @@ harmless extra snapshot behind, which retention prunes.
   is rewritten through `WorkspaceModel.replaceText(_:for:)` and loses its undo
   stack, exactly as an off-screen save transform does, and a file no tab holds
   changes on disk with no undo at all. The recovery story is Local History's
-  "Before Rename" revision of each touched file, which is why that event exists.
-  Cross-file undo is a follow-up, not a hidden intention.
+  "Before Rename" revision, which is why that event exists — a **safety net and not
+  a guarantee**: the capture reads at most `LocalHistoryPolicy.maxPreOperationFiles`
+  (200) files from disk and skips binary and oversize ones silently, so a rename
+  touching more than that has revisions for only the first 200. The
+  "Rename incomplete" alert is worded for that, and for the other half of the same
+  story: `apply` stops at the first write that throws, so the files it had not
+  reached still hold the old name while every open buffer has been rewritten
+  regardless. Cross-file undo is a follow-up, not a hidden intention.
 - **There is no rename preview and no `prepareRename`.** What a rename will change
   is knowable only after the server has answered, and it is applied without showing
   the user that list; there is likewise no way to opt one file out. Both are
