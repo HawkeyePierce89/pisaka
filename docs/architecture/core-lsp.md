@@ -787,8 +787,9 @@ document, together with the limits they carry.
     for every answer this layer only *reads*, because each of those is about the
     one file the question was asked in; a **rename** is the exception, since it
     answers about files no request prepared, whose coordinates the server computed
-    against whatever it was last told. `PisakaApp.applyRename` is the one caller
-    (see D37 below for what it does with them). A file absent from the map is one
+    against whatever it was last told. `PisakaApp.renameSymbol` is the one caller,
+    and it reads the map **before** it sends the rename request rather than after
+    the answer lands (see D37 below for why that ordering is the whole point). A file absent from the map is one
     no server holds open — the server read it from disk, and so does the caller.
     `LSPWorkspaceTests` `.testLastSentTextsReportsTheTextEachDocumentWasFlushedWith`
     / `.testLastSentTextsLagsABufferThatHasNotBeenFlushedAgain` /
@@ -1486,7 +1487,16 @@ document, together with the limits they carry.
     document-sync debounce ago (D30) is a buffer the server has never seen, and
     mapping its references onto that buffer is the same hazard one file further
     out — with no undo behind it, because a tab that is not the displayed one is
-    rewritten through `WorkspaceModel.replaceText` (decision 5). `stillHolds`
+    rewritten through `WorkspaceModel.replaceText` (decision 5). That snapshot is
+    taken by `renameSymbol` **before the rename request is sent** and handed down
+    to `applyRename`, never read when the answer comes back: a server reads
+    notifications in order, so the earlier map is what it answered against, while
+    the later one can already carry a tab typed in *during* the round trip and
+    pushed on the debounce after the answer was computed — the exact text that
+    would make `expectedText` agree with the live buffer and let the wrong spans
+    through. Read early the map can only be *older* than the server's baseline,
+    and `holds` refuses that; read late it can be newer, and `holds` cannot see
+    it. `stillHolds`
     cannot see either case: it compares the *prepared* document's version and
     nothing else, so both halves are closed here instead, together. A file
     `lastSentTexts()` does not name is a file no server holds open, which means the

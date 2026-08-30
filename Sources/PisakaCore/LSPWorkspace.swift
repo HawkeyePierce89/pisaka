@@ -863,6 +863,15 @@ public final class LSPWorkspace {
     ///
     /// A snapshot, not a view: the caller is about to hop, and the bookkeeping
     /// behind it is the editor's own turn's.
+    ///
+    /// **Read it before the request, not after the answer.** A server processes
+    /// notifications in order, so this map taken *before* a request is sent is
+    /// text that server will have seen by the time it reads that request; the
+    /// same map taken after the answer arrives can already carry a buffer pushed
+    /// on the debounce *while* the request was in flight, which is precisely the
+    /// text the answer was not computed against. Read early it can only be
+    /// *older* than the server's baseline, which `holds` catches; read late it
+    /// can be newer, which `holds` cannot.
     public func lastSentTexts() -> [URL: String] {
         var texts: [URL: String] = [:]
         for (uri, state) in documents {

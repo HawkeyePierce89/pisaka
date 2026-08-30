@@ -2926,6 +2926,27 @@ struct PisakaApp: App {
                 return
             }
             guard let newName = promptForNewName(replacing: request.identifier) else { return }
+            // **Read before the request goes out, never after it comes back.**
+            // This map is the baseline every *other* file's plan is built
+            // against, so it has to be the text the server computed its answer
+            // from. A server processes notifications in order, so everything
+            // sent by now is text it will have seen by the time it reads the
+            // rename request. Reading it *after* the round trip instead admits
+            // the one text that is definitionally not that: a background tab
+            // typed in while the request was in flight, pushed by
+            // `LSPDocumentSyncController`'s 400 ms debounce after the server had
+            // already answered. Planning against that text would map the
+            // server's `(line, character)` coordinates onto bytes it never saw
+            // and then record those same bytes as `expectedText`, so
+            // `RenameFilePlan.holds` would pass by construction and the rename
+            // would silently rewrite the wrong spans.
+            //
+            // Snapshotting early can only err the safe way round: if a push
+            // lands between here and the server reading the request, this map is
+            // *older* than the server's baseline, `holds` fails against the live
+            // buffer, and the command refuses instead of writing.
+            var serverTexts: [String: String] = [:]
+            for (url, text) in lspWorkspace.lastSentTexts() { serverTexts[Self.canonicalKey(url)] = text }
             // The request is a *read*, so it runs outside the writer bracket: it
             // can take as long as the server takes, and holding autosave and the
             // git gate down for a round trip that may time out would stall every
@@ -2946,7 +2967,7 @@ struct PisakaApp: App {
                 PlatformFeedback.warning()
                 return
             }
-            await applyRename(answer, for: request, root: root)
+            await applyRename(answer, for: request, root: root, serverTexts: serverTexts)
         }
     }
 
@@ -2998,13 +3019,16 @@ struct PisakaApp: App {
     ///
     /// The requesting file's copy of that text is `request.text` — definitionally
     /// what `LSPIntelligenceProvider` prepared the document with. Every *other*
-    /// file is one nobody prepared, and its copy is `LSPWorkspace.lastSentTexts()`:
-    /// a background tab typed in less than `LSPDocumentSyncController`'s 400 ms
-    /// debounce ago is a buffer the server has never seen, and it is the same
-    /// hazard one file further out. `LSPWorkspace.stillHolds` cannot see it — it
-    /// compares the *prepared* document's version and nothing else — so the two
-    /// halves are closed here, together, or the one left open is the one with no
-    /// undo behind it (decision 5).
+    /// file is one nobody prepared, and its copy is `serverTexts` — the caller's
+    /// `LSPWorkspace.lastSentTexts()` snapshot, **taken before the request went
+    /// out and handed down here** rather than read on arrival, because only the
+    /// earlier read is the text the server answered against: a background tab
+    /// typed in during the round trip is pushed by `LSPDocumentSyncController`'s
+    /// 400 ms debounce *after* the answer was computed, and a map read here would
+    /// carry it. `LSPWorkspace.stillHolds` cannot see that either — it compares
+    /// the *prepared* document's version and nothing else — so the two halves are
+    /// closed together, or the one left open is the one with no undo behind it
+    /// (decision 5).
     ///
     /// A file the map does not name is a file **no server holds open**, so the
     /// server answered about the bytes on disk: the fallback is `FileService`,
@@ -3029,14 +3053,13 @@ struct PisakaApp: App {
     /// `revertInFlight()` — the same alert every other gated operation gives,
     /// because a rename arriving mid-`git checkout` is refused for the same reason
     /// ⌘S is and deserves the same explanation.
-    private func applyRename(_ answer: RenameAnswer, for request: UsagesRequest, root: URL) async {
+    private func applyRename(
+        _ answer: RenameAnswer, for request: UsagesRequest, root: URL, serverTexts: [String: String]
+    ) async {
         guard model.isCurrentProjectRoot(root) else { return }
         guard !revertInFlight() else { return }
         let oldName = request.identifier
         let fileService = FileService()
-        var sent: [String: String] = [:]
-        for (url, text) in lspWorkspace.lastSentTexts() { sent[Self.canonicalKey(url)] = text }
-        let serverTexts = sent
         let requestKey = request.fileURL.map(Self.canonicalKey)
         let requestText = request.text
         let plan: RenameEditPlan
