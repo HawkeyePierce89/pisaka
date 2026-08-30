@@ -480,8 +480,8 @@ public struct UsagesRequest: Equatable, Sendable {
     /// The buffer's *live* text (D2: sync is request-driven, so the text travels
     /// with the question).
     public let text: String
-    /// The live text of **every other open tab that has a URL**, keyed by that
-    /// URL — empty when the caller has no buffers to offer.
+    /// The text of **every other document a server holds open**, keyed by file
+    /// URL — empty when the caller has none to offer.
     ///
     /// **D2 again, one file wider, and this question is the reason it has to be.**
     /// Every other request in this seam is about a single document, so `text`
@@ -492,9 +492,22 @@ public struct UsagesRequest: Equatable, Sendable {
     /// **buffer** coordinates. Mapping those against the disk copy is the one way
     /// this layer can produce a row that is wrong rather than absent: a plausible
     /// line, a preview drawn from the wrong offsets, and a reveal that then
-    /// refuses the range. The textual scan already prefers the buffer for every
-    /// file it reads, so without this the two provenances would disagree about
-    /// what "the file" is — the blur `UsageProvenance` exists to prevent.
+    /// refuses the range.
+    ///
+    /// **This is what the server was told, not what the tab now holds**, and the
+    /// two are not the same map. The push channel is debounced (D30), so a
+    /// background tab typed in since the last push is a buffer no server has seen;
+    /// planning against it reintroduces the wrong-offsets row one step further
+    /// out. Fill it from `LSPWorkspace.lastSentTexts()` — the same snapshot the
+    /// rename path plans against, for the same reason. A file the map does not
+    /// name is one no server holds open, which means the server answered about the
+    /// bytes on **disk**, so the fallback for it is the disk and never a buffer.
+    ///
+    /// The textual scan prefers the live buffer for every file it reads, which is
+    /// right for *it*: it computes its own offsets, so the text it reads is the
+    /// coordinate space by construction. The two provenances therefore read
+    /// different maps on purpose, and each reads the only one its own offsets are
+    /// meaningful in.
     ///
     /// A url-less buffer names no file a row could point at and is left out.
     public let openTexts: [URL: String]

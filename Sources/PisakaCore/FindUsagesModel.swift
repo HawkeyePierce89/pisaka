@@ -144,6 +144,7 @@ public final class FindUsagesModel: ObservableObject {
     private let fileService: FileServicing
     private let provider: () -> CodeIntelligenceProviding?
     private let openBuffers: () -> [URL: String]
+    private let serverTexts: () -> [URL: String]
     private let maxFileBytes: Int
 
     /// Serial, so the walk and every chunk run one after another off the main
@@ -195,21 +196,37 @@ public final class FindUsagesModel: ObservableObject {
     ///     installed — is not an error: it simply means the textual answer is the
     ///     only one available.
     ///   - openBuffers: the *unsaved* text of every open tab that has a URL, keyed
-    ///     by that URL, called on the main actor **once per question** — first to
-    ///     fill the request's `openTexts` for the provider, and again for the
-    ///     textual walk if it runs. A tab's text is used instead of the file on
-    ///     disk in *both* answers, so the rows describe what the user is looking
-    ///     at whichever one produced them. A url-less buffer names no file and is
-    ///     left out.
+    ///     by that URL, called on the main actor when the **textual** walk runs.
+    ///     A tab's text is used instead of the file on disk there, so the rows
+    ///     describe what the user is looking at. A url-less buffer names no file
+    ///     and is left out. Deliberately *not* the semantic half's source — see
+    ///     `serverTexts`.
+    ///   - serverTexts: the text each open document was last **pushed to a
+    ///     language server** as, keyed by file URL, called on the main actor when
+    ///     the semantic question is asked. This and `openBuffers` differ, and the
+    ///     difference is the whole reason there are two seams: a background tab
+    ///     typed in less than the document-sync debounce ago is a buffer no server
+    ///     has seen, so mapping that server's `(line, character)` answers onto it
+    ///     produces a row with a plausible line number, a preview drawn from the
+    ///     wrong offsets, and a reveal that then refuses the range — a row that is
+    ///     wrong rather than absent, which is exactly what `UsagesRequest
+    ///     .openTexts` exists to prevent. The rename path closes the identical
+    ///     hazard with the identical snapshot (`LSPWorkspace.lastSentTexts()`).
+    ///     A file this map does not name is one no server holds open, which means
+    ///     the server answered about the bytes on **disk** — so the fallback there
+    ///     is the disk and never a buffer. Empty by default: a caller with no
+    ///     language server has no semantic answer to map.
     public init(
         fileService: FileServicing = FileService(),
         provider: @escaping () -> CodeIntelligenceProviding? = { nil },
         openBuffers: @escaping () -> [URL: String] = { [:] },
+        serverTexts: @escaping () -> [URL: String] = { [:] },
         maxFileBytes: Int = FindUsagesModel.defaultMaxFileBytes
     ) {
         self.fileService = fileService
         self.provider = provider
         self.openBuffers = openBuffers
+        self.serverTexts = serverTexts
         self.maxFileBytes = maxFileBytes
     }
 
@@ -375,17 +392,20 @@ public final class FindUsagesModel: ObservableObject {
         emptyReason = nil
         isSearching = true
 
-        // The open tabs travel with the question, for `UsagesRequest.openTexts`'s
-        // reason: a server's ranges in a dirty background tab are that buffer's,
-        // and only this model holds the buffers. Enriched here rather than at the
-        // call site so no caret command has to know which of the two answers needs
-        // them — and read on the main actor, where `openBuffers` must run.
+        // The documents the server has travel with the question, for
+        // `UsagesRequest.openTexts`'s reason: a server's ranges in a dirty
+        // background tab are that tab's coordinates, not disk's. `serverTexts`
+        // rather than `openBuffers` because the coordinate space is the one the
+        // server was *told about*, which a buffer typed in since the last push
+        // definitionally is not (see the seam's own note). Enriched here rather
+        // than at the call site so no caret command has to know which of the two
+        // answers needs it — and read on the main actor, where the seam must run.
         let semanticRequest = UsagesRequest(
             identifier: usages.identifier,
             fileURL: usages.fileURL,
             offset: usages.offset,
             text: usages.text,
-            openTexts: usages.openTexts.isEmpty ? openBuffers() : usages.openTexts
+            openTexts: usages.openTexts.isEmpty ? serverTexts() : usages.openTexts
         )
         let semantic = await provider()?.references(for: semanticRequest) ?? []
         guard token == generation else { return }

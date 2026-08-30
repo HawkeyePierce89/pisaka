@@ -443,12 +443,13 @@ final class LSPSessionTests: XCTestCase {
         XCTAssertEqual(pending, 0)
     }
 
-    /// Both commands are deliberate acts, so both are worth the definition span
-    /// rather than the pointer dwell's — one number, asserted by spending it.
-    func testReferencesAndRenameShareTheDefinitionSpanRatherThanHovers() async throws {
+    /// `references` is a deliberate act, so it is worth the definition span rather
+    /// than the pointer dwell's — asserted by spending it, with every *other*
+    /// budget (rename's included) set wide enough that spending one of those
+    /// instead would overrun the assertion.
+    func testReferencesSpendsTheDefinitionSpanRatherThanHovers() async throws {
         let transport = makeTransport()
         transport.script(LSPMethod.references, .drop)
-        transport.script(LSPMethod.rename, .drop)
         let session = try await start(
             transport,
             budgets: LSPSession.Budgets(
@@ -457,7 +458,8 @@ final class LSPSessionTests: XCTestCase {
                 completion: 30,
                 resolve: 30,
                 hover: 30,
-                references: 0.05
+                references: 0.05,
+                rename: 30
             )
         )
 
@@ -470,6 +472,40 @@ final class LSPSessionTests: XCTestCase {
         } catch {
             XCTAssertEqual(error as? LSPSessionError, .timedOut(method: LSPMethod.references))
         }
+        XCTAssertLessThan(
+            Date().timeIntervalSince(started), 4,
+            "references spent a budget other than its own"
+        )
+
+        XCTAssertEqual(transport.notifications(for: LSPMethod.cancelRequest).count, 1)
+        let pending = await session.pendingRequestCount
+        XCTAssertEqual(pending, 0)
+    }
+
+    /// **Rename does not share `references`' span.** They are the same act asked
+    /// two ways, but only one of them has a second answer behind it: a references
+    /// timeout degrades to the textual scan, while a rename timeout is a bare
+    /// refusal of a command the user has already filled in a dialog for — and a
+    /// workspace rename is the heavier request besides. Asserted the same way
+    /// round: rename's own budget is the small one, `references`' is wide, and
+    /// spending the shared number would overrun.
+    func testRenameSpendsItsOwnBudgetRatherThanReferences() async throws {
+        let transport = makeTransport()
+        transport.script(LSPMethod.rename, .drop)
+        let session = try await start(
+            transport,
+            budgets: LSPSession.Budgets(
+                handshake: 2,
+                definition: 30,
+                completion: 30,
+                resolve: 30,
+                hover: 30,
+                references: 30,
+                rename: 0.05
+            )
+        )
+
+        let started = Date()
         do {
             _ = try await session.rename(
                 LSPRenameParams(
@@ -484,12 +520,22 @@ final class LSPSessionTests: XCTestCase {
         }
         XCTAssertLessThan(
             Date().timeIntervalSince(started), 4,
-            "references or rename spent a budget other than the one they share"
+            "rename spent a budget other than its own"
         )
 
-        XCTAssertEqual(transport.notifications(for: LSPMethod.cancelRequest).count, 2)
+        XCTAssertEqual(transport.notifications(for: LSPMethod.cancelRequest).count, 1)
         let pending = await session.pendingRequestCount
         XCTAssertEqual(pending, 0)
+    }
+
+    /// The default table gives rename materially more room than `references`,
+    /// which is the whole point of splitting them: a number that merely differed
+    /// by rounding would be two numbers to keep in step and no more.
+    func testTheDefaultRenameBudgetIsWiderThanTheReadingBudgets() {
+        let standard = LSPSession.Budgets.standard
+        XCTAssertGreaterThan(standard.rename, standard.references)
+        XCTAssertGreaterThan(standard.rename, standard.definition)
+        XCTAssertGreaterThanOrEqual(standard.rename, 15)
     }
 
     func testHoverSendsThePositionItWasAskedAboutAndDecodesTheAnswer() async throws {

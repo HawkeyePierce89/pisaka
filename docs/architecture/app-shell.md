@@ -519,7 +519,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     writes would land in a project the user has left, with none of the "Before
     Rename" revisions the failure alert promises. That one refusal says nothing:
     the user has moved on. The plan is built *before* the bracket (`RenameEditPlan.make`, against
-    the open buffers keyed by canonical path and the disk otherwise), because every
+    the texts the servers were last sent, keyed by canonical path, and the disk
+    otherwise), because every
     refusal is a question about the answer and the texts in hand: it costs nothing,
     stops nothing, and a rename that is going to be refused must never suspend
     autosave or capture a revision. The **requesting** file is answered with
@@ -527,15 +528,34 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     actually given, so a keystroke during the round trip surfaces as an honest
     "changed since the language server answered" instead of as edits mapped onto
     coordinates they were never computed for (D37, and the full reasoning on
-    `RenameEditPlan`'s entry in `core-lsp.md`). Inside the bracket
+    `RenameEditPlan`'s entry in `core-lsp.md`).
+    **Both disk passes run off the main thread**, on this file's own serial
+    `renameQueue` through a `PisakaApp.offMain` in the `ProjectSearchModel` shape.
+    Between them they resolve symlinks three times per document and read every named
+    file twice before writing it, over a set whose size the *server* chose — for a
+    widely-used type that is hundreds of files, which is the ordinary case for this
+    command and not the pathological one. Run on the main actor the window would
+    freeze for the whole pass with nothing on screen to say why; every decision
+    *around* them still happens on the main actor, which is what the re-checks below
+    are for. The plan pass reads through
+    `readTextIfNotBinary(url:maxBytes:)` at the project search's cap, not `read`:
+    this is the one file read in the app whose targets a *server* chooses, and an
+    unbounded read of a generated or binary file it happens to name would pull the
+    whole thing into memory looking for identifiers that cannot be in it. Declining
+    is a `RenameRefusal.unreadable`, so the rename refuses rather than skipping a
+    file quietly. Because the plan pass hops, `isCurrentProjectRoot` and
+    `revertInFlight()` are asked **again** on the far side: a folder switch or
+    another writer can land while it runs, and a plan built for a project the window
+    has left must not be applied to the one it is showing. Inside the bracket
     the order is **capture, verify, write** (D37): `autosave.suspend()` +
     `localChanges.beginRevert()` raised synchronously and lowered **by hand on both
     exits rather than by `defer`** — the commit path's rule and for its reason:
     `PlatformAlert.presentMessage` is `NSAlert.runModal()`, a nested run loop, and
     `AutosaveController.flushNow()` bails while `suspendCount > 0`, so a ⌘Q while
     the stale-file or write-failure alert sits on screen would skip the termination
-    flush for every dirty buffer. `captureBeforeOperation` is the body's only
-    `await`, so those two exits are the only paths out and the `defer` bought
+    flush for every dirty buffer. the body's two `await`s (the capture and the
+    write pass) add no third way out, since neither is cancellable and both resume,
+    so those two exits are still the only paths out and the `defer` bought
     nothing but the ordering hazard —
     `await captureBeforeOperation(.rename, buffers: openBufferTexts(), targets:
     plan.fileURLs)` as the **first `await` in the body**, the texts re-read *now*
@@ -551,7 +571,22 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     live text view as **one undoable step** and every other tab through
     `WorkspaceModel.replaceText` **at the cost of its undo stack** — the same two
     paths a restore takes, shared as one body because the *choice* between them is
-    the decision. Afterwards comes the resync a project-wide Replace All already
+    the decision.
+    The buffer half applies each rewrite to **every tab on that file, not the first
+    one `fileID(forURL:)` finds, and only to a tab still holding the text the plan
+    was verified against**. Two tabs may legitimately show one file (opened once by
+    path, once through a symlink) and `bufferTextsByCanonicalPath` collapses them to
+    one text: rewriting a single tab would leave the other holding the old name *and
+    clean*, so nothing flags it and the next save through it writes the pre-rename
+    text back over the file — the rename silently undone there, with no beep and no
+    alert. The equality check is what makes that fan-out safe (two tabs whose texts
+    differ were not both vouched for, and replacing the unvouched one wholesale
+    would discard edits nobody asked to lose) and is also what closes the write
+    pass's hop: a tab typed into while the disk half ran is skipped and **reported**
+    in a "Rename incomplete" alert naming it, never overwritten from a text it no
+    longer holds. That is Replace All's rule for the identical window — compute off
+    main, re-read the buffer afterwards, skip and count a buffer that moved rather
+    than clobber it. Afterwards comes the resync a project-wide Replace All already
     runs — `refreshLocalChanges()`, `model.bumpTreeRevision()`,
     `notifyIndexOfProjectFileChanges()` for the files with no tab, and
     `reindexReloadedBuffer(id:url:)` for every rewritten tab, which the stamp-gated

@@ -114,26 +114,36 @@ public final class RoutingIntelligenceProvider: CodeIntelligenceProviding {
         /// pointer merely stopped — and an answer that arrives after it has moved
         /// on is not late, it is unwanted.
         public var hover: TimeInterval
-        /// `textDocument/references` and `textDocument/rename`, sharing one span
-        /// exactly as `LSPSession.Budgets.references` does and for the same
-        /// argument: both are commands someone typed a shortcut for, so the answer
-        /// is still wanted when it arrives late — a definition's three seconds
-        /// rather than a dwell's one and a half — and two numbers for one act
-        /// asked two ways would only be two numbers to keep in step.
+        /// `textDocument/references`, matching `LSPSession.Budgets.references`
+        /// and for the same argument: it is a command someone typed a shortcut
+        /// for, so the answer is still wanted when it arrives late — a
+        /// definition's three seconds rather than a dwell's one and a half — and
+        /// expiry costs nothing, because `FindUsagesModel` walks the project
+        /// textually in its place and the panel says which answer it is holding.
         public var references: TimeInterval
+        /// `textDocument/rename`, matching `LSPSession.Budgets.rename` — the one
+        /// span in this table that is not a reading question's. Every other
+        /// budget here bounds a race whose loser has a second answer behind it;
+        /// this one has none (D35), and it expires *after* the user has filled in
+        /// a modal dialog, so the whole cost of being wrong lands on them as a
+        /// command that simply refuses. See that budget's note for why a
+        /// workspace rename is also the heavier request.
+        public var rename: TimeInterval
 
         public init(
             definition: TimeInterval = 3,
             completion: TimeInterval = 1.5,
             resolve: TimeInterval = 1.5,
             hover: TimeInterval = 1.5,
-            references: TimeInterval = 3
+            references: TimeInterval = 3,
+            rename: TimeInterval = 20
         ) {
             self.definition = definition
             self.completion = completion
             self.resolve = resolve
             self.hover = hover
             self.references = references
+            self.rename = rename
         }
 
         /// D7's numbers.
@@ -273,7 +283,7 @@ public final class RoutingIntelligenceProvider: CodeIntelligenceProviding {
             .flatMap({ SyntaxLanguage(forFileName: $0.lastPathComponent) }),
               await lsp.canRename(language)
         else { return nil }
-        return await withBudget(budgets.references, { [lsp] in
+        return await withBudget(budgets.rename, { [lsp] in
             await lsp.renameEdits(for: request)
         }) ?? nil
     }

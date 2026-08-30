@@ -1342,11 +1342,20 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     "nothing has been asked yet" for a question that was just asked and just
     answered. One `CanonicalPathMemo` is handed to every one of those `make` calls
     for that type's reason — otherwise each chunk re-resolves every distinct file's
-    symlinks on the main actor. Open buffers are snapshotted on the main actor
-    (the closure reads the workspace, so it must) and travel into **both** answers:
-    into the request's `openTexts` for the provider, and into the walk's
-    per-file preference, so the rows describe what the user is looking at whichever
-    of the two produced them. Collection stops the moment one row *more* than the
+    symlinks on the main actor. **Two text seams, not one**, both read on the main
+    actor (each closure reaches into app state, so both must). The walk's per-file
+    preference is `openBuffers` — the *live* tabs, so the textual rows describe what
+    the user is looking at. The semantic request's `openTexts` is `serverTexts`,
+    i.e. `LSPWorkspace.lastSentTexts()`: what each document was last *pushed* as.
+    They differ, and the difference is the whole reason there are two. A server's
+    ranges are in the coordinate space it was told about, and the push channel is
+    debounced — so a background tab typed in a moment ago is a buffer no server has
+    seen, and mapping its answers onto it yields a row with a plausible line number
+    and the wrong offsets: wrong rather than absent, which is the one failure
+    `UsagesRequest.openTexts` exists to prevent. The walk needs no such care because
+    it computes its own offsets in the very text it read. A file `serverTexts` does
+    not name is one no server holds open, so the server answered about the bytes on
+    disk and the fallback is the disk. Collection stops the moment one row *more* than the
     cap is in hand — walking past it would read the rest of the project to build
     rows the cap discards — and the walk **tells** `make` it stopped
     (`stoppedEarly`) rather than leaving it to infer truncation from a row count

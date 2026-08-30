@@ -95,9 +95,14 @@ commands sit on everything above: **Find Usages** (⌃⌘U) lists every place th
 identifier under the caret is used, in a bottom-dock panel beside Problems, and
 **Rename** (⌃⌘R) renames the symbol project-wide through the server's
 `WorkspaceEdit`. They ask two more requests — `textDocument/references` and
-`textDocument/rename` — read two more capability fields, and share one budget
-(definition's three seconds: both are commands somebody typed a shortcut for, not
-a pointer that stopped moving). Everything else about them is new *policy* rather
+`textDocument/rename` — read two more capability fields, and take **two budgets,
+not one**. `references` gets a definition's three seconds (a command somebody
+typed a shortcut for, not a pointer that stopped moving), because its expiry is
+free: the model walks the project textually instead and the panel says so. Rename
+gets twenty, because its expiry is not free — it has no second answer of any kind,
+it arrives *after* the user has filled in a modal dialog, and a workspace rename
+type-checks the reverse dependency graph where `references` reads an index. The
+two are the same act asked two ways, but only one of them can fail invisibly. Everything else about them is new *policy* rather
 than new plumbing, and it is written down as D35–D37. **Rename has no fallback of
 any kind** (D35): hover's rule applied to the one question in this layer that
 leads to a write, because the only non-semantic rename available is a textual
@@ -1821,12 +1826,22 @@ document, together with the limits they carry.
     space, and it is the one way this path can produce a row that is *wrong* rather
     than absent: a plausible line, a preview drawn from unrelated text, and a reveal
     that `revealRange(naming:in:)` then correctly refuses. So `UsagesRequest` carries
-    `openTexts` — the tabs, keyed by URL, filled in by `FindUsagesModel`, which is
-    where the buffers live — and the cache consults them, canonically keyed like
-    everything else here, before it reads a byte. The textual scan already preferred
-    the buffer for every file it read; without this the two provenances would
-    disagree about what "the file" is, which is the blur `UsageProvenance` exists to
-    prevent.
+    `openTexts` — keyed by URL, filled in by `FindUsagesModel` — and the cache
+    consults them, canonically keyed like everything else here, before it reads a
+    byte.
+    **What fills it is `LSPWorkspace.lastSentTexts()`, not the live buffers**, and
+    the distinction is the same one the rename path draws one file over: the push
+    channel is *debounced*, so a background tab typed in less than 400 ms ago is a
+    buffer no server has seen, and planning against it reintroduces the wrong
+    coordinate space one step further out — with a `holds`-style check nowhere in
+    sight, because a reading answer has none. A file that snapshot does not name is
+    a file no server holds open, which means the server read it from **disk**, so
+    the fallback there is `FileService` and never a buffer. The textual scan does
+    prefer the live buffer for every file it reads, and that is right for *it*: it
+    computes its own offsets, so the text it reads is its coordinate space by
+    construction. The two provenances therefore consult different maps on purpose,
+    and each consults the only one its offsets mean anything in — which is what
+    keeps `UsageProvenance` from blurring rather than what would blur it.
     **The mapping loop is the one loop here that checks for cancellation**, because
     it is the one that can outlive its question and the one that is unbounded: a
     server naming a widely-used symbol legitimately answers tens of thousands of
@@ -1907,8 +1922,12 @@ document, together with the limits they carry.
     have a second answer, but that answer is a walk of the project, which is a
     **model's** job and not a provider's (D36) — so what this layer owes there is a
     clean empty result, which `FindUsagesModel` reads as "ask the files". Both new
-    methods are `canServe`-gated and budget-raced like every other, on the
-    `references` budget (definition's three seconds, shared by the pair).
+    methods are `canServe`-gated and budget-raced like every other — `references`
+    on the `references` budget (definition's three seconds) and `renameEdits` on a
+    `rename` budget of its own (twenty). The split is the point: every other span
+    in these two tables bounds a race whose loser has something behind it, and this
+    is the one that does not, so timing out a rename that would have succeeded is
+    the single failure the layer cannot make invisible.
     `canRename(_:)` is **forwarded** rather than left reachable on the wrapped
     source, because the app holds *this* object: the seam's whole point is that
     nothing above it names the LSP layer, and a command reaching past the router for

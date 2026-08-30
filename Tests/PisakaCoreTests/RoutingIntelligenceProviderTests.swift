@@ -563,13 +563,13 @@ final class RoutingIntelligenceProviderTests: XCTestCase {
         XCTAssertEqual(harness.launches, 0)
     }
 
-    /// A server that does not answer in time answers nothing — the two questions
-    /// share one budget, and it is theirs rather than a definition's or a hover's.
-    func testATimeoutOnUsagesAndRenameAnswersNothingAndCancelsTheRequests() async {
+    /// A server that does not answer in time answers nothing — raced against
+    /// `references`' own budget rather than a definition's or a hover's.
+    func testATimeoutOnUsagesAnswersNothingAndCancelsTheRequest() async {
         transport.script(LSPMethod.references, .drop)
-        transport.script(LSPMethod.rename, .drop)
-        // Every other span is set far past this test's own runtime, so the elapsed
-        // assertion pins *which* budget the whole-attempt race is run against.
+        // Every other span — rename's included — is set far past this test's own
+        // runtime, so the elapsed assertion pins *which* budget the whole-attempt
+        // race is run against.
         let router = makeRouter(
             index: makeIndex(),
             budgets: RoutingIntelligenceProvider.Budgets(
@@ -577,23 +577,66 @@ final class RoutingIntelligenceProviderTests: XCTestCase {
                 completion: 30,
                 resolve: 30,
                 hover: 30,
-                references: 0.05
+                references: 0.05,
+                rename: 30
             )
         )
 
         let started = Date()
         let usages = await router.references(for: usagesRequest())
-        let renamed = await router.renameEdits(for: renameRequest())
 
         XCTAssertTrue(usages.isEmpty)
+        XCTAssertLessThan(
+            Date().timeIntervalSince(started), 2,
+            "the attempt was raced against a budget other than its own"
+        )
+        await untilTrue("the abandoned question is cancelled") {
+            self.transport.notifications(for: LSPMethod.cancelRequest).count == 1
+        }
+    }
+
+    /// **Rename is raced against a budget of its own, not `references`'.**
+    ///
+    /// The two are the same act asked two ways, but only one of them has a second
+    /// answer behind it: a references timeout degrades to `FindUsagesModel`'s
+    /// textual walk, while a rename timeout is a bare refusal of a command the
+    /// user has already filled in a modal dialog for. Asserted the same way round
+    /// — rename's span is the small one here and `references`' is wide, so a
+    /// router still sharing one number would overrun.
+    func testATimeoutOnRenameAnswersNothingAndCancelsTheRequest() async {
+        transport.script(LSPMethod.rename, .drop)
+        let router = makeRouter(
+            index: makeIndex(),
+            budgets: RoutingIntelligenceProvider.Budgets(
+                definition: 30,
+                completion: 30,
+                resolve: 30,
+                hover: 30,
+                references: 30,
+                rename: 0.05
+            )
+        )
+
+        let started = Date()
+        let renamed = await router.renameEdits(for: renameRequest())
+
         XCTAssertNil(renamed)
         XCTAssertLessThan(
             Date().timeIntervalSince(started), 2,
-            "the attempts were raced against a budget other than their own"
+            "the attempt was raced against a budget other than its own"
         )
-        await untilTrue("both abandoned questions are cancelled") {
-            self.transport.notifications(for: LSPMethod.cancelRequest).count == 2
+        await untilTrue("the abandoned question is cancelled") {
+            self.transport.notifications(for: LSPMethod.cancelRequest).count == 1
         }
+    }
+
+    /// The default table gives rename materially more room than every reading
+    /// question, which is the whole point of splitting it out.
+    func testTheDefaultRenameBudgetIsWiderThanTheReadingBudgets() {
+        let standard = RoutingIntelligenceProvider.Budgets.standard
+        XCTAssertGreaterThan(standard.rename, standard.references)
+        XCTAssertGreaterThan(standard.rename, standard.definition)
+        XCTAssertGreaterThanOrEqual(standard.rename, 15)
     }
 
     /// `canRename` is the free policy answer the command asks before it puts a

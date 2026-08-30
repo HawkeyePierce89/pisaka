@@ -81,15 +81,27 @@ public actor LSPSession {
         /// worth nothing, and waiting a definition's three seconds for it only
         /// keeps a request alive past its own usefulness.
         public var hover: TimeInterval
-        /// `textDocument/references` and `textDocument/rename` — definition's
-        /// number, and for definition's reason. Both are explicit commands
-        /// someone typed a shortcut for, not a pointer that happened to stop
-        /// moving: the answer is still wanted when it arrives late, so they are
-        /// worth the deliberate act's three seconds rather than the dwell's one
-        /// and a half. They share one span because they are the same act asked
-        /// two ways, and a rename that costs more thinking than the usages list
-        /// that preceded it would only be a second number to keep in step.
+        /// `textDocument/references` — definition's number, and for definition's
+        /// reason. It is an explicit command someone typed a shortcut for, not a
+        /// pointer that happened to stop moving: the answer is still wanted when
+        /// it arrives late, so it is worth the deliberate act's three seconds
+        /// rather than the dwell's one and a half. Expiry here is cheap —
+        /// `FindUsagesModel` walks the project textually instead and says so.
         public var references: TimeInterval
+        /// `textDocument/rename` — **not** `references`' number, though the two
+        /// are the same act asked two ways. Three seconds is the span of a
+        /// question whose expiry costs nothing: a references timeout degrades to
+        /// the textual scan, and a definition's to tree-sitter. A rename has no
+        /// second answer of any kind (D35), and by the time it is sent the user
+        /// has already been made to fill in a modal dialog — so its expiry is not
+        /// a degraded answer but a bare refusal of a command they deliberately
+        /// invoked. It is also a categorically heavier question: `references`
+        /// reads an index, while a workspace rename type-checks the reverse
+        /// dependency graph, which on a mid-sized module is ordinarily seconds
+        /// rather than milliseconds. Timing out a rename that would have
+        /// succeeded is the one failure this layer cannot make invisible, so the
+        /// span is the one a person waiting on a dialog will tolerate.
+        public var rename: TimeInterval
         /// How long a polite `shutdown` may take before we stop being polite.
         /// Short on purpose: the process is being killed either way, and this is
         /// only the difference between a clean exit and a SIGTERM.
@@ -102,6 +114,7 @@ public actor LSPSession {
             resolve: TimeInterval = 1.5,
             hover: TimeInterval = 1.5,
             references: TimeInterval = 3,
+            rename: TimeInterval = 20,
             shutdown: TimeInterval = 2
         ) {
             self.handshake = handshake
@@ -110,6 +123,7 @@ public actor LSPSession {
             self.resolve = resolve
             self.hover = hover
             self.references = references
+            self.rename = rename
             self.shutdown = shutdown
         }
 
@@ -446,7 +460,7 @@ public actor LSPSession {
         let result = try await request(
             LSPMethod.rename,
             params: try JSONValue(encoding: params),
-            timeout: budgets.references
+            timeout: budgets.rename
         )
         return try decode(result, as: LSPWorkspaceEdit.self, method: LSPMethod.rename)
     }

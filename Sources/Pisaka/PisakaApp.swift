@@ -581,7 +581,16 @@ struct PisakaApp: App {
         usages = FindUsagesModel(
             fileService: FileService(),
             provider: { [weak symbolIndexController] in symbolIndexController?.provider },
-            openBuffers: openBuffers
+            openBuffers: openBuffers,
+            // The textual walk gets the live buffers above; the *semantic* half
+            // gets what the servers were actually told, which is a different map
+            // (`FindUsagesModel.serverTexts`, and `renameSymbol`'s reason one file
+            // over): the document-sync debounce means a tab typed in a moment ago
+            // is a buffer no server has seen, and mapping its answers onto that
+            // buffer is how a row ends up with a plausible line number and the
+            // wrong offsets. `lspWorkspace` is `@MainActor`, as is the model that
+            // calls this, so the snapshot is taken in the asking turn.
+            serverTexts: { [weak lspWorkspace] in lspWorkspace?.lastSentTexts() ?? [:] }
         )
     }
 
@@ -3062,16 +3071,45 @@ struct PisakaApp: App {
         let fileService = FileService()
         let requestKey = request.fileURL.map(Self.canonicalKey)
         let requestText = request.text
+        let maxBytes = FindUsagesModel.defaultMaxFileBytes
+        let edit = answer.edit
+        // **Off the main thread**, the `ProjectSearchModel.replaceAll` shape and
+        // for its reason: building the plan resolves symlinks three times and
+        // reads one file per document the server named, and a server naming a
+        // widely-used type names hundreds — which is the ordinary case for the
+        // command this is, not the pathological one. Run here it would freeze the
+        // window for the whole read pass with nothing on screen to say why.
+        // Nothing is written in this pass and no gate is up yet, so the hop costs
+        // only the two re-checks below.
+        //
+        // `readTextIfNotBinary` rather than `read`: this is the one file read in
+        // the app that a *server* chooses the targets of, and an unbounded `read`
+        // of a generated or binary file it happens to name would load the whole
+        // thing into memory to look for identifiers that cannot be there. The cap
+        // is the project search's, so this walk declines exactly the files the
+        // other two do — and declining is a `RenameRefusal.unreadable`, i.e. the
+        // whole rename refuses rather than silently skipping a file.
+        let made = await Self.offMain {
+            RenameEditPlan.make(
+                from: edit,
+                root: root,
+                texts: { url in
+                    let key = Self.canonicalKey(url)
+                    if key == requestKey { return requestText }
+                    if let sent = serverTexts[key] { return sent }
+                    return (try? fileService.readTextIfNotBinary(url: url, maxBytes: maxBytes))
+                        ?? nil
+                }
+            )
+        }
+        // Re-asked after the hop, not merely repeated: the folder can be switched
+        // and another writer can raise the gate while the read pass runs, and a
+        // plan built for a project the window has left must not be applied to the
+        // one it is showing now.
+        guard model.isCurrentProjectRoot(root) else { return }
+        guard !revertInFlight() else { return }
         let plan: RenameEditPlan
-        switch RenameEditPlan.make(
-            from: answer.edit,
-            root: root,
-            texts: { url in
-                let key = Self.canonicalKey(url)
-                if key == requestKey { return requestText }
-                return serverTexts[key] ?? (try? fileService.read(url: url))
-            }
-        ) {
+        switch made {
         case .success(let made):
             guard !made.isEmpty else {
                 PlatformFeedback.warning()
@@ -3091,8 +3129,9 @@ struct PisakaApp: App {
         // `NSAlert.runModal()`, a nested run loop, and `AutosaveController
         // .flushNow()` bails while `suspendCount > 0`, so a ⌘Q while a rename
         // alert sits on screen would skip the termination flush for every dirty
-        // buffer. `captureBeforeOperation` is the only `await` in the body, so
-        // the two exits are the only paths out and a `defer` bought nothing but
+        // buffer. The two `await`s below (the capture and the write pass) add no
+        // third way out — neither is cancellable and both resume — so the two
+        // exits are still the only paths out and a `defer` would buy nothing but
         // the ordering hazard.
         // Pre-empting a write the user cannot see all of: a rename changes files
         // no tab holds, and unlike a git operation nothing can put them back. The
@@ -3110,10 +3149,21 @@ struct PisakaApp: App {
         // Re-read *now*: the buffers may have been typed in and the disk written
         // to while the dialog was up and the server was thinking.
         let current = bufferTextsByCanonicalPath()
-        let outcome = plan.apply(
-            bufferText: { url in current[Self.canonicalKey(url)] },
-            fileService: fileService
-        )
+        // Off the main thread again, for the read pass's reason one step further
+        // on: this is where every remaining file is re-read, vouched for and
+        // written. The verification stays all-or-nothing inside the hop — nothing
+        // is written until every file's text has been checked against the plan —
+        // and the buffer snapshot it verifies against is the one taken just above,
+        // on the main actor, so what the hop decides about a tab is decided about
+        // a text that existed. A tab typed into *during* the hop is caught below
+        // rather than clobbered, the same rule Replace All applies to the same
+        // window.
+        let outcome = await Self.offMain {
+            plan.apply(
+                bufferText: { url in current[Self.canonicalKey(url)] },
+                fileService: fileService
+            )
+        }
         let application: RenameApplication
         switch outcome {
         case .applied(let applied):
@@ -3135,11 +3185,37 @@ struct PisakaApp: App {
         }
 
         // The buffer half, and the resync every worktree rewrite runs.
+        //
+        // **Every tab on the file, not the first one `fileID(forURL:)` finds.**
+        // Two tabs may legitimately show one file — opened once by path, once
+        // through a symlink — and `bufferTextsByCanonicalPath` collapses them to
+        // the single text the plan was verified against. Rewriting only one of
+        // them leaves the other holding the old name *and clean*, so nothing
+        // flags it and the next save through it writes the pre-rename text back
+        // over the file: the rename silently undone in that file, with no beep
+        // and no alert. The plan's edits are one file's, so applying them to
+        // every tab on that file is the same write, not a repeated one.
+        //
+        // **And only to a tab still holding the verified text.** That is both the
+        // check that makes the collapse safe (two tabs whose texts differ were
+        // not both vouched for, and replacing the unvouched one wholesale would
+        // discard edits nobody asked to lose) and the one that closes the write
+        // pass's hop: a tab typed into while the disk half ran is skipped and
+        // reported, never overwritten from a text it no longer holds — Replace
+        // All's rule for the identical window.
         var rewrittenTabs: [(id: UUID, url: URL)] = []
+        var unrewritten: [URL] = []
         for rewrite in application.bufferRewrites {
-            guard let id = model.fileID(forURL: rewrite.fileURL) else { continue }
-            saveTransform.applyRename(rewrite.plan, to: id)
-            rewrittenTabs.append((id, rewrite.fileURL))
+            let key = Self.canonicalKey(rewrite.fileURL)
+            let verified = current[key]
+            var matched = false
+            for file in model.openFiles {
+                guard file.url.map(Self.canonicalKey) == key, file.text == verified else { continue }
+                saveTransform.applyRename(rewrite.plan, to: file.id)
+                rewrittenTabs.append((file.id, rewrite.fileURL))
+                matched = true
+            }
+            if !matched { unrewritten.append(rewrite.fileURL) }
         }
         refreshLocalChanges()
         model.bumpTreeRevision()
@@ -3161,6 +3237,20 @@ struct PisakaApp: App {
         // this path can still present, for the reason stated above the bracket.
         localChanges.endRevert()
         autosave.resume()
+        if !unrewritten.isEmpty, application.writeFailure == nil {
+            // A tab moved under the write pass, so its file is the one thing the
+            // plan vouched for and did not change. Said rather than swallowed for
+            // the write-failure alert's reason: the user asked for a rename, part
+            // of it did not happen, and which part is something they can act on.
+            PlatformFeedback.warning()
+            PlatformAlert.presentMessage(
+                title: "Rename incomplete",
+                message: "\(unrewritten.map(\.lastPathComponent).joined(separator: ", ")) "
+                    + "changed while the rename was being written, so "
+                    + (unrewritten.count == 1 ? "it still holds" : "they still hold")
+                    + " the old name. Every other file was renamed."
+            )
+        }
         if let failed = application.writeFailure {
             // Deliberately *not* "the other files were renamed": `apply` stops at
             // the first write that throws, so the files it had not reached yet
@@ -3195,8 +3285,29 @@ struct PisakaApp: App {
     /// `isInsideProject`'s reason (that type is Core-internal) and matching it
     /// exactly, which is what keeps this lookup and the plan's own path
     /// comparisons answering the same question.
-    private static func canonicalKey(_ url: URL) -> String {
+    private nonisolated static func canonicalKey(_ url: URL) -> String {
         url.standardizedFileURL.resolvingSymlinksInPath().path
+    }
+
+    /// The one queue the rename's disk passes run on.
+    ///
+    /// A queue of its own rather than the cooperative pool: both passes are
+    /// *blocking* file I/O over a set the server chose the size of, and handing
+    /// that to a `Task.detached` would park a pool thread per pass. Serial because
+    /// the two passes of one rename are ordered anyway and two renames cannot
+    /// overlap — the writer gate sees to the second one.
+    private nonisolated static let renameQueue = DispatchQueue(
+        label: "com.pisaka.rename", qos: .userInitiated
+    )
+
+    /// Run `work` on `renameQueue` and resume with its result — the
+    /// `ProjectSearchModel.offMain` shape, so the rename's reads and writes never
+    /// land on the main thread while everything that decides *around* them stays
+    /// on the main actor.
+    private nonisolated static func offMain<T>(_ work: @escaping () -> T) async -> T {
+        await withCheckedContinuation { continuation in
+            renameQueue.async { continuation.resume(returning: work()) }
+        }
     }
 
     private func bufferTextsByCanonicalPath() -> [String: String] {

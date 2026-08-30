@@ -305,14 +305,52 @@ final class FindUsagesModelTests: XCTestCase {
 
     // MARK: - The open buffers
 
-    /// **The semantic answer is told about the open tabs too.**
+    /// **The semantic answer is told about the documents the server holds.**
     ///
-    /// A server's ranges in a dirty *background* tab are that buffer's — the push
-    /// channel gave it that text — so the provider needs the buffers to map them,
-    /// and only this model holds them. The textual scan has always preferred a
-    /// buffer over the disk; without this the two provenances would disagree about
-    /// what "the file" is.
-    func testTheOpenBuffersTravelWithTheSemanticQuestion() async {
+    /// A server's ranges in a dirty *background* tab are that document's — the
+    /// push channel gave it that text — so the provider needs those texts to map
+    /// them, and only this model can hand them over.
+    func testTheServerDocumentsTravelWithTheSemanticQuestion() async {
+        let provider = StubProvider()
+        let other = root.appendingPathComponent("other.swift")
+        let model = FindUsagesModel(
+            fileService: StubFileTree(root: root, files: [:]),
+            provider: { provider },
+            serverTexts: { [other: "let count = 2"] }
+        )
+
+        await model.find(request("count"), root: root)
+
+        XCTAssertEqual(provider.lastRequest?.openTexts, [other: "let count = 2"])
+    }
+
+    /// **The semantic half reads what the server was told, not what the tab now
+    /// holds.**
+    ///
+    /// The document-sync debounce means a background tab typed in a moment ago is
+    /// a buffer no server has seen. Mapping the server's `(line, character)`
+    /// answers onto *that* text is how a row acquires a plausible line number and
+    /// the wrong offsets — the one way this layer can produce a row that is wrong
+    /// rather than absent. The two seams therefore differ, and the semantic
+    /// question takes the server's.
+    func testTheSemanticQuestionIgnoresBuffersTheServerHasNotSeen() async {
+        let provider = StubProvider()
+        let other = root.appendingPathComponent("other.swift")
+        let model = FindUsagesModel(
+            fileService: StubFileTree(root: root, files: [:]),
+            provider: { provider },
+            openBuffers: { [other: "typed since the last push"] },
+            serverTexts: { [other: "what the server was told"] }
+        )
+
+        await model.find(request("count"), root: root)
+
+        XCTAssertEqual(provider.lastRequest?.openTexts, [other: "what the server was told"])
+    }
+
+    /// A caller with no language server offers nothing: the seam is empty, and an
+    /// empty map is not filled in from the live buffers behind its back.
+    func testWithNoServerDocumentsTheSemanticQuestionCarriesNone() async {
         let provider = StubProvider()
         let other = root.appendingPathComponent("other.swift")
         let model = FindUsagesModel(
@@ -323,18 +361,19 @@ final class FindUsagesModelTests: XCTestCase {
 
         await model.find(request("count"), root: root)
 
-        XCTAssertEqual(provider.lastRequest?.openTexts, [other: "let count = 2"])
+        XCTAssertEqual(provider.lastRequest?.openTexts, [:])
     }
 
     /// A caller that filled `openTexts` itself keeps its own snapshot: the model
-    /// supplies buffers, it does not overrule a request that already carries them.
+    /// supplies the server's documents, it does not overrule a request that
+    /// already carries them.
     func testARequestThatAlreadyCarriesBuffersIsNotOverwritten() async {
         let provider = StubProvider()
         let stated = root.appendingPathComponent("stated.swift")
         let model = FindUsagesModel(
             fileService: StubFileTree(root: root, files: [:]),
             provider: { provider },
-            openBuffers: { [self.root.appendingPathComponent("other.swift"): "ignored"] }
+            serverTexts: { [self.root.appendingPathComponent("other.swift"): "ignored"] }
         )
         let carried = UsagesRequest(
             identifier: "count",
