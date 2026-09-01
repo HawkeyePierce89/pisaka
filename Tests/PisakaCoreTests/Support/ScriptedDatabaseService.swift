@@ -103,6 +103,15 @@ final class ScriptedDatabaseService: DatabaseServicing, @unchecked Sendable {
         lock.unlock()
     }
 
+    /// Stop failing `open(url:)` — the "and then it worked" half of a retry,
+    /// which is the only way a test can assert that a failed open leaves the
+    /// connection re-openable rather than latched shut.
+    func clearOpenFailure() {
+        lock.lock()
+        openFailure = nil
+        lock.unlock()
+    }
+
     /// Hold every run of `sql` until the gate is released — the window a test
     /// starts a second, superseding load in.
     ///

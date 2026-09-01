@@ -278,7 +278,7 @@ imports Foundation only.
 - Create: `Tests/PisakaCoreTests/DatabasePageTests.swift`,
   `Tests/PisakaCoreTests/DatabaseViewerModelTests.swift`
 
-- [ ] `DatabasePage.swift`: the page-size constant, the page index with its
+- [x] `DatabasePage.swift`: the page-size constant, the page index with its
       clamping, the offset math, `hasPrevious`/`hasNext`, the displayed row range,
       the total-count handling including the **not yet counted** state, and the
       degenerate cases (zero rows, a last page shorter than the page size, a count
@@ -286,7 +286,7 @@ imports Foundation only.
       column and direction, the toggle rule (a new column sorts ascending, the
       same column flips), and the rule that selecting a different table clears the
       sort
-- [ ] `DatabaseViewerModel.swift` — a `@MainActor` `ObservableObject` over
+- [x] `DatabaseViewerModel.swift` — a `@MainActor` `ObservableObject` over
       `DatabaseServicing`: `load()` (open the connection, list tables and views),
       `select(table:)` (schema plus first page), `goToPage`, `toggleSort(column:)`,
       and `close()`. **Every** async load captures its generation token
@@ -295,9 +295,9 @@ imports Foundation only.
       the page/schema load, since they are independently re-triggerable. Every
       seam failure lands in a published error message; a failed load never blanks
       a good previous result silently
-- [ ] Sorting and paging **re-query**: assert in tests that a page load asks for
+- [x] Sorting and paging **re-query**: assert in tests that a page load asks for
       exactly one page-sized statement and never an unbounded select
-- [ ] Write tests against `ScriptedDatabaseService`: the happy path (list → select
+- [x] Write tests against `ScriptedDatabaseService`: the happy path (list → select
       → schema + first page); paging forward and back on a table larger than one
       page, asserting the bound `LIMIT`/`OFFSET` per request; a sort toggle
       re-queries with the new `ORDER BY` and resets to the first page; a superseded
@@ -306,7 +306,7 @@ imports Foundation only.
       lands in the error state rather than an empty table list; a seam failure
       mid-paging surfaces its message and leaves the previous page in place;
       `close()` closes the connection exactly once
-- [ ] run `swift test` — must pass before Task 6
+- [x] run `swift test` — must pass before Task 6
 
 ### Task 6: The macOS connection service, the tab owner and the viewer surface
 
