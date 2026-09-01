@@ -316,7 +316,7 @@ imports Foundation only.
   `Sources/Pisaka/DatabaseViewerView.swift`
 - Modify: `Sources/Pisaka/ContentView.swift`, `Sources/Pisaka/PisakaApp.swift`
 
-- [ ] `DatabaseConnectionService` — an `actor` conforming to `DatabaseServicing`,
+- [x] `DatabaseConnectionService` — an `actor` conforming to `DatabaseServicing`,
       entirely under `#if os(macOS)`, and the **only** file in the repository that
       imports the system SQLite module. One connection per instance, opened
       read-write with a busy timeout set immediately after open so a locked
@@ -325,32 +325,32 @@ imports Foundation only.
       back by its storage class; every failure becomes a `DatabaseError` carrying
       the library's message verbatim; `close` finalizes and closes and is safe to
       call twice
-- [ ] `DatabaseViewerTabs` — a `@MainActor final class ObservableObject` owning
+- [x] `DatabaseViewerTabs` — a `@MainActor final class ObservableObject` owning
       the per-tab viewer models keyed by tab id: create one lazily when a viewer
       tab is first selected, hand back the existing one on re-selection, and
       **close its connection when the tab closes** and at termination. This is a
       whole file of its own precisely so `PisakaApp` does not grow (decision 4).
       Its doc comment states the reader boundary: the viewer neither raises nor
       waits on the disk-writer gate — the terminal precedent
-- [ ] `DatabaseViewerView` — the thin surface: a sidebar listing tables and views
+- [x] `DatabaseViewerView` — the thin surface: a sidebar listing tables and views
       (distinguished), the selected table's schema, the paged grid with clickable
       sorting headers and paging controls, and a prominent error banner for the
       model's error state. All rendering decisions come from Core
       (`DatabaseValue.displayText`, `DatabasePage`, `DatabaseSortState`); the view
       holds no logic of its own. Font and metrics follow the existing
       interface-scale convention
-- [ ] `ContentView.editorZone`: keep the breadcrumb for every tab, then route on
+- [x] `ContentView.editorZone`: keep the breadcrumb for every tab, then route on
       the tab kind — a viewer tab renders `DatabaseViewerView` instead of the find
       bar, the consent banner and the code editor
-- [ ] `PisakaApp`: **two edits only in this task** — construct the workspace with
+- [x] `PisakaApp`: **two edits only in this task** — construct the workspace with
       `viewerTabsEnabled: true` (the one site that turns decision 3 on), and hold
       the `DatabaseViewerTabs` owner as a `@StateObject` passed into the
       environment
-- [ ] Write tests: this task's testable half is Core-side — extend
+- [x] Write tests: this task's testable half is Core-side — extend
       `DatabaseViewerModelTests` with the lifecycle the app drives (create on first
       selection, close on tab close, a second selection of the same tab reusing
       the model), since the views themselves are untested by convention
-- [ ] run `swift test` — must pass before Task 7
+- [x] run `swift test` — must pass before Task 7
 
 ### Task 7: Every text-assuming consumer skips viewer tabs, the gating suite, and the lint ceilings
 

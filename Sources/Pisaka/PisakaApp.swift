@@ -74,6 +74,14 @@ struct PisakaApp: App {
     /// Owns the embedded terminal's live sessions. Created once for the app's
     /// lifetime; shared with the window content and terminated on app quit.
     @StateObject private var terminalSessions = TerminalSessionsModel()
+    /// Owns one database-viewer model — and therefore one SQLite connection — per
+    /// open viewer tab. Created in `init()` over the very workspace this app
+    /// publishes, because it follows that workspace's `openFiles` in order to
+    /// close a tab's connection when the tab goes away; injected into the window's
+    /// environment below, where `DatabaseViewerHost` reads it. The per-tab
+    /// lifetime lives in `DatabaseViewerTabs.swift` rather than here on purpose —
+    /// this file is at its measured lint ceiling.
+    @StateObject private var databaseViewers: DatabaseViewerTabs
     /// Persisted user preferences (tab orientation, theme, shared editor font
     /// size). Created once for the app's lifetime; hosted by the `Settings` scene
     /// below (the standard ⌘, Preferences window) and threaded into `ContentView`
@@ -342,8 +350,18 @@ struct PisakaApp: App {
     /// same reason, over the *same* buffer snapshot closure, so the two features
     /// agree about what an open tab's text is.
     init() {
-        let workspace = WorkspaceModel()
+        // `viewerTabsEnabled: true` is the **one site in the app** that turns the
+        // second tab kind on, and `DatabaseViewerSourceGatingTests` pins that it
+        // is this one: the routing lives in Core's `open(url:)`, and iOS opens
+        // files through that same method with no viewer surface behind it, so an
+        // iOS viewer tab would render a database as an empty text file. With the
+        // switch off a `.sqlite` takes the ordinary read path and fails honestly.
+        let workspace = WorkspaceModel(viewerTabsEnabled: true)
         _model = StateObject(wrappedValue: workspace)
+        // Over the same instance, because the owner closes a viewer tab's
+        // connection by watching that workspace's tab set rather than by being
+        // told from four different close paths.
+        _databaseViewers = StateObject(wrappedValue: DatabaseViewerTabs(workspace: workspace))
         // An open tab's text — dirty or not — is what the user sees, so it is what
         // gets searched and indexed; a file with no tab goes down the on-disk
         // branch. Handing over the whole snapshot (rather than answering one URL at
@@ -933,6 +951,12 @@ struct PisakaApp: App {
                 onCommit: { origin in await commitFromDialog(originGeneration: origin) },
                 onCommitDialogDismissed: { autosave.resumeFromModal() }
             )
+            // The one thing the window's environment carries for the database
+            // viewer: the per-tab model owner, read by `DatabaseViewerHost` inside
+            // `ContentView.editorZone`. Injected here rather than passed as a
+            // parameter so `ContentView` gains no property for a surface it only
+            // routes to.
+            .environmentObject(databaseViewers)
             // The explicit frame autosave name for the main window.
             // This is the only place the main window's frame identity is established
             // (the auxiliary windows deliberately have none). The attachment must
@@ -1122,6 +1146,12 @@ struct PisakaApp: App {
                         leetCodeBrowserWindows.closeAll()
                         localHistoryWindows.closeAll()
                         sourceViewers.closeAll()
+                        // And every database connection an open viewer tab still
+                        // holds. Best effort at this point by construction (the
+                        // seam's `close()` is `async`), which is why part 1 keeps
+                        // those connections read-only: there is nothing unflushed
+                        // to lose if the hop does not run before the process goes.
+                        databaseViewers.closeAll()
                         // And every language server, for the terminal sessions'
                         // reason: a `sourcekit-lsp` left behind is an orphan process
                         // holding a build-system cache open, which the release check

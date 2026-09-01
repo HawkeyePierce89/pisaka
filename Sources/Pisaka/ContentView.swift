@@ -903,55 +903,16 @@ struct ContentView: View {
                 PathBarView(fileURL: file.url, projectRoot: model.projectRoot, metrics: metrics)
                     .equatable()
                 Divider()
-                // The consent banner (D15), between the breadcrumb and the find
-                // bar so it is the topmost thing in the editor zone without
-                // covering the file's own path. It renders nothing at all unless
-                // the selected tab's language has an unanswered, uninstalled
-                // server this app can provision — downloaded, downloaded behind a
-                // toolchain gate, or built by the user's own Go toolchain — and it
-                // is also where an *already* accepted server is installed on first
-                // use — both keyed on this one language and on there being a
-                // project to serve.
-                LSPConsentBanner(
-                    provisioning: provisioning,
-                    gopls: gopls,
-                    rust: rust,
-                    language: SyntaxLanguage(forFileName: file.displayName),
-                    hasProjectRoot: model.projectRoot != nil
-                )
-                // The find/replace bar sits between the breadcrumb and the editor,
-                // so it covers both tab orientations at once (in `.horizontal` it
-                // simply lands under the tab strip). Rendered only while open —
-                // closing it also drops the match highlight, which the state's
-                // `close()` asks the controller to do directly.
-                if search.isVisible {
-                    SearchBarView(search: search)
-                    Divider()
+                // The one place the second tab kind is routed on. The breadcrumb
+                // above stays for every tab — a database has a path like any other
+                // file — and below it a viewer tab gets its own surface instead of
+                // the consent banner, the find bar and the code editor, none of
+                // which has anything to say about a file that is not text.
+                if file.kind == .viewer {
+                    DatabaseViewerHost(file: file)
+                } else {
+                    textEditorZone(for: file)
                 }
-                CodeEditorView(
-                    fileID: file.id,
-                    fileName: file.displayName,
-                    openFileIDs: Set(model.openFiles.map(\.id)),
-                    externalTextRevision: model.textReplacementRevision(for: file.id),
-                    fileURL: file.url,
-                    diskRevision: model.diskRevision(for: file.id),
-                    projectRoot: model.projectRoot,
-                    text: binding(for: file.id),
-                    fontSize: settings.fontSize,
-                    completionEnabled: settings.completionEnabled,
-                    interfaceMetrics: metrics,
-                    search: search,
-                    reveal: reveal,
-                    symbolIndex: symbolIndex,
-                    editorConfig: editorConfig,
-                    saveTransform: saveTransform,
-                    lspSync: lspSync,
-                    diagnostics: diagnostics,
-                    onGoToDefinition: onGoToDefinition,
-                    onViewDefinitionOutsideProject: onViewDefinitionOutsideProject,
-                    onFindUsages: onFindUsages,
-                    onRenameSymbol: onRenameSymbol
-                )
             }
         } else {
             Text("No file open")
@@ -959,6 +920,63 @@ struct ContentView: View {
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+    }
+
+    /// Everything a `.text` tab shows below the breadcrumb: the consent banner,
+    /// the find bar and the editor itself. Lifted out of `editorZone` so the tab
+    /// kind is routed on in one short expression rather than around a hundred
+    /// lines of editor wiring.
+    @ViewBuilder
+    private func textEditorZone(for file: OpenFile) -> some View {
+        // The consent banner (D15), between the breadcrumb and the find
+        // bar so it is the topmost thing in the editor zone without
+        // covering the file's own path. It renders nothing at all unless
+        // the selected tab's language has an unanswered, uninstalled
+        // server this app can provision — downloaded, downloaded behind a
+        // toolchain gate, or built by the user's own Go toolchain — and it
+        // is also where an *already* accepted server is installed on first
+        // use — both keyed on this one language and on there being a
+        // project to serve.
+        LSPConsentBanner(
+            provisioning: provisioning,
+            gopls: gopls,
+            rust: rust,
+            language: SyntaxLanguage(forFileName: file.displayName),
+            hasProjectRoot: model.projectRoot != nil
+        )
+        // The find/replace bar sits between the breadcrumb and the editor,
+        // so it covers both tab orientations at once (in `.horizontal` it
+        // simply lands under the tab strip). Rendered only while open —
+        // closing it also drops the match highlight, which the state's
+        // `close()` asks the controller to do directly.
+        if search.isVisible {
+            SearchBarView(search: search)
+            Divider()
+        }
+        CodeEditorView(
+            fileID: file.id,
+            fileName: file.displayName,
+            openFileIDs: Set(model.openFiles.map(\.id)),
+            externalTextRevision: model.textReplacementRevision(for: file.id),
+            fileURL: file.url,
+            diskRevision: model.diskRevision(for: file.id),
+            projectRoot: model.projectRoot,
+            text: binding(for: file.id),
+            fontSize: settings.fontSize,
+            completionEnabled: settings.completionEnabled,
+            interfaceMetrics: metrics,
+            search: search,
+            reveal: reveal,
+            symbolIndex: symbolIndex,
+            editorConfig: editorConfig,
+            saveTransform: saveTransform,
+            lspSync: lspSync,
+            diagnostics: diagnostics,
+            onGoToDefinition: onGoToDefinition,
+            onViewDefinitionOutsideProject: onViewDefinitionOutsideProject,
+            onFindUsages: onFindUsages,
+            onRenameSymbol: onRenameSymbol
+        )
     }
 
     /// A binding to a specific file's text that routes writes through the model

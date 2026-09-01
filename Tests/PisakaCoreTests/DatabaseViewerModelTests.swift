@@ -423,6 +423,75 @@ final class DatabaseViewerModelTests: XCTestCase {
         XCTAssertFalse(model.isLoadingEntries)
     }
 
+    // MARK: - The lifetime the app drives
+
+    // `DatabaseViewerTabs` (macOS, untested by convention) creates one model the
+    // first time a viewer tab is shown, hands the same one back on every later
+    // selection, and closes it when the tab goes away. Each of those three is a
+    // claim about *this* type, and each is asserted here.
+
+    func testAFreshModelTouchesNothingUntilItIsShown() async {
+        let service = ScriptedDatabaseService()
+        serveListing(on: service, entries: [("items", "table")])
+
+        _ = DatabaseViewerModel(fileURL: url, service: service)
+
+        XCTAssertEqual(service.openedURLs, [], "Constructing a tab's model must not open the file")
+        XCTAssertEqual(service.runSQL, [])
+        XCTAssertFalse(service.isOpen)
+    }
+
+    func testReselectingTheTabReusesTheModelAndItsConnection() async {
+        let service = ScriptedDatabaseService()
+        let model = await loadedModel(service, tables: [("items", "table")])
+        serveSchema(on: service, table: "items")
+        serveCount(on: service, table: "items", total: 4)
+        servePage(on: service, table: "items", rows: [[.integer(1), .text("one")], [.integer(2), .text("two")]])
+        servePage(
+            on: service,
+            table: "items",
+            orderBy: "label",
+            rows: [[.integer(2), .text("two")], [.integer(1), .text("one")]]
+        )
+        await model.select(table: "items")
+        await model.toggleSort(column: "label")
+        await model.goToPage(1)
+
+        // What re-selecting the tab does: the surface reappears and refreshes the
+        // listing. It must not be a second connection, and it must not be a reset.
+        await model.load()
+
+        XCTAssertEqual(service.openedURLs, [url], "A re-selected tab reuses the model it already had")
+        XCTAssertEqual(model.selectedTable, "items")
+        XCTAssertEqual(model.sort, DatabaseSortState(column: "label", direction: .ascending))
+        XCTAssertEqual(model.page.index, 1)
+        XCTAssertEqual(model.rows, [[.integer(2), .text("two")], [.integer(1), .text("one")]])
+    }
+
+    func testATabClosedBeforeItWasEverShownStillReleasesItsService() async {
+        let service = ScriptedDatabaseService()
+        let model = DatabaseViewerModel(fileURL: url, service: service)
+
+        await model.close()
+
+        XCTAssertEqual(service.closeCount, 1, "The owner closes every model it holds, opened or not")
+        XCTAssertEqual(service.openedURLs, [], "And closing one must not open it on the way out")
+    }
+
+    func testAClosedTabsModelNeverReopensTheFile() async {
+        let service = ScriptedDatabaseService()
+        serveListing(on: service, entries: [("items", "table")])
+        let model = DatabaseViewerModel(fileURL: url, service: service)
+        await model.load()
+        await model.close()
+
+        // A view still holding the model for one more frame after the tab closed.
+        await model.load()
+
+        XCTAssertEqual(service.openedURLs, [url], "A closed tab is closed for good")
+        XCTAssertEqual(service.closeCount, 1)
+    }
+
     // MARK: - Scripting helpers
 
     /// A model whose connection is open and whose listing has been read.

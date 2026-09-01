@@ -49,7 +49,7 @@ line_length:
   ignores_interpolated_strings: true
 
 # Configured honestly rather than disabled: this codebase carries dense doc
-# comments by design, so comment-only lines are not counted. 1809 is measured
+# comments by design, so comment-only lines are not counted. 1813 is measured
 # off the largest application file (PisakaApp.swift), which sits exactly at it,
 # so the next line added there comes back through this comment. Raised from 1550
 # when the project switcher bottom bar was added, from 1600 when Find Usages /
@@ -63,15 +63,22 @@ line_length:
 # Local History's restore moved its two refusals in front of `model.open`, which
 # is one shared refusal asked at two moments so a click that restores nothing no
 # longer selects a tab, then from 1805 when the text that refusal judges before
-# the open grew its own seam, so the no-tab case is answered too. The number tracks the one file that approaches it —
+# the open grew its own seam, so the no-tab case is answered too, and from 1809
+# when the database viewer's second tab kind arrived: the four lines it costs
+# here are the switch that turns it on, the per-tab connection owner and its
+# injection, and the termination close beside the other windows' — everything
+# with a shape of its own is in `DatabaseViewerTabs.swift` precisely so this file
+# paid four lines and not four hundred. The number tracks the one file that approaches it —
 # measured, never rounded up for room — and is not a licence to grow the others.
 file_length:
-  warning: 1809
-  error: 1809
+  warning: 1813
+  error: 1813
   ignore_comment_only_lines: true
 
-# Same reasoning as file_length, one number behind it: PisakaApp's body is very
-# nearly the whole file, and stays just under the file's own measured ceiling.
+# Same reasoning as file_length, and no longer exactly one number behind it:
+# PisakaApp's body is very nearly the whole file and currently measures 1797, so
+# the database viewer's four lines did not reach this ceiling and it was left
+# where it was rather than moved for room it does not need.
 type_body_length:
   warning: 1800
   error: 1800
