@@ -2603,6 +2603,260 @@ final class WorkspaceModelTests: XCTestCase {
         }
     }
 
+    // MARK: - Viewer tabs (database files), behind the platform switch
+
+    /// A stub tree holding one database and one text file, rooted under `/tmp`
+    /// so the canonical form (`/private/tmp/…`) differs from the spelling — which
+    /// is what makes the dedup test below mean something.
+    private func makeViewerTree() -> StubFileTree {
+        StubFileTree(
+            root: URL(fileURLWithPath: "/tmp/pisaka-viewer-tests"),
+            files: ["app.sqlite": "SQLite format 3", "notes.txt": "hello"]
+        )
+    }
+
+    func testOpenRoutesRecognizedFileToAViewerTabWithoutReadingIt() throws {
+        let tree = makeViewerTree()
+        let model = WorkspaceModel(fileService: tree, viewerTabsEnabled: true)
+
+        let file = try model.open(url: tree.url("app.sqlite"))
+
+        XCTAssertEqual(file.kind, .viewer)
+        XCTAssertEqual(file.text, "")
+        XCTAssertEqual(file.savedText, "")
+        XCTAssertFalse(file.isDirty)
+        XCTAssertEqual(model.openFiles.map(\.id), [file.id])
+        XCTAssertEqual(model.selectedID, file.id)
+        // Probed, not read: the bytes are not text, so `read` is never called and
+        // existence comes from the stamp alone.
+        XCTAssertEqual(tree.readPaths, [])
+        XCTAssertEqual(tree.stampPaths, ["app.sqlite"])
+    }
+
+    func testOpenWithTheSwitchOffTakesTheReadPathAndSurfacesItsFailure() {
+        // Today's iOS behavior, pinned (decision 3): with no viewer surface, a
+        // database takes the ordinary read path and fails honestly. The stub's
+        // unreadable file stands for the real service's strict UTF-8 decode, which
+        // a database header does not survive.
+        let tree = makeViewerTree()
+        tree.unreadableFiles.insert("app.sqlite")
+        let model = WorkspaceModel(fileService: tree)
+
+        XCTAssertThrowsError(try model.open(url: tree.url("app.sqlite"))) { error in
+            XCTAssertEqual(error as? StubFileTree.StubError, .denied)
+            XCTAssertNotEqual(
+                error as? FileServiceError,
+                .missingFile(name: "app.sqlite"),
+                "the probe-only path must not run with the switch off"
+            )
+        }
+        XCTAssertTrue(model.openFiles.isEmpty)
+        XCTAssertEqual(tree.stampPaths, [], "nothing was probed; the read decided")
+    }
+
+    func testOpenWithTheSwitchOffReadsARecognizedFileItCanDecode() throws {
+        // The other half of the same rule: nothing about a `.db` name changes the
+        // read path when the switch is off — a readable one becomes a text tab.
+        let tree = makeViewerTree()
+        tree.files["fixture.db"] = "not really a database"
+        let model = WorkspaceModel(fileService: tree)
+
+        let file = try model.open(url: tree.url("fixture.db"))
+
+        XCTAssertEqual(file.kind, .text)
+        XCTAssertEqual(file.text, "not really a database")
+        XCTAssertEqual(tree.readPaths, ["fixture.db"])
+    }
+
+    func testOpeningTheSameDatabaseTwiceSelectsTheExistingViewerTab() throws {
+        let tree = makeViewerTree()
+        let model = WorkspaceModel(fileService: tree, viewerTabsEnabled: true)
+        let other = try model.open(url: tree.url("notes.txt"))
+        let first = try model.open(url: tree.url("app.sqlite"))
+        model.select(other.id)
+
+        // A different spelling of the same file: the dedup `open(url:)` already had
+        // for text tabs runs *before* the recognition rule, so it is kind-blind.
+        let again = try model.open(
+            url: URL(fileURLWithPath: "/tmp/pisaka-viewer-tests/./app.sqlite")
+        )
+
+        XCTAssertEqual(again.id, first.id)
+        XCTAssertEqual(model.openFiles.count, 2)
+        XCTAssertEqual(model.selectedID, first.id)
+        XCTAssertEqual(tree.stampPaths, ["app.sqlite"], "the dedup hit probed nothing")
+    }
+
+    func testOpeningADatabaseThroughASymlinkedPathFindsTheExistingViewerTab() throws {
+        // The other half of the dedup rule, against the real file system: a
+        // symlinked directory is only resolvable when it is actually there, so
+        // this one needs real files rather than the stub tree.
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let database = directory.appendingPathComponent("app.sqlite")
+        try Data("SQLite format 3".utf8).write(to: database)
+        let link = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: directory)
+        defer { try? FileManager.default.removeItem(at: link) }
+
+        let model = WorkspaceModel(viewerTabsEnabled: true)
+        let first = try model.open(url: database)
+        let again = try model.open(url: link.appendingPathComponent("app.sqlite"))
+
+        XCTAssertEqual(first.kind, .viewer)
+        XCTAssertEqual(again.id, first.id)
+        XCTAssertEqual(model.openFiles.count, 1)
+    }
+
+    func testOpeningAMissingDatabaseThrowsMissingFileNamingIt() {
+        let tree = makeViewerTree()
+        let model = WorkspaceModel(fileService: tree, viewerTabsEnabled: true)
+
+        XCTAssertThrowsError(try model.open(url: tree.url("gone.sqlite"))) { error in
+            XCTAssertEqual(error as? FileServiceError, .missingFile(name: "gone.sqlite"))
+        }
+        XCTAssertTrue(model.openFiles.isEmpty)
+        XCTAssertEqual(tree.readPaths, [])
+    }
+
+    func testViewerTabIsNeverDirtyAndCloseNeverAsksForConfirmation() throws {
+        let tree = makeViewerTree()
+        let model = WorkspaceModel(fileService: tree, viewerTabsEnabled: true)
+        let viewer = try model.open(url: tree.url("app.sqlite"))
+
+        XCTAssertFalse(model.isDirty(for: viewer.id))
+        XCTAssertEqual(model.close(id: viewer.id), .closed)
+        XCTAssertTrue(model.openFiles.isEmpty)
+    }
+
+    func testTextShapedMutatorsSkipAViewerTabAndWriteNothing() throws {
+        let tree = makeViewerTree()
+        let model = WorkspaceModel(fileService: tree, viewerTabsEnabled: true)
+        let viewer = try model.open(url: tree.url("app.sqlite"))
+        let replacementBefore = model.textReplacementRevision(for: viewer.id)
+        let diskBefore = model.diskRevision(for: viewer.id)
+
+        model.updateText("DROP TABLE users", for: viewer.id)
+        XCTAssertFalse(model.replaceText("DROP TABLE users", for: viewer.id))
+        model.markSaved(for: viewer.id)
+        XCTAssertFalse(model.reloadFromDisk(id: viewer.id))
+        XCTAssertFalse(model.reconcileSavedBaseline(id: viewer.id))
+        // Saving a viewer tab is a no-op that *reports success*: there was nothing
+        // to save, which is not a failure.
+        XCTAssertEqual(try model.save(for: viewer.id), .saved)
+        XCTAssertEqual(model.saveAllDirty(), [])
+        try model.saveAs(url: tree.url("copy.sqlite"), for: viewer.id)
+
+        let after = model.openFiles.first { $0.id == viewer.id }
+        XCTAssertEqual(after?.text, "")
+        XCTAssertEqual(after?.savedText, "")
+        XCTAssertEqual(after?.url, tree.url("app.sqlite"), "Save As left the url alone")
+        XCTAssertFalse(after?.isDirty ?? true)
+        // The call log is the proof, not the resulting tree: nothing was written,
+        // and nothing was read either.
+        XCTAssertEqual(tree.writtenPaths, [])
+        XCTAssertEqual(tree.readPaths, [])
+        XCTAssertNil(tree.files["copy.sqlite"])
+        XCTAssertEqual(model.textReplacementRevision(for: viewer.id), replacementBefore)
+        XCTAssertEqual(model.diskRevision(for: viewer.id), diskBefore)
+    }
+
+    func testSaveAllDirtyWritesTextTabsWhileSkippingAViewerBesideThem() throws {
+        let tree = makeViewerTree()
+        let model = WorkspaceModel(fileService: tree, viewerTabsEnabled: true)
+        let text = try model.open(url: tree.url("notes.txt"))
+        try model.open(url: tree.url("app.sqlite"))
+        model.updateText("edited", for: text.id)
+
+        XCTAssertEqual(model.saveAllDirty(), [tree.url("notes.txt")])
+        XCTAssertEqual(tree.writtenPaths, ["notes.txt"])
+    }
+
+    func testSaveAsRefusesToRetargetAViewerOntoAnotherTabsFile() throws {
+        // The refusal is unconditional, so it does not even reach the
+        // destination-already-open check that a text tab would throw on.
+        let tree = makeViewerTree()
+        let model = WorkspaceModel(fileService: tree, viewerTabsEnabled: true)
+        let text = try model.open(url: tree.url("notes.txt"))
+        let viewer = try model.open(url: tree.url("app.sqlite"))
+
+        XCTAssertNoThrow(try model.saveAs(url: tree.url("notes.txt"), for: viewer.id))
+        XCTAssertEqual(model.openFiles.first { $0.id == viewer.id }?.url, tree.url("app.sqlite"))
+        XCTAssertEqual(model.openFiles.first { $0.id == text.id }?.url, tree.url("notes.txt"))
+        XCTAssertEqual(tree.writtenPaths, [])
+    }
+
+    func testSessionRoundTripsAMixedSetOfTextUntitledAndViewerTabs() throws {
+        let tree = makeViewerTree()
+        let model = WorkspaceModel(fileService: tree, viewerTabsEnabled: true)
+        let text = try model.open(url: tree.url("notes.txt"))
+        let scratch = model.newFile()
+        model.updateText("scratch", for: scratch.id)
+        let viewer = try model.open(url: tree.url("app.sqlite"))
+
+        let session = EditorSession.snapshot(
+            openFiles: model.openFiles,
+            selectedID: viewer.id,
+            projectRoot: nil
+        )
+        XCTAssertEqual(session.tabs, [
+            .file(path: tree.url("notes.txt").path),
+            .untitled(text: "scratch"),
+            .file(path: tree.url("app.sqlite").path),
+        ])
+        XCTAssertNotNil(text.url)
+
+        let restoredInto = WorkspaceModel(fileService: tree, viewerTabsEnabled: true)
+        XCTAssertTrue(restoredInto.restoreSession(session))
+
+        XCTAssertEqual(restoredInto.openFiles.map(\.kind), [.text, .text, .viewer])
+        XCTAssertEqual(restoredInto.openFiles.map(\.displayName), ["notes.txt", "Untitled", "app.sqlite"])
+        XCTAssertEqual(restoredInto.selectedID, restoredInto.openFiles.last?.id)
+        XCTAssertFalse(restoredInto.openFiles[2].isDirty)
+    }
+
+    func testRestoreIntoASwitchOffWorkspaceProducesNoViewerTab() throws {
+        // The record carries no kind (decision 1), so the kind is decided again on
+        // restore by the workspace doing the restoring — which is what keeps iOS
+        // free of viewer tabs even for a session macOS wrote.
+        let tree = makeViewerTree()
+        tree.unreadableFiles.insert("app.sqlite")
+        let session = EditorSession(
+            folderPath: nil,
+            tabs: [.file(path: tree.url("notes.txt").path), .file(path: tree.url("app.sqlite").path)],
+            selectedIndex: 1
+        )
+        let model = WorkspaceModel(fileService: tree)
+
+        XCTAssertTrue(model.restoreSession(session))
+
+        XCTAssertEqual(model.openFiles.map(\.kind), [.text])
+        XCTAssertEqual(model.openFiles.map(\.displayName), ["notes.txt"])
+    }
+
+    func testRestoreSkipsAMissingDatabaseRecordExactlyAsItSkipsAMissingTextOne() {
+        let tree = makeViewerTree()
+        let session = EditorSession(
+            folderPath: nil,
+            tabs: [
+                .file(path: tree.url("gone.sqlite").path),
+                .file(path: tree.url("notes.txt").path),
+            ],
+            selectedIndex: 0
+        )
+        let model = WorkspaceModel(fileService: tree, viewerTabsEnabled: true)
+
+        XCTAssertTrue(model.restoreSession(session))
+
+        XCTAssertEqual(model.openFiles.map(\.displayName), ["notes.txt"])
+        // The skipped record's index selected nothing, so the fallback is the last
+        // restored tab — the rule `restoreSession` already had.
+        XCTAssertEqual(model.selectedID, model.openFiles.first?.id)
+    }
+
     private func writeTempFile(contents: String) throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)

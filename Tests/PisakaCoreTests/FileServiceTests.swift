@@ -747,6 +747,36 @@ final class FileServiceTests: XCTestCase {
         )
     }
 
+    func testMissingFileDescriptionNamesTheFile() {
+        // The one case the enum grew for the probe-only open path: a database
+        // opened into a viewer tab is never `read`, so a `nil` `fileStamp` is the
+        // only place "it is not there" can be noticed, and it has to say so in
+        // words rather than through `String(contentsOf:)`'s own error.
+        let description = FileServiceError.missingFile(name: "app.sqlite").errorDescription
+        XCTAssertEqual(description, "\"app.sqlite\" could not be found.")
+        XCTAssertFalse(
+            FileServiceError.missingFile(name: "app.sqlite")
+                .localizedDescription.contains("error 0")
+        )
+    }
+
+    func testMissingFileComparesByName() {
+        XCTAssertEqual(
+            FileServiceError.missingFile(name: "app.sqlite"),
+            FileServiceError.missingFile(name: "app.sqlite")
+        )
+        XCTAssertNotEqual(
+            FileServiceError.missingFile(name: "app.sqlite"),
+            FileServiceError.missingFile(name: "other.sqlite")
+        )
+        // Distinct from every case that existed before it, so a caller matching on
+        // one never catches the other.
+        XCTAssertNotEqual(
+            FileServiceError.missingFile(name: "app.sqlite"),
+            FileServiceError.notADirectory(name: "app.sqlite")
+        )
+    }
+
     // MARK: - Byte count and binary/oversize reads (project search)
 
     func testFileByteCountReportsOnDiskSize() throws {

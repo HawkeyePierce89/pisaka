@@ -89,8 +89,27 @@ public final class WorkspaceModel: ObservableObject {
 
     private let fileService: FileServicing
 
-    public init(fileService: FileServicing = FileService()) {
+    /// Whether `open(url:)` may route a recognized database file into a
+    /// **viewer** tab instead of reading it as text.
+    ///
+    /// **Off by default, and turned on by the macOS app alone.** The routing has
+    /// to live here, because every surface opens files through `open(url:)` — but
+    /// the *viewer* only exists on macOS. The iOS layer reaches this same method
+    /// from four places (`RootView_iOS.swift` and `FilePicker_iOS.swift`), and
+    /// there a viewer tab would render a database as an empty text file: a tab
+    /// that silently claims the file is empty is worse than no tab at all.
+    ///
+    /// So with the switch off a `.sqlite`/`.db` file takes the ordinary read path
+    /// and fails exactly as it does today — `FileService.read` is strict UTF-8 and
+    /// a database header does not decode, so the open throws and the app says so.
+    /// iOS behavior is unchanged by this feature, honestly failing rather than
+    /// quietly lying. Giving iOS a surface (and therefore the switch) is a
+    /// follow-up ticket's business, not a fallback here.
+    private let viewerTabsEnabled: Bool
+
+    public init(fileService: FileServicing = FileService(), viewerTabsEnabled: Bool = false) {
         self.fileService = fileService
+        self.viewerTabsEnabled = viewerTabsEnabled
     }
 
     /// Create a new empty "Untitled" buffer and select it.
@@ -108,13 +127,32 @@ public final class WorkspaceModel: ObservableObject {
     /// returned instead of opening a second buffer for the same file (which
     /// would risk one tab's save clobbering the other's edits). Equivalence is
     /// resolved by canonical path, so symlinks and unstandardized paths
-    /// (e.g. `/tmp` vs `/private/tmp`, trailing slashes, `.`/`..`) match too.
+    /// (e.g. `/tmp` vs `/private/tmp`, trailing slashes, `.`/`..`) match too. The
+    /// dedup runs *first* and is kind-blind, so a second open of a database that
+    /// is already showing selects its viewer tab exactly as it selects a text one.
+    ///
+    /// **A recognized database file is probed, not read** — but only when
+    /// `viewerTabsEnabled` is on (see that property for why iOS keeps the read
+    /// path). Its bytes are not text, so `fileService.read` is never called for
+    /// one; existence is established with `fileService.fileStamp(at:)`, and a
+    /// `nil` stamp throws `FileServiceError.missingFile`, the one case the enum
+    /// grew for this path. Every other file, and every file at all with the switch
+    /// off, takes the read path unchanged.
     @discardableResult
     public func open(url: URL) throws -> OpenFile {
         let canonical = canonicalURL(url)
         if let existing = openFiles.first(where: { canonicalURL(of: $0) == canonical }) {
             selectedID = existing.id
             return existing
+        }
+        if viewerTabsEnabled, DatabaseFileRule.isDatabaseFile(named: url.lastPathComponent) {
+            guard fileService.fileStamp(at: url) != nil else {
+                throw FileServiceError.missingFile(name: url.lastPathComponent)
+            }
+            let file = OpenFile(viewerFor: url)
+            openFiles.append(file)
+            selectedID = file.id
+            return file
         }
         let contents = try fileService.read(url: url)
         let file = OpenFile(url: url, text: contents, savedText: contents)
@@ -555,8 +593,11 @@ public final class WorkspaceModel: ObservableObject {
     /// through it — so it deliberately does **not** bump
     /// `textReplacementRevisions`. A caller replacing a buffer from outside the
     /// editor must use `replaceText(_:for:)` instead.
+    ///
+    /// A **viewer** tab is skipped: it holds no buffer, and letting text land on
+    /// one would leave a database tab carrying bytes that stand for nothing.
     public func updateText(_ text: String, for id: UUID) {
-        guard let index = indexOf(id) else { return }
+        guard let index = indexOf(id), openFiles[index].kind == .text else { return }
         openFiles[index].text = text
     }
 
@@ -584,9 +625,12 @@ public final class WorkspaceModel: ObservableObject {
     ///
     /// Like `updateText`, this leaves `savedText` alone, so the tab becomes dirty
     /// and saving stays the user's call.
+    ///
+    /// A **viewer** tab is skipped and returns `false`, for `updateText`'s reason:
+    /// there is no buffer to replace.
     @discardableResult
     public func replaceText(_ text: String, for id: UUID) -> Bool {
-        guard let index = indexOf(id) else { return false }
+        guard let index = indexOf(id), openFiles[index].kind == .text else { return false }
         openFiles[index].text = text
         bumpTextReplacementRevision(id)
         return true
@@ -612,8 +656,11 @@ public final class WorkspaceModel: ObservableObject {
     }
 
     /// Mark the file identified by `id` as saved (clears the dirty flag).
+    ///
+    /// A **viewer** tab is a no-op: it is never dirty, so there is no flag to
+    /// clear and no on-disk content of its own that just changed.
     public func markSaved(for id: UUID) {
-        guard let index = indexOf(id) else { return }
+        guard let index = indexOf(id), openFiles[index].kind == .text else { return }
         openFiles[index].savedText = openFiles[index].text
         bumpDiskRevision(id)
     }
@@ -654,9 +701,13 @@ public final class WorkspaceModel: ObservableObject {
     /// has a stale `savedText`, so the baseline must advance — but nothing replaced
     /// the buffer, and bumping the replacement token there is the same silent
     /// undo-stack loss on a screen where nothing changed.
+    ///
+    /// A **viewer** tab is a no-op returning `false`: its file is not text, so
+    /// there is nothing to read into it. Refreshing what the viewer *shows* is
+    /// the viewer model's own job, through the database connection.
     @discardableResult
     public func reloadFromDisk(id: UUID) -> Bool {
-        guard let index = indexOf(id) else { return false }
+        guard let index = indexOf(id), openFiles[index].kind == .text else { return false }
         guard let url = openFiles[index].url else { return false }
         guard let contents = try? fileService.read(url: url) else { return false }
         if openFiles[index].text != contents {
@@ -693,9 +744,12 @@ public final class WorkspaceModel: ObservableObject {
     /// on-disk content, so a non-empty buffer becomes dirty while an empty one
     /// stays clean. No-op returning `false` for an unknown id or a url-less
     /// ("Untitled") buffer.
+    ///
+    /// A **viewer** tab is a no-op returning `false`: it has no baseline, because
+    /// it can never be dirty in the first place.
     @discardableResult
     public func reconcileSavedBaseline(id: UUID) -> Bool {
-        guard let index = indexOf(id) else { return false }
+        guard let index = indexOf(id), openFiles[index].kind == .text else { return false }
         guard let url = openFiles[index].url else { return false }
         openFiles[index].savedText = (try? fileService.read(url: url)) ?? ""
         bumpDiskRevision(id)
@@ -717,9 +771,16 @@ public final class WorkspaceModel: ObservableObject {
     /// dirty flag is cleared. If it has no url (a new "Untitled" buffer), no
     /// write happens and `.needsSaveAs` is returned so the UI can present a
     /// save panel.
+    ///
+    /// A **viewer** tab returns `.saved` **without writing**: saving a database
+    /// tab is a no-op, not an error. The app's ⌘S funnel returns early on one
+    /// before it even reaches here, but a caller that does not — a Save All, a
+    /// scripted save — deserves "there was nothing to do" rather than a failure
+    /// report about a file it never edited.
     @discardableResult
     public func save(for id: UUID) throws -> SaveResult {
         guard let index = indexOf(id) else { return .needsSaveAs }
+        guard openFiles[index].kind == .text else { return .saved }
         guard let url = openFiles[index].url else { return .needsSaveAs }
         try fileService.write(openFiles[index].text, to: url)
         openFiles[index].savedText = openFiles[index].text
@@ -748,6 +809,11 @@ public final class WorkspaceModel: ObservableObject {
     public func saveAllDirty() -> [URL] {
         var savedURLs: [URL] = []
         for index in openFiles.indices {
+            // The kind test is redundant — a viewer tab's `isDirty` is `false` by
+            // construction — and stated anyway, because this batch writes files and
+            // the reason a database is never among them should not have to be
+            // traced through another type's invariant.
+            guard openFiles[index].kind == .text else { continue }
             guard openFiles[index].isDirty, let url = openFiles[index].url else { continue }
             do {
                 try fileService.write(openFiles[index].text, to: url)
@@ -789,8 +855,13 @@ public final class WorkspaceModel: ObservableObject {
     /// matching `open(url:)`), the save is rejected with
     /// `SaveAsError.destinationAlreadyOpen` and nothing is written — this mirrors
     /// `open(url:)`'s guard against two buffers sharing one path.
+    ///
+    /// A **viewer** tab is refused outright — nothing is written and its url is
+    /// left alone. "Save the database somewhere else" is a copy, not a save, and
+    /// the viewer holds no bytes it could write there anyway.
     public func saveAs(url: URL, for id: UUID) throws {
         guard let index = indexOf(id) else { return }
+        guard openFiles[index].kind == .text else { return }
         if isDestinationOpenElsewhere(url, for: id) {
             throw SaveAsError.destinationAlreadyOpen
         }
@@ -816,6 +887,9 @@ public final class WorkspaceModel: ObservableObject {
     /// dialog; pass `force: true` (after the user chooses "Don't Save") to
     /// remove it without saving. Closing the selected tab moves the selection
     /// to a neighboring tab, or clears it when the last tab is closed.
+    ///
+    /// A **viewer** tab always closes: `isDirty` is `false` for one by
+    /// construction, so it can never reach the confirmation branch.
     @discardableResult
     public func close(id: UUID, force: Bool = false) -> CloseResult {
         guard let index = indexOf(id) else { return .closed }

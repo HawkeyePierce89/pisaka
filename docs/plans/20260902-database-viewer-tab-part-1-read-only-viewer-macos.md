@@ -162,33 +162,33 @@ imports Foundation only.
   `Tests/PisakaCoreTests/EditorSessionTests.swift`,
   `Tests/PisakaCoreTests/FileServiceTests.swift`
 
-- [ ] Add `FileServiceError.missingFile(name: String)` with its `errorDescription`
+- [x] Add `FileServiceError.missingFile(name: String)` with its `errorDescription`
       arm, and a doc note that it is thrown by the probe-only open path
       (decision 2)
-- [ ] Add `viewerTabsEnabled: Bool = false` to `WorkspaceModel.init`, stored, with
+- [x] Add `viewerTabsEnabled: Bool = false` to `WorkspaceModel.init`, stored, with
       a doc comment carrying decision 3 in full — including that iOS keeps today's
       read-failure behavior and why
-- [ ] `open(url:)`: keep the canonical-path dedup exactly as it is (it already
+- [x] `open(url:)`: keep the canonical-path dedup exactly as it is (it already
       matches a viewer tab against a second open of the same database), then,
       **only when the switch is on**, branch on `DatabaseFileRule` — a recognized
       file is probed with `fileService.fileStamp(at:)` and appended as a `.viewer`
       `OpenFile`, throwing `.missingFile` when the probe comes back `nil`; every
       other case, and every case with the switch off, takes the read path
       unchanged
-- [ ] Make every text-shaped method skip a viewer tab, each with a one-line doc
+- [x] Make every text-shaped method skip a viewer tab, each with a one-line doc
       note saying why: `save(for:)` returns `.saved` **without writing** (saving a
       viewer tab is a no-op, not an error), `saveAllDirty()` skips it (already
       implied by `isDirty`, but made explicit and tested), `saveAs(url:for:)`
       refuses, `markSaved`, `updateText`, `replaceText`, `reloadFromDisk` and
       `reconcileSavedBaseline` are no-ops returning `false` where they return a
       `Bool`
-- [ ] `close(id:force:)`: a viewer tab is always `.closed`, never
+- [x] `close(id:force:)`: a viewer tab is always `.closed`, never
       `.needsConfirmation`
-- [ ] Confirm `EditorSession.snapshot` already records a viewer tab as a `path`
+- [x] Confirm `EditorSession.snapshot` already records a viewer tab as a `path`
       record (it branches on `url`, not on content) and that `restoreSession`
       brings it back as a viewer tab through `open(url:)`; add the tests rather
       than the code
-- [ ] Write tests, **both switch positions**: with the switch on, opening a
+- [x] Write tests, **both switch positions**: with the switch on, opening a
       recognized file yields a `.viewer` tab with empty text and no `read` call on
       the stub; with it off, the same open takes the read path and surfaces the
       read failure — today's iOS behavior, pinned; opening the same database
@@ -201,7 +201,7 @@ imports Foundation only.
       set of text, untitled and viewer tabs with the selection landing on the
       right one, and a restore into a switch-off workspace does not produce a
       viewer tab
-- [ ] run `swift test` — must pass before Task 3
+- [x] run `swift test` — must pass before Task 3
 
 ### Task 3: The database seam and its scripted fake
 
