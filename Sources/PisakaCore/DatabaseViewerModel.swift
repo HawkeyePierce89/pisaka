@@ -94,7 +94,14 @@ public final class DatabaseViewerModel: ObservableObject {
 
     /// The database this tab is showing — the URL the tab was opened with,
     /// spelled as the user spelled it.
-    public let fileURL: URL
+    ///
+    /// Not a `let`, because a tab outlives the path it was opened at: renaming
+    /// the file (or any folder above it) retargets the tab, and the connection
+    /// this model re-opens on `reload(at:)` has to follow it. The open handle
+    /// answers off the inode and so survives a rename on its own, which is
+    /// exactly what makes a stale URL here invisible until the day something
+    /// re-opens it.
+    public private(set) var fileURL: URL
 
     private let service: DatabaseServicing
 
@@ -160,12 +167,20 @@ public final class DatabaseViewerModel: ObservableObject {
         do {
             if !isOpen {
                 try await service.open(url: fileURL)
-                // A fact about the connection, not published state, so it is
-                // recorded even when this load has been superseded — the file is
-                // open either way and opening it twice is what must not happen.
-                isOpen = true
             }
+            // Recorded **only while this load is still the current one**. A
+            // superseded load's open is a fact about a connection somebody else
+            // has since replaced: `reload()` bumps this token, sets `isOpen`
+            // false and *then* awaits `close()`, so a load resuming in between
+            // that wrote `isOpen = true` would latch it true over a connection
+            // the close is about to release — after which every statement throws
+            // `.closed` for the life of the tab, because nothing outside
+            // `reload()`/`close()` ever clears the flag again. The newest load
+            // always re-asks `open` — which the seam requires to be harmless a
+            // second time — and records it here, so nothing is lost by
+            // discarding a superseded one's answer.
             guard generation == entriesGeneration else { return }
+            isOpen = true
 
             let result = try await service.run(DatabaseQuery.tableListing)
             guard generation == entriesGeneration else { return }
@@ -273,8 +288,19 @@ public final class DatabaseViewerModel: ObservableObject {
     /// A re-open that **fails** leaves the tab exactly as it was under the banner
     /// explaining why, rather than re-selecting into a closed connection and
     /// replacing the open's message with a second one about a statement.
-    public func reload() async {
+    ///
+    /// - Parameter url: where the file is *now*, when the caller knows. The tab's
+    ///   url is the one thing about a viewer tab that can change under it —
+    ///   `WorkspaceModel.applyRenamePlan` retargets a `.viewer` tab like any
+    ///   other — and the open handle keeps answering off the renamed inode, so
+    ///   the divergence surfaces only here, at the one moment the path is used
+    ///   again. Re-opening the path the tab was *opened* at would report "unable
+    ///   to open database file" over a file sitting in the tree under its new
+    ///   name, and would go on reporting it for the life of the tab. `nil` keeps
+    ///   the current url, for a caller with nothing newer to say.
+    public func reload(at url: URL? = nil) async {
         guard !isClosed else { return }
+        if let url { fileURL = url }
         let table = selectedTable
         entriesGeneration += 1
         rowsGeneration += 1

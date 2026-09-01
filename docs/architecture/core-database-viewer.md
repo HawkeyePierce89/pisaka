@@ -270,8 +270,11 @@ disk-writer gate and is never gated by it.
   `toggleSort(column:)` flips or re-aims the sort, resets to the first page and
   **keeps the count**: an `ORDER BY` reorders rows without changing how many
   there are, so re-asking `count(*)` would be a second full-table read for an
-  answer already in hand. `reload()` is the tab's `reloadFromDisk`: it releases
-  the connection, opens the file again and re-reads the listing, then re-selects
+  answer already in hand. `reload(at:)` is the tab's `reloadFromDisk`: it releases
+  the connection, opens the file again — at the url the caller passes, since a
+  rename retargets a viewer tab while its open handle keeps answering off the
+  renamed inode, so this is the one moment the tab's own path is used again — and
+  re-reads the listing, then re-selects
   the table it was showing when the new database still holds it (a re-selection
   is a *refresh*, so the sort and the page index survive) and drops it, rows and
   all, when it does not. A re-open that fails leaves the tab as it was under the
@@ -325,11 +328,16 @@ disk-writer gate and is never gated by it.
   `workspace.openFiles`: the publisher fires before the property is written.) The
   models dictionary is deliberately not `@Published` — views observe the model
   they were handed, and republishing here would re-render the window every time a
-  tab opened for no visible change. `reload(id:)` is what the post-operation
+  tab opened for no visible change. `reload(id:url:)` is what the post-operation
   resyncs call for a viewer tab whose file survived the operation: it re-reads the
   database over a fresh connection, because git replaces a file by renaming a new
   one over it and the tab's handle would otherwise go on answering out of the
-  unlinked old one. A tab that has never been shown has no model and nothing
+  unlinked old one. The `url` is the tab's url *now*, not the one the model was
+  built with: `WorkspaceModel.applyRenamePlan` retargets a `.viewer` tab like any
+  other, and the open handle goes on answering off the renamed inode, so a
+  reconnect against the opened-at path is the one moment that divergence can
+  surface — as a permanent "unable to open database file" over a file sitting in
+  the tree under its new name. A tab that has never been shown has no model and nothing
   stale, so it is skipped — it opens against the new file when it is first
   selected. `closeAll()` is what termination calls, and
   is **best effort by construction and said to be**: it runs from
@@ -375,7 +383,10 @@ disk-writer gate and is never gated by it.
   environment's `DatabaseViewerTabs` for the tab's model and keys the surface on
   the tab id, so switching between two viewer tabs rebuilds against the other
   model rather than reusing one's scroll and selection under another database's
-  rows. The load is kicked by `.task(id: model.fileURL)`.
+  rows. The load is kicked by `.task(id: ObjectIdentifier(model))` — keyed on the
+  model rather than on its `fileURL`, which a rename can change under it: a task
+  re-fired by a retarget would race the `reload(at:)` doing that same reconnect,
+  and one model is one tab is one connection anyway.
 
 - `ContentView.swift` — `editorZone` keeps the breadcrumb for **every** tab (a
   database has a path like any other file) and routes below it on the tab kind:
@@ -416,7 +427,8 @@ disk-writer gate and is never gated by it.
     a text tab on a deleted file, and its connection goes with it through the tab
     subscription; a viewer tab whose file is still there keeps its **tab** — no
     reload, no baseline reconcile, no beep — while its **connection is re-opened**
-    through `DatabaseViewerTabs.reload(id:)`. That second half is not optional:
+    through `DatabaseViewerTabs.reload(id:url:)`, at the url the rule just
+    confirmed exists. That second half is not optional:
     git replaces a file by renaming a new one over it, so the tab's connection is
     left pointing at the unlinked old inode and every later read answers the
     pre-operation database with nothing on screen saying so. It is the viewer's
@@ -448,9 +460,17 @@ Each token is bumped in its method's **synchronous prefix** — the run of
 statements before the first `await`, which the main actor executes without
 interruption — and every result is dropped unless the token it captured is still
 the latest. A superseded load publishes **nothing**: not its rows, not its
-error, not its loading flag. The one thing recorded even when superseded is
-`isOpen`, because that is a fact about the connection rather than published
-state: the file is open either way, and opening it twice is what must not happen.
+error, not its loading flag, **and not `isOpen`**. That last one is the
+subtle case: a superseded load's open is a fact about a connection somebody else
+has since replaced. `reload()` bumps the token, sets `isOpen` false and *then*
+awaits `close()`, so a load resuming in between that recorded `isOpen = true`
+would latch it true over a connection the close is about to release — and since
+nothing outside `reload()`/`close()` ever clears the flag again, every statement
+for the rest of the tab's life would throw `.closed` under a banner naming a
+closed connection. Nothing is lost by discarding it: the newest load always
+re-asks `open`, which the seam requires to be harmless a second time (two loads
+racing can both find the connection unopened and both ask), and records the flag
+itself.
 
 `close()` bumps **both** tokens before releasing the connection, so a load still
 in flight resumes to find itself superseded and publishes nothing into a tab that

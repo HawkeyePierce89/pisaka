@@ -58,6 +58,7 @@ final class ScriptedDatabaseService: DatabaseServicing, @unchecked Sendable {
     private var steps: [String: [Step]] = [:]
     private var gates: [String: Gate] = [:]
     private var openGate: Gate?
+    private var closeGate: Gate?
     private var openFailure: Error?
     private var runStorage: [DatabaseStatement] = []
     private var openedStorage: [URL] = []
@@ -129,6 +130,15 @@ final class ScriptedDatabaseService: DatabaseServicing, @unchecked Sendable {
     func holdOpen(on gate: Gate) {
         lock.lock()
         openGate = gate
+        lock.unlock()
+    }
+
+    /// Hold `close()` until the gate is released — the window a test resumes a
+    /// *superseded* load in, which is the only place `DatabaseViewerModel.reload`
+    /// and an in-flight `load` can interleave.
+    func holdClose(on gate: Gate) {
+        lock.lock()
+        closeGate = gate
         lock.unlock()
     }
 
@@ -230,6 +240,12 @@ final class ScriptedDatabaseService: DatabaseServicing, @unchecked Sendable {
     }
 
     func close() async {
+        lock.lock()
+        let gate = closeGate
+        lock.unlock()
+
+        gate?.wait()
+
         lock.lock()
         closeCountStorage += 1
         isOpenStorage = false

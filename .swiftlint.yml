@@ -49,7 +49,7 @@ line_length:
   ignores_interpolated_strings: true
 
 # Configured honestly rather than disabled: this codebase carries dense doc
-# comments by design, so comment-only lines are not counted. 1826 is measured
+# comments by design, so comment-only lines are not counted. 1829 is measured
 # off the largest application file (PisakaApp.swift), which sits exactly at it,
 # so the next line added there comes back through this comment. Raised from 1550
 # when the project switcher bottom bar was added, from 1600 when Find Usages /
@@ -76,9 +76,10 @@ line_length:
 # when that same shared resync rule learned to re-open the connection of a viewer
 # tab whose file is still there: git replaces a file by renaming a new one over
 # it, so the tab's handle would otherwise go on answering out of the unlinked old
-# one, and the three lines are the branch that tells the tab owner to reconnect.
-# The number tracks the one file that approaches it —
-# measured, never rounded up for room — and is not a licence to grow the others.
+# one, and the three lines are the branch that tells the tab owner to reconnect,
+# which is where 1829 comes from. The number tracks the one file that approaches
+# it — measured, never rounded up for room — and is not a licence to grow the
+# others.
 file_length:
   warning: 1829
   error: 1829

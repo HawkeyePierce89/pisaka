@@ -761,6 +761,72 @@ final class DatabaseViewerModelTests: XCTestCase {
         XCTAssertFalse(model.isLoadingRows)
     }
 
+    func testAReloadReopensTheURLItIsGivenRatherThanTheOneTheTabWasOpenedAt() async {
+        let service = ScriptedDatabaseService()
+        let model = await loadedModel(service)
+        let renamed = url.deletingLastPathComponent().appendingPathComponent("renamed.sqlite")
+
+        // A rename retargets the tab (`WorkspaceModel.applyRenamePlan` is
+        // kind-blind) while the open handle goes on answering off the same inode,
+        // so the reconnect is the one moment the tab's own path is used again.
+        await model.reload(at: renamed)
+
+        XCTAssertEqual(model.fileURL, renamed, "The tab follows its file")
+        XCTAssertEqual(
+            service.openedURLs,
+            [url, renamed],
+            "Re-opening the opened-at path would report 'unable to open' over a file that is right there"
+        )
+        XCTAssertNil(model.errorMessage)
+    }
+
+    func testAReloadWithNoNewURLKeepsTheOneTheTabHas() async {
+        let service = ScriptedDatabaseService()
+        let model = await loadedModel(service)
+
+        await model.reload()
+
+        XCTAssertEqual(model.fileURL, url)
+        XCTAssertEqual(service.openedURLs, [url, url])
+    }
+
+    func testAnOpenSupersededByAReloadDoesNotLatchTheConnectionOpen() async {
+        let service = ScriptedDatabaseService()
+        serveListing(on: service, entries: [("items", "table")])
+        let model = DatabaseViewerModel(fileURL: url, service: service, pageSize: 2)
+
+        // The one interleaving that can strand the tab: a `load()` resumes from
+        // its `open` *inside* the window `reload()` opens between setting
+        // `isOpen` false and its `close()` landing. A superseded load that
+        // records `isOpen = true` there latches it true over a connection the
+        // close is about to release — and since nothing outside
+        // `reload()`/`close()` ever clears the flag, the reload's own load then
+        // skips the re-open and every statement for the life of the tab throws
+        // `.closed`.
+        let openGate = Gate()
+        let closeGate = Gate()
+        service.holdOpen(on: openGate)
+        service.holdClose(on: closeGate)
+
+        let superseded = Task { await model.load() }
+        await waitUntil { openGate.reached }
+        let reloading = Task { await model.reload() }
+        await waitUntil { closeGate.reached }
+
+        // Resume the superseded load first — the whole point of the staging —
+        // and only then let the close, and the re-open behind it, through.
+        openGate.release()
+        await superseded.value
+        openGate.release()
+        closeGate.release()
+        await reloading.value
+
+        XCTAssertNil(model.errorMessage, "The reconnect's own load must run against an open connection")
+        XCTAssertEqual(model.entries.map(\.name), ["items"])
+        XCTAssertEqual(service.openedURLs, [url, url], "The reload re-opens rather than trusting a stale flag")
+        XCTAssertTrue(service.isOpen, "The reload's re-open is the connection the tab ends on")
+    }
+
     func testAClosedTabIgnoresAReload() async {
         let service = ScriptedDatabaseService()
         let model = await loadedModel(service)

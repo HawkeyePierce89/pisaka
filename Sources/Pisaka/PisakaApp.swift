@@ -4215,7 +4215,7 @@ struct PisakaApp: App {
         guard let file = model.openFiles.first(where: { $0.id == id }), file.kind == .viewer else { return false }
         guard let url = file.url else { return true }
         if FileManager.default.fileExists(atPath: url.path) {
-            databaseViewers.reload(id: id)
+            databaseViewers.reload(id: id, url: url)
         } else if mayRemoveFiles {
             model.close(id: id, force: true)
         }

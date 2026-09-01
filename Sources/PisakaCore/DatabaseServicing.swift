@@ -76,6 +76,12 @@ extension DatabaseError: LocalizedError {
 public protocol DatabaseServicing: Sendable {
     /// Open the database at `url` for this connection.
     ///
+    /// **A second open must be harmless.** One is called for per instance, but
+    /// two loads racing each other can both find the connection unopened and both
+    /// ask — so an implementation holding a handle already answers without
+    /// opening a second one (which is also what keeps the first from leaking)
+    /// rather than throwing at a caller that did nothing wrong.
+    ///
     /// - Throws: `DatabaseError.cannotOpen` when the file cannot be opened, and
     ///   `DatabaseError.notADatabase` when it opened but holds something else.
     ///   Which of the two arrives is SQLite's judgement, not this layer's: the

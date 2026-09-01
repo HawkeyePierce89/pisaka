@@ -93,11 +93,17 @@ final class DatabaseViewerTabs: ObservableObject {
     /// never been shown has no model and no connection, so there is nothing stale
     /// to correct — it opens against the new file when it is first selected.
     ///
-    /// The hop is a `Task` because `reload()` is `async` (it awaits the actor)
+    /// `url` is the tab's url *now*, which is not always the one its model was
+    /// built with: a rename retargets a viewer tab like any other, while the open
+    /// connection goes on answering off the renamed inode, so this is the moment —
+    /// and the only one — where the difference matters. Passing it through means
+    /// the reconnect lands on the file the caller just confirmed is there.
+    ///
+    /// The hop is a `Task` because `reload(at:)` is `async` (it awaits the actor)
     /// while the resyncs that call this are synchronous.
-    func reload(id: UUID) {
+    func reload(id: UUID, url: URL) {
         guard let model = models[id] else { return }
-        Task { await model.reload() }
+        Task { await model.reload(at: url) }
     }
 
     /// Drop every model whose tab is no longer open, closing its connection.

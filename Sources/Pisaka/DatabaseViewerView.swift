@@ -43,7 +43,11 @@ struct DatabaseViewerView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .task(id: model.fileURL) { await model.load() }
+        // Keyed on the model, not on its `fileURL`: a rename retargets the tab and
+        // the model follows it, and a task re-fired by that would race a `reload()`
+        // already in flight for the same reconnect. One model is one tab is one
+        // connection, so the object *is* the identity the load belongs to.
+        .task(id: ObjectIdentifier(model)) { await model.load() }
     }
 
     // MARK: - The failure
