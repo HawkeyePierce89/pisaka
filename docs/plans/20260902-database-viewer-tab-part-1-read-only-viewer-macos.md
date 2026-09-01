@@ -136,22 +136,22 @@ imports Foundation only.
 - Modify: `Tests/PisakaCoreTests/OpenFileTests.swift` (or create if absent),
   `Tests/PisakaCoreTests/FileIconTests.swift`
 
-- [ ] Write `DatabaseFileRule` — one pure static answer, `isDatabaseFile(named:)`,
+- [x] Write `DatabaseFileRule` — one pure static answer, `isDatabaseFile(named:)`,
       over the recognized extension set (`sqlite`, `sqlite3`, `db`), matched
       case-insensitively on the **last** path extension only; expose the
       recognized set as a `public static let` so the icon table and the docs read
       it rather than restating it
-- [ ] Add `OpenFile.Kind` (`.text`, `.viewer`) with `.text` as the initializer
+- [x] Add `OpenFile.Kind` (`.text`, `.viewer`) with `.text` as the initializer
       default, and make `isDirty` return `false` for `.viewer` unconditionally —
       the "never dirty by construction" invariant, stated in the doc comment
-- [ ] Add a `viewer` initializer (`url` required, `text`/`savedText` forced
+- [x] Add a `viewer` initializer (`url` required, `text`/`savedText` forced
       empty) so a viewer tab cannot be constructed carrying text
-- [ ] Add the recognized extensions to `FileIcon`'s extension table
-- [ ] Write tests: each recognized extension in both cases; an unrecognized
+- [x] Add the recognized extensions to `FileIcon`'s extension table
+- [x] Write tests: each recognized extension in both cases; an unrecognized
       extension; a name whose *middle* component is `db` (`a.db.txt` → not
       recognized); no extension; a dotfile; the icon entries; a `.viewer`
       `OpenFile` is not dirty even if someone assigns `text`
-- [ ] run `swift test` — must pass before Task 2
+- [x] run `swift test` — must pass before Task 2
 
 ### Task 2: Viewer-tab semantics in the workspace model, behind the platform switch
 
