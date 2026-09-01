@@ -408,14 +408,14 @@ imports Foundation only.
 
 ### Task 8: Verify acceptance criteria
 
-- [ ] run `swift test` — the whole suite must be green
-- [ ] run `swiftlint --strict` from the repository root — must be clean
-- [ ] build macOS: `xcodegen generate` then
+- [x] run `swift test` — the whole suite must be green
+- [x] run `swiftlint --strict` from the repository root — must be clean
+- [x] build macOS: `xcodegen generate` then
       `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' build`
-- [ ] build iOS:
+- [x] build iOS:
       `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build`
       — the feature is macOS-only, so this proves the gating
-- [ ] confirm `git diff` touches neither `project.yml`'s dependencies,
+- [x] confirm `git diff` touches neither `project.yml`'s dependencies,
       `Package.resolved`, nor `Resources/Licenses/`
 
 ### Task 9: Update documentation
