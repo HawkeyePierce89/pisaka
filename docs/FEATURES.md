@@ -1028,12 +1028,14 @@ user sees it.
   reads `NULL` and is styled apart, an empty text cell is simply empty — and a
   blob shows a `BLOB (n bytes)` placeholder rather than its bytes. Anything that
   goes wrong is shown in a banner at the top of the tab **in SQLite's own words**
-  ("file is not a database", "database is locked"), and a failure leaves the rows
-  you were looking at in place rather than blanking them. The tab behaves like any
-  other: it appears in the tab list with its own icon, is restored with the
-  session, and closes without ever asking to save — it holds no text and can never
-  be dirty. **This version only reads.** Cells cannot be edited, there is no SQL
-  console, and the app never writes to the database.
+  ("file is not a database", "database is locked") — or, for an answer whose shape
+  the app could not read, a sentence saying what it refused — and a failure leaves
+  the rows you were looking at in place rather than blanking them. The tab behaves
+  like any other: it carries the database icon in the project tree, is restored
+  with the session, and closes without ever asking to save — it holds no text and
+  can never be dirty. **This version only reads.** Cells cannot be edited, there
+  is no SQL console, and the app issues no write of its own; SQLite itself may
+  still touch a database's `-wal`/`-shm` sidecar files while it has the file open.
 
 
 ## iOS / iPadOS
@@ -1436,8 +1438,9 @@ and iPhone. The feature scope landed so far:
   page size is fixed at 200 rows and there is no jump-to-page field. The row
   count is read once when a table is selected, so a table being written by
   another process shows a total that is a moment old; if rows were deleted under
-  you, moving to another page re-reads the count and lands on the page that
-  exists rather than on an empty one past the end. A database another process
+  you, a page turn is clamped against that stale total and can land past the new
+  end, showing no rows until the table is selected again and the count re-read.
+  A database another process
   holds a lock on waits up to five seconds and then reports "database is locked"
   rather than hanging the tab. Encrypted databases and files that are not
   databases simply fail to open, with SQLite's own message in the banner.

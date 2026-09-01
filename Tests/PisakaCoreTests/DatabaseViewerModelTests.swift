@@ -281,6 +281,34 @@ final class DatabaseViewerModelTests: XCTestCase {
         XCTAssertEqual(model.rows, [[.integer(1), .text("one")]], "The page the reader was reading stays on screen")
         XCTAssertEqual(model.gridColumns, ["id", "label"])
         XCTAssertFalse(model.isLoadingRows)
+        XCTAssertEqual(
+            model.page.index,
+            0,
+            "The failed move is put back: the footer is drawn from the page index, so an index that "
+                + "advanced while the rows did not would count page 2 over page 1's rows"
+        )
+    }
+
+    func testAFailedSortPutsBackTheColumnAndThePage() async {
+        let service = ScriptedDatabaseService()
+        serveSchema(on: service, table: "items")
+        serveCount(on: service, table: "items", total: 5)
+        servePage(on: service, table: "items", rows: [[.integer(1), .text("one")]])
+        servePage(on: service, table: "items", rows: [[.integer(3), .text("three")]])
+        let model = await loadedModel(service)
+        await model.select(table: "items")
+        await model.goToPage(1)
+
+        service.fail(
+            pageSQL(table: "items", orderBy: "label"),
+            with: DatabaseError.busy(message: "database is locked")
+        )
+        await model.toggleSort(column: "label")
+
+        XCTAssertEqual(model.errorMessage, "database is locked")
+        XCTAssertNil(model.sort, "The header arrow must not claim an order the rows are not in")
+        XCTAssertEqual(model.page.index, 1, "The sort's page reset is put back with it")
+        XCTAssertEqual(model.rows, [[.integer(3), .text("three")]])
     }
 
     func testAMalformedCountIsRefusedRatherThanReadAsZero() async {
@@ -296,6 +324,54 @@ final class DatabaseViewerModelTests: XCTestCase {
         XCTAssertNil(model.page.totalRows)
         XCTAssertTrue(model.rows.isEmpty, "The page after the refusal was never asked for")
         XCTAssertEqual(service.count(for: pageSQL(table: "items")), 0)
+    }
+
+    func testAFailedRefreshKeepsTheListingItAlreadyHas() async {
+        let service = ScriptedDatabaseService()
+        serveListing(on: service, entries: [("items", "table"), ("recent", "view")])
+        let model = DatabaseViewerModel(fileURL: url, service: service)
+        await model.load()
+        let listed = model.entries
+
+        service.fail(DatabaseQuery.tableListing.sql, with: DatabaseError.busy(message: "database is locked"))
+        await model.load()
+
+        XCTAssertEqual(model.errorMessage, "database is locked")
+        XCTAssertEqual(
+            model.entries,
+            listed,
+            "A failure never blanks a good answer: emptying the sidebar on a transient lock would drop "
+                + "the reader out of the table they were reading, with the message explaining nothing"
+        )
+        XCTAssertFalse(model.isLoadingEntries)
+    }
+
+    func testAFailedMoveToAnotherTableShowsTheNewNameOverAnEmptyGrid() async {
+        let service = ScriptedDatabaseService()
+        serveSchema(on: service, table: "items")
+        serveCount(on: service, table: "items", total: 5)
+        servePage(on: service, table: "items", rows: [[.integer(1), .text("one")]])
+        service.fail(
+            DatabaseQuery.columnSchema(table: "orders").sql,
+            with: DatabaseError.sqlError(message: "no such table: orders")
+        )
+        let model = await loadedModel(service)
+        await model.select(table: "items")
+        await model.toggleSort(column: "label")
+
+        await model.select(table: "orders")
+
+        // The one deliberate exception to "a failure never blanks a good answer":
+        // leaving items' rows under orders' name is the lie the error message
+        // does not correct.
+        XCTAssertEqual(model.errorMessage, "no such table: orders")
+        XCTAssertEqual(model.selectedTable, "orders")
+        XCTAssertTrue(model.rows.isEmpty, "The previous table's rows are not this table's rows")
+        XCTAssertTrue(model.gridColumns.isEmpty)
+        XCTAssertTrue(model.columns.isEmpty)
+        XCTAssertNil(model.sort, "A column name means nothing in another table")
+        XCTAssertEqual(model.page.index, 0)
+        XCTAssertNil(model.page.totalRows)
     }
 
     func testAMalformedListingIsRefused() async {
@@ -339,6 +415,37 @@ final class DatabaseViewerModelTests: XCTestCase {
         XCTAssertEqual(model.rows, [[.text("fresh")]], "The superseded page never lands")
         XCTAssertEqual(model.gridColumns, ["ref"])
         XCTAssertEqual(model.page.totalRows, 1)
+    }
+
+    func testTheLoadingFlagsAreRaisedWhileAReadIsInFlight() async {
+        let service = ScriptedDatabaseService()
+        serveListing(on: service, entries: [("items", "table")])
+        serveSchema(on: service, table: "items")
+        serveCount(on: service, table: "items", total: 5)
+        servePage(on: service, table: "items", rows: [[.integer(1), .null]])
+
+        let listingGate = Gate()
+        service.hold(DatabaseQuery.tableListing.sql, on: listingGate)
+        let model = DatabaseViewerModel(fileURL: url, service: service, pageSize: 2)
+
+        let listing = Task { await model.load() }
+        await waitUntil { listingGate.reached }
+        // The flag the footer's spinner is drawn from, observed raised rather
+        // than only observed cleared: asserting the cleared state alone stays
+        // green with every `= true` deleted.
+        XCTAssertTrue(model.isLoadingEntries)
+        listingGate.release()
+        await listing.value
+        XCTAssertFalse(model.isLoadingEntries)
+
+        let pageGate = Gate()
+        service.hold(pageSQL(table: "items"), on: pageGate)
+        let rows = Task { await model.select(table: "items") }
+        await waitUntil { pageGate.reached }
+        XCTAssertTrue(model.isLoadingRows)
+        pageGate.release()
+        await rows.value
+        XCTAssertFalse(model.isLoadingRows)
     }
 
     func testAListingInFlightWhenTheTabClosesPublishesNothing() async {

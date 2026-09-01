@@ -49,7 +49,8 @@ do — is in [`docs/FEATURES.md`](docs/FEATURES.md).
 - **Database viewer (macOS, read-only)** — open a `.sqlite`, `.sqlite3` or
   `.db` file from the project tree and get a tab that lists its tables and
   views, shows the selected one's schema, and pages through its rows with
-  click-to-sort headers. Nothing is written: this version only reads.
+  click-to-sort headers. This version only reads: no cell editing, no SQL
+  console, and the app issues no write of its own.
 - **EditorConfig** — a project's `.editorconfig` drives auto-indent and the
   Tab key, and applies `trim_trailing_whitespace`, `insert_final_newline`
   and `end_of_line` on save.

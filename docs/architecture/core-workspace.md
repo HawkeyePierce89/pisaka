@@ -5,8 +5,13 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
 - **`PisakaCore`** (library, `Sources/PisakaCore/`) — all domain logic. Pure,
   testable, no SwiftUI/AppKit views.
   - `OpenFile.swift` — model of an open file: `id` (UUID), optional `url`,
-    `displayName` ("Untitled" when no url), `text`, `savedText`, and
-    `isDirty == text != savedText`.
+    `displayName` ("Untitled" when no url), `text`, `savedText`, a `kind`
+    (`.text` or `.viewer`) and `isDirty`. For a `.text` tab — every tab this
+    document otherwise describes — `isDirty == text != savedText`. A `.viewer`
+    tab is the database viewer's; it is constructible only through
+    `init(id:viewerFor:)`, carries no text, and its `isDirty` is `false` *by
+    construction* rather than by comparison. Full entry in
+    `core-database-viewer.md`.
   - `FileService.swift` — disk read/write (`read(url:)`, `write(_:to:)`),
     directory listing (`contentsOfDirectory(at:)`), and symlink resolution
     (`symbolicLinkDestination(at:)` — the link's target string without
@@ -66,7 +71,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     so the read/write/listing-only test stubs keep compiling without
     implementing them. A typed `FileServiceError`
     (`Equatable`/`LocalizedError`: `.alreadyExists`, `.unsupported`,
-    `.notADirectory(name:)`) distinguishes
+    `.notADirectory(name:)`, `.missingFile(name:)` — the last one added for the
+    database viewer's probe-don't-read path, see `core-database-viewer.md`)
+    distinguishes
     a collision (create / non-clobbering move) from an unimplemented stub method
     and from a non-directory blocking a path chain
     so the view layer can present a clear message and tests can assert the cause;
@@ -270,7 +277,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
   - `WorkspaceModel.swift` — `ObservableObject` holding `openFiles`,
     `selectedID`, and `projectRoot` (`URL?`, the opened project folder).
     Operations: `newFile`, `open(url:)` (re-selects an existing
-    tab instead of opening the same `url` twice), `updateText`,
+    tab instead of opening the same `url` twice — kind-blind, so a database
+    already showing is re-selected exactly as a text file is; and, only when the
+    `viewerTabsEnabled` init flag is on, routes a recognized database file into a
+    `.viewer` tab that is *probed* with `fileStamp(at:)` rather than read, a `nil`
+    stamp throwing `.missingFile`. The flag is `false` by default and set by the
+    macOS app alone — `core-database-viewer.md`), `updateText`,
     `markSaved`, `select`, `save(for:)` (returns `.needsSaveAs` when there is no
     url), `saveAllDirty()` (the autosave action: write every dirty file that
     *has* a url and advance its `savedText`, returning the urls actually written;

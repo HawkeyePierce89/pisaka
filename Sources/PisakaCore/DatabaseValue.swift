@@ -101,10 +101,14 @@ public struct DatabaseResultSet: Equatable, Sendable {
     public var rows: [[DatabaseValue]]
     /// How many rows the statement inserted, updated or deleted.
     ///
-    /// Zero for every read. Part 2's write path is the only caller that reads it,
-    /// and it reads it as the check that an `UPDATE … WHERE` touched exactly the
-    /// one row it named — which is why it is carried here from the start rather
-    /// than added to the seam later.
+    /// Zero for every read, which the seam's implementations must make true
+    /// rather than inherit: SQLite's own counter is per-*connection* and survives
+    /// the reads that follow a write, so an implementation that simply asks it
+    /// after a `SELECT` reports the previous statement's number. Part 2's write
+    /// path is the only caller that reads this, and it reads it as the check that
+    /// an `UPDATE … WHERE` touched exactly the one row it named — which is why it
+    /// is carried here from the start rather than added to the seam later, and
+    /// why the zero is stated as a rule here instead of assumed there.
     public var affectedRows: Int
 
     public init(columnNames: [String] = [], rows: [[DatabaseValue]] = [], affectedRows: Int = 0) {

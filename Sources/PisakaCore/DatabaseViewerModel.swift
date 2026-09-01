@@ -26,7 +26,11 @@ import Foundation
 /// `errorMessage` and leaves the rows, the schema and the listing exactly as they
 /// were, because a page that failed to refresh is still the page the reader was
 /// reading and replacing it with emptiness would destroy the only context the
-/// message has. The one deliberate exception is selecting a *different* table,
+/// message has. A failed *move* — a page turn or a sort — additionally puts back
+/// the `page` and `sort` it had already advanced, since those are what the footer
+/// and the header arrow are drawn from and leaving them ahead of the rows would
+/// have the chrome describing a page that is not on screen. The one deliberate
+/// exception is selecting a *different* table,
 /// which clears the previous table's rows in its synchronous prefix: leaving them
 /// under another table's name would be a lie the error message does not correct.
 ///
@@ -195,11 +199,14 @@ public final class DatabaseViewerModel: ObservableObject {
     /// because someone clicked "previous" on page 1 is work with no answer.
     public func goToPage(_ index: Int) async {
         guard !isClosed, let table = selectedTable else { return }
+        let previousPage = page
         guard page.move(to: index) else { return }
         rowsGeneration += 1
         let generation = rowsGeneration
         isLoadingRows = true
-        await loadPage(table: table, generation: generation)
+        if await loadPage(table: table, generation: generation) == false {
+            page = previousPage
+        }
     }
 
     /// Sort by `column`, or flip the direction when it is already the sort
@@ -211,12 +218,17 @@ public final class DatabaseViewerModel: ObservableObject {
     /// of one ordering has nothing to do with page 3 of another.
     public func toggleSort(column: String) async {
         guard !isClosed, let table = selectedTable else { return }
+        let previousSort = sort
+        let previousPage = page
         sort = DatabaseSortState.toggled(sort, column: column)
         page.move(to: 0)
         rowsGeneration += 1
         let generation = rowsGeneration
         isLoadingRows = true
-        await loadPage(table: table, generation: generation)
+        if await loadPage(table: table, generation: generation) == false {
+            sort = previousSort
+            page = previousPage
+        }
     }
 
     /// Release the connection.
@@ -250,15 +262,26 @@ public final class DatabaseViewerModel: ObservableObject {
 
     // MARK: - One page
 
-    private func loadPage(table: String, generation: Int) async {
+    /// Load the page `page` and `sort` currently describe.
+    ///
+    /// Answers whether the caller's move stands. `false` means the read failed and
+    /// the caller must put back the `page`/`sort` it moved *before* asking: those
+    /// two are what the footer and the header arrow are drawn from, so a page index
+    /// that advanced while the rows did not would have the footer counting one page
+    /// and the grid showing another, under an error banner explaining neither. A
+    /// **superseded** load answers `true` — it publishes nothing at all, and that
+    /// includes not undoing state a newer request has already set.
+    private func loadPage(table: String, generation: Int) async -> Bool {
         do {
             let result = try await service.run(pageStatement(table: table))
-            guard generation == rowsGeneration else { return }
+            guard generation == rowsGeneration else { return true }
             publish(result)
+            return true
         } catch {
-            guard generation == rowsGeneration else { return }
+            guard generation == rowsGeneration else { return true }
             errorMessage = Self.message(for: error)
             isLoadingRows = false
+            return false
         }
     }
 

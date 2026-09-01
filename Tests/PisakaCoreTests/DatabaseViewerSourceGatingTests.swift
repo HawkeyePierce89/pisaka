@@ -222,15 +222,37 @@ final class DatabaseViewerSourceGatingTests: XCTestCase {
         )
     }
 
-    func testTheResyncRuleForAViewerTabIsAskedByBothResyncLoops() throws {
+    func testTheResyncRuleForAViewerTabIsAskedByEveryResyncSite() throws {
         let app = try code(ofFileNamed: "PisakaApp.swift", under: "Sources/Pisaka")
         XCTAssertEqual(
             try occurrences(of: "resyncViewerTab\\(", in: app),
-            3,
-            "One declaration and two call sites: the post-checkout resync and the post-revert one. A database "
-                + "can be tracked and therefore reverted, and the loop that misses this rule reads a viewer "
-                + "tab as unchanged, asks reloadFromDisk, gets its by-construction false, and force-closes a "
-                + "tab whose file is still on disk."
+            4,
+            "One declaration and three call sites: the post-checkout resync, the post-revert one and the "
+                + "merge apply. A database can be tracked, and therefore reverted and conflicted, and a site "
+                + "that misses this rule reads a viewer tab as unchanged, asks reloadFromDisk, gets its "
+                + "by-construction false, and force-closes a tab whose file is still on disk."
+        )
+    }
+
+    /// The merge apply is the site the rule reached last, and the only one whose
+    /// snapshot is a single tuple rather than a loop's dictionary — which is
+    /// exactly why it read as clean-and-unchanged for a tab holding no text at all.
+    func testTheMergeApplyAsksTheViewerRuleBeforeItsTextSnapshotGuard() throws {
+        let app = try code(ofFileNamed: "PisakaApp.swift", under: "Sources/Pisaka")
+        guard let start = app.range(of: "private func applyMerge(")?.upperBound,
+              let viewer = app.range(of: "resyncViewerTab(", range: start..<app.endIndex)?.lowerBound,
+              let guardSite = app.range(of: "guard let before = preApply", range: start..<app.endIndex)?
+                  .lowerBound
+        else {
+            XCTFail("applyMerge must exist, ask the viewer rule, and then read its preApply snapshot")
+            return
+        }
+        XCTAssertLessThan(
+            viewer,
+            guardSite,
+            "The viewer rule comes first. preApply records a viewer tab's empty text and false dirtiness, "
+                + "which the guard reads as clean and provably unchanged, so a database tab resolved through "
+                + "the merge editor would be force-closed over a file still on disk."
         )
     }
 

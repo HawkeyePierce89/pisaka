@@ -106,11 +106,31 @@ actor DatabaseConnectionService: DatabaseServicing {
             throw Self.error(code: stepCode, message: Self.message(from: handle))
         }
 
+        // `sqlite3_changes` reports the last modification on the *connection*, not
+        // on this statement, and a `SELECT` does not reset it — so asking it after
+        // a read would answer with whatever the previous write did. The seam
+        // promises zero for a read, and `sqlite3_stmt_readonly` is what makes that
+        // promise true: part 1 sends nothing else, and part 2's write path would
+        // otherwise read a stale count as its "exactly one row touched" check.
+        let affectedRows = sqlite3_stmt_readonly(prepared) != 0 ? 0 : Int(sqlite3_changes(handle))
+
         return DatabaseResultSet(
             columnNames: columnNames,
             rows: rows,
-            affectedRows: Int(sqlite3_changes(handle))
+            affectedRows: affectedRows
         )
+    }
+
+    /// The backstop for a connection nobody closed.
+    ///
+    /// `close()` is the normal path and the tab owner drives it, but it is
+    /// `async`, so every route to it is a `Task` hop that a torn-down owner — or a
+    /// process on its way out — may never run. Releasing the handle here costs
+    /// nothing when `close()` already did (it nils the handle first) and is the
+    /// only thing standing between a dropped service and a leaked `sqlite3 *`
+    /// with its file descriptor.
+    deinit {
+        if let handle { sqlite3_close_v2(handle) }
     }
 
     func close() async {

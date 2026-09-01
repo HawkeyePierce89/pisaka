@@ -144,7 +144,12 @@ disk-writer gate and is never gated by it.
   rather than trapped on). `affectedRows` is carried from the start although
   every part-1 read leaves it zero — it is what part 2's `UPDATE … WHERE` checks
   to confirm it touched exactly the row it named, and adding it later would mean
-  revisiting the seam.
+  revisiting the seam. "Zero for every read" is a rule the *implementations* must
+  make true, not one they inherit: SQLite's own counter is per-connection and a
+  `SELECT` does not reset it, so an implementation that simply asks it after a
+  read would answer with whatever the previous write did — which is exactly the
+  number part 2 would then trust. `DatabaseConnectionService` asks
+  `sqlite3_stmt_readonly` first and reports zero for a read.
 
 - `DatabaseServicing.swift` — the whole app/Core boundary: `open(url:)`,
   `run(_:) -> DatabaseResultSet`, `close()`, all `async`, with `close()`
@@ -289,7 +294,10 @@ disk-writer gate and is never gated by it.
   flash an error rather than wait the moment out — and five seconds is short
   enough that a genuinely *held* lock reports instead of hanging the tab. Text and
   blob bindings use SQLite's transient destructor, because the Swift value backing
-  them dies at the end of the `withUnsafe…` call. Every failure becomes a
+  them dies at the end of the `withUnsafe…` call. A `deinit` closes the handle as
+  a **backstop**: `close()` is the normal path and the tab owner drives it, but it
+  is `async`, so every route to it is a `Task` hop a torn-down owner may never run
+  — and the handle nobody closed is a leaked file descriptor for the app's life. Every failure becomes a
   `DatabaseError` carrying `sqlite3_errmsg` verbatim; `close()` finalizes, closes
   and is safe to call twice.
 
@@ -329,6 +337,15 @@ disk-writer gate and is never gated by it.
   `LocalChangesModel`. The one thing it judges is ink: a NULL cell is styled from
   `isNull`, never by comparing its text to the marker, because a text value
   spelling `NULL` renders identically and must not be dressed as a missing one.
+  Every `ForEach` over columns — the headers and the schema list, matching the
+  data rows, which always did — is keyed by **position, not by name**: a view may
+  legally select two columns with the same name (`SELECT t.id, u.id FROM t JOIN
+  u`) and SQLite answers both of them as `id`, so identifying a header by its
+  string would draw fewer headers than there are cells and shift every heading in
+  that view. The footer's one judgement is the same honesty rule as the model's:
+  "Loading…" is said only while `isLoadingRows`, so the uncounted-and-empty state
+  a *failed* selection leaves behind does not claim a load is in flight
+  underneath the banner explaining that one failed.
   Everything is sized through `\.interfaceMetrics`; nothing is drawn at the code
   font, so the viewer is chrome for zoom purposes and declares no `ZoomSurface`.
   `DatabaseViewerHost` is the thin adapter `ContentView` routes to: it asks the
@@ -367,8 +384,11 @@ disk-writer gate and is never gated by it.
     offer the rename plan an empty baseline for a real path that `expectedText`
     would then verify against and rewrite. (Replace All's resync loop skips them
     for the same reason **and must**, since a missing entry reads as "changed".)
-  - the post-operation resync (`resyncOpenTabsAfterCheckout` and the revert loop,
-    through one shared `resyncViewerTab(_:mayRemoveFiles:)`) — a viewer tab whose
+  - the post-operation resync — all **three** sites, through one shared
+    `resyncViewerTab(_:mayRemoveFiles:)`: `resyncOpenTabsAfterCheckout`, the
+    revert loop, and `applyMerge`, which resyncs its one resolved file inline
+    rather than through the loop and so needs the rule asked separately (a
+    database can be tracked, and therefore conflicted and resolved) — a viewer tab whose
     file is gone and whose caller `mayRemoveFiles` **force-closes**, exactly like
     a text tab on a deleted file, and its connection goes with it through the tab
     subscription; a viewer tab whose file is still there is **left alone**: no
@@ -410,7 +430,17 @@ were: a page that failed to refresh is still the page the reader was reading, an
 replacing it with emptiness would destroy the only context the message has. The
 one deliberate exception is selecting a *different* table, which clears the
 previous table's rows in its synchronous prefix — leaving them under another
-table's name would be a lie the error message does not correct. The message
+table's name would be a lie the error message does not correct.
+
+A failed **move** — a page turn or a sort — additionally puts back the `page` and
+`sort` it had already advanced before asking, which is the same rule read from the
+chrome's side. Those two are what the footer and the header arrow are drawn from,
+so an index that moved while the rows did not would have the footer counting
+"Rows 3–3 of 5 · Page 2 of 3" over page 1's rows, and a header arrow claiming an
+order the grid is not in — under an error banner that explains neither.
+`loadPage` answers whether the move stands; a **superseded** load answers that it
+does, because publishing nothing includes not undoing what a newer request set.
+The message
 itself is never a sentence this layer wrote: it is SQLite's, or the schema
 parser's description of the shape it could not read.
 
@@ -489,9 +519,14 @@ seam.
 
 ## Known limits (part 1)
 
-- **Read-only.** Cells cannot be edited, there is no SQL console, and nothing in
-  the app writes to a database. The connection is opened read-write anyway, so
-  part 2 needs no change to the open.
+- **Read-only.** Cells cannot be edited, there is no SQL console, and the app
+  issues no write of its own. The connection is opened read-write anyway, so part
+  2 needs no change to the open — which has one consequence worth stating rather
+  than discovering: SQLite itself may write while it holds a read-write handle,
+  recovering a hot journal at open and checkpointing a WAL database's `-wal` into
+  the main file at close. So "the app writes nothing" is exact and "the file's
+  bytes never change while a tab is open on it" is not, and the user-facing docs
+  say the first rather than the second.
 - **macOS only.** iOS opens a database as text and fails, honestly (decision 3).
 - The grid pages at a fixed 200 rows and has no jump-to-page field; the row count
   is read once per table selection, so a table another process is writing shows a

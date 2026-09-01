@@ -116,7 +116,9 @@ struct DatabaseViewerView: View {
                 .padding(.bottom, metrics.scaled(2))
             ScrollView {
                 VStack(alignment: .leading, spacing: metrics.scaled(3)) {
-                    ForEach(model.columns) { column in
+                    // By position, for `headerRow`'s reason: `PRAGMA table_xinfo`
+                    // on a view repeats whatever names the view selected.
+                    ForEach(Array(model.columns.enumerated()), id: \.offset) { _, column in
                         schemaRow(column)
                     }
                 }
@@ -180,9 +182,15 @@ struct DatabaseViewerView: View {
 
     /// The column headers, which are also the sort control: a click asks
     /// `toggleSort(column:)` and the arrow shows what came back.
+    ///
+    /// Keyed by **position**, exactly like `dataRow` below, and not by the name:
+    /// a view may legally select two columns with the same name
+    /// (`SELECT t.id, u.id FROM t JOIN u`), SQLite answers both of them as `id`,
+    /// and identifying a header by a string that repeats would draw fewer headers
+    /// than there are cells — shifting every column heading in that view.
     private var headerRow: some View {
         HStack(spacing: 0) {
-            ForEach(model.gridColumns, id: \.self) { name in
+            ForEach(Array(model.gridColumns.enumerated()), id: \.offset) { _, name in
                 Button {
                     Task { await model.toggleSort(column: name) }
                 } label: {
@@ -266,7 +274,11 @@ struct DatabaseViewerView: View {
     /// left unsaid rather than drawn as a zero — the type's own rule.
     private var positionText: String {
         guard let range = model.displayedRows else {
-            return model.page.isCounted ? "No rows" : "Loading…"
+            if model.isLoadingRows { return "Loading…" }
+            // Uncounted *and* not loading is where a failed select lands, and the
+            // banner above already says what happened: claiming a load is in
+            // flight under it would be the one sentence contradicting the error.
+            return model.page.isCounted ? "No rows" : ""
         }
         guard let total = model.page.totalRows, let pages = model.page.pageCount else {
             return "Rows \(range.lowerBound)–\(range.upperBound)"

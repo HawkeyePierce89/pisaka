@@ -133,7 +133,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `init(for: DirectoryEntry)`. Resolution order: directory → `folder`/`.accent`;
     special-cased file names (e.g. `Package.swift`, `LICENSE`, `.gitignore`,
     `.editorconfig`, `Makefile`, `Dockerfile`); lowercased extension lookup (e.g. `sql` → `cylinder.split.1x2`/`.blue`); fallback →
-    `doc`/`.gray`. `FileIconColor` is a semantic enum so the library stays free
+    `doc`/`.gray`. The extension table is `staticExtensionMap` folded with one
+    entry per `DatabaseFileRule.recognizedExtensions` member
+    (`cylinder.split.1x2.fill`/`.green`), derived rather than restated so a
+    recognized database file cannot gain the viewer routing and keep a plain
+    document icon; `FileIconTests` asserts the two agree. `FileIconColor` is a semantic enum so the library stays free
     of any SwiftUI/AppKit dependency.
   - `SyntaxLanguage.swift` — pure, testable
     `String`/`CaseIterable`/`Equatable`/`Hashable`/`Sendable`

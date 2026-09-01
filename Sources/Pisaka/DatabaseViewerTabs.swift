@@ -39,8 +39,8 @@ final class DatabaseViewerTabs: ObservableObject {
     ///
     /// Not `@Published`: the views observe the *model* they were handed, and a
     /// republish here would re-render the window every time a tab opened or
-    /// closed for no visible change. The count is exposed below for the app's own
-    /// bookkeeping, not for a view to watch.
+    /// closed for no visible change. Nothing outside this type reads the table at
+    /// all — a tab asks for its own model and gets it.
     private var models: [UUID: DatabaseViewerModel] = [:]
 
     /// How a connection is made. Injected so a future test — or a preview — can
@@ -84,13 +84,6 @@ final class DatabaseViewerTabs: ObservableObject {
         models[file.id] = model
         return model
     }
-
-    /// Whether `id` already has a model — the question "has this tab been shown
-    /// yet", which is what makes the lazy creation observable.
-    func hasModel(for id: UUID) -> Bool { models[id] != nil }
-
-    /// How many connections this owner is holding.
-    var openTabCount: Int { models.count }
 
     /// Drop every model whose tab is no longer open, closing its connection.
     ///

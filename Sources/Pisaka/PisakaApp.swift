@@ -3847,8 +3847,7 @@ struct PisakaApp: App {
                 // is empty on both sides), asks `reloadFromDisk`, gets the no-op
                 // `false` a viewer tab always answers, and force-closes a tab whose
                 // file is sitting right there.
-                if let file = model.openFiles.first(where: { $0.id == id }),
-                   resyncViewerTab(file, mayRemoveFiles: true) { continue }
+                if resyncViewerTab(id, mayRemoveFiles: true) { continue }
                 // Reload/close this tab only when its buffer is provably unchanged
                 // since we confirmed the revert: a snapshot exists *and* the text
                 // still matches it. Anything else is preserved (and we beep)
@@ -4187,6 +4186,34 @@ struct PisakaApp: App {
         return files.map { root.appendingPathComponent($0.path) }
     }
 
+    /// The whole post-operation resync rule for a **viewer** tab, in one place
+    /// all three resync sites ask before they reach their text-shaped reasoning.
+    ///
+    /// Returns `true` when `id` is a viewer tab and has therefore been settled
+    /// here — the caller must go no further with it. Takes the id rather than the
+    /// `OpenFile` the two loops already hold, because the third site has only an
+    /// id, and one signature all three can ask is worth a lookup over a tab list.
+    ///
+    /// A viewer tab has exactly two outcomes, and neither is any of the three a
+    /// text tab has. Its file is **gone** and the caller `mayRemoveFiles`: it
+    /// force-closes, exactly like a text tab on a deleted file, and
+    /// `DatabaseViewerTabs` releases its connection off the same `openFiles`
+    /// change (which is why nothing is closed by hand here — one subscription
+    /// covers every way a tab can leave). No `forgetIndexedBuffer` goes with it:
+    /// `openBuffers` never offered the tab, so there is no buffer-sourced entry to
+    /// hand back to disk. Its file is **still there**: it is left
+    /// completely alone — no `reloadFromDisk` (a viewer tab's no-op `false` would
+    /// read as a failed read and close the tab), no `reconcileSavedBaseline`
+    /// (there is no baseline; it can never be dirty), and no beep, because
+    /// nothing was preserved and nothing was lost. What the *contents* now are is
+    /// the viewer model's question, asked over its own connection.
+    private func resyncViewerTab(_ id: UUID, mayRemoveFiles: Bool) -> Bool {
+        guard let file = model.openFiles.first(where: { $0.id == id }), file.kind == .viewer else { return false }
+        guard let url = file.url else { return true }
+        if !FileManager.default.fileExists(atPath: url.path), mayRemoveFiles { model.close(id: id, force: true) }
+        return true
+    }
+
     /// After a successful checkout/create the working tree may have changed under
     /// any open tab *within the repository whose branch changed*. Reload each such tab
     /// that holds no unsaved edits to lose (clean at the snapshot and provably
@@ -4208,33 +4235,6 @@ struct PisakaApp: App {
     /// is no longer on disk. Such a tab is left exactly as it is: not reloaded, not
     /// closed, and deliberately not made dirty either, since a dirty titled buffer
     /// is what autosave would use to recreate the very file the user deleted.
-    /// The whole post-operation resync rule for a **viewer** tab, in one place
-    /// both resync loops ask before they reach their text-shaped reasoning.
-    ///
-    /// Returns `true` when `file` is a viewer tab and has therefore been settled
-    /// here — the caller must go no further with it.
-    ///
-    /// A viewer tab has exactly two outcomes, and neither is any of the three a
-    /// text tab has. Its file is **gone** and the caller `mayRemoveFiles`: it
-    /// force-closes, exactly like a text tab on a deleted file, and
-    /// `DatabaseViewerTabs` releases its connection off the same `openFiles`
-    /// change (which is why nothing is closed by hand here — one subscription
-    /// covers every way a tab can leave). No `forgetIndexedBuffer` goes with it:
-    /// `openBuffers` never offered the tab, so there is no buffer-sourced entry to
-    /// hand back to disk. Its file is **still there**: it is left
-    /// completely alone — no `reloadFromDisk` (a viewer tab's no-op `false` would
-    /// read as a failed read and close the tab), no `reconcileSavedBaseline`
-    /// (there is no baseline; it can never be dirty), and no beep, because
-    /// nothing was preserved and nothing was lost. What the *contents* now are is
-    /// the viewer model's question, asked over its own connection.
-    private func resyncViewerTab(_ file: OpenFile, mayRemoveFiles: Bool) -> Bool {
-        guard file.kind == .viewer else { return false }
-        guard let url = file.url else { return true }
-        guard !FileManager.default.fileExists(atPath: url.path), mayRemoveFiles else { return true }
-        model.close(id: file.id, force: true)
-        return true
-    }
-
     private func resyncOpenTabsAfterCheckout(
         snapshot: [UUID: (text: String, wasDirty: Bool)],
         repoRoot: URL?,
@@ -4249,7 +4249,7 @@ struct PisakaApp: App {
                 continue
             }
             let id = file.id
-            if resyncViewerTab(file, mayRemoveFiles: mayRemoveFiles) { continue }
+            if resyncViewerTab(id, mayRemoveFiles: mayRemoveFiles) { continue }
             guard let snap = snapshot[id], !snap.wasDirty, snap.text == model.text(for: id) else {
                 model.reconcileSavedBaseline(id: id)
                 didPreserve = true
@@ -4409,6 +4409,13 @@ struct PisakaApp: App {
         // iOS peer in `RootView_iOS` makes the same call for the same reason.
         notifyIndexOfProjectFileChanges()
         guard let id = model.fileID(forURL: resolvedURL) else { return true }
+        // The third resync, and it asks the viewer rule first for the reason the
+        // other two do: `preApply` is a text snapshot, and a viewer tab answers it
+        // with `("", false)` — "clean and provably unchanged" — so without this the
+        // guard below would pass, `reloadFromDisk` would return its by-construction
+        // `false`, and a database tab whose file is sitting right there on disk
+        // would be force-closed with a beep.
+        if resyncViewerTab(id, mayRemoveFiles: true) { return true }
         // Reload the tab to match the applied resolution only when its buffer holds
         // no unsaved edits to lose: it was clean at the snapshot *and* is provably
         // unchanged since. Anything else — the tab was already dirty before apply,
