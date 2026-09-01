@@ -744,6 +744,78 @@ final class DatabaseViewerModelTests: XCTestCase {
         XCTAssertNil(model.page.totalRows)
     }
 
+    // MARK: - The token captured before the hop
+
+    func testASelectPresentingASupersededRequestPublishesNothing() async {
+        let service = ScriptedDatabaseService()
+        serveSchema(on: service, table: "items")
+        serveCount(on: service, table: "items", total: 5)
+        servePage(on: service, table: "items", rows: [[.integer(1), .text("one")]])
+        serveSchema(on: service, table: "orders")
+        serveCount(on: service, table: "orders", total: 1)
+        servePage(on: service, table: "orders", rows: [[.integer(9), .text("nine")]])
+        let model = await loadedModel(service)
+
+        // The clicks, in order: "items" then "orders". Each captures its token
+        // synchronously, which is the whole point — the two loads then run in the
+        // *reverse* order, exactly what an unstructured `Task` pair may do.
+        let first = model.prepareForRowsChange()
+        let second = model.prepareForRowsChange()
+        await model.select(table: "orders", request: second)
+        await model.select(table: "items", request: first)
+
+        XCTAssertEqual(
+            model.selectedTable,
+            "orders",
+            "The later click owns the newer token, so the earlier load is refused however late it starts"
+        )
+        XCTAssertEqual(model.rows, [[.integer(9), .text("nine")]])
+        XCTAssertEqual(
+            service.count(for: DatabaseQuery.columnSchema(table: "items").sql),
+            0,
+            "A superseded select is refused before it sends anything"
+        )
+    }
+
+    func testAToggleSortPresentingASupersededRequestLeavesTheSortAlone() async {
+        let service = ScriptedDatabaseService()
+        serveSchema(on: service, table: "items")
+        serveCount(on: service, table: "items", total: 5)
+        servePage(on: service, table: "items", rows: [[.integer(1), .text("one")]])
+        let model = await loadedModel(service)
+        await model.select(table: "items")
+
+        let stale = model.prepareForRowsChange()
+        model.prepareForRowsChange()
+        await model.toggleSort(column: "label", request: stale)
+
+        XCTAssertNil(
+            model.sort,
+            "The refusal comes before the sort is toggled, or a superseded click would still reorder the "
+                + "header arrow it never loaded rows for"
+        )
+    }
+
+    func testReloadRetiresTheRowsBannerAlongWithTheSelectionItExplained() async {
+        let service = ScriptedDatabaseService()
+        serveSchema(on: service, table: "items")
+        serveCount(on: service, table: "items", total: 5)
+        service.fail(pageSQL(table: "items"), with: DatabaseError.busy(message: "database is locked"))
+        let model = await loadedModel(service)
+        await model.select(table: "items")
+        XCTAssertEqual(model.errorMessage, "database is locked")
+
+        serveListing(on: service, entries: [("orders", "table")])
+        await model.reload()
+
+        XCTAssertNil(model.selectedTable)
+        XCTAssertNil(
+            model.errorMessage,
+            "The rows the banner was about are gone with the selection, so a message explaining a state "
+                + "that no longer exists goes with them"
+        )
+    }
+
     func testAReloadThatCannotReopenLeavesTheTabAsItWas() async {
         let service = ScriptedDatabaseService()
         serveSchema(on: service, table: "items")

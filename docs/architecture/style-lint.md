@@ -66,9 +66,10 @@ The procedure, when a feature genuinely has to land in that file:
 4. Update both numbers in `LintConfigurationTests.documentedRootThresholds` in
    the same commit; the suite fails until they agree.
 
-The database viewer is the most recent bump (`file_length` 1809 → 1826 → 1829,
-`type_body_length` 1800 → 1810 → 1813 — the second step is the viewer reconnect
-`resyncViewerTab` gained on review), and it is also the shape to copy: everything
+The database viewer is the most recent bump (`file_length`
+1809 → 1826 → 1829 → 1833, `type_body_length` 1800 → 1810 → 1813 → 1817 — the
+second step is the viewer reconnect `resyncViewerTab` gained on review, the third
+the find menu's `isFindableTabSelected`), and it is also the shape to copy: everything
 with a state shape of its own went into `DatabaseViewerTabs.swift`, so
 `PisakaApp` paid four lines of wiring plus the tab-kind skips its own text-shaped
 passes needed, and not four hundred (`core-database-viewer.md`).

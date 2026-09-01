@@ -191,10 +191,13 @@ final class DatabaseViewerSourceGatingTests: XCTestCase {
         let app = try code(ofFileNamed: "PisakaApp.swift", under: "Sources/Pisaka")
         XCTAssertEqual(
             try occurrences(of: "kind == \\.text", in: app),
-            7,
-            "Seven sites read openFiles as text and each must skip viewer tabs. If this number moved, a "
+            8,
+            "Eight sites read openFiles as text and each must skip viewer tabs. If this number moved, a "
                 + "text-shaped consumer was added or removed — say which, here, rather than adjusting the "
-                + "number: an unfiltered one hands the empty string to a real path."
+                + "number: an unfiltered one hands the empty string to a real path. The eighth is "
+                + "isFindableTabSelected: the find bar renders inside the text editor zone alone, so the "
+                + "four in-editor find commands grey out on a viewer tab rather than arming a bar the next "
+                + "text tab would come up already showing."
         )
         XCTAssertEqual(
             try occurrences(of: "kind == \\.viewer|kind != \\.viewer", in: app),

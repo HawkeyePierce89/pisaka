@@ -1363,23 +1363,23 @@ struct PisakaApp: App {
                 // mouse.
                 Button("Find…") { search.open() }
                     .keyboardShortcut("f", modifiers: .command)
-                    .disabled(model.selectedID == nil)
+                    .disabled(!isFindableTabSelected)
 
                 // ⌘⌥F opens the same bar with the replace row expanded.
                 Button("Replace…") { search.openReplace() }
                     .keyboardShortcut("f", modifiers: [.command, .option])
-                    .disabled(model.selectedID == nil)
+                    .disabled(!isFindableTabSelected)
 
                 // The two navigation commands work whether or not the bar has
                 // focus; with the bar closed they are inert (the state forwards to
                 // an editor whose controller has nothing applied).
                 Button("Find Next") { search.findNext() }
                     .keyboardShortcut("g", modifiers: .command)
-                    .disabled(model.selectedID == nil)
+                    .disabled(!isFindableTabSelected)
 
                 Button("Find Previous") { search.findPrevious() }
                     .keyboardShortcut("g", modifiers: [.command, .shift])
-                    .disabled(model.selectedID == nil)
+                    .disabled(!isFindableTabSelected)
 
                 Divider()
 
@@ -2835,6 +2835,21 @@ struct PisakaApp: App {
     }
 
     // MARK: - Find in Files
+
+    /// Whether the four in-editor find commands have a buffer to act on: a tab is
+    /// selected **and** it is a text tab.
+    ///
+    /// The tab-kind half is what the second tab kind made necessary. The find bar
+    /// is rendered inside `ContentView`'s text editor zone alone, so on a viewer
+    /// tab ⌘F would set `EditorSearchState.isVisible` with nothing on screen to
+    /// show for it — and then the *next* text tab the user selected would come up
+    /// with the bar already open and holding focus, from a keystroke aimed at a
+    /// different tab. Greyed out, the menu says so where every other unavailable
+    /// command in this menu already does.
+    private var isFindableTabSelected: Bool {
+        guard let id = model.selectedID else { return false }
+        return model.openFiles.first { $0.id == id }?.kind == .text
+    }
 
     /// Show the project-wide search window (⌘⇧F), or focus the one already open.
     ///

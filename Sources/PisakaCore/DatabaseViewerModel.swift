@@ -195,14 +195,38 @@ public final class DatabaseViewerModel: ObservableObject {
         }
     }
 
+    /// Bump the rows token **synchronously**, ahead of the caller's `Task` hop,
+    /// and hand back what the load it is about to spawn must present to be
+    /// allowed to run.
+    ///
+    /// The `ProjectSearchModel.prepareForSearch(root:)` /
+    /// `LocalChangesModel.refresh(root:requestGeneration:)` rule, and the reason
+    /// the repository states it: unstructured `Task`s are not guaranteed to start
+    /// in creation order, so a token bumped *inside* `select`/`toggleSort` is
+    /// bumped when the task runs rather than when the click happened. Two quick
+    /// sidebar clicks — table A, then B — could then start B-first, leaving A to
+    /// bump last and win: the tab settles on the table the user clicked *first*,
+    /// sidebar highlight, schema, rows and all, with nothing superseded and no
+    /// error to say so. Captured here, the later click owns the newer token
+    /// whatever order the two tasks are picked up in.
+    ///
+    /// A caller with nothing racing it — `reload`'s own re-selection, Core's
+    /// tests — passes no request and is never rejected.
+    @discardableResult
+    public func prepareForRowsChange() -> Int {
+        rowsGeneration += 1
+        return rowsGeneration
+    }
+
     /// Show `table`: its columns, its row count and its first page.
     ///
     /// Selecting a table the grid is already showing is a refresh — the sort
     /// survives and the page index does not reset — while moving to another table
     /// clears both (`DatabaseSortState.carriedOver`) along with the rows the
     /// previous table owned.
-    public func select(table: String) async {
+    public func select(table: String, request: Int? = nil) async {
         guard !isClosed else { return }
+        if let request, request != rowsGeneration { return }
         rowsGeneration += 1
         let generation = rowsGeneration
         let previous = selectedTable
@@ -261,8 +285,10 @@ public final class DatabaseViewerModel: ObservableObject {
     /// many there are, so re-asking `count(*)` here would be a second full-table
     /// read for an answer already in hand. The page index resets because page 3
     /// of one ordering has nothing to do with page 3 of another.
-    public func toggleSort(column: String) async {
-        guard !isClosed, let table = selectedTable else { return }
+    public func toggleSort(column: String, request: Int? = nil) async {
+        guard !isClosed else { return }
+        if let request, request != rowsGeneration { return }
+        guard let table = selectedTable else { return }
         sort = DatabaseSortState.toggled(sort, column: column)
         page.move(to: 0)
         rowsGeneration += 1
@@ -317,6 +343,13 @@ public final class DatabaseViewerModel: ObservableObject {
             sort = nil
             shown = nil
             page.reset()
+            // The rows this tab was showing are gone, so a `.rows` message about
+            // them goes with them: a banner left over from the page load before
+            // the re-open would sit above an empty grid and an unselected sidebar,
+            // explaining a state that no longer exists. `clearError` is
+            // source-checked, so an `.entries` message the re-open itself set is
+            // untouched.
+            clearError(from: .rows)
             return
         }
         await select(table: table)

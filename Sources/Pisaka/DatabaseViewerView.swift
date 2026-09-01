@@ -95,12 +95,17 @@ struct DatabaseViewerView: View {
 
     /// The sidebar's selection, routed through `select(table:)` so picking a row
     /// is the same code path a programmatic selection would take.
+    ///
+    /// The token is captured **here**, in the click, and carried into the task —
+    /// the repository's standing rule, and `prepareForRowsChange()` says why two
+    /// quick clicks need it.
     private var selectionBinding: Binding<String?> {
         Binding(
             get: { model.selectedTable },
             set: { name in
                 guard let name else { return }
-                Task { await model.select(table: name) }
+                let request = model.prepareForRowsChange()
+                Task { await model.select(table: name, request: request) }
             }
         )
     }
@@ -217,7 +222,8 @@ struct DatabaseViewerView: View {
         HStack(spacing: 0) {
             ForEach(Array(model.gridColumns.enumerated()), id: \.offset) { _, name in
                 Button {
-                    Task { await model.toggleSort(column: name) }
+                    let request = model.prepareForRowsChange()
+                    Task { await model.toggleSort(column: name, request: request) }
                 } label: {
                     HStack(spacing: metrics.scaled(3)) {
                         Text(name)

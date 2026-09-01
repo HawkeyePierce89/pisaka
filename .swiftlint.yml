@@ -77,21 +77,27 @@ line_length:
 # tab whose file is still there: git replaces a file by renaming a new one over
 # it, so the tab's handle would otherwise go on answering out of the unlinked old
 # one, and the three lines are the branch that tells the tab owner to reconnect,
-# which is where 1829 comes from. The number tracks the one file that approaches
+# which is 1829, and from there to 1833 when the four in-editor find commands
+# learned that the find bar is a *text* tab's chrome: it renders inside the
+# editor zone alone, so ⌘F on a viewer tab armed a bar the next text tab would
+# come up already showing, and the four lines are the one
+# `isFindableTabSelected` the menu now greys out on. The number tracks the one
+# file that approaches
 # it — measured, never rounded up for room — and is not a licence to grow the
 # others.
 file_length:
-  warning: 1829
-  error: 1829
+  warning: 1833
+  error: 1833
   ignore_comment_only_lines: true
 
 # Same reasoning as file_length, and one number behind it again: the viewer's
 # skips landed inside the PisakaApp struct body, which is very nearly the whole
 # file, so this ceiling moved from 1800 to the measured 1810 with them, and to
-# 1813 with the viewer reconnect that followed.
+# 1813 with the viewer reconnect that followed, and to 1817 with the find menu's
+# tab-kind gate.
 type_body_length:
-  warning: 1813
-  error: 1813
+  warning: 1817
+  error: 1817
 
 function_body_length:
   warning: 140

@@ -442,6 +442,16 @@ disk-writer gate and is never gated by it.
     empty string for a real database path; today no `SyntaxLanguage` maps
     `db`/`sqlite`/`sqlite3` so the controller drops it, but that is an accident of
     another file's table and not a rule — the filter is the rule.
+  - the **Find menu's four in-editor commands** — Find…, Replace…, Find Next,
+    Find Previous — through one `isFindableTabSelected`. The find bar is rendered
+    inside `ContentView`'s `textEditorZone` alone, so ⌘F on a viewer tab would set
+    `EditorSearchState.isVisible` with nothing on screen to show for it, and the
+    *next* text tab selected would then come up with the bar already open and
+    holding focus, from a keystroke aimed at a different tab. Greyed out, the menu
+    says so where every other unavailable command in it already does. (Find in
+    Files is untouched: it is a window over the project, not over the selected
+    tab, and a database is excluded from that walk by the binary/size filters as
+    it always was.)
   - autosave, the on-save transform and Local History capture need **no** filter:
     all three are gated on `isDirty`, which is `false` for a viewer tab by
     construction. The invariant *is* the reason, so the gating suite pins it
@@ -475,6 +485,25 @@ itself.
 `close()` bumps **both** tokens before releasing the connection, so a load still
 in flight resumes to find itself superseded and publishes nothing into a tab that
 is gone.
+
+The synchronous prefix is the right place only for a caller that is *already*
+inside the model. A **view** is not: it clicks, then hops through an unstructured
+`Task`, and the repository's standing rule — stated on
+`ProjectSearchModel.search(root:query:mask:request:)` and
+`SymbolIndexModel.rebuild(root:request:)` — is that unstructured tasks are not
+guaranteed to start in creation order. A token bumped inside `select` is
+therefore bumped when the task *runs*, not when the click happened: two quick
+sidebar clicks, table A then B, could start B-first and leave A to bump last and
+win, settling the tab on the table the user clicked first with nothing superseded
+and no error. So `prepareForRowsChange()` is the model's `prepareForSearch(root:)`
+— it bumps the rows token synchronously in the click and hands back the token the
+resulting load must present — and `select(table:request:)` /
+`toggleSort(column:request:)` refuse a request that is no longer the latest,
+**before** either of them mutates anything (`toggleSort` would otherwise flip the
+header arrow for rows it never loaded). `goToPage(_:)` needs none: its argument is
+read off the live `page` inside the task, so relative paging settles on the same
+index whichever order two clicks are picked up in. `reload()`'s own re-selection
+and Core's tests pass no request and are never refused.
 
 ## Two rules the model never breaks
 
