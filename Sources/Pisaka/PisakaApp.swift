@@ -374,7 +374,13 @@ struct PisakaApp: App {
             guard let workspace else { return [:] }
             var buffers: [URL: String] = [:]
             buffers.reserveCapacity(workspace.openFiles.count)
-            for file in workspace.openFiles {
+            // A viewer tab is skipped: it stands for a database, whose bytes are
+            // not text and whose `text` is empty by construction. Contributing an
+            // empty buffer for a real path would make the symbol index and Find in
+            // Files answer for that file out of the buffer branch — reporting the
+            // database as an empty file, and outranking the on-disk branch that
+            // would at least have declined it as binary.
+            for file in workspace.openFiles where file.kind == .text {
                 if let url = file.url { buffers[url] = file.text }
             }
             return buffers
@@ -3471,7 +3477,12 @@ struct PisakaApp: App {
 
     private func bufferTextsByCanonicalPath() -> [String: String] {
         var texts: [String: String] = [:]
-        for file in model.openFiles {
+        // Viewer tabs are left out: this map is what the rename pass *vouches
+        // for*, and an entry here says "this file's bytes are these bytes". A
+        // database's are not, and its tab's `text` is empty — so an entry would
+        // offer the rename plan an empty baseline for a real path, which
+        // `expectedText` would then verify against and rewrite.
+        for file in model.openFiles where file.kind == .text {
             guard let url = file.url else { continue }
             texts[Self.canonicalKey(url)] = file.text
         }
@@ -3548,8 +3559,14 @@ struct PisakaApp: App {
         // name exactly the tabs it rewrote — `ReplaceSummary` counts files, it does
         // not list them. Keyed by tab id, not URL: two tabs can legitimately show
         // the same file (opened once by path, once through a symlink).
+        // Viewer tabs are left out: they hold no text the batch could have
+        // rewritten, and an entry here would say this map vouches for a database's
+        // bytes. The resync loop below skips them for the same reason and must,
+        // since a missing entry reads as "changed".
         let textsBeforeBatch = Dictionary(
-            uniqueKeysWithValues: model.openFiles.map { ($0.id, $0.text) }
+            uniqueKeysWithValues: model.openFiles
+                .filter { $0.kind == .text }
+                .map { ($0.id, $0.text) }
         )
         // Pre-empting the batch's own read-modify-write of every matched file —
         // the one worktree writer here that is not git, and the one whose result
@@ -3579,7 +3596,7 @@ struct PisakaApp: App {
         // with the pre-replacement identifiers, at the pre-replacement ranges,
         // until it was selected or closed. Same resync the worktree rewrites do
         // (revert / checkout / merge apply) — see `reindexReloadedBuffer`.
-        for file in model.openFiles {
+        for file in model.openFiles where file.kind == .text {
             guard let url = file.url, textsBeforeBatch[file.id] != file.text else { continue }
             reindexReloadedBuffer(id: file.id, url: url)
         }
@@ -3596,6 +3613,18 @@ struct PisakaApp: App {
     /// none. Returns `true` only when the file ends up saved (not dirty).
     @discardableResult
     private func save(id: UUID, abandoningBuffer: Bool = false) -> Bool {
+        // A viewer tab holds nothing to save, so ⌘S over one is a no-op that
+        // *reports success*: nothing to save is not a failure, and returning
+        // `false` would beep at the close prompt and fail the run/test pre-run
+        // save. Deliberately ahead of everything below — the writer gate (a save
+        // that writes nothing cannot race git), `saveTransform.prepareForSave`
+        // (there is no buffer to transform and no caret to protect) and the
+        // recreate probe (which would put an empty file back where a deleted
+        // database was). `WorkspaceModel.save(for:)` answers `.saved` for one too;
+        // this returns before reaching it so the surrounding side effects — the
+        // Local History capture, the `.editorconfig` note, the tree bump — never
+        // run for a tab whose bytes this app never wrote.
+        guard model.openFiles.first(where: { $0.id == id })?.kind != .viewer else { return true }
         // A save is a disk write, so it is refused while one of the app's git
         // operations is mutating or reading the working tree (`revertInFlight()` —
         // raised by revert, merge apply, a branch checkout, Replace All and the
@@ -3812,6 +3841,14 @@ struct PisakaApp: App {
             }
             for url in reverted {
                 guard let id = model.fileID(forURL: url) else { continue }
+                // The same viewer rule the checkout resync applies, asked here too
+                // because a database can be tracked and therefore reverted. Without
+                // it the branch below reads a viewer tab as "unchanged" (its text
+                // is empty on both sides), asks `reloadFromDisk`, gets the no-op
+                // `false` a viewer tab always answers, and force-closes a tab whose
+                // file is sitting right there.
+                if let file = model.openFiles.first(where: { $0.id == id }),
+                   resyncViewerTab(file, mayRemoveFiles: true) { continue }
                 // Reload/close this tab only when its buffer is provably unchanged
                 // since we confirmed the revert: a snapshot exists *and* the text
                 // still matches it. Anything else is preserved (and we beep)
@@ -4062,11 +4099,16 @@ struct PisakaApp: App {
     /// synchronously before a branch mutation hops off the main actor — so the
     /// post-checkout resync can tell a tab it may safely reload (clean and
     /// unchanged) from one the user has edits in.
+    ///
+    /// Viewer tabs are left out. This map is the resync's evidence that a tab is
+    /// safe to reload over, and a database's bytes are not something the app has
+    /// read; `resyncOpenTabsAfterCheckout` decides a viewer tab on its file's
+    /// existence alone, without consulting this.
     private func openTabSnapshot() -> [UUID: (text: String, wasDirty: Bool)] {
         Dictionary(
-            uniqueKeysWithValues: model.openFiles.map {
-                ($0.id, ($0.text, model.isDirty(for: $0.id)))
-            }
+            uniqueKeysWithValues: model.openFiles
+                .filter { $0.kind == .text }
+                .map { ($0.id, ($0.text, model.isDirty(for: $0.id))) }
         )
     }
 
@@ -4084,9 +4126,17 @@ struct PisakaApp: App {
     /// Two tabs may legitimately show one file (opened once by path, once through
     /// a symlink); the last one wins, which is the same arbitrary-but-harmless
     /// choice the dedup would make one step later.
+    ///
+    /// Viewer tabs are left out, for the third time and the same reason: an entry
+    /// here would file a Local History revision holding the empty string under a
+    /// database's path — a snapshot that claims to be the file and is not, which
+    /// is worse than no snapshot at all. It also keeps the buffer half honest
+    /// about the exclusion it hands `LocalHistoryModel`, which reads *disk* for
+    /// everything this map does not name and declines a database there by
+    /// content.
     private func openBufferTexts() -> [URL: String] {
         var texts: [URL: String] = [:]
-        for file in model.openFiles {
+        for file in model.openFiles where file.kind == .text {
             guard let url = file.url else { continue }
             texts[url] = file.text
         }
@@ -4158,6 +4208,33 @@ struct PisakaApp: App {
     /// is no longer on disk. Such a tab is left exactly as it is: not reloaded, not
     /// closed, and deliberately not made dirty either, since a dirty titled buffer
     /// is what autosave would use to recreate the very file the user deleted.
+    /// The whole post-operation resync rule for a **viewer** tab, in one place
+    /// both resync loops ask before they reach their text-shaped reasoning.
+    ///
+    /// Returns `true` when `file` is a viewer tab and has therefore been settled
+    /// here — the caller must go no further with it.
+    ///
+    /// A viewer tab has exactly two outcomes, and neither is any of the three a
+    /// text tab has. Its file is **gone** and the caller `mayRemoveFiles`: it
+    /// force-closes, exactly like a text tab on a deleted file, and
+    /// `DatabaseViewerTabs` releases its connection off the same `openFiles`
+    /// change (which is why nothing is closed by hand here — one subscription
+    /// covers every way a tab can leave). No `forgetIndexedBuffer` goes with it:
+    /// `openBuffers` never offered the tab, so there is no buffer-sourced entry to
+    /// hand back to disk. Its file is **still there**: it is left
+    /// completely alone — no `reloadFromDisk` (a viewer tab's no-op `false` would
+    /// read as a failed read and close the tab), no `reconcileSavedBaseline`
+    /// (there is no baseline; it can never be dirty), and no beep, because
+    /// nothing was preserved and nothing was lost. What the *contents* now are is
+    /// the viewer model's question, asked over its own connection.
+    private func resyncViewerTab(_ file: OpenFile, mayRemoveFiles: Bool) -> Bool {
+        guard file.kind == .viewer else { return false }
+        guard let url = file.url else { return true }
+        guard !FileManager.default.fileExists(atPath: url.path), mayRemoveFiles else { return true }
+        model.close(id: file.id, force: true)
+        return true
+    }
+
     private func resyncOpenTabsAfterCheckout(
         snapshot: [UUID: (text: String, wasDirty: Bool)],
         repoRoot: URL?,
@@ -4172,6 +4249,7 @@ struct PisakaApp: App {
                 continue
             }
             let id = file.id
+            if resyncViewerTab(file, mayRemoveFiles: mayRemoveFiles) { continue }
             guard let snap = snapshot[id], !snap.wasDirty, snap.text == model.text(for: id) else {
                 model.reconcileSavedBaseline(id: id)
                 didPreserve = true

@@ -361,26 +361,26 @@ imports Foundation only.
 - Modify (only if measured necessary): `.swiftlint.yml`,
   `Tests/PisakaCoreTests/LintConfigurationTests.swift`
 
-- [ ] `openBuffers` (the closure feeding the symbol index and project search):
+- [x] `openBuffers` (the closure feeding the symbol index and project search):
       skip viewer tabs — a viewer tab has no text, and contributing an empty
       buffer for a real path would make the index and Find in Files report the
       database as an empty file
-- [ ] The ⌘S funnel `save(id:)`: a viewer tab returns early as a **no-op that
+- [x] The ⌘S funnel `save(id:)`: a viewer tab returns early as a **no-op that
       reports success**, before the writer-gate check and before
       `saveTransform.prepareForSave` — nothing to save is not a failure
-- [ ] The three buffer-snapshot maps (the rename pass, project Replace All, and
+- [x] The three buffer-snapshot maps (the rename pass, project Replace All, and
       the checkout snapshot): skip viewer tabs so no pass ever believes it vouched
       for a database's bytes
-- [ ] `resyncOpenTabsAfterCheckout`: a viewer tab whose file is gone and whose
+- [x] `resyncOpenTabsAfterCheckout`: a viewer tab whose file is gone and whose
       caller `mayRemoveFiles` **force-closes**, exactly like a text tab on a
       deleted file (and its connection is closed with it); a viewer tab whose file
       is still there is left alone — no reload, no baseline reconcile, no beep
-- [ ] Verify (and assert in the new suite) that the autosave scans, the on-save
+- [x] Verify (and assert in the new suite) that the autosave scans, the on-save
       transform and Local History capture already exclude viewer tabs **because**
       they are gated on `isDirty`, which is `false` by construction — the
       invariant is the reason, so the suite pins it rather than adding a second
       filter
-- [ ] Write `DatabaseViewerSourceGatingTests`, following
+- [x] Write `DatabaseViewerSourceGatingTests`, following
       `LocalHistorySourceGatingTests` (read through `#filePath`, comments and
       string literals stripped): the system SQLite module is imported in exactly
       one file; every app-side file of this feature is `#if os(macOS)`-gated; no
@@ -392,19 +392,19 @@ imports Foundation only.
       the app sites that iterate `openFiles` for text pinned by count against the
       count of tab-kind filters, so a new text-shaped consumer fails here until it
       skips viewer tabs
-- [ ] Write tests: the resync rules (deleted database force-closes, present
+- [x] Write tests: the resync rules (deleted database force-closes, present
       database untouched) exercised at the Core level through `WorkspaceModel`
-- [ ] Run `swiftlint --strict` and read what `PisakaApp.swift` now measures. If it
+- [x] Run `swiftlint --strict` and read what `PisakaApp.swift` now measures. If it
       crosses `file_length` or `type_body_length`, raise **both** configured
       ceilings to the measured numbers — never rounded up for room — extend the
       existing ceiling comment in `.swiftlint.yml` with this feature's reason in
       the same voice as the entries already there, and update both entries in
       `LintConfigurationTests.documentedRootThresholds`. If it does not cross,
       change neither file and say so
-- [ ] Re-run any counting gating suite this task's edits touch
+- [x] Re-run any counting gating suite this task's edits touch
       (`LocalHistorySourceGatingTests` in particular) and update its documented
       counts rather than silencing it
-- [ ] run `swift test` — must pass before Task 8
+- [x] run `swift test` — must pass before Task 8
 
 ### Task 8: Verify acceptance criteria
 

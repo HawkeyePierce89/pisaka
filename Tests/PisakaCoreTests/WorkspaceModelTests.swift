@@ -2857,6 +2857,69 @@ final class WorkspaceModelTests: XCTestCase {
         XCTAssertEqual(model.selectedID, model.openFiles.first?.id)
     }
 
+    // MARK: - The post-operation resync rules for a viewer tab
+
+    /// The "file is gone" half of the app's `resyncViewerTab`, at the level the
+    /// rule actually acts: a force-close.
+    ///
+    /// A viewer tab is never dirty, so an *unforced* close already succeeds — the
+    /// assertion worth making is that force-closing one behaves exactly as it does
+    /// for a text tab on a file a checkout deleted (the tab goes, the selection
+    /// falls to a neighbour) and that nothing about the neighbouring text tab is
+    /// disturbed on the way.
+    func testForceClosingAViewerTabRemovesItAndSelectsItsNeighbour() throws {
+        let tree = makeViewerTree()
+        let model = WorkspaceModel(fileService: tree, viewerTabsEnabled: true)
+        let text = try model.open(url: tree.url("notes.txt"))
+        model.updateText("edited", for: text.id)
+        let viewer = try model.open(url: tree.url("app.sqlite"))
+        XCTAssertEqual(model.selectedID, viewer.id)
+
+        XCTAssertEqual(model.close(id: viewer.id, force: true), .closed)
+
+        XCTAssertEqual(model.openFiles.map(\.id), [text.id])
+        XCTAssertEqual(model.selectedID, text.id)
+        // The neighbour kept its edit: closing the database beside it is not a
+        // reason to touch the buffer the user is working in.
+        XCTAssertEqual(model.text(for: text.id), "edited")
+        XCTAssertTrue(model.isDirty(for: text.id))
+        XCTAssertEqual(tree.writtenPaths, [])
+    }
+
+    /// The "file is still there" half, and the trap it exists to avoid.
+    ///
+    /// The database is perfectly readable, yet `reloadFromDisk` answers `false` for
+    /// a viewer tab **by construction** — which a resync loop written for text
+    /// reads as a failed read, and its answer to a failed read is to force-close
+    /// the tab. So the app asks the viewer rule first; here the primitives are
+    /// pinned so that stays the reason: both text-shaped steps report `false`,
+    /// change nothing, and leave the tab open, clean and selected.
+    func testAPresentDatabaseIsUnchangedByTheTextShapedResyncSteps() throws {
+        let tree = makeViewerTree()
+        let model = WorkspaceModel(fileService: tree, viewerTabsEnabled: true)
+        let viewer = try model.open(url: tree.url("app.sqlite"))
+        let replacementBefore = model.textReplacementRevision(for: viewer.id)
+        let diskBefore = model.diskRevision(for: viewer.id)
+        let readsBefore = tree.readPaths
+
+        // Readable on disk — this is not the missing-file case.
+        XCTAssertNotNil(tree.fileStamp(at: tree.url("app.sqlite")))
+        XCTAssertFalse(model.reloadFromDisk(id: viewer.id))
+        XCTAssertFalse(model.reconcileSavedBaseline(id: viewer.id))
+
+        XCTAssertEqual(model.openFiles.map(\.id), [viewer.id])
+        XCTAssertEqual(model.selectedID, viewer.id)
+        XCTAssertEqual(model.openFiles.first?.kind, .viewer)
+        XCTAssertEqual(model.openFiles.first?.url, tree.url("app.sqlite"))
+        XCTAssertEqual(model.text(for: viewer.id), "")
+        XCTAssertFalse(model.isDirty(for: viewer.id))
+        // Neither step read the file, so neither could have decided anything about
+        // it — the bytes are the viewer model's business, over its own connection.
+        XCTAssertEqual(tree.readPaths, readsBefore)
+        XCTAssertEqual(model.textReplacementRevision(for: viewer.id), replacementBefore)
+        XCTAssertEqual(model.diskRevision(for: viewer.id), diskBefore)
+    }
+
     private func writeTempFile(contents: String) throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
