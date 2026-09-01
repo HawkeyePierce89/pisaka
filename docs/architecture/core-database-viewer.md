@@ -60,7 +60,8 @@ disk-writer gate and is never gated by it.
    `DatabaseViewerTabs.swift`, a file of their own, so `PisakaApp` paid four
    lines for the feature's wiring plus thirteen for the tab-kind skips rather
    than four hundred. Both ceilings moved by the measured amount only
-   (`file_length` 1809 → 1826, `type_body_length` 1800 → 1810), with the reason
+   (`file_length` 1809 → 1826 → 1829, `type_body_length` 1800 → 1810 → 1813 — the
+   second step is the viewer reconnect below), with the reason
    appended to `.swiftlint.yml`'s ceiling comment and both numbers updated in
    `LintConfigurationTests.documentedRootThresholds`. See `style-lint.md`.
 
@@ -269,7 +270,14 @@ disk-writer gate and is never gated by it.
   `toggleSort(column:)` flips or re-aims the sort, resets to the first page and
   **keeps the count**: an `ORDER BY` reorders rows without changing how many
   there are, so re-asking `count(*)` would be a second full-table read for an
-  answer already in hand. `close()` latches. `gridColumns` is published
+  answer already in hand. `reload()` is the tab's `reloadFromDisk`: it releases
+  the connection, opens the file again and re-reads the listing, then re-selects
+  the table it was showing when the new database still holds it (a re-selection
+  is a *refresh*, so the sort and the page index survive) and drops it, rows and
+  all, when it does not. A re-open that fails leaves the tab as it was under the
+  banner explaining why, rather than re-selecting into a closed connection and
+  replacing the open's message with a second one about a statement. `close()`
+  latches. `gridColumns` is published
   separately from `columns` and is deliberately **not** `columns.map(\.name)`: a
   hidden column appears in the pragma and not in `SELECT *`, so reading the
   headers off the schema would shift every cell in such a table one column left.
@@ -317,7 +325,13 @@ disk-writer gate and is never gated by it.
   `workspace.openFiles`: the publisher fires before the property is written.) The
   models dictionary is deliberately not `@Published` — views observe the model
   they were handed, and republishing here would re-render the window every time a
-  tab opened for no visible change. `closeAll()` is what termination calls, and
+  tab opened for no visible change. `reload(id:)` is what the post-operation
+  resyncs call for a viewer tab whose file survived the operation: it re-reads the
+  database over a fresh connection, because git replaces a file by renaming a new
+  one over it and the tab's handle would otherwise go on answering out of the
+  unlinked old one. A tab that has never been shown has no model and nothing
+  stale, so it is skipped — it opens against the new file when it is first
+  selected. `closeAll()` is what termination calls, and
   is **best effort by construction and said to be**: it runs from
   `willTerminateNotification`, the last notification AppKit posts, so the `async`
   close may not get a run-loop turn — acceptable for part 1's read-only
@@ -345,7 +359,16 @@ disk-writer gate and is never gated by it.
   that view. The footer's one judgement is the same honesty rule as the model's:
   "Loading…" is said only while `isLoadingRows`, so the uncounted-and-empty state
   a *failed* selection leaves behind does not claim a load is in flight
-  underneath the banner explaining that one failed.
+  underneath the banner explaining that one failed. The grid's placeholder answers
+  the same way: "No tables or views" is a **claim about the database**, so it is
+  made only once there is one to make it about — while `isLoadingEntries` is up
+  nobody has read the file yet ("Loading…"), and under an error banner the banner
+  already said what happened. The page's rows are drawn from a `LazyVStack`: a
+  page is 200 rows, a wide table's page is thousands of cells, and an eager stack
+  builds every one of them on the main actor before the first is on screen, on
+  every select, page turn and sort. Lazy is safe inside the bidirectional
+  `ScrollView` because every row is the same width by construction — each cell is
+  drawn at the one fixed column width the headers use.
   Everything is sized through `\.interfaceMetrics`; nothing is drawn at the code
   font, so the viewer is chrome for zoom purposes and declares no `ZoomSurface`.
   `DatabaseViewerHost` is the thin adapter `ContentView` routes to: it asks the
@@ -391,11 +414,22 @@ disk-writer gate and is never gated by it.
     database can be tracked, and therefore conflicted and resolved) — a viewer tab whose
     file is gone and whose caller `mayRemoveFiles` **force-closes**, exactly like
     a text tab on a deleted file, and its connection goes with it through the tab
-    subscription; a viewer tab whose file is still there is **left alone**: no
-    reload, no baseline reconcile, no beep. Without that rule the text branch
-    reads a viewer tab as "unchanged" (its text is empty on both sides), asks
-    `reloadFromDisk`, gets the `false` a viewer tab always answers, and
+    subscription; a viewer tab whose file is still there keeps its **tab** — no
+    reload, no baseline reconcile, no beep — while its **connection is re-opened**
+    through `DatabaseViewerTabs.reload(id:)`. That second half is not optional:
+    git replaces a file by renaming a new one over it, so the tab's connection is
+    left pointing at the unlinked old inode and every later read answers the
+    pre-operation database with nothing on screen saying so. It is the viewer's
+    half of the `reloadFromDisk` beside it. Without the rule at all the text
+    branch reads a viewer tab as "unchanged" (its text is empty on both sides),
+    asks `reloadFromDisk`, gets the `false` a viewer tab always answers, and
     force-closes a tab whose file is sitting right there.
+  - `syncOpenBuffersForDiagnostics` — the diagnostics push channel's whole-set
+    flush (D30), which hands each open buffer's text to `LSPDocumentSyncController`
+    on a session restore and on a registry change. Unfiltered it would offer the
+    empty string for a real database path; today no `SyntaxLanguage` maps
+    `db`/`sqlite`/`sqlite3` so the controller drops it, but that is an accident of
+    another file's table and not a rule — the filter is the rule.
   - autosave, the on-save transform and Local History capture need **no** filter:
     all three are gated on `isDirty`, which is `false` for a viewer tab by
     construction. The invariant *is* the reason, so the gating suite pins it
@@ -432,17 +466,29 @@ one deliberate exception is selecting a *different* table, which clears the
 previous table's rows in its synchronous prefix — leaving them under another
 table's name would be a lie the error message does not correct.
 
-A failed **move** — a page turn or a sort — additionally puts back the `page` and
-`sort` it had already advanced before asking, which is the same rule read from the
-chrome's side. Those two are what the footer and the header arrow are drawn from,
-so an index that moved while the rows did not would have the footer counting
+A failed read additionally puts the `page` and the `sort` back onto **the rows
+that are actually on screen**, which is the same rule read from the chrome's
+side. Those two are what the footer and the header arrow are drawn from, so a
+`page` that moved while the rows did not would have the footer counting
 "Rows 3–3 of 5 · Page 2 of 3" over page 1's rows, and a header arrow claiming an
-order the grid is not in — under an error banner that explains neither.
-`loadPage` answers whether the move stands; a **superseded** load answers that it
-does, because publishing nothing includes not undoing what a newer request set.
-The message
-itself is never a sentence this layer wrote: it is SQLite's, or the schema
-parser's description of the shape it could not read.
+order the grid is not in — under an error banner that explains neither. The
+restore target is the private `shown` — the table, page and sort the last
+successful `publish` answered — and deliberately **not** "the value the caller
+held before it moved": the two agree for a single request and part ways the
+moment two overlap, because a superseded move publishes nothing *and undoes
+nothing*, which leaves the next failure's "previous" pointing at a page that was
+never drawn. It is also what a failed *refresh* of the table already on screen
+puts back, where the count landed and the page it was gating did not. An empty
+grid has no position to restore, so the page returns to uncounted and the footer
+says nothing.
+
+**A failure is cleared by the load that caused it, and by no other.** The two
+loads have their own tokens, so they have their own claim on the one message slot
+too (`errorSource`): `load()` runs again every time the tab is shown, and a
+listing that refreshed successfully clearing the banner for a page turn that
+failed would take away the one sentence explaining the rows on screen. The
+message itself is never a sentence this layer wrote: it is SQLite's, or the
+schema parser's description of the shape it could not read.
 
 **Every read is bounded.** The grid never asks for a table, only ever for one
 page of it — `DatabaseQuery.page` with `LIMIT`/`OFFSET` bound — so opening a

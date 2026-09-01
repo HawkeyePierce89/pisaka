@@ -599,6 +599,179 @@ final class DatabaseViewerModelTests: XCTestCase {
         XCTAssertEqual(service.closeCount, 1)
     }
 
+    // MARK: - Rolling back onto the rows on screen
+
+    func testAFailedRefreshOfTheSameTablePutsBackThePageTheRowsBelongTo() async {
+        let service = ScriptedDatabaseService()
+        serveSchema(on: service, table: "items")
+        serveCount(on: service, table: "items", total: 5)
+        servePage(on: service, table: "items", rows: [[.integer(1), .text("one")]])
+        let model = await loadedModel(service)
+        await model.select(table: "items")
+        await model.goToPage(1)
+
+        // The table shrank to one page and the re-read of it fails: the count
+        // lands (re-clamping the index to 0) and the page statement does not.
+        serveCount(on: service, table: "items", total: 1)
+        service.fail(pageSQL(table: "items"), with: DatabaseError.busy(message: "database is locked"))
+        await model.select(table: "items")
+
+        XCTAssertEqual(model.errorMessage, "database is locked")
+        XCTAssertEqual(model.rows, [[.integer(1), .text("one")]], "A failure never blanks a good answer")
+        XCTAssertEqual(
+            model.page.index,
+            1,
+            "The refresh applied a new count before the page it could not read; leaving it there would have "
+                + "the footer counting one page over another page's rows"
+        )
+        XCTAssertEqual(model.page.totalRows, 5, "The total is the one the rows on screen were counted against")
+    }
+
+    func testAFailureAfterASupersededMoveRestoresThePageTheGridIsActuallyShowing() async {
+        let service = ScriptedDatabaseService()
+        serveSchema(on: service, table: "items")
+        serveCount(on: service, table: "items", total: 6)
+        servePage(on: service, table: "items", rows: [[.integer(1), .text("one")]])
+        let model = await loadedModel(service)
+        await model.select(table: "items")
+
+        // Two overlapping moves, both held inside the page read: the first is
+        // superseded (it publishes nothing and undoes nothing) and the second
+        // fails. Page 2 was never drawn, so putting *it* back would have the
+        // footer counting a page nobody ever saw.
+        let gate = Gate()
+        service.fail(pageSQL(table: "items"), with: DatabaseError.busy(message: "database is locked"))
+        service.hold(pageSQL(table: "items"), on: gate)
+        let first = Task { await model.goToPage(1) }
+        await waitUntil { service.count(for: self.pageSQL(table: "items")) == 2 }
+        let second = Task { await model.goToPage(2) }
+        await waitUntil { service.count(for: self.pageSQL(table: "items")) == 3 }
+        gate.release()
+        gate.release()
+        await first.value
+        await second.value
+
+        XCTAssertEqual(model.errorMessage, "database is locked")
+        XCTAssertEqual(model.rows, [[.integer(1), .text("one")]])
+        XCTAssertEqual(
+            model.page.index,
+            0,
+            "Page 1 is what the rows on screen are; the superseded move's target was never published"
+        )
+    }
+
+    // MARK: - Whose message it is
+
+    func testARefreshedListingDoesNotClearAPageLoadsFailure() async {
+        let service = ScriptedDatabaseService()
+        serveSchema(on: service, table: "items")
+        serveCount(on: service, table: "items", total: 5)
+        servePage(on: service, table: "items", rows: [[.integer(1), .text("one")]])
+        let model = await loadedModel(service)
+        await model.select(table: "items")
+
+        service.fail(pageSQL(table: "items"), with: DatabaseError.busy(message: "database is locked"))
+        await model.goToPage(1)
+        await model.load()
+
+        XCTAssertEqual(
+            model.errorMessage,
+            "database is locked",
+            "The listing refreshes every time the tab is shown; letting its success speak for a page load "
+                + "would take away the one sentence explaining the rows on screen"
+        )
+    }
+
+    func testASuccessfulPageLoadClearsThePageLoadsOwnFailure() async {
+        let service = ScriptedDatabaseService()
+        serveSchema(on: service, table: "items")
+        serveCount(on: service, table: "items", total: 5)
+        service.fail(
+            pageSQL(table: "items"),
+            once: DatabaseError.busy(message: "database is locked"),
+            thenServe: DatabaseResultSet(columnNames: ["id", "label"], rows: [[.integer(1), .text("one")]])
+        )
+        let model = await loadedModel(service)
+
+        await model.select(table: "items")
+        XCTAssertEqual(model.errorMessage, "database is locked")
+
+        await model.select(table: "items")
+        XCTAssertNil(model.errorMessage)
+        XCTAssertEqual(model.rows, [[.integer(1), .text("one")]])
+    }
+
+    // MARK: - Reconnecting
+
+    func testReloadReopensTheFileAndReReadsTheSelectedTable() async {
+        let service = ScriptedDatabaseService()
+        serveSchema(on: service, table: "items")
+        serveCount(on: service, table: "items", total: 5)
+        servePage(on: service, table: "items", rows: [[.integer(1), .text("before")]])
+        let model = await loadedModel(service)
+        await model.select(table: "items")
+        await model.goToPage(1)
+
+        servePage(on: service, table: "items", rows: [[.integer(9), .text("after")]])
+        await model.reload()
+
+        XCTAssertEqual(service.closeCount, 1, "The stale handle is released before the new one is opened")
+        XCTAssertEqual(
+            service.openedURLs,
+            [url, url],
+            "git renames a new file over the old one; the handle must follow"
+        )
+        XCTAssertEqual(model.rows, [[.integer(9), .text("after")]])
+        XCTAssertEqual(model.page.index, 1, "A re-selection is a refresh: the tab keeps its place")
+        XCTAssertNil(model.errorMessage)
+    }
+
+    func testReloadDropsASelectionTheNewDatabaseNoLongerHolds() async {
+        let service = ScriptedDatabaseService()
+        serveSchema(on: service, table: "items")
+        serveCount(on: service, table: "items", total: 5)
+        servePage(on: service, table: "items", rows: [[.integer(1), .text("one")]])
+        let model = await loadedModel(service)
+        await model.select(table: "items")
+
+        serveListing(on: service, entries: [("orders", "table")])
+        await model.reload()
+
+        XCTAssertNil(model.selectedTable, "A name the new database does not answer to is not a selection")
+        XCTAssertTrue(model.rows.isEmpty, "Leaving the old table's rows under no name at all is the same lie")
+        XCTAssertTrue(model.columns.isEmpty)
+        XCTAssertNil(model.sort)
+        XCTAssertNil(model.page.totalRows)
+    }
+
+    func testAReloadThatCannotReopenLeavesTheTabAsItWas() async {
+        let service = ScriptedDatabaseService()
+        serveSchema(on: service, table: "items")
+        serveCount(on: service, table: "items", total: 5)
+        servePage(on: service, table: "items", rows: [[.integer(1), .text("one")]])
+        let model = await loadedModel(service)
+        await model.select(table: "items")
+
+        service.failOpen(with: DatabaseError.cannotOpen(message: "unable to open database file"))
+        await model.reload()
+
+        XCTAssertEqual(model.errorMessage, "unable to open database file")
+        XCTAssertEqual(model.rows, [[.integer(1), .text("one")]], "Nothing was read, so nothing is replaced")
+        XCTAssertEqual(model.selectedTable, "items")
+        XCTAssertFalse(model.isLoadingRows)
+    }
+
+    func testAClosedTabIgnoresAReload() async {
+        let service = ScriptedDatabaseService()
+        let model = await loadedModel(service)
+        await model.close()
+
+        await model.reload()
+
+        XCTAssertEqual(service.closeCount, 1, "close() latches; a reload after it must not re-open the file")
+        XCTAssertEqual(service.openedURLs, [url])
+    }
+
     // MARK: - Scripting helpers
 
     /// A model whose connection is open and whose listing has been read.

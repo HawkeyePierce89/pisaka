@@ -26,13 +26,23 @@ import Foundation
 /// `errorMessage` and leaves the rows, the schema and the listing exactly as they
 /// were, because a page that failed to refresh is still the page the reader was
 /// reading and replacing it with emptiness would destroy the only context the
-/// message has. A failed *move* — a page turn or a sort — additionally puts back
-/// the `page` and `sort` it had already advanced, since those are what the footer
-/// and the header arrow are drawn from and leaving them ahead of the rows would
-/// have the chrome describing a page that is not on screen. The one deliberate
-/// exception is selecting a *different* table,
-/// which clears the previous table's rows in its synchronous prefix: leaving them
-/// under another table's name would be a lie the error message does not correct.
+/// message has. A failed read additionally puts the `page` and the `sort` back
+/// onto **the rows that are actually on screen** (`shown`), since those two are
+/// what the footer and the header arrow are drawn from and leaving them ahead of
+/// the rows would have the chrome describing a page that is not on screen. The
+/// rows on screen — never "the value the caller held before it moved" — because
+/// the two part ways the moment two moves overlap: a superseded move publishes
+/// nothing and undoes nothing, so the *next* failure's "previous" is a page that
+/// was never drawn. The one deliberate exception is selecting a *different*
+/// table, which clears the previous table's rows in its synchronous prefix:
+/// leaving them under another table's name would be a lie the error message does
+/// not correct.
+///
+/// **A failure is cleared by the load that caused it, and by no other.** The two
+/// loads have their own tokens, so they have their own claim on the one message
+/// slot too: `load()` runs again every time the tab is shown, and a listing that
+/// refreshed successfully saying nothing about a page turn that failed would take
+/// away the one sentence explaining the rows on screen.
 ///
 /// **Every read is bounded.** The grid never asks for a table, only ever for one
 /// page of it (`DatabaseQuery.page`, `LIMIT`/`OFFSET` bound), so opening a
@@ -102,6 +112,27 @@ public final class DatabaseViewerModel: ObservableObject {
     /// again at termination rather than tracking which already happened.
     private var isClosed = false
 
+    /// What the rows on screen were loaded with — the table they came from, the
+    /// page they are and the sort they are in — or `nil` while the grid is empty.
+    /// Written by `publish(_:table:)` alone, which is the only thing that puts
+    /// rows on screen, and read by `restoreShownPosition()`.
+    private var shown: Shown?
+
+    /// Which of the two loads the current `errorMessage` belongs to, so a success
+    /// on one of them cannot clear the other's message.
+    private var errorSource: ErrorSource?
+
+    private struct Shown {
+        let table: String
+        let page: DatabasePage
+        let sort: DatabaseSortState?
+    }
+
+    private enum ErrorSource {
+        case entries
+        case rows
+    }
+
     /// - Parameters:
     ///   - fileURL: the database file, stored as spelled.
     ///   - service: the seam. One instance per tab: a connection is one file.
@@ -140,11 +171,11 @@ public final class DatabaseViewerModel: ObservableObject {
             guard generation == entriesGeneration else { return }
 
             entries = try DatabaseSchema.entries(from: result)
-            errorMessage = nil
+            clearError(from: .entries)
             isLoadingEntries = false
         } catch {
             guard generation == entriesGeneration else { return }
-            errorMessage = Self.message(for: error)
+            setError(error, from: .entries)
             isLoadingEntries = false
         }
     }
@@ -168,6 +199,7 @@ public final class DatabaseViewerModel: ObservableObject {
             columns = []
             gridColumns = []
             rows = []
+            shown = nil
             page.reset()
         }
         isLoadingRows = true
@@ -184,10 +216,11 @@ public final class DatabaseViewerModel: ObservableObject {
 
             let result = try await service.run(pageStatement(table: table))
             guard generation == rowsGeneration else { return }
-            publish(result)
+            publish(result, table: table)
         } catch {
             guard generation == rowsGeneration else { return }
-            errorMessage = Self.message(for: error)
+            setError(error, from: .rows)
+            restoreShownPosition()
             isLoadingRows = false
         }
     }
@@ -199,14 +232,11 @@ public final class DatabaseViewerModel: ObservableObject {
     /// because someone clicked "previous" on page 1 is work with no answer.
     public func goToPage(_ index: Int) async {
         guard !isClosed, let table = selectedTable else { return }
-        let previousPage = page
         guard page.move(to: index) else { return }
         rowsGeneration += 1
         let generation = rowsGeneration
         isLoadingRows = true
-        if await loadPage(table: table, generation: generation) == false {
-            page = previousPage
-        }
+        await loadPage(table: table, generation: generation)
     }
 
     /// Sort by `column`, or flip the direction when it is already the sort
@@ -218,17 +248,52 @@ public final class DatabaseViewerModel: ObservableObject {
     /// of one ordering has nothing to do with page 3 of another.
     public func toggleSort(column: String) async {
         guard !isClosed, let table = selectedTable else { return }
-        let previousSort = sort
-        let previousPage = page
         sort = DatabaseSortState.toggled(sort, column: column)
         page.move(to: 0)
         rowsGeneration += 1
         let generation = rowsGeneration
         isLoadingRows = true
-        if await loadPage(table: table, generation: generation) == false {
-            sort = previousSort
-            page = previousPage
+        await loadPage(table: table, generation: generation)
+    }
+
+    /// Re-open the file and re-read everything on screen — what an operation that
+    /// rewrote the database under this tab calls.
+    ///
+    /// A viewer tab holds an open connection, and the operations that rewrite a
+    /// worktree replace a file by renaming a new one over it, so the handle goes
+    /// on answering out of the *unlinked* old file: after a checkout the grid, the
+    /// sidebar and the schema would all describe the pre-checkout database with
+    /// nothing on screen saying so. This is the viewer's `reloadFromDisk`, and
+    /// like it the tab keeps its place: the selected table is re-selected when the
+    /// new database still holds it, and re-selecting a table is a *refresh*, so
+    /// the sort and the page index survive. A table the new database does not have
+    /// is dropped, rows and all, since leaving them under a name nothing answers
+    /// to is the lie a failed move already refuses to tell.
+    ///
+    /// A re-open that **fails** leaves the tab exactly as it was under the banner
+    /// explaining why, rather than re-selecting into a closed connection and
+    /// replacing the open's message with a second one about a statement.
+    public func reload() async {
+        guard !isClosed else { return }
+        let table = selectedTable
+        entriesGeneration += 1
+        rowsGeneration += 1
+        isLoadingRows = false
+        isOpen = false
+        await service.close()
+        await load()
+        guard isOpen, let table else { return }
+        guard entries.contains(where: { $0.name == table }) else {
+            selectedTable = nil
+            columns = []
+            gridColumns = []
+            rows = []
+            sort = nil
+            shown = nil
+            page.reset()
+            return
         }
+        await select(table: table)
     }
 
     /// Release the connection.
@@ -240,6 +305,7 @@ public final class DatabaseViewerModel: ObservableObject {
         guard !isClosed else { return }
         isClosed = true
         isOpen = false
+        shown = nil
         entriesGeneration += 1
         rowsGeneration += 1
         isLoadingEntries = false
@@ -264,24 +330,22 @@ public final class DatabaseViewerModel: ObservableObject {
 
     /// Load the page `page` and `sort` currently describe.
     ///
-    /// Answers whether the caller's move stands. `false` means the read failed and
-    /// the caller must put back the `page`/`sort` it moved *before* asking: those
-    /// two are what the footer and the header arrow are drawn from, so a page index
-    /// that advanced while the rows did not would have the footer counting one page
-    /// and the grid showing another, under an error banner explaining neither. A
-    /// **superseded** load answers `true` — it publishes nothing at all, and that
-    /// includes not undoing state a newer request has already set.
-    private func loadPage(table: String, generation: Int) async -> Bool {
+    /// A failure puts the `page` and the `sort` back onto the rows that are on
+    /// screen: those two are what the footer and the header arrow are drawn from,
+    /// so a page index that advanced while the rows did not would have the footer
+    /// counting one page and the grid showing another, under an error banner
+    /// explaining neither. A **superseded** load publishes nothing at all, and
+    /// that includes not undoing state a newer request has already set.
+    private func loadPage(table: String, generation: Int) async {
         do {
             let result = try await service.run(pageStatement(table: table))
-            guard generation == rowsGeneration else { return true }
-            publish(result)
-            return true
+            guard generation == rowsGeneration else { return }
+            publish(result, table: table)
         } catch {
-            guard generation == rowsGeneration else { return true }
-            errorMessage = Self.message(for: error)
+            guard generation == rowsGeneration else { return }
+            setError(error, from: .rows)
+            restoreShownPosition()
             isLoadingRows = false
-            return false
         }
     }
 
@@ -297,11 +361,42 @@ public final class DatabaseViewerModel: ObservableObject {
         )
     }
 
-    private func publish(_ result: DatabaseResultSet) {
+    private func publish(_ result: DatabaseResultSet, table: String) {
         gridColumns = result.columnNames
         rows = result.rows
-        errorMessage = nil
+        shown = Shown(table: table, page: page, sort: sort)
+        clearError(from: .rows)
         isLoadingRows = false
+    }
+
+    /// Put the page and the sort back onto the rows that are actually on screen.
+    ///
+    /// An empty grid — nothing published yet, or a move to another table that
+    /// cleared it — has no position to put back, so the page returns to uncounted
+    /// and the footer says nothing rather than counting a table whose rows this
+    /// model never got.
+    private func restoreShownPosition() {
+        guard let shown, shown.table == selectedTable else {
+            page.reset()
+            return
+        }
+        page = shown.page
+        sort = shown.sort
+    }
+
+    // MARK: - The one message slot
+
+    private func setError(_ error: Error, from source: ErrorSource) {
+        errorMessage = Self.message(for: error)
+        errorSource = source
+    }
+
+    /// Clear the message only when it is `source`'s own — see the type's note on
+    /// why a listing refresh may not speak for a page load.
+    private func clearError(from source: ErrorSource) {
+        guard errorSource == source else { return }
+        errorMessage = nil
+        errorSource = nil
     }
 
     /// The single integer `count(*)` answered.

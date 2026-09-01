@@ -72,20 +72,25 @@ line_length:
 # consumer in it learned to skip a viewer tab: the six tab-kind filters, the ⌘S
 # funnel's early success and the one shared resync rule both post-operation
 # loops ask before their text-shaped reasoning, which is thirteen lines spent so
-# that no pass in this file ever vouches for a database's bytes. The number
-# tracks the one file that approaches it —
+# that no pass in this file ever vouches for a database's bytes, and from 1826
+# when that same shared resync rule learned to re-open the connection of a viewer
+# tab whose file is still there: git replaces a file by renaming a new one over
+# it, so the tab's handle would otherwise go on answering out of the unlinked old
+# one, and the three lines are the branch that tells the tab owner to reconnect.
+# The number tracks the one file that approaches it —
 # measured, never rounded up for room — and is not a licence to grow the others.
 file_length:
-  warning: 1826
-  error: 1826
+  warning: 1829
+  error: 1829
   ignore_comment_only_lines: true
 
 # Same reasoning as file_length, and one number behind it again: the viewer's
 # skips landed inside the PisakaApp struct body, which is very nearly the whole
-# file, so this ceiling moved from 1800 to the measured 1810 with them.
+# file, so this ceiling moved from 1800 to the measured 1810 with them, and to
+# 1813 with the viewer reconnect that followed.
 type_body_length:
-  warning: 1810
-  error: 1810
+  warning: 1813
+  error: 1813
 
 function_body_length:
   warning: 140

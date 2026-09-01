@@ -85,6 +85,21 @@ final class DatabaseViewerTabs: ObservableObject {
         return model
     }
 
+    /// Re-read the database behind tab `id` over a fresh connection.
+    ///
+    /// What the post-operation resyncs call for a viewer tab whose file is still
+    /// there: git replaces a file by renaming a new one over it, so the tab's open
+    /// connection would keep answering out of the unlinked old one. A tab that has
+    /// never been shown has no model and no connection, so there is nothing stale
+    /// to correct — it opens against the new file when it is first selected.
+    ///
+    /// The hop is a `Task` because `reload()` is `async` (it awaits the actor)
+    /// while the resyncs that call this are synchronous.
+    func reload(id: UUID) {
+        guard let model = models[id] else { return }
+        Task { await model.reload() }
+    }
+
     /// Drop every model whose tab is no longer open, closing its connection.
     ///
     /// The connection is released in a detached `Task` because `close()` is

@@ -162,11 +162,19 @@ struct DatabaseViewerView: View {
     @ViewBuilder
     private var grid: some View {
         if model.selectedTable == nil {
-            placeholder(model.entries.isEmpty ? "No tables or views" : "Select a table")
+            placeholder(placeholderText)
         } else {
             VStack(spacing: 0) {
                 ScrollView([.horizontal, .vertical]) {
-                    VStack(alignment: .leading, spacing: 0) {
+                    // Lazy, because a page is 200 rows and a wide table's page is
+                    // thousands of cells: an eager stack builds every one of them
+                    // on the main actor before the first is drawn, on every table
+                    // select, page turn and sort toggle. Safe to be lazy here even
+                    // inside a horizontally scrolling `ScrollView`, where a lazy
+                    // stack sizes to its *visible* children: every row is the same
+                    // width by construction, since each cell is drawn at the one
+                    // fixed column width `headerRow` uses.
+                    LazyVStack(alignment: .leading, spacing: 0) {
                         headerRow
                         Divider()
                         ForEach(Array(model.rows.enumerated()), id: \.offset) { index, row in
@@ -178,6 +186,19 @@ struct DatabaseViewerView: View {
                 footer
             }
         }
+    }
+
+    /// What stands in for the grid before a table is selected.
+    ///
+    /// "No tables or views" is a **claim about the database**, so it is made only
+    /// once there is one to make it about: while the listing is still in flight
+    /// nobody has read the file yet, and under an error banner the banner is
+    /// already saying what happened — a second, contradicting sentence beneath it
+    /// is `positionText`'s reasoning one pane over.
+    private var placeholderText: String {
+        if !model.entries.isEmpty { return "Select a table" }
+        if model.isLoadingEntries { return "Loading…" }
+        return model.errorMessage == nil ? "No tables or views" : ""
     }
 
     /// The column headers, which are also the sort control: a click asks

@@ -4201,16 +4201,24 @@ struct PisakaApp: App {
     /// change (which is why nothing is closed by hand here — one subscription
     /// covers every way a tab can leave). No `forgetIndexedBuffer` goes with it:
     /// `openBuffers` never offered the tab, so there is no buffer-sourced entry to
-    /// hand back to disk. Its file is **still there**: it is left
-    /// completely alone — no `reloadFromDisk` (a viewer tab's no-op `false` would
-    /// read as a failed read and close the tab), no `reconcileSavedBaseline`
-    /// (there is no baseline; it can never be dirty), and no beep, because
-    /// nothing was preserved and nothing was lost. What the *contents* now are is
-    /// the viewer model's question, asked over its own connection.
+    /// hand back to disk. Its file is **still there**: the *tab* is left alone —
+    /// no `reloadFromDisk` (a viewer tab's no-op `false` would read as a failed
+    /// read and close the tab), no `reconcileSavedBaseline` (there is no
+    /// baseline; it can never be dirty), and no beep, because nothing was
+    /// preserved and nothing was lost — while its **connection is re-opened**.
+    /// That last part is not optional: git replaces a file by renaming a new one
+    /// over it, so the tab's `sqlite3 *` is left pointing at the unlinked old
+    /// inode and every later read answers the pre-operation database with nothing
+    /// on screen saying so. `DatabaseViewerTabs.reload(id:)` is the viewer's half
+    /// of the `reloadFromDisk` beside it.
     private func resyncViewerTab(_ id: UUID, mayRemoveFiles: Bool) -> Bool {
         guard let file = model.openFiles.first(where: { $0.id == id }), file.kind == .viewer else { return false }
         guard let url = file.url else { return true }
-        if !FileManager.default.fileExists(atPath: url.path), mayRemoveFiles { model.close(id: id, force: true) }
+        if FileManager.default.fileExists(atPath: url.path) {
+            databaseViewers.reload(id: id)
+        } else if mayRemoveFiles {
+            model.close(id: id, force: true)
+        }
         return true
     }
 
@@ -4809,7 +4817,7 @@ struct PisakaApp: App {
         of workspace: WorkspaceModel,
         through sync: LSPDocumentSyncController
     ) {
-        for file in workspace.openFiles {
+        for file in workspace.openFiles where file.kind == .text {
             guard let url = file.url else { continue }
             sync.noteBufferOpened(
                 url: url,

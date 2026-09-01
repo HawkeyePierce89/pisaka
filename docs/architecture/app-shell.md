@@ -1290,7 +1290,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `applyMerge`'s single-file path — ask `resyncViewerTab(_:mayRemoveFiles:)`
     before any text-shaped reasoning, because a viewer tab answers a text snapshot
     with "clean and unchanged" and would otherwise be force-closed over a file
-    still on disk (`core-database-viewer.md`) (snapshot captured synchronously before the
+    still on disk — and because a viewer tab whose file *was* rewritten needs its
+    connection re-opened, git having renamed a new file over the one its handle
+    holds (`core-database-viewer.md`) (snapshot captured synchronously before the
     `await`, `repoRoot` from `commitDialog.root` so tabs outside the repository are
     left alone): a formatting hook — prettier, `eslint --fix`, gofmt — edits the
     files on disk, and git runs it before reading the index it commits. Without the

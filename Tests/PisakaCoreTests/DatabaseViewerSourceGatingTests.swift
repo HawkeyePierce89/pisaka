@@ -175,12 +175,14 @@ final class DatabaseViewerSourceGatingTests: XCTestCase {
     /// The count of tab-kind filters in `PisakaApp.swift`, pinned against the sites
     /// that need them.
     ///
-    /// The six `.text` filters are the six places the app treats `openFiles` as
+    /// The seven `.text` filters are the seven places the app treats `openFiles` as
     /// text: `openBuffers` (the index and Find in Files), `bufferTextsByCanonicalPath`
     /// (the rename pass), `textsBeforeBatch` and the Replace All resync loop that
-    /// reads it, `openTabSnapshot` (the checkout snapshot) and `openBufferTexts`
-    /// (Local History's buffer half). The two `.viewer` tests are the two places the
-    /// app must recognize one: the ⌘S funnel's early success and `resyncViewerTab`.
+    /// reads it, `openTabSnapshot` (the checkout snapshot), `openBufferTexts`
+    /// (Local History's buffer half) and `syncOpenBuffersForDiagnostics` (the
+    /// push channel's whole-set flush, which hands `file.text` to the document
+    /// sync). The two `.viewer` tests are the two places the app must recognize
+    /// one: the ⌘S funnel's early success and `resyncViewerTab`.
     ///
     /// A count rather than a shape because the failure is silent either way: a
     /// seventh consumer that forgets the filter compiles, runs, and reports a
@@ -189,8 +191,8 @@ final class DatabaseViewerSourceGatingTests: XCTestCase {
         let app = try code(ofFileNamed: "PisakaApp.swift", under: "Sources/Pisaka")
         XCTAssertEqual(
             try occurrences(of: "kind == \\.text", in: app),
-            6,
-            "Six sites read openFiles as text and each must skip viewer tabs. If this number moved, a "
+            7,
+            "Seven sites read openFiles as text and each must skip viewer tabs. If this number moved, a "
                 + "text-shaped consumer was added or removed — say which, here, rather than adjusting the "
                 + "number: an unfiltered one hands the empty string to a real path."
         )
