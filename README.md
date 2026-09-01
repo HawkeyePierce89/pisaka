@@ -46,6 +46,10 @@ do — is in [`docs/FEATURES.md`](docs/FEATURES.md).
   snapshotted locally; browse a file's
   revisions, diff them against what it holds now and restore one
   (Cmd+Shift+H). 14 days or 30 revisions per file, independent of git.
+- **Database viewer (macOS, read-only)** — open a `.sqlite`, `.sqlite3` or
+  `.db` file from the project tree and get a tab that lists its tables and
+  views, shows the selected one's schema, and pages through its rows with
+  click-to-sort headers. Nothing is written: this version only reads.
 - **EditorConfig** — a project's `.editorconfig` drives auto-indent and the
   Tab key, and applies `trim_trailing_whitespace`, `insert_final_newline`
   and `end_of_line` on save.

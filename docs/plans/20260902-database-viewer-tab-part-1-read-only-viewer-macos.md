@@ -424,7 +424,7 @@ imports Foundation only.
 - Create: `docs/architecture/core-database-viewer.md`
 - Modify: `CLAUDE.md`, `README.md`, `docs/FEATURES.md`
 
-- [ ] Write `docs/architecture/core-database-viewer.md` covering both halves: the
+- [x] Write `docs/architecture/core-database-viewer.md` covering both halves: the
       recognition rule, the second tab kind and why the session record did not
       change, the probe-not-read open and the new `FileServiceError` case, **the
       platform switch and why iOS stays off** (decision 3, with the four iOS open
@@ -433,17 +433,17 @@ imports Foundation only.
       app-side connection lifetime and busy timeout, why the tab owner is its own
       file, the reader boundary with the disk-writer gate, and an explicit **"what
       part 2 adds"** section so the follow-up ticket has its seat reserved
-- [ ] Add one index line per new file to `CLAUDE.md` under a new
+- [x] Add one index line per new file to `CLAUDE.md` under a new
       `core-database-viewer.md` heading, plus a cross-cutting invariant paragraph:
       the viewer is a reader with a store of its own that is one file, never takes
       the writer gate, is never gated by it, its tabs are the one tab kind that
       can never be dirty, and the tab kind is off unless the macOS app turns it on
-- [ ] Add the new gating suite to `CLAUDE.md`'s test-suite inventory, and — if
+- [x] Add the new gating suite to `CLAUDE.md`'s test-suite inventory, and — if
       Task 7 moved the ceilings — the `.swiftlint.yml` note in `style-lint.md`
-- [ ] Add the user-facing feature line to `README.md` and its detail to
+- [x] Add the user-facing feature line to `README.md` and its detail to
       `docs/FEATURES.md`, stating plainly that this version is read-only and
       macOS-only
-- [ ] run `swift test` once more (the documentation suites read repository files)
+- [x] run `swift test` once more (the documentation suites read repository files)
       — must pass
 
 ## Post-Completion

@@ -242,6 +242,15 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
 - `ZoomGestureAccumulator.swift` — scroll/pinch deltas → the keyboard's discrete steps.
 - `InterfaceMetrics.swift` — `InterfaceTextStyle` base sizes; scaled fonts/metrics.
 
+`docs/architecture/core-database-viewer.md` — the database viewer tab (macOS, read-only in part 1):
+- `DatabaseFileRule.swift` — the one recognized-extension rule; last extension only.
+- `DatabaseValue.swift` — the five storage classes + the one rendering (NULL vs. `""`, the blob placeholder); `DatabaseStatement`/`DatabaseResultSet`.
+- `DatabaseServicing.swift` — the async app/Core seam + `DatabaseError` (SQLite's words, verbatim).
+- `DatabaseQuery.swift` — the only SQL in the repository; identifier quoting, the four statements, bound `LIMIT`/`OFFSET`.
+- `DatabaseSchema.swift` — table/view + column value types and the two pure parsers; they refuse rather than guess.
+- `DatabasePage.swift` — the paging arithmetic (uncounted is a state, not a zero) + `DatabaseSortState`'s two rules.
+- `DatabaseViewerModel.swift` — the tab's model: two generation tokens, a failure never blanks a good answer, every read bounded.
+
 ### `Pisaka` (app target, `Sources/Pisaka/`)
 
 Thin SwiftUI/AppKit (macOS, all under `#if os(macOS)`) and SwiftUI/UIKit (iOS,
@@ -304,6 +313,11 @@ in `Sources/Pisaka/Platform/` bridges per-platform APIs. Untested by convention.
 - `ZoomSurface.swift` — the surface marker protocol/representable + the pointer walk.
 - `ZoomController.swift` — the one `NSEvent` monitor; the three View-menu items.
 - `InterfaceScaleEnvironment.swift` — `\.interfaceMetrics` + `.interfaceScaled(_:)`.
+
+`docs/architecture/core-database-viewer.md` — the viewer's app surfaces (same doc as the Core half):
+- `Platform/DatabaseConnectionService.swift` — the one SQLite-importing file: one actor-serialized connection, busy timeout, verbatim messages.
+- `DatabaseViewerTabs.swift` — one model (≡ one connection) per viewer tab; tab close observed, not called; its own file so `PisakaApp` does not grow.
+- `DatabaseViewerView.swift` — the surface (+ `DatabaseViewerHost`); draws Core's answers, decides nothing.
 
 `docs/architecture/app-window.md` — window chrome (macOS):
 - `ContentView.swift` — window layout; deliberately non-observed `commitDialog`.
@@ -449,6 +463,27 @@ ci.yml's `lint` job, and the version-bump procedure.
   writes on the main thread** (a `Task` hop is not guaranteed to run before the
   process exits). Every skip and every failure is silent; retention is 14 days /
   30 revisions with the newest always surviving (`core-local-history.md`).
+- **The database viewer is a reader whose tab kind can never be dirty** (macOS
+  only, read-only in part 1): a recognized `.sqlite`/`.sqlite3`/`.db` file opens
+  as the **second kind of `OpenFile`** — `.viewer`, constructible only through
+  `init(id:viewerFor:)`, carrying no text, with `isDirty` `false` *by
+  construction*, which is what excludes it from autosave, the on-save transform
+  and Local History without a second filter at any of the three. The file is
+  **probed, never read** (`fileStamp(at:)`; a `nil` stamp is the new
+  `FileServiceError.missingFile`), the session record is unchanged (a viewer tab
+  persists as an ordinary `path` and comes back through `open(url:)`), and the
+  routing is **off unless the app turns it on**: `viewerTabsEnabled` is `false`
+  by default and `true` in `PisakaApp.swift` alone, so iOS — which opens files
+  through the same method from four sites and has no viewer surface — keeps
+  today's honest read failure. Core writes every byte of SQL (`DatabaseQuery` is
+  the only SQL in the repository; identifiers quoted because they cannot be
+  parameters, everything else bound because it can) and reads every answer; the
+  app half is one actor-serialized SQLite connection per tab and knows nothing
+  about what any of it means. Every read is one bounded page, every failure
+  carries SQLite's own words and never blanks a good answer, and the layer
+  neither raises the writer gate nor waits on it —
+  `DatabaseViewerSourceGatingTests` pins the import, the gating, the switch's one
+  site and the tab-kind skips by count (`core-database-viewer.md`).
 - **Zoom is three zones, one arithmetic, one pointer rule** (macOS only): `code`
   — which *is* `SettingsStore.fontSize`, never a second setting — `terminal` and
   `interface` each clamp/step/reset through one `ZoomScaleRule`, and every
@@ -569,8 +604,13 @@ four view-layer rules; inventory in that suite's doc comments and
 by-hand frame persistence: one persistence site, observers only after the
 final restore), `LocalHistorySourceGatingTests` (Local History's app-layer
 rules — capture sites, the autosave report, the one restore funnel, the reader
-rule; inventory in that suite's doc comments and `core-local-history.md`) and
-`LintConfigurationTests`
+rule; inventory in that suite's doc comments and `core-local-history.md`),
+`DatabaseViewerSourceGatingTests` (the viewer's cross-layer rules — SQLite
+imported in one app file and never in Core, the app-side files macOS-gated,
+`viewerTabsEnabled` spelled in `PisakaApp.swift` alone while the iOS app's
+workspace omits it, the reader rule, and the text-shaped `openFiles` consumers
+pinned by count against the tab-kind filters; inventory in that suite's doc
+comments and `core-database-viewer.md`) and `LintConfigurationTests`
 (both `.swiftlint.yml` files — the version pin, `mandatory_comma`, the root and
 child disabled-rule sets by set equality, every measured threshold ceiling,
 every in-file disable counted by path/rule — plus `.githooks/pre-commit`'s gate

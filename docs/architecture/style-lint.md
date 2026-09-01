@@ -49,6 +49,29 @@ too. The child widens nothing for application code; `LintConfigurationTests`
 pins both files' `disabled_rules` by set equality so a quietly widened
 exemption fails `swift test`.
 
+## The measured ceilings
+
+`file_length` and `type_body_length` are not round numbers and must never be
+made into them. Both are **measured** off the one file that approaches them —
+`Sources/Pisaka/PisakaApp.swift`, whose `PisakaApp` struct body is very nearly
+the whole file — so the next line added there comes back through the config, and
+raising the ceiling is a decision with a written reason rather than a reflex.
+The procedure, when a feature genuinely has to land in that file:
+
+1. Run `swiftlint --strict` and read what the file actually measures.
+2. Raise the ceiling to **that number**, never rounded up for room.
+3. Append the reason to the ceiling comment in `.swiftlint.yml`, in the voice of
+   the entries already there — the comment is a history of why the number is
+   what it is, and each entry names what was added and what it bought.
+4. Update both numbers in `LintConfigurationTests.documentedRootThresholds` in
+   the same commit; the suite fails until they agree.
+
+The database viewer is the most recent bump (`file_length` 1809 → 1826,
+`type_body_length` 1800 → 1810), and it is also the shape to copy: everything
+with a state shape of its own went into `DatabaseViewerTabs.swift`, so
+`PisakaApp` paid four lines of wiring plus the tab-kind skips its own text-shaped
+passes needed, and not four hundred (`core-database-viewer.md`).
+
 ## The three-way version pin
 
 `swiftlint_version:` in `.swiftlint.yml` is the one pin. It is enforced twice
