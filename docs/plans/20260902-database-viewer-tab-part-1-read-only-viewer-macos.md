@@ -212,33 +212,33 @@ imports Foundation only.
 - Create: `Tests/PisakaCoreTests/DatabaseValueTests.swift`,
   `Tests/PisakaCoreTests/DatabaseServicingTests.swift`
 
-- [ ] `DatabaseValue` — a closed enum over the five storage classes
+- [x] `DatabaseValue` — a closed enum over the five storage classes
       (`integer(Int64)`, `real(Double)`, `text(String)`, `blob(Data)`, `null`),
       plus the display rendering the grid uses: `displayText` renders NULL as a
       marker that is **not** producible by an empty text value, and a blob as a
       byte-count placeholder rather than raw bytes; `isNull`; a doc comment
       stating that rendering lives here so both the grid and (in part 2) the
       console share one answer
-- [ ] `DatabaseStatement` (SQL text plus ordered bound parameters) and
+- [x] `DatabaseStatement` (SQL text plus ordered bound parameters) and
       `DatabaseResultSet` (column names, rows, and the affected-row count) as
       `Equatable, Sendable` value types
-- [ ] `DatabaseError` — typed failures with a `message` carrying the library's own
+- [x] `DatabaseError` — typed failures with a `message` carrying the library's own
       text verbatim (cannot open, not a database, busy, SQL error, closed);
       nothing is swallowed anywhere in the layer
-- [ ] `DatabaseServicing` — the async protocol: `open(url:)`, `close()`,
+- [x] `DatabaseServicing` — the async protocol: `open(url:)`, `close()`,
       `run(_:) -> DatabaseResultSet`. Members defaulted where a partial stub makes
       sense, following `GitServicing`. Doc comment records that Core composes
       every byte of SQL and every bound value, that the app half knows nothing
       about what any of it means, and that part 2 will add the transactional
       members here
-- [ ] Build `ScriptedDatabaseService`: canned answers keyed by SQL text, a call
+- [x] Build `ScriptedDatabaseService`: canned answers keyed by SQL text, a call
       log, per-call failure injection, and a `Gate` hook so a test can hold one
       call open while another proceeds; main-actor-safe writes per the repo's
       cooperative-pool rule
-- [ ] Write tests: value rendering for all five classes including NULL vs. the
+- [x] Write tests: value rendering for all five classes including NULL vs. the
       empty string and a blob placeholder; `DatabaseValue` equality; the fake's
       own call log and failure injection behave as the later tasks assume
-- [ ] run `swift test` — must pass before Task 4
+- [x] run `swift test` — must pass before Task 4
 
 ### Task 4: Schema modeling and query building
 
