@@ -248,7 +248,7 @@ imports Foundation only.
 - Create: `Tests/PisakaCoreTests/DatabaseSchemaTests.swift`,
   `Tests/PisakaCoreTests/DatabaseQueryTests.swift`
 
-- [ ] `DatabaseSchema.swift`: `DatabaseTableEntry` (name, a closed `kind` of table
+- [x] `DatabaseSchema.swift`: `DatabaseTableEntry` (name, a closed `kind` of table
       or view, and the declaration text as stored, carried untouched for part 2)
       and `DatabaseColumn` (name, declared type, primary-key position as an
       optional ordinal, not-null, default value, and whether the column is
@@ -256,19 +256,19 @@ imports Foundation only.
       `DatabaseResultSet` into `[DatabaseTableEntry]` and `[DatabaseColumn]`, each
       rejecting a result set whose shape it does not recognize with a typed error
       rather than guessing
-- [ ] `DatabaseQuery.swift`: identifier quoting (double-quote wrapping with
+- [x] `DatabaseQuery.swift`: identifier quoting (double-quote wrapping with
       embedded quotes doubled — identifiers **cannot** be parameters, which is
       exactly why the quoting is one tested function), the table/view listing
       query, the column-schema pragma, the row-count query, and the page query
       with an optional `ORDER BY` on a quoted column plus `LIMIT`/`OFFSET`
       supplied as **bound values**
-- [ ] Write tests: quoting a plain identifier, one containing a double quote, one
+- [x] Write tests: quoting a plain identifier, one containing a double quote, one
       containing a semicolon or a space; the listing parser on rows holding both a
       table and a view; the column parser on a composite primary key (ordinals
       preserved), a not-null column, a defaulted column and a generated column; a
       malformed result set producing the typed error; every built statement
       asserted byte-for-byte with its parameter list
-- [ ] run `swift test` — must pass before Task 5
+- [x] run `swift test` — must pass before Task 5
 
 ### Task 5: Pagination, sort state and the viewer model
 
