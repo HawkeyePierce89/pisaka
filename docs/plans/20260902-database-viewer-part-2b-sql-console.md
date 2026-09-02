@@ -407,29 +407,29 @@ stays imported in exactly one file.
 **Files:**
 - Modify: `Tests/PisakaCoreTests/DatabaseViewerSourceGatingTests.swift`
 
-- [ ] The console asks the gate exactly once and **before anything is sent**: inside
+- [x] The console asks the gate exactly once and **before anything is sent**: inside
       `DatabaseConsoleModel`, `isWriteBlocked()` occurs once and precedes the
       `performConsoleWrite(` call site — the `updateCell` rule, restated for the second
       writer. The existing "exactly one" assertion on `DatabaseViewerModel` is kept as
       it stands, with its comment saying why there are now two places and not one.
-- [ ] The console's read path names neither the gate nor the hook (the
+- [x] The console's read path names neither the gate nor the hook (the
       `testTheReadPathNamesNeitherTheGateNorTheHook` shape, extended with the console's
       `run(_:)` and `classifyConsole`).
-- [ ] The console composes no SQL: no Core console file names `DatabaseQuery`, and
+- [x] The console composes no SQL: no Core console file names `DatabaseQuery`, and
       `DatabaseQuery.swift` names no console member — the console's text is the
       reader's and travels verbatim, which is the one stated exception to Core-composed
       SQL and must stay an exception rather than a second composer.
-- [ ] The reader's text reaches the seam through exactly one call site each:
+- [x] The reader's text reaches the seam through exactly one call site each:
       `runConsoleRead(` and `performConsoleWrite(` occur once apiece in
       `DatabaseConsoleModel`.
-- [ ] The three existing rules that must keep holding are covered for the new files
+- [x] The three existing rules that must keep holding are covered for the new files
       automatically by `databaseFiles()`' name prefix (macOS gating, no `localChanges`,
       no writer gate) — assert that the new files are actually in that set rather than
       trusting the prefix silently.
-- [ ] `PisakaApp.swift`'s tab-kind filter counts are unchanged (nine `.text`, two
+- [x] `PisakaApp.swift`'s tab-kind filter counts are unchanged (nine `.text`, two
       `.viewer`): the console needs nothing in the scene, since the gate question and
       the write hook are already wired.
-- [ ] run `swift test` — must pass before task 7
+- [x] run `swift test` — must pass before task 7
 
 ### Task 7: Documentation
 
