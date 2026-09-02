@@ -347,6 +347,46 @@ final class DatabaseUpdatePlanTests: XCTestCase {
         )
     }
 
+    /// A REAL infinity renders as `inf`, which is not a numeral: seeding an
+    /// editor from it and committing the draft untouched would bind the three
+    /// characters back and retype the cell from a float to a string, while the
+    /// `WHERE` — which binds the double, not its rendering — matched happily. So
+    /// the cell is refused before an editor can open over it.
+    func testANonFiniteRealCellRefuses() {
+        var target = rowIdTarget()
+        target.columns = [column("id", type: "INTEGER", key: 1), column("ratio", type: "REAL")]
+        target.gridColumns = ["id", "ratio"]
+
+        for number in [Double.infinity, -.infinity, .nan] {
+            XCTAssertEqual(
+                refusal(target, row: [.integer(1), .real(number)], rowIdentity: .integer(7), columnIndex: 1),
+                .nonFiniteRealCell(column: "ratio"),
+                "\(number)"
+            )
+        }
+    }
+
+    /// And the rule is exactly that narrow: an ordinary REAL round-trips through
+    /// `displayText` and the typing rule, so it stays editable — including the
+    /// two spellings that look least like themselves.
+    func testAnOrdinaryRealCellStaysEditable() {
+        var target = rowIdTarget()
+        target.columns = [column("id", type: "INTEGER", key: 1), column("ratio", type: "REAL")]
+        target.gridColumns = ["id", "ratio"]
+
+        for number in [1.5, 0, -0.0, .greatestFiniteMagnitude, 1e300, 5e-324] {
+            XCTAssertNil(
+                DatabaseUpdatePlanner.refusal(
+                    target: target,
+                    row: [.integer(1), .real(number)],
+                    rowIdentity: .integer(7),
+                    columnIndex: 1
+                ),
+                "\(number)"
+            )
+        }
+    }
+
     /// A binary primary key — a content-addressed `WITHOUT ROWID` table — makes
     /// the whole *row* unaddressable, not one cell of it: the bytes a `WHERE`
     /// would name it with never left the database. Refused for every column,
@@ -438,6 +478,7 @@ final class DatabaseUpdatePlanTests: XCTestCase {
         case .columnNotMatched: return "columnNotMatched"
         case .generatedColumn: return "generatedColumn"
         case .blobCell: return "blobCell"
+        case .nonFiniteRealCell: return "nonFiniteRealCell"
         case .blobRowIdentity: return "blobRowIdentity"
         case .cellNotOnPage: return "cellNotOnPage"
         }
@@ -455,6 +496,7 @@ final class DatabaseUpdatePlanTests: XCTestCase {
             .columnNotMatched(name: "titel"),
             .generatedColumn(name: "slug"),
             .blobCell(column: "cover"),
+            .nonFiniteRealCell(column: "ratio"),
             .blobRowIdentity(column: "digest"),
             .cellNotOnPage,
         ]
@@ -482,6 +524,7 @@ final class DatabaseUpdatePlanTests: XCTestCase {
                 "columnNotMatched",
                 "generatedColumn",
                 "blobCell",
+                "nonFiniteRealCell",
                 "blobRowIdentity",
                 "cellNotOnPage",
             ]
@@ -489,6 +532,7 @@ final class DatabaseUpdatePlanTests: XCTestCase {
         XCTAssertTrue(DatabaseEditRefusal.generatedColumn(name: "slug").message.contains("slug"))
         XCTAssertTrue(DatabaseEditRefusal.columnNotMatched(name: "titel").message.contains("titel"))
         XCTAssertTrue(DatabaseEditRefusal.blobCell(column: "cover").message.contains("cover"))
+        XCTAssertTrue(DatabaseEditRefusal.nonFiniteRealCell(column: "ratio").message.contains("ratio"))
         XCTAssertTrue(DatabaseEditRefusal.blobRowIdentity(column: "digest").message.contains("digest"))
         XCTAssertTrue(DatabaseEditRefusal.unaddressableRow(.keyColumnAmbiguous(name: "room")).message.contains("room"))
     }

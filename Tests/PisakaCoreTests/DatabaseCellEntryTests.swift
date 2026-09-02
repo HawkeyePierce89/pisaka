@@ -280,4 +280,49 @@ final class DatabaseCellEntryTests: XCTestCase {
             .text("99999999999999999999")
         )
     }
+
+    // MARK: - The round trip the editor depends on
+
+    /// The property the cell editor rests on: a cell is seeded from
+    /// `DatabaseValue.displayText` and committed back through the typing rule,
+    /// so **committing an untouched draft must not change the value**. Asserted
+    /// across the storage classes and the numeric affinities together, because
+    /// the failure it guards is silent — the `WHERE` binds the value and matches,
+    /// so a broken round trip retypes the cell and reports success.
+    ///
+    /// The non-finite reals are deliberately *absent* from the list: their
+    /// rendering (`inf`, `-inf`, `nan`) is not a numeral and cannot round-trip,
+    /// which is why `DatabaseUpdatePlanner` refuses such a cell outright rather
+    /// than letting an editor open over it (`DatabaseEditRefusal
+    /// .nonFiniteRealCell`, pinned in `DatabaseUpdatePlanTests`).
+    func testRenderedValuesRoundTripThroughTheTypingRule() {
+        let reals: [Double] = [1.5, 0, -0.0, 42, 1e300, 5e-324, .greatestFiniteMagnitude, .pi]
+        let integers: [Int64] = [0, -1, 42, .min, .max]
+        var values: [DatabaseValue] = reals.map { .real($0) } + integers.map { .integer($0) }
+        values += [.text(""), .text(" 42 "), .text("hello"), .text("NULL")]
+
+        for affinity in [DatabaseTypeAffinity.integer, .real, .numeric] {
+            for value in values where !value.isNull {
+                // A text cell in a numeric column is the one shape that legitimately
+                // does not round-trip as itself: the column's affinity is what says
+                // `42` there means the number, and SQLite would have retyped the
+                // stored text the same way. Every other value must come back whole.
+                if case .text = value { continue }
+                XCTAssertEqual(
+                    DatabaseCellEntry.typed(value.displayText).value(affinity: affinity, previousValue: value),
+                    value,
+                    "\(affinity) / \(value)"
+                )
+            }
+            // …and in a TEXT column every rendering comes back as its own text,
+            // which is the same statement about the rendering being faithful.
+            for value in values {
+                XCTAssertEqual(
+                    DatabaseCellEntry.typed(value.displayText).value(affinity: .text, previousValue: value),
+                    .text(value.displayText),
+                    "\(value)"
+                )
+            }
+        }
+    }
 }

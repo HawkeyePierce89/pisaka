@@ -173,7 +173,14 @@ disk-writer gate and is never gated by it.
    own examples — including `FLOATING POINT`, which contains `INT` inside `POINT`
    and therefore has INTEGER affinity). INTEGER/REAL/NUMERIC bind an integer when
    the whole string is one, a finite real when the whole string is one, and text
-   otherwise; TEXT binds text always. For **BLOB — "no affinity", an untyped
+   otherwise; TEXT binds text always. The "finite" there is why a cell already
+   holding a non-finite REAL is refused before an editor opens over it (decision
+   4's refusal list): `inf`/`-inf`/`nan` are the renderings the typing rule
+   declines, so seeding a draft from one and committing it untouched would bind
+   the characters back and retype the cell — while the `WHERE`, which binds the
+   double and not its rendering, matched and reported success. The value is on
+   the page, so the refusal is available; it is `nonFiniteRealCell`.
+   For **BLOB — "no affinity", an untyped
    column, common in ad-hoc databases — the cell's previous storage class wins
    when the entry parses as it**: typing `43` over the integer `42` stores an
    integer, typing `43` over the text `42` stores text, and anything that does
@@ -552,7 +559,13 @@ disk-writer gate and is never gated by it.
   accepts `inf`, `nan` and hexadecimal floats and maps `1e400` to an infinity: the
   spelling is checked against SQLite's own literal shape first and the result
   required to be finite, and the digit scan is ASCII-only so the two halves of
-  the answer cannot disagree about what a numeral is.
+  the answer cannot disagree about what a numeral is. The **round trip that rule
+  owes the editor** — a cell seeded from `DatabaseValue.displayText` and
+  committed untouched must come back as the same value — is pinned as its own
+  property test across the storage classes, because its failure is silent: the
+  `WHERE` still matches, so a broken round trip retypes the cell and reports
+  success. The non-finite reals are the one shape that cannot satisfy it, and
+  they are refused by the planner instead.
 
 - `DatabaseRowIdentity.swift` — how the rows of one table are addressed, decided
   once per selection. Three cases: `rowid(alias:)` (almost every table),
@@ -1408,6 +1421,13 @@ seam.
   text field to show. Neither can a generated or hidden column, a view's rows, a
   column whose name the schema cannot resolve uniquely, or a table that declares
   no rowid and no primary key — each refused by name, with its own sentence.
+  A **REAL cell holding an infinity or a NaN** is refused for a reason of its
+  own (`DatabaseEditRefusal.nonFiniteRealCell`): the value is on the page, but
+  its rendering is not a numeral, so an editor seeded from it would bind
+  `inf`/`-inf`/`nan` back as text and retype the cell — and the `WHERE`, which
+  binds the double rather than its rendering, would match and report success. It
+  is the one refusal about the *round trip* rather than about the cell, the
+  column or the row.
   A **binary primary key** is the same refusal one step further out
   (`DatabaseEditRefusal.blobRowIdentity`): a `WITHOUT ROWID` table keyed on a
   BLOB — a content-addressed table — has no row this layer can *name*, since the
@@ -1436,19 +1456,20 @@ seam.
   file" where a read-write handle would have recovered it. The failure is honest
   (SQLite's own sentence reaches the banner) and the trade is deliberate: taking a
   write handle to read a tracked file is the larger cost, per the bullet above.
-- **A value whose rendering does not round-trip cannot be edited faithfully.**
-  Two shapes reach the grid as text that is not what SQLite holds, and the write
-  binds *the rendering* back into the `WHERE` and the `SET`. A TEXT cell holding
-  bytes that are not valid UTF-8 is decoded with U+FFFD substitutions, so the
-  `IS` guard matches nothing and the edit is rolled back under the collision
-  sentence ("This row changed underneath you") — which is the wrong reason, and
-  reloading never helps. A REAL cell holding an infinity renders as `inf`, which
-  the typing rule correctly declines to read as a numeral, so re-committing an
-  untouched cell retypes it from a float to the text `inf` — SQLite's own
-  affinity answer for that spelling, but not what was there. Both are refusals
-  the layer *should* make and cannot: the page carries the rendering, not the
-  bytes, and making it carry both is a change to the seam rather than to the
-  planner. Neither is reachable from a database written by ordinary means.
+- **A TEXT cell whose bytes are not valid UTF-8 cannot be edited faithfully.**
+  It reaches the grid decoded with U+FFFD substitutions, and the write binds
+  *that rendering* back into the `WHERE`, so the `IS` guard matches nothing and
+  the edit is rolled back under the collision sentence ("This row changed
+  underneath you") — which is the wrong reason, and reloading never helps. This
+  is a refusal the layer *should* make and cannot: the page carries the
+  rendering and the bytes did not survive it, so making the distinction
+  available is a change to the seam rather than to the planner. Not reachable
+  from a database written by ordinary means.
+  (A REAL infinity is the *other* half of that story and is **not** a limit: its
+  rendering does not round-trip either — `inf` is not a numeral — but unlike the
+  bytes above, the value itself is on the page, so the planner refuses the cell
+  outright rather than letting a Return retype it. See `nonFiniteRealCell`
+  under the planner's refusals.)
 - **macOS only.** iOS opens a database as text and fails, honestly (decision 3).
 - The grid pages at a fixed 200 rows and has no jump-to-page field; the row count
   is read once per table selection, so a table another process is writing shows a
