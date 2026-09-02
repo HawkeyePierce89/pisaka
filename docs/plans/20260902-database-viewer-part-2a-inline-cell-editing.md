@@ -262,18 +262,18 @@ on its own.
 - Modify: `Tests/PisakaCoreTests/Support/ScriptedDatabaseService.swift`
 - Modify: `Tests/PisakaCoreTests/DatabaseServicingTests.swift`
 
-- [ ] add `DatabaseWriteTransaction` (url, statements, `requiredAffectedRows`) and
+- [x] add `DatabaseWriteTransaction` (url, statements, `requiredAffectedRows`) and
       `DatabaseWriteOutcome` (`affectedRows`, `isCommitted`) as Core value types,
       documenting decisions 5 and 6 on them
-- [ ] add `performWrite(_:) async throws -> DatabaseWriteOutcome` to
+- [x] add `performWrite(_:) async throws -> DatabaseWriteOutcome` to
       `DatabaseServicing`, **defaulted** to throwing an honest "this connection is
       read-only" `DatabaseError`, the way `GitServicing`'s later arrivals arrived
-- [ ] teach `ScriptedDatabaseService` to script write outcomes and failures, to
+- [x] teach `ScriptedDatabaseService` to script write outcomes and failures, to
       record the transactions it was handed, and to gate one mid-flight (the
       existing `Gate` rendezvous) so the race tests in task 6 can stage
-- [ ] write tests: the default member refuses honestly; the scripted one records
+- [x] write tests: the default member refuses honestly; the scripted one records
       the transaction verbatim
-- [ ] run `swift test` — must pass before task 5
+- [x] run `swift test` — must pass before task 5
 
 ### Task 5: The model carries row identity through every load
 

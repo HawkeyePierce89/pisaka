@@ -52,6 +52,67 @@ extension DatabaseError: LocalizedError {
     }
 }
 
+/// One write, whole: the file it runs against, the statements it is made of, and
+/// the number of rows it is only allowed to commit if it changed.
+///
+/// **The affected-row rule travels as data because rollback has to happen inside
+/// the connection's life.** Core cannot decide "commit or roll back" after the
+/// fact — by the time an outcome reached it the connection would already be
+/// gone, and re-opening one to undo a write is a second write with its own
+/// failure modes. So the rule is composed here, handed across the seam, and
+/// enforced by the app half at the one moment it can be: with the transaction
+/// still open. The app half compares two numbers; it decides nothing else, and
+/// what the answer *means* is read back in Core.
+///
+/// **The URL is carried explicitly rather than inherited from the read
+/// connection**: a viewer tab outlives the path it was opened at — a rename
+/// retargets it and `reload(at:)` follows — so the model's current `fileURL` is
+/// the one thing that is true at the moment the write is composed. It is also
+/// what lets the write be a *separate, short-lived* read-write connection while
+/// the tab's own connection stays read-only.
+///
+/// `statements` are run in the order given, inside the transaction the
+/// implementation opens; `DatabaseQuery.beginImmediate`, `.commit` and
+/// `.rollback` are not among them, because those are the implementation's own
+/// bracket rather than the plan's content.
+public struct DatabaseWriteTransaction: Equatable, Sendable {
+    /// The database to open read-write for this transaction.
+    public var url: URL
+    /// The statements to run, in order, inside the transaction.
+    public var statements: [DatabaseStatement]
+    /// The accumulated affected-row count that permits a commit. Any other total
+    /// — smaller or larger — is a rollback.
+    public var requiredAffectedRows: Int
+
+    public init(url: URL, statements: [DatabaseStatement], requiredAffectedRows: Int) {
+        self.url = url
+        self.statements = statements
+        self.requiredAffectedRows = requiredAffectedRows
+    }
+}
+
+/// What a write did: how many rows it changed, and whether that was allowed to
+/// stand.
+///
+/// Two numbers and no sentence, on purpose. A count of zero means the row the
+/// `WHERE` named is no longer there in the shape it was addressed by — someone
+/// else changed it — and a count above the required one means the identity was
+/// not unique after all; both are *rolled back*, and both deserve to be said
+/// differently to the reader. Which sentence each gets is Core's call
+/// (`DatabaseViewerModel`), not the connection's, so nothing here is phrased.
+public struct DatabaseWriteOutcome: Equatable, Sendable {
+    /// The rows the statements changed in total, whether or not it committed.
+    public var affectedRows: Int
+    /// Whether the transaction committed. `false` means it was rolled back and
+    /// the file is untouched.
+    public var isCommitted: Bool
+
+    public init(affectedRows: Int, isCommitted: Bool) {
+        self.affectedRows = affectedRows
+        self.isCommitted = isCommitted
+    }
+}
+
 /// The whole app/Core boundary of the database viewer: open a file, run
 /// statements, close.
 ///
@@ -71,11 +132,13 @@ extension DatabaseError: LocalizedError {
 /// closes on tab close and again at termination rather than tracking which
 /// already happened.
 ///
-/// **Part 2 adds its members here**, defaulted the way `GitServicing`'s later
-/// arrivals were: the transactional write with its affected-row check, and the
-/// console's mutating-statement path. Nothing about the read-only surface needs
-/// revisiting for them, which is why `DatabaseResultSet` already carries
-/// `affectedRows`.
+/// **The write half arrives here defaulted**, the way `GitServicing`'s later
+/// members did: `performWrite(_:)` is the transactional write with its
+/// affected-row check, and every conformer that has no write connection — a
+/// fixed-answer stub in a test, a future read-only adapter — inherits an honest
+/// refusal rather than a compile error. Nothing about the read-only surface
+/// needed revisiting for it, which is why `DatabaseResultSet` already carries
+/// `affectedRows`. Part 2b's console is written against this same member.
 public protocol DatabaseServicing: Sendable {
     /// Open the database at `url` for this connection.
     ///
@@ -102,6 +165,27 @@ public protocol DatabaseServicing: Sendable {
     /// Release the connection. Safe to call on an instance that never opened one,
     /// and safe to call twice.
     func close() async
+
+    /// Run `transaction` on a **separate, short-lived read-write connection** and
+    /// answer what it did.
+    ///
+    /// Deliberately not routed through this instance's connection: the viewer's
+    /// own is opened read-only and stays that way, and the write is opened at the
+    /// transaction's own `url`, run and closed before this returns — which is
+    /// also why termination's best-effort `closeAll()` remains correct, since a
+    /// viewer tab never holds unflushed write state.
+    ///
+    /// An implementation opens read-write (never creating), brackets the
+    /// statements in `DatabaseQuery.beginImmediate` … `.commit`/`.rollback`,
+    /// accumulates each statement's `affectedRows`, commits **only** when the
+    /// total equals `transaction.requiredAffectedRows`, rolls back on every other
+    /// path including a throw, and closes on all of them.
+    ///
+    /// - Throws: the same `DatabaseError` cases the read path throws, carrying
+    ///   SQLite's own words — `.cannotOpen` when the file cannot be opened
+    ///   read-write, `.busy` when the write lock could not be taken inside the
+    ///   busy timeout, `.sqlError` for anything a statement failed at.
+    func performWrite(_ transaction: DatabaseWriteTransaction) async throws -> DatabaseWriteOutcome
 }
 
 public extension DatabaseServicing {
@@ -109,4 +193,19 @@ public extension DatabaseServicing {
     /// that never opens anything — need not implement it. The real service
     /// overrides it; so does `ScriptedDatabaseService`, which counts the calls.
     func close() async {}
+
+    /// Defaulted to an honest refusal rather than to a silent no-op: a conformer
+    /// that has no write half is *read-only*, and a caller that asks it to write
+    /// must hear so. Answering `DatabaseWriteOutcome(affectedRows: 0,
+    /// isCommitted: false)` instead would be indistinguishable from "the row
+    /// changed underneath you" — the model would tell the reader their edit
+    /// collided with someone else's, about a connection that was never going to
+    /// write anything.
+    ///
+    /// `sqlError` because it is the case that carries a message and SQLite has no
+    /// words for a failure it never saw — the same reason a blob parameter that
+    /// cannot be bound faithfully refuses through it.
+    func performWrite(_ transaction: DatabaseWriteTransaction) async throws -> DatabaseWriteOutcome {
+        throw DatabaseError.sqlError(message: "This database connection is read-only.")
+    }
 }
