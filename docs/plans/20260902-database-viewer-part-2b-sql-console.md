@@ -333,27 +333,27 @@ stays imported in exactly one file.
 **Files:**
 - Modify: `Sources/Pisaka/Platform/DatabaseConnectionService.swift`
 
-- [ ] One private prepare-by-tail loop used by all three members: prepare from the
+- [x] One private prepare-by-tail loop used by all three members: prepare from the
       current offset, hand the statement to the body, advance to the tail SQLite
       reports, stop at the end of the text. This is what makes "how many statements the
       text holds" an answer rather than a guess, and it is the machinery
       `execute(_:on:)` deliberately does not have (its nil tail pointer is correct for
       a Core-composed single statement and must stay that way).
-- [ ] `classifyConsole`: prepare each statement on the **tab's read connection**, read
+- [x] `classifyConsole`: prepare each statement on the **tab's read connection**, read
       `sqlite3_stmt_readonly`, finalize, and step nothing. A prepare failure **ends the
       loop and is returned as the deferral** with SQLite's verbatim message and the
       index — never thrown, because prepare resolves names against the schema as it
       stands *now* and the statements before it have not run yet. (Preparing a mutating
       statement on a read-only connection succeeds — SQLite refuses at step time, not
       at prepare time — which is what makes classification free and side-effect-free.)
-- [ ] `runConsoleRead`: on the read connection, in order; it is only ever given a fully
+- [x] `runConsoleRead`: on the read connection, in order; it is only ever given a fully
       classified read-only text (the policy's `.read`). A statement SQLite does not
       report read-only is still refused rather than stepped (belt and braces against a
       text whose meaning changed between classification and the run). Rows are
       collected up to `rowLimit`, then one further step decides `isTruncated`, then the
       statement is finalized. The answer kept is the **last** statement whose column
       count was non-zero, with its own truncation flag.
-- [ ] `performConsoleWrite`: a separate, short-lived read-write connection at the
+- [x] `performConsoleWrite`: a separate, short-lived read-write connection at the
       transaction's url (never creating), foreign keys on, `BEGIN IMMEDIATE`, then the
       same prepare-by-tail loop over the reader's text — **each statement prepared as
       it is reached, after the earlier ones have run**, which is what lets a migration
@@ -363,16 +363,16 @@ stays imported in exactly one file.
       every path; checkpoint the WAL after a commit. A read-only statement inside the
       batch is stepped at most `readRowLimit` and abandoned, its rows discarded; a
       non-read-only one is always stepped to completion.
-- [ ] Both console run paths leave the connection in autocommit: after the loop, if
+- [x] Both console run paths leave the connection in autocommit: after the loop, if
       `sqlite3_get_autocommit` says a transaction is open, roll it back.
-- [ ] The tab's connection stays `SQLITE_OPEN_READONLY` and there is still exactly one
+- [x] The tab's connection stays `SQLITE_OPEN_READONLY` and there is still exactly one
       `SQLITE_OPEN_READWRITE` open in the file — the console write reuses
       `openReadWrite(at:)` rather than adding a second one.
-- [ ] Tests: this file links SQLite and is untestable by `swift test` by convention; its
+- [x] Tests: this file links SQLite and is untestable by `swift test` by convention; its
       rules are pinned statically in task 6 instead (the open flags by count, the single
       read-write site, the import). The behavior it implements is covered through the
       scripted seam in task 3.
-- [ ] run `swift test` and the macOS build — must pass before task 5
+- [x] run `swift test` and the macOS build — must pass before task 5
 
 ### Task 5: The pane
 
