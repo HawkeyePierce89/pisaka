@@ -539,6 +539,18 @@ actor DatabaseConnectionService: DatabaseServicing {
         readRowLimit: Int
     ) throws -> Int {
         let isReadOnly = sqlite3_stmt_readonly(prepared) != 0
+        // Counted as a **delta of the connection's running total**, never with
+        // `sqlite3_changes`. That call answers the last INSERT/UPDATE/DELETE on
+        // the connection and nothing else resets it, so the read-only guard is
+        // not enough here the way it is in `execute(_:on:)`: a batch is many
+        // statements of many kinds, and a `CREATE INDEX` after an `INSERT` is not
+        // read-only, so asking `sqlite3_changes` for it would report the
+        // insert's count a second time and inflate the total the reader is shown.
+        // A delta answers zero for every statement that changed no rows, whatever
+        // kind it is. It also counts the rows a trigger changed, which is the
+        // truthful answer to "what did this text change" — `execute(_:on:)`'s
+        // exact-count rule is a different question and keeps its own call.
+        let changesBefore = sqlite3_total_changes(connection)
         var rowsSeen = 0
         while true {
             let stepCode = sqlite3_step(prepared)
@@ -550,10 +562,7 @@ actor DatabaseConnectionService: DatabaseServicing {
             if stepCode == SQLITE_DONE { break }
             throw Self.error(code: stepCode, message: Self.message(from: connection))
         }
-        // `sqlite3_changes` answers the *connection's* last modification and a
-        // read does not reset it — the trap `execute(_:on:)` guards against, with
-        // the same guard: a read-only statement contributes nothing to the total.
-        return isReadOnly ? 0 : Int(sqlite3_changes(connection))
+        return Int(sqlite3_total_changes(connection) - changesBefore)
     }
 
     /// Roll back a transaction the reader's own text left open.

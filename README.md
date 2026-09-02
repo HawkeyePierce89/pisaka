@@ -58,7 +58,7 @@ do — is in [`docs/FEATURES.md`](docs/FEATURES.md).
   reads runs straight away (capped at 500 rows, nothing appended to your SQL),
   while anything that can change the database asks first — the confirmation says
   how many statements write and that they run as one transaction — and reports
-  what it changed. Every failure carries SQLite's own words.
+  what it changed. Every failure SQLite reported carries its own words.
 - **EditorConfig** — a project's `.editorconfig` drives auto-indent and the
   Tab key, and applies `trim_trailing_whitespace`, `insert_final_newline`
   and `end_of_line` on save.

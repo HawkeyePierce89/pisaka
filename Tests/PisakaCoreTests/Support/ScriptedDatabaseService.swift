@@ -388,8 +388,13 @@ final class ScriptedDatabaseService: DatabaseServicing, @unchecked Sendable {
     var writeCount: Int { writeTransactions.count }
 
     /// Every text handed to `classifyConsole(_:)` or
-    /// `runConsoleRead(_:rowLimit:)`, in call order — verbatim, which is what a
-    /// test asserting "the reader's text was not rewritten" reads.
+    /// `runConsoleRead(_:rowLimit:)`, verbatim — which is what a test asserting
+    /// "the reader's text was not rewritten" reads.
+    ///
+    /// The classification log **followed by** the read log, each in its own call
+    /// order and the two never interleaved: this is a concatenation, not a
+    /// timeline. A test about the order the two members were actually called in
+    /// reads `classifiedTexts` and `consoleReadTexts` instead.
     var consoleTexts: [String] {
         lock.lock()
         defer { lock.unlock() }

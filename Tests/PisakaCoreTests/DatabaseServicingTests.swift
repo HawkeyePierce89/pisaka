@@ -577,22 +577,28 @@ final class DatabaseServicingTests: XCTestCase {
         XCTAssertTrue(answer.isTruncated)
         XCTAssertEqual(service.consoleReadTexts, [text])
         XCTAssertEqual(service.consoleReadRowLimits, [500])
-        XCTAssertEqual(service.consoleTexts, [text], "Both console texts land in one log, in call order")
+        XCTAssertEqual(service.consoleTexts, [text], "A read with no classification beside it is the whole log")
     }
 
-    /// Every text handed over, in call order, whichever member took it — the log
-    /// a "nothing rewrote the reader's text" assertion reads.
+    /// Every text handed over, whichever member took it — the log a "nothing
+    /// rewrote the reader's text" assertion reads. The two texts differ and the
+    /// read is asked for *first*, so the assertion reads the log's documented
+    /// shape — classifications, then reads — rather than passing on whichever
+    /// order the calls happened to be made in.
     func testTheConsoleTextLogHoldsClassificationsThenReads() async throws {
         let service = ScriptedDatabaseService()
-        let text = "SELECT 1;"
-        service.serveClassification(text, kinds: [.read])
-        service.serveConsoleRead(text, columns: ["1"], rows: [[.integer(1)]])
+        let classified = "SELECT 1;"
+        let read = "SELECT 2;"
+        service.serveClassification(classified, kinds: [.read])
+        service.serveConsoleRead(read, columns: ["2"], rows: [[.integer(2)]])
 
         try await service.open(url: url)
-        _ = try await service.classifyConsole(text)
-        _ = try await service.runConsoleRead(text, rowLimit: 500)
+        _ = try await service.runConsoleRead(read, rowLimit: 500)
+        _ = try await service.classifyConsole(classified)
 
-        XCTAssertEqual(service.consoleTexts, [text, text])
+        XCTAssertEqual(service.consoleTexts, [classified, read])
+        XCTAssertEqual(service.classifiedTexts, [classified])
+        XCTAssertEqual(service.consoleReadTexts, [read])
     }
 
     /// The transaction arrives verbatim: the URL, the reader's text untouched,

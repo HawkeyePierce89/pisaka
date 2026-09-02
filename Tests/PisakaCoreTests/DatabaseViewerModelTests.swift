@@ -2412,6 +2412,36 @@ final class DatabaseViewerModelTests: XCTestCase {
         await editing.value
     }
 
+    /// The mirror of `testACellEditInFlightRefusesTheConsolesMutation`: "one
+    /// write per tab" is one rule read from **both** sides, so a cell edit is
+    /// refused while the console's batch is still running — in the tab's own
+    /// words, and with nothing sent. Without this the grid would open a second
+    /// read-write connection while the batch still holds the file's write lock.
+    func testAConsoleMutationInFlightRefusesACellEdit() async {
+        let service = ScriptedDatabaseService()
+        let text = "DELETE FROM items"
+        let gate = Gate()
+        let model = await editableModel(service)
+        service.serveClassification(text, kinds: [.write])
+        service.serveCommittedConsoleWrite(affectedRows: 1)
+        service.holdConsoleWrite(on: gate)
+        // Scripted so that a write escaping the guard would land rather than
+        // throw: the count below has to be able to reach one.
+        service.serveCommittedWrite()
+
+        await model.console.run(text)
+        let writing = Task { await model.console.confirm() }
+        await waitUntil { gate.reached }
+
+        await model.updateCell(row: 0, column: 1, entry: .typed("new"))
+
+        XCTAssertEqual(model.errorMessage, DatabaseViewerModel.writeInFlightMessage)
+        XCTAssertEqual(service.writeCount, 0, "One write per tab, refused rather than queued")
+
+        gate.release()
+        await writing.value
+    }
+
     func testIsWriteInFlightCoversTheConsolesMutationToo() async {
         let service = ScriptedDatabaseService()
         let text = "DELETE FROM items"

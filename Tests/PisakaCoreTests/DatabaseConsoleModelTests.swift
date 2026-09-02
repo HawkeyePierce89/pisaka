@@ -201,6 +201,50 @@ final class DatabaseConsoleModelTests: XCTestCase {
         XCTAssertFalse(model.isRunning)
     }
 
+    /// The spinner's contract, asserted while the work is actually in flight —
+    /// every other test here reads `isRunning` after the call returned, which can
+    /// only ever see `false` and so cannot tell a flag that is raised from one
+    /// that is never raised at all. It is what the Run control disables on.
+    func testARunInFlightIsRunningAndComesDownWhenItLands() async {
+        let service = ScriptedDatabaseService()
+        let text = "SELECT 1"
+        let gate = Gate()
+        service.serveClassification(text, kinds: [.read])
+        service.serveConsoleRead(text, columns: ["1"], rows: [[.integer(1)]])
+        service.holdConsoleRead(on: gate)
+        let model = await openedConsole(service)
+        XCTAssertFalse(model.isRunning)
+
+        let running = Task { await model.run(text) }
+        await waitUntil { gate.reached }
+        XCTAssertTrue(model.isRunning, "…which is what Run is disabled on")
+
+        gate.release()
+        await running.value
+        XCTAssertFalse(model.isRunning)
+    }
+
+    /// "It ran and it said nothing" is an answer, not a failure: a statement with
+    /// no columns publishes an empty answer, the footer counts zero rows, and no
+    /// sentence is put in the message line. The surface draws no table for it —
+    /// `DatabaseConsoleView` asks `columnNames.isEmpty` — which is only correct
+    /// while the model really does publish this state.
+    func testAReadThatAnsweredNoColumnsPublishesAnEmptyAnswerAndNoMessage() async {
+        let service = ScriptedDatabaseService()
+        let text = "PRAGMA optimize"
+        service.serveClassification(text, kinds: [.read])
+        service.serveConsoleRead(text, with: DatabaseConsoleAnswer())
+        let model = await openedConsole(service)
+
+        await model.run(text)
+
+        XCTAssertEqual(model.answer, DatabaseConsoleAnswer())
+        XCTAssertTrue(model.answer?.columnNames.isEmpty ?? false)
+        XCTAssertEqual(model.footer, DatabaseConsolePlan.resultFooter(rowCount: 0, isTruncated: false))
+        XCTAssertNil(model.message, "Nothing went wrong, so nothing is explained")
+        XCTAssertFalse(model.isRunning)
+    }
+
     func testACommittedMutationShowsNoRows() async {
         let service = ScriptedDatabaseService()
         let read = "SELECT 1"
@@ -249,9 +293,40 @@ final class DatabaseConsoleModelTests: XCTestCase {
         XCTAssertEqual(model.message, "no such table: x")
         XCTAssertNil(model.footer, "A rolled-back batch reports no count")
         XCTAssertNil(model.affectedRows)
-        XCTAssertEqual(didWriteCount, 0, "Nothing committed, so nothing on disk is stale")
-        XCTAssertEqual(refreshCount, 0)
+        XCTAssertEqual(
+            didWriteCount,
+            1,
+            "A failed batch is not proof nothing landed — the reader's own COMMIT can have closed the bracket"
+        )
+        XCTAssertEqual(refreshCount, 1, "…so the tab re-reads either way")
         XCTAssertFalse(model.isWriting)
+    }
+
+    /// The failure path's two calls are told apart from the commit path's: the
+    /// footer and the count are the *commit's* and stay absent, while the hook
+    /// and the re-read fire because neither half can know what survived.
+    func testAFailedMutationTellsTheHookAndReReadsWithoutReportingACount() async {
+        let service = ScriptedDatabaseService()
+        let text = "INSERT INTO items VALUES (3, 'three'); COMMIT; INSERT INTO gone VALUES (4);"
+        var didWriteCount = 0
+        var refreshCount = 0
+        service.serveClassification(text, kinds: [.write, .write])
+        service.failConsoleWrite(with: DatabaseError.sqlError(message: "no such table: gone"))
+        let model = await openedConsole(
+            service,
+            didWrite: { didWriteCount += 1 },
+            refreshAfterWrite: { refreshCount += 1 }
+        )
+
+        await model.run(text)
+        await model.confirm()
+
+        XCTAssertEqual(model.message, "no such table: gone", "SQLite's own sentence, verbatim")
+        XCTAssertNil(model.footer, "No count is claimed for a batch that reported a failure")
+        XCTAssertNil(model.affectedRows)
+        XCTAssertEqual(didWriteCount, 1)
+        XCTAssertEqual(refreshCount, 1)
+        XCTAssertFalse(model.isRunning, "The spinner comes down on the failure path too")
     }
 
     func testARollbackWithoutAThrowSaysTheDatabaseWasNotChanged() async {

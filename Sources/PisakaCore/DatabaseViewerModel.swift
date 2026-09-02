@@ -172,6 +172,13 @@ public final class DatabaseViewerModel: ObservableObject {
     /// of: a page turn landing in the middle of a console batch would publish
     /// rows out of a half-applied transaction, and one landing during a cell edit
     /// would move the page the edit was planned against.
+    ///
+    /// It is also the term **both writers** refuse on, so "one write per tab" is
+    /// one rule read from two sides rather than two half-rules: `updateCell`
+    /// asks it directly, and the console asks the same question through the
+    /// `isOtherWriteInFlight` closure the tab hands it. Either flag alone would
+    /// leave the other writer free to open a second read-write connection while
+    /// the first still holds the file's write lock.
     public var isWriteInFlight: Bool { isWriting || console.isWriting }
 
     /// The database this tab is showing — the URL the tab was opened with,
@@ -831,9 +838,14 @@ public final class DatabaseViewerModel: ObservableObject {
     /// 4. **The plan.** `DatabaseUpdatePlanner` decides whether the cell may be
     ///    written at all and composes the statement if it may; a refusal is shown
     ///    in its own words and **nothing is sent**.
-    /// 5. **One write per tab.** A second edit arriving while one is in flight is
+    /// 5. **One write per tab.** A second write arriving while one is in flight is
     ///    refused, not queued: the plan behind it was composed against the page on
     ///    screen, whose values the first write may be in the middle of replacing.
+    ///    The term is `isWriteInFlight` and not `isWriting`, so the rule is the
+    ///    *same* rule the console asks (`DatabaseConsoleModel.confirm()` asks
+    ///    `isOtherWriteInFlight()`), read from both sides: a console batch may be
+    ///    dropping the very table this cell sits in, and an editor left open when
+    ///    it started would otherwise commit into whatever survives.
     ///
     /// Then one `performWrite(_:)` on a short-lived read-write connection at the
     /// tab's **current** `fileURL` — the one thing that is true after a rename —
@@ -894,7 +906,7 @@ public final class DatabaseViewerModel: ObservableObject {
             setMessage(refusal.message, from: .write)
             return
         }
-        guard !isWriting else {
+        guard !isWriteInFlight else {
             setMessage(Self.writeInFlightMessage, from: .write)
             return
         }

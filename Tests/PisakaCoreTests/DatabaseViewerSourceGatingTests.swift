@@ -654,6 +654,61 @@ final class DatabaseViewerSourceGatingTests: XCTestCase {
         )
     }
 
+    // MARK: - Nothing is armed while a write is in flight
+
+    /// The surface disables on the **tab-wide** flag, never on the grid's own
+    /// half of it.
+    ///
+    /// `isWriteInFlight` is `isWriting || console.isWriting`; a site spelling
+    /// `model.isWriting` instead would stay live for the whole of a console
+    /// batch — a page turn landing mid-transaction, a sort re-query against a
+    /// table the batch is dropping, an editor opened over rows it is rewriting —
+    /// and every other gate in this suite would stay green, because the flag it
+    /// asked still exists and still answers. So the three controls are pinned by
+    /// the term they disable on, and the half-flag is pinned by absence.
+    func testTheGridsControlsDisableOnTheTabWideWriteFlag() throws {
+        let view = try code(ofFileNamed: "DatabaseViewerView.swift", under: "Sources/Pisaka")
+        for pattern in [
+            #"\.disabled\(!model\.page\.hasPrevious \|\| model\.isWriteInFlight\)"#,
+            #"\.disabled\(!model\.page\.hasNext \|\| model\.isWriteInFlight\)"#,
+            #"\.disabled\(model\.isWriteInFlight\)"#,
+            #"isGridIdle: Bool \{ !model\.isWriteInFlight && !model\.isLoadingRows \}"#,
+        ] {
+            XCTAssertEqual(
+                try occurrences(of: pattern, in: view),
+                1,
+                "DatabaseViewerView must keep the paging buttons, the sort headers and the cell editor "
+                    + "disabled while either writer is in flight — the term is model.isWriteInFlight, and "
+                    + "\(pattern) is the site that says so."
+            )
+        }
+        XCTAssertEqual(
+            try occurrences(of: #"model\.isWriting"#, in: view),
+            0,
+            "The surface must never ask the grid's half of the flag: isWriteInFlight is the one question "
+                + "that covers the console's confirmed mutation too."
+        )
+    }
+
+    /// Run is the console's half of the same rule, and it needs **both** terms:
+    /// the console's own `isRunning` covers a classification, a read or a
+    /// mutation of its own, while `isWriteInFlight` — handed down by the owner,
+    /// never re-derived here — covers the grid's cell edit, which the console
+    /// cannot see.
+    func testRunIsDisabledWhileEitherWriterIsInFlight() throws {
+        let console = try code(ofFileNamed: "DatabaseConsoleView.swift", under: "Sources/Pisaka")
+        XCTAssertEqual(
+            try occurrences(of: #"isRunDisabled: Bool \{ console\.isRunning \|\| isWriteInFlight \}"#, in: console),
+            1,
+            "Run must be disabled by the console's own spinner and by the tab's write flag together."
+        )
+        XCTAssertEqual(
+            try occurrences(of: #"\.disabled\(isRunDisabled\)"#, in: console),
+            1,
+            "…and the Run control must be the thing that reads it."
+        )
+    }
+
     // MARK: - The viewer is a reader
 
     func testNoDatabaseFileTakesTheWriterGate() throws {

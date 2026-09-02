@@ -327,10 +327,12 @@ only *consults* one, before each of its two writes.
   `sqlite3_stmt_readonly` first and reports zero for a read.
 
 - `DatabaseServicing.swift` — the whole app/Core boundary: `open(url:)`,
-  `run(_:) -> DatabaseResultSet`, `close()` and — part 2a's one addition —
-  `performWrite(_:) -> DatabaseWriteOutcome`, all `async`, with `close()` and
-  `performWrite(_:)` defaulted the way `GitServicing`'s optional members are so a
-  fixed-answer stub compiles. A connection is **one file**: `open(url:)` is called once per
+  `run(_:) -> DatabaseResultSet`, `close()`, part 2a's one addition
+  `performWrite(_:) -> DatabaseWriteOutcome`, and part 2b's three —
+  `classifyConsole(_:)`, `runConsoleRead(_:rowLimit:)` and
+  `performConsoleWrite(_:)`, described under "The seam's three new members" — all
+  `async`, with everything but `open(url:)` and `run(_:)` defaulted the way
+  `GitServicing`'s optional members are so a fixed-answer stub compiles. A connection is **one file**: `open(url:)` is called once per
   instance and `close()` must be safe to call twice, because the tab owner closes
   on tab close and again at termination rather than tracking which already
   happened. Beside it `DatabaseError` — `cannotOpen`, `notADatabase`, `busy`,
@@ -367,8 +369,12 @@ only *consults* one, before each of its two writes.
   statement list, so it arrived as `performConsoleWrite(_:)` beside it and this
   one was not touched (see "What part 2b added").
 
-- `DatabaseQuery.swift` — **the only thing in the repository that writes SQL**,
-  asserted byte-for-byte in its tests. It exists because of one fact:
+- `DatabaseQuery.swift` — **the only thing in the repository that *composes*
+  SQL**, asserted byte-for-byte in its tests. The console is the one stated
+  exception and not a second composer: the reader's own text crosses the seam
+  verbatim, never parsed, re-split, rewritten or appended to (see "The console
+  composes no SQL"), which is why its row cap travels as a number rather than as
+  a `LIMIT` this file would have to write. It exists because of one fact:
   *identifiers cannot be parameters*. A table or column name is part of the
   statement's grammar, so it must be spliced into the text — which is the shape
   an injection takes — hence `quoted(_:)`, one function used by every splice,
@@ -634,7 +640,9 @@ only *consults* one, before each of its two writes.
   reads back as 42.
 
 - `DatabaseViewerModel.swift` — one open database tab's state, in
-  `LocalChangesModel`'s shape: a `@MainActor ObservableObject` whose I/O is
+  `LocalChangesModel`'s shape (part 2b added four things to it — the owned
+  `console`, the tab-wide `isWriteInFlight`, `refreshAfterWrite()` and a `close()`
+  that stops the console; see "What part 2b added"): a `@MainActor ObservableObject` whose I/O is
   injected behind `DatabaseServicing`, whose published state is only ever touched
   on the main actor, and whose overlapping loads are ordered by monotonic
   generation tokens. Foundation only — every statement it sends is composed by
@@ -751,10 +759,15 @@ only *consults* one, before each of its two writes.
   Then the
   disk-writer gate (an operation rewriting the worktree may
   be replacing this very file), then the plan (a refusal is shown in its own
-  words and **nothing is sent**), then "one write per tab" — a second edit
+  words and **nothing is sent**), then "one write per tab" — a second write
   arriving while one is in flight is refused rather than queued, because the plan
   behind it was composed against page values the first write may be in the middle
-  of replacing. `setCellToNull(row:column:)` is that same method with an entry of
+  of replacing. That last term is `isWriteInFlight`, not `isWriting`: the rule is
+  **one rule read from both sides**, the same question the console asks through
+  its `isOtherWriteInFlight` closure, so a console batch dropping the very table
+  this cell sits in refuses the edit exactly as a cell edit refuses the batch.
+  Either half alone would let the other writer open a second read-write
+  connection while the first still holds the file's write lock. `setCellToNull(row:column:)` is that same method with an entry of
   `.null`, so the gate is asked in exactly one place. The **rows token is
   captured, not bumped**: a write is not a load and publishes no page of its own,
   so it must not supersede the loads around it — what it must do is notice that
@@ -804,7 +817,10 @@ only *consults* one, before each of its two writes.
 
 - `Platform/DatabaseConnectionService.swift` — the app half of the seam, and
   **the only file in the repository that imports the system SQLite module**
-  (pinned by the gating suite). The `GitCLIService` / `LSPProcessTransport`
+  (pinned by the gating suite). Part 2b added the console's three members to it
+  and the one prepare-by-tail loop they share (`enumerateStatements(in:on:…)`,
+  `stepConsoleStatement`, `restoreAutocommit`) — see "The seam's three new
+  members", which is also where the affected-row delta is explained. The `GitCLIService` / `LSPProcessTransport`
   position one level down: it hands Core's finished text to
   `sqlite3_prepare_v2`, binds a list of values it never inspects, steps, reads
   each column back **by its storage class** (not by the declared type), and hands
@@ -938,7 +954,15 @@ only *consults* one, before each of its two writes.
   naming no gate call, and why no file under the feature mentions `localChanges`
   at all.
 
-- `DatabaseViewerView.swift` — the surface: an error banner above everything (a
+- `DatabaseViewerView.swift` — the surface, which since part 2b hosts the console
+  under the grid in a `VSplitView` (under the *grid* only, so the sidebar keeps
+  its full height) and disables the paging buttons, the sort headers and its idle
+  test on the tab-wide `model.isWriteInFlight` rather than on `model.isWriting`.
+  The non-obvious part is a **second `@ObservedObject` on `model.console`**:
+  `isWriteInFlight` reads a flag published by a *different* object, so without
+  that declaration the controls would stay live for the whole of a console
+  mutation — a rule `DatabaseViewerSourceGatingTests` now pins by the disable
+  terms. It is: an error banner above everything (a
   failure that scrolled away with the grid would be a failure nobody read), a
   sidebar of tables and views (distinguished), the selected one's schema under
   it, and the paged grid with clickable sorting headers and paging controls in
@@ -1525,7 +1549,33 @@ seam.
   `INSERT … RETURNING` inside the batch produced are stepped (a statement nobody
   steps never runs) and discarded.
 - **The console has no history, no saved queries and no syntax highlighting.**
-  The input is plain monospaced text, `@State` on the pane, cleared with the tab.
+  The input is plain monospaced text, `@State` on the pane. That is view state
+  and nothing else — never persisted, never part of the session record, never a
+  buffer — and the consequence is worth stating plainly rather than leaving to be
+  discovered: the pane is rebuilt when the window shows a different tab, so
+  **switching away from a viewer tab and back clears whatever was typed**. It is
+  scratch space for the run in front of you, not a document.
+- **A text that brackets its own transaction is not special-cased, and it is the
+  one place the confirmation's "rolls back together" can be untrue.** The batch
+  runs inside a `BEGIN IMMEDIATE` of the app's own, so a `BEGIN` in the reader's
+  text fails with SQLite's "cannot start a transaction within a transaction" and
+  nothing runs — an honest refusal. A bare `COMMIT` partway through is the harder
+  case: it closes the app's bracket, so every statement after it runs in
+  autocommit and is **durable whatever fails later**, and the rollback attempted
+  on the way out has nothing left to undo. Neither half can tell afterwards what
+  survived, so `DatabaseConsoleModel.confirm()` calls `didWrite()` and awaits
+  `refreshAfterWrite()` on the **failure** path too: a batch that really did roll
+  back whole costs one status refresh and one re-query, both idempotent, where
+  the other way round would leave a file that changed on disk counted as
+  unmodified and a grid drawing rows that are gone. `VACUUM` and
+  `PRAGMA journal_mode = …` are the same bracket seen from the other side —
+  classified as writes, confirmed, and then refused by SQLite for running inside
+  a transaction.
+- **A run cannot be cancelled.** The 500-row cap bounds how many rows a read
+  *keeps*, not how much work a statement does: a query with no useful bound runs
+  to completion on the tab's own connection, and the tab answers nothing else
+  until it does. There is no interrupt and no deadline — the console assumes the
+  reader knows the database they typed the statement against.
 - **A read batch is not one snapshot.** Its statements run in order on the tab's
   own connection, each in its own implicit transaction, so a database another
   process is writing can change between two statements of the same Run.
@@ -1740,7 +1790,32 @@ its own is not turned into a reported failure by "cannot commit - no transaction
 is active". The tab's connection stays `SQLITE_OPEN_READONLY` for its whole life,
 and SQLite is still imported in exactly one file.
 
+**The affected-row total is a delta, never `sqlite3_changes`.** That call answers
+the connection's last INSERT/UPDATE/DELETE and *nothing else resets it*, so the
+read-only guard that makes it correct in `execute(_:on:)` — where one statement is
+sent and the question is "did exactly one row change" — is not enough for a batch
+of many statements of many kinds: a `CREATE INDEX` after an `INSERT` is not
+read-only, and asking `sqlite3_changes` for it would report the insert's count a
+second time and inflate the only number the reader is shown. So each statement is
+charged the delta of `sqlite3_total_changes` across its own stepping, which is
+zero for everything that changed no rows, whatever kind it is. It also counts the
+rows a trigger changed, which is the truthful answer to "what did this text
+change"; the cell edit's exact-count rule is a different question and keeps its
+own call, byte for byte.
+
 ### The console's own message slot, and the refusal order
+
+**Five sentences on this pane are not SQLite's**, and it is worth naming them
+together because everything else the console says is the library's words
+verbatim. Three are `DatabaseConsolePlan`'s refusals, composed in Core where they
+are assertable without a UI. The fourth is `DatabaseConsoleModel
+.rolledBackMessage` — a transaction the app half rolled back *without throwing*,
+which has no library sentence to quote because SQLite reported no failure — and
+it lives on the model rather than on the plan because it describes an outcome
+rather than a refusal. The fifth is the app half's `notReadOnlyRefusal`, thrown
+by the read path for a statement SQLite does not report read-only; SQLite never
+saw it, so again there is nothing to quote, and it is composed on the far side of
+the seam because that is the only side that can ask the question.
 
 The console publishes its failures into its **own** `message`, not the tab's
 `errorMessage`, in both directions: a page turn never writes or clears the
@@ -1792,6 +1867,14 @@ index survive while the schema, the identity, the count and the page are
 re-queried, and a table it no longer holds lands exactly where a reload that lost
 its table lands.
 
+**The failure path is not the mirror of this one.** It publishes SQLite's
+sentence into the console's slot and claims no count — but it still calls
+`didWrite()` and still awaits `refreshAfterWrite()`, because a reported failure
+is not proof that nothing landed: a text carrying its own `COMMIT` closes the
+app's bracket mid-run, and everything after it is durable. See the known limit
+that spells this out; the two costs are not symmetric, so the re-read happens
+either way.
+
 `isWriting` is lowered on **every** path, superseded included, for the cell
 edit's reason: nothing but a confirmed console mutation raises it, so the run
 that raised it is the only thing that can lower it, and left up the tab would
@@ -1814,8 +1897,11 @@ transaction. `close()` stops the console the way it stops its own loads.
   classification answers), each of the four decisions' published state, the
   confirmation carrying the classified text rather than a later one, the refusal
   order and its three sentences, a failed run replacing nothing, a superseded run
-  publishing nothing while `didWrite` still lands, the post-commit order, and
-  `stop()` latching.
+  publishing nothing while `didWrite` still lands, the post-commit order, the
+  failure path's own two calls (the hook told and the tab re-read, with no count
+  claimed), `isRunning` asserted **while the run is in flight** rather than after
+  it landed, a read that answered no columns publishing an empty answer and no
+  message, and `stop()` latching.
 - `DatabaseServicingTests` — the three defaults refusing honestly, and the two
   new value types' defaults.
 - `DatabaseViewerModelTests` — `refreshAfterWrite()`'s four landings (the listing
@@ -1823,7 +1909,9 @@ transaction. `close()` stops the console the way it stops its own loads.
   because it re-selects as a *refresh*; a table the batch created appearing; a
   lost selected table landing exactly where a lost reload lands), the console
   carrying the tab's **current** URL after a rename, `isWriteInFlight` answering
-  for both writers, the two message slots' independence, and `close()` stopping
+  for both writers, "one write per tab" asserted **in both directions** (a cell
+  edit refusing the batch *and* a batch refusing the cell edit, each with nothing
+  sent), the two message slots' independence, and `close()` stopping
   the console.
 - `DatabaseViewerSourceGatingTests` — the console's cross-layer rules: the gate
   asked exactly once and before anything is sent, the read path naming neither the
@@ -1831,7 +1919,10 @@ transaction. `close()` stops the console the way it stops its own loads.
   console file composing SQL, the reader's text reaching the seam through exactly
   one call site per member, the console's files covered by the feature-wide rules
   (macOS-gated, no SQLite import in Core, no gate call), the scene knowing nothing
-  about the console, and `PisakaApp.swift`'s tab-kind filter counts unchanged.
+  about the console, `PisakaApp.swift`'s tab-kind filter counts unchanged, and the
+  surface's disable terms — the paging buttons, the sort headers, the grid's idle
+  test and Run all reading the tab-wide flag, and no view naming
+  `model.isWriting`, the half of it that a console batch does not raise.
 
 `ScriptedDatabaseService` grew a console half: a classification per text (the
 deferral included), an answer per text, and scripted console outcomes with the

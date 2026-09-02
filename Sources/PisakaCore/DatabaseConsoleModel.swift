@@ -279,6 +279,12 @@ public final class DatabaseConsoleModel: ObservableObject {
     ///
     /// Then one `performConsoleWrite(_:)` on a separate, short-lived read-write
     /// connection at the tab's **current** URL, carrying the text verbatim.
+    ///
+    /// **`didWrite()` and the re-read happen on the failure path too**, unlike
+    /// the cell edit's, because a batch that reports a failure is not proof that
+    /// nothing landed: the reader's own `COMMIT` can close the app's transaction
+    /// mid-text, and everything after it is durable. See the `catch` for why the
+    /// two costs are not symmetric.
     public func confirm() async {
         guard !isStopped, let pending = pendingConfirmation else { return }
         pendingConfirmation = nil
@@ -342,8 +348,23 @@ public final class DatabaseConsoleModel: ObservableObject {
             await refreshAfterWrite()
         } catch {
             isWriting = false
+            // Told on the failure path too, and this is the one place the console
+            // parts company with the cell edit. A cell edit is one statement under
+            // one bracket, so a failure means nothing landed. A console batch is
+            // the reader's own text, and a text that **commits its own
+            // transaction** — `…; COMMIT; …` — closes the bracket this write
+            // opened, so every statement after it runs in autocommit and is
+            // durable whatever fails later; the rollback the app half attempts
+            // then has nothing left to undo, and neither half can tell afterwards
+            // whether anything survived. So the file is re-read and Local Changes
+            // told either way. A batch that really did roll back whole costs one
+            // status refresh and one re-query, both idempotent; the other way
+            // round leaves a file that changed on disk counted as unmodified and a
+            // grid drawing rows that are gone.
+            didWrite()
             guard token == generation else { return }
             publishFailure(error)
+            await refreshAfterWrite()
         }
     }
 

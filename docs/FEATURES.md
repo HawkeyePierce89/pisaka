@@ -1099,16 +1099,25 @@ user sees it.
     it could classify is read-only, the failure is the answer and you are shown
     SQLite's own sentence, because a read cannot have created what the next
     statement needed.
-  - **Every failure carries SQLite's own words**, and a failed run changes
-    nothing on screen: the previous result and its footer stay where they were,
-    with the message under them. After a mutation commits, the sidebar, the
+  - **Every failure SQLite reported carries its own words** — the handful of
+    sentences it did not write are the ones about a refusal it never saw — and a
+    failed run changes nothing on screen: the previous result and its footer stay
+    where they were, with the message under them. After a mutation commits, the sidebar, the
     schema, the row count and the page are all re-read — a batch may have created
     or dropped the very table you were looking at — and the database shows up in
     Local Changes like any other change to a tracked file. While a write is in
     flight, Run, the paging buttons and the sort headers are all disabled, and a
     mutation is refused outright while the project is being rewritten on disk.
   - The console holds no history and no saved queries, and its text is not part
-    of the session: it belongs to the tab and goes with it.
+    of the session — it is scratch space for the run in front of you, cleared
+    when you switch the window to another tab and when the tab closes.
+  - A statement of your own that opens or commits a transaction is not
+    special-cased: `BEGIN` fails, because the batch is already inside one, and a
+    bare `COMMIT` partway through makes everything after it durable even if a
+    later statement fails. The tab re-reads the file after a failed mutation for
+    exactly that reason.
+  - A run cannot be cancelled: the 500-row cap bounds what a read keeps, not how
+    long a statement takes.
 
 
 ## iOS / iPadOS

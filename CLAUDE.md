@@ -252,7 +252,7 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
 - `DatabaseCellEntry.swift` — type affinity (SQLite's five ordered rules) + the typing rule; NULL is a gesture, never a word, and nothing is trimmed.
 - `DatabaseRowIdentity.swift` — how a table's rows are addressed: rowid (first unshadowed spelling), the declared key in key order, or a typed gap; names matched, never positions.
 - `DatabaseUpdatePlan.swift` — the pure planner and its typed refusals (each carrying the sentence shown); one statement, `requiredAffectedRows == 1`.
-- `DatabaseConsolePlan.swift` — the console's vocabulary (SQLite's `.read`/`.write`, the classification and its horizon) + the whole pure policy: the four decisions, the confirmation prompt, the 500-row cap (its own number, not the page size), the two footers, the three refusals it owns.
+- `DatabaseConsolePlan.swift` — the console's vocabulary (SQLite's `.read`/`.write`, the classification and its horizon) + the whole pure policy: the four decisions, the confirmation prompt, the 500-row cap (its own number, not the page size), the two footers, the three refusals it owns (the two sentences that are *not* SQLite's and not the plan's — the model's rolled-back message and the app half's read-path refusal — are named in the doc).
 - `DatabaseConsoleModel.swift` — the console's flow: one generation token, its own message slot, the write's refusal order (the gate, then one write per tab), the post-commit order.
 - `DatabaseViewerModel.swift` — the tab's model: two generation tokens, a failure never blanks a good answer, every read bounded; the write consults the gate, captures the rows token and never blanks the page; owns the console, answers `isWriteInFlight` for both writers and `refreshAfterWrite()` after a console mutation.
 
@@ -531,13 +531,23 @@ ci.yml's `lint` job, and the version-bump procedure.
   the horizon and the rest is classified as it runs inside the same transaction.
   A read runs on the tab's own connection, capped at 500 rows by stepping; a
   mutation runs whole, as one transaction, on a connection of its own, reports its
-  affected-row total and shows no rows. The console asks the same gate the cell
-  edit does, immediately before sending, and **the paging buttons, the sort
+  affected-row total and shows no rows — a total charged as a
+  `sqlite3_total_changes` **delta**, since `sqlite3_changes` survives a statement
+  that is neither read-only nor DML and would report the last insert's count
+  twice. The console asks the same gate the cell
+  edit does, immediately before sending; **"one write per tab" is one rule read
+  from both sides** — `isWriteInFlight` is the term the cell edit refuses on and
+  the term the console is handed — and **the paging buttons, the sort
   headers and Run are all disabled while either write is in flight**
-  (`isWriteInFlight`). `DatabaseViewerSourceGatingTests` pins the import, the
+  (`isWriteInFlight`). A console mutation that *fails* still tells the write hook
+  and still re-reads, because a text carrying its own `COMMIT` closes the app's
+  bracket and leaves what follows durable.
+  `DatabaseViewerSourceGatingTests` pins the import, the
   gating, the switch's one site, the tab-kind skips by count, the four gate rules
   — asked before anything is sent, asked in one place, wired once in the scene,
-  and named by no read path — and the console's own: it composes no SQL, names no
+  and named by no read path — the surface's disable terms (the three controls, and
+  that no view asks the grid's half of the flag), and the console's own: it
+  composes no SQL, names no
   gate, reaches the seam through one call site per member, and the scene knows
   nothing about it (`core-database-viewer.md`).
 - **Zoom is three zones, one arithmetic, one pointer rule** (macOS only): `code`
