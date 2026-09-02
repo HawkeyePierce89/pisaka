@@ -2830,8 +2830,19 @@ struct PisakaApp: App {
     ///
     /// An untitled buffer has no path, so it has no history and can have none:
     /// every skip rule in this feature starts with "no url".
+    ///
+    /// A **viewer** tab is excluded for a stronger reason than an empty window.
+    /// It holds no buffer, so `model.text(for:)` answers the empty string for it,
+    /// and a Restore reaching `restoreFromLocalHistory` would read that as the
+    /// text it is displacing and file a revision claiming this database's
+    /// contents were `""` — the very snapshot `openBufferTexts()` skips a viewer
+    /// tab to avoid — before `applyRestore` fell through to a `replaceText` that
+    /// is a no-op for the kind, restoring nothing. The path is reachable: a `.db`
+    /// that is not SQLite was an ordinary text tab in an earlier version and can
+    /// have real revisions under it, which this version opens in the viewer.
+    /// Greyed out, the menu says so where every other unavailable command does.
     private var localHistoryTargetURL: URL? {
-        model.openFiles.first { $0.id == model.selectedID }?.url
+        model.openFiles.first { $0.id == model.selectedID }.flatMap { $0.kind == .text ? $0.url : nil }
     }
 
     // MARK: - Find in Files

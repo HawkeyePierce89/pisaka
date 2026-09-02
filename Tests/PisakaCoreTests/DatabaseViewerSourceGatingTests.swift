@@ -184,6 +184,9 @@ final class DatabaseViewerSourceGatingTests: XCTestCase {
     /// sync). The two `.viewer` tests are the two places the app must recognize
     /// one: the ⌘S funnel's early success and `resyncViewerTab`.
     ///
+    /// The eighth and ninth are the two *commands* that act on the selected tab
+    /// as text: `isFindableTabSelected` and `localHistoryTargetURL`.
+    ///
     /// A count rather than a shape because the failure is silent either way: a
     /// seventh consumer that forgets the filter compiles, runs, and reports a
     /// database as an empty file to whichever subsystem it feeds.
@@ -191,13 +194,15 @@ final class DatabaseViewerSourceGatingTests: XCTestCase {
         let app = try code(ofFileNamed: "PisakaApp.swift", under: "Sources/Pisaka")
         XCTAssertEqual(
             try occurrences(of: "kind == \\.text", in: app),
-            8,
-            "Eight sites read openFiles as text and each must skip viewer tabs. If this number moved, a "
+            9,
+            "Nine sites read openFiles as text and each must skip viewer tabs. If this number moved, a "
                 + "text-shaped consumer was added or removed — say which, here, rather than adjusting the "
                 + "number: an unfiltered one hands the empty string to a real path. The eighth is "
                 + "isFindableTabSelected: the find bar renders inside the text editor zone alone, so the "
                 + "four in-editor find commands grey out on a viewer tab rather than arming a bar the next "
-                + "text tab would come up already showing."
+                + "text tab would come up already showing. The ninth is localHistoryTargetURL: a Restore on "
+                + "a viewer tab would file a revision claiming the database held the empty string and then "
+                + "restore nothing."
         )
         XCTAssertEqual(
             try occurrences(of: "kind == \\.viewer|kind != \\.viewer", in: app),
@@ -305,6 +310,19 @@ final class DatabaseViewerSourceGatingTests: XCTestCase {
             3,
             "The save capture stays at the three save sites and needs no viewer filter: it is reached only "
                 + "from paths already gated on isDirty or on the ⌘S funnel's early return."
+        )
+
+        guard let target = app.range(of: "private var localHistoryTargetURL: URL?")?.upperBound,
+              let targetEnd = app.range(of: "\n    }", range: target..<app.endIndex)?.lowerBound
+        else {
+            XCTFail("localHistoryTargetURL must exist — it is what File ▸ Local History… acts on")
+            return
+        }
+        XCTAssertTrue(
+            app[target..<targetEnd].contains("kind == .text"),
+            "The menu target must be a text tab. A viewer tab answers the empty string to text(for:), so a "
+                + "Restore reaching it captures a revision claiming the database held the empty string and "
+                + "then restores nothing — the buffer half's skip, undone by the one command that opens a buffer of its own."
         )
     }
 

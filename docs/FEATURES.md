@@ -1034,8 +1034,11 @@ user sees it.
   like any other: it carries the database icon in the project tree, is restored
   with the session, and closes without ever asking to save — it holds no text and
   can never be dirty. **This version only reads.** Cells cannot be edited, there
-  is no SQL console, and the app issues no write of its own; SQLite itself may
-  still touch a database's `-wal`/`-shm` sidecar files while it has the file open.
+  is no SQL console, and the app issues no write of its own — the connection is
+  opened read-only, so nothing about opening a viewer tab changes the file on
+  disk. (One consequence: a WAL database whose sidecar files were left behind by a
+  process that died without checkpointing may refuse to open, in SQLite's words,
+  where a read-write connection would have recovered it.)
 
 
 ## iOS / iPadOS

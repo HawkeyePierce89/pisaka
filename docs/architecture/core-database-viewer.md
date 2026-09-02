@@ -249,9 +249,13 @@ disk-writer gate and is never gated by it.
   header nobody aimed at would look like the sort had failed) and
   `carriedOver(_:from:to:)` (nothing survives a genuine table change — a column
   name is meaningful only inside its own table, and carrying `ORDER BY "price"`
-  into a table with no `price` would turn the next page query into a SQL error
-  nobody asked for — while re-selecting the table already showing keeps the
-  sort, because that is a refresh and not a move). The two types live in one
+  into a table with no `price` would order the next page by a column nobody asked
+  about, and not even reliably as an error: SQLite's double-quoted-string fallback
+  reinterprets an identifier that resolves to nothing as a *string literal* and
+  sorts every row by one constant — while re-selecting the table already showing
+  keeps the sort, because that is a refresh and not a move. The column can
+  disappear under a *refresh* too, which is why the model drops a sort its own
+  answer does not name; see `publish` below). The two types live in one
   file because a sort change resets the page and a table change clears the sort:
   the rules are read together or not at all.
 
@@ -267,6 +271,14 @@ disk-writer gate and is never gated by it.
   `select(table:)` loads the schema, the count and the first page.
   `goToPage(_:)` moves and reloads — a move to the page already shown is a no-op
   rather than a re-query, because the paging controls are clickable at both ends.
+  It is not a no-op for the state the *click* already changed, though: the token
+  is bumped before the call, so a request that early-returns has already
+  superseded whatever was in flight, and a superseded load clears nothing —
+  including `isLoadingRows`. `settleConsumedRequest(_:)` therefore puts the
+  position back onto the rows on screen and lowers the flag for any request that
+  presented a token and then did nothing, which is reachable from two clicks on ◀
+  faster than the button redraws. A caller that presented no token superseded
+  nothing and keeps the plain no-op.
   `toggleSort(column:)` flips or re-aims the sort, resets to the first page and
   **keeps the count**: an `ORDER BY` reorders rows without changing how many
   there are, so re-asking `count(*)` would be a second full-table read for an
@@ -460,10 +472,20 @@ disk-writer gate and is never gated by it.
     Files is untouched: it is a window over the project, not over the selected
     tab, and a database is excluded from that walk by the binary/size filters as
     it always was.)
-  - autosave, the on-save transform and Local History capture need **no** filter:
+  - **File ▸ Local History…** — through `localHistoryTargetURL`, which now answers
+    only for a text tab. This is the one Local History path that is *not* settled
+    by "never dirty": the command opens a window from the selected tab's url, and
+    a Restore from it reads `text(for:)` as the text it is displacing — the empty
+    string, for a viewer tab — and captures that as a revision under the
+    database's path before an `applyRestore` that is a no-op for the kind restores
+    nothing. It is reachable, because a `.db` that is not SQLite was an ordinary
+    text tab before this feature existed and can carry real revisions.
+  - autosave, the on-save transform and Local History *capture* need **no** filter:
     all three are gated on `isDirty`, which is `false` for a viewer tab by
     construction. The invariant *is* the reason, so the gating suite pins it
-    rather than letting a second filter grow beside it.
+    rather than letting a second filter grow beside it. (The menu command above is
+    the exception that proves the shape: it reaches the buffer without asking
+    whether it is dirty.)
 
 ## The generation-token scheme
 
@@ -529,6 +551,14 @@ replacing it with emptiness would destroy the only context the message has. The
 one deliberate exception is selecting a *different* table, which clears the
 previous table's rows in its synchronous prefix — leaving them under another
 table's name would be a lie the error message does not correct.
+
+**A sort the answer does not name did not happen.** `publish` clears `sort` when
+the answered column names do not hold it, which is the one way a carried-over
+sort can outlive its column: `reload` re-selects the table by name after
+re-opening the file, that re-selection is a refresh, and the database underneath
+may have been rebuilt without the column. Left set, it would claim an ordering
+that no header arrow can even show (the column is not in `gridColumns` either)
+and re-send the same unresolvable `ORDER BY` on every later page.
 
 A failed read additionally puts the `page` and the `sort` back onto **the rows
 that are actually on screen**, which is the same rule read from the chrome's
@@ -630,13 +660,19 @@ seam.
 ## Known limits (part 1)
 
 - **Read-only.** Cells cannot be edited, there is no SQL console, and the app
-  issues no write of its own. The connection is opened read-write anyway, so part
-  2 needs no change to the open — which has one consequence worth stating rather
-  than discovering: SQLite itself may write while it holds a read-write handle,
-  recovering a hot journal at open and checkpointing a WAL database's `-wal` into
-  the main file at close. So "the app writes nothing" is exact and "the file's
-  bytes never change while a tab is open on it" is not, and the user-facing docs
-  say the first rather than the second.
+  issues no write of its own. The connection is opened `SQLITE_OPEN_READONLY`, so
+  the claim holds *at the file level* too and not merely at the SQL level — no
+  hot-journal recovery at open, no WAL checkpoint at close, and so no worktree
+  write behind the reader's back (the connection service's entry above has the
+  full reasoning). **Part 2 changes the flag**, and changing it is where that
+  consequence has to be re-decided rather than inherited.
+- **A WAL database no live connection has initialized may refuse to open.** A
+  read-only handle cannot create or recover the `-shm` sidecar a WAL database
+  needs, so one left behind by a process that died without checkpointing — or one
+  whose sidecars are not writable — answers SQLite's "unable to open database
+  file" where a read-write handle would have recovered it. The failure is honest
+  (SQLite's own sentence reaches the banner) and the trade is deliberate: taking a
+  write handle to read a tracked file is the larger cost, per the bullet above.
 - **macOS only.** iOS opens a database as text and fails, honestly (decision 3).
 - The grid pages at a fixed 200 rows and has no jump-to-page field; the row count
   is read once per table selection, so a table another process is writing shows a

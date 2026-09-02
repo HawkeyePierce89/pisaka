@@ -189,9 +189,15 @@ public struct DatabaseSortState: Equatable, Sendable {
     ///
     /// Nothing survives a genuine table change: a column name is meaningful only
     /// inside its own table, so carrying `ORDER BY "price"` into a table with no
-    /// `price` would turn the next page query into a SQL error the reader never
-    /// asked for. Re-selecting the table already showing keeps the sort, because
-    /// that is a refresh and not a move.
+    /// `price` would order the next page by a column the reader never asked about
+    /// — and not even reliably as an error, since SQLite's double-quoted-string
+    /// fallback reinterprets an identifier that resolves to nothing as a string
+    /// literal and sorts every row by the same constant. Re-selecting the table
+    /// already showing keeps the sort, because that is a refresh and not a move;
+    /// the column can nonetheless disappear under a refresh (`reload` re-selects
+    /// by name after re-opening the file), which is why
+    /// `DatabaseViewerModel.publish` drops a sort the answered columns do not
+    /// name.
     public static func carriedOver(
         _ sort: DatabaseSortState?,
         from previous: String?,

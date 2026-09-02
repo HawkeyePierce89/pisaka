@@ -953,6 +953,121 @@ final class DatabaseViewerModelTests: XCTestCase {
         XCTAssertEqual(service.openedURLs, [url])
     }
 
+    // MARK: - A request that consumed a token and then did nothing
+
+    func testAPagingClickThatMovesNowhereSettlesTheStateItAlreadyConsumed() async {
+        let service = ScriptedDatabaseService()
+        serveSchema(on: service, table: "items")
+        serveCount(on: service, table: "items", total: 5)
+        servePage(on: service, table: "items", rows: [[.integer(1), .text("one")]])
+        let model = await loadedModel(service)
+        await model.select(table: "items")
+        await model.goToPage(1, request: model.prepareForRowsChange())
+        XCTAssertEqual(model.page.index, 1)
+
+        // Two clicks on ◀ faster than the button redraws. The first moves to page
+        // 0 and suspends inside its read; the second reads the index that click
+        // already changed, clamps onto it, and has nothing to do — having bumped
+        // the token that strands the first one.
+        let gate = Gate()
+        service.hold(pageSQL(table: "items"), on: gate)
+        let held = Task { await model.goToPage(0, request: model.prepareForRowsChange()) }
+        await waitUntil { gate.reached }
+        XCTAssertTrue(model.isLoadingRows)
+
+        await model.goToPage(-1, request: model.prepareForRowsChange())
+
+        gate.release()
+        await held.value
+
+        XCTAssertFalse(
+            model.isLoadingRows,
+            "The superseded load publishes nothing, including its own cleared flag — so the click that "
+                + "superseded it must clear it, or the footer spins for the life of the tab"
+        )
+        XCTAssertEqual(
+            model.page.index,
+            1,
+            "The position goes back onto the rows actually on screen, exactly as a failed load does"
+        )
+    }
+
+    func testANoOpPagingCallWithoutATokenStaysAPlainNoOp() async {
+        let service = ScriptedDatabaseService()
+        serveSchema(on: service, table: "items")
+        serveCount(on: service, table: "items", total: 5)
+        servePage(on: service, table: "items", rows: [[.integer(1), .text("one")]])
+        let model = await loadedModel(service)
+        await model.select(table: "items")
+        await model.goToPage(1)
+
+        await model.goToPage(1)
+
+        XCTAssertEqual(model.page.index, 1)
+        XCTAssertEqual(
+            service.count(for: pageSQL(table: "items")),
+            2,
+            "A caller that consumed no token superseded nothing and gets no re-query"
+        )
+    }
+
+    // MARK: - A sort the answer does not name
+
+    func testAReloadDropsASortWhoseColumnTheRebuiltTableNoLongerHas() async {
+        let service = ScriptedDatabaseService()
+        serveSchema(on: service, table: "items")
+        serveCount(on: service, table: "items", total: 5)
+        servePage(on: service, table: "items", rows: [[.integer(1), .text("one")]])
+        servePage(
+            on: service,
+            table: "items",
+            orderBy: "label",
+            rows: [[.integer(1), .text("one")]]
+        )
+        let model = await loadedModel(service)
+        await model.select(table: "items")
+        await model.toggleSort(column: "label")
+        XCTAssertEqual(model.sort?.column, "label")
+
+        // The database is rebuilt under the tab without `label`. The re-selection
+        // a reload makes is a *refresh*, so the sort is carried into a page query
+        // that names a column nothing resolves — which SQLite may answer rather
+        // than refuse, sorting every row by one string constant.
+        serveSchema(on: service, table: "items", columns: ["id"])
+        servePage(
+            on: service,
+            table: "items",
+            orderBy: "label",
+            columns: ["id"],
+            rows: [[.integer(1)]]
+        )
+        await model.reload()
+
+        XCTAssertNil(
+            model.sort,
+            "A sort the answered columns do not name did not happen; leaving it set claims an ordering "
+                + "with no header arrow to click off and re-sends it on every later page"
+        )
+        XCTAssertEqual(model.gridColumns, ["id"])
+        XCTAssertEqual(model.rows, [[.integer(1)]])
+    }
+
+    func testASortTheAnsweredColumnsStillNameSurvivesAReload() async {
+        let service = ScriptedDatabaseService()
+        serveSchema(on: service, table: "items")
+        serveCount(on: service, table: "items", total: 5)
+        servePage(on: service, table: "items", rows: [[.integer(1), .text("one")]])
+        servePage(on: service, table: "items", orderBy: "label", rows: [[.integer(1), .text("one")]])
+        let model = await loadedModel(service)
+        await model.select(table: "items")
+        await model.toggleSort(column: "label")
+
+        await model.reload()
+
+        XCTAssertEqual(model.sort?.column, "label", "The drop is the exception, not the rule")
+        XCTAssertEqual(model.sort?.direction, .ascending)
+    }
+
     // MARK: - Scripting helpers
 
     /// A model whose connection is open and whose listing has been read.

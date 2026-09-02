@@ -177,7 +177,16 @@ actor DatabaseConnectionService: DatabaseServicing {
             case .real(let value):
                 code = sqlite3_bind_double(prepared, index, value)
             case .text(let value):
-                code = sqlite3_bind_text(prepared, index, value, -1, Self.transient)
+                // Bound by **byte count**, never as a C string: SQLite TEXT may
+                // legally contain U+0000, and the `-1` length that stops at the
+                // first NUL would silently truncate a value the reader three
+                // functions below deliberately reads whole. The two halves of the
+                // round trip agree or the seam loses bytes.
+                let bytes = Array(value.utf8CString)
+                // `count - 1` drops the terminator the explicit length makes
+                // unnecessary; the copy `transient` asks for happens before this
+                // array goes out of scope.
+                code = sqlite3_bind_text(prepared, index, bytes, Int32(bytes.count - 1), Self.transient)
             case .blob(let data):
                 code = data.withUnsafeBytes { buffer in
                     // An empty `Data` has no base address, and passing `nil` with

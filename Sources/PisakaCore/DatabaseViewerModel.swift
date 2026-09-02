@@ -268,7 +268,9 @@ public final class DatabaseViewerModel: ObservableObject {
     ///
     /// A move to the page already shown is a no-op rather than a re-query: the
     /// paging controls are clickable at both ends and re-reading the same page
-    /// because someone clicked "previous" on page 1 is work with no answer.
+    /// because someone clicked "previous" on page 1 is work with no answer. It is
+    /// not a no-op for the *state* the click already changed, though — see
+    /// `settleConsumedRequest(_:)`.
     ///
     /// `request` is the same token `select`/`toggleSort` take, and for the same
     /// reason. Two *paging* clicks do settle on the same index whichever order
@@ -281,8 +283,10 @@ public final class DatabaseViewerModel: ObservableObject {
     public func goToPage(_ index: Int, request: Int? = nil) async {
         guard !isClosed else { return }
         if let request, request != rowsGeneration { return }
-        guard let table = selectedTable else { return }
-        guard page.move(to: index) else { return }
+        guard let table = selectedTable, page.move(to: index) else {
+            settleConsumedRequest(request)
+            return
+        }
         rowsGeneration += 1
         let generation = rowsGeneration
         isLoadingRows = true
@@ -431,11 +435,53 @@ public final class DatabaseViewerModel: ObservableObject {
         )
     }
 
+    /// Publish what a page read answered — and drop a sort the answer does not
+    /// name.
+    ///
+    /// `carriedOver` keeps the sort across a *refresh* of the same table, and
+    /// `reload` re-selects the table by name after re-opening the file, so a
+    /// database rebuilt under the tab (a checkout, another process) can answer a
+    /// table that no longer has the sorted column. SQLite does not reliably refuse
+    /// `ORDER BY "gone"` for it: with double-quoted-string fallback enabled — the
+    /// default in the system library — an identifier that resolves to nothing is
+    /// reinterpreted as a *string literal*, so every row sorts by the same
+    /// constant and the read succeeds. The grid would then come back in storage
+    /// order, under a header with no arrow to click off (the column is not in
+    /// `gridColumns` either), while `sort` went on claiming an ordering nothing
+    /// applied. Cleared here, the next page load asks for the order that is
+    /// actually on screen.
     private func publish(_ result: DatabaseResultSet, table: String) {
         gridColumns = result.columnNames
+        if let current = sort, !result.columnNames.contains(current.column) { sort = nil }
         rows = result.rows
         shown = Shown(table: table, page: page, sort: sort)
         clearError(from: .rows)
+        isLoadingRows = false
+    }
+
+    /// Settle the state a request that turned out to be a no-op has already
+    /// invalidated.
+    ///
+    /// The rows token is bumped in the click, synchronously, before this model is
+    /// asked anything at all — `prepareForRowsChange()` says why it has to be. So
+    /// by the time a request early-returns having done nothing, a load still in
+    /// flight is *already* superseded, and a superseded load publishes nothing,
+    /// which includes not clearing `isLoadingRows`. Nothing else would ever clear
+    /// it: the footer spins for the life of the tab, over a page index the click
+    /// before it moved off the rows on screen. That is reachable from two clicks
+    /// on ◀ faster than the button redraws — the first moves to page 0 and starts
+    /// its load, the second reads the index that click already changed, clamps
+    /// onto it and lands here.
+    ///
+    /// Putting the position back onto the rows that are actually there is the
+    /// failure path's answer to the same question; this is that answer asked for a
+    /// request that neither failed nor ran.
+    ///
+    /// A caller that passed **no** token — `reload`'s own re-selection, Core's
+    /// tests — consumed nothing and gets the plain no-op it asked for.
+    private func settleConsumedRequest(_ request: Int?) {
+        guard request != nil else { return }
+        restoreShownPosition()
         isLoadingRows = false
     }
 
