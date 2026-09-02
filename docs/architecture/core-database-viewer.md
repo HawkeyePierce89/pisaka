@@ -1867,6 +1867,19 @@ index survive while the schema, the identity, the count and the page are
 re-queried, and a table it no longer holds lands exactly where a reload that lost
 its table lands.
 
+It also lowers `isLoadingRows` with the token bump, which is `reload(at:)`'s rule
+and holds here for its reason. Bumping the token supersedes a page load already
+in flight, and a superseded load publishes nothing — *including* not lowering the
+spinner, on the understanding that whatever superseded it raises and settles the
+flag for itself. This refresh does not always raise one: the re-selection is
+skipped when the listing no longer holds the selected table, and it is never
+reached at all when the listing query fails, so on both of those paths the flag
+would stay up for the life of the tab — a spinner over the grid forever, and
+`isGridIdle` false, which is `updateCell` refusing every later edit. Both are
+ordinary rather than exotic: a `DROP TABLE` of the selected table pressed while a
+large page is still loading is the first, and `confirm()` deliberately does not
+refuse a write because a page load is in flight.
+
 **The failure path is not the mirror of this one.** It publishes SQLite's
 sentence into the console's slot and claims no count — but it still calls
 `didWrite()` and still awaits `refreshAfterWrite()`, because a reported failure
@@ -1907,7 +1920,9 @@ transaction. `close()` stops the console the way it stops its own loads.
 - `DatabaseViewerModelTests` — `refreshAfterWrite()`'s four landings (the listing
   re-read and the selection refreshed; the sort and the page index surviving
   because it re-selects as a *refresh*; a table the batch created appearing; a
-  lost selected table landing exactly where a lost reload lands), the console
+  lost selected table landing exactly where a lost reload lands), the spinner it
+  owes a load it superseded lowered on both of the paths that raise none of their
+  own (the lost table, and a listing query that fails), the console
   carrying the tab's **current** URL after a rename, `isWriteInFlight` answering
   for both writers, "one write per tab" asserted **in both directions** (a cell
   edit refusing the batch *and* a batch refusing the cell edit, each with nothing

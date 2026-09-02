@@ -661,9 +661,24 @@ public final class DatabaseViewerModel: ObservableObject {
     /// the schema, the identity, the count and the page are all re-queried; a
     /// table it no longer holds lands exactly where a reload that lost its table
     /// lands, rows and message cleared together.
+    ///
+    /// The spinner is lowered with the token bump, `reload(at:)`'s rule and for
+    /// its reason: bumping the token supersedes a page load already in flight,
+    /// and a superseded load publishes nothing — which includes not lowering
+    /// `isLoadingRows`, on the understanding that whatever superseded it raises
+    /// and settles the flag for itself. This does not always raise one. The
+    /// re-selection is skipped entirely when the listing no longer holds the
+    /// selected table, and it is never reached at all when `load()` fails, so on
+    /// both of those paths the flag would stay up for the life of the tab — a
+    /// spinner over the grid forever, and `isGridIdle` false, which is
+    /// `updateCell` refusing every later edit. Both are ordinary: a `DROP TABLE`
+    /// of the selected table pressed while a large page is still loading is the
+    /// first, and `confirm()` deliberately does not refuse a write because a page
+    /// load is in flight.
     public func refreshAfterWrite() async {
         guard !isClosed else { return }
         prepareForRowsChange()
+        isLoadingRows = false
         pendingReselection = selectedTable
         await load()
     }

@@ -2352,6 +2352,55 @@ final class DatabaseViewerModelTests: XCTestCase {
         XCTAssertNil(model.errorMessage)
     }
 
+    /// The token bump supersedes a page load already in flight, and a superseded
+    /// load publishes nothing — including not lowering the spinner. When the
+    /// listing no longer holds the selected table the re-selection returns
+    /// without raising a load of its own, so nothing else would ever lower it:
+    /// the grid would spin for the life of the tab and every later cell edit
+    /// would be refused.
+    func testRefreshAfterWriteThatLostTheSelectedTableLowersASupersededLoadsSpinner() async {
+        let service = ScriptedDatabaseService()
+        let model = await editableModel(service)
+        let sorted = pageSQL(table: "items", orderBy: 1, ascending: true, identity: .rowid)
+        service.serve(sorted, columns: ["id", "label", "rowid"], rows: [[.integer(1), .text("old"), .integer(7)]])
+        let gate = Gate()
+        service.hold(sorted, on: gate)
+
+        let held = Task { await model.toggleSort(column: "label", index: 1) }
+        await waitUntil { gate.reached }
+        XCTAssertTrue(model.isLoadingRows, "Staging: the page load this refresh is about to supersede")
+
+        serveListing(on: service, entries: [("orders", "table")])
+        await model.refreshAfterWrite()
+        gate.release()
+        await held.value
+
+        XCTAssertNil(model.selectedTable)
+        XCTAssertFalse(model.isLoadingRows, "The refresh raised no load of its own, so it owes the spinner it took over")
+    }
+
+    /// The same rule when the refresh's own listing fails: `reselectIfPending()`
+    /// is never reached at all, so the spinner has nobody else to lower it.
+    func testRefreshAfterWriteWhoseListingFailsLowersASupersededLoadsSpinner() async {
+        let service = ScriptedDatabaseService()
+        let model = await editableModel(service)
+        let sorted = pageSQL(table: "items", orderBy: 1, ascending: true, identity: .rowid)
+        service.serve(sorted, columns: ["id", "label", "rowid"], rows: [[.integer(1), .text("old"), .integer(7)]])
+        let gate = Gate()
+        service.hold(sorted, on: gate)
+
+        let held = Task { await model.toggleSort(column: "label", index: 1) }
+        await waitUntil { gate.reached }
+
+        service.fail(DatabaseQuery.tableListing.sql, with: DatabaseError.busy(message: "database is locked"))
+        await model.refreshAfterWrite()
+        gate.release()
+        await held.value
+
+        XCTAssertEqual(model.errorMessage, "database is locked")
+        XCTAssertFalse(model.isLoadingRows, "A refresh that never reached its re-selection still owes the spinner")
+    }
+
     func testACommittedConsoleMutationRefreshesTheTabThroughTheWiredClosure() async {
         let service = ScriptedDatabaseService()
         let text = "DROP TABLE items"
