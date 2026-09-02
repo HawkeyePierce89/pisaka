@@ -271,11 +271,27 @@ public final class DatabaseConsoleModel: ObservableObject {
     /// changed, so there is nothing to explain. Pressing Run again re-classifies
     /// the text against the database that is actually there, which is the only
     /// honest answer available. Not latched — unlike `stop()`, the tab is still
-    /// alive and its next run must work — but the token *is* bumped, so a
-    /// confirmation that had already been sent finds itself superseded rather
-    /// than publishing over what the reload is about to show.
+    /// alive and its next run must work.
+    ///
+    /// **The token is bumped unconditionally, and that is the half a prompt
+    /// still on screen does not cover.** A confirmation the reader already
+    /// answered is gone from `pendingConfirmation` the synchronous instant
+    /// `confirm()` starts, while the mutation it authorised is still in flight
+    /// against the file the reload replaced — which is precisely the case worth
+    /// superseding. Asking whether a prompt is showing would skip it, so nothing
+    /// is asked: the bump costs a run that had nothing to publish anyway, and it
+    /// stops an in-flight write's footer, its row count and its
+    /// `refreshAfterWrite()` from landing over what the reload is about to
+    /// publish. `didWrite()` is deliberately still told from `confirm()` — the
+    /// file on disk changed whatever this tab now shows.
+    ///
+    /// `isRunning` comes down here for the same reason. `confirm()` lowers it
+    /// only for the run that is still current, leaving it to whichever *newer
+    /// run* raised it; an invalidation raises nothing, so the flag has no other
+    /// owner. Run stays disabled meanwhile through the tab's `isWriteInFlight`,
+    /// which reads `isWriting` — and that flag is lowered by `confirm()` on
+    /// every path, superseded included.
     public func invalidatePendingConfirmation() {
-        guard pendingConfirmation != nil else { return }
         generation += 1
         pendingConfirmation = nil
         isRunning = false

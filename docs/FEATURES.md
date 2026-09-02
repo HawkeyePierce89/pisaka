@@ -1522,8 +1522,9 @@ and iPhone. The feature scope landed so far:
   The console's own limits: a mutating batch reports its affected-row count and
   shows no rows; a read batch is not one snapshot (its statements run one after
   another, so a database another process is writing can change between two of
-  them); an `ATTACH` typed on its own runs on the tab's read-only connection and
-  stays attached until the tab closes, and nothing can be written through it; and
+  them); `ATTACH` is refused — the console is one tab, one database — and a
+  connection setting a `PRAGMA` changes (other than the locking mode, which is
+  put back) lasts until the tab is closed and reopened; and
   there is no query history, no saved queries and no syntax highlighting in the
   input. Binary (blob) cells, views,
   generated columns and tables with no row id and no primary key cannot be

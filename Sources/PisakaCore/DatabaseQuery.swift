@@ -335,4 +335,35 @@ public enum DatabaseQuery {
     /// answers a row of `-1`s rather than failing, so it costs a rollback-journal
     /// database one statement and nothing else.
     public static let walCheckpoint = DatabaseStatement("PRAGMA wal_checkpoint(FULL)")
+
+    /// Put the tab's own connection back into ordinary locking, after a console
+    /// read has run whatever the reader typed.
+    ///
+    /// Seam rule 6, and the same shape as rules 4 and 5: a statement SQLite
+    /// reports **read-only** — `sqlite3_stmt_readonly` is true for a `PRAGMA`
+    /// that changes the *connection* rather than any file's content — runs on the
+    /// handle the tab keeps for the rest of its life, and what it set stays set.
+    /// `locking_mode = EXCLUSIVE` is the one member of that family that does more
+    /// than colour later answers: the connection takes the file's lock at its
+    /// next read and never gives it back, so the tab's own next write — a cell
+    /// edit or a console mutation, each on a short-lived read-write connection of
+    /// its own — waits the busy timeout out and fails with "database is locked",
+    /// for the life of the tab, and every other process is shut out of the file
+    /// meanwhile.
+    ///
+    /// Asked of the library rather than of the text, exactly as `ATTACH` is: no
+    /// one here parses the reader's SQL to find out whether it set anything. The
+    /// pragma is run unconditionally after every console read, where it is a
+    /// no-op for the overwhelming majority that set nothing. Returning to
+    /// `NORMAL` does not itself drop a lock already held — SQLite releases it at
+    /// the next read of the file, which the grid beside the console is about to
+    /// do — so the recovery is one page turn away rather than one tab close.
+    ///
+    /// The rest of that family is a **named known limit** and not fixed here: a
+    /// `PRAGMA case_sensitive_like` or `cache_size` typed into the console
+    /// outlives its run on the tab's connection. Those change what later answers
+    /// say, not whether the tab can write at all, and enumerating every
+    /// connection-scoped pragma to reset would be this layer second-guessing
+    /// SQLite's surface — the thing decision 1 forbids.
+    public static let lockingModeNormal = DatabaseStatement("PRAGMA locking_mode = NORMAL")
 }

@@ -85,6 +85,15 @@ struct DatabaseConsoleView: View {
         // SwiftUI presents from. The macOS 13 `onChange(of:perform:)` overload,
         // the repository's idiom.
         .onChange(of: console.pendingConfirmation) { pending in isConfirming = pending != nil }
+        // And once on the way in, because `onChange` fires on a *change* and a
+        // rebuild is not one. `DatabaseViewerHost` keys the viewer on the tab's
+        // id, so switching windows to another tab tears this pane down while the
+        // model behind it survives: a confirmation left waiting would come back
+        // with `isConfirming` reset to `false`, the ask still on the model, and
+        // no change left to fire — unanswerable until the next Run replaced it.
+        // Seeding here re-presents it, which is the only honest end for a
+        // question the reader was already being asked.
+        .onAppear { isConfirming = console.pendingConfirmation != nil }
     }
 
     // MARK: - Running

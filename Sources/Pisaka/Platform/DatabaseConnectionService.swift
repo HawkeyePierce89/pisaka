@@ -437,9 +437,16 @@ actor DatabaseConnectionService: DatabaseServicing {
     /// an earlier answer stands.
     func runConsoleRead(_ text: String, rowLimit: Int) async throws -> DatabaseConsoleAnswer {
         guard let handle else { throw DatabaseError.closed }
-        // Seam rule 4, and on this connection it is the load-bearing half: the
-        // tab keeps reading through this handle for the rest of its life.
-        defer { restoreAutocommit(on: handle) }
+        // Seam rules 4 and 6, and on this connection both are the load-bearing
+        // half: the tab keeps reading through this handle for the rest of its
+        // life, so what the reader's text left on it is left on it for good.
+        // Rule 6 runs after rule 4 because it is the cheaper claim of the two —
+        // an open transaction is what a stray `BEGIN` leaves, and the pragma is a
+        // no-op for every text that set no locking mode.
+        defer {
+            restoreAutocommit(on: handle)
+            _ = try? execute(DatabaseQuery.lockingModeNormal, on: handle)
+        }
 
         let limit = max(0, rowLimit)
         var answer = DatabaseConsoleAnswer()

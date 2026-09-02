@@ -586,6 +586,43 @@ final class DatabaseConsoleModelTests: XCTestCase {
         XCTAssertNil(model.message, "Nothing ran and nothing changed, so there is nothing to explain")
     }
 
+    /// The half a prompt on screen does not cover: `confirm()` clears
+    /// `pendingConfirmation` synchronously, so an authorised mutation is in
+    /// flight with nothing left to invalidate — and it is exactly the run whose
+    /// answer describes the file the reload replaced.
+    func testInvalidationSupersedesAConsoleMutationAlreadyInFlight() async {
+        let service = ScriptedDatabaseService()
+        let text = "DELETE FROM items"
+        let gate = Gate()
+        var didWriteCount = 0
+        var refreshCount = 0
+        service.serveClassification(text, kinds: [.write])
+        service.serveCommittedConsoleWrite(affectedRows: 7)
+        service.holdConsoleWrite(on: gate)
+        let model = await openedConsole(
+            service,
+            didWrite: { didWriteCount += 1 },
+            refreshAfterWrite: { refreshCount += 1 }
+        )
+
+        await model.run(text)
+        let write = Task { await model.confirm() }
+        await waitUntil { gate.reached }
+        XCTAssertNil(model.pendingConfirmation, "Staging: the prompt is already answered and the write is in flight")
+
+        model.invalidatePendingConfirmation()
+        gate.release()
+        await write.value
+
+        XCTAssertNil(model.footer, "A superseded run publishes nothing over what the reload is about to show")
+        XCTAssertNil(model.affectedRows)
+        XCTAssertNil(model.message)
+        XCTAssertEqual(refreshCount, 0, "The reload owns the re-read; a superseded write must not race it")
+        XCTAssertEqual(didWriteCount, 1, "The file on disk changed whatever this tab now shows")
+        XCTAssertFalse(model.isRunning, "The invalidation owns the flag it took no run to raise")
+        XCTAssertFalse(model.isWriting, "Lowered on every path, superseded included")
+    }
+
     /// Not latched, unlike `stop()`: the tab is still alive, and the honest
     /// answer to a replaced file is that pressing Run re-classifies the text.
     func testInvalidationLeavesTheConsoleAbleToRunAgain() async {

@@ -695,7 +695,17 @@ only *consults* one, before each of its two writes.
   Silent, for `cancel()`'s reason (nothing ran and nothing changed, so there is
   nothing to explain), and **not latched** the way `stop()` is: the tab is alive
   and pressing Run re-classifies the text against the database that is actually
-  there, which is the only honest answer available. A re-open that fails leaves the tab as
+  there, which is the only honest answer available. The token is bumped
+  **unconditionally**, which is the half a prompt still on screen does not cover:
+  `confirm()` clears `pendingConfirmation` the synchronous instant it starts, so
+  a mutation the reader already authorised is in flight with no prompt left to
+  drop — and that run is precisely the one whose footer, row count and
+  `refreshAfterWrite()` would otherwise land over what the reload is about to
+  publish. Asking whether a prompt is showing would skip it, so nothing is asked;
+  the bump costs a run that had nothing to publish anyway. `didWrite()` is still
+  told from `confirm()`, superseded or not, for that method's stated reason.
+  `isRunning` comes down here too, since an invalidation raises no run of its own
+  to lower it later, and Run stays disabled meanwhile through `isWriteInFlight`. A re-open that fails leaves the tab as
   it was under the banner explaining why, rather than re-selecting into a closed connection and
   replacing the open's message with a second one about a statement. **That
   re-selection is recorded, not read off the reconnect's own `load()`**
@@ -1549,12 +1559,18 @@ seam.
   is handled only where it has to be: it is *detected* (by probe) and its rows
   are addressed by their declared primary key, and nothing else about it is
   special-cased.
-- **`ATTACH`/`DETACH` in the console are not special-cased.** SQLite reports them
-  read-only, so one typed alone runs on the tab's own read connection and the
-  attachment lasts the life of the tab. The attached database inherits that
-  connection's read-only flag, so nothing can be written through it, and closing
-  the tab drops it. One inside a mutating batch lives and dies with the
-  short-lived write connection that batch runs on.
+- **`ATTACH` in the console is refused, on both connections** (seam rule 5), by
+  lowering SQLite's own `SQLITE_LIMIT_ATTACHED` to zero when each is opened. The
+  refusal is SQLite's own sentence — "too many attached databases" — and it
+  arrives when the statement runs, since nothing here parses the reader's text to
+  find one. The console is one tab, one database. `DETACH` is left alone and has
+  nothing to detach.
+- **A connection-scoped `PRAGMA` typed into the console outlives its run**, on
+  the handle the tab reads through for the rest of its life — SQLite reports such
+  a pragma read-only, so it runs there. `locking_mode` is the one member reset
+  (seam rule 6), because it is the one that stops the tab writing at all rather
+  than only colouring what later reads say. `case_sensitive_like`, `cache_size`
+  and the rest stay set until the tab is closed and reopened.
 - **A mutating batch shows no rows.** It reports its affected-row total and
   nothing else, which the confirmation says before it runs: rows a `SELECT` or an
   `INSERT … RETURNING` inside the batch produced are stepped (a statement nobody
@@ -1683,15 +1699,22 @@ and the console arrived beside them.
    equality and this file is deliberately not in it, so the decision is asserted
    rather than remembered.
 
-4. **`ATTACH`/`DETACH` are a named known limit, not a special case.**
-   `sqlite3_stmt_readonly` reports them read-only, so an `ATTACH` typed alone
-   runs on the tab's own read connection and stays attached for the life of the
-   tab. Nothing can be written through it — the attached database inherits the
-   connection's read-only flag — and closing the tab drops the attachment, so the
-   honest move is one sentence in the limits list rather than a classifier of our
-   own second-guessing SQLite, which is exactly what decision 1 forbids. An
-   `ATTACH` inside a mutating batch is unaffected: that batch runs on the
-   short-lived read-write connection, which is closed when it returns.
+4. **`ATTACH` is refused rather than carried as a named limit.** This entry
+   first read the other way — one sentence in the limits list, on the grounds
+   that an attachment inherits the read connection's read-only flag and dies with
+   the tab — and that was too small an answer to what the leak actually is.
+   `sqlite3_stmt_readonly` reports an `ATTACH` **read-only** (it changes the
+   connection's configuration, not any file's content), so a text consisting of
+   one classifies as a read, runs on the handle the tab keeps for the rest of its
+   life, and resolves names for every later console read against a schema the
+   grid beside it knows nothing about; inside a mutating batch it is sharper
+   still, since the reader was asked about *this* database while the statements
+   after the attach could write another file entirely. Seam rule 5 is what
+   replaced it, and it does not cost the classifier its promise: the limit is
+   asked of the library (`sqlite3_limit`), never of the text, so nothing here
+   second-guesses SQLite about what a statement is — the thing decision 1
+   forbids. Seam rule 6 is the same reasoning reaching one member further, to
+   `PRAGMA locking_mode`.
 
 The **cap** is `DatabaseConsolePlan.rowLimit`, 500, and it is deliberately not
 `DatabasePage.defaultSize`. The grid pages because a page is something the reader
@@ -1804,6 +1827,22 @@ batch may be stepped to).
    rather than assumed. Asked of the library, never of the text: nothing parses
    the reader's SQL, and the refusal arrives as SQLite's own sentence when the
    statement runs.
+6. **A console read puts `PRAGMA locking_mode` back to `NORMAL`** on the tab's
+   own connection, in the same `defer` as rule 4 and for rule 5's reason read one
+   member further. `locking_mode = EXCLUSIVE` is read-only by
+   `sqlite3_stmt_readonly` and connection-scoped, so a text consisting of one
+   runs on the handle the tab keeps for life and makes it take the file's lock at
+   its next read and never give it back — after which the tab's *own* next write,
+   on a short-lived read-write connection of its own, waits the busy timeout out
+   and fails with "database is locked" for the rest of the tab's life, with every
+   other process shut out of the file meanwhile. Run unconditionally, a no-op for
+   the texts that set nothing; returning to `NORMAL` releases the lock at the
+   next read of the file, which the grid is about to do. The **rest** of that
+   family is a named known limit and not fixed: `case_sensitive_like`,
+   `cache_size` and their like outlive their run on the tab's connection and
+   change what later answers *say* rather than whether the tab can write at all,
+   and enumerating every connection-scoped pragma to reset would be exactly the
+   second-guessing of SQLite's surface that decision 1 forbids.
 
 The app half (`DatabaseConnectionService`) satisfies all three members through
 **one private prepare-by-tail loop**, `enumerateStatements(in:on:…)` — the
