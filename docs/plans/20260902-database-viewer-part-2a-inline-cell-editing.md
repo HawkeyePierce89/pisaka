@@ -396,19 +396,19 @@ on its own.
 
 ### Task 10: Update documentation
 
-- [ ] rewrite `docs/architecture/core-database-viewer.md`'s "What part 2 adds"
+- [x] rewrite `docs/architecture/core-database-viewer.md`'s "What part 2 adds"
       into the real part 2a half: the ten decisions above with their reasoning
       (including *why* the rowid alias is the one unquoted name and what the
       quoted spelling silently does instead), one entry per new file, the amended
       entries for the seam, the query composer, the model and the connection
       service, the answered termination question, and a shortened note reserving
       the SQL console for part 2b
-- [ ] add the three new Core files' index lines to `CLAUDE.md` and amend the
+- [x] add the three new Core files' index lines to `CLAUDE.md` and amend the
       viewer invariant paragraph: the tab kind still can never be dirty, the
       viewer still never raises the writer gate — but it now *consults* it, its
       one write is a transactional cell update on a separate short-lived
       read-write connection, and the read connection stays read-only
-- [ ] note the editable grid in `README.md` / `docs/FEATURES.md` with the NULL
+- [x] note the editable grid in `README.md` / `docs/FEATURES.md` with the NULL
       gesture and what is not editable
 
 ## Post-Completion (manual, by the user)
