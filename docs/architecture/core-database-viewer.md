@@ -716,7 +716,15 @@ disk-writer gate and is never gated by it.
   gesture captured through `rowsToken`, so a page that landed between the
   keystroke and the task body turns the attempt into nothing rather than into a
   write aimed at whatever row now holds that coordinate — carrying *that* row's
-  identity and *that* row's previous value, and so committing), then the
+  identity and *that* row's previous value, and so committing), then a **page
+  still in flight** — which that token cannot see, because it was bumped before
+  that load's first hop and so a gesture made after it captured the very number
+  the check compares; the rows on screen are the ones that load is about to
+  replace, so the write is refused in the same words. The surface asks the same
+  question before it opens an editor (`isGridIdle`), but that is the grid keeping
+  a field from being opened over rows that are leaving, not the rule: a caller
+  that is not the grid inherits nothing from a view, so the refusal lives here.
+  Then the
   disk-writer gate (an operation rewriting the worktree may
   be replacing this very file), then the plan (a refusal is shown in its own
   words and **nothing is sent**), then "one write per tab" — a second edit
@@ -959,9 +967,12 @@ disk-writer gate and is never gated by it.
   traversal as the only route, and Tab reaches a non-text control only when the
   system's "Use keyboard navigation to move focus between controls" is on — off by
   default — so without the click the documented Return path would be dead on an
-  ordinary Mac. It is declared *after* the double-click, so the two-click gesture
-  still wins the disambiguation, and guarded by the same answer the cell is drawn
-  from, so focus is never armed over a refusal. A cell Core refuses is **drawn
+  ordinary Mac. It is declared *after* the double-click and guarded by the same answer the cell
+  is drawn from, so focus is never armed over a refusal — but it does **not**
+  rely on winning the disambiguation, because that arbitration is SwiftUI's and
+  unspecified: it closes only an editor open at a *different* coordinate, so a
+  single tap that fires after the double-click's `beginEditing` on the very same
+  cell leaves the field it just opened alone. A cell Core refuses is **drawn
   dimmed**, is not
   focusable — so Return cannot reach it either — carries the refusal's own
   sentence as its tooltip, and on a double-click hands the attempt to the model anyway, which is
@@ -980,7 +991,15 @@ disk-writer gate and is never gated by it.
   before its hop — and is not offered at all while a write or a load is in
   flight, because an editor opened over either would be typing into rows that no
   longer exist by the time Return arrives; the editing state is a *coordinate*
-  rather than a value, so this matters. The **single click also closes an editor
+  rather than a value, so this matters. That closing is **housekeeping, not the
+  safety property**: `onChange` is a per-render diff, so a load that raises and
+  lowers the flag between two renders never fires it. What makes an editor
+  outliving its rows harmless is that the rows token is captured when the field
+  **opens** (`editingToken`) rather than when Return is pressed — every
+  rows-replacing path bumps the generation before its first hop, so a load
+  starting under an open editor makes that token stale by construction and
+  `updateCell` refuses. Reading the token at the keystroke instead would have
+  made the whole guard depend on a render having happened in between. The **single click also closes an editor
   open somewhere else**, which is not tidiness: focus leaving a field is not a
   signal anything here sees, so without it the abandoned field would stay on
   screen unfocused with the editing coordinate still pointing at it — and since

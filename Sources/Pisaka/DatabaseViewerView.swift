@@ -46,6 +46,17 @@ struct DatabaseViewerView: View {
     /// same coordinates. Every path that replaces the rows raises
     /// `isLoadingRows` first, which is what closes it.
     @State private var editing: CellCoordinate?
+    /// The rows token as it stood when `editing` opened.
+    ///
+    /// The anchor for the write's staleness check is the moment the reader chose
+    /// the value they are editing, not the moment they press Return: every
+    /// rows-replacing path bumps the token before its first hop, so a load
+    /// starting under an open editor makes this stale by construction and the
+    /// write is refused. Reading the token at Return instead would leave that
+    /// property to `.onChange(of: model.isLoadingRows)` closing the editor first —
+    /// a per-render diff, which a load that raises and lowers the flag between two
+    /// renders never fires at all (`DatabaseViewerModel.rowsToken`).
+    @State private var editingToken: Int?
 
     /// What is in the open field, seeded from the cell and never trimmed —
     /// `DatabaseCellEntry` stores exactly what was typed, spaces included.
@@ -384,8 +395,15 @@ struct DatabaseViewerView: View {
             // Escape and every rows-replacing load give.
             .onTapGesture {
                 let mayFocus = refusal == nil && isGridIdle
-                // Before the focus is set, because `cancelEditing()` clears it.
-                if editing != nil { cancelEditing() }
+                // Before the focus is set, because `cancelEditing()` clears it —
+                // and only for an editor open somewhere *else*, which is the whole
+                // of what this is for. A cell being edited draws the field rather
+                // than this text, so `editing == coordinate` here is reachable only
+                // within the double-click SwiftUI has not re-rendered yet; closing
+                // it there would leave the feature's primary gesture opening an
+                // editor and shutting it again, and only when the arbitration
+                // happened to run the two handlers in that order.
+                if let editing, editing != coordinate { cancelEditing() }
                 if mayFocus { focus = .cell(coordinate) }
             }
             .contextMenu { cellMenu(value, at: coordinate, refusal: refusal) }
@@ -453,18 +471,22 @@ struct DatabaseViewerView: View {
             return
         }
         draft = value.isNull ? "" : value.displayText
+        // Captured here rather than at Return: see `editingToken`.
+        editingToken = model.rowsToken
         editing = coordinate
     }
 
     /// Return commits what is in the field. The editor closes first, so the row
     /// the write re-reads is drawn as a value rather than under a stale field.
     ///
-    /// The rows token is read here, in the keystroke, so a page landing before the
-    /// task body runs refuses the write rather than re-aiming it at whatever row
-    /// has taken this coordinate (`DatabaseViewerModel.rowsToken`).
+    /// The rows token is the one `beginEditing` captured, so any page that
+    /// replaced the rows between opening the field and this keystroke — landed or
+    /// still in flight — refuses the write rather than letting it be planned
+    /// against whatever row has taken this coordinate (`editingToken`,
+    /// `DatabaseViewerModel.rowsToken`).
     private func commitEditing(_ coordinate: CellCoordinate) {
         let typed = draft
-        let request = model.rowsToken
+        let request = editingToken ?? model.rowsToken
         cancelEditing()
         Task {
             await model.updateCell(
@@ -479,6 +501,7 @@ struct DatabaseViewerView: View {
     /// Escape — and every path that replaces the rows under an open editor.
     private func cancelEditing() {
         editing = nil
+        editingToken = nil
         draft = ""
         focus = nil
     }

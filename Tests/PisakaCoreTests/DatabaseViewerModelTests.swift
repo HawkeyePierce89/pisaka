@@ -1890,6 +1890,45 @@ final class DatabaseViewerModelTests: XCTestCase {
         XCTAssertFalse(isWriting)
     }
 
+    /// A page **still in flight** refuses the write, and the token cannot be what
+    /// refuses it.
+    ///
+    /// The load bumped the generation before its first hop, so a gesture made
+    /// after it captured the very number the staleness check compares — the two
+    /// are equal and that check passes. What is on screen is nonetheless the page
+    /// the load is about to replace, so planning against it would carry a row's
+    /// identity and previous value that nobody is looking at any more. The grid
+    /// asks the same question before it opens an editor, but a view is not where
+    /// the rule lives: this asserts the model refuses on its own.
+    func testAWriteArrivingWhileAPageIsInFlightIsRefusedAndSendsNothing() async {
+        let service = ScriptedDatabaseService()
+        var hookCount = 0
+        let model = await editableModel(service, didWrite: { hookCount += 1 })
+        service.serveCommittedWrite()
+
+        // A refresh of the table already shown: it re-reads the schema, the count
+        // and the page, and suspends inside that last read with the rows the
+        // reader is looking at still on screen.
+        let gate = Gate()
+        service.hold(pageSQL(table: "items", identity: .rowid), on: gate)
+        let held = Task { await model.select(table: "items", request: model.prepareForRowsChange()) }
+        await waitUntil { gate.reached }
+        XCTAssertTrue(model.isLoadingRows)
+
+        // The token a gesture would capture *now*, which is the load's own.
+        let request = model.rowsToken
+        await model.updateCell(row: 0, column: 1, entry: .typed("new"), request: request)
+
+        XCTAssertEqual(service.writeCount, 0, "Nothing is sent while the rows underneath are leaving")
+        XCTAssertEqual(hookCount, 0)
+        XCTAssertEqual(model.errorMessage, DatabaseEditRefusal.cellNotOnPage.message)
+        XCTAssertFalse(model.isWriting)
+
+        gate.release()
+        await held.value
+        XCTAssertEqual(model.rows, [[.integer(1), .text("old")]], "A refusal never blanks the page")
+    }
+
     /// The token the gesture actually captured still writes — the refusal above is
     /// about staleness, not about passing a token at all.
     func testAWriteCarryingTheCurrentRowsTokenIsSent() async {

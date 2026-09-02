@@ -757,13 +757,17 @@ public final class DatabaseViewerModel: ObservableObject {
     /// 1. **The page it was planned against.** `request` is the rows token the
     ///    gesture captured; a load that landed since owns a newer one and the
     ///    write is refused rather than re-aimed at the coordinate's new occupant.
-    /// 2. **The disk-writer gate.** An operation that is rewriting the worktree
+    /// 2. **A page in flight.** A load that has started but not landed owns the
+    ///    same token the gesture captured, so the check above cannot see it; the
+    ///    rows it is about to replace are the ones the write would be planned
+    ///    against, and it is refused for the same reason and in the same words.
+    /// 3. **The disk-writer gate.** An operation that is rewriting the worktree
     ///    may be replacing this very file, so an edit is refused while one is in
     ///    flight rather than raced against it.
-    /// 3. **The plan.** `DatabaseUpdatePlanner` decides whether the cell may be
+    /// 4. **The plan.** `DatabaseUpdatePlanner` decides whether the cell may be
     ///    written at all and composes the statement if it may; a refusal is shown
     ///    in its own words and **nothing is sent**.
-    /// 4. **One write per tab.** A second edit arriving while one is in flight is
+    /// 5. **One write per tab.** A second edit arriving while one is in flight is
     ///    refused, not queued: the plan behind it was composed against the page on
     ///    screen, whose values the first write may be in the middle of replacing.
     ///
@@ -789,6 +793,17 @@ public final class DatabaseViewerModel: ObservableObject {
         // occupies that coordinate — which would carry that row's identity and
         // that row's previous value, and so would commit.
         if let request, request != rowsGeneration {
+            setMessage(DatabaseEditRefusal.cellNotOnPage.message, from: .write)
+            return
+        }
+        // The token cannot see a load that is *still in flight*: it was bumped
+        // before that load's first hop, so a gesture made after it captured the
+        // same number this comparison reads. The rows on screen are nonetheless
+        // the ones that load is about to replace, so a write planned against them
+        // is refused here rather than left to whichever caller happened to check
+        // first — the surface asks the same question before it opens an editor,
+        // but a caller that is not the grid inherits nothing from that.
+        guard !isLoadingRows else {
             setMessage(DatabaseEditRefusal.cellNotOnPage.message, from: .write)
             return
         }
