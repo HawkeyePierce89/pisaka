@@ -1116,9 +1116,12 @@ user sees it.
     switching the window to another tab and back; closing the tab is what
     discards it.
   - A statement of your own that opens or commits a transaction is not
-    special-cased: `BEGIN` fails, because the batch is already inside one, and a
-    bare `COMMIT` partway through makes everything after it durable even if a
-    later statement fails. The tab re-reads the file after a failed mutation for
+    special-cased. In a mutating batch — the only kind that runs inside a
+    transaction of the app's own — `BEGIN` fails, because the batch is already
+    inside one, and a bare `COMMIT` partway through makes everything after it
+    durable even if a later statement fails. (An entirely read-only batch opens
+    no such transaction, so a `BEGIN` in one is simply run and then rolled back
+    with the rest of it, changing nothing either way.) The tab re-reads the file after a failed mutation for
     exactly that reason.
   - A run cannot be cancelled: the 500-row cap bounds what a read keeps, not how
     long a statement takes.

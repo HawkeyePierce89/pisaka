@@ -248,6 +248,14 @@ public final class DatabaseConsoleModel: ObservableObject {
             isRunning = false
         case .confirmWrite(let prompt):
             pendingConfirmation = PendingConfirmation(prompt: prompt, text: text)
+            // The previous run's failure goes with the run it explained. Every
+            // other decision settles this slot — a refusal and `nothingToRun`
+            // replace the sentence, a read clears it — and leaving it standing
+            // here alone would print a stale error under a prompt the reader is
+            // being asked to answer, and leave it as the only thing on screen if
+            // they cancel. The footer is the opposite case and stays: it still
+            // describes the result the table is still showing.
+            message = nil
             // Nothing is in flight while the reader reads the prompt, so the
             // spinner comes down and Run is live again — pressing it re-asks.
             isRunning = false
@@ -392,9 +400,12 @@ public final class DatabaseConsoleModel: ObservableObject {
             // reason: nothing but a confirmed console mutation ever raises it, so
             // the run that raised it is the only thing that can lower it. Left up,
             // the tab refuses every later write for its life. `isRunning` is the
-            // opposite case and is left to whichever run superseded this one —
-            // only `run(_:)` bumps the token, so a superseded confirmation means a
-            // newer run raised that flag for itself.
+            // opposite case and is left to whoever superseded this one, because
+            // both of the two things that can are already answering for it:
+            // `invalidatePendingConfirmation()` and `stop()` each lower the flag
+            // themselves. `run(_:)` is not a third — it returns on `isWriting`
+            // before it reaches the bump — so a confirmation in flight can only
+            // be superseded by a path that has already settled the spinner.
             isWriting = false
             let isCurrent = token == generation
             if isCurrent { isRunning = false }

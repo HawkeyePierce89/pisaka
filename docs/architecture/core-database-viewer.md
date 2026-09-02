@@ -1988,6 +1988,14 @@ all. A **failed run replaces nothing else**: the previous result, its footer and
 the last mutation's count all stand under the message, because they are still the
 last thing that actually happened.
 
+**Every decision settles the slot, the confirmation included.** A refusal and
+`nothingToRun` replace the sentence, a read clears it on success, and asking for
+a confirmation clears it too: the prompt is a new question about a different
+text, and a mutation the reader then *cancels* writes nothing at all, so a stale
+failure left standing would be the only thing on screen and would read as the
+answer to the Run just pressed. The footer is deliberately the opposite case and
+is not cleared there — it still describes the result the table is still showing.
+
 **`run(_:)` refuses a write already in flight too**, by the same two terms — the
 console's own `isWriting` and the tab's `isOtherWriteInFlight()`. The pane already
 disables Run for the whole of either write, but a rule the model owns must not be

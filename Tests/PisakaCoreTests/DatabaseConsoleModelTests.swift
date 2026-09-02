@@ -185,6 +185,35 @@ final class DatabaseConsoleModelTests: XCTestCase {
         XCTAssertFalse(model.isWriting)
     }
 
+    /// A confirmation settles the message slot like every other decision.
+    ///
+    /// The failed read below is what the line was explaining; the prompt is a new
+    /// question about a different text, and cancelling it writes nothing at all —
+    /// so a sentence left standing would be the only thing on screen and would
+    /// read as the answer to the Run that was just pressed. The footer is the
+    /// opposite case and is deliberately not cleared: it still describes the
+    /// result the table is still showing.
+    func testAskingForConfirmationClearsThePreviousRunsFailure() async {
+        let service = ScriptedDatabaseService()
+        let read = "SELECT * FROM gone"
+        service.serveClassification(read, kinds: [.read])
+        service.failConsoleRead(read, with: DatabaseError.sqlError(message: "no such table: gone"))
+        let delete = "DELETE FROM items"
+        service.serveClassification(delete, kinds: [.write])
+        let model = await openedConsole(service)
+
+        await model.run(read)
+        XCTAssertEqual(model.message, "no such table: gone", "Staging: the line is explaining the failed read")
+
+        await model.run(delete)
+
+        XCTAssertNotNil(model.pendingConfirmation)
+        XCTAssertNil(model.message, "The previous run's failure goes with the run it explained")
+
+        model.cancel()
+        XCTAssertNil(model.message, "…and saying no leaves nothing standing either")
+    }
+
     func testDecliningRunsNothingAndSendsNothing() async {
         let service = ScriptedDatabaseService()
         let text = "DROP TABLE items"
