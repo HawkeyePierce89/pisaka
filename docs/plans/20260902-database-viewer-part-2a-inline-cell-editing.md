@@ -201,26 +201,26 @@ on its own.
 - Create: `Tests/PisakaCoreTests/DatabaseRowIdentityTests.swift`
 - Modify: `Tests/PisakaCoreTests/DatabaseQueryTests.swift`
 
-- [ ] add the three bare alias spellings as a `DatabaseQuery` constant with
+- [x] add the three bare alias spellings as a `DatabaseQuery` constant with
       decision 3's reasoning written at it: the one name never passed through
       `quoted(_:)`, a closed set of three literals, never user input
-- [ ] add `DatabaseRowIdentity`: the strategy (`rowid(spelling)` /
+- [x] add `DatabaseRowIdentity`: the strategy (`rowid(spelling)` /
       `primaryKey(columns)` / `unavailable(reason)`) resolved from the entry kind,
       the columns and the probe's answer, per decisions 2, 3 and 4 — including
       the rule that every key column must resolve to exactly one answered column
       by name
-- [ ] add `DatabaseQuery.rowIdProbe(table:)` (`SELECT rowid FROM "t" LIMIT ?`
+- [x] add `DatabaseQuery.rowIdProbe(table:)` (`SELECT rowid FROM "t" LIMIT ?`
       bound to zero) and extend `DatabaseQuery.page(…)` with the optional trailing
       identity column, leaving the sort ordinal, the `LIMIT`/`OFFSET` binding and
       the floors exactly as they are
-- [ ] write tests: strategy for a plain table, a view, a `WITHOUT ROWID` table
+- [x] write tests: strategy for a plain table, a view, a `WITHOUT ROWID` table
       with a single and with a composite key, each of the three spellings shadowed
       in turn (and all three shadowed), a key column absent from the answer, a key
       column whose name matches two answered columns; **the byte-for-byte SQL of
       the probe and of the identity-carrying page**, asserting the alias appears
       bare and unquoted (sorted and unsorted, with the ordinal proven unchanged by
       the appended column)
-- [ ] run `swift test` — must pass before task 3
+- [x] run `swift test` — must pass before task 3
 
 ### Task 3: The update-plan engine and its refusals
 

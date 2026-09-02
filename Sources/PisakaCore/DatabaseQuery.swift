@@ -1,5 +1,24 @@
 import Foundation
 
+/// One of SQLite's three spellings of a rowid table's implicit key column.
+///
+/// A closed type rather than a `String` for one reason, and it is the same
+/// reason `DatabaseQuery` exists at all: these three names are the **only**
+/// identifiers this file ever splices *unquoted*, so nothing that could carry a
+/// reader's text may ever reach that splice. A case cannot; a `String`
+/// parameter could, one refactor later.
+///
+/// The three are interchangeable to SQLite — until a table declares a column of
+/// its own by one of those names, which **shadows** that spelling for that table
+/// while the other two go on answering the true rowid. Which of them a given
+/// table can be addressed by is therefore a fact about its schema, decided by
+/// `DatabaseRowIdentity`, not something a query composer may assume.
+public enum DatabaseRowIdAlias: String, Equatable, Hashable, Sendable, CaseIterable {
+    case rowid
+    case underscored = "_rowid_"
+    case oid
+}
+
 /// The only thing in the repository that writes SQL.
 ///
 /// Every byte the database viewer sends is composed here and asserted
@@ -27,6 +46,28 @@ public enum DatabaseQuery {
     public static func quoted(_ identifier: String) -> String {
         "\"" + identifier.replacingOccurrences(of: "\"", with: "\"\"") + "\""
     }
+
+    /// The three spellings of the rowid alias, in the order the identity engine
+    /// prefers them — **the one name in this file that is never quoted**.
+    ///
+    /// Everything else spliced here goes through `quoted(_:)`, and it must; this
+    /// is the stated exception, and the exception is what makes the feature
+    /// correct rather than merely tidy. SQLite's double-quoted-string
+    /// misfeature says that a double-quoted identifier which resolves to nothing
+    /// is re-read as a string *literal*: `SELECT "rowid" FROM w LIMIT 0` against
+    /// a `WITHOUT ROWID` table therefore **succeeds**, answering the four
+    /// characters `rowid`. Quoted, the rowid probe would classify every
+    /// `WITHOUT ROWID` table as rowid-addressable, carry the literal text
+    /// `'rowid'` as every row's identity, and make every edit report that the row
+    /// changed underneath the reader. Bare, all three spellings fail honestly
+    /// with `no such column: rowid`, which is the answer the probe is asking for.
+    ///
+    /// The exception is safe because the set is **closed and chosen here**: three
+    /// literals of this file's own, spliced from a `CaseIterable` enum's raw
+    /// values and never from anything a reader typed. `DatabaseQueryTests`
+    /// asserts the bare spelling byte-for-byte, so a later tidy-up that routed
+    /// these through `quoted(_:)` fails the suite instead of the user's edit.
+    public static let rowIdAliases = DatabaseRowIdAlias.allCases.map(\.rawValue)
 
     /// Every table and view the viewer lists.
     ///
@@ -86,6 +127,27 @@ public enum DatabaseQuery {
         )
     }
 
+    /// Whether this table can be addressed by rowid at all, asked as a statement
+    /// SQLite answers.
+    ///
+    /// `SELECT rowid FROM "t" LIMIT ?` bound to zero: it prepares, learns
+    /// nothing, and steps straight to done on a rowid table; on a
+    /// `WITHOUT ROWID` table it fails **at prepare** with SQLite's own
+    /// `no such column: rowid`. One prepare, no rows, no version floor — and it
+    /// asks the question the feature actually has ("can I address a row here?")
+    /// rather than the schema trivia `PRAGMA table_list.wr` reports.
+    ///
+    /// The alias is spliced bare (see `rowIdAliases`) and the table name quoted,
+    /// like everywhere else. `alias` is whichever spelling the table does not
+    /// shadow — `DatabaseRowIdentity.probeAlias(columns:)` picks it — because a
+    /// probe of a shadowed spelling answers about the declared column instead.
+    public static func rowIdProbe(table: String, alias: DatabaseRowIdAlias = .rowid) -> DatabaseStatement {
+        DatabaseStatement(
+            "SELECT \(alias.rawValue) FROM \(quoted(table)) LIMIT ?",
+            parameters: [.integer(0)]
+        )
+    }
+
     /// One page of a table or view, optionally sorted.
     ///
     /// `limit` and `offset` are **bound**, and both are floored at zero. The floor
@@ -103,14 +165,31 @@ public enum DatabaseQuery {
     /// it is 1-based, so `orderByColumnIndex` (the grid's zero-based position) has
     /// one added to it here. An ordinal is a number, not an identifier, so nothing
     /// is spliced and `quoted(_:)` has one caller fewer.
+    ///
+    /// `identityAlias` appends the rowid alias as a **trailing** result column
+    /// (`SELECT *, rowid FROM "t"`), which is how a row the reader edits is
+    /// addressed later. Trailing, and never anywhere else, for three reasons that
+    /// are one reason: every 1-based `ORDER BY` ordinal, every grid column
+    /// position and the shape probe's answer all go on meaning exactly what they
+    /// meant without it. The model splits the extra column off **by position and
+    /// count** before publishing, so the grid shows no column nobody asked for —
+    /// by position because the trailing column's *name* is not dependable:
+    /// against a table with an `INTEGER PRIMARY KEY` alias, SQLite answers it
+    /// under the alias column's own name (`SELECT *, rowid FROM r` answers
+    /// `id|v|id`), and only where no such alias exists is it called `rowid`.
     public static func page(
         table: String,
         orderByColumnIndex column: Int? = nil,
         ascending: Bool = true,
         limit: Int,
-        offset: Int
+        offset: Int,
+        identityAlias: DatabaseRowIdAlias? = nil
     ) -> DatabaseStatement {
-        var sql = "SELECT * FROM \(quoted(table))"
+        var sql = "SELECT *"
+        if let identityAlias {
+            sql += ", \(identityAlias.rawValue)"
+        }
+        sql += " FROM \(quoted(table))"
         if let column, column >= 0 {
             sql += " ORDER BY \(column + 1) \(ascending ? "ASC" : "DESC")"
         }

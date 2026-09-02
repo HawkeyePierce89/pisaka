@@ -132,6 +132,60 @@ final class DatabaseQueryTests: XCTestCase {
         )
     }
 
+    // MARK: - The rowid probe
+
+    /// One prepare, zero rows: the limit is bound to zero exactly as the shape
+    /// probe's is, so a rowid table answers nothing and a `WITHOUT ROWID` table
+    /// fails at prepare with SQLite's own `no such column: rowid`.
+    func testRowIdProbeAsksForNoRows() {
+        XCTAssertEqual(
+            DatabaseQuery.rowIdProbe(table: "albums"),
+            DatabaseStatement("SELECT rowid FROM \"albums\" LIMIT ?", parameters: [.integer(0)])
+        )
+    }
+
+    /// **The one unquoted name in the file.** Quoted, SQLite's
+    /// double-quoted-string fallback re-reads an unresolved identifier as a
+    /// string literal, so the probe would succeed against every `WITHOUT ROWID`
+    /// table and answer the text `rowid` — classifying it as addressable and
+    /// making every edit report that the row changed underneath the reader.
+    func testRowIdProbeSplicesTheAliasBare() {
+        let sql = DatabaseQuery.rowIdProbe(table: "albums").sql
+
+        XCTAssertTrue(sql.hasPrefix("SELECT rowid FROM "), sql)
+        XCTAssertFalse(sql.contains("\"rowid\""), sql)
+        XCTAssertFalse(sql.contains(DatabaseQuery.quoted("rowid")), sql)
+    }
+
+    /// The other two spellings, spliced the same way — the one a table shadowing
+    /// `rowid` is probed with.
+    func testRowIdProbeSplicesEachSpellingBare() {
+        XCTAssertEqual(
+            DatabaseQuery.rowIdProbe(table: "t", alias: .underscored).sql,
+            "SELECT _rowid_ FROM \"t\" LIMIT ?"
+        )
+        XCTAssertEqual(
+            DatabaseQuery.rowIdProbe(table: "t", alias: .oid).sql,
+            "SELECT oid FROM \"t\" LIMIT ?"
+        )
+    }
+
+    /// The table name is not the alias: it is spliced and therefore quoted, so a
+    /// name carrying a quote closes nothing.
+    func testRowIdProbeQuotesTheTableName() {
+        XCTAssertEqual(
+            DatabaseQuery.rowIdProbe(table: "od\"d; --").sql,
+            "SELECT rowid FROM \"od\"\"d; --\" LIMIT ?"
+        )
+    }
+
+    /// A closed set of three, in the order the identity engine prefers them —
+    /// and the constant is the enum's own raw values, so the two cannot drift.
+    func testTheAliasSetIsClosedAtThreeSpellings() {
+        XCTAssertEqual(DatabaseQuery.rowIdAliases, ["rowid", "_rowid_", "oid"])
+        XCTAssertEqual(DatabaseRowIdAlias.allCases.map(\.rawValue), DatabaseQuery.rowIdAliases)
+    }
+
     // MARK: - The page
 
     func testUnsortedPageIsBoundedAndBound() {
@@ -203,5 +257,82 @@ final class DatabaseQueryTests: XCTestCase {
         XCTAssertFalse(statement.sql.contains("400"))
         XCTAssertEqual(statement.parameters, [.integer(100), .integer(400)])
         XCTAssertEqual(statement.sql.filter { $0 == "?" }.count, statement.parameters.count)
+    }
+
+    // MARK: - The page's identity column
+
+    /// The identity column is appended **last**, so the grid's columns are the
+    /// first `n` of the answer and the split is by position and count.
+    func testAnIdentityCarryingPageAppendsTheAliasLast() {
+        XCTAssertEqual(
+            DatabaseQuery.page(table: "albums", limit: 100, offset: 0, identityAlias: .rowid),
+            DatabaseStatement(
+                "SELECT *, rowid FROM \"albums\" LIMIT ? OFFSET ?",
+                parameters: [.integer(100), .integer(0)]
+            )
+        )
+    }
+
+    /// Bare here too, and for the same reason it is bare in the probe: quoted, it
+    /// would silently become the string `rowid` in every row.
+    func testTheIdentityColumnIsSplicedBare() {
+        let sql = DatabaseQuery.page(table: "albums", limit: 1, offset: 0, identityAlias: .rowid).sql
+
+        XCTAssertTrue(sql.hasPrefix("SELECT *, rowid FROM "), sql)
+        XCTAssertFalse(sql.contains("\"rowid\""), sql)
+        XCTAssertEqual(
+            DatabaseQuery.page(table: "t", limit: 1, offset: 0, identityAlias: .underscored).sql,
+            "SELECT *, _rowid_ FROM \"t\" LIMIT ? OFFSET ?"
+        )
+        XCTAssertEqual(
+            DatabaseQuery.page(table: "t", limit: 1, offset: 0, identityAlias: .oid).sql,
+            "SELECT *, oid FROM \"t\" LIMIT ? OFFSET ?"
+        )
+    }
+
+    /// The whole point of appending it last: the sort ordinal goes on pointing at
+    /// the column the grid drew, byte-for-byte the same `ORDER BY` as without it.
+    func testTheAppendedColumnLeavesTheSortOrdinalAlone() {
+        let sorted = DatabaseQuery.page(
+            table: "albums",
+            orderByColumnIndex: 2,
+            ascending: false,
+            limit: 50,
+            offset: 150,
+            identityAlias: .rowid
+        )
+
+        XCTAssertEqual(
+            sorted,
+            DatabaseStatement(
+                "SELECT *, rowid FROM \"albums\" ORDER BY 3 DESC LIMIT ? OFFSET ?",
+                parameters: [.integer(50), .integer(150)]
+            )
+        )
+        let unsorted = DatabaseQuery.page(table: "albums", orderByColumnIndex: 2, ascending: false, limit: 50, offset: 150)
+        XCTAssertEqual(
+            sorted.sql.replacingOccurrences(of: "SELECT *, rowid", with: "SELECT *"),
+            unsorted.sql
+        )
+        XCTAssertEqual(sorted.parameters, unsorted.parameters)
+    }
+
+    /// No alias is part 1's statement, unchanged — the default that keeps every
+    /// existing call site meaning what it meant.
+    func testNoIdentityAliasIsPartOnesStatement() {
+        XCTAssertEqual(
+            DatabaseQuery.page(table: "albums", limit: 10, offset: 0, identityAlias: nil),
+            DatabaseQuery.page(table: "albums", limit: 10, offset: 0)
+        )
+        XCTAssertFalse(DatabaseQuery.page(table: "albums", limit: 10, offset: 0).sql.contains("rowid"))
+    }
+
+    /// The bounds stay bound with the identity column present: nothing about the
+    /// floors or the parameter list moved.
+    func testAnIdentityCarryingPageStillBindsItsBounds() {
+        let statement = DatabaseQuery.page(table: "albums", limit: -1, offset: -10, identityAlias: .oid)
+
+        XCTAssertEqual(statement.parameters, [.integer(0), .integer(0)])
+        XCTAssertEqual(statement.sql.filter { $0 == "?" }.count, 2)
     }
 }
