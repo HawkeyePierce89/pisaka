@@ -156,6 +156,24 @@ public final class DatabaseViewerModel: ObservableObject {
     /// replacing.
     @Published public private(set) var isWriting = false
 
+    /// The SQL console under this tab's grid.
+    ///
+    /// Owned rather than observed: one console per tab because a console runs on
+    /// the tab's own read connection and a connection is one file. It is not
+    /// `@Published` — it never changes identity, and the surface observes the
+    /// console itself for the state that does.
+    public let console: DatabaseConsoleModel
+
+    /// Whether **any** write to this database is in flight — the grid's cell edit
+    /// or the console's confirmed mutation.
+    ///
+    /// What the paging buttons and the sort headers disable on, which is why it
+    /// is one question rather than two the surface has to remember to ask both
+    /// of: a page turn landing in the middle of a console batch would publish
+    /// rows out of a half-applied transaction, and one landing during a cell edit
+    /// would move the page the edit was planned against.
+    public var isWriteInFlight: Bool { isWriting || console.isWriting }
+
     /// The database this tab is showing — the URL the tab was opened with,
     /// spelled as the user spelled it.
     ///
@@ -298,6 +316,21 @@ public final class DatabaseViewerModel: ObservableObject {
         self.page = DatabasePage(size: pageSize)
         self.isWriteBlocked = isWriteBlocked
         self.didWrite = didWrite
+        // The console shares this tab's connection, and its four remaining
+        // closures are wired in the line below rather than here: they capture
+        // `self`, which is not available until every stored property is in place.
+        self.console = DatabaseConsoleModel(service: service, fileURL: { fileURL })
+        console.connect(
+            // Asked of the model rather than copied, so a rename the tab followed
+            // (`retarget(to:)`, `reload(at:)`) is followed by the console for free.
+            fileURL: { [weak self] in self?.fileURL ?? fileURL },
+            isWriteBlocked: isWriteBlocked,
+            // One write per tab: the console can see its own, and this is the
+            // other half — the grid's cell edit.
+            isOtherWriteInFlight: { [weak self] in self?.isWriting ?? false },
+            didWrite: didWrite,
+            refreshAfterWrite: { [weak self] in await self?.refreshAfterWrite() }
+        )
     }
 
     // MARK: - Loading
@@ -601,6 +634,33 @@ public final class DatabaseViewerModel: ObservableObject {
         await load()
     }
 
+    /// Re-read everything the file now says, after a console mutation committed.
+    ///
+    /// `reload(at:)`'s smaller sibling, and deliberately not it: a console write
+    /// does not replace the file's inode, so the connection this tab holds is
+    /// still answering out of the same database and re-opening it would be a
+    /// close and an open for nothing. What *has* changed is what is in it — a
+    /// batch may have created a table, dropped the selected one, or rewritten
+    /// every row of it — so the listing is re-read and the selection put back.
+    ///
+    /// The rows token is bumped **synchronously**, ahead of the hop, for
+    /// `prepareForRowsChange()`'s reason: a page load already in flight was aimed
+    /// at the database as it was before the batch, and it must not land over what
+    /// this is about to publish.
+    ///
+    /// The re-selection then goes through the one path that already knows both
+    /// answers (`reselectIfPending()`): a table the new listing still holds is
+    /// re-selected as a *refresh*, so the sort and the page index survive while
+    /// the schema, the identity, the count and the page are all re-queried; a
+    /// table it no longer holds lands exactly where a reload that lost its table
+    /// lands, rows and message cleared together.
+    public func refreshAfterWrite() async {
+        guard !isClosed else { return }
+        prepareForRowsChange()
+        pendingReselection = selectedTable
+        await load()
+    }
+
     /// Put a reconnect's selection back, once there is a listing to put it back
     /// against — see `pendingReselection` for why this is not something `reload`
     /// can do for itself when its own `load()` returns.
@@ -642,9 +702,13 @@ public final class DatabaseViewerModel: ObservableObject {
     /// Latched, so the tab owner may call it on tab close and again at
     /// termination. Both tokens are bumped first: a load still in flight resumes
     /// to find itself superseded and publishes nothing into a tab that is gone.
+    /// The console is stopped for the same reason and in the same way — its own
+    /// token bumped and its flags lowered — since it runs on the connection this
+    /// is about to release.
     public func close() async {
         guard !isClosed else { return }
         isClosed = true
+        console.stop()
         isOpen = false
         shown = nil
         clearRowIdentity()

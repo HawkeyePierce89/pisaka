@@ -263,46 +263,46 @@ stays imported in exactly one file.
 - Create: `Tests/PisakaCoreTests/DatabaseConsoleModelTests.swift`
 - Modify: `Tests/PisakaCoreTests/DatabaseViewerModelTests.swift`
 
-- [ ] `DatabaseConsoleModel`: `@MainActor ObservableObject` holding the same
+- [x] `DatabaseConsoleModel`: `@MainActor ObservableObject` holding the same
       `DatabaseServicing` instance the tab holds, plus four closures — the current
       `fileURL`, `isWriteBlocked`, `didWrite`, and `refreshAfterWrite` — so it names
       neither the gate nor the tab's url directly and follows a rename for free.
       Published: `answer` (the last `DatabaseConsoleAnswer`), `footer`, `message`
       (**the console's own slot**), `affectedRows`, `isRunning`, `isWriting`, and
       `pendingConfirmation` (the prompt awaiting an answer).
-- [ ] `run(_ text: String)`: bump the console token synchronously, then
+- [x] `run(_ text: String)`: bump the console token synchronously, then
       `classifyConsole` — **nothing runs until the text has been classified as far as
       it can be**. Then `DatabaseConsolePlan.decide(_:)` and nothing else: `.nothingToRun`
       says so, `.refuse(message)` puts SQLite's message in the console's slot and runs
       nothing, `.read` runs immediately, `.confirmWrite` publishes `pendingConfirmation`
       and stops. The model holds the classified text so `confirm()` sends **that exact
       string**.
-- [ ] `confirm()` / `cancel()`: cancelling clears the pending confirmation and changes
+- [x] `confirm()` / `cancel()`: cancelling clears the pending confirmation and changes
       nothing at all. Confirming asks the refusals in this order, each with its own
       sentence and **nothing sent** until all pass: the disk-writer gate (asked here,
       immediately before sending, not before the prompt — the gate can rise while the
       reader reads it), then "a write is already in flight" (the console's own or the
       tab's cell edit — one write per tab), then `performConsoleWrite`.
-- [ ] A console mutation is deliberately **not** refused by a page load in flight:
+- [x] A console mutation is deliberately **not** refused by a page load in flight:
       unlike a cell edit it is planned against nothing on screen. Documented at the
       refusal list.
-- [ ] After a committed console write, in this order: publish the affected-row footer
+- [x] After a committed console write, in this order: publish the affected-row footer
       and clear the console's message → `didWrite()` (Local Changes, told even if the
       run was superseded, because it is about the file and not the screen) →
       `await refreshAfterWrite()`. A rollback or a throw — including a prepare failure
       on a deferred statement, which rolls the whole batch back — publishes SQLite's
       sentence and refreshes nothing.
-- [ ] A read's answer replaces the previous one; a **failed** run replaces nothing — the
+- [x] A read's answer replaces the previous one; a **failed** run replaces nothing — the
       previous result and the table grid both stand under the message. The console's
       slot is never written by a page turn and never cleared by one.
-- [ ] One generation token: bumped in each run's synchronous prefix, and a superseded
+- [x] One generation token: bumped in each run's synchronous prefix, and a superseded
       run publishes nothing (not its rows, not its message, not its spinner) — with
       `didWrite` the one stated exception, for `updateCell`'s reason.
-- [ ] `DatabaseViewerModel`: own the console (`public let console: DatabaseConsoleModel`,
+- [x] `DatabaseViewerModel`: own the console (`public let console: DatabaseConsoleModel`,
       built in `init` with the four closures);
       `public var isWriteInFlight { isWriting || console.isWriting }`; `close()` stops
       the console (token bumped, flags lowered) as it does the two loads.
-- [ ] `DatabaseViewerModel.refreshAfterWrite()`: bump the rows token synchronously,
+- [x] `DatabaseViewerModel.refreshAfterWrite()`: bump the rows token synchronously,
       record `pendingReselection = selectedTable`, then `await load()` — so the listing
       is re-read (a created table appears, a dropped one goes) and `reselectIfPending()`
       does the rest: re-select as a *refresh* (the sort and page index survive; the
@@ -310,7 +310,7 @@ stays imported in exactly one file.
       listing does not hold — the exact clear-everything path a reload that lost its
       table already takes. No connection re-open: a console write does not replace the
       file's inode.
-- [ ] Tests (against `ScriptedDatabaseService`, races staged with `Gate`, no timed
+- [x] Tests (against `ScriptedDatabaseService`, races staged with `Gate`, no timed
       delays): a read publishes rows/columns/footer; truncation reaches the footer; a
       mutating text asks and runs nothing until confirmed; declining runs nothing and
       sends nothing; confirming sends **the text verbatim** in one transaction and
@@ -326,7 +326,7 @@ stays imported in exactly one file.
       where a lost reload leaves it; a created table appearing in `entries`; a
       superseded console run publishing nothing while still calling `didWrite`;
       `close()` stopping the console.
-- [ ] run `swift test` — must pass before task 4
+- [x] run `swift test` — must pass before task 4
 
 ### Task 4: The app half — prepare by tail, step within the cap, one bracket
 
