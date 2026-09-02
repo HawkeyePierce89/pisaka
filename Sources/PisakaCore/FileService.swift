@@ -183,6 +183,17 @@ public enum FileServiceError: Error, Equatable, LocalizedError {
     /// to be a directory chain. Carries the offending component's name so the
     /// message can point at it.
     case notADirectory(name: String)
+    /// The file a caller asked to open is not there.
+    ///
+    /// Thrown by the **probe-only** open path alone: a database file is opened
+    /// into a viewer tab without ever being read (its bytes are not text), so its
+    /// existence is established with `fileStamp(at:)` and a `nil` stamp has to
+    /// become an error here. The text path never needs this case — it learns the
+    /// file is missing from `String(contentsOf:)`, which throws its own
+    /// well-worded `NSError` — which is why the enum had no not-found case until
+    /// the viewer arrived. Carries the file's name so the message can point at
+    /// it.
+    case missingFile(name: String)
 
     /// Human-readable text so `NSAlert(error:)` shows a clear message rather than
     /// the default "couldn't be completed (… error 0.)" fallback for a raw enum.
@@ -194,6 +205,8 @@ public enum FileServiceError: Error, Equatable, LocalizedError {
             return "This operation is not supported."
         case let .notADirectory(name):
             return "\"\(name)\" already exists and is not a folder."
+        case let .missingFile(name):
+            return "\"\(name)\" could not be found."
         }
     }
 }

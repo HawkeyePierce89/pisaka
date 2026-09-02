@@ -55,7 +55,21 @@ public struct FileIcon: Equatable {
     ]
 
     /// Lowercased file extension → icon.
-    private static let extensionMap: [String: FileIcon] = [
+    ///
+    /// The database extensions are not written out here: they are read from
+    /// `DatabaseFileRule.recognizedExtensions`, the one place that decides what
+    /// opens in the database viewer, so the icon can never name a set the
+    /// viewer does not recognize (or miss one it does).
+    private static let extensionMap: [String: FileIcon] = {
+        var map: [String: FileIcon] = staticExtensionMap
+        for ext in DatabaseFileRule.recognizedExtensions {
+            map[ext] = FileIcon(symbolName: "cylinder.split.1x2.fill", color: .green)
+        }
+        return map
+    }()
+
+    /// The hand-written half of `extensionMap`.
+    private static let staticExtensionMap: [String: FileIcon] = [
         // Source code
         "swift": FileIcon(symbolName: "swift", color: .orange),
         "js": FileIcon(symbolName: "curlybraces", color: .yellow),

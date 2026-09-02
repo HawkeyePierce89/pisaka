@@ -24,6 +24,23 @@ final class EditorSessionTests: XCTestCase {
         ])
     }
 
+    func testViewerTabIsRecordedAsAnOrdinaryPathRecord() {
+        // Decision 1: the session record does not change for the viewer. A viewer
+        // tab always has a `url`, and `snapshot` branches on `url` before it looks
+        // at any text — so it files a plain `.file` record with no new field, and
+        // restore gets the tab back as a viewer because `open(url:)` re-applies
+        // the recognition rule. Asserted here so a future `snapshot` that starts
+        // branching on content instead cannot break the round trip silently.
+        let viewer = OpenFile(viewerFor: URL(fileURLWithPath: "/p/app.sqlite"))
+        let session = EditorSession.snapshot(
+            openFiles: [titled("/p/a.swift"), viewer],
+            selectedID: viewer.id,
+            projectRoot: nil
+        )
+        XCTAssertEqual(session.tabs, [.file(path: "/p/a.swift"), .file(path: "/p/app.sqlite")])
+        XCTAssertEqual(session.selectedIndex, 1)
+    }
+
     func testEmptyUntitledBufferIsDropped() {
         let files = [titled("/p/a.swift"), untitled(""), titled("/p/b.swift")]
         let session = EditorSession.snapshot(openFiles: files, selectedID: nil, projectRoot: nil)

@@ -330,6 +330,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     snapshot and the store live here, while the view layer contributes only
     *when* to write (`SessionController`) and *when* to restore (`PisakaApp`);
     applying a session to the model is `WorkspaceModel.restoreSession(_:)`.
+    A **viewer** tab (the database viewer's) needs nothing of its own here: it is
+    recorded as an ordinary `path` record and comes back through
+    `WorkspaceModel.open(url:)`, which re-routes it by extension — so the same
+    session restores as a viewer tab where the routing is on and as today's honest
+    read failure where it is not (`core-database-viewer.md`).
     `SessionTab` (`Codable`/`Equatable`) is one recorded tab as a **flat struct
     with two optional fields** — `path` and `text`, with `file(path:)` /
     `untitled(text:)` factories that make it read like an enum — and the struct
@@ -667,8 +672,17 @@ run in `swift test` rather than needing an Xcode build.
     Confirm the file you scanned is non-trivial (`nm -u` on it should list
     hundreds of symbols) before believing an empty match.
 
-    **Last re-run: 2026-08-21**, after vendoring TreeSitterSql — confirmed `nm -u` against `parser.c` and `scanner.c` references no required-reason API.
-    **Previous re-run: 2026-08-15**, after linking Sparkle — a newly linked
+    **Last re-run: 2026-09-02**, after the database viewer linked `SQLite3`. A
+    newly linked library, so the convention above obliges the re-run; the answer
+    is that nothing changes. `libsqlite3.tbd` is a macOS **system** dylib the
+    viewer's one importing file (`DatabaseConnectionService.swift`, `#if
+    os(macOS)`) links against — it is not compiled into the app binary, ships no
+    privacy manifest of its own, contributes nothing at all to the iOS binary this
+    manifest answers for, and the viewer calls no required-reason API through it
+    (its file access is `sqlite3_open_v2` on a path the user picked, not a
+    metadata read). `PrivacyInfo.xcprivacy` is unchanged.
+    **Previous re-run: 2026-08-21**, after vendoring TreeSitterSql — confirmed `nm -u` against `parser.c` and `scanner.c` references no required-reason API.
+    **Earlier re-run: 2026-08-15**, after linking Sparkle — a newly linked
     dependency, which this file's own convention says obliges a re-run. Sparkle
     is the case the recipe above structurally **cannot** see, and that is the
     lesson worth keeping: it is not compiled into the app binary at all but

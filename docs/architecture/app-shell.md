@@ -87,8 +87,13 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     buffer closures are `let`s taken at construction and must close over the *very*
     `WorkspaceModel` the app publishes (Core deliberately keeps no reference to the
     workspace), which a property initializer cannot reach — so `init()` builds the
-    workspace, wraps both in `StateObject`, and every other stored property keeps
-    its inline default. `openBuffers` returns every titled open tab's text (dirty
+    workspace — with `viewerTabsEnabled: true`, the one place in the repository
+    that turns the database viewer's routing on (`core-database-viewer.md`) —
+    wraps both in `StateObject`, and every other stored property keeps
+    its inline default. `DatabaseViewerTabs`, the viewer's per-tab connection
+    owner, is a third `StateObject` built in the same `init()` (it follows the
+    workspace's `$openFiles`) and injected as an `.environmentObject`.
+    `openBuffers` returns every titled **text** tab's text (dirty
     or not — what the user sees is what gets searched; a file absent from the
     snapshot goes down the on-disk branch, and a url-less "Untitled" buffer names
     no file so it is left out) and `applyBufferText` writes a replacement back through
@@ -589,7 +594,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     one `fileID(forURL:)` finds, and only to a tab still holding the text the plan
     was verified against**. Two tabs may legitimately show one file (opened once by
     path, once through a symlink) and `bufferTextsByCanonicalPath` collapses them to
-    one text: rewriting a single tab would leave the other holding the old name *and
+    one text (viewer tabs are filtered out of it — they hold no buffer and would
+    vouch for bytes nobody read): rewriting a single tab would leave the other holding the old name *and
     clean*, so nothing flags it and the next save through it writes the pre-rename
     text back over the file — the rename silently undone there, with no beep and no
     alert. The equality check is what makes that fan-out safe (two tabs whose texts
@@ -676,10 +682,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     A successful Apply then closes the window itself.
     The `willTerminateNotification` observer calls `diffWindows.closeAll()`,
     `mergeWindows.closeAll()`, `projectSearchWindows.closeAll()`,
-    `leetCodeBrowserWindows.closeAll()`, `localHistoryWindows.closeAll()` and
-    `sourceViewers.closeAll()` alongside
+    `leetCodeBrowserWindows.closeAll()`, `localHistoryWindows.closeAll()`,
+    `sourceViewers.closeAll()` and `databaseViewers.closeAll()` alongside
     `terminalSessions.terminateAll()` so no diff, merge, Find in Files, LeetCode
-    browser, Local History or source-viewer window lingers past termination — and `lspWorkspace.terminateNow()` beside them, for the
+    browser, Local History or source-viewer window lingers past termination and no
+    database connection is left open (best effort, and said to be — see
+    `core-database-viewer.md`) — and `lspWorkspace.terminateNow()` beside them, for the
     terminal sessions' reason: a `sourcekit-lsp` left behind is an orphan process
     holding a build-system cache open, which the release check
     (`pgrep -fl sourcekit-lsp`) is specifically looking for. **`terminateNow()`
@@ -1277,8 +1285,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     refresh. That hook is also why a commit is the fourth path to run
     the **open-tab resync**, through the same `openTabSnapshot()` /
     `resyncOpenTabsAfterCheckout(snapshot:repoRoot:mayRemoveFiles:)` pair as
-    `applyMerge`,
-    `revertChanges` and `switchBranch` (snapshot captured synchronously before the
+    `revertChanges` and `switchBranch` (`applyMerge` resyncs its one resolved file
+    inline rather than through the loop). All of them — the loop's two callers and
+    `applyMerge`'s single-file path — ask `resyncViewerTab(_:mayRemoveFiles:)`
+    before any text-shaped reasoning, because a viewer tab answers a text snapshot
+    with "clean and unchanged" and would otherwise be force-closed over a file
+    still on disk — and because a viewer tab whose file *was* rewritten needs its
+    connection re-opened, git having renamed a new file over the one its handle
+    holds (`core-database-viewer.md`) (snapshot captured synchronously before the
     `await`, `repoRoot` from `commitDialog.root` so tabs outside the repository are
     left alone): a formatting hook — prettier, `eslint --fix`, gofmt — edits the
     files on disk, and git runs it before reading the index it commits. Without the

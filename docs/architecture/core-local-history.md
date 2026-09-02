@@ -798,9 +798,16 @@ changes.)
     the user saves or the autosave fires, which is what keeps this feature a
     reader that takes no writer gate.
   - **Two open sites, one window.** File ▸ Local History… (⌘⇧H), disabled without
-    a *titled* selected tab — stricter than every other item in that group on
-    purpose, because an enabled item over an untitled buffer would open a window
-    saying the file has no history when what is true is that it has no file — and
+    a *titled, text* selected tab — stricter than every other item in that group
+    on purpose, because an enabled item over an untitled buffer would open a
+    window saying the file has no history when what is true is that it has no
+    file. The tab-kind half is the stronger of the two: a **viewer** tab holds no
+    buffer, so `text(for:)` answers the empty string for it, and a Restore would
+    file a revision claiming that database's contents were `""` — the very
+    snapshot `openBufferTexts()` skips a viewer tab to avoid — before an
+    `applyRestore` that is a no-op for the kind restored nothing. Reachable, too:
+    a `.db` that is not SQLite was an ordinary text tab before the viewer existed
+    and can carry real revisions. Alongside it,
     a "Local History" item on a project-tree file row's context menu, threaded
     from `ContentView` as `onShowLocalHistory`. Both go through one
     `showLocalHistory(for:)`, which starts the listing *before* showing the window

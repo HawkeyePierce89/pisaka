@@ -34,6 +34,11 @@ final class FileIconTests: XCTestCase {
             // showing the generic document icon.
             "main.rs": FileIcon(symbolName: "chevron.left.forwardslash.chevron.right", color: .orange),
             "schema.sql": FileIcon(symbolName: "cylinder.split.1x2", color: .blue),
+            // The database extensions come from `DatabaseFileRule`, not from a
+            // second list in the icon table; `testEveryRecognizedDatabaseExtensionHasTheDatabaseIcon`
+            // holds the two together.
+            "app.sqlite": FileIcon(symbolName: "cylinder.split.1x2.fill", color: .green),
+            "app.db": FileIcon(symbolName: "cylinder.split.1x2.fill", color: .green),
             "run.sh": FileIcon(symbolName: "terminal", color: .green),
             "style.css": FileIcon(symbolName: "paintbrush", color: .blue),
             "logo.png": FileIcon(symbolName: "photo", color: .purple),
@@ -98,5 +103,33 @@ final class FileIconTests: XCTestCase {
         XCTAssertEqual(FileIcon(for: directory("something.swift")), FileIcon(symbolName: "folder", color: .accent))
         // A directory named like a special file is still a folder.
         XCTAssertEqual(FileIcon(for: directory("Package.swift")), FileIcon(symbolName: "folder", color: .accent))
+    }
+
+    // MARK: - Database extensions
+
+    func testEveryRecognizedDatabaseExtensionHasTheDatabaseIcon() {
+        for ext in DatabaseFileRule.recognizedExtensions {
+            XCTAssertEqual(
+                FileIcon(for: file("data.\(ext)")),
+                FileIcon(symbolName: "cylinder.split.1x2.fill", color: .green),
+                "recognized database extension .\(ext) must carry the database icon"
+            )
+        }
+    }
+
+    func testDatabaseIconMatchingIsCaseInsensitiveLikeTheRule() {
+        XCTAssertEqual(
+            FileIcon(for: file("Chinook.SQLITE3")),
+            FileIcon(symbolName: "cylinder.split.1x2.fill", color: .green)
+        )
+    }
+
+    func testTheSQLIconIsNotTheDatabaseIcon() {
+        // A `.sql` file is text the editor edits; it must not look like a
+        // database the viewer opens.
+        XCTAssertEqual(
+            FileIcon(for: file("schema.sql")),
+            FileIcon(symbolName: "cylinder.split.1x2", color: .blue)
+        )
     }
 }

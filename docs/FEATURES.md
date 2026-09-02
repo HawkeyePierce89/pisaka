@@ -1014,6 +1014,31 @@ user sees it.
     one — and compile or runtime errors **in full**, monospaced and selectable,
     rather than clipped to a line. A disabled button always says why (not signed
     in, not a solution file, a language LeetCode does not accept).
+- **Database viewer (macOS only, read-only).** A file named `.sqlite`,
+  `.sqlite3` or `.db` opens into a viewer tab instead of the editor: a sidebar
+  listing the database's tables and views (marked apart), the selected one's
+  schema under it — column name, declared type, primary-key position, `NOT
+  NULL`, default expression, and whether the column is hidden or generated — and
+  a grid of its rows beside them. The grid pages 200 rows at a time with
+  Previous/Next and a footer saying which rows of how many are on screen, and
+  every column header sorts: the first click sorts ascending, clicking the same
+  header again flips the direction, and selecting another table clears the sort.
+  Every page is a fresh bounded query, so a table of any size costs one page-sized
+  read. **NULL and the empty string are drawn differently** — a missing value
+  reads `NULL` and is styled apart, an empty text cell is simply empty — and a
+  blob shows a `BLOB (n bytes)` placeholder rather than its bytes. Anything that
+  goes wrong is shown in a banner at the top of the tab **in SQLite's own words**
+  ("file is not a database", "database is locked") — or, for an answer whose shape
+  the app could not read, a sentence saying what it refused — and a failure leaves
+  the rows you were looking at in place rather than blanking them. The tab behaves
+  like any other: it carries the database icon in the project tree, is restored
+  with the session, and closes without ever asking to save — it holds no text and
+  can never be dirty. **This version only reads.** Cells cannot be edited, there
+  is no SQL console, and the app issues no write of its own — the connection is
+  opened read-only, so nothing about opening a viewer tab changes the file on
+  disk. (One consequence: a WAL database whose sidecar files were left behind by a
+  process that died without checkpointing may refuse to open, in SQLite's words,
+  where a read-write connection would have recovered it.)
 
 
 ## iOS / iPadOS
@@ -1099,6 +1124,10 @@ and iPhone. The feature scope landed so far:
   menu, pull to refresh, and a tap to open — which dismisses the sheet and leaves
   you in the solution file.
 - The embedded terminal is macOS-only (SwiftTerm) and not present on iOS.
+- The database viewer is macOS-only. Opening a `.sqlite` or `.db` file on iOS
+  behaves exactly as it did before the viewer existed: the file is read as text,
+  fails to decode, and the open reports that — an honest failure rather than a
+  tab claiming the database is empty.
 
 ## Known limitations (1.0), in detail
 
@@ -1403,3 +1432,20 @@ and iPhone. The feature scope landed so far:
     redirect chain and works, but a provider that drives its login through a
     **popup window** would have nowhere to open it and would stall. Not every
     provider was verified.
+- The database viewer is **read-only and macOS-only** in this version. There is
+  no cell editing, no SQL console and no way to write to a database from the app;
+  on iOS a database file is not opened in a viewer at all (see above). Only
+  tables and views are listed — indexes, triggers and SQLite's own `sqlite_`
+  bookkeeping tables are not shown — and the listing does not refresh itself
+  while you are looking at it, so a table another process creates shows up only
+  the next time the tab is selected (switching away and back is enough; the
+  listing is re-read every time the tab is shown). The
+  page size is fixed at 200 rows and there is no jump-to-page field. The row
+  count is read once when a table is selected, so a table being written by
+  another process shows a total that is a moment old; if rows were deleted under
+  you, a page turn is clamped against that stale total and can land past the new
+  end, showing no rows until the table is selected again and the count re-read.
+  A database another process
+  holds a lock on waits up to five seconds and then reports "database is locked"
+  rather than hanging the tab. Encrypted databases and files that are not
+  databases simply fail to open, with SQLite's own message in the banner.
