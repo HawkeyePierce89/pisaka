@@ -21,10 +21,21 @@ public enum DatabaseRowIdAlias: String, Equatable, Hashable, Sendable, CaseItera
 
 /// The only thing in the repository that writes SQL.
 ///
-/// Every byte the database viewer sends is composed here and asserted
+/// Every byte the database viewer *composes* is composed here and asserted
 /// byte-for-byte in `DatabaseQueryTests`; the app half is handed a finished
-/// `DatabaseStatement` and binds it. That split has one consequence worth
-/// stating plainly, because it is the reason this type exists at all:
+/// `DatabaseStatement` and binds it.
+///
+/// **The SQL console is the one stated exception, and it is not a second
+/// composer.** The text a console run sends is the reader's own, carried across
+/// the seam verbatim — never parsed, never re-split, never rewritten and never
+/// appended to, which is why its row cap travels as a *number* to be enforced by
+/// stepping rather than as a `LIMIT` this file would have to write. So nothing
+/// composes SQL but this type: the console's SQL is composed by the person
+/// typing it. `DatabaseViewerSourceGatingTests` pins the shape of that sentence
+/// from the other side — no Core console file names this type at all.
+///
+/// The split has one consequence worth stating plainly, because it is the reason
+/// this type exists at all:
 ///
 /// **Identifiers cannot be parameters.** A table or column name is part of the
 /// statement's *grammar*, so no `?` can stand in for it and the name must be
@@ -88,7 +99,7 @@ public enum DatabaseQuery {
     ///
     /// `table_xinfo` rather than `table_info`: it answers the same rows plus the
     /// `hidden` column, which is the only way to learn that a column is generated
-    /// — the fact part 2 needs in order to refuse to write it.
+    /// — the fact the write path needs in order to refuse to write it.
     ///
     /// A pragma takes no parameters, so the name is quoted, which is the whole
     /// reason `quoted(_:)` is tested as hard as it is.

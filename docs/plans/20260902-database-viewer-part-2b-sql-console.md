@@ -438,7 +438,7 @@ stays imported in exactly one file.
   `README.md`, `Sources/PisakaCore/DatabaseQuery.swift`,
   `Sources/PisakaCore/DatabaseValue.swift`
 
-- [ ] `core-database-viewer.md`: the reserved "What part 2b adds" section becomes the
+- [x] `core-database-viewer.md`: the reserved "What part 2b adds" section becomes the
       feature's real entries — one per new file, plus the four decisions above with
       their reasoning (the honest classification rule and why a read-only prefix's
       prepare failure is the answer while a write prefix's is not; in-order
@@ -457,21 +457,21 @@ stays imported in exactly one file.
       - a read batch is not one snapshot;
       - classification sees kinds, never shapes, and only as far as the first prepare
         failure.
-- [ ] `DatabaseQuery.swift`'s header — still the only thing that *composes* SQL, with
+- [x] `DatabaseQuery.swift`'s header — still the only thing that *composes* SQL, with
       the console named as the one stated exception (text carried verbatim, never
       parsed, rewritten or composed).
-- [ ] `DatabaseValue.swift` — the "in part 2 the console's result table" note becomes
+- [x] `DatabaseValue.swift` — the "in part 2 the console's result table" note becomes
       the present tense.
-- [ ] `CLAUDE.md`: index lines for `DatabaseConsolePlan.swift`,
+- [x] `CLAUDE.md`: index lines for `DatabaseConsolePlan.swift`,
       `DatabaseConsoleModel.swift` and `DatabaseConsoleView.swift`, and the
       database-viewer invariant paragraph updated — the console as the one stated
       exception to Core-composed SQL, classification being SQLite's and honest about its
       horizon, the write half now being two members with two rules, and paging/sort/Run
       disabled while a write is in flight. Kept to the index-and-invariant discipline:
       no per-file essays, and the file stays well under its target size.
-- [ ] `docs/FEATURES.md` and `README.md`: the console as a user-facing feature — what
+- [x] `docs/FEATURES.md` and `README.md`: the console as a user-facing feature — what
       runs without asking, what asks, what the footer says, and the cap.
-- [ ] run `swift test` — must pass before task 8
+- [x] run `swift test` — must pass before task 8
 
 ### Task 8: Verify acceptance criteria
 
