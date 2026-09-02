@@ -33,8 +33,29 @@ import SwiftUI
 /// item and never by typing the word — an empty field means the empty string,
 /// which is why a NULL cell seeds an *empty* editor rather than the marker it
 /// renders.
+///
+/// **The SQL console lives under the grid**, in a resizable split, and is
+/// `DatabaseConsoleView`. This hosts it and hands it one answer — `model
+/// .isWriteInFlight` — which is also what the paging buttons, the sort headers
+/// and `isGridIdle` disable on: the grid's cell edit and the console's confirmed
+/// mutation are both writes to this file, and a page turn or an editor opened
+/// over either would be reading rows a transaction is in the middle of replacing.
 struct DatabaseViewerView: View {
     @ObservedObject var model: DatabaseViewerModel
+
+    /// The tab's console, observed **beside** the model rather than through it.
+    ///
+    /// `model.isWriteInFlight` reads `console.isWriting`, which is published by a
+    /// different object: observing only the model would leave the paging buttons
+    /// and the sort headers live for the whole of a console mutation, because
+    /// nothing on the model changes when the console raises that flag. One tab is
+    /// one console for the tab's life, so this never re-points.
+    @ObservedObject private var console: DatabaseConsoleModel
+
+    init(model: DatabaseViewerModel) {
+        self.model = model
+        _console = ObservedObject(wrappedValue: model.console)
+    }
 
     /// The interface zone's metrics, inherited from the window root.
     @Environment(\.interfaceMetrics) private var metrics
@@ -95,8 +116,17 @@ struct DatabaseViewerView: View {
                 sidebar
                     .frame(width: metrics.scaled(220))
                 Divider()
-                grid
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                // The console sits under the *grid* and not under the whole pane,
+                // so the sidebar keeps its full height: the tables and the schema
+                // are what a reader writes SQL against, and a split that shortened
+                // them would hide the names being typed.
+                VSplitView {
+                    grid
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    DatabaseConsoleView(console: console, isWriteInFlight: model.isWriteInFlight)
+                        .frame(maxWidth: .infinity, minHeight: metrics.scaled(140))
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
         // Keyed on the model, not on its `fileURL`: a rename retargets the tab and
@@ -310,6 +340,12 @@ struct DatabaseViewerView: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                // A sort replaces every row on the page, so it is refused while
+                // **any** write to this file is in flight — the grid's cell edit
+                // or the console's confirmed mutation. `model.isWriteInFlight` is
+                // the one answer both are asked through, so neither surface has
+                // to remember the other exists.
+                .disabled(model.isWriteInFlight)
                 Divider()
             }
         }
@@ -467,7 +503,12 @@ struct DatabaseViewerView: View {
     /// about to replace one of them, and a page in flight is about to replace all
     /// of them. An editor opened over either would be typing into rows that no
     /// longer exist by the time Return arrives.
-    private var isGridIdle: Bool { !model.isWriting && !model.isLoadingRows }
+    ///
+    /// The write term is `isWriteInFlight` and not `model.isWriting`, so the
+    /// console's confirmed mutation closes the same door the cell edit does: a
+    /// batch may be dropping the very table this page came out of, and an editor
+    /// opened over it would commit into whatever survives.
+    private var isGridIdle: Bool { !model.isWriteInFlight && !model.isLoadingRows }
 
     /// Double-click, or Return on the focused cell.
     ///
@@ -572,7 +613,7 @@ struct DatabaseViewerView: View {
             } label: {
                 Image(systemName: "chevron.left")
             }
-            .disabled(!model.page.hasPrevious)
+            .disabled(!model.page.hasPrevious || model.isWriteInFlight)
             Button {
                 let target = model.page.index + 1
                 let request = model.prepareForRowsChange()
@@ -580,7 +621,7 @@ struct DatabaseViewerView: View {
             } label: {
                 Image(systemName: "chevron.right")
             }
-            .disabled(!model.page.hasNext)
+            .disabled(!model.page.hasNext || model.isWriteInFlight)
             Text(positionText)
                 .font(metrics.scaledFont(.caption))
                 .foregroundStyle(.secondary)

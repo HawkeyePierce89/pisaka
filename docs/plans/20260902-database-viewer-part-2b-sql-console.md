@@ -380,27 +380,27 @@ stays imported in exactly one file.
 - Create: `Sources/Pisaka/DatabaseConsoleView.swift`
 - Modify: `Sources/Pisaka/DatabaseViewerView.swift`
 
-- [ ] `DatabaseConsoleView`, `#if os(macOS)`: a multi-line input, a Run control with
+- [x] `DatabaseConsoleView`, `#if os(macOS)`: a multi-line input, a Run control with
       ⌘↩, the result table, its footer, and the console's message. It decides nothing —
       every sentence it draws is Core's, and the confirmation is Core's prompt shown in
       a dialog whose two answers call `confirm()` / `cancel()`.
-- [ ] The result table draws `DatabaseValue.displayText` with NULL styled from `isNull`
+- [x] The result table draws `DatabaseValue.displayText` with NULL styled from `isNull`
       — **the same one rendering the grid uses**, so the two can never disagree about
       the one distinction the viewer must not blur. Its own compact table rather than
       the grid's rows, which carry edit affordances a console result must not have.
-- [ ] Everything sized through `\.interfaceMetrics`; the input is
+- [x] Everything sized through `\.interfaceMetrics`; the input is
       `metrics.scaledFont(.body, design: .monospaced)` — monospaced, interface zone. No
       `ZoomSurface` is declared, and the file states why (the tab is one zoom zone; the
       surface set stays exactly what `ZoomSourceGatingTests` pins).
-- [ ] The input is `@State` in the view: transient pane state, never persisted, never
+- [x] The input is `@State` in the view: transient pane state, never persisted, never
       part of the session, never a dirty buffer.
-- [ ] `DatabaseViewerView` hosts the pane below the grid in a resizable split, observing
+- [x] `DatabaseViewerView` hosts the pane below the grid in a resizable split, observing
       both the viewer model and `model.console`, and disables — from the one Core answer
       `model.isWriteInFlight` — the two paging buttons, the sort headers, and (with the
       console's own `isRunning`) Run. `isGridIdle` grows the same term, so no editor
       opens over an in-flight console mutation either.
-- [ ] Tests: the view layer is untested by convention; its rules are pinned in task 6.
-- [ ] run `swift test`, the macOS build and the iOS build — must pass before task 6
+- [x] Tests: the view layer is untested by convention; its rules are pinned in task 6.
+- [x] run `swift test`, the macOS build and the iOS build — must pass before task 6
 
 ### Task 6: The gating suite
 
