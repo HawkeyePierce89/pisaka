@@ -675,10 +675,24 @@ public final class DatabaseViewerModel: ObservableObject {
     /// of the selected table pressed while a large page is still loading is the
     /// first, and `confirm()` deliberately does not refuse a write because a page
     /// load is in flight.
+    ///
+    /// The identity is cleared for `reload(at:)`'s reason, which a console batch
+    /// gives in full: the rows stay on screen, but what they were addressed *by*
+    /// did not survive the batch. `confirm()` lowers `isWriting` before it awaits
+    /// this, and this lowers `isLoadingRows` with the token bump, so for the whole
+    /// of the re-read the grid looks idle to `updateCell` — the token a gesture
+    /// captures now is the freshly-bumped one, so even that guard passes. Left
+    /// alone, `editTarget` would go on answering "yes, this cell may be edited"
+    /// off the identity of a table the batch may have dropped and recreated, and
+    /// the edit would carry the old page's rowid and the old page's previous value
+    /// into the new one, where the `IS` guard cannot tell the difference if the row
+    /// it lands on happens to match. Clearing turns every cell into the refusal it
+    /// already is for an unaddressable table, which the re-selection then lifts.
     public func refreshAfterWrite() async {
         guard !isClosed else { return }
         prepareForRowsChange()
         isLoadingRows = false
+        clearRowIdentity()
         pendingReselection = selectedTable
         await load()
     }

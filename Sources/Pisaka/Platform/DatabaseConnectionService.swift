@@ -505,23 +505,40 @@ actor DatabaseConnectionService: DatabaseServicing {
         // anything this method did to set the batch up.
         witness.install(on: connection)
         do {
-            var affectedRows = 0
+            // Two totals, because a rollback and a commit are answers about
+            // *different* rows. `pendingRows` is what some open transaction is
+            // still holding and a rollback can therefore still undo;
+            // `committedRows` is what a commit already made durable and nothing
+            // later in the text can take back. One total cannot say both: zeroing
+            // it on a rollback would erase rows an earlier `COMMIT` in the same
+            // text already landed, and reporting "No rows changed" over a batch
+            // that permanently deleted them.
+            var committedRows = 0
+            var pendingRows = 0
             try enumerateStatements(
                 in: transaction.text,
                 on: connection,
                 onPrepareFailure: { code, message, _ in throw Self.error(code: code, message: message) },
                 body: { prepared, _ in
                     witness.didRollback = false
+                    witness.didCommitHere = false
                     let changed = try stepConsoleStatement(
                         prepared,
                         on: connection,
                         readRowLimit: transaction.readRowLimit
                     )
-                    // Everything counted so far was undone by that rollback, so
-                    // it stops being part of the total the reader is shown —
-                    // whatever ran *after* it still counts, and starts from zero.
-                    if witness.didRollback { affectedRows = 0 }
-                    affectedRows += changed
+                    // Undone, so it stops being part of the total the reader is
+                    // shown — and only what was still pending is undone.
+                    if witness.didRollback { pendingRows = 0 }
+                    pendingRows += changed
+                    // Ordered after the addition, for the statement that does
+                    // both: one running in autocommit — every statement after a
+                    // `COMMIT` the text typed itself — changes its rows *and*
+                    // commits them in the same step.
+                    if witness.didCommitHere {
+                        committedRows += pendingRows
+                        pendingRows = 0
+                    }
                 }
             )
             // Only when a transaction is still open: a text that committed its
@@ -530,20 +547,26 @@ actor DatabaseConnectionService: DatabaseServicing {
             // failure.
             if sqlite3_get_autocommit(connection) == 0 {
                 _ = try execute(DatabaseQuery.commit, on: connection)
-            } else if witness.didRollback, !witness.didCommit {
-                // The text closed the bracket itself, its last statement was the
-                // rollback that closed it, and nothing in it ever committed: the
-                // file is untouched, which is the one outcome this member has
-                // that is neither a failure nor a change. Both terms are needed —
-                // a text that commits partway and rolls back after it *did*
-                // change the file, and is reported as the change it is.
+                committedRows += pendingRows
+                pendingRows = 0
+            } else if !witness.didCommit {
+                // The text closed the bracket itself and nothing in it ever
+                // committed: the file is untouched, which is the one outcome this
+                // member has that is neither a failure nor a change. Asked as
+                // "did anything commit" rather than "did the last statement roll
+                // back", because only the first survives a statement *after* the
+                // rollback — `UPDATE …; ROLLBACK; SELECT 1;` clears the per-
+                // statement flag on the read and would otherwise report a batch
+                // that touched nothing as committed. The bracket was this
+                // method's own `BEGIN IMMEDIATE`, so autocommit being back with
+                // no commit witnessed leaves a rollback as the only way it closed.
                 return DatabaseWriteOutcome(affectedRows: 0, isCommitted: false)
             }
             // Never allowed to turn a write that succeeded into a failure: a
             // checkpoint that could not run leaves the batch committed and
             // durable, which is what this outcome reports.
             _ = try? execute(DatabaseQuery.walCheckpoint, on: connection)
-            return DatabaseWriteOutcome(affectedRows: affectedRows, isCommitted: true)
+            return DatabaseWriteOutcome(affectedRows: committedRows, isCommitted: true)
         } catch {
             // Undo whatever ran before the failure, then report the failure
             // itself — `try?` for the reason `performWrite(_:)` gives: replacing
@@ -778,9 +801,15 @@ actor DatabaseConnectionService: DatabaseServicing {
 private final class RollbackWitness {
 
     /// Whether the statement now running rolled a transaction back. Cleared
-    /// before each statement, so after the last one it answers the question that
-    /// matters: did the text *end* in a rollback, with nothing after it.
+    /// before each statement, so it answers only about that one: what a rollback
+    /// undoes is the rows still pending when it ran, and rows an earlier commit
+    /// already made durable are not among them.
     var didRollback = false
+
+    /// Whether the statement now running committed. Cleared before each
+    /// statement, the rollback flag's counterpart and for the same reason: it
+    /// marks the moment the pending rows stop being undoable.
+    var didCommitHere = false
 
     /// Whether any transaction committed while the batch ran. Sticky, and
     /// deliberately so: a text that commits partway and rolls back after it
@@ -800,7 +829,9 @@ private final class RollbackWitness {
             connection,
             { context in
                 guard let context else { return 0 }
-                Unmanaged<RollbackWitness>.fromOpaque(context).takeUnretainedValue().didCommit = true
+                let witness = Unmanaged<RollbackWitness>.fromOpaque(context).takeUnretainedValue()
+                witness.didCommit = true
+                witness.didCommitHere = true
                 // Anything but zero here turns the commit it is reporting into a
                 // rollback, which is the last thing this is allowed to do.
                 return 0

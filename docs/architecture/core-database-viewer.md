@@ -1800,17 +1800,28 @@ touched. `RollbackWitness` asks SQLite instead: a rollback hook and a commit
 hook, installed **after** the batch's own `BEGIN IMMEDIATE` and removed before
 the teardown, so neither ever answers for something this method did rather than
 something the text did. SQLite invokes them for a real transaction only — never
-for the statement-level rollback a failing statement performs inside one. The
-rollback flag is cleared **before each statement**, which is what makes it two
-answers rather than one: mid-batch it says "that statement undid everything
-counted so far", so the running total starts again from zero and whatever runs
-after the rollback still counts; at the end it says "the text *ended* in a
-rollback, with nothing after it". That end state, **and no commit anywhere in the
-batch**, is the one outcome this member has that is neither a failure nor a
-change — `DatabaseWriteOutcome(affectedRows: 0, isCommitted: false)`, which is
-what `DatabaseConsoleModel.rolledBackMessage` says. Both terms are load-bearing:
-a text that commits partway and rolls back after it *did* change the file, and is
-reported as the change it is.
+for the statement-level rollback a failing statement performs inside one.
+
+Each hook answers on **two timescales**, and the member reads a different one for
+each of its two questions. Per statement — both flags cleared before every
+statement — they say what *that* statement did, which is what the affected-row
+total is kept from: a rollback undoes the rows still **pending**, and a commit
+moves them out of reach of any later rollback. So the total is **two** totals, a
+pending one and a committed one, and never a single one a rollback zeroes
+wholesale: `DELETE FROM a; COMMIT; BEGIN; DELETE FROM b; ROLLBACK;` answers with
+`a`'s rows and without `b`'s, because that is what the file now says, where one
+total would report "No rows changed" over rows it permanently deleted. Sticky —
+`didCommit`, cleared nowhere — the commit hook answers the *other* question: did
+anything in this text commit at all. The end state where autocommit is back and
+the answer is no is the one outcome this member has that is neither a failure nor
+a change — `DatabaseWriteOutcome(affectedRows: 0, isCommitted: false)`, which is
+what `DatabaseConsoleModel.rolledBackMessage` says. Asked that way round on
+purpose: "did anything commit" survives a statement *after* the rollback, where
+"was the last statement a rollback" does not — `UPDATE …; ROLLBACK; SELECT 1;`
+clears the per-statement flag on the read, and would otherwise report an
+untouched file as a committed batch. The bracket was this method's own
+`BEGIN IMMEDIATE`, so autocommit being back with no commit witnessed leaves a
+rollback as the only way it closed.
 
 **The affected-row total is a delta, never `sqlite3_changes`.** That call answers
 the connection's last INSERT/UPDATE/DELETE and *nothing else resets it*, so the
@@ -1901,6 +1912,19 @@ would stay up for the life of the tab — a spinner over the grid forever, and
 ordinary rather than exotic: a `DROP TABLE` of the selected table pressed while a
 large page is still loading is the first, and `confirm()` deliberately does not
 refuse a write because a page load is in flight.
+
+It also **clears the row identity**, `reload(at:)`'s other rule and for exactly
+its reason — and the window here is the wider of the two. `confirm()` lowers
+`isWriting` *before* it awaits this, and this lowers `isLoadingRows` with the
+token bump, so for the whole of the re-read the grid looks idle to `updateCell`:
+`isWriteInFlight` is false, `isLoadingRows` is false, and a gesture made now
+captures the freshly-bumped token, so even that guard passes. The rows on screen
+are still the batch's *previous* table, and a batch may have dropped and
+recreated it, so an edit committed in that window would carry the old page's
+rowid and the old page's previous value into the new table — where the `IS` guard
+cannot tell the difference if the row it lands on happens to match. Clearing
+turns every cell into the refusal it already is for an unaddressable table, which
+the re-selection then lifts.
 
 **The failure path is not the mirror of this one.** It publishes SQLite's
 sentence into the console's slot and claims no count — but it still calls

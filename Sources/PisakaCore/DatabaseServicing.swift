@@ -350,11 +350,17 @@ public protocol DatabaseServicing: Sendable {
     ///
     /// **A text that rolls itself back answers `isCommitted: false`**, and it is
     /// the one outcome here that is neither a failure nor a change: a `ROLLBACK`
-    /// the reader typed as the last thing in the text, with nothing committed
-    /// anywhere in it, leaves the file untouched and must be said so rather than
-    /// reported as a batch that changed the rows it undid. Anything the text
-    /// rolled back stops counting towards `affectedRows`; anything that ran after
-    /// a rollback still counts.
+    /// the reader typed anywhere in a text that committed nothing leaves the file
+    /// untouched and must be said so rather than reported as a batch that changed
+    /// the rows it undid. The question is "did anything commit", not "was the last
+    /// statement a rollback" — a read after the rollback (`UPDATE …; ROLLBACK;
+    /// SELECT 1;`) does not turn an untouched file into a committed one.
+    ///
+    /// **`affectedRows` counts what a commit made durable**, which is why a
+    /// rollback does not simply zero it: it drops only the rows still pending
+    /// when it ran. A text that commits partway and rolls back after
+    /// (`DELETE FROM a; COMMIT; BEGIN; DELETE FROM b; ROLLBACK;`) answers with
+    /// `a`'s rows and without `b`'s, because that is what the file now says.
     ///
     /// - Throws: the same `DatabaseError` cases `performWrite(_:)` throws,
     ///   carrying SQLite's own words.

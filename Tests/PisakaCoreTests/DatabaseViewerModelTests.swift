@@ -2401,6 +2401,39 @@ final class DatabaseViewerModelTests: XCTestCase {
         XCTAssertFalse(model.isLoadingRows, "A refresh that never reached its re-selection still owes the spinner")
     }
 
+    /// `reload(at:)`'s identity rule, asked of the path a console batch takes.
+    ///
+    /// The window is real and it is wide: `confirm()` lowers `isWriting` before
+    /// it awaits the refresh, and the refresh lowers `isLoadingRows` with its
+    /// token bump, so for the whole of the re-read the grid is idle to
+    /// `updateCell` — a gesture made now even captures the freshly-bumped token,
+    /// so that guard passes too. The rows on screen are still the batch's
+    /// *previous* table, and a batch may have dropped and recreated it, so what
+    /// must not survive is how those rows were addressed.
+    func testRefreshAfterWriteRefusesEditsUntilTheReSelectionRepublishesAnIdentity() async {
+        let service = ScriptedDatabaseService()
+        let model = await editableModel(service)
+        XCTAssertNil(model.editRefusal(row: 0, column: 1), "Staging: the cell is editable before the batch")
+
+        let gate = Gate()
+        service.hold(DatabaseQuery.tableListing.sql, on: gate)
+        let refresh = Task { await model.refreshAfterWrite() }
+        await waitUntil { gate.reached }
+
+        XCTAssertFalse(model.isWriteInFlight, "Staging: the write is over before the refresh is awaited")
+        XCTAssertFalse(model.isLoadingRows, "Staging: the refresh lowered the spinner with its token bump")
+        XCTAssertNotNil(
+            model.editRefusal(row: 0, column: 1),
+            "The rows on screen are addressed by an identity the batch may have dropped"
+        )
+
+        await model.updateCell(row: 0, column: 1, entry: .typed("new"), request: model.rowsToken)
+        XCTAssertTrue(service.writeTransactions.isEmpty, "No statement may be sent against the old page's rowid")
+
+        gate.release()
+        await refresh.value
+    }
+
     func testACommittedConsoleMutationRefreshesTheTabThroughTheWiredClosure() async {
         let service = ScriptedDatabaseService()
         let text = "DROP TABLE items"
