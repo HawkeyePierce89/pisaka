@@ -843,8 +843,15 @@ public final class DatabaseViewerModel: ObservableObject {
             // would otherwise go on calling the database unmodified until some
             // unrelated refresh corrected it.
             if outcome.isCommitted { didWrite() }
+            // Superseded, so nothing is said — the rollback sentences included,
+            // and deliberately. All three of them ("Reload the table and try
+            // again", and the count that did not identify) are about the page the
+            // write was planned against, and that page is gone: a newer load has
+            // published or is about to. Said here they would sit above rows they
+            // describe nothing on, which is the same lie a superseded load telling
+            // its own story would be.
             guard generation == rowsGeneration else { return }
-            await settle(outcome, table: table, generation: generation)
+            await settle(outcome, table: table)
         } catch {
             isWriting = false
             guard generation == rowsGeneration else { return }
@@ -877,12 +884,23 @@ public final class DatabaseViewerModel: ObservableObject {
     ///
     /// No path here blanks a good page: a refused write leaves the rows, the
     /// schema and the position exactly as they were, under the sentence.
-    private func settle(_ outcome: DatabaseWriteOutcome, table: String, generation: Int) async {
+    private func settle(_ outcome: DatabaseWriteOutcome, table: String) async {
         guard outcome.isCommitted else {
             setMessage(Self.rollbackMessage(affectedRows: outcome.affectedRows), from: .write)
             return
         }
         clearError(from: .write)
+        // The re-query takes a **new** token rather than the write's own, and this
+        // is the one place a rows-replacing load is not started by a gesture that
+        // could bump one for it. What it lands is not what the write was planned
+        // against: sorting on the edited column reorders the page around the row
+        // that just changed, and anything else holding the database may have
+        // rewritten the rest of it meanwhile. Left on the write's token, a gesture
+        // captured *before* the write would still pass `updateCell`'s staleness
+        // check afterwards and be planned against a page nobody has looked at —
+        // carrying that row's identity and that row's previous value, and so
+        // committing. That is precisely what `rowsToken` exists to prevent.
+        let generation = prepareForRowsChange()
         isLoadingRows = true
         await loadPage(table: table, generation: generation)
     }

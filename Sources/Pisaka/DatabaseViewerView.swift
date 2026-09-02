@@ -56,6 +56,12 @@ struct DatabaseViewerView: View {
     /// two states cannot both claim to hold it.
     @FocusState private var focus: GridFocus?
 
+    /// What a cell Core refuses is drawn at. Faint enough to read as unavailable
+    /// beside an editable neighbour, legible enough that the value is still the
+    /// point — a viewer's whole job is showing what is there, and a view or an
+    /// unaddressable table refuses *every* cell it has.
+    private static let refusedCellOpacity = 0.5
+
     /// One cell's place on the page.
     private struct CellCoordinate: Hashable {
         let row: Int
@@ -328,11 +334,19 @@ struct DatabaseViewerView: View {
     /// Copying is the cell menu's `Copy`, which puts on the pasteboard exactly the
     /// rendered text a selection would have carried.
     ///
-    /// A cell Core refuses is not focusable — so Return cannot reach it either —
-    /// and carries the refusal's own sentence as its tooltip. The reason is asked
-    /// once, here, and nothing about it is re-derived: the tooltip, the menu's
-    /// disabled item and the banner the double-click produces are three renderings
-    /// of the one answer.
+    /// A cell Core refuses is drawn dimmed, is not focusable — so Return cannot
+    /// reach it either — and carries the refusal's own sentence as its tooltip.
+    /// The reason is asked once, here, and nothing about it is re-derived: the
+    /// dimming, the tooltip, the menu's disabled item and the banner the
+    /// double-click produces are four renderings of the one answer.
+    ///
+    /// The dimming is `.opacity` on the whole cell rather than a second
+    /// foreground style, so it composes with the NULL rendering instead of
+    /// competing with it: a refused NULL stays italic and tertiary and simply
+    /// reads fainter, where a greyer `foregroundStyle` would have made a refused
+    /// value and an editable NULL the same colour. It is what tells a view or an
+    /// unaddressable table apart from an editable one at a glance, which hovering
+    /// every cell in turn is not.
     private func cellText(_ value: DatabaseValue, at coordinate: CellCoordinate) -> some View {
         let refusal = model.editRefusal(row: coordinate.row, column: coordinate.column)
         return Text(value.displayText)
@@ -344,6 +358,7 @@ struct DatabaseViewerView: View {
             .padding(.horizontal, metrics.scaled(6))
             .padding(.vertical, metrics.scaled(3))
             .frame(width: metrics.scaled(160), alignment: .leading)
+            .opacity(refusal == nil ? 1 : Self.refusedCellOpacity)
             .contentShape(Rectangle())
             .help(refusal?.message ?? "")
             .focusable(refusal == nil && isGridIdle)
@@ -359,7 +374,20 @@ struct DatabaseViewerView: View {
             // and guarded by the same answer the cell is drawn from: a cell nothing
             // may edit is not focusable, and focusing it would arm Return over a
             // refusal.
-            .onTapGesture { if refusal == nil && isGridIdle { focus = .cell(coordinate) } }
+            //
+            // It also closes an editor open somewhere *else*. Focus moving out of
+            // a field is not by itself a signal the model ever sees, so without
+            // this the abandoned field stays on screen unfocused while `editing`
+            // still points at it — and `focusedCoordinate` answers `nil` while an
+            // editor is open, so Return would silently stop working on the cell
+            // the reader just clicked. Closing writes nothing, the same answer
+            // Escape and every rows-replacing load give.
+            .onTapGesture {
+                let mayFocus = refusal == nil && isGridIdle
+                // Before the focus is set, because `cancelEditing()` clears it.
+                if editing != nil { cancelEditing() }
+                if mayFocus { focus = .cell(coordinate) }
+            }
             .contextMenu { cellMenu(value, at: coordinate, refusal: refusal) }
     }
 

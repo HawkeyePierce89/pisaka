@@ -1907,6 +1907,39 @@ final class DatabaseViewerModelTests: XCTestCase {
         )
     }
 
+    /// The page a committed write re-queries is a *new* page, so it carries a new
+    /// token — and a gesture captured before that write is stale against it.
+    ///
+    /// The re-query is the one rows-replacing load with no gesture of its own to
+    /// bump a token for it, so it has to bump its own. Left on the write's token,
+    /// the second edit here would pass the staleness check and be planned against
+    /// the row the re-query landed — a different row, since a sort on the edited
+    /// column reorders the page around what just changed — carrying *that* row's
+    /// identity and *that* row's previous value, and so committing over a row
+    /// nobody looked at.
+    func testAPageRePublishedByACommittedWriteInvalidatesTheOlderRowsToken() async {
+        let service = ScriptedDatabaseService()
+        let model = await editableModel(
+            service,
+            pages: [itemsPage(label: .text("old")), itemsPage(label: .text("someone else's"), rowid: 9)]
+        )
+        service.serveCommittedWrite()
+        let request = await model.rowsToken
+
+        await model.updateCell(row: 0, column: 1, entry: .typed("new"), request: request)
+        let reloaded = await model.rows
+        XCTAssertEqual(reloaded, [[.integer(1), .text("someone else's")]], "The commit re-queried the page")
+
+        // The same token again, now that the page underneath it has been replaced.
+        await model.updateCell(row: 0, column: 1, entry: .typed("second"), request: request)
+
+        XCTAssertEqual(service.writeCount, 1, "The stale gesture sends nothing")
+        let message = await model.errorMessage
+        XCTAssertEqual(message, DatabaseEditRefusal.cellNotOnPage.message)
+        let token = await model.rowsToken
+        XCTAssertNotEqual(token, request, "The re-query published under a token of its own")
+    }
+
     /// A rename moves the name and not the inode, so the connection is left alone
     /// — but the *write* opens a path of its own, and that path has to follow.
     func testARetargetedTabWritesToItsNewPath() async {

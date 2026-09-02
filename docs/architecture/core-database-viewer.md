@@ -728,7 +728,11 @@ disk-writer gate and is never gated by it.
   so it must not supersede the loads around it — what it must do is notice that
   one of them superseded *it*, in which case the newer state stays on screen and
   the write publishes nothing — no message and no re-query. The commit still
-  stands, which is the honest outcome and is asserted — and **`didWrite` is told
+  stands, which is the honest outcome and is asserted; the **rollback sentences
+  and a thrown failure are silenced by the same guard, deliberately** — all of
+  them are about the page the write was planned against, and above the page a
+  newer load published they would describe nothing that is on screen, which is
+  the same lie a superseded load telling its own story would be. **`didWrite` is told
   either way**, ahead of the supersession guard, because that hook is about the
   file on disk rather than about the page this tab happens to be holding: a
   committed edit changed a tracked file whether or not the grid still shows what
@@ -739,7 +743,15 @@ disk-writer gate and is never gated by it.
   superseded is the only thing that can lower it; left up, the tab would refuse
   every later edit for its life. `settle(_:)` reads the outcome: committed →
   re-query **only the page** (an `UPDATE` changes no row's existence, so the
-  count cannot have changed); rolled back at zero → "this row
+  count cannot have changed), **under a token of its own** — the one
+  rows-replacing load with no gesture in front of it to bump one, and the reason
+  it must is that what it lands is not what the write was planned against: a sort
+  on the edited column reorders the page around the row that just changed, and
+  anything else holding the database may have rewritten the rest of it meanwhile.
+  Left on the write's own token, a gesture captured *before* the write would
+  still pass the staleness check afterwards and be planned against a page nobody
+  has looked at, carrying that row's identity and that row's previous value — and
+  so committing, which is precisely what `rowsToken` exists to prevent; rolled back at zero → "this row
   changed underneath you, nothing was written"; rolled back at anything else →
   say how many it would have touched; a throw → SQLite's own words. No path
   blanks a good page. Finally the one message slot gained a **third source**: a
@@ -949,18 +961,33 @@ disk-writer gate and is never gated by it.
   default — so without the click the documented Return path would be dead on an
   ordinary Mac. It is declared *after* the double-click, so the two-click gesture
   still wins the disambiguation, and guarded by the same answer the cell is drawn
-  from, so focus is never armed over a refusal. A cell Core refuses is not
+  from, so focus is never armed over a refusal. A cell Core refuses is **drawn
+  dimmed**, is not
   focusable — so Return cannot reach it either — carries the refusal's own
   sentence as its tooltip, and on a double-click hands the attempt to the model anyway, which is
   what puts that same sentence in the banner and sends nothing by construction.
-  The refusal is asked **once**, in the cell, and the tooltip, the disabled menu
-  item and the banner are three renderings of that one answer. Editing is closed
+  The refusal is asked **once**, in the cell, and the dimming, the tooltip, the
+  disabled menu item and the banner are four renderings of that one answer. The
+  dimming is `.opacity` over the whole cell rather than a second
+  `foregroundStyle`, so it *composes* with the NULL rendering instead of
+  competing with it — a refused NULL stays italic and tertiary and simply reads
+  fainter, where a greyer foreground would have drawn a refused value and an
+  editable NULL the same colour — and it is what tells a view or an unaddressable
+  table (where **every** cell is refused) apart from an editable one at a glance,
+  which hovering each cell in turn is not. Editing is closed
   by `isLoadingRows` rising — the one signal every rows-replacing path (a
   selection, a page turn, a sort, the re-query after a committed write) raises
   before its hop — and is not offered at all while a write or a load is in
   flight, because an editor opened over either would be typing into rows that no
   longer exist by the time Return arrives; the editing state is a *coordinate*
-  rather than a value, so this matters. Cells are no longer
+  rather than a value, so this matters. The **single click also closes an editor
+  open somewhere else**, which is not tidiness: focus leaving a field is not a
+  signal anything here sees, so without it the abandoned field would stay on
+  screen unfocused with the editing coordinate still pointing at it — and since
+  the Return shortcut is enabled only while *no* editor is open, Return would
+  silently stop working on the cell the reader just clicked, until they thought
+  to press Escape on a field they had already left. Closing writes nothing, the
+  same answer Escape and every rows-replacing load give. Cells are no longer
   `.textSelection(.enabled)`: on selectable text a double-click selects a word,
   and that is the gesture editing needs; Copy puts on the pasteboard exactly the
   string a selection would have carried. Return is carried by a zero-sized,
