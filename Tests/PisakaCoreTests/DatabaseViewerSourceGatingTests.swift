@@ -47,6 +47,19 @@ import XCTest
 ///    `isWriteBlocked`, and a cell edit landing in a database git is rewriting is
 ///    a silent failure by construction — the write succeeds, and the file it
 ///    wrote into is replaced a moment later.
+/// 7. The compiler cannot see that the console composes no SQL. Part 2b's whole
+///    premise is that the *reader's* text travels verbatim to the seam — the one
+///    stated exception to "Core writes every byte of SQL" — and the way that
+///    stays an exception rather than a second composer is that no console file
+///    names `DatabaseQuery` and `DatabaseQuery` names no console member. A
+///    console file that started appending `LIMIT` to the reader's text would
+///    compile, run, and quietly rewrite the question that was asked.
+/// 8. The compiler cannot see who owns the reader's text. `ContentView` swaps the
+///    viewer surface out whole for a text tab and `DatabaseViewerHost` keys it on
+///    the tab, so a console input holding its own `@State` compiles perfectly and
+///    loses a half-written query to a glance at a source file — silently, and
+///    leaving the pane's deliberate re-presentation of a pending confirmation
+///    standing over an empty box.
 final class DatabaseViewerSourceGatingTests: XCTestCase {
 
     private static let repositoryRoot = URL(fileURLWithPath: #filePath)
@@ -91,6 +104,20 @@ final class DatabaseViewerSourceGatingTests: XCTestCase {
             index = code.index(after: index)
         }
         return nil
+    }
+
+    /// The text of one declaration's body: from its own line to whichever
+    /// declaration at type scope comes next.
+    ///
+    /// Needed wherever the rule is about *where* a call happens rather than
+    /// whether it appears at all — the whole-file answer to "does this name the
+    /// gate?" is yes for every file that has one write in it.
+    static func declarationBody(after declaration: String, in code: String) -> String? {
+        guard let start = code.range(of: declaration)?.upperBound else { return nil }
+        let end = ["\n    public func ", "\n    private func ", "\n    public var ", "\n    private var "]
+            .compactMap { code.range(of: $0, range: start..<code.endIndex)?.lowerBound }
+            .min() ?? code.endIndex
+        return String(code[start..<end])
     }
 
     /// Every file whose name says it belongs to the feature, on both sides of the
@@ -264,6 +291,12 @@ final class DatabaseViewerSourceGatingTests: XCTestCase {
     /// A count rather than a shape because the failure is silent either way: a
     /// seventh consumer that forgets the filter compiles, runs, and reports a
     /// database as an empty file to whichever subsystem it feeds.
+    ///
+    /// **Part 2b moves neither number**, which is the point of pinning them here:
+    /// the console lives entirely inside a tab that already exists, and the two
+    /// things it needed from the scene — the gate question and the write hook —
+    /// were wired for the cell edit. A console that had required a tenth filter
+    /// would have meant a new way for the app to read a viewer tab as text.
     func testEveryTextShapedConsumerFiltersOnTheTabKind() throws {
         let app = try code(ofFileNamed: "PisakaApp.swift", under: "Sources/Pisaka")
         XCTAssertEqual(
@@ -421,11 +454,20 @@ final class DatabaseViewerSourceGatingTests: XCTestCase {
 
         // The one other entry point routes through the first rather than
         // repeating the refusal — a second copy is a second thing to keep true.
+        //
+        // Still one *here*, though the tab now has two writers: the console asks
+        // the same question in `DatabaseConsoleModel.confirm()` and is pinned by
+        // its own test below. Two places rather than one because the two writes
+        // are asked at different moments — a cell edit is sent the instant it is
+        // committed, while a console batch waits out however long the reader
+        // spends reading a confirmation — so the answer that matters is read
+        // separately in each. What must never grow is the count *within* either
+        // file.
         XCTAssertEqual(
             try occurrences(of: "isWriteBlocked\\(\\)", in: model),
             1,
-            "The gate is asked in exactly one place. setCellToNull is updateCell with an entry of .null, so a "
-                + "second ask would be a second answer to the same question."
+            "The gate is asked in exactly one place in this file. setCellToNull is updateCell with an entry of "
+                + ".null, so a second ask would be a second answer to the same question."
         )
     }
 
@@ -473,23 +515,226 @@ final class DatabaseViewerSourceGatingTests: XCTestCase {
     /// The read path must stay innocent of both: a listing, a page load and a
     /// sort are reads, and a read that consulted the writer gate would go blank
     /// (or refuse) every time somebody committed.
+    ///
+    /// The console's half is the same rule at a subtler site. `run(_:)` cannot
+    /// know whether it is a read until `classifyConsole(_:)` has answered, so the
+    /// tempting shape is to ask the gate up front and refuse the whole run —
+    /// which would mean a `SELECT` typed during a checkout answering a refusal
+    /// instead of rows. Classification and the read it may lead to are reads;
+    /// only `confirm()` is a write, and only `confirm()` asks.
     func testTheReadPathNamesNeitherTheGateNorTheHook() throws {
-        let model = try code(ofFileNamed: "DatabaseViewerModel.swift", under: "Sources/PisakaCore")
-        for entryPoint in ["public func load()", "public func select(", "public func goToPage("] {
-            guard let start = model.range(of: entryPoint)?.upperBound else {
-                XCTFail("\(entryPoint) must exist — it is one of the viewer's read entry points")
+        let viewer = try code(ofFileNamed: "DatabaseViewerModel.swift", under: "Sources/PisakaCore")
+        let console = try code(ofFileNamed: "DatabaseConsoleModel.swift", under: "Sources/PisakaCore")
+        let readPaths: [(String, String, String)] = [
+            ("DatabaseViewerModel", "public func load()", viewer),
+            ("DatabaseViewerModel", "public func select(", viewer),
+            ("DatabaseViewerModel", "public func goToPage(", viewer),
+            ("DatabaseConsoleModel", "public func run(", console),
+            ("DatabaseConsoleModel", "private func performRead(", console),
+        ]
+        for (file, entryPoint, code) in readPaths {
+            guard let body = Self.declarationBody(after: entryPoint, in: code) else {
+                XCTFail("\(file).\(entryPoint) must exist — it is one of the viewer's read entry points")
                 continue
             }
-            // To the next declaration at type scope, which is where this one ends.
-            let end = model.range(of: "\n    public func ", range: start..<model.endIndex)?.lowerBound
-                ?? model.endIndex
-            let body = String(model[start..<end])
             XCTAssertFalse(
                 body.contains("isWriteBlocked") || body.contains("didWrite"),
-                "\(entryPoint) is a read and must consult neither. The viewer goes on answering questions "
-                    + "about a database while git rewrites the worktree; only a write waits for that to finish."
+                "\(file).\(entryPoint) is a read and must consult neither. The viewer goes on answering "
+                    + "questions about a database while git rewrites the worktree; only a write waits for "
+                    + "that to finish."
             )
         }
+    }
+
+    // MARK: - The console, the tab's second writer
+
+    /// The `updateCell` rule, restated for the writer that arrived second.
+    ///
+    /// The console's shape makes the failure quieter than the cell edit's: the
+    /// reader is asked a question and then has to read it, so the window between
+    /// deciding to write and writing is as long as a person takes — which is
+    /// exactly long enough for a checkout to start. Asking before the prompt
+    /// would compile, read plausibly, and answer about a moment that has passed.
+    func testTheConsoleAsksTheGateOnceAndBeforeAnythingIsSent() throws {
+        let model = try code(ofFileNamed: "DatabaseConsoleModel.swift", under: "Sources/PisakaCore")
+        guard let start = model.range(of: "public func confirm()")?.upperBound,
+              let gate = model.range(of: "isWriteBlocked()", range: start..<model.endIndex)?.lowerBound,
+              let send = model.range(of: "performConsoleWrite(", range: start..<model.endIndex)?.lowerBound
+        else {
+            XCTFail("confirm() must exist, ask isWriteBlocked() and then send the transaction")
+            return
+        }
+        XCTAssertLessThan(
+            gate,
+            send,
+            "The gate question comes before the write, and inside confirm() rather than before the prompt. A "
+                + "batch that commits while a revert, a checkout or a merge apply is rewriting the worktree "
+                + "writes into a file git is about to replace: it reports its affected-row count and then "
+                + "disappears, with nothing anywhere saying so."
+        )
+        XCTAssertEqual(
+            try occurrences(of: "isWriteBlocked\\(\\)", in: model),
+            1,
+            "Asked in exactly one place in this file too. run(_:) must not ask it: classification and the read "
+                + "it may lead to are reads, and refusing a SELECT because somebody is committing would make "
+                + "the console go dark for a reason that has nothing to do with the question typed into it."
+        )
+    }
+
+    /// The reader's text is the console's one input and it travels verbatim; the
+    /// row cap travels beside it as a number the app half enforces by stepping.
+    /// Two call sites for the same text would be two chances for one of them to
+    /// start "helping".
+    func testTheReadersTextReachesTheSeamThroughOneCallSiteEach() throws {
+        let model = try code(ofFileNamed: "DatabaseConsoleModel.swift", under: "Sources/PisakaCore")
+        for member in ["classifyConsole", "runConsoleRead", "performConsoleWrite"] {
+            XCTAssertEqual(
+                try occurrences(of: "\\b\(member)\\(", in: model),
+                1,
+                "\(member) is called exactly once. Each of the three is a different promise about the "
+                    + "reader's text — nothing runs, everything runs read-only, everything runs in one "
+                    + "transaction — and a second call site is a second place that promise is made."
+            )
+        }
+    }
+
+    /// The console is the **one stated exception** to "Core writes every byte of
+    /// SQL": the text is the reader's own and is never composed, quoted, wrapped
+    /// or appended to. Both halves of that are pinned, because either one alone
+    /// leaves the door open — a console file reaching for `DatabaseQuery` would
+    /// start composing, and a `DatabaseQuery` member built for the console would
+    /// make the exception into a second composer.
+    func testTheConsoleComposesNoSQL() throws {
+        for url in try databaseFiles() where url.lastPathComponent.hasPrefix("DatabaseConsole") {
+            XCTAssertFalse(
+                LSPSourceGatingTests.containsToken("DatabaseQuery", in: try code(of: url)),
+                "\(url.lastPathComponent) must not name DatabaseQuery. The console runs the reader's text and "
+                    + "nothing else: the cap is a number the app half steps to, not a LIMIT appended to a "
+                    + "statement whose meaning the console cannot see."
+            )
+        }
+
+        let query = try code(ofFileNamed: "DatabaseQuery.swift", under: "Sources/PisakaCore")
+        for member in ["Console", "classifyConsole", "runConsoleRead", "performConsoleWrite"] {
+            XCTAssertEqual(
+                try occurrences(of: "\\b\(member)", in: query),
+                0,
+                "DatabaseQuery must name no console member (\(member)). It stays the composer for the grid's "
+                    + "own statements alone; a console helper here would be the exception growing into the "
+                    + "rule it is an exception to."
+            )
+        }
+    }
+
+    /// The three rules above this section apply to the console's files by virtue
+    /// of their names — and a rule that applies by prefix is a rule that stops
+    /// applying the moment somebody renames a file. So the membership is asserted
+    /// rather than assumed: these are the files part 2b added, and each is
+    /// covered by the macOS gating, the no-`localChanges` rule and the reader
+    /// rule because it is in this set.
+    func testTheConsolesFilesAreCoveredByTheFeatureWideRules() throws {
+        let found = Set(try databaseFiles().map(\.lastPathComponent))
+        for file in ["DatabaseConsolePlan.swift", "DatabaseConsoleModel.swift", "DatabaseConsoleView.swift"] {
+            XCTAssertTrue(
+                found.contains(file),
+                "\(file) must be discovered by databaseFiles(). If it was renamed away from the Database "
+                    + "prefix, three rules stopped applying to it silently — restore the prefix or add it to "
+                    + "the set by hand."
+            )
+        }
+    }
+
+    /// The console needed nothing from the scene, which is why the tab-kind
+    /// filter counts above did not move: it lives inside a tab that already
+    /// exists, and the gate question and the write hook it uses are the ones
+    /// `DatabaseViewerTabs` was already handed for the cell edit. A console type
+    /// named in `PisakaApp.swift` would mean a second wiring path for the same
+    /// two closures — and the later one would silently win.
+    func testTheSceneKnowsNothingAboutTheConsole() throws {
+        let app = try code(ofFileNamed: "PisakaApp.swift", under: "Sources/Pisaka")
+        XCTAssertEqual(
+            try occurrences(of: "DatabaseConsole", in: app),
+            0,
+            "The scene must not name the console. It reaches the tab through DatabaseViewerTabs, which "
+                + "forwards the one gate question and the one write hook the scene already wires."
+        )
+    }
+
+    // MARK: - Nothing is armed while a write is in flight
+
+    /// The surface disables on the **tab-wide** flag, never on the grid's own
+    /// half of it.
+    ///
+    /// `isWriteInFlight` is `isWriting || console.isWriting`; a site spelling
+    /// `model.isWriting` instead would stay live for the whole of a console
+    /// batch — a page turn landing mid-transaction, a sort re-query against a
+    /// table the batch is dropping, an editor opened over rows it is rewriting —
+    /// and every other gate in this suite would stay green, because the flag it
+    /// asked still exists and still answers. So the three controls are pinned by
+    /// the term they disable on, and the half-flag is pinned by absence.
+    func testTheGridsControlsDisableOnTheTabWideWriteFlag() throws {
+        let view = try code(ofFileNamed: "DatabaseViewerView.swift", under: "Sources/Pisaka")
+        for pattern in [
+            #"\.disabled\(!model\.page\.hasPrevious \|\| model\.isWriteInFlight\)"#,
+            #"\.disabled\(!model\.page\.hasNext \|\| model\.isWriteInFlight\)"#,
+            #"\.disabled\(model\.isWriteInFlight\)"#,
+            #"isGridIdle: Bool \{ !model\.isWriteInFlight && !model\.isLoadingRows \}"#,
+        ] {
+            XCTAssertEqual(
+                try occurrences(of: pattern, in: view),
+                1,
+                "DatabaseViewerView must keep the paging buttons, the sort headers and the cell editor "
+                    + "disabled while either writer is in flight — the term is model.isWriteInFlight, and "
+                    + "\(pattern) is the site that says so."
+            )
+        }
+        XCTAssertEqual(
+            try occurrences(of: #"model\.isWriting"#, in: view),
+            0,
+            "The surface must never ask the grid's half of the flag: isWriteInFlight is the one question "
+                + "that covers the console's confirmed mutation too."
+        )
+    }
+
+    /// Run is the console's half of the same rule, and it needs **both** terms:
+    /// the console's own `isRunning` covers a classification, a read or a
+    /// mutation of its own, while `isWriteInFlight` — handed down by the owner,
+    /// never re-derived here — covers the grid's cell edit, which the console
+    /// cannot see.
+    func testRunIsDisabledWhileEitherWriterIsInFlight() throws {
+        let console = try code(ofFileNamed: "DatabaseConsoleView.swift", under: "Sources/Pisaka")
+        XCTAssertEqual(
+            try occurrences(of: #"isRunDisabled: Bool \{ console\.isRunning \|\| isWriteInFlight \}"#, in: console),
+            1,
+            "Run must be disabled by the console's own spinner and by the tab's write flag together."
+        )
+        XCTAssertEqual(
+            try occurrences(of: #"\.disabled\(isRunDisabled\)"#, in: console),
+            1,
+            "…and the Run control must be the thing that reads it."
+        )
+    }
+
+    /// The reader's text belongs to the console, not to the pane drawing it.
+    ///
+    /// `ContentView` swaps the viewer surface out whole for a text tab and
+    /// `DatabaseViewerHost` keys it on the tab, so the pane is destroyed by any
+    /// tab switch while the console behind it lives as long as the tab. An input
+    /// owning its own text would therefore lose a half-written query to a glance
+    /// at a source file, silently — and would leave the pane's deliberate
+    /// re-presentation of a pending confirmation standing over an empty box.
+    func testTheReadersTextIsHeldByTheConsoleAndNotByThePane() throws {
+        let console = try code(ofFileNamed: "DatabaseConsoleView.swift", under: "Sources/Pisaka")
+        XCTAssertEqual(
+            try occurrences(of: #"@State private var text"#, in: console),
+            0,
+            "The input must not own the reader's text: this view does not live as long as the typing does."
+        )
+        XCTAssertGreaterThan(
+            try occurrences(of: #"console\.text"#, in: console),
+            0,
+            "…it reads and writes the console's own property instead."
+        )
     }
 
     // MARK: - The viewer is a reader

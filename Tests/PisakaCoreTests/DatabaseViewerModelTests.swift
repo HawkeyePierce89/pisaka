@@ -741,6 +741,38 @@ final class DatabaseViewerModelTests: XCTestCase {
         XCTAssertNil(model.errorMessage)
     }
 
+    /// `clearRowIdentity()`'s rule, asked of the console's own carried decision.
+    ///
+    /// A confirmation is the one thing on the pane that survives the window a git
+    /// operation opens: the prompt describes a classification made against the
+    /// database `reload` is about to replace, the gate `confirm()` asks is down
+    /// again by the time the reader answers, and `fileURL()` already names the
+    /// file the checkout put there. Agreeing would send the text to a database it
+    /// was never classified against.
+    func testReloadDropsAPendingConsoleConfirmationRatherThanLettingItLand() async {
+        let service = ScriptedDatabaseService()
+        let text = "DELETE FROM items"
+        serveSchema(on: service, table: "items")
+        serveCount(on: service, table: "items", total: 5)
+        servePage(on: service, table: "items", rows: [[.integer(1), .text("one")]])
+        service.serveClassification(text, kinds: [.write])
+        service.serveCommittedConsoleWrite(affectedRows: 5)
+        let model = await loadedModel(service)
+        await model.select(table: "items")
+
+        await model.console.run(text)
+        XCTAssertNotNil(model.console.pendingConfirmation, "Staging: the reader is being asked")
+
+        await model.reload(at: URL(fileURLWithPath: "/tmp/Project/renamed.sqlite"))
+        await model.console.confirm()
+
+        XCTAssertNil(model.console.pendingConfirmation)
+        XCTAssertTrue(
+            service.consoleTransactions.isEmpty,
+            "A prompt about the database that was replaced may not be sent to the one that replaced it"
+        )
+    }
+
     func testReloadDropsASelectionTheNewDatabaseNoLongerHolds() async {
         let service = ScriptedDatabaseService()
         serveSchema(on: service, table: "items")
@@ -2273,6 +2305,316 @@ final class DatabaseViewerModelTests: XCTestCase {
         XCTAssertNil(model.selectedTable)
         XCTAssertTrue(model.rows.isEmpty)
         XCTAssertNil(model.errorMessage)
+    }
+
+    // MARK: - The console the tab owns
+
+    func testRefreshAfterWriteRereadsTheListingAndRefreshesTheSelection() async {
+        let service = ScriptedDatabaseService()
+        let model = await editableModel(
+            service,
+            pages: [itemsPage(label: .text("old")), itemsPage(label: .text("new"))]
+        )
+        let listings = service.count(for: DatabaseQuery.tableListing.sql)
+
+        await model.refreshAfterWrite()
+
+        XCTAssertEqual(
+            service.count(for: DatabaseQuery.tableListing.sql),
+            listings + 1,
+            "The listing is re-read: a batch may have created or dropped a table"
+        )
+        XCTAssertEqual(model.selectedTable, "items")
+        XCTAssertEqual(model.rows, [[.integer(1), .text("new")]], "…and the page is re-queried")
+        XCTAssertEqual(service.openedURLs, [url], "A console write does not replace the file's inode")
+    }
+
+    func testRefreshAfterWriteKeepsTheSortAndThePageIndexBecauseItReselectsAsARefresh() async {
+        let service = ScriptedDatabaseService()
+        serveSchema(on: service, table: "items")
+        serveProbe(on: service, table: "items")
+        serveCount(on: service, table: "items", total: 4)
+        serveResultColumns(on: service, table: "items")
+        service.serve(
+            pageSQL(table: "items", identity: .rowid),
+            columns: ["id", "label", "rowid"],
+            rows: [[.integer(1), .text("a"), .integer(7)]]
+        )
+        service.serve(
+            pageSQL(table: "items", orderBy: 1, ascending: true, identity: .rowid),
+            columns: ["id", "label", "rowid"],
+            rows: [[.integer(2), .text("b"), .integer(8)]]
+        )
+        let model = await loadedModel(service, pageSize: 1)
+        await model.select(table: "items")
+        await model.toggleSort(column: "label", index: 1)
+        await model.goToPage(1)
+
+        await model.refreshAfterWrite()
+
+        XCTAssertEqual(model.sort, DatabaseSortState(column: "label", columnIndex: 1, direction: .ascending))
+        XCTAssertEqual(model.page.index, 1)
+        XCTAssertEqual(model.page.totalRows, 4, "The count is re-queried, because a batch can add rows")
+    }
+
+    func testRefreshAfterWriteShowsATableTheBatchCreated() async {
+        let service = ScriptedDatabaseService()
+        let model = await editableModel(service)
+
+        serveListing(on: service, entries: [("items", "table"), ("orders", "table"), ("made", "table")])
+        await model.refreshAfterWrite()
+
+        XCTAssertEqual(model.entries.map(\.name), ["items", "orders", "made"])
+        XCTAssertEqual(model.selectedTable, "items", "…and the selection is untouched by a table appearing beside it")
+    }
+
+    func testRefreshAfterWriteThatLostTheSelectedTableLandsWhereALostReloadDoes() async {
+        let service = ScriptedDatabaseService()
+        let model = await editableModel(service)
+
+        serveListing(on: service, entries: [("orders", "table")])
+        await model.refreshAfterWrite()
+
+        XCTAssertNil(model.selectedTable)
+        XCTAssertTrue(model.rows.isEmpty)
+        XCTAssertTrue(model.columns.isEmpty)
+        XCTAssertTrue(model.gridColumns.isEmpty)
+        XCTAssertNil(model.sort)
+        XCTAssertEqual(model.page.index, 0)
+        XCTAssertNil(model.errorMessage)
+    }
+
+    /// The token bump supersedes a page load already in flight, and a superseded
+    /// load publishes nothing — including not lowering the spinner. When the
+    /// listing no longer holds the selected table the re-selection returns
+    /// without raising a load of its own, so nothing else would ever lower it:
+    /// the grid would spin for the life of the tab and every later cell edit
+    /// would be refused.
+    func testRefreshAfterWriteThatLostTheSelectedTableLowersASupersededLoadsSpinner() async {
+        let service = ScriptedDatabaseService()
+        let model = await editableModel(service)
+        let sorted = pageSQL(table: "items", orderBy: 1, ascending: true, identity: .rowid)
+        service.serve(sorted, columns: ["id", "label", "rowid"], rows: [[.integer(1), .text("old"), .integer(7)]])
+        let gate = Gate()
+        service.hold(sorted, on: gate)
+
+        let held = Task { await model.toggleSort(column: "label", index: 1) }
+        await waitUntil { gate.reached }
+        XCTAssertTrue(model.isLoadingRows, "Staging: the page load this refresh is about to supersede")
+
+        serveListing(on: service, entries: [("orders", "table")])
+        await model.refreshAfterWrite()
+        gate.release()
+        await held.value
+
+        XCTAssertNil(model.selectedTable)
+        XCTAssertFalse(model.isLoadingRows, "The refresh raised no load of its own, so it owes the spinner it took over")
+    }
+
+    /// The same rule when the refresh's own listing fails: `reselectIfPending()`
+    /// is never reached at all, so the spinner has nobody else to lower it.
+    func testRefreshAfterWriteWhoseListingFailsLowersASupersededLoadsSpinner() async {
+        let service = ScriptedDatabaseService()
+        let model = await editableModel(service)
+        let sorted = pageSQL(table: "items", orderBy: 1, ascending: true, identity: .rowid)
+        service.serve(sorted, columns: ["id", "label", "rowid"], rows: [[.integer(1), .text("old"), .integer(7)]])
+        let gate = Gate()
+        service.hold(sorted, on: gate)
+
+        let held = Task { await model.toggleSort(column: "label", index: 1) }
+        await waitUntil { gate.reached }
+
+        service.fail(DatabaseQuery.tableListing.sql, with: DatabaseError.busy(message: "database is locked"))
+        await model.refreshAfterWrite()
+        gate.release()
+        await held.value
+
+        XCTAssertEqual(model.errorMessage, "database is locked")
+        XCTAssertFalse(model.isLoadingRows, "A refresh that never reached its re-selection still owes the spinner")
+    }
+
+    /// `reload(at:)`'s identity rule, asked of the path a console batch takes.
+    ///
+    /// The window is real and it is wide: `confirm()` lowers `isWriting` before
+    /// it awaits the refresh, and the refresh lowers `isLoadingRows` with its
+    /// token bump, so for the whole of the re-read the grid is idle to
+    /// `updateCell` — a gesture made now even captures the freshly-bumped token,
+    /// so that guard passes too. The rows on screen are still the batch's
+    /// *previous* table, and a batch may have dropped and recreated it, so what
+    /// must not survive is how those rows were addressed.
+    func testRefreshAfterWriteRefusesEditsUntilTheReSelectionRepublishesAnIdentity() async {
+        let service = ScriptedDatabaseService()
+        let model = await editableModel(service)
+        XCTAssertNil(model.editRefusal(row: 0, column: 1), "Staging: the cell is editable before the batch")
+
+        let gate = Gate()
+        service.hold(DatabaseQuery.tableListing.sql, on: gate)
+        let refresh = Task { await model.refreshAfterWrite() }
+        await waitUntil { gate.reached }
+
+        XCTAssertFalse(model.isWriteInFlight, "Staging: the write is over before the refresh is awaited")
+        XCTAssertFalse(model.isLoadingRows, "Staging: the refresh lowered the spinner with its token bump")
+        XCTAssertNotNil(
+            model.editRefusal(row: 0, column: 1),
+            "The rows on screen are addressed by an identity the batch may have dropped"
+        )
+
+        await model.updateCell(row: 0, column: 1, entry: .typed("new"), request: model.rowsToken)
+        XCTAssertTrue(service.writeTransactions.isEmpty, "No statement may be sent against the old page's rowid")
+
+        gate.release()
+        await refresh.value
+    }
+
+    func testACommittedConsoleMutationRefreshesTheTabThroughTheWiredClosure() async {
+        let service = ScriptedDatabaseService()
+        let text = "DROP TABLE items"
+        var didWriteCount = 0
+        let model = await editableModel(service, didWrite: { didWriteCount += 1 })
+        service.serveClassification(text, kinds: [.write])
+        service.serveCommittedConsoleWrite(affectedRows: 0)
+        serveListing(on: service, entries: [("orders", "table")])
+
+        await model.console.run(text)
+        await model.console.confirm()
+
+        XCTAssertEqual(service.consoleTransactions.map(\.text), [text])
+        XCTAssertEqual(didWriteCount, 1, "A committed batch changed a tracked file on disk")
+        XCTAssertNil(model.selectedTable, "…and the dropped table went with it")
+        XCTAssertEqual(model.entries.map(\.name), ["orders"])
+    }
+
+    func testTheConsoleCarriesTheTabsCurrentURLAfterARename() async {
+        let service = ScriptedDatabaseService()
+        let text = "DELETE FROM items"
+        let renamed = URL(fileURLWithPath: "/tmp/Project/renamed.sqlite")
+        let model = await editableModel(service)
+        service.serveClassification(text, kinds: [.write])
+        service.serveCommittedConsoleWrite(affectedRows: 1)
+
+        model.retarget(to: renamed)
+        await model.console.run(text)
+        await model.console.confirm()
+
+        XCTAssertEqual(
+            service.consoleTransactions.map(\.url),
+            [renamed],
+            "The URL is asked for at the moment the mutation is composed, never copied at construction"
+        )
+    }
+
+    func testACellEditInFlightRefusesTheConsolesMutation() async {
+        let service = ScriptedDatabaseService()
+        let text = "DELETE FROM items"
+        let gate = Gate()
+        let model = await editableModel(service)
+        service.serveCommittedWrite()
+        service.holdWrite(on: gate)
+        service.serveClassification(text, kinds: [.write])
+        service.serveCommittedConsoleWrite(affectedRows: 1)
+
+        let editing = Task { await model.updateCell(row: 0, column: 1, entry: .typed("new")) }
+        await waitUntil { gate.reached }
+        XCTAssertTrue(model.isWriteInFlight, "A cell edit is a write in flight for the whole tab")
+
+        await model.console.run(text)
+        await model.console.confirm()
+
+        XCTAssertEqual(model.console.message, DatabaseConsolePlan.runInFlightMessage)
+        XCTAssertEqual(service.consoleWriteCount, 0, "One write per tab")
+        gate.release()
+        await editing.value
+    }
+
+    /// The mirror of `testACellEditInFlightRefusesTheConsolesMutation`: "one
+    /// write per tab" is one rule read from **both** sides, so a cell edit is
+    /// refused while the console's batch is still running — in the tab's own
+    /// words, and with nothing sent. Without this the grid would open a second
+    /// read-write connection while the batch still holds the file's write lock.
+    func testAConsoleMutationInFlightRefusesACellEdit() async {
+        let service = ScriptedDatabaseService()
+        let text = "DELETE FROM items"
+        let gate = Gate()
+        let model = await editableModel(service)
+        service.serveClassification(text, kinds: [.write])
+        service.serveCommittedConsoleWrite(affectedRows: 1)
+        service.holdConsoleWrite(on: gate)
+        // Scripted so that a write escaping the guard would land rather than
+        // throw: the count below has to be able to reach one.
+        service.serveCommittedWrite()
+
+        await model.console.run(text)
+        let writing = Task { await model.console.confirm() }
+        await waitUntil { gate.reached }
+
+        await model.updateCell(row: 0, column: 1, entry: .typed("new"))
+
+        XCTAssertEqual(model.errorMessage, DatabaseViewerModel.writeInFlightMessage)
+        XCTAssertEqual(service.writeCount, 0, "One write per tab, refused rather than queued")
+
+        gate.release()
+        await writing.value
+    }
+
+    func testIsWriteInFlightCoversTheConsolesMutationToo() async {
+        let service = ScriptedDatabaseService()
+        let text = "DELETE FROM items"
+        let gate = Gate()
+        let model = await editableModel(service)
+        service.serveClassification(text, kinds: [.write])
+        service.serveCommittedConsoleWrite(affectedRows: 1)
+        service.holdConsoleWrite(on: gate)
+        XCTAssertFalse(model.isWriteInFlight)
+
+        await model.console.run(text)
+        let writing = Task { await model.console.confirm() }
+        await waitUntil { gate.reached }
+
+        XCTAssertTrue(model.isWriteInFlight, "…which is what the paging buttons and the sort headers disable on")
+        gate.release()
+        await writing.value
+        XCTAssertFalse(model.isWriteInFlight)
+    }
+
+    /// The console's slot and the tab's are independent **in both directions**:
+    /// neither surface's failure may erase the other's only explanation.
+    func testTheConsolesMessageSlotIsIndependentOfTheViewers() async {
+        let service = ScriptedDatabaseService()
+        let failing = "SELECT * FROM gone"
+        let model = await editableModel(
+            service,
+            pages: [itemsPage(label: .text("old")), itemsPage(label: .text("old"))]
+        )
+        service.serveClassification(failing, kinds: [.read])
+        service.failConsoleRead(failing, with: DatabaseError.sqlError(message: "no such table: gone"))
+        service.serveRolledBackWrite(affectedRows: 0)
+
+        await model.updateCell(row: 0, column: 1, entry: .typed("new"))
+        await model.console.run(failing)
+
+        XCTAssertEqual(model.errorMessage, DatabaseViewerModel.rollbackMessage(affectedRows: 0))
+        XCTAssertEqual(model.console.message, "no such table: gone")
+
+        // A page turn writes and clears neither: the console's sentence is not
+        // about the rows, and the grid's is not about the text.
+        await model.goToPage(0)
+
+        XCTAssertEqual(model.console.message, "no such table: gone")
+    }
+
+    func testCloseStopsTheConsole() async {
+        let service = ScriptedDatabaseService()
+        let text = "SELECT 1"
+        let model = await editableModel(service)
+        service.serveClassification(text, kinds: [.read])
+        service.serveConsoleRead(text, columns: ["1"], rows: [[.integer(1)]])
+
+        await model.close()
+        await model.console.run(text)
+
+        XCTAssertEqual(service.classifiedTexts, [], "A stopped console sends nothing into a tab that is gone")
+        XCTAssertFalse(model.console.isRunning)
+        XCTAssertFalse(model.isWriteInFlight)
     }
 
     // MARK: - Scripting helpers

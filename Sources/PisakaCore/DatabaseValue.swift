@@ -9,10 +9,10 @@ import Foundation
 /// the app half, reported as a `DatabaseError`, not smuggled through as a sixth
 /// case nobody can render.
 ///
-/// Rendering lives here rather than in the grid so that the grid and — in part 2
-/// — the SQL console's result table give the **same** answer for the same value.
-/// Two renderings of NULL would be two chances to disagree about the one
-/// distinction the viewer must never blur.
+/// Rendering lives here rather than in the grid so that the grid, the cell
+/// editor's seed text and the SQL console's result table give the **same**
+/// answer for the same value. Two renderings of NULL would be two chances to
+/// disagree about the one distinction the viewer must never blur.
 public enum DatabaseValue: Equatable, Hashable, Sendable {
     case integer(Int64)
     case real(Double)
@@ -25,8 +25,10 @@ public enum DatabaseValue: Equatable, Hashable, Sendable {
     /// read is one bounded page. A blob cell may hold a gigabyte, and a page holds
     /// `DatabasePage.defaultSize` rows — the app half therefore asks SQLite for
     /// the length and copies nothing, so a page of blobs costs the same as a page
-    /// of integers. Part 2's cell editor, when it needs a blob's contents, will
-    /// ask for *that one cell* rather than have every page carry every blob.
+    /// of integers. The cell editor refuses a blob cell by name
+    /// (`DatabaseEditRefusal.blobCell`) rather than reach for the bytes; an
+    /// editor that did need them would have to ask for *that one cell* rather
+    /// than have every page carry every blob.
     case blob(byteCount: Int)
     case null
 
@@ -114,8 +116,8 @@ public struct DatabaseResultSet: Equatable, Sendable {
     /// Zero for every read, which the seam's implementations must make true
     /// rather than inherit: SQLite's own counter is per-*connection* and survives
     /// the reads that follow a write, so an implementation that simply asks it
-    /// after a `SELECT` reports the previous statement's number. Part 2's write
-    /// path is the only caller that reads this, and it reads it as the check that
+    /// after a `SELECT` reports the previous statement's number. The cell edit's
+    /// write path is the only caller that reads this, and it reads it as the check that
     /// an `UPDATE … WHERE` touched exactly the one row it named — which is why it
     /// is carried here from the start rather than added to the seam later, and
     /// why the zero is stated as a rule here instead of assumed there.

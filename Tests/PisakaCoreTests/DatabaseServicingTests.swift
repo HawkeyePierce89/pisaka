@@ -442,6 +442,381 @@ final class DatabaseServicingTests: XCTestCase {
         XCTAssertEqual(delivered, DatabaseWriteOutcome(affectedRows: 1, isCommitted: true))
     }
 
+    // MARK: - The console members
+
+    /// All three console members are defaulted, so a stub that owns no console
+    /// half still conforms — and each refuses *honestly*. An empty
+    /// classification would read to the policy as "this text holds no
+    /// statements", and an empty answer as "your query matched nothing"; both
+    /// would be sentences about a connection that never looked.
+    func testTheConsoleMembersAreDefaultedToHonestRefusals() async {
+        struct FixedAnswerStub: DatabaseServicing {
+            func open(url: URL) async throws {}
+            func run(_ statement: DatabaseStatement) async throws -> DatabaseResultSet {
+                DatabaseResultSet(columnNames: ["one"], rows: [[.integer(1)]])
+            }
+        }
+
+        let stub = FixedAnswerStub()
+
+        do {
+            _ = try await stub.classifyConsole("SELECT 1")
+            XCTFail("A conformer with no console half must refuse to classify")
+        } catch let error as DatabaseError {
+            XCTAssertEqual(error, .sqlError(message: "This database connection has no SQL console."))
+            XCTAssertEqual(error.errorDescription, "This database connection has no SQL console.")
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+
+        do {
+            _ = try await stub.runConsoleRead("SELECT 1", rowLimit: DatabaseConsolePlan.rowLimit)
+            XCTFail("A conformer with no console half must refuse to read")
+        } catch let error as DatabaseError {
+            XCTAssertEqual(error, .sqlError(message: "This database connection has no SQL console."))
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+
+        do {
+            _ = try await stub.performConsoleWrite(consoleTransaction())
+            XCTFail("A conformer with no console half must refuse to write")
+        } catch let error as DatabaseError {
+            XCTAssertEqual(
+                error,
+                .sqlError(message: "This database connection is read-only."),
+                "A console write refuses with the write refusal, which is what the reader is being told"
+            )
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+    }
+
+    /// The whole classification round-trips unchanged — deferral included. It is
+    /// the policy's entire input, so a fake that normalised any part of it would
+    /// be testing itself.
+    func testAScriptedClassificationRoundTripsUnchanged() async throws {
+        let service = ScriptedDatabaseService()
+        let text = "CREATE TABLE x(a); INSERT INTO x VALUES(1);"
+        service.serveClassification(text, kinds: [.write], deferredWith: "no such table: x")
+
+        try await service.open(url: url)
+        let classification = try await service.classifyConsole(text)
+
+        XCTAssertEqual(classification.kinds, [.write])
+        XCTAssertEqual(classification.deferral?.index, 1)
+        XCTAssertEqual(classification.deferral?.message, "no such table: x")
+        XCTAssertFalse(classification.isComplete)
+        XCTAssertTrue(classification.isMutating)
+        XCTAssertEqual(service.classifiedTexts, [text], "The reader's text arrives verbatim")
+    }
+
+    /// A complete read-only classification is the shape the policy answers
+    /// `.read` to, and the only one the read member is ever handed.
+    func testACompleteReadOnlyClassificationRoundTripsToo() async throws {
+        let service = ScriptedDatabaseService()
+        let text = "PRAGMA foreign_keys; SELECT * FROM people;"
+        service.serveClassification(text, kinds: [.read, .read])
+
+        try await service.open(url: url)
+        let classification = try await service.classifyConsole(text)
+
+        XCTAssertEqual(classification.kinds, [.read, .read])
+        XCTAssertNil(classification.deferral)
+        XCTAssertEqual(DatabaseConsolePlan.decide(classification), .read)
+    }
+
+    /// The same sticky-last-step rule everything else in the fake follows.
+    func testTheLastScriptedClassificationAndConsoleReadStick() async throws {
+        let service = ScriptedDatabaseService()
+        let text = "SELECT 1"
+        service.serveClassifications(
+            text,
+            sequence: [
+                DatabaseConsoleClassification(kinds: [.read]),
+                DatabaseConsoleClassification(kinds: [.read, .write]),
+            ]
+        )
+        service.serveConsoleReads(
+            text,
+            sequence: [
+                DatabaseConsoleAnswer(columnNames: ["a"], rows: [[.integer(1)]]),
+                DatabaseConsoleAnswer(columnNames: ["a"], rows: [[.integer(2)]]),
+            ]
+        )
+        try await service.open(url: url)
+
+        _ = try await service.classifyConsole(text)
+        let secondKinds = try await service.classifyConsole(text).kinds
+        let thirdKinds = try await service.classifyConsole(text).kinds
+        XCTAssertEqual(secondKinds, [.read, .write])
+        XCTAssertEqual(thirdKinds, [.read, .write], "The last step must stick")
+
+        _ = try await service.runConsoleRead(text, rowLimit: 500)
+        let second = try await service.runConsoleRead(text, rowLimit: 500)
+        let third = try await service.runConsoleRead(text, rowLimit: 500)
+        XCTAssertEqual(second.rows, [[.integer(2)]])
+        XCTAssertEqual(third.rows, [[.integer(2)]], "The last step must stick")
+
+        XCTAssertEqual(service.classifiedTexts.count, 3)
+        XCTAssertEqual(service.consoleReadTexts.count, 3)
+    }
+
+    /// The cap travels as a number — nothing appended to the text — which is
+    /// what this reads back.
+    func testAConsoleReadRecordsItsTextAndTheCapItWasGiven() async throws {
+        let service = ScriptedDatabaseService()
+        let text = "SELECT * FROM people"
+        service.serveConsoleRead(text, columns: ["name"], rows: [[.text("Ada")]], isTruncated: true)
+
+        try await service.open(url: url)
+        let answer = try await service.runConsoleRead(text, rowLimit: DatabaseConsolePlan.rowLimit)
+
+        XCTAssertEqual(answer.columnNames, ["name"])
+        XCTAssertEqual(answer.rows, [[.text("Ada")]])
+        XCTAssertTrue(answer.isTruncated)
+        XCTAssertEqual(service.consoleReadTexts, [text])
+        XCTAssertEqual(service.consoleReadRowLimits, [500])
+        XCTAssertEqual(service.consoleTexts, [text], "A read with no classification beside it is the whole log")
+    }
+
+    /// Every text handed over, whichever member took it — the log a "nothing
+    /// rewrote the reader's text" assertion reads. The two texts differ and the
+    /// read is asked for *first*, so the assertion reads the log's documented
+    /// shape — classifications, then reads — rather than passing on whichever
+    /// order the calls happened to be made in.
+    func testTheConsoleTextLogHoldsClassificationsThenReads() async throws {
+        let service = ScriptedDatabaseService()
+        let classified = "SELECT 1;"
+        let read = "SELECT 2;"
+        service.serveClassification(classified, kinds: [.read])
+        service.serveConsoleRead(read, columns: ["2"], rows: [[.integer(2)]])
+
+        try await service.open(url: url)
+        _ = try await service.runConsoleRead(read, rowLimit: 500)
+        _ = try await service.classifyConsole(classified)
+
+        XCTAssertEqual(service.consoleTexts, [classified, read])
+        XCTAssertEqual(service.classifiedTexts, [classified])
+        XCTAssertEqual(service.consoleReadTexts, [read])
+    }
+
+    /// The transaction arrives verbatim: the URL, the reader's text untouched,
+    /// and the cap a read-only statement inside the batch may be stepped to.
+    func testTheScriptedServiceRecordsTheConsoleTransactionVerbatim() async throws {
+        let service = ScriptedDatabaseService()
+        service.serveCommittedConsoleWrite(affectedRows: 3)
+
+        let transaction = consoleTransaction()
+        let outcome = try await service.performConsoleWrite(transaction)
+
+        XCTAssertEqual(outcome, DatabaseWriteOutcome(affectedRows: 3, isCommitted: true))
+        XCTAssertEqual(service.consoleTransactions, [transaction])
+        XCTAssertEqual(service.consoleTransactions.first?.url, url)
+        XCTAssertEqual(
+            service.consoleTransactions.first?.text,
+            "DELETE FROM people WHERE id > 2;\n-- and a comment\nUPDATE people SET name = 'Ada';",
+            "The reader's text is carried verbatim — comments, newlines and all"
+        )
+        XCTAssertEqual(service.consoleTransactions.first?.readRowLimit, DatabaseConsolePlan.rowLimit)
+        XCTAssertEqual(service.consoleWriteCount, 1)
+    }
+
+    /// A console write is its own short-lived connection, so the read connection
+    /// being closed says nothing about it — and a committed zero is an ordinary
+    /// outcome here, unlike the cell edit's.
+    func testAConsoleWriteNeedsNoOpenReadConnectionAndMayCommitZero() async throws {
+        let service = ScriptedDatabaseService()
+        service.serveCommittedConsoleWrite(affectedRows: 0)
+
+        XCTAssertFalse(service.isOpen)
+        let outcome = try await service.performConsoleWrite(consoleTransaction())
+
+        XCTAssertEqual(outcome, DatabaseWriteOutcome(affectedRows: 0, isCommitted: true))
+        XCTAssertEqual(service.consoleWriteCount, 1)
+    }
+
+    func testTheLastScriptedConsoleWriteSticks() async throws {
+        let service = ScriptedDatabaseService()
+        service.serveConsoleWrites(
+            sequence: [
+                DatabaseWriteOutcome(affectedRows: 2, isCommitted: true),
+                DatabaseWriteOutcome(affectedRows: 0, isCommitted: false),
+            ]
+        )
+
+        let first = try await service.performConsoleWrite(consoleTransaction())
+        let second = try await service.performConsoleWrite(consoleTransaction())
+        let third = try await service.performConsoleWrite(consoleTransaction())
+
+        XCTAssertEqual(first.affectedRows, 2)
+        XCTAssertFalse(second.isCommitted)
+        XCTAssertFalse(third.isCommitted, "The last step must stick")
+        XCTAssertEqual(service.consoleWriteCount, 3)
+    }
+
+    /// The shape a prepare failure on a deferred statement arrives in: an
+    /// ordinary throw carrying SQLite's words, which rolls the batch back.
+    func testAFailedConsoleWriteThrowsWhatWasInjected() async {
+        let service = ScriptedDatabaseService()
+        service.failConsoleWrite()
+
+        do {
+            _ = try await service.performConsoleWrite(consoleTransaction())
+            XCTFail("The injected console-write failure must be thrown")
+        } catch let error as DatabaseError {
+            XCTAssertEqual(error, .sqlError(message: "no such table: x"))
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+
+        XCTAssertEqual(service.consoleWriteCount, 1, "A refused write is still an attempt worth logging")
+    }
+
+    /// A failure that is **not about the text** is thrown rather than deferred —
+    /// a deferral says SQLite failed to prepare something, and this one never
+    /// looked.
+    func testAFailedClassificationThrowsRatherThanDeferring() async throws {
+        let service = ScriptedDatabaseService()
+        let text = "SELECT 1"
+        service.failClassification(text)
+        try await service.open(url: url)
+
+        do {
+            _ = try await service.classifyConsole(text)
+            XCTFail("The injected classification failure must be thrown")
+        } catch let error as DatabaseError {
+            XCTAssertEqual(error, .closed)
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+    }
+
+    func testAFailedConsoleReadThrowsWhatWasInjected() async throws {
+        let service = ScriptedDatabaseService()
+        let text = "SELECT * FROM missing"
+        service.failConsoleRead(text)
+        try await service.open(url: url)
+
+        do {
+            _ = try await service.runConsoleRead(text, rowLimit: 500)
+            XCTFail("The injected console-read failure must be thrown")
+        } catch let error as DatabaseError {
+            XCTAssertEqual(error, .sqlError(message: "no such table"))
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+    }
+
+    /// A test that forgot to script a console call must fail as a failure, not
+    /// as an empty answer three layers away.
+    func testUnscriptedConsoleCallsThrow() async throws {
+        let service = ScriptedDatabaseService()
+        try await service.open(url: url)
+
+        do {
+            _ = try await service.classifyConsole("SELECT nothing")
+            XCTFail("An unscripted classification must throw")
+        } catch let failure as ScriptedDatabaseService.Failure {
+            XCTAssertEqual(failure, .notScripted(sql: "SELECT nothing"))
+        }
+
+        do {
+            _ = try await service.runConsoleRead("SELECT nothing", rowLimit: 500)
+            XCTFail("An unscripted console read must throw")
+        } catch let failure as ScriptedDatabaseService.Failure {
+            XCTAssertEqual(failure, .notScripted(sql: "SELECT nothing"))
+        }
+
+        do {
+            _ = try await service.performConsoleWrite(consoleTransaction())
+            XCTFail("An unscripted console write must throw")
+        } catch let failure as ScriptedDatabaseService.Failure {
+            XCTAssertEqual(failure, .notScripted(sql: consoleTransaction().text))
+        }
+    }
+
+    /// The fake is not more forgiving than the connection it stands in for: both
+    /// read-path console members answer `closed` before consuming a step, so the
+    /// next call still finds the script it was given.
+    func testTheConsoleReadPathRefusesAClosedConnectionWithoutConsumingAStep() async throws {
+        let service = ScriptedDatabaseService()
+        let text = "SELECT 1"
+        service.serveClassification(text, kinds: [.read])
+        service.serveConsoleRead(text, columns: ["a"], rows: [[.integer(1)]])
+
+        do {
+            _ = try await service.classifyConsole(text)
+            XCTFail("Classifying a closed connection must throw")
+        } catch let error as DatabaseError {
+            XCTAssertEqual(error, .closed)
+        }
+        do {
+            _ = try await service.runConsoleRead(text, rowLimit: 500)
+            XCTFail("Reading through a closed connection must throw")
+        } catch let error as DatabaseError {
+            XCTAssertEqual(error, .closed)
+        }
+
+        try await service.open(url: url)
+        let kinds = try await service.classifyConsole(text).kinds
+        let rows = try await service.runConsoleRead(text, rowLimit: 500).rows
+        XCTAssertEqual(kinds, [.read])
+        XCTAssertEqual(rows, [[.integer(1)]])
+    }
+
+    /// The window the model suite stages a superseding console run in: each of
+    /// the three gates really does hold its call open.
+    func testEachConsoleMemberCanBeHeldOnAGate() async throws {
+        let service = ScriptedDatabaseService()
+        let text = "DELETE FROM people"
+        service.serveClassification(text, kinds: [.write])
+        service.serveConsoleRead(text, columns: [], rows: [])
+        service.serveCommittedConsoleWrite()
+        try await service.open(url: url)
+
+        let classifyGate = Gate()
+        service.holdClassification(on: classifyGate)
+        let classified = ClassificationRecorder()
+        let classifying = Task {
+            await classified.record(try await service.classifyConsole(text))
+        }
+        await classifyGate.waitUntilReached()
+        let whileClassifying = await classified.value
+        XCTAssertNil(whileClassifying, "The classification must still be in flight")
+        classifyGate.release()
+        try await classifying.value
+        await waitFor("the held classification to answer") { await classified.value != nil }
+
+        let readGate = Gate()
+        service.holdConsoleRead(on: readGate)
+        let read = AnswerRecorder()
+        let reading = Task {
+            await read.record(try await service.runConsoleRead(text, rowLimit: 500))
+        }
+        await readGate.waitUntilReached()
+        let whileReading = await read.value
+        XCTAssertNil(whileReading, "The console read must still be in flight")
+        readGate.release()
+        try await reading.value
+        await waitFor("the held console read to answer") { await read.value != nil }
+
+        let writeGate = Gate()
+        service.holdConsoleWrite(on: writeGate)
+        let written = OutcomeRecorder()
+        let writing = Task {
+            await written.record(try await service.performConsoleWrite(self.consoleTransaction()))
+        }
+        await writeGate.waitUntilReached()
+        let whileWriting = await written.value
+        XCTAssertNil(whileWriting, "The console write must still be in flight")
+        writeGate.release()
+        try await writing.value
+        await waitFor("the held console write to answer") { await written.value != nil }
+        let delivered = await written.value
+        XCTAssertEqual(delivered, DatabaseWriteOutcome(affectedRows: 1, isCommitted: true))
+    }
+
     // MARK: - Support
 
     /// A one-statement transaction the write assertions above share.
@@ -456,6 +831,28 @@ final class DatabaseServicingTests: XCTestCase {
             ],
             requiredAffectedRows: 1
         )
+    }
+
+    /// A console transaction the console assertions above share — text carried
+    /// verbatim, comments and newlines included.
+    private func consoleTransaction() -> DatabaseConsoleTransaction {
+        DatabaseConsoleTransaction(
+            url: url,
+            text: "DELETE FROM people WHERE id > 2;\n-- and a comment\nUPDATE people SET name = 'Ada';",
+            readRowLimit: DatabaseConsolePlan.rowLimit
+        )
+    }
+
+    /// A sink an off-main classification writes into.
+    private actor ClassificationRecorder {
+        private(set) var value: DatabaseConsoleClassification?
+        func record(_ classification: DatabaseConsoleClassification) { value = classification }
+    }
+
+    /// A sink an off-main console read writes into.
+    private actor AnswerRecorder {
+        private(set) var value: DatabaseConsoleAnswer?
+        func record(_ answer: DatabaseConsoleAnswer) { value = answer }
     }
 
     /// A sink an off-main write writes into, polled the same way `Recorder` is.

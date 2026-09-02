@@ -1,0 +1,501 @@
+import Foundation
+
+/// The SQL console's flow: what Run does, what the reader is asked before a
+/// mutation, what is published when an answer arrives, and what is refused.
+///
+/// `DatabaseViewerModel`'s shape, one layer down — a `@MainActor
+/// ObservableObject` whose I/O is the same injected `DatabaseServicing` the tab
+/// holds, whose published state is only ever touched on the main actor, and
+/// whose overlapping runs are ordered by a monotonic generation token bumped in
+/// each run's **synchronous prefix**. Foundation only: every sentence it puts on
+/// screen that SQLite did not write comes from `DatabaseConsolePlan`, and the
+/// only SQL it ever handles is the reader's own, carried verbatim.
+///
+/// **One token, not two.** The tab counts its listing and its page apart because
+/// they are independently re-triggerable; the console has exactly one thing that
+/// re-triggers — pressing Run — and classification, the read and the confirmed
+/// mutation are all phases of that one thing. A superseded run publishes
+/// *nothing*: not its rows, not its footer, not its message, not its spinner.
+/// `didWrite` is the one stated exception, for `DatabaseViewerModel
+/// .updateCell`'s reason — it is about the file on disk and not about the screen.
+///
+/// **Its own message slot.** The console's failures are published here rather
+/// than into the tab's `errorMessage`, in both directions: a page turn never
+/// writes or clears the console's sentence, and a console failure never blanks
+/// the banner above the grid. The two surfaces are different questions the
+/// reader asked at different moments, and one answer overwriting the other would
+/// leave whichever lost with no explanation at all.
+///
+/// **The console never raises the disk-writer gate and only consults one**,
+/// exactly as the cell edit does — it is the same seventh-bracket rule, asked by
+/// a second surface. It does not name the gate, the tab's URL or the tab: all
+/// five arrive as closures the owner wires once, so a rename is followed for
+/// free and no file under the console names `localChanges`.
+@MainActor
+public final class DatabaseConsoleModel: ObservableObject {
+
+    /// A mutating text waiting for the reader's answer: what they are asked, and
+    /// the text `confirm()` will send **verbatim** if they agree.
+    ///
+    /// The text is carried here rather than re-read from the input, and that is
+    /// the whole reason this is a value and not a bare `String?` prompt: the
+    /// reader may go on typing behind the confirmation, and `text` follows them.
+    /// What runs is what was classified,
+    /// which is what the prompt describes — anything else would ask about one
+    /// text and run another.
+    public struct PendingConfirmation: Equatable, Sendable {
+        /// The sentence composed by `DatabaseConsolePlan.confirmationPrompt(for:)`
+        /// and shown verbatim.
+        public let prompt: String
+        /// The reader's text, exactly as it was classified.
+        public let text: String
+
+        public init(prompt: String, text: String) {
+            self.prompt = prompt
+            self.text = text
+        }
+    }
+
+    /// The last console read's answer, or `nil` when no read has answered yet.
+    ///
+    /// Replaced by the next read that answers, cleared by a committed mutation
+    /// (which shows no rows and reports a count instead), and **left untouched by
+    /// every failure** — a result that failed to be replaced is still the result
+    /// the reader was reading, and blanking it would destroy the only context the
+    /// message under it has.
+    @Published public private(set) var answer: DatabaseConsoleAnswer?
+
+    /// The sentence under the result area: how many rows arrived and whether they
+    /// were capped, or how many rows a committed mutation changed. Composed by
+    /// `DatabaseConsolePlan`.
+    @Published public private(set) var footer: String?
+
+    /// **The console's own message slot** — SQLite's sentence for a failure, or
+    /// one of the three the console owns (the gate, a write in flight, nothing to
+    /// run). Never written or cleared by anything the tab's grid does.
+    @Published public private(set) var message: String?
+
+    /// The rows the last committed mutation changed, or `nil` when the last thing
+    /// to answer was not one. Published beside `footer` because the number is the
+    /// *whole* report of a mutating batch and a surface may want it apart from
+    /// the sentence.
+    @Published public private(set) var affectedRows: Int?
+
+    /// Whether any console work is in flight — classification, a read, or a
+    /// confirmed mutation. What the pane disables Run on.
+    @Published public private(set) var isRunning = false
+
+    /// Whether a confirmed console mutation is in flight.
+    ///
+    /// Read by the tab (`DatabaseViewerModel.isWriteInFlight`) so the paging
+    /// buttons and the sort headers disable while **any** write is running, the
+    /// console's included: a page turn landing mid-batch would publish rows from
+    /// a half-applied transaction.
+    @Published public private(set) var isWriting = false
+
+    /// The mutation awaiting the reader's answer, or `nil` when nothing is being
+    /// asked. Published by `run(_:)` and answered by `confirm()`/`cancel()`.
+    @Published public private(set) var pendingConfirmation: PendingConfirmation?
+
+    /// The text in the pane's input.
+    ///
+    /// **Held here because the pane does not live as long as the reader's
+    /// typing.** The viewer surface is keyed on the tab and swapped out whole
+    /// whenever another tab is selected, so state owned by the input itself is
+    /// destroyed by a glance at a source file — silently, and including a query
+    /// half-written. It also left the one deliberate re-presentation incoherent:
+    /// a confirmation the pane re-shows on the way back in would stand over an
+    /// empty input, asking the reader to authorise a text they cannot see. One
+    /// tab is one console for the tab's life, which is exactly the lifetime the
+    /// input wants; the tab's selection already lives here for the same reason.
+    ///
+    /// Still transient, and deliberately so: never persisted, never part of the
+    /// session record, never a buffer. A viewer tab is `isDirty == false` by
+    /// construction and typing SQL into it must not be the one thing that changes
+    /// that.
+    ///
+    /// **Deliberately not `@Published`.** Nothing draws from it but the input's
+    /// own binding, which reads it back through the same object; publishing it
+    /// would re-render the grid beside it — the tab's surface observes this
+    /// console for `isWriting` — on every keystroke.
+    public var text = ""
+
+    private let service: DatabaseServicing
+
+    /// The five closures the owner wires once, none of which the console could
+    /// hold as a value without going stale or naming something it must not.
+    ///
+    /// - `fileURL`: the tab's URL **as it is now**. A viewer tab outlives the
+    ///   path it was opened at — a rename retargets it — so the URL a mutation
+    ///   opens read-write is asked for at the moment the mutation is composed
+    ///   rather than copied at construction.
+    /// - `isWriteBlocked`: the disk-writer gate, wired in the scene to the same
+    ///   flag ⌘S and the cell edit refuse on. Asked here so no file under the
+    ///   console names it.
+    /// - `isOtherWriteInFlight`: whether the *tab* has a write running — the
+    ///   grid's cell edit. One write per tab, and the console can only see its
+    ///   own, so the other half is asked for. The two share a refusal rather than
+    ///   each claiming the file is free.
+    /// - `didWrite`: run after a mutation **committed**, so Local Changes learns
+    ///   the file is modified.
+    /// - `refreshAfterWrite`: re-read what the file now says — the listing, the
+    ///   selection, the count and the page — because a console batch may have
+    ///   created or dropped the very table the grid is showing.
+    ///
+    /// `var` rather than `let` because the tab builds the console inside its own
+    /// `init` and can only capture itself once every stored property is in place;
+    /// `connect(...)` is called exactly once, by the owner, immediately after.
+    /// Defaulted so a console constructed on its own — in a test of the read path
+    /// — is a complete object rather than one that traps.
+    private var fileURL: @MainActor () -> URL
+    private var isWriteBlocked: @MainActor () -> Bool
+    private var isOtherWriteInFlight: @MainActor () -> Bool
+    private var didWrite: @MainActor () -> Void
+    private var refreshAfterWrite: @MainActor () async -> Void
+
+    /// Ordering token for the whole run — see the type's note on why there is
+    /// only one.
+    private var generation = 0
+
+    /// Whether the tab has closed. Latched by `stop()`, so a run resuming into a
+    /// tab that is gone publishes nothing and a Run pressed after it sends
+    /// nothing at all.
+    private var isStopped = false
+
+    /// - Parameters:
+    ///   - service: the seam — the **same instance the tab holds**, because a
+    ///     connection is one file and the console's reads run on the tab's own
+    ///     read connection.
+    ///   - fileURL: where that file is now.
+    public init(service: DatabaseServicing, fileURL: @escaping @MainActor () -> URL) {
+        self.service = service
+        self.fileURL = fileURL
+        self.isWriteBlocked = { false }
+        self.isOtherWriteInFlight = { false }
+        self.didWrite = {}
+        self.refreshAfterWrite = {}
+    }
+
+    /// Wire the owner's four remaining closures. Called once, by the tab, from
+    /// its own `init` — see the closures' note for why it is a second call.
+    func connect(
+        fileURL: @escaping @MainActor () -> URL,
+        isWriteBlocked: @escaping @MainActor () -> Bool,
+        isOtherWriteInFlight: @escaping @MainActor () -> Bool,
+        didWrite: @escaping @MainActor () -> Void,
+        refreshAfterWrite: @escaping @MainActor () async -> Void
+    ) {
+        self.fileURL = fileURL
+        self.isWriteBlocked = isWriteBlocked
+        self.isOtherWriteInFlight = isOtherWriteInFlight
+        self.didWrite = didWrite
+        self.refreshAfterWrite = refreshAfterWrite
+    }
+
+    // MARK: - Running
+
+    /// What Run does with the reader's text.
+    ///
+    /// **Nothing runs until the text has been classified as far as it can be.**
+    /// The order is the feature: `classifyConsole(_:)` prepares statement by
+    /// statement through the tail and executes none of them, and only then does
+    /// `DatabaseConsolePlan.decide(_:)` — and nothing else — say what happens.
+    /// Four answers and no fifth: there was nothing to run, SQLite's prepare
+    /// failure is the answer, the reader is asked, or it is a read.
+    ///
+    /// A pending confirmation from a previous Run is dropped here rather than
+    /// answered: pressing Run again is a new question, and leaving the old prompt
+    /// up would let the reader agree to a text they have since replaced.
+    ///
+    /// **One write per tab is refused here too, and by the same two terms
+    /// `confirm()` asks.** The pane already disables Run while either writer is
+    /// in flight, but a rule the model owns must not be held up by a view: a Run
+    /// slipping through would bump the token and supersede a mutation that is
+    /// still deciding what the file says, leaving the batch to commit, tell the
+    /// write hook and skip the re-read — a grid drawing rows from before a
+    /// committed transaction, possibly of a table that transaction dropped.
+    public func run(_ text: String) async {
+        guard !isStopped else { return }
+        guard !isWriting, !isOtherWriteInFlight() else {
+            message = DatabaseConsolePlan.runInFlightMessage
+            return
+        }
+        generation += 1
+        let token = generation
+        pendingConfirmation = nil
+        isRunning = true
+
+        let classification: DatabaseConsoleClassification
+        do {
+            classification = try await service.classifyConsole(text)
+        } catch {
+            guard token == generation else { return }
+            publishFailure(error)
+            return
+        }
+        guard token == generation else { return }
+
+        switch DatabaseConsolePlan.decide(classification) {
+        case .nothingToRun:
+            message = DatabaseConsolePlan.nothingToRunMessage
+            isRunning = false
+        case .refuse(let sqliteMessage):
+            // SQLite's own words, and nothing runs: everything classified before
+            // the failure is read-only, so a read cannot have created what the
+            // next statement needs and running the prefix first would only be a
+            // pointless read before the same refusal.
+            message = sqliteMessage
+            isRunning = false
+        case .confirmWrite(let prompt):
+            pendingConfirmation = PendingConfirmation(prompt: prompt, text: text)
+            // The previous run's failure goes with the run it explained. Every
+            // other decision settles this slot — a refusal and `nothingToRun`
+            // replace the sentence, a read clears it — and leaving it standing
+            // here alone would print a stale error under a prompt the reader is
+            // being asked to answer, and leave it as the only thing on screen if
+            // they cancel. The footer is the opposite case and stays: it still
+            // describes the result the table is still showing.
+            message = nil
+            // Nothing is in flight while the reader reads the prompt, so the
+            // spinner comes down and Run is live again — pressing it re-asks.
+            isRunning = false
+        case .read:
+            await performRead(text, token: token)
+        }
+    }
+
+    /// Run a fully classified, entirely read-only text and publish what the last
+    /// statement that answered columns said.
+    ///
+    /// The cap travels as a number (`DatabaseConsolePlan.rowLimit`) and is
+    /// enforced by the app half stepping; **nothing is ever appended to the
+    /// reader's text**.
+    private func performRead(_ text: String, token: Int) async {
+        do {
+            let read = try await service.runConsoleRead(text, rowLimit: DatabaseConsolePlan.rowLimit)
+            guard token == generation else { return }
+            answer = read
+            footer = DatabaseConsolePlan.resultFooter(rowCount: read.rows.count, isTruncated: read.isTruncated)
+            // A read is not a mutation, so the last mutation's count goes with the
+            // result it described: left standing it would sit beside a table of
+            // rows and read as a claim about them.
+            affectedRows = nil
+            message = nil
+            isRunning = false
+        } catch {
+            guard token == generation else { return }
+            publishFailure(error)
+        }
+    }
+
+    // MARK: - Answering the confirmation
+
+    /// Drop the pending confirmation and change nothing at all.
+    ///
+    /// Not a failure and not a refusal: the reader was asked and said no, and
+    /// there is nothing to explain. No message, no footer, and the previous
+    /// result stands.
+    public func cancel() {
+        pendingConfirmation = nil
+    }
+
+    /// Drop a pending confirmation because the file underneath it was replaced.
+    ///
+    /// What `DatabaseViewerModel.reload(at:)` calls, beside `clearRowIdentity()`
+    /// and for that method's reason. A confirmation is the one thing on this pane
+    /// that carries a decision *across* the window a git operation opens: the
+    /// prompt describes a classification made against the database the tab was
+    /// showing, and `confirm()` sends the text to `fileURL()` — which by then
+    /// names the file the checkout put there instead. The gate `confirm()` asks
+    /// covers the operation while it runs; this covers the moment it finished and
+    /// the file became a different inode, which the gate reads as free.
+    ///
+    /// Silent, and `cancel()`'s reason applies unchanged: nothing ran and nothing
+    /// changed, so there is nothing to explain. Pressing Run again re-classifies
+    /// the text against the database that is actually there, which is the only
+    /// honest answer available. Not latched — unlike `stop()`, the tab is still
+    /// alive and its next run must work.
+    ///
+    /// **The token is bumped unconditionally, and that is the half a prompt
+    /// still on screen does not cover.** A confirmation the reader already
+    /// answered is gone from `pendingConfirmation` the synchronous instant
+    /// `confirm()` starts, while the mutation it authorised is still in flight
+    /// against the file the reload replaced — which is precisely the case worth
+    /// superseding. Asking whether a prompt is showing would skip it, so nothing
+    /// is asked: the bump costs a run that had nothing to publish anyway, and it
+    /// stops an in-flight write's footer, its row count and its
+    /// `refreshAfterWrite()` from landing over what the reload is about to
+    /// publish. `didWrite()` is deliberately still told from `confirm()` — the
+    /// file on disk changed whatever this tab now shows.
+    ///
+    /// `isRunning` comes down here for the same reason. `confirm()` lowers it
+    /// only for the run that is still current, leaving it to whichever *newer
+    /// run* raised it; an invalidation raises nothing, so the flag has no other
+    /// owner. Run stays disabled meanwhile through the tab's `isWriteInFlight`,
+    /// which reads `isWriting` — and that flag is lowered by `confirm()` on
+    /// every path, superseded included.
+    public func invalidatePendingConfirmation() {
+        generation += 1
+        pendingConfirmation = nil
+        isRunning = false
+    }
+
+    /// Send the classified text as one transaction, once every refusal has been
+    /// asked.
+    ///
+    /// The refusals, in this order, with **nothing sent** until all of them pass:
+    ///
+    /// 1. **The disk-writer gate**, asked *here* rather than before the prompt.
+    ///    The reader takes as long as they take to read a confirmation, and a
+    ///    checkout can start inside that window and be replacing this very file;
+    ///    the answer that matters is the one at the moment of sending.
+    /// 2. **One write per tab** — the console's own or the grid's cell edit. A
+    ///    second write is refused rather than queued, for the cell edit's reason:
+    ///    the first is still deciding what the file says.
+    ///
+    /// A **page load in flight is deliberately not a refusal**, which is the one
+    /// place this list is shorter than `updateCell`'s. A cell edit is planned
+    /// against the row on screen and is meaningless if that row is being
+    /// replaced; a console batch is planned against nothing on screen at all —
+    /// it is the reader's own text about the whole database — so refusing it
+    /// because the grid happens to be turning a page would be an unrelated
+    /// coincidence dressed up as a rule.
+    ///
+    /// Then one `performConsoleWrite(_:)` on a separate, short-lived read-write
+    /// connection at the tab's **current** URL, carrying the text verbatim.
+    ///
+    /// **`didWrite()` and the re-read happen on the failure path too**, unlike
+    /// the cell edit's, because a batch that reports a failure is not proof that
+    /// nothing landed: the reader's own `COMMIT` can close the app's transaction
+    /// mid-text, and everything after it is durable. See the `catch` for why the
+    /// two costs are not symmetric.
+    public func confirm() async {
+        guard !isStopped, let pending = pendingConfirmation else { return }
+        pendingConfirmation = nil
+
+        if isWriteBlocked() {
+            message = DatabaseConsolePlan.gateBlockedMessage
+            return
+        }
+        guard !isWriting, !isOtherWriteInFlight() else {
+            message = DatabaseConsolePlan.runInFlightMessage
+            return
+        }
+
+        // Captured, never bumped: the confirmation is the second half of the run
+        // that asked for it, so it publishes under that run's token and a newer
+        // Run pressed since supersedes it.
+        let token = generation
+        let transaction = DatabaseConsoleTransaction(
+            url: fileURL(),
+            text: pending.text,
+            readRowLimit: DatabaseConsolePlan.rowLimit
+        )
+        isWriting = true
+        isRunning = true
+
+        do {
+            let outcome = try await service.performConsoleWrite(transaction)
+            // Lowered on **every** path, superseded included, for the cell edit's
+            // reason: nothing but a confirmed console mutation ever raises it, so
+            // the run that raised it is the only thing that can lower it. Left up,
+            // the tab refuses every later write for its life. `isRunning` is the
+            // opposite case and is left to whoever superseded this one, because
+            // both of the two things that can are already answering for it:
+            // `invalidatePendingConfirmation()` and `stop()` each lower the flag
+            // themselves. `run(_:)` is not a third — it returns on `isWriting`
+            // before it reaches the bump — so a confirmation in flight can only
+            // be superseded by a path that has already settled the spinner.
+            isWriting = false
+            let isCurrent = token == generation
+            if isCurrent { isRunning = false }
+
+            guard outcome.isCommitted else {
+                if isCurrent { message = Self.rolledBackMessage }
+                return
+            }
+            if isCurrent {
+                affectedRows = outcome.affectedRows
+                footer = DatabaseConsolePlan.affectedRowsFooter(outcome.affectedRows)
+                // A mutating batch shows no rows — it reports its affected-row
+                // total and nothing else — so a previous read's table goes with
+                // the footer that described it.
+                answer = nil
+                message = nil
+            }
+            // Told before the supersession guard and outside it, because it is not
+            // about the screen: a committed batch changed a tracked file on disk
+            // whether or not this tab still shows what it changed, and Local
+            // Changes would otherwise go on calling the database unmodified.
+            didWrite()
+            guard isCurrent else { return }
+            // Last, and awaited: a batch may have created or dropped the very
+            // table the grid is showing, so the listing, the selection, the count
+            // and the page are all re-read before the run is over.
+            await refreshAfterWrite()
+        } catch {
+            isWriting = false
+            // Told on the failure path too, and this is the one place the console
+            // parts company with the cell edit. A cell edit is one statement under
+            // one bracket, so a failure means nothing landed. A console batch is
+            // the reader's own text, and a text that **commits its own
+            // transaction** — `…; COMMIT; …` — closes the bracket this write
+            // opened, so every statement after it runs in autocommit and is
+            // durable whatever fails later; the rollback the app half attempts
+            // then has nothing left to undo, and neither half can tell afterwards
+            // whether anything survived. So the file is re-read and Local Changes
+            // told either way. A batch that really did roll back whole costs one
+            // status refresh and one re-query, both idempotent; the other way
+            // round leaves a file that changed on disk counted as unmodified and a
+            // grid drawing rows that are gone.
+            didWrite()
+            guard token == generation else { return }
+            publishFailure(error)
+            await refreshAfterWrite()
+        }
+    }
+
+    // MARK: - Stopping
+
+    /// Stop the console — what the tab's `close()` calls.
+    ///
+    /// The token is bumped and the flags come down, exactly as the tab does for
+    /// its two loads: work still in flight resumes to find itself superseded and
+    /// publishes nothing into a tab that is gone. Latched, so a Run pressed after
+    /// it sends nothing at all rather than running statements against a
+    /// connection that has been released.
+    ///
+    /// The last result and the last message are **left standing**: this lowers
+    /// flags, and a surface still drawing a closed tab for one frame should draw
+    /// what it drew before rather than blank.
+    public func stop() {
+        isStopped = true
+        generation += 1
+        isRunning = false
+        isWriting = false
+        pendingConfirmation = nil
+    }
+
+    // MARK: - The console's own message slot
+
+    /// Publish a failure's sentence and take the spinner down, leaving everything
+    /// else exactly as it was.
+    ///
+    /// A failed run replaces nothing: the previous result, its footer and the
+    /// last mutation's count all stand under the message, because they are still
+    /// the last thing that actually happened.
+    private func publishFailure(_ error: Error) {
+        message = error.localizedDescription
+        isRunning = false
+    }
+
+    /// What a mutation that returned without committing is told as.
+    ///
+    /// The seam's console write commits on success at whatever total it reached —
+    /// "no rows changed" is an ordinary outcome — so this is not the cell edit's
+    /// count collision but a transaction the app half rolled back without
+    /// throwing. It has no words of SQLite's to quote, so it says the one thing
+    /// the reader needs: the file is untouched.
+    static let rolledBackMessage =
+        "The transaction was rolled back, so this database was not changed."
+}

@@ -156,6 +156,31 @@ public final class DatabaseViewerModel: ObservableObject {
     /// replacing.
     @Published public private(set) var isWriting = false
 
+    /// The SQL console under this tab's grid.
+    ///
+    /// Owned rather than observed: one console per tab because a console runs on
+    /// the tab's own read connection and a connection is one file. It is not
+    /// `@Published` — it never changes identity, and the surface observes the
+    /// console itself for the state that does.
+    public let console: DatabaseConsoleModel
+
+    /// Whether **any** write to this database is in flight — the grid's cell edit
+    /// or the console's confirmed mutation.
+    ///
+    /// What the paging buttons and the sort headers disable on, which is why it
+    /// is one question rather than two the surface has to remember to ask both
+    /// of: a page turn landing in the middle of a console batch would publish
+    /// rows out of a half-applied transaction, and one landing during a cell edit
+    /// would move the page the edit was planned against.
+    ///
+    /// It is also the term **both writers** refuse on, so "one write per tab" is
+    /// one rule read from two sides rather than two half-rules: `updateCell`
+    /// asks it directly, and the console asks the same question through the
+    /// `isOtherWriteInFlight` closure the tab hands it. Either flag alone would
+    /// leave the other writer free to open a second read-write connection while
+    /// the first still holds the file's write lock.
+    public var isWriteInFlight: Bool { isWriting || console.isWriting }
+
     /// The database this tab is showing — the URL the tab was opened with,
     /// spelled as the user spelled it.
     ///
@@ -298,6 +323,21 @@ public final class DatabaseViewerModel: ObservableObject {
         self.page = DatabasePage(size: pageSize)
         self.isWriteBlocked = isWriteBlocked
         self.didWrite = didWrite
+        // The console shares this tab's connection, and its four remaining
+        // closures are wired in the line below rather than here: they capture
+        // `self`, which is not available until every stored property is in place.
+        self.console = DatabaseConsoleModel(service: service, fileURL: { fileURL })
+        console.connect(
+            // Asked of the model rather than copied, so a rename the tab followed
+            // (`retarget(to:)`, `reload(at:)`) is followed by the console for free.
+            fileURL: { [weak self] in self?.fileURL ?? fileURL },
+            isWriteBlocked: isWriteBlocked,
+            // One write per tab: the console can see its own, and this is the
+            // other half — the grid's cell edit.
+            isOtherWriteInFlight: { [weak self] in self?.isWriting ?? false },
+            didWrite: didWrite,
+            refreshAfterWrite: { [weak self] in await self?.refreshAfterWrite() }
+        )
     }
 
     // MARK: - Loading
@@ -597,7 +637,69 @@ public final class DatabaseViewerModel: ObservableObject {
         // few statements: a re-open that fails leaves it open for the life of the
         // tab.
         clearRowIdentity()
+        // The console's half of the same sentence. A confirmation waiting for an
+        // answer describes a classification made against the database that is
+        // gone, while `confirm()` would send its text to `fileURL()` — the one
+        // that replaced it. The gate `confirm()` asks is down again by the time
+        // this runs, so nothing else would catch it.
+        console.invalidatePendingConfirmation()
         await service.close()
+        await load()
+    }
+
+    /// Re-read everything the file now says, after a console mutation committed.
+    ///
+    /// `reload(at:)`'s smaller sibling, and deliberately not it: a console write
+    /// does not replace the file's inode, so the connection this tab holds is
+    /// still answering out of the same database and re-opening it would be a
+    /// close and an open for nothing. What *has* changed is what is in it — a
+    /// batch may have created a table, dropped the selected one, or rewritten
+    /// every row of it — so the listing is re-read and the selection put back.
+    ///
+    /// The rows token is bumped **synchronously**, ahead of the hop, for
+    /// `prepareForRowsChange()`'s reason: a page load already in flight was aimed
+    /// at the database as it was before the batch, and it must not land over what
+    /// this is about to publish.
+    ///
+    /// The re-selection then goes through the one path that already knows both
+    /// answers (`reselectIfPending()`): a table the new listing still holds is
+    /// re-selected as a *refresh*, so the sort and the page index survive while
+    /// the schema, the identity, the count and the page are all re-queried; a
+    /// table it no longer holds lands exactly where a reload that lost its table
+    /// lands, rows and message cleared together.
+    ///
+    /// The spinner is lowered with the token bump, `reload(at:)`'s rule and for
+    /// its reason: bumping the token supersedes a page load already in flight,
+    /// and a superseded load publishes nothing — which includes not lowering
+    /// `isLoadingRows`, on the understanding that whatever superseded it raises
+    /// and settles the flag for itself. This does not always raise one. The
+    /// re-selection is skipped entirely when the listing no longer holds the
+    /// selected table, and it is never reached at all when `load()` fails, so on
+    /// both of those paths the flag would stay up for the life of the tab — a
+    /// spinner over the grid forever, and `isGridIdle` false, which is
+    /// `updateCell` refusing every later edit. Both are ordinary: a `DROP TABLE`
+    /// of the selected table pressed while a large page is still loading is the
+    /// first, and `confirm()` deliberately does not refuse a write because a page
+    /// load is in flight.
+    ///
+    /// The identity is cleared for `reload(at:)`'s reason, which a console batch
+    /// gives in full: the rows stay on screen, but what they were addressed *by*
+    /// did not survive the batch. `confirm()` lowers `isWriting` before it awaits
+    /// this, and this lowers `isLoadingRows` with the token bump, so for the whole
+    /// of the re-read the grid looks idle to `updateCell` — the token a gesture
+    /// captures now is the freshly-bumped one, so even that guard passes. Left
+    /// alone, `editTarget` would go on answering "yes, this cell may be edited"
+    /// off the identity of a table the batch may have dropped and recreated, and
+    /// the edit would carry the old page's rowid and the old page's previous value
+    /// into the new one, where the `IS` guard cannot tell the difference if the row
+    /// it lands on happens to match. Clearing turns every cell into the refusal it
+    /// already is for an unaddressable table, which the re-selection then lifts.
+    public func refreshAfterWrite() async {
+        guard !isClosed else { return }
+        prepareForRowsChange()
+        isLoadingRows = false
+        clearRowIdentity()
+        pendingReselection = selectedTable
         await load()
     }
 
@@ -642,9 +744,13 @@ public final class DatabaseViewerModel: ObservableObject {
     /// Latched, so the tab owner may call it on tab close and again at
     /// termination. Both tokens are bumped first: a load still in flight resumes
     /// to find itself superseded and publishes nothing into a tab that is gone.
+    /// The console is stopped for the same reason and in the same way — its own
+    /// token bumped and its flags lowered — since it runs on the connection this
+    /// is about to release.
     public func close() async {
         guard !isClosed else { return }
         isClosed = true
+        console.stop()
         isOpen = false
         shown = nil
         clearRowIdentity()
@@ -767,9 +873,14 @@ public final class DatabaseViewerModel: ObservableObject {
     /// 4. **The plan.** `DatabaseUpdatePlanner` decides whether the cell may be
     ///    written at all and composes the statement if it may; a refusal is shown
     ///    in its own words and **nothing is sent**.
-    /// 5. **One write per tab.** A second edit arriving while one is in flight is
+    /// 5. **One write per tab.** A second write arriving while one is in flight is
     ///    refused, not queued: the plan behind it was composed against the page on
     ///    screen, whose values the first write may be in the middle of replacing.
+    ///    The term is `isWriteInFlight` and not `isWriting`, so the rule is the
+    ///    *same* rule the console asks (`DatabaseConsoleModel.confirm()` asks
+    ///    `isOtherWriteInFlight()`), read from both sides: a console batch may be
+    ///    dropping the very table this cell sits in, and an editor left open when
+    ///    it started would otherwise commit into whatever survives.
     ///
     /// Then one `performWrite(_:)` on a short-lived read-write connection at the
     /// tab's **current** `fileURL` — the one thing that is true after a rename —
@@ -830,7 +941,7 @@ public final class DatabaseViewerModel: ObservableObject {
             setMessage(refusal.message, from: .write)
             return
         }
-        guard !isWriting else {
+        guard !isWriteInFlight else {
             setMessage(Self.writeInFlightMessage, from: .write)
             return
         }

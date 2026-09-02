@@ -24,6 +24,14 @@ import SQLite3
 /// is not a database", "database is locked", "no such column: foo"; each names
 /// what went wrong better than any sentence written here would, so the message
 /// travels verbatim inside a `DatabaseError` and this layer swallows nothing.
+///
+/// **The SQL console is the one text this file is handed that Core did not
+/// compose**, and it changes nothing about the split: the reader's text arrives
+/// verbatim, is never re-split, re-spelled or appended to, and this layer still
+/// decides nothing about it — `sqlite3_stmt_readonly` says what each statement
+/// is and `DatabaseConsolePlan` decides what that means. The three console
+/// members are the only place a tail pointer is walked, and the only place a
+/// number rather than a `LIMIT` bounds a result.
 actor DatabaseConnectionService: DatabaseServicing {
 
     /// How long a statement waits for another writer before reporting `.busy`.
@@ -86,6 +94,7 @@ actor DatabaseConnectionService: DatabaseServicing {
             throw Self.openError(code: code, message: message)
         }
         sqlite3_busy_timeout(connection, Self.busyTimeoutMilliseconds)
+        Self.refuseAttachments(on: connection)
         handle = connection
     }
 
@@ -102,6 +111,14 @@ actor DatabaseConnectionService: DatabaseServicing {
     /// here. One prepare/bind/step is one implementation, or the two connections
     /// would eventually disagree about what binding a text value or reading a
     /// blob means.
+    ///
+    /// **The nil tail pointer is deliberate and must stay.** This path compiles
+    /// the first statement in `statement.sql` and ignores anything after it,
+    /// which is exactly right for a statement `DatabaseQuery` composed — there is
+    /// never a second one — and exactly wrong for text somebody typed. The
+    /// console's text therefore goes through `enumerateStatements(in:on:…)`
+    /// instead, which walks the tail; making this one do both would give the cell
+    /// edit's path a multi-statement door nobody asked it to have.
     private func execute(
         _ statement: DatabaseStatement,
         on handle: OpaquePointer
@@ -260,8 +277,447 @@ actor DatabaseConnectionService: DatabaseServicing {
             throw Self.openError(code: code, message: message)
         }
         sqlite3_busy_timeout(connection, Self.busyTimeoutMilliseconds)
+        Self.refuseAttachments(on: connection)
         return connection
     }
+
+    /// Refuse `ATTACH` on `connection`, by lowering SQLite's own limit on how
+    /// many databases may be attached to zero.
+    ///
+    /// Seam rule 4 read one step further. That rule exists because a console run
+    /// must not leave state on a connection the tab keeps using — a stray `BEGIN`
+    /// freezing the read snapshot is the case it names — and an `ATTACH` is the
+    /// same leak with a longer life: SQLite reports it **read-only**
+    /// (`sqlite3_stmt_readonly` is true for it, since it changes the connection's
+    /// configuration rather than any file's content), so a text consisting of one
+    /// runs on the tab's own connection, succeeds, and the second database stays
+    /// attached for the rest of the tab's life — resolving names for every later
+    /// console read against a schema the grid beside it knows nothing about.
+    ///
+    /// On the write connection it is the sharper half: `CREATE TABLE …; ATTACH
+    /// …;` classifies as a mutation, so the reader is asked about *this*
+    /// database and the statements after the attach could then write another file
+    /// entirely — inside this method's transaction, checkpointed by nothing,
+    /// reported to Local Changes as a change to the tab's file. The console is
+    /// one tab, one database, and this is where that is true rather than assumed.
+    ///
+    /// Asked of the library rather than of the text: nothing here parses the
+    /// reader's SQL, and the refusal arrives as SQLite's own sentence when the
+    /// statement runs.
+    private static func refuseAttachments(on connection: OpaquePointer) {
+        _ = sqlite3_limit(connection, SQLITE_LIMIT_ATTACHED, 0)
+    }
+
+    // MARK: - The console
+
+    /// Prepare `text` **statement by statement through the tail**, handing each
+    /// prepared statement to `body` in order and running nothing `body` does not
+    /// step itself.
+    ///
+    /// The machinery `execute(_:on:)` deliberately does not have. That path
+    /// passes a nil tail pointer, which is exactly right for the single statement
+    /// `DatabaseQuery` composes and exactly wrong for the reader's text, where it
+    /// would silently compile the first statement and drop everything after it.
+    /// So all three console members come through here, and "how many statements
+    /// does this text hold" is SQLite's own answer rather than a splitter of ours
+    /// guessing which semicolon ends a statement — which is not a thing a
+    /// semicolon reliably does, inside a string literal, a comment or a trigger
+    /// body.
+    ///
+    /// Each prepare is handed the remainder of the text and reports where the
+    /// statement it compiled ended; the next one starts there. A stretch that
+    /// compiles to no statement at all — trailing whitespace, a comment, a bare
+    /// `;` — yields a nil statement, is not counted and never reaches `body`.
+    ///
+    /// **A prepare failure ends the loop and is reported to `onPrepareFailure`
+    /// rather than thrown from here**, because whether it is fatal is the
+    /// caller's question and not this loop's: classification keeps it as its
+    /// horizon (`DatabaseConsoleClassification.Deferral`), while both run paths
+    /// pass a handler that throws. The index reported is the number of statements
+    /// already delivered to `body`, which is the zero-based index of the one that
+    /// failed.
+    ///
+    /// The text travels as one C string with a `-1` length, so SQLite reads it to
+    /// the first NUL. That is the same NUL a stored text *value* is deliberately
+    /// read past further down this file, and the difference is who typed it: a
+    /// value's bytes are the database's and must survive the round trip, while a
+    /// NUL inside SQL the reader typed ends the text as far as every SQLite entry
+    /// point is concerned, so honouring it here is the truthful reading rather
+    /// than a limitation.
+    private func enumerateStatements(
+        in text: String,
+        on handle: OpaquePointer,
+        onPrepareFailure: (Int32, String, Int) throws -> Void,
+        body: (OpaquePointer, Int) throws -> Void
+    ) throws {
+        try text.withCString { start in
+            var cursor: UnsafePointer<CChar> = start
+            var index = 0
+            while cursor.pointee != 0 {
+                var prepared: OpaquePointer?
+                var tail: UnsafePointer<CChar>?
+                let code = sqlite3_prepare_v2(handle, cursor, -1, &prepared, &tail)
+                guard code == SQLITE_OK else {
+                    let message = Self.message(from: handle)
+                    // A failed prepare may still have produced a statement, and
+                    // the loop ends here either way — so it is released before
+                    // the caller is told anything.
+                    sqlite3_finalize(prepared)
+                    try onPrepareFailure(code, message, index)
+                    return
+                }
+                if let prepared {
+                    // Released on every exit from this statement's turn, the
+                    // throwing ones included.
+                    defer { sqlite3_finalize(prepared) }
+                    try body(prepared, index)
+                    index += 1
+                }
+                // The tail is the only thing that advances the loop, so a prepare
+                // that reported none — or reported no progress at all — ends it
+                // rather than compiling the same bytes forever.
+                guard let tail, tail > cursor else { return }
+                cursor = tail
+            }
+        }
+    }
+
+    /// What each statement of `text` is, in order, **running none of them**.
+    ///
+    /// On the tab's own read-only connection: preparing resolves a statement's
+    /// names and decides its kind without executing it, and preparing a
+    /// *mutating* statement on a read-only connection succeeds — SQLite refuses a
+    /// write at step time, not at prepare time. Nothing here steps, so a `BEGIN`
+    /// among the statements opens no transaction.
+    ///
+    /// **Seam rule 6 is owed here too, and this is the one path where it is not
+    /// obvious.** A `PRAGMA` is the documented exception to "prepare executes
+    /// nothing": SQLite evaluates part of that family during compilation rather
+    /// than at the first step, so `PRAGMA locking_mode = EXCLUSIVE` typed into the
+    /// console takes effect on this handle while the console is still only
+    /// deciding whether to *ask* about the text. Deciding is not running, and a
+    /// reader who then cancels the confirmation has agreed to nothing — but the
+    /// setting would outlive the cancellation and, per
+    /// `DatabaseQuery.lockingModeNormal`, cost the tab every later write for the
+    /// rest of its life. The read path's reset cannot cover it: a text whose
+    /// pragma is followed by a mutation never reaches that path at all. So the
+    /// same unconditional reset runs here, asked of the library rather than of the
+    /// text, and is a no-op for every text that set nothing.
+    ///
+    /// The kind is `sqlite3_stmt_readonly`'s answer carried across unchanged; see
+    /// `DatabaseConsoleStatementKind` for why this layer has no opinion of its
+    /// own about what a statement does.
+    ///
+    /// **A prepare failure is returned, not thrown** (seam rule 2): it becomes
+    /// the classification's deferral with SQLite's verbatim message, because
+    /// prepare resolves names against the schema as it stands *now* and the
+    /// statements before the failure have not run yet — a text that creates a
+    /// table and then inserts into it cannot be classified past the insert, and
+    /// refusing it would be inventing a failure the database never had. What is
+    /// still thrown is a failure that is not about the text: no connection.
+    func classifyConsole(_ text: String) async throws -> DatabaseConsoleClassification {
+        guard let handle else { throw DatabaseError.closed }
+        // Rules 4 and 6, the same pair the read path defers, for the reason
+        // above: nothing here steps, but a pragma does not wait to be stepped.
+        defer {
+            restoreAutocommit(on: handle)
+            _ = try? execute(DatabaseQuery.lockingModeNormal, on: handle)
+        }
+
+        var kinds: [DatabaseConsoleStatementKind] = []
+        var deferral: DatabaseConsoleClassification.Deferral?
+        try enumerateStatements(
+            in: text,
+            on: handle,
+            onPrepareFailure: { _, message, index in
+                deferral = DatabaseConsoleClassification.Deferral(index: index, message: message)
+            },
+            body: { prepared, _ in
+                kinds.append(sqlite3_stmt_readonly(prepared) != 0 ? .read : .write)
+            }
+        )
+        return DatabaseConsoleClassification(kinds: kinds, deferral: deferral)
+    }
+
+    /// Run an entirely read-only `text` in order on the tab's connection and
+    /// answer the **last** statement that produced columns.
+    ///
+    /// Only ever reached with a fully classified read-only text — that is
+    /// `DatabaseConsolePlan.Decision.read`, the one decision that gets here — so
+    /// the refusal below is belt and braces against a text whose meaning changed
+    /// between the classification and this run: a statement SQLite does not
+    /// report read-only is refused rather than stepped, because the read path is
+    /// not where a write is decided.
+    ///
+    /// `rowLimit` is enforced by **stepping**, never by appending a `LIMIT` to
+    /// the reader's text: rows are kept up to the cap and then one further step
+    /// decides whether more remained. A statement answering no columns
+    /// contributes nothing and is not a failure — it ran, it said nothing, and
+    /// an earlier answer stands.
+    func runConsoleRead(_ text: String, rowLimit: Int) async throws -> DatabaseConsoleAnswer {
+        guard let handle else { throw DatabaseError.closed }
+        // Seam rules 4 and 6, and on this connection both are the load-bearing
+        // half: the tab keeps reading through this handle for the rest of its
+        // life, so what the reader's text left on it is left on it for good.
+        // Rule 6 runs after rule 4 because it is the cheaper claim of the two —
+        // an open transaction is what a stray `BEGIN` leaves, and the pragma is a
+        // no-op for every text that set no locking mode.
+        defer {
+            restoreAutocommit(on: handle)
+            _ = try? execute(DatabaseQuery.lockingModeNormal, on: handle)
+        }
+
+        let limit = max(0, rowLimit)
+        var answer = DatabaseConsoleAnswer()
+        try enumerateStatements(
+            in: text,
+            on: handle,
+            onPrepareFailure: { code, message, _ in throw Self.error(code: code, message: message) },
+            body: { prepared, _ in
+                guard sqlite3_stmt_readonly(prepared) != 0 else {
+                    throw DatabaseError.sqlError(message: Self.notReadOnlyRefusal)
+                }
+                let columnNames = (0..<sqlite3_column_count(prepared)).map { index in
+                    sqlite3_column_name(prepared, index).map { String(cString: $0) } ?? ""
+                }
+                var rows: [[DatabaseValue]] = []
+                var isTruncated = false
+                while true {
+                    let stepCode = sqlite3_step(prepared)
+                    if stepCode == SQLITE_ROW {
+                        // A row arriving with the cap already full **is** the
+                        // truncation: that one extra step is how "more remained"
+                        // is learned, and it is the only reason to step past the
+                        // cap at all.
+                        if rows.count >= limit {
+                            isTruncated = true
+                            break
+                        }
+                        rows.append(columnNames.indices.map { value(of: prepared, at: Int32($0)) })
+                        continue
+                    }
+                    if stepCode == SQLITE_DONE { break }
+                    throw Self.error(code: stepCode, message: Self.message(from: handle))
+                }
+                // The last statement with columns wins, and a statement without
+                // any leaves whatever the one before it answered.
+                guard !columnNames.isEmpty else { return }
+                answer = DatabaseConsoleAnswer(columnNames: columnNames, rows: rows, isTruncated: isTruncated)
+            }
+        )
+        return answer
+    }
+
+    /// Run `transaction.text` **whole, as one transaction**, on a connection of
+    /// its own, and answer what it changed.
+    ///
+    /// The console's counterpart to `performWrite(_:)`, and deliberately not it,
+    /// on both counts that differ. The **shape**: this carries one string and
+    /// prepares each statement *as it is reached*, after the statements before it
+    /// have run, which is the only way a text whose later statements depend on
+    /// what its earlier ones create can run at all — and it is why classification
+    /// stopping short of the end is a horizon rather than a refusal. A prepare
+    /// failure here is therefore an ordinary failure that takes the whole batch
+    /// down with it. The **count**: there is no required total. The text is the
+    /// reader's own, so a commit stands at whatever it reached, and "no rows
+    /// changed" is a real outcome for a `DELETE` that matched nothing or a
+    /// `CREATE TABLE` rather than the collision the same number means for a cell
+    /// edit.
+    ///
+    /// Everything else is `performWrite(_:)`'s bracket, for `performWrite(_:)`'s
+    /// reasons: a short-lived read-write connection at the transaction's own url
+    /// (never creating), foreign keys on before the `BEGIN` where the setting is
+    /// not a no-op, `BEGIN IMMEDIATE` so the write lock is taken up front,
+    /// closed on every path, and a WAL checkpoint after a commit so the tracked
+    /// bytes actually move.
+    ///
+    /// **A rollback the reader's own text performs is not a commit**, and
+    /// nothing else here can tell the two apart: `sqlite3_get_autocommit` reads
+    /// the same after either, and `sqlite3_total_changes` is never reduced by a
+    /// rollback — so without `RollbackWitness` a `DELETE …; ROLLBACK;` would
+    /// report every row it undid as changed and the batch as committed. See
+    /// that type for what each hook answers.
+    func performConsoleWrite(_ transaction: DatabaseConsoleTransaction) async throws -> DatabaseWriteOutcome {
+        let connection = try Self.openReadWrite(at: transaction.url)
+        let witness = RollbackWitness()
+        defer {
+            // The hooks come off first, and `witness` is named here so it
+            // outlives them: what follows rolls back, which is exactly when a
+            // hook still installed would reach for it.
+            _ = sqlite3_rollback_hook(connection, nil, nil)
+            _ = sqlite3_commit_hook(connection, nil, nil)
+            withExtendedLifetime(witness) {}
+            // Closing rolls back on its own; asking first is what keeps seam
+            // rule 4 one line in one place rather than an inference about
+            // SQLite's teardown.
+            restoreAutocommit(on: connection)
+            sqlite3_close_v2(connection)
+        }
+
+        _ = try execute(DatabaseQuery.foreignKeysOn, on: connection)
+        _ = try execute(DatabaseQuery.beginImmediate, on: connection)
+        // Installed after the bracket is open, so neither hook can answer for
+        // anything this method did to set the batch up.
+        witness.install(on: connection)
+        do {
+            // Two totals, because a rollback and a commit are answers about
+            // *different* rows. `pendingRows` is what some open transaction is
+            // still holding and a rollback can therefore still undo;
+            // `committedRows` is what a commit already made durable and nothing
+            // later in the text can take back. One total cannot say both: zeroing
+            // it on a rollback would erase rows an earlier `COMMIT` in the same
+            // text already landed, and reporting "No rows changed" over a batch
+            // that permanently deleted them.
+            var committedRows = 0
+            var pendingRows = 0
+            try enumerateStatements(
+                in: transaction.text,
+                on: connection,
+                onPrepareFailure: { code, message, _ in throw Self.error(code: code, message: message) },
+                body: { prepared, _ in
+                    witness.didRollback = false
+                    witness.didCommitHere = false
+                    let changed = try stepConsoleStatement(
+                        prepared,
+                        on: connection,
+                        readRowLimit: transaction.readRowLimit
+                    )
+                    // Undone, so it stops being part of the total the reader is
+                    // shown — and only what was still pending is undone.
+                    if witness.didRollback { pendingRows = 0 }
+                    pendingRows += changed
+                    // Ordered after the addition, for the statement that does
+                    // both: one running in autocommit — every statement after a
+                    // `COMMIT` the text typed itself — changes its rows *and*
+                    // commits them in the same step.
+                    if witness.didCommitHere {
+                        committedRows += pendingRows
+                        pendingRows = 0
+                    }
+                }
+            )
+            // Only when a transaction is still open: a text that committed its
+            // own would otherwise fail here with "cannot commit - no transaction
+            // is active", turning a batch that already landed into a reported
+            // failure.
+            if sqlite3_get_autocommit(connection) == 0 {
+                _ = try execute(DatabaseQuery.commit, on: connection)
+                committedRows += pendingRows
+                pendingRows = 0
+            } else if !witness.didCommit {
+                // The text closed the bracket itself and nothing in it ever
+                // committed: the file is untouched, which is the one outcome this
+                // member has that is neither a failure nor a change. Asked as
+                // "did anything commit" rather than "did the last statement roll
+                // back", because only the first survives a statement *after* the
+                // rollback — `UPDATE …; ROLLBACK; SELECT 1;` clears the per-
+                // statement flag on the read and would otherwise report a batch
+                // that touched nothing as committed. The bracket was this
+                // method's own `BEGIN IMMEDIATE`, so autocommit being back with
+                // no commit witnessed leaves a rollback as the only way it closed.
+                return DatabaseWriteOutcome(affectedRows: 0, isCommitted: false)
+            }
+            // Never allowed to turn a write that succeeded into a failure: a
+            // checkpoint that could not run leaves the batch committed and
+            // durable, which is what this outcome reports.
+            _ = try? execute(DatabaseQuery.walCheckpoint, on: connection)
+            return DatabaseWriteOutcome(affectedRows: committedRows, isCommitted: true)
+        } catch {
+            // Undo whatever ran before the failure, then report the failure
+            // itself — `try?` for the reason `performWrite(_:)` gives: replacing
+            // the statement's own message with the rollback's would lose the
+            // sentence that explains what went wrong.
+            _ = try? execute(DatabaseQuery.rollback, on: connection)
+            // A failure is not proof that nothing landed: a `COMMIT` the reader's
+            // own text performed closed this method's bracket, and everything it
+            // committed is durable whatever failed after it. The rollback above
+            // has nothing of that left to undo, so the checkpoint the success
+            // path runs is owed here too — on a WAL database those bytes sit in
+            // the `-wal` file, the tab's own connection is still open so closing
+            // this one checkpoints nothing, and the tracked `.db` would stay
+            // byte-identical. `DatabaseConsoleModel.confirm()` tells the write
+            // hook on this path for exactly that reason; without this it would be
+            // telling Local Changes about a file whose bytes never moved. Asked
+            // as "did anything commit" for the `didCommit` flag's own reason, and
+            // `try?` for the success path's: a checkpoint that cannot run must
+            // not replace the statement's message with its own.
+            if witness.didCommit {
+                _ = try? execute(DatabaseQuery.walCheckpoint, on: connection)
+            }
+            throw error
+        }
+    }
+
+    /// Step one statement of a console batch and answer the rows it changed.
+    ///
+    /// The cap applies to a **read-only** statement only. One inside a mutating
+    /// batch is stepped because a statement nobody steps never runs at all, and
+    /// its rows are discarded — the batch reports an affected-row total and shows
+    /// no rows — so a `SELECT` over a large table is abandoned rather than walked
+    /// for nothing. A cap of zero still steps once, for that same reason. A
+    /// statement that is **not** read-only is stepped to completion whatever the
+    /// cap says: `INSERT … RETURNING` answers columns *and* writes, and
+    /// abandoning it would half-perform it.
+    private func stepConsoleStatement(
+        _ prepared: OpaquePointer,
+        on connection: OpaquePointer,
+        readRowLimit: Int
+    ) throws -> Int {
+        let isReadOnly = sqlite3_stmt_readonly(prepared) != 0
+        // Counted as a **delta of the connection's running total**, never with
+        // `sqlite3_changes`. That call answers the last INSERT/UPDATE/DELETE on
+        // the connection and nothing else resets it, so the read-only guard is
+        // not enough here the way it is in `execute(_:on:)`: a batch is many
+        // statements of many kinds, and a `CREATE INDEX` after an `INSERT` is not
+        // read-only, so asking `sqlite3_changes` for it would report the
+        // insert's count a second time and inflate the total the reader is shown.
+        // A delta answers zero for every statement that changed no rows, whatever
+        // kind it is. It also counts the rows a trigger changed, which is the
+        // truthful answer to "what did this text change" — `execute(_:on:)`'s
+        // exact-count rule is a different question and keeps its own call.
+        let changesBefore = sqlite3_total_changes(connection)
+        var rowsSeen = 0
+        while true {
+            let stepCode = sqlite3_step(prepared)
+            if stepCode == SQLITE_ROW {
+                rowsSeen += 1
+                if isReadOnly, rowsSeen >= max(0, readRowLimit) { break }
+                continue
+            }
+            if stepCode == SQLITE_DONE { break }
+            throw Self.error(code: stepCode, message: Self.message(from: connection))
+        }
+        return Int(sqlite3_total_changes(connection) - changesBefore)
+    }
+
+    /// Roll back a transaction the reader's own text left open.
+    ///
+    /// Seam rule 4: a console run leaves the connection in autocommit. Without
+    /// this a bare `BEGIN` typed into the console would freeze the tab's read
+    /// snapshot for the life of the tab — every later page would answer out of a
+    /// transaction nobody can see, and no change another process made would ever
+    /// appear again.
+    ///
+    /// `try?` because this runs on the way out, including out of a failure: a
+    /// rollback that cannot run has nothing to add to the sentence that explains
+    /// what actually went wrong.
+    private func restoreAutocommit(on connection: OpaquePointer) {
+        guard sqlite3_get_autocommit(connection) == 0 else { return }
+        _ = try? execute(DatabaseQuery.rollback, on: connection)
+    }
+
+    /// What the read path says about a statement SQLite does not report
+    /// read-only.
+    ///
+    /// Ours, not SQLite's, because SQLite never saw it: the statement is refused
+    /// before it is stepped, so there is no library message to quote. It names
+    /// the state rather than blaming the reader — a text whose meaning changed
+    /// between the classification and the run is exactly what this catches, and
+    /// pressing Run again re-classifies it and asks for the confirmation a write
+    /// is owed.
+    private static let notReadOnlyRefusal =
+        "This statement can change the database, so it was not run on the read connection. "
+        + "Run the text again to confirm the change."
 
     // MARK: - Binding
 
@@ -395,6 +851,64 @@ actor DatabaseConnectionService: DatabaseServicing {
         case SQLITE_BUSY, SQLITE_LOCKED: return .busy(message: message)
         default: return .sqlError(message: message)
         }
+    }
+}
+
+/// Whether the reader's own console text rolled a transaction back, and whether
+/// anything in it committed — SQLite's own answers, never a reading of the text.
+///
+/// The two questions the app half cannot otherwise ask.
+/// `sqlite3_get_autocommit` reports the same after a `COMMIT` and after a
+/// `ROLLBACK` — both leave the connection in autocommit — and
+/// `sqlite3_total_changes` is never reduced by a rollback, so a
+/// `DELETE …; ROLLBACK;` looks exactly like a batch that committed every row it
+/// undid. The hooks answer both: SQLite invokes them for a real transaction
+/// only, never for the statement-level rollback a failing statement performs
+/// inside one.
+///
+/// Installed after the batch's own `BEGIN IMMEDIATE` and removed before the
+/// connection is torn down, so neither hook ever answers for something
+/// `performConsoleWrite(_:)` did rather than something the reader's text did.
+private final class RollbackWitness {
+
+    /// Whether the statement now running rolled a transaction back. Cleared
+    /// before each statement, so it answers only about that one: what a rollback
+    /// undoes is the rows still pending when it ran, and rows an earlier commit
+    /// already made durable are not among them.
+    var didRollback = false
+
+    /// Whether the statement now running committed. Cleared before each
+    /// statement, the rollback flag's counterpart and for the same reason: it
+    /// marks the moment the pending rows stop being undoable.
+    var didCommitHere = false
+
+    /// Whether any transaction committed while the batch ran. Sticky, and
+    /// deliberately so: a text that commits partway and rolls back after it
+    /// changed the file, and must not be reported as untouched.
+    var didCommit = false
+
+    func install(on connection: OpaquePointer) {
+        _ = sqlite3_rollback_hook(
+            connection,
+            { context in
+                guard let context else { return }
+                Unmanaged<RollbackWitness>.fromOpaque(context).takeUnretainedValue().didRollback = true
+            },
+            Unmanaged.passUnretained(self).toOpaque()
+        )
+        _ = sqlite3_commit_hook(
+            connection,
+            { context in
+                guard let context else { return 0 }
+                let witness = Unmanaged<RollbackWitness>.fromOpaque(context).takeUnretainedValue()
+                witness.didCommit = true
+                witness.didCommitHere = true
+                // Anything but zero here turns the commit it is reporting into a
+                // rollback, which is the last thing this is allowed to do.
+                return 0
+            },
+            Unmanaged.passUnretained(self).toOpaque()
+        )
     }
 }
 #endif

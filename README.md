@@ -53,8 +53,12 @@ do — is in [`docs/FEATURES.md`](docs/FEATURES.md).
   and Return writes one row inside a transaction that only commits if the row is
   still the one you were looking at; "Set to NULL" is in the cell's menu, because
   typing the word stores the word. Views, generated columns, blob cells and
-  tables with no row identity are not editable and say why. There is no SQL
-  console yet.
+  tables with no row identity are not editable and say why. Under the grid is a
+  **SQL console**: type statements, press Cmd+Return, and anything that only
+  reads runs straight away (capped at 500 rows, nothing appended to your SQL),
+  while anything that can change the database asks first — the confirmation says
+  how many statements write and that they run as one transaction — and reports
+  what it changed. Every failure SQLite reported carries its own words.
 - **EditorConfig** — a project's `.editorconfig` drives auto-indent and the
   Tab key, and applies `trim_trailing_whitespace`, `insert_final_newline`
   and `end_of_line` on save.

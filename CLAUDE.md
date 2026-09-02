@@ -242,17 +242,19 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
 - `ZoomGestureAccumulator.swift` — scroll/pinch deltas → the keyboard's discrete steps.
 - `InterfaceMetrics.swift` — `InterfaceTextStyle` base sizes; scaled fonts/metrics.
 
-`docs/architecture/core-database-viewer.md` — the database viewer tab (macOS; reads, plus one write — the inline cell edit):
+`docs/architecture/core-database-viewer.md` — the database viewer tab (macOS; reads, plus two writes — the inline cell edit and the SQL console's confirmed mutation):
 - `DatabaseFileRule.swift` — the one recognized-extension rule; last extension only.
 - `DatabaseValue.swift` — the five storage classes + the one rendering (NULL vs. `""`, the blob placeholder); `DatabaseStatement`/`DatabaseResultSet`.
-- `DatabaseServicing.swift` — the async app/Core seam + `DatabaseError` (SQLite's words, verbatim); the write half — `DatabaseWriteTransaction`/`DatabaseWriteOutcome` and the defaulted `performWrite(_:)`, whose default is an honest refusal rather than a silent no-op.
-- `DatabaseQuery.swift` — the only SQL in the repository; identifier quoting (the three rowid alias spellings the one deliberate bare exception), the read statements (incl. the zero-limit shape probe a carried sort is checked against and the rowid probe), the one `UPDATE` and the transaction texts, bound `LIMIT`/`OFFSET`.
+- `DatabaseServicing.swift` — the async app/Core seam + `DatabaseError` (SQLite's words, verbatim); the write half — `DatabaseWriteTransaction`/`DatabaseWriteOutcome` and the defaulted `performWrite(_:)`, whose default is an honest refusal rather than a silent no-op; the console half — `DatabaseConsoleAnswer`/`DatabaseConsoleTransaction`, the three defaulted members and the six rules the app half owes.
+- `DatabaseQuery.swift` — the only SQL the repository *composes* (the console's is the reader's own, carried verbatim); identifier quoting (the three rowid alias spellings the one deliberate bare exception), the read statements (incl. the zero-limit shape probe a carried sort is checked against and the rowid probe), the one `UPDATE` and the transaction texts, bound `LIMIT`/`OFFSET`.
 - `DatabaseSchema.swift` — table/view + column value types and the two pure parsers; they refuse rather than guess.
 - `DatabasePage.swift` — the paging arithmetic (uncounted is a state, not a zero) + `DatabaseSortState`'s two rules.
 - `DatabaseCellEntry.swift` — type affinity (SQLite's five ordered rules) + the typing rule; NULL is a gesture, never a word, and nothing is trimmed.
 - `DatabaseRowIdentity.swift` — how a table's rows are addressed: rowid (first unshadowed spelling), the declared key in key order, or a typed gap; names matched, never positions.
 - `DatabaseUpdatePlan.swift` — the pure planner and its typed refusals (each carrying the sentence shown); one statement, `requiredAffectedRows == 1`.
-- `DatabaseViewerModel.swift` — the tab's model: two generation tokens, a failure never blanks a good answer, every read bounded; the write consults the gate, captures the rows token and never blanks the page.
+- `DatabaseConsolePlan.swift` — the console's vocabulary (SQLite's `.read`/`.write`, the classification and its horizon) + the whole pure policy: the four decisions, the confirmation prompt, the 500-row cap (its own number, not the page size), the two footers, the three refusals it owns (the two sentences that are *not* SQLite's and not the plan's — the model's rolled-back message and the app half's read-path refusal — are named in the doc).
+- `DatabaseConsoleModel.swift` — the console's flow: one generation token, its own message slot, the write's refusal order (the gate, then one write per tab), the post-commit order.
+- `DatabaseViewerModel.swift` — the tab's model: two generation tokens, a failure never blanks a good answer, every read bounded; the write consults the gate, captures the rows token and never blanks the page; owns the console, answers `isWriteInFlight` for both writers and `refreshAfterWrite()` after a console mutation.
 
 ### `Pisaka` (app target, `Sources/Pisaka/`)
 
@@ -318,9 +320,10 @@ in `Sources/Pisaka/Platform/` bridges per-platform APIs. Untested by convention.
 - `InterfaceScaleEnvironment.swift` — `\.interfaceMetrics` + `.interfaceScaled(_:)`.
 
 `docs/architecture/core-database-viewer.md` — the viewer's app surfaces (same doc as the Core half):
-- `Platform/DatabaseConnectionService.swift` — the one SQLite-importing file: one actor-serialized read-only connection, busy timeout, verbatim messages; `performWrite(_:)`'s separate short-lived read-write connection.
+- `Platform/DatabaseConnectionService.swift` — the one SQLite-importing file: one actor-serialized read-only connection, busy timeout, verbatim messages; `performWrite(_:)`'s separate short-lived read-write connection; the console's one prepare-by-tail loop, its bounded stepping and its transaction bracket.
 - `DatabaseViewerTabs.swift` — one model (≡ one connection) per viewer tab; tab close observed, not called; forwards the gate question and the write hook; its own file so `PisakaApp` does not grow.
-- `DatabaseViewerView.swift` — the surface (+ `DatabaseViewerHost`); draws Core's answers, decides nothing — including the editable cell, its refusals and the NULL gesture.
+- `DatabaseViewerView.swift` — the surface (+ `DatabaseViewerHost`); draws Core's answers, decides nothing — including the editable cell, its refusals and the NULL gesture; hosts the console under the grid in a resizable split.
+- `DatabaseConsoleView.swift` — the console pane: input, Run (⌘↩), the result table, the footer and the message line; shows Core's prompt verbatim, composes no SQL, declares no zoom surface.
 
 `docs/architecture/app-window.md` — window chrome (macOS):
 - `ContentView.swift` — window layout; deliberately non-observed `commitDialog`.
@@ -388,9 +391,10 @@ ci.yml's `lint` job, and the version-bump procedure.
   the one that is not git's — a language server's project-wide **rename**) raises
   `autosave.suspend()` + `localChanges.beginRevert()` synchronously before its
   first `await` (balanced by `defer`); the project-tree file ops, ⌘S and the
-  run/test saves refuse while the gate is up — as does a database viewer's
-  inline cell edit, the one refuser that is not a text-file write and the one
-  that only *consults* the flag (`core-database-viewer.md`).
+  run/test saves refuse while the gate is up — as do the database viewer's two
+  writes (an inline cell edit and the SQL console's confirmed mutation), the
+  refusers that are not text-file writes and the ones that only *consult* the
+  flag (`core-database-viewer.md`).
 - **Readers do not take the writer gate**: the symbol index only *reads*, so it
   neither raises the gate nor is gated by it — a refresh landing mid-revert
   costs at worst one entry the next refresh corrects, while taking the gate
@@ -468,7 +472,7 @@ ci.yml's `lint` job, and the version-bump procedure.
   writes on the main thread** (a `Task` hop is not guaranteed to run before the
   process exits). Every skip and every failure is silent; retention is 14 days /
   30 revisions with the newest always surviving (`core-local-history.md`).
-- **The database viewer is a reader with one write, whose tab kind can never be
+- **The database viewer is a reader with two writes, whose tab kind can never be
   dirty** (macOS only): a recognized `.sqlite`/`.sqlite3`/`.db` file opens
   as the **second kind of `OpenFile`** — `.viewer`, constructible only through
   `init(id:viewerFor:)`, carrying no text, with `isDirty` `false` *by
@@ -480,13 +484,17 @@ ci.yml's `lint` job, and the version-bump procedure.
   routing is **off unless the app turns it on**: `viewerTabsEnabled` is `false`
   by default and `true` in `PisakaApp.swift` alone, so iOS — which opens files
   through the same method from four sites and has no viewer surface — keeps
-  today's honest read failure. Core writes every byte of SQL (`DatabaseQuery` is
-  the only SQL in the repository; identifiers quoted because they cannot be
-  parameters, everything else bound because it can) and reads every answer; the
-  app half is one actor-serialized SQLite connection per tab and knows nothing
-  about what any of it means. Every read is one bounded page, every failure
-  carries SQLite's own words and never blanks a good answer. The **one write** is
-  an inline cell edit: a parameterized `UPDATE … SET … WHERE` addressed by
+  today's honest read failure. Core composes every byte of SQL (`DatabaseQuery` is
+  the only thing in the repository that *writes* SQL; identifiers quoted because
+  they cannot be parameters, everything else bound because it can) and reads
+  every answer — **the console is the one stated exception**, and not a second
+  composer: the reader's text is carried across the seam verbatim, never parsed,
+  re-split, rewritten or appended to, which is why its row cap travels as a
+  number enforced by stepping rather than as a `LIMIT` Core would have to write.
+  The app half is one actor-serialized SQLite connection per tab and knows
+  nothing about what any of it means. Every read is one bounded page, every
+  failure carries SQLite's own words and never blanks a good answer. The **first
+  write** is an inline cell edit: a parameterized `UPDATE … SET … WHERE` addressed by
   `rowid` (the first of the three spellings the table does not shadow — written
   *bare*, since a quoted one SQLite re-reads as a string literal) or by every
   primary-key column in key order, conditioned with `IS` on the value the grid was
@@ -507,10 +515,41 @@ ci.yml's `lint` job, and the version-bump procedure.
   `LocalChangesModel.isReverting`) and refuses an edit while a worktree-mutating
   operation is in flight, then calls an injected `didWrite` after a commit, so no
   file under the viewer names a gate call or `localChanges` at all.
-  `DatabaseViewerSourceGatingTests` pins the import, the gating, the switch's one
-  site, the tab-kind skips by count, and the four gate rules — asked before
-  anything is sent, asked in one place, wired once in the scene, and named by no
-  read path (`core-database-viewer.md`).
+  The **second write** is the SQL console's confirmed mutation, and it is a
+  second *member* rather than a second requirement on the first:
+  `performWrite(_:)` keeps the cell edit's exact-count rule byte for byte, while
+  `performConsoleWrite(_:)` carries one string and commits at whatever total it
+  reached ("no rows changed" being a real outcome for a `DELETE` that matched
+  nothing) — two members, two rules, no shared trap, since a multi-statement text
+  sent through the first would silently run only its first statement.
+  **Classification is SQLite's and honest about its horizon**: nothing runs until
+  `classifyConsole(_:)` has prepared the text statement by statement through the
+  tail without executing any of it, and because SQLite resolves names at *prepare*
+  time a migration-shaped text classifies only as far as its first unresolvable
+  name — after a read-only prefix that failure *is* the answer (a read cannot
+  have created what the next statement needs), after a writing one it is merely
+  the horizon and the rest is classified as it runs inside the same transaction.
+  A read runs on the tab's own connection, capped at 500 rows by stepping; a
+  mutation runs whole, as one transaction, on a connection of its own, reports its
+  affected-row total and shows no rows — a total charged as a
+  `sqlite3_total_changes` **delta**, since `sqlite3_changes` survives a statement
+  that is neither read-only nor DML and would report the last insert's count
+  twice. The console asks the same gate the cell
+  edit does, immediately before sending; **"one write per tab" is one rule read
+  from both sides** — `isWriteInFlight` is the term the cell edit refuses on and
+  the term the console is handed — and **the paging buttons, the sort
+  headers and Run are all disabled while either write is in flight**
+  (`isWriteInFlight`). A console mutation that *fails* still tells the write hook
+  and still re-reads, because a text carrying its own `COMMIT` closes the app's
+  bracket and leaves what follows durable.
+  `DatabaseViewerSourceGatingTests` pins the import, the
+  gating, the switch's one site, the tab-kind skips by count, the four gate rules
+  — asked before anything is sent, asked in one place, wired once in the scene,
+  and named by no read path — the surface's disable terms (the three controls, and
+  that no view asks the grid's half of the flag), and the console's own: it
+  composes no SQL, names no
+  gate, reaches the seam through one call site per member, and the scene knows
+  nothing about it (`core-database-viewer.md`).
 - **Zoom is three zones, one arithmetic, one pointer rule** (macOS only): `code`
   — which *is* `SettingsStore.fontSize`, never a second setting — `terminal` and
   `interface` each clamp/step/reset through one `ZoomScaleRule`, and every
@@ -635,9 +674,11 @@ rule; inventory in that suite's doc comments and `core-local-history.md`),
 `DatabaseViewerSourceGatingTests` (the viewer's cross-layer rules — SQLite
 imported in one app file and never in Core, the app-side files macOS-gated,
 `viewerTabsEnabled` spelled in `PisakaApp.swift` alone while the iOS app's
-workspace omits it, the reader rule, and the text-shaped `openFiles` consumers
-pinned by count against the tab-kind filters; inventory in that suite's doc
-comments and `core-database-viewer.md`) and `LintConfigurationTests`
+workspace omits it, the reader rule, the text-shaped `openFiles` consumers
+pinned by count against the tab-kind filters, and the console's own rules: it
+composes no SQL, asks the gate once and before anything is sent, reaches the
+seam through one call site per member, and the scene knows nothing about it;
+inventory in that suite's doc comments and `core-database-viewer.md`) and `LintConfigurationTests`
 (both `.swiftlint.yml` files — the version pin, `mandatory_comma`, the root and
 child disabled-rule sets by set equality, every measured threshold ceiling,
 every in-file disable counted by path/rule — plus `.githooks/pre-commit`'s gate
@@ -689,8 +730,9 @@ share), `ScriptedLSPTransport` (the deterministic `LSPTransport` fake),
 fakes — deliberately no Rust *installer* fake, that install is the shared pair)
 `ScriptedLeetCodeTransport` (+ `InMemoryLeetCodeCredentialStore`) and
 `ScriptedDatabaseService` (a scripted `DatabaseServicing`: answers keyed by SQL
-text, an unscripted statement throws, and a write half that scripts outcomes and
-captures the transactions sent). Reach for
+text, an unscripted statement throws, a write half that scripts outcomes and
+captures the transactions sent, and a console half that scripts a classification
+and an answer per text and reads the console transactions back verbatim). Reach for
 these before writing a new stub. A fake standing in for a `nonisolated async`
 seam runs on the cooperative pool, so anything it writes into a `StubFileTree`
 must hop to the main actor first — two threads in one `Dictionary` is a

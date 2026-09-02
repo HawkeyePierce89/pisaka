@@ -1069,6 +1069,62 @@ user sees it.
   Rename), and while another edit in the same tab is still being written. A committed edit shows up in Local Changes like any other
   change to a tracked file, and is undone the way any other file change is: with
   git, or in the database's own tools. There is no undo inside the viewer.
+- **The SQL console.** Under the grid, in a pane you can drag taller or shorter,
+  is a console: type SQL, press **Run** (Cmd+Return), and get an answer. What
+  happens next depends on what you typed, and the app asks SQLite rather than
+  guessing — nothing runs until every statement in the text has been *prepared*
+  and SQLite has said which of them can change the database.
+  - **Statements that only read run straight away**, in the order you typed them,
+    on the tab's own read-only connection. The result table shows the last
+    statement that answered columns, with values drawn exactly as the grid draws
+    them (a `NULL` styled apart from an empty string, a blob as its size), and
+    the footer counts the rows. A read is capped at **500 rows** — nothing is
+    appended to your SQL, the rows are simply stopped there — and when the cap is
+    reached the footer says so ("500 rows shown · more rows remain").
+  - **Anything that can change the database asks first.** The confirmation says
+    how many statements were classified, how many of them write, and that they
+    run as one transaction that rolls back whole if any of them fails. Agree and
+    the whole text runs on a separate, short-lived read-write connection and the
+    footer reports what it changed ("3 rows changed", or "No rows changed" — an
+    honest outcome for a `DELETE` that matched nothing or a `CREATE TABLE`).
+    Decline and nothing is sent. A mutating batch reports that count and nothing
+    else: rows a `SELECT` inside it produced are not shown, which the
+    confirmation says before you agree to it. A text that **rolls itself back** —
+    the `BEGIN`-less `UPDATE …; ROLLBACK;` dry run — is reported as what it is
+    ("The transaction was rolled back, so this database was not changed"), never
+    as a change of the rows it undid.
+  - A text whose later statements depend on what its earlier ones create — the
+    familiar `CREATE TABLE …; INSERT INTO …;` shape — is exactly the case SQLite
+    cannot see through before running it, because it resolves table and column
+    names as each statement is prepared. The console does not refuse such a
+    script: if what it *could* classify holds a write, the confirmation says so
+    and the rest is classified as it runs, inside the same transaction. If what
+    it could classify is read-only, the failure is the answer and you are shown
+    SQLite's own sentence, because a read cannot have created what the next
+    statement needed.
+  - **Every failure SQLite reported carries its own words** — the handful of
+    sentences it did not write are the ones about a refusal it never saw — and a
+    failed run changes nothing on screen: the previous result and its footer stay
+    where they were, with the message under them. After a mutation commits, the sidebar, the
+    schema, the row count and the page are all re-read — a batch may have created
+    or dropped the very table you were looking at — and the database shows up in
+    Local Changes like any other change to a tracked file. While a write is in
+    flight, Run, the paging buttons and the sort headers are all disabled, and a
+    mutation is refused outright while the project is being rewritten on disk.
+  - The console holds no history and no saved queries, and its text is not part
+    of the session — it is scratch space for the tab in front of you. It survives
+    switching the window to another tab and back; closing the tab is what
+    discards it.
+  - A statement of your own that opens or commits a transaction is not
+    special-cased. In a mutating batch — the only kind that runs inside a
+    transaction of the app's own — `BEGIN` fails, because the batch is already
+    inside one, and a bare `COMMIT` partway through makes everything after it
+    durable even if a later statement fails. (An entirely read-only batch opens
+    no such transaction, so a `BEGIN` in one is simply run and then rolled back
+    with the rest of it, changing nothing either way.) The tab re-reads the file after a failed mutation for
+    exactly that reason.
+  - A run cannot be cancelled: the 500-row cap bounds what a read keeps, not how
+    long a statement takes.
 
 
 ## iOS / iPadOS
@@ -1462,10 +1518,19 @@ and iPhone. The feature scope landed so far:
     redirect chain and works, but a provider that drives its login through a
     **popup window** would have nowhere to open it and would stall. Not every
     provider was verified.
-- The database viewer is **macOS-only**, and what it can write is **one cell at
-  a time**. There is no SQL console, no way to insert or delete rows, no schema
-  editing, no multi-cell edit and no undo inside the viewer; on iOS a database
-  file is not opened in a viewer at all (see above). Binary (blob) cells, views,
+- The database viewer is **macOS-only**, and the *grid* writes **one cell at a
+  time**: there is no way to insert or delete rows from it, no schema editing,
+  no multi-cell edit and no undo inside the viewer — anything else is typed into
+  the SQL console, which is SQL and not a second grid. On iOS a database
+  file is not opened in a viewer at all (see above).
+  The console's own limits: a mutating batch reports its affected-row count and
+  shows no rows; a read batch is not one snapshot (its statements run one after
+  another, so a database another process is writing can change between two of
+  them); `ATTACH` is refused — the console is one tab, one database — and a
+  connection setting a `PRAGMA` changes (other than the locking mode, which is
+  put back) lasts until the tab is closed and reopened; and
+  there is no query history, no saved queries and no syntax highlighting in the
+  input. Binary (blob) cells, views,
   generated columns and tables with no row id and no primary key cannot be
   edited, and each says which of those it is. Only
   tables and views are listed — indexes, triggers and SQLite's own `sqlite_`
