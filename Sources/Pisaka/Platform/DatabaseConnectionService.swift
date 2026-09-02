@@ -54,13 +54,24 @@ actor DatabaseConnectionService: DatabaseServicing {
         if handle != nil { return }
 
         var connection: OpaquePointer?
-        // Read-write, and deliberately without `SQLITE_OPEN_CREATE`: the file was
-        // probed into existence by `WorkspaceModel.open(url:)`, and a typo that
-        // reached here must report rather than quietly conjure an empty database.
+        // Read-only, because part 1's viewer is one, and deliberately without
+        // `SQLITE_OPEN_CREATE`: the file was probed into existence by
+        // `WorkspaceModel.open(url:)`, and a typo that reached here must report
+        // rather than quietly conjure an empty database.
+        //
+        // The flag is load-bearing, not decorative. A read-*write* handle is not
+        // a reader at the file level: closing the last connection to a WAL
+        // database checkpoints it and deletes the `-wal`/`-shm` sidecars, which
+        // rewrites the tracked `.db` file — so merely opening and closing a
+        // viewer tab would show the file as modified in Local Changes, with no
+        // writer gate held and no user action that asked for a write. It also
+        // takes write locks that contend with whatever else has the database
+        // open. A read-only connection can do neither. Part 2 introduces the
+        // write path and is where this changes.
         let code = sqlite3_open_v2(
             url.path,
             &connection,
-            SQLITE_OPEN_READWRITE,
+            SQLITE_OPEN_READONLY,
             nil
         )
         guard code == SQLITE_OK, let connection else {
@@ -202,8 +213,15 @@ actor DatabaseConnectionService: DatabaseServicing {
         case SQLITE_FLOAT:
             return .real(sqlite3_column_double(prepared, index))
         case SQLITE_TEXT:
+            // Read by byte count rather than as a C string: SQLite TEXT may
+            // legally contain U+0000, and `String(cString:)` would stop at the
+            // first one and hand back a silently truncated value. The count is
+            // asked *after* the pointer, the order the library documents.
             guard let text = sqlite3_column_text(prepared, index) else { return .text("") }
-            return .text(String(cString: text))
+            let count = Int(sqlite3_column_bytes(prepared, index))
+            guard count > 0 else { return .text("") }
+            let buffer = UnsafeBufferPointer(start: text, count: count)
+            return .text(String(decoding: buffer, as: UTF8.self))
         case SQLITE_BLOB:
             // The byte count is asked *after* the pointer, which is the order the
             // library documents; a zero-length blob answers a null pointer and is

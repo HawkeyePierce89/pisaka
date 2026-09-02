@@ -296,9 +296,17 @@ disk-writer gate and is never gated by it.
   back columns and rows. An `actor` rather than a lock, because a `sqlite3 *`
   opened without `SQLITE_OPEN_FULLMUTEX` is not safe on two threads and the model
   can have a page load and a listing refresh in flight at once. Opened
-  `SQLITE_OPEN_READWRITE` and deliberately **without** `SQLITE_OPEN_CREATE`: the
+  `SQLITE_OPEN_READONLY` and deliberately **without** `SQLITE_OPEN_CREATE`: the
   file was probed into existence by `WorkspaceModel.open(url:)`, and a path that
   reached here anyway must report rather than quietly conjure an empty database.
+  The read-only flag is what makes the layer's reader claim true *at the file
+  level*, not merely at the SQL level: a read-write handle checkpoints a WAL
+  database when its last connection closes and deletes the `-wal`/`-shm`
+  sidecars, so opening and closing a viewer tab would rewrite the tracked `.db`
+  file and show it as modified in Local Changes — a worktree write with no writer
+  gate held and no user action behind it — besides taking write locks that
+  contend with whatever else has the database open. Part 2's write path is where
+  the flag changes.
   A **busy timeout** (5 s) is set immediately after the open, before any statement
   can run: without it SQLite returns `SQLITE_BUSY` the instant a lock is
   contended, so a viewer opened over a database another process is writing would
@@ -500,10 +508,17 @@ and no error. So `prepareForRowsChange()` is the model's `prepareForSearch(root:
 resulting load must present — and `select(table:request:)` /
 `toggleSort(column:request:)` refuse a request that is no longer the latest,
 **before** either of them mutates anything (`toggleSort` would otherwise flip the
-header arrow for rows it never loaded). `goToPage(_:)` needs none: its argument is
-read off the live `page` inside the task, so relative paging settles on the same
-index whichever order two clicks are picked up in. `reload()`'s own re-selection
-and Core's tests pass no request and are never refused.
+header arrow for rows it never loaded). `goToPage(_:request:)` takes the same
+token, and the footer captures its *target index* in the click too. Two paging
+clicks would indeed settle on the same index whichever order they were picked up
+in — but the race the token exists for is not paging against paging: a paging
+click that lands after a sidebar selection reads the newly selected table, moves
+its still-uncounted page off index 0 (`clamping` deliberately does not clamp
+upward while uncounted) and bumps the token, so the select's schema and `count(*)`
+are discarded as superseded and the tab settles on page 2 of a table with an empty
+schema pane and a footer that can state no total. All three entry points now
+refuse a stale request before mutating anything. `reload()`'s own re-selection and
+Core's tests pass no request and are never refused.
 
 ## Two rules the model never breaks
 

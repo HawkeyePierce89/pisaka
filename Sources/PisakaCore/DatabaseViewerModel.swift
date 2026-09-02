@@ -269,8 +269,19 @@ public final class DatabaseViewerModel: ObservableObject {
     /// A move to the page already shown is a no-op rather than a re-query: the
     /// paging controls are clickable at both ends and re-reading the same page
     /// because someone clicked "previous" on page 1 is work with no answer.
-    public func goToPage(_ index: Int) async {
-        guard !isClosed, let table = selectedTable else { return }
+    ///
+    /// `request` is the same token `select`/`toggleSort` take, and for the same
+    /// reason. Two *paging* clicks do settle on the same index whichever order
+    /// they are picked up in — but a paging click racing a **sidebar selection**
+    /// does not: the paging task would read the newly selected table, move its
+    /// still-uncounted page off index 0 and bump the token, discarding the
+    /// select's schema and count and landing the tab on page 2 of a table whose
+    /// schema pane is empty. The caller therefore captures both the target index
+    /// and the token synchronously in the click, exactly as the other two do.
+    public func goToPage(_ index: Int, request: Int? = nil) async {
+        guard !isClosed else { return }
+        if let request, request != rowsGeneration { return }
+        guard let table = selectedTable else { return }
         guard page.move(to: index) else { return }
         rowsGeneration += 1
         let generation = rowsGeneration

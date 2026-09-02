@@ -796,6 +796,49 @@ final class DatabaseViewerModelTests: XCTestCase {
         )
     }
 
+    func testAPageMovePresentingASupersededRequestLeavesThePageAlone() async {
+        let service = ScriptedDatabaseService()
+        serveSchema(on: service, table: "items")
+        serveCount(on: service, table: "items", total: 500)
+        servePage(on: service, table: "items", rows: [[.integer(1), .text("one")]])
+        let model = await loadedModel(service)
+        await model.select(table: "items")
+
+        // The footer click captures its token, then a sidebar click captures a
+        // newer one. The paging task is picked up last and must refuse: a paging
+        // click racing a *selection* is the race the token exists for, because
+        // the page index it moves belongs to whichever table won.
+        let stale = model.prepareForRowsChange()
+        model.prepareForRowsChange()
+        await model.goToPage(1, request: stale)
+
+        XCTAssertEqual(
+            model.page.index,
+            0,
+            "The refusal comes before the page moves, or a superseded click would still carry the "
+                + "winning table's page off the first one"
+        )
+    }
+
+    func testAPageMoveWithTheLatestRequestLoadsThatPage() async {
+        let service = ScriptedDatabaseService()
+        serveSchema(on: service, table: "items")
+        serveCount(on: service, table: "items", total: 500)
+        servePage(on: service, table: "items", rows: [[.integer(1), .text("one")]])
+        let model = await loadedModel(service)
+        await model.select(table: "items")
+
+        let request = model.prepareForRowsChange()
+        await model.goToPage(1, request: request)
+
+        XCTAssertEqual(model.page.index, 1)
+        XCTAssertEqual(
+            service.statements(for: pageSQL(table: "items")).last?.parameters.last,
+            .integer(Int64(model.page.offset)),
+            "The latest token is honoured, so the second page is actually fetched"
+        )
+    }
+
     func testReloadRetiresTheRowsBannerAlongWithTheSelectionItExplained() async {
         let service = ScriptedDatabaseService()
         serveSchema(on: service, table: "items")

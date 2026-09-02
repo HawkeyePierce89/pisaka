@@ -277,13 +277,19 @@ struct DatabaseViewerView: View {
     private var footer: some View {
         HStack(spacing: metrics.scaled(8)) {
             Button {
-                Task { await model.goToPage(model.page.index - 1) }
+                // Both the target index and the token are read here, in the
+                // click, not inside the task — see `goToPage(_:request:)`.
+                let target = model.page.index - 1
+                let request = model.prepareForRowsChange()
+                Task { await model.goToPage(target, request: request) }
             } label: {
                 Image(systemName: "chevron.left")
             }
             .disabled(!model.page.hasPrevious)
             Button {
-                Task { await model.goToPage(model.page.index + 1) }
+                let target = model.page.index + 1
+                let request = model.prepareForRowsChange()
+                Task { await model.goToPage(target, request: request) }
             } label: {
                 Image(systemName: "chevron.right")
             }
