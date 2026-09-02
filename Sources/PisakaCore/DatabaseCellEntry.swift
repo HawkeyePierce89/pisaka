@@ -74,9 +74,11 @@ public enum DatabaseTypeAffinity: Equatable, Hashable, Sendable, CaseIterable {
 /// `.typed` carries the text **verbatim**. Nothing is trimmed anywhere in this
 /// file: a text column is perfectly entitled to hold `" 42 "`, and a viewer that
 /// silently dropped the spaces would be editing a cell the reader did not ask to
-/// edit. The consequence — that `" 42 "` in an INTEGER column stores text rather
-/// than 42 — is the honest one, and it is what SQLite itself stores if you hand
-/// it that string.
+/// edit. What is *bound* for `" 42 "` in an INTEGER column is therefore text —
+/// this file does not parse across the spaces — and SQLite then applies the
+/// column's affinity on store and keeps the integer 42, exactly as it would for
+/// the same string in an `UPDATE` anybody else wrote. The rule here decides what
+/// is bound; the column decides what is stored.
 public enum DatabaseCellEntry: Equatable, Hashable, Sendable {
     /// What the reader typed, exactly as they typed it. The empty string is a
     /// legitimate entry meaning `text("")` — never NULL.

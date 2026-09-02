@@ -2102,6 +2102,65 @@ final class DatabaseViewerModelTests: XCTestCase {
         XCTAssertNil(model.errorMessage, "Moving to another table takes the sentence with the rows")
     }
 
+    /// The other half of that rule, and the one the message's own last sentence
+    /// asks for: three of the write refusals end in "Reload the table and try
+    /// again", so a reload that leaves the banner up accuses the reader of a
+    /// stale row over rows that were just re-read.
+    func testARefreshOfTheSameTableTakesTheWriteMessageWithTheRowsItReplaces() async {
+        let service = ScriptedDatabaseService()
+        let model = await editableModel(service)
+        service.serveRolledBackWrite(affectedRows: 0)
+
+        await model.updateCell(row: 0, column: 1, entry: .typed("new"))
+        XCTAssertEqual(model.errorMessage, DatabaseViewerModel.rollbackMessage(affectedRows: 0))
+
+        await model.select(table: "items")
+
+        XCTAssertNil(
+            model.errorMessage,
+            "A refresh re-reads the schema, the count and the page, so the cell the sentence was about "
+                + "is no longer on screen to be stale"
+        )
+        XCTAssertEqual(model.rows, [[.integer(1), .text("old")]])
+    }
+
+    /// The reachable form of the case above: the sidebar cannot re-select the row
+    /// it already has, so the refresh a reader actually meets is the one a
+    /// reconnect makes — `reload()` re-opening the file and putting the selection
+    /// back through `select`.
+    func testAReconnectTakesAWriteMessageWithTheTableItPutsBack() async {
+        let service = ScriptedDatabaseService()
+        let model = await editableModel(service)
+        service.serveRolledBackWrite(affectedRows: 0)
+
+        await model.updateCell(row: 0, column: 1, entry: .typed("new"))
+        XCTAssertEqual(model.errorMessage, DatabaseViewerModel.rollbackMessage(affectedRows: 0))
+
+        await model.reload()
+
+        XCTAssertEqual(model.selectedTable, "items")
+        XCTAssertNil(model.errorMessage, "The rows the sentence named were replaced by the re-open's own")
+    }
+
+    /// And when the reconnect finds the table gone, the sentence goes with the
+    /// rows for the reason the page load's does: a banner over an empty grid and
+    /// an unselected sidebar explains a state that no longer exists.
+    func testAReconnectThatLosesTheTableTakesItsWriteMessageToo() async {
+        let service = ScriptedDatabaseService()
+        let model = await editableModel(service)
+        service.serveRolledBackWrite(affectedRows: 0)
+
+        await model.updateCell(row: 0, column: 1, entry: .typed("new"))
+        XCTAssertEqual(model.errorMessage, DatabaseViewerModel.rollbackMessage(affectedRows: 0))
+
+        serveListing(on: service, entries: [("orders", "table")])
+        await model.reload()
+
+        XCTAssertNil(model.selectedTable)
+        XCTAssertTrue(model.rows.isEmpty)
+        XCTAssertNil(model.errorMessage)
+    }
+
     // MARK: - Scripting helpers
 
     /// A model whose connection is open and whose listing has been read.

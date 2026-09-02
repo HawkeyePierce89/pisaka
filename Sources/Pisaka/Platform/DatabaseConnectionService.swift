@@ -181,9 +181,13 @@ actor DatabaseConnectionService: DatabaseServicing {
     /// Not on `handle`, and this is the point of the member rather than an
     /// implementation detail. The tab's connection is opened `SQLITE_OPEN_READONLY`
     /// and stays that way for its whole life, so a tab nobody edited never takes a
-    /// write lock and never checkpoints a WAL database out from under Local
-    /// Changes; a write that is *asked for* pays that cost, for as long as it takes
-    /// to run, and no longer. The url is the transaction's own because a viewer tab
+    /// write lock at all; a write that is *asked for* holds one, for as long as it
+    /// takes to run, and no longer. What closing this connection does **not** do
+    /// is tidy a WAL database up: SQLite checkpoints and unlinks the `-wal`/`-shm`
+    /// sidecars only on the close of the *last* connection to the database, and
+    /// the tab's read-only one is still open — and could not do it either, since a
+    /// read-only handle cannot checkpoint. On a WAL database the sidecars
+    /// therefore outlive the edit. The url is the transaction's own because a viewer tab
     /// outlives the path it was opened at — a rename retargets it — and Core's
     /// `fileURL` is the one thing that is current.
     ///

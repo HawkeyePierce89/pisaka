@@ -528,8 +528,10 @@ disk-writer gate and is never gated by it.
   characters. Modelling the gesture as its own case means no caller can reach
   `.null` by string, and the compiler says so. `.typed` carries the text
   **verbatim**: nothing is trimmed anywhere in the file, so `" 42 "` in an
-  INTEGER column honestly stores text, which is what SQLite itself stores if you
-  hand it that string. `value(affinity:previousValue:)` is the whole rule — TEXT
+  INTEGER column *binds* text — and SQLite then applies the column's affinity on
+  store and keeps the integer 42, exactly as it would for the same string in an
+  `UPDATE` anybody else wrote. This file decides what is bound; the column
+  decides what is stored. `value(affinity:previousValue:)` is the whole rule — TEXT
   stores text always; INTEGER/REAL/NUMERIC take an integer when the whole string
   is one (an overflowing one falls to a real, as SQLite's own literal does), a
   finite real when the whole string is one, and text otherwise; BLOB, which is
@@ -585,10 +587,15 @@ disk-writer gate and is never gated by it.
   it again before composing, so the two can never disagree about what is
   editable. The refusals are ordered widest-first, so a reader looking at a view
   is told it is a view rather than told about whichever column their pointer
-  happened to be over. The plan carries the statement, `requiredAffectedRows`
-  (always 1, carried anyway rather than assumed downstream — it is the whole
-  safety property) and the value that will land, so the model can say what it
-  wrote without re-deriving it.
+  happened to be over. The plan carries the statement and
+  `requiredAffectedRows` (always 1, carried anyway rather than assumed
+  downstream — it is the whole safety property), and deliberately **nothing
+  else**: the value being written is already `statement.parameters[0]`, the
+  model settles a committed write by re-reading the page rather than by
+  believing what it sent, and a second spelling of it would in any case name the
+  *bound* value and not what the cell ends up holding — SQLite applies the
+  column's affinity on store, so `" 42 "` bound as text into an INTEGER column
+  reads back as 42.
 
 - `DatabaseViewerModel.swift` — one open database tab's state, in
   `LocalChangesModel`'s shape: a `@MainActor ObservableObject` whose I/O is
@@ -717,8 +724,16 @@ disk-writer gate and is never gated by it.
   blanks a good page. Finally the one message slot gained a **third source**: a
   write's sentence is about a cell that is still on screen, so it is not cleared
   by a listing refresh (the tab's `.task` runs one a moment later) or by a page
-  turn, and is cleared by the next write that succeeds or by selecting another
-  table.
+  turn — and *is* cleared by the next write that succeeds and by every
+  `select(table:)`, the move that leaves the cell behind and the refresh alike.
+  The refresh half is not a nicety: three of these sentences end in "Reload the
+  table and try again", the reachable reload is the re-selection
+  `reselectIfPending` makes after a reconnect (the sidebar cannot re-select the
+  row it already has), and a sentence that outlived it would accuse the reader
+  of a stale row over rows that were just re-read. When that reconnect finds the
+  table gone, the write's sentence goes with the rows for the same reason the
+  page load's does — a banner over an empty grid and an unselected sidebar
+  explains a state that no longer exists.
 
 ### `Pisaka` (app layer — macOS only, every file inside `#if os(macOS)`)
 
@@ -760,9 +775,14 @@ disk-writer gate and is never gated by it.
   `performWrite(_:)` is part 2a's one new member, and the fact that it runs on a
   **connection of its own** is the point of it rather than an implementation
   detail: the tab's handle stays `SQLITE_OPEN_READONLY` for its whole life, so a
-  tab nobody edited never takes a write lock and never checkpoints a WAL database
-  out from under Local Changes, while a write that is *asked for* pays that cost
-  for exactly as long as it takes to run. It opens `SQLITE_OPEN_READWRITE` and
+  tab nobody edited never takes a write lock at all, while a write that is
+  *asked for* holds one for exactly as long as it takes to run. What closing the
+  write connection does **not** do is tidy a WAL database up — SQLite
+  checkpoints and unlinks the `-wal`/`-shm` sidecars only on the close of the
+  *last* connection, and the tab's read-only one is still open (and could not do
+  it either, a read-only handle being unable to checkpoint), so on a WAL
+  database the sidecars outlive the edit. `docs/FEATURES.md` says so in the
+  user's words rather than claiming the opposite. It opens `SQLITE_OPEN_READWRITE` and
   again **no** `SQLITE_OPEN_CREATE` (a database moved away since the page was
   read must report, not be conjured empty and then written into), at the
   transaction's own url (decision 6), sets the same busy timeout — which matters

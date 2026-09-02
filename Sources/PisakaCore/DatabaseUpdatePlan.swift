@@ -127,19 +127,23 @@ public enum DatabaseRowAddress: Equatable, Hashable, Sendable {
 /// identity that turned out not to identify) is rolled back rather than
 /// explained afterwards. The number travels with the statement so the app half
 /// compares it without knowing what it means.
+///
+/// The typing rule's answer is deliberately **not** carried as a third property:
+/// it is already `statement.parameters[0]`, the model settles a committed write
+/// by re-reading the page rather than by believing what it sent, and a second
+/// spelling of the same value would in any case be the *bound* value and not
+/// what the cell ends up holding — SQLite applies the column's affinity on
+/// store, so `" 42 "` bound as text into an INTEGER column is read back as 42.
 public struct DatabaseUpdatePlan: Equatable, Sendable {
-    /// The `UPDATE`, with every value bound.
+    /// The `UPDATE`, with every value bound. The value being written is
+    /// `parameters[0]`; everything after it belongs to the `WHERE`.
     public var statement: DatabaseStatement
     /// How many rows the statement must change for the transaction to commit.
     public var requiredAffectedRows: Int
-    /// What the cell will hold — the typing rule's answer, carried so the model
-    /// can say what it wrote without re-deriving it.
-    public var newValue: DatabaseValue
 
-    public init(statement: DatabaseStatement, requiredAffectedRows: Int = 1, newValue: DatabaseValue) {
+    public init(statement: DatabaseStatement, requiredAffectedRows: Int = 1) {
         self.statement = statement
         self.requiredAffectedRows = requiredAffectedRows
-        self.newValue = newValue
     }
 }
 
@@ -296,7 +300,7 @@ public enum DatabaseUpdatePlanner {
             newValue: newValue,
             previousValue: previousValue
         )
-        return .success(DatabaseUpdatePlan(statement: statement, newValue: newValue))
+        return .success(DatabaseUpdatePlan(statement: statement))
     }
 
     // MARK: - The lookups

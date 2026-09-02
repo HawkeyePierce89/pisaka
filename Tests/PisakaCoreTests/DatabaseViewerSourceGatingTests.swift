@@ -70,9 +70,6 @@ final class DatabaseViewerSourceGatingTests: XCTestCase {
             .filter { $0.pathExtension == "swift" }
     }
 
-    /// Every file whose name says it belongs to the feature, on both sides of the
-    /// Core/app boundary. Matched by name rather than by a hand-kept list so a file
-    /// added later falls under these rules the moment it exists.
     /// The text of a call's argument list, from just past its opening paren to
     /// just before the paren that closes it.
     ///
@@ -96,6 +93,9 @@ final class DatabaseViewerSourceGatingTests: XCTestCase {
         return nil
     }
 
+    /// Every file whose name says it belongs to the feature, on both sides of the
+    /// Core/app boundary. Matched by name rather than by a hand-kept list so a file
+    /// added later falls under these rules the moment it exists.
     private func databaseFiles() throws -> [URL] {
         let core = try swiftFiles(under: "Sources/PisakaCore")
         let app = try swiftFiles(under: "Sources/Pisaka")

@@ -409,12 +409,17 @@ public final class DatabaseViewerModel: ObservableObject {
             clearRowIdentity()
             shown = nil
             page.reset()
-            // A write's message is about a cell of the table being left behind,
-            // so it goes with the rows it was about. It survives everything else
-            // — a listing refresh, a page turn, a sort — because those leave the
-            // cell it names on screen.
-            clearError(from: .write)
         }
+        // A write's message is about a cell of one particular page, and `select`
+        // re-reads that table's schema, count and page whichever call it is: the
+        // move that leaves the cell behind, and the refresh — `reselectIfPending`
+        // after a reconnect — that replaces it with what the database says now.
+        // Both are the "reload the table" three of those messages *instruct*, so
+        // a message that outlived one would accuse the reader of a stale row over
+        // rows that are not stale. It still survives everything else — a listing
+        // refresh, a page turn, a sort — because those leave the cell it names on
+        // screen.
+        clearError(from: .write)
         isLoadingRows = true
 
         do {
@@ -604,13 +609,14 @@ public final class DatabaseViewerModel: ObservableObject {
             sort = nil
             shown = nil
             page.reset()
-            // The rows this tab was showing are gone, so a `.rows` message about
-            // them goes with them: a banner left over from the page load before
-            // the re-open would sit above an empty grid and an unselected sidebar,
-            // explaining a state that no longer exists. `clearError` is
-            // source-checked, so an `.entries` message the re-open itself set is
-            // untouched.
+            // The rows this tab was showing are gone, so a message about them goes
+            // with them — the page load's and the write's alike: a banner left
+            // over from before the re-open would sit above an empty grid and an
+            // unselected sidebar, explaining a state that no longer exists.
+            // `clearError` is source-checked, so an `.entries` message the re-open
+            // itself set is untouched.
             clearError(from: .rows)
+            clearError(from: .write)
             return
         }
         await select(table: table)

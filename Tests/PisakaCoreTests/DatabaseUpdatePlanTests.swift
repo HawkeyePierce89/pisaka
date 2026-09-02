@@ -126,7 +126,6 @@ final class DatabaseUpdatePlanTests: XCTestCase {
             )
         )
         XCTAssertEqual(plan.requiredAffectedRows, 1)
-        XCTAssertEqual(plan.newValue, .text("Blue Train"))
     }
 
     /// The alias is whichever spelling the table does not shadow, and it is
@@ -608,7 +607,6 @@ final class DatabaseUpdatePlanTests: XCTestCase {
             entry: .null
         )
 
-        XCTAssertEqual(plan.newValue, .null)
         XCTAssertEqual(plan.statement.parameters, [.null, .integer(7), .text("old")])
         XCTAssertFalse(plan.statement.sql.uppercased().contains("NULL"), plan.statement.sql)
     }
@@ -624,8 +622,8 @@ final class DatabaseUpdatePlanTests: XCTestCase {
             entry: .typed("")
         )
 
-        XCTAssertEqual(plan.newValue, .text(""))
-        XCTAssertNotEqual(plan.newValue, .null)
+        XCTAssertEqual(plan.statement.parameters.first, .text(""))
+        XCTAssertNotEqual(plan.statement.parameters.first, .null)
     }
 
     // MARK: - The typing rule reaches the plan
@@ -652,8 +650,8 @@ final class DatabaseUpdatePlanTests: XCTestCase {
             entry: .typed("42")
         )
 
-        XCTAssertEqual(integerCell.newValue, .integer(42))
-        XCTAssertEqual(textCell.newValue, .text("42"))
+        XCTAssertEqual(integerCell.statement.parameters.first, .integer(42))
+        XCTAssertEqual(textCell.statement.parameters.first, .text("42"))
     }
 
     /// An untyped column keeps the cell's storage class when the entry parses as
@@ -677,8 +675,8 @@ final class DatabaseUpdatePlanTests: XCTestCase {
             entry: .typed("43")
         )
 
-        XCTAssertEqual(overInteger.newValue, .integer(43))
-        XCTAssertEqual(overText.newValue, .text("43"))
+        XCTAssertEqual(overInteger.statement.parameters.first, .integer(43))
+        XCTAssertEqual(overText.statement.parameters.first, .text("43"))
     }
 
     // MARK: - Nothing typed reaches the text

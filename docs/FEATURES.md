@@ -1046,10 +1046,11 @@ user sees it.
   life). It commits
   only if exactly one row changed: if somebody else changed that row between the
   page being read and Return, nothing is written and the tab says so
-  ("this row changed underneath you"). That short-lived connection is also the
-  one thing an edit changes on disk beyond the row itself: closing it checkpoints
-  a WAL database and removes its `-wal`/`-shm` sidecars, which is the cost merely
-  opening a viewer tab is careful not to pay. What you type is stored as the column's
+  ("this row changed underneath you"). Closing that connection does **not**
+  tidy a WAL database up: SQLite checkpoints and removes the `-wal`/`-shm`
+  sidecars only when the *last* connection to the database closes, and the tab's
+  own read-only one is still open — so on a WAL database the sidecars stay
+  beside the file until every connection to it is gone. What you type is stored as the column's
   declared type implies — typing `43` into an `INTEGER` column stores the number,
   into a `TEXT` column the two characters — and in a column declared with no type
   at all the cell keeps the kind of value it already held. Nothing is trimmed, an
