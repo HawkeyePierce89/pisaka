@@ -75,6 +75,9 @@ final class DatabaseViewerModelTests: XCTestCase {
             [
                 DatabaseQuery.tableListing.sql,
                 DatabaseQuery.columnSchema(table: "items").sql,
+                // The rowid probe: one prepare, no rows, asked once per
+                // selection and never again on a page turn.
+                DatabaseQuery.rowIdProbe(table: "items").sql,
                 DatabaseQuery.rowCount(table: "items").sql,
                 pageSQL(table: "items"),
             ]
@@ -1214,6 +1217,405 @@ final class DatabaseViewerModelTests: XCTestCase {
         XCTAssertEqual(model.rows, [[.integer(1), .text("one")]])
     }
 
+    // MARK: - Row identity
+
+    // The identity a cell edit will address a row by is resolved once per
+    // selection and travels as a trailing result column the grid never sees.
+    // Everything here is about that column being asked for, split off by
+    // position, and never mistaken for one of the reader's own.
+
+    func testARowIdTableCarriesItsIdentityWithoutShowingIt() async {
+        let service = ScriptedDatabaseService()
+        serveSchema(on: service, table: "items", primaryKey: [:])
+        serveProbe(on: service, table: "items")
+        serveCount(on: service, table: "items", total: 2)
+        servePage(
+            on: service,
+            table: "items",
+            identity: .rowid,
+            columns: ["id", "label", "rowid"],
+            rows: [[.integer(1), .text("one"), .integer(7)], [.integer(2), .null, .integer(9)]]
+        )
+        let model = await loadedModel(service)
+
+        await model.select(table: "items")
+
+        XCTAssertEqual(model.rowIdentity, .rowid(alias: .rowid))
+        XCTAssertTrue(
+            service.runSQL.contains(pageSQL(table: "items", identity: .rowid)),
+            "The page asks for the identity column"
+        )
+        XCTAssertEqual(model.gridColumns, ["id", "label"], "The grid shows no column the reader did not ask for")
+        XCTAssertEqual(model.rows, [[.integer(1), .text("one")], [.integer(2), .null]])
+        XCTAssertEqual(model.rowIdentityValues, [.integer(7), .integer(9)])
+        XCTAssertEqual(model.rowIdentityValue(at: 1), .integer(9))
+        XCTAssertNil(model.rowIdentityValue(at: 2))
+        XCTAssertTrue(model.canEdit(row: 0, column: 1))
+    }
+
+    /// The reason the split is by position: on a table with an
+    /// `INTEGER PRIMARY KEY` alias, SQLite answers the appended column under the
+    /// **alias column's own name**, so a split that looked for a column called
+    /// `rowid` would find none — and one that looked for the identity by name
+    /// would find the alias column instead and hand the grid a row one value
+    /// short.
+    func testAnIntegerPrimaryKeyAliasRepeatsItsNameAndTheSplitStillHolds() async {
+        let service = ScriptedDatabaseService()
+        serveSchema(on: service, table: "r", columns: ["id", "v"])
+        serveProbe(on: service, table: "r")
+        serveCount(on: service, table: "r", total: 1)
+        servePage(
+            on: service,
+            table: "r",
+            identity: .rowid,
+            columns: ["id", "v", "id"],
+            rows: [[.integer(4), .text("x"), .integer(4)]]
+        )
+        let model = await loadedModel(service, tables: [("r", "table")])
+
+        await model.select(table: "r")
+
+        XCTAssertEqual(model.gridColumns, ["id", "v"])
+        XCTAssertEqual(model.rows, [[.integer(4), .text("x")]])
+        XCTAssertEqual(model.rowIdentityValues, [.integer(4)])
+        XCTAssertEqual(model.rowIdentity, .rowid(alias: .rowid))
+    }
+
+    func testAViewIsNeverProbedAndRefusesEveryCell() async {
+        let service = ScriptedDatabaseService()
+        serveSchema(on: service, table: "recent", columns: ["a"], primaryKey: [:])
+        serveCount(on: service, table: "recent", total: 1)
+        servePage(on: service, table: "recent", columns: ["a"], rows: [[.text("x")]])
+        let model = await loadedModel(service, tables: [("recent", "view")])
+
+        await model.select(table: "recent")
+
+        XCTAssertEqual(
+            service.count(for: DatabaseQuery.rowIdProbe(table: "recent").sql),
+            0,
+            "A view's rows are computed; the listing already answered the question"
+        )
+        XCTAssertEqual(model.gridColumns, ["a"])
+        XCTAssertEqual(model.rows, [[.text("x")]])
+        XCTAssertEqual(model.rowIdentity, .unavailable(.view))
+        XCTAssertFalse(model.canEdit(row: 0, column: 0))
+        XCTAssertEqual(model.editRefusal(row: 0, column: 0), .unaddressableRow(.view))
+        XCTAssertNil(model.errorMessage)
+    }
+
+    func testAWithoutRowIdTableFallsBackToItsWholeKeyWithNoBanner() async {
+        let service = ScriptedDatabaseService()
+        serveSchema(on: service, table: "pairs", columns: ["a", "b"], primaryKey: [0: 1, 1: 2])
+        failProbe(on: service, table: "pairs")
+        serveCount(on: service, table: "pairs", total: 1)
+        servePage(on: service, table: "pairs", columns: ["a", "b"], rows: [[.integer(1), .text("x")]])
+        let model = await loadedModel(service, tables: [("pairs", "table")])
+
+        await model.select(table: "pairs")
+
+        XCTAssertEqual(
+            model.rowIdentity,
+            .primaryKey(columns: [
+                DatabaseKeyColumn(name: "a", resultIndex: 0),
+                DatabaseKeyColumn(name: "b", resultIndex: 1),
+            ])
+        )
+        XCTAssertFalse(
+            service.runSQL.contains(pageSQL(table: "pairs", identity: .rowid)),
+            "A key-addressed table appends nothing to its page"
+        )
+        XCTAssertEqual(model.gridColumns, ["a", "b"])
+        XCTAssertEqual(model.rows, [[.integer(1), .text("x")]])
+        XCTAssertTrue(model.rowIdentityValues.isEmpty)
+        XCTAssertNil(model.errorMessage, "A probe that says no is the probe working, not a failure")
+        XCTAssertTrue(model.canEdit(row: 0, column: 1))
+    }
+
+    func testATableWithNeitherARowIdNorAKeyReadsFineAndEditsNothing() async {
+        let service = ScriptedDatabaseService()
+        serveSchema(on: service, table: "loose", columns: ["a"], primaryKey: [:])
+        failProbe(on: service, table: "loose")
+        serveCount(on: service, table: "loose", total: 1)
+        servePage(on: service, table: "loose", columns: ["a"], rows: [[.text("x")]])
+        let model = await loadedModel(service, tables: [("loose", "table")])
+
+        await model.select(table: "loose")
+
+        XCTAssertEqual(model.rowIdentity, .unavailable(.noRowIdentity))
+        XCTAssertEqual(model.rows, [[.text("x")]], "Reading is untouched by not being able to write")
+        XCTAssertNil(model.errorMessage)
+        XCTAssertEqual(model.editRefusal(row: 0, column: 0), .unaddressableRow(.noRowIdentity))
+    }
+
+    func testTheProbeIsAskedOncePerSelectionAndNotOnEveryPage() async {
+        let service = ScriptedDatabaseService()
+        serveSchema(on: service, table: "items", primaryKey: [:])
+        serveProbe(on: service, table: "items")
+        serveCount(on: service, table: "items", total: 5)
+        servePage(
+            on: service,
+            table: "items",
+            identity: .rowid,
+            columns: ["id", "label", "rowid"],
+            rows: [[.integer(1), .text("a"), .integer(1)]]
+        )
+        let model = await loadedModel(service)
+
+        await model.select(table: "items")
+        await model.goToPage(1)
+        await model.goToPage(2)
+
+        XCTAssertEqual(service.count(for: DatabaseQuery.rowIdProbe(table: "items").sql), 1)
+        XCTAssertEqual(service.count(for: pageSQL(table: "items", identity: .rowid)), 3)
+    }
+
+    func testASortOrdinalStillNamesTheGridColumnWithTheIdentityColumnPresent() async {
+        let service = ScriptedDatabaseService()
+        serveSchema(on: service, table: "items", primaryKey: [:])
+        serveProbe(on: service, table: "items")
+        serveCount(on: service, table: "items", total: 1)
+        servePage(
+            on: service,
+            table: "items",
+            identity: .rowid,
+            columns: ["id", "label", "rowid"],
+            rows: [[.integer(1), .text("a"), .integer(5)]]
+        )
+        servePage(
+            on: service,
+            table: "items",
+            orderBy: 1,
+            identity: .rowid,
+            columns: ["id", "label", "rowid"],
+            rows: [[.integer(2), .text("b"), .integer(6)]]
+        )
+        let model = await loadedModel(service)
+
+        await model.select(table: "items")
+        await model.toggleSort(column: "label", index: 1)
+
+        // The appended column is last precisely so the 1-based ordinal the grid
+        // clicked goes on meaning the column the grid drew.
+        let sorted = pageSQL(table: "items", orderBy: 1, identity: .rowid)
+        XCTAssertTrue(sorted.contains("SELECT *, rowid FROM"))
+        XCTAssertTrue(sorted.contains("ORDER BY 2 ASC"))
+        XCTAssertEqual(service.runSQL.last, sorted)
+        XCTAssertEqual(model.sort, DatabaseSortState(column: "label", columnIndex: 1, direction: .ascending))
+        XCTAssertEqual(model.gridColumns, ["id", "label"], "The sort survives against the grid, not the raw answer")
+        XCTAssertEqual(model.rows, [[.integer(2), .text("b")]])
+        XCTAssertEqual(model.rowIdentityValues, [.integer(6)])
+    }
+
+    func testACarriedSortIsCheckedAgainstTheGridShapeAndThePageStillCarriesItsIdentity() async {
+        let service = ScriptedDatabaseService()
+        serveSchema(on: service, table: "items", primaryKey: [:])
+        serveProbe(on: service, table: "items")
+        serveCount(on: service, table: "items", total: 1)
+        serveResultColumns(on: service, table: "items")
+        servePage(
+            on: service,
+            table: "items",
+            identity: .rowid,
+            columns: ["id", "label", "rowid"],
+            rows: [[.integer(1), .text("a"), .integer(5)]]
+        )
+        servePage(
+            on: service,
+            table: "items",
+            orderBy: 1,
+            identity: .rowid,
+            columns: ["id", "label", "rowid"],
+            rows: [[.integer(2), .text("b"), .integer(6)]]
+        )
+        let model = await loadedModel(service)
+
+        await model.select(table: "items")
+        await model.toggleSort(column: "label", index: 1)
+        await model.select(table: "items")
+
+        // The shape probe is `SELECT *` without the identity column — the grid's
+        // own shape — which is what the carried ordinal has to be checked against.
+        XCTAssertEqual(service.count(for: DatabaseQuery.resultColumns(table: "items").sql), 1)
+        XCTAssertEqual(model.sort, DatabaseSortState(column: "label", columnIndex: 1, direction: .ascending))
+        XCTAssertEqual(model.gridColumns, ["id", "label"])
+        XCTAssertEqual(model.rowIdentityValues, [.integer(6)])
+    }
+
+    func testAFailedPageTurnKeepsTheIdentityOfTheRowsStillOnScreen() async {
+        let service = ScriptedDatabaseService()
+        serveSchema(on: service, table: "items", primaryKey: [:])
+        serveProbe(on: service, table: "items")
+        serveCount(on: service, table: "items", total: 5)
+        servePage(
+            on: service,
+            table: "items",
+            identity: .rowid,
+            columns: ["id", "label", "rowid"],
+            rows: [[.integer(1), .text("a"), .integer(11)]]
+        )
+        let model = await loadedModel(service)
+        await model.select(table: "items")
+        // Re-scripting the page's key replaces its answer, so the *next* turn is
+        // the one that fails — with a good page already on screen behind it.
+        service.fail(pageSQL(table: "items", identity: .rowid), with: DatabaseError.busy(message: "database is locked"))
+
+        await model.goToPage(1)
+
+        XCTAssertEqual(model.errorMessage, "database is locked")
+        XCTAssertEqual(model.rows, [[.integer(1), .text("a")]], "A failure never blanks a good page")
+        XCTAssertEqual(model.rowIdentityValues, [.integer(11)], "…nor the identity that names its rows")
+        XCTAssertEqual(model.rowIdentity, .rowid(alias: .rowid))
+        XCTAssertEqual(model.page.index, 0)
+    }
+
+    // MARK: - What may be edited
+
+    /// The whole point of matching a grid column to its schema column **by
+    /// name**: `PRAGMA table_xinfo` lists a hidden column that `SELECT *` does
+    /// not answer, so a positional map here would call grid column 0 the hidden
+    /// one and refuse — or, worse, edit under the wrong name.
+    func testAHiddenSchemaColumnAheadOfTheVisibleOnesDoesNotShiftWhatMayBeEdited() async {
+        let service = ScriptedDatabaseService()
+        serveSchema(
+            on: service,
+            table: "virt",
+            columns: ["hidden_key", "id", "label"],
+            primaryKey: [:],
+            hidden: [0]
+        )
+        serveProbe(on: service, table: "virt")
+        serveCount(on: service, table: "virt", total: 1)
+        servePage(
+            on: service,
+            table: "virt",
+            identity: .rowid,
+            columns: ["id", "label", "rowid"],
+            rows: [[.integer(1), .text("x"), .integer(3)]]
+        )
+        let model = await loadedModel(service, tables: [("virt", "table")])
+
+        await model.select(table: "virt")
+
+        XCTAssertEqual(model.columns.map(\.name), ["hidden_key", "id", "label"])
+        XCTAssertTrue(model.columns[0].isHidden)
+        XCTAssertEqual(model.gridColumns, ["id", "label"])
+        XCTAssertTrue(model.canEdit(row: 0, column: 0))
+        XCTAssertTrue(model.canEdit(row: 0, column: 1))
+    }
+
+    func testAGeneratedColumnAndABlobCellAndAnUnmatchedNameAreEachRefused() async {
+        let service = ScriptedDatabaseService()
+        serveSchema(on: service, table: "items", columns: ["id", "label"], primaryKey: [:], hidden: [1])
+        serveProbe(on: service, table: "items")
+        serveCount(on: service, table: "items", total: 1)
+        servePage(
+            on: service,
+            table: "items",
+            identity: .rowid,
+            columns: ["id", "label", "extra", "rowid"],
+            rows: [[.blob(byteCount: 12), .text("x"), .text("y"), .integer(3)]]
+        )
+        let model = await loadedModel(service)
+
+        await model.select(table: "items")
+
+        XCTAssertEqual(model.gridColumns, ["id", "label", "extra"])
+        XCTAssertEqual(model.editRefusal(row: 0, column: 0), .blobCell(column: "id"))
+        XCTAssertEqual(model.editRefusal(row: 0, column: 1), .generatedColumn(name: "label"))
+        XCTAssertEqual(model.editRefusal(row: 0, column: 2), .columnNotMatched(name: "extra"))
+        XCTAssertEqual(model.editRefusal(row: 0, column: 3), .cellNotOnPage)
+        XCTAssertEqual(model.editRefusal(row: 4, column: 0), .cellNotOnPage)
+    }
+
+    func testNothingIsEditableBeforeATableIsSelected() async {
+        let service = ScriptedDatabaseService()
+        let model = await loadedModel(service)
+
+        XCTAssertNil(model.editTarget)
+        XCTAssertEqual(model.rowIdentity, .unavailable(.noRowIdentity))
+        XCTAssertFalse(model.canEdit(row: 0, column: 0))
+        XCTAssertEqual(model.editRefusal(row: 0, column: 0), .cellNotOnPage)
+    }
+
+    func testMovingToAnotherTableForgetsThePreviousTablesIdentity() async {
+        let service = ScriptedDatabaseService()
+        serveSchema(on: service, table: "items", primaryKey: [:])
+        serveProbe(on: service, table: "items")
+        serveCount(on: service, table: "items", total: 1)
+        servePage(
+            on: service,
+            table: "items",
+            identity: .rowid,
+            columns: ["id", "label", "rowid"],
+            rows: [[.integer(1), .text("a"), .integer(5)]]
+        )
+        serveSchema(on: service, table: "pairs", columns: ["a", "b"], primaryKey: [0: 1, 1: 2])
+        failProbe(on: service, table: "pairs")
+        serveCount(on: service, table: "pairs", total: 1)
+        servePage(on: service, table: "pairs", columns: ["a", "b"], rows: [[.integer(1), .text("x")]])
+        let model = await loadedModel(service, tables: [("items", "table"), ("pairs", "table")])
+
+        await model.select(table: "items")
+        await model.select(table: "pairs")
+
+        XCTAssertTrue(model.rowIdentityValues.isEmpty, "An identity never outlives the page it addressed")
+        XCTAssertEqual(
+            model.rowIdentity,
+            .primaryKey(columns: [
+                DatabaseKeyColumn(name: "a", resultIndex: 0),
+                DatabaseKeyColumn(name: "b", resultIndex: 1),
+            ])
+        )
+        XCTAssertFalse(
+            service.runSQL.contains(pageSQL(table: "pairs", identity: .rowid)),
+            "The new table composes its own page, not the previous one's shape"
+        )
+    }
+
+    func testASupersededSelectionPublishesNoneOfItsIdentity() async {
+        let service = ScriptedDatabaseService()
+        serveSchema(on: service, table: "items", primaryKey: [:])
+        serveProbe(on: service, table: "items")
+        serveCount(on: service, table: "items", total: 1)
+        servePage(
+            on: service,
+            table: "items",
+            identity: .rowid,
+            columns: ["id", "label", "rowid"],
+            rows: [[.integer(1), .text("stale"), .integer(1)]]
+        )
+        serveSchema(on: service, table: "pairs", columns: ["a", "b"], primaryKey: [0: 1, 1: 2])
+        failProbe(on: service, table: "pairs")
+        serveCount(on: service, table: "pairs", total: 1)
+        servePage(on: service, table: "pairs", columns: ["a", "b"], rows: [[.integer(9), .text("fresh")]])
+
+        // Held inside the probe, which is the one hop this task added: a
+        // selection superseded there must not latch its alias over the newer
+        // selection's, or the next page would ask the new table for the old
+        // table's shape.
+        let gate = Gate()
+        service.hold(DatabaseQuery.rowIdProbe(table: "items").sql, on: gate)
+        let model = await loadedModel(service, tables: [("items", "table"), ("pairs", "table")])
+
+        let held = Task { await model.select(table: "items") }
+        await waitUntil { gate.reached }
+        await model.select(table: "pairs")
+        gate.release()
+        await held.value
+
+        XCTAssertEqual(model.selectedTable, "pairs")
+        XCTAssertEqual(model.rows, [[.integer(9), .text("fresh")]])
+        XCTAssertEqual(
+            model.rowIdentity,
+            .primaryKey(columns: [
+                DatabaseKeyColumn(name: "a", resultIndex: 0),
+                DatabaseKeyColumn(name: "b", resultIndex: 1),
+            ])
+        )
+        XCTAssertTrue(model.rowIdentityValues.isEmpty, "The superseded selection's rowid never lands")
+        XCTAssertNil(model.errorMessage)
+    }
+
     // MARK: - Scripting helpers
 
     /// A model whose connection is open and whose listing has been read.
@@ -1253,8 +1655,45 @@ final class DatabaseViewerModelTests: XCTestCase {
         XCTFail("Timed out waiting for the gated call", file: file, line: line)
     }
 
-    private func pageSQL(table: String, orderBy column: Int? = nil, ascending: Bool = true) -> String {
-        DatabaseQuery.page(table: table, orderByColumnIndex: column, ascending: ascending, limit: 1, offset: 0).sql
+    private func pageSQL(
+        table: String,
+        orderBy column: Int? = nil,
+        ascending: Bool = true,
+        identity: DatabaseRowIdAlias? = nil
+    ) -> String {
+        DatabaseQuery.page(
+            table: table,
+            orderByColumnIndex: column,
+            ascending: ascending,
+            limit: 1,
+            offset: 0,
+            identityAlias: identity
+        ).sql
+    }
+
+    /// Answer the rowid probe — the "this table has a rowid" half of a selection.
+    ///
+    /// The answer is a shape and no rows, which is what `LIMIT 0` returns; the
+    /// model reads nothing out of it and only cares that it did not throw.
+    private func serveProbe(
+        on service: ScriptedDatabaseService,
+        table: String,
+        alias: DatabaseRowIdAlias = .rowid
+    ) {
+        service.serve(DatabaseQuery.rowIdProbe(table: table, alias: alias).sql, columns: [alias.rawValue], rows: [])
+    }
+
+    /// Refuse the rowid probe the way a `WITHOUT ROWID` table does — at prepare
+    /// time, in SQLite's own words.
+    private func failProbe(
+        on service: ScriptedDatabaseService,
+        table: String,
+        alias: DatabaseRowIdAlias = .rowid
+    ) {
+        service.fail(
+            DatabaseQuery.rowIdProbe(table: table, alias: alias).sql,
+            with: DatabaseError.sqlError(message: "no such column: rowid")
+        )
     }
 
     private func serveListing(on service: ScriptedDatabaseService, entries: [(String, String)]) {
@@ -1269,15 +1708,21 @@ final class DatabaseViewerModelTests: XCTestCase {
 
     /// A `PRAGMA table_xinfo` answer: the first column is the primary key, the
     /// rest are plain.
-    private func serveSchema(on service: ScriptedDatabaseService, table: String, columns names: [String] = ["id", "label"]) {
+    private func serveSchema(
+        on service: ScriptedDatabaseService,
+        table: String,
+        columns names: [String] = ["id", "label"],
+        primaryKey keyPositions: [Int: Int] = [0: 1],
+        hidden: Set<Int> = []
+    ) {
         let rows: [[DatabaseValue]] = names.enumerated().map { offset, name in
             [
                 .text(name),
                 .text(offset == 0 ? "INTEGER" : "TEXT"),
                 .integer(offset == 0 ? 1 : 0),
                 .null,
-                .integer(offset == 0 ? 1 : 0),
-                .integer(0),
+                .integer(Int64(keyPositions[offset] ?? 0)),
+                .integer(hidden.contains(offset) ? 1 : 0),
             ]
         }
         service.serve(
@@ -1308,11 +1753,12 @@ final class DatabaseViewerModelTests: XCTestCase {
         table: String,
         orderBy column: Int? = nil,
         ascending: Bool = true,
+        identity: DatabaseRowIdAlias? = nil,
         columns names: [String] = ["id", "label"],
         rows: [[DatabaseValue]]
     ) {
         service.serve(
-            pageSQL(table: table, orderBy: column, ascending: ascending),
+            pageSQL(table: table, orderBy: column, ascending: ascending, identity: identity),
             columns: names,
             rows: rows
         )

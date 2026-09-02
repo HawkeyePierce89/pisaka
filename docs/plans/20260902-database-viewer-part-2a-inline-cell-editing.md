@@ -281,27 +281,27 @@ on its own.
 - Modify: `Sources/PisakaCore/DatabaseViewerModel.swift`
 - Modify: `Tests/PisakaCoreTests/DatabaseViewerModelTests.swift`
 
-- [ ] resolve the identity strategy in `select(table:)`: run the probe once per
+- [x] resolve the identity strategy in `select(table:)`: run the probe once per
       selection, combine it with the columns and the entry kind, and hold the
       result beside `shown`
-- [ ] compose the page with the trailing identity column when the strategy is
+- [x] compose the page with the trailing identity column when the strategy is
       `rowid`, and split it off in `publish(_:table:)` **by position and count**
       (decision 1) so `rows` and `gridColumns` are exactly what part 1 published;
       an answer whose column count is not `grid + 1` is treated as identity-less
       rather than mis-split
-- [ ] keep the sort-survival check, the carried-sort shape probe and the failure
+- [x] keep the sort-survival check, the carried-sort shape probe and the failure
       restore reasoning working against the **grid** columns, not the raw answer
-- [ ] expose a read-only `canEdit(columnIndex:)`-style answer the surface greys
+- [x] expose a read-only `canEdit(columnIndex:)`-style answer the surface greys
       cells out on, derived from the strategy and from the schema column looked up
       **by answered name** (decision 4), never re-derived in the view
-- [ ] write tests: identity carried and hidden for a rowid table; **the same for a
+- [x] write tests: identity carried and hidden for a rowid table; **the same for a
       table with an `INTEGER PRIMARY KEY` alias, where the trailing column repeats
       the alias column's name — split still correct**; nothing appended for a view
       or a `WITHOUT ROWID` table; a sort ordinal still ordering the same column
       with the identity column present; a probe failure degrading silently with no
       error banner; `canEdit` with a hidden schema column ahead of the visible
       ones; superseded loads still publishing nothing
-- [ ] run `swift test` — must pass before task 6
+- [x] run `swift test` — must pass before task 6
 
 ### Task 6: The model's write flow
 

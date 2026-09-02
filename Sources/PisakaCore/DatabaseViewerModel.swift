@@ -52,6 +52,26 @@ import Foundation
 /// pragmas; it neither raises the disk-writer gate nor waits on it, exactly like
 /// the symbol index and the terminal. Part 2's writes arrive as new seam members
 /// and will make that decision for themselves.
+///
+/// **Row identity is resolved once per selection and travels hidden.** Editing
+/// one cell means naming one row, and which of SQLite's two ways of doing that
+/// applies is a fact about the table (`DatabaseRowIdentity`). So a selection
+/// asks the rowid probe once, alongside the schema, and every page it then
+/// composes carries the answer as a **trailing** result column — appended last
+/// precisely so every 1-based `ORDER BY` ordinal, every grid column position and
+/// the shape probe go on meaning what they meant without it. The column is split
+/// back off in `publish(_:table:)` **by position and count**, never by name: on a
+/// table with an `INTEGER PRIMARY KEY` alias SQLite answers the appended column
+/// under the *alias column's* name (`SELECT *, rowid FROM r` answers `id|v|id`),
+/// so a name match would either find the wrong column or none. `rows` and
+/// `gridColumns` are therefore exactly what part 1 published, and the grid shows
+/// no column the reader did not ask for.
+///
+/// **A probe that fails is an answer, not a failure.** A `WITHOUT ROWID` table
+/// refuses the probe at prepare time with SQLite's own `no such column: rowid`,
+/// and that is the probe working: it degrades to the primary-key strategy and
+/// publishes no banner, because *reading* the page still works and the refusal
+/// (with its own sentence) is what the reader meets only if they try to edit.
 @MainActor
 public final class DatabaseViewerModel: ObservableObject {
 
@@ -85,6 +105,15 @@ public final class DatabaseViewerModel: ObservableObject {
     /// worked. Never a sentence this layer wrote: it is SQLite's message or the
     /// schema parser's description of the shape it could not read.
     @Published public private(set) var errorMessage: String?
+
+    /// How the selected table's rows are addressed — the fact every cell edit is
+    /// planned against, resolved once per selection.
+    ///
+    /// `.unavailable(.noRowIdentity)` while nothing is selected, which is the
+    /// honest answer to "may a cell here be edited?" for a grid with no cells: a
+    /// surface asking the question before a table is chosen is told no, and told
+    /// it by the same value it would be told it by afterwards.
+    @Published public private(set) var rowIdentity: DatabaseRowIdentity = .unavailable(.noRowIdentity)
 
     /// Whether the table listing is being loaded.
     @Published public private(set) var isLoadingEntries = false
@@ -138,6 +167,25 @@ public final class DatabaseViewerModel: ObservableObject {
     /// standing, which is the documented "leave the tab as it was under the
     /// banner" for the re-open in front of it and a recovery for the next one.
     private var pendingReselection: String?
+
+    /// The alias this selection's pages carry as their trailing identity column,
+    /// or `nil` when they carry none (a view, a `WITHOUT ROWID` table, a table
+    /// shadowing all three spellings).
+    ///
+    /// Written once per selection, from the probe, and read by every page load
+    /// the selection then makes — the probe is a question about the *table*, so
+    /// re-asking it on a page turn or a sort toggle would be one prepare per
+    /// click for an answer that cannot have changed within one selection.
+    private var identityAlias: DatabaseRowIdAlias?
+
+    /// The identity value each published row carries, positionally parallel to
+    /// `rows`, and empty when the page carried none.
+    ///
+    /// Kept beside the rows rather than inside them: a row on screen is exactly
+    /// what the grid draws, and threading an extra value through it would make
+    /// every column index in this file one that has to remember whether it is
+    /// counting the identity or not.
+    private(set) var rowIdentityValues: [DatabaseValue] = []
 
     /// What the rows on screen were loaded with — the table they came from, the
     /// page they are and the sort they are in — or `nil` while the grid is empty.
@@ -264,6 +312,7 @@ public final class DatabaseViewerModel: ObservableObject {
             columns = []
             gridColumns = []
             rows = []
+            clearRowIdentity()
             shown = nil
             page.reset()
         }
@@ -273,6 +322,17 @@ public final class DatabaseViewerModel: ObservableObject {
             let schema = try await service.run(DatabaseQuery.columnSchema(table: table))
             guard generation == rowsGeneration else { return }
             columns = try DatabaseSchema.columns(from: schema)
+
+            // Asked here — once per selection, with the schema and before the
+            // count — because its answer decides the *shape* of every page this
+            // selection composes, and a page is composed three lines down. It is
+            // deliberately not part of the `do` block's failure story: a probe
+            // that fails has answered (`resolveIdentityAlias`), so nothing it
+            // does can reach the `catch` and put a banner over a page that reads
+            // perfectly well.
+            let alias = await resolveIdentityAlias(table: table)
+            guard generation == rowsGeneration else { return }
+            identityAlias = alias
 
             let counted = try await service.run(DatabaseQuery.rowCount(table: table))
             guard generation == rowsGeneration else { return }
@@ -427,6 +487,7 @@ public final class DatabaseViewerModel: ObservableObject {
             columns = []
             gridColumns = []
             rows = []
+            clearRowIdentity()
             sort = nil
             shown = nil
             page.reset()
@@ -452,6 +513,7 @@ public final class DatabaseViewerModel: ObservableObject {
         isClosed = true
         isOpen = false
         shown = nil
+        clearRowIdentity()
         entriesGeneration += 1
         rowsGeneration += 1
         isLoadingEntries = false
@@ -471,6 +533,55 @@ public final class DatabaseViewerModel: ObservableObject {
 
     /// The 1-based row range on screen, or `nil` when the page is empty.
     public var displayedRows: ClosedRange<Int>? { page.displayedRows(loaded: rows.count) }
+
+    // MARK: - What may be edited
+
+    /// Everything an edit is planned against — the table, its schema, the grid's
+    /// columns and how its rows are addressed — or `nil` while nothing is
+    /// selected.
+    ///
+    /// Assembled here rather than in the surface so the question "may this cell
+    /// be edited?" and the statement that edits it are answered from **one**
+    /// value: the grid greys a cell out from `editRefusal(row:column:)`, the
+    /// planner refuses from the same target, and the two therefore cannot come
+    /// to different conclusions about the same cell.
+    public var editTarget: DatabaseEditTarget? {
+        guard let selectedTable else { return nil }
+        return DatabaseEditTarget(
+            table: selectedTable,
+            columns: columns,
+            gridColumns: gridColumns,
+            identity: rowIdentity
+        )
+    }
+
+    /// Why the cell at `row`/`column` may not be edited, or `nil` when it may.
+    ///
+    /// The whole decision, including the per-cell half of it: a table may be
+    /// perfectly addressable while *this* cell is a blob or *this* column is
+    /// generated. The surface never re-derives any of it — it draws this answer
+    /// and shows the refusal's own sentence when the reader tries anyway.
+    public func editRefusal(row: Int, column: Int) -> DatabaseEditRefusal? {
+        guard let editTarget, rows.indices.contains(row) else { return .cellNotOnPage }
+        return DatabaseUpdatePlanner.refusal(
+            target: editTarget,
+            row: rows[row],
+            rowIdentity: rowIdentityValue(at: row),
+            columnIndex: column
+        )
+    }
+
+    /// Whether the cell at `row`/`column` may be edited.
+    public func canEdit(row: Int, column: Int) -> Bool {
+        editRefusal(row: row, column: column) == nil
+    }
+
+    /// The identity value the page answered for the row at `index`, or `nil`
+    /// where the page carried none.
+    func rowIdentityValue(at index: Int) -> DatabaseValue? {
+        guard rowIdentityValues.indices.contains(index) else { return nil }
+        return rowIdentityValues[index]
+    }
 
     // MARK: - One page
 
@@ -497,14 +608,58 @@ public final class DatabaseViewerModel: ObservableObject {
 
     /// The one statement a page load sends — always `LIMIT`ed, never a bare
     /// `SELECT *`.
+    ///
+    /// `identityAlias` appends the trailing identity column when this selection
+    /// has one; `splitIdentity(from:)` takes it back off before anything is
+    /// published, so nothing between here and the grid has to know it was there.
     private func pageStatement(table: String) -> DatabaseStatement {
         DatabaseQuery.page(
             table: table,
             orderByColumnIndex: sort?.columnIndex,
             ascending: sort?.direction.isAscending ?? true,
             limit: page.size,
-            offset: page.offset
+            offset: page.offset,
+            identityAlias: identityAlias
         )
+    }
+
+    /// Ask the database, once per selection, whether this table's rows can be
+    /// addressed by rowid — and answer `nil` rather than throwing when they
+    /// cannot.
+    ///
+    /// The probe is `SELECT <alias> FROM "t" LIMIT 0`: free on a rowid table,
+    /// and a prepare-time failure on a `WITHOUT ROWID` one. **Every** failure is
+    /// read the same way, "no rowid here", which is why this cannot fail: a
+    /// connection that has gone away, a table dropped between the listing and the
+    /// selection and a `WITHOUT ROWID` table are indistinguishable from here, and
+    /// the two that are not really about identity will fail again — loudly, with
+    /// a banner — on the count or the page a moment later.
+    ///
+    /// A view is never probed: a view's rows are computed and have no rowid, so
+    /// the probe is a statement asked to confirm what the listing already said.
+    /// Nor is a table shadowing all three spellings, because there is then no
+    /// spelling left to ask with (`DatabaseRowIdentity.probeAlias(columns:)`).
+    private func resolveIdentityAlias(table: String) async -> DatabaseRowIdAlias? {
+        guard kind(of: table) == .table else { return nil }
+        guard let candidate = DatabaseRowIdentity.probeAlias(columns: columns) else { return nil }
+        do {
+            _ = try await service.run(DatabaseQuery.rowIdProbe(table: table, alias: candidate))
+            return candidate
+        } catch {
+            return nil
+        }
+    }
+
+    /// What the listing says `table` is.
+    ///
+    /// A table the listing does not hold — dropped between the listing and the
+    /// selection, or selected before a listing ever landed — is treated as a
+    /// table, which is the safe half of the guess: the probe then answers for
+    /// itself, and a view that reached here would fail the probe and report no
+    /// primary key either, landing on `.unavailable(.noRowIdentity)` rather than
+    /// on an editable grid.
+    private func kind(of table: String) -> DatabaseTableEntry.Kind {
+        entries.first { $0.name == table }?.kind ?? .table
     }
 
     /// Publish what a page read answered — and drop a sort the answer no longer
@@ -529,12 +684,80 @@ public final class DatabaseViewerModel: ObservableObject {
     /// no re-selection in between — nothing re-checks the shape on those paths,
     /// because within one selection the ordinal came from the answer on screen.
     private func publish(_ result: DatabaseResultSet, table: String) {
-        gridColumns = result.columnNames
-        if let current = sort, !current.survives(columnNames: result.columnNames) { sort = nil }
-        rows = result.rows
+        let answer = splitIdentity(from: result)
+        gridColumns = answer.gridColumns
+        // The **grid**'s columns, not the raw answer's: with an identity column
+        // appended the raw list is one longer, so a sort at the last grid column
+        // would be checked against the identity column's name and dropped on
+        // every page load.
+        if let current = sort, !current.survives(columnNames: answer.gridColumns) { sort = nil }
+        rows = answer.rows
+        rowIdentityValues = answer.identities
+        rowIdentity = DatabaseRowIdentity.resolve(
+            kind: kind(of: table),
+            columns: columns,
+            answeredColumns: answer.gridColumns,
+            hasRowId: answer.carriesIdentity
+        )
         shown = Shown(table: table, page: page, sort: sort)
         clearError(from: .rows)
         isLoadingRows = false
+    }
+
+    /// A page answer, separated into what the grid shows and what names its rows.
+    private struct SplitAnswer {
+        let gridColumns: [String]
+        let rows: [[DatabaseValue]]
+        let identities: [DatabaseValue]
+        /// Whether the trailing identity column was actually found and taken off
+        /// — which is what the identity strategy is resolved against, so a page
+        /// that came back without the column it was asked for is *identity-less*
+        /// rather than a `.rowid` strategy with no values behind it.
+        let carriesIdentity: Bool
+    }
+
+    /// Take the trailing identity column off a page answer — **by position and
+    /// count**, never by name.
+    ///
+    /// The name is not dependable and it is not a near miss: against a table with
+    /// an `INTEGER PRIMARY KEY` alias, `SELECT *, rowid FROM r` answers its
+    /// columns as `id|v|id`, so a split that looked for a column called `rowid`
+    /// would find none there and would find the *first* `id` on a table that
+    /// happened to declare one. The column this model appended is the last one,
+    /// it appended exactly one, and that is the whole rule.
+    ///
+    /// An answer that is not one column wider than the rows it carries is left
+    /// exactly as it arrived and reported identity-less. That cannot happen —
+    /// `DatabaseResultSet` promises rectangular rows and SQLite answers the
+    /// column that was asked for — which is precisely why the degradation is a
+    /// whole, un-split answer rather than a repair: publishing a raw answer costs
+    /// the reader one visible column they did not ask for, where publishing a
+    /// half-split one would shift every cell in the grid.
+    private func splitIdentity(from result: DatabaseResultSet) -> SplitAnswer {
+        let unsplit = SplitAnswer(
+            gridColumns: result.columnNames,
+            rows: result.rows,
+            identities: [],
+            carriesIdentity: false
+        )
+        guard identityAlias != nil else { return unsplit }
+        let width = result.columnNames.count
+        guard width > 1, result.rows.allSatisfy({ $0.count == width }) else { return unsplit }
+        return SplitAnswer(
+            gridColumns: Array(result.columnNames.dropLast()),
+            rows: result.rows.map { Array($0.dropLast()) },
+            identities: result.rows.map { $0[width - 1] },
+            carriesIdentity: true
+        )
+    }
+
+    /// Forget everything about how the rows on screen were named — run wherever
+    /// those rows are cleared, so an identity can never outlive the page it
+    /// addressed.
+    private func clearRowIdentity() {
+        identityAlias = nil
+        rowIdentityValues = []
+        rowIdentity = .unavailable(.noRowIdentity)
     }
 
     /// Settle the state a request that turned out to be a no-op has already
