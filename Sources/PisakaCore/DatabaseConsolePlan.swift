@@ -157,14 +157,38 @@ public enum DatabaseConsolePlan {
     ///
     /// Composed here and shown verbatim by the pane. It says four things, and
     /// each of them is something the reader cannot see for themselves: how many
-    /// statements were classified, how many of those change the database, that
-    /// the whole batch is one transaction that rolls back whole, and — when
-    /// classification stopped short — that the remainder is classified as it
+    /// statements were classified, how many of those change the database, what
+    /// the one transaction the batch runs in does and does not guarantee, and —
+    /// when classification stopped short — that the remainder is classified as it
     /// runs inside that same transaction, so a failure there takes everything
     /// with it. When the batch also holds a read it says the last thing too:
     /// rows a query inside a mutating batch produces are **not** shown, because
     /// the batch runs on the short-lived write connection and reports its
     /// affected-row total alone.
+    ///
+    /// **The transaction sentence carries its own exception**, because the
+    /// promise is not unconditional and the reader is being asked to rely on it:
+    /// the app half brackets the text in a `BEGIN IMMEDIATE` of its own, but the
+    /// text is the reader's, and any statement in it that *ends* a transaction
+    /// closes *that* bracket — after which every statement following runs in
+    /// autocommit and is durable whatever fails later.
+    ///
+    /// **Ending it, not committing it**, which is the wider half and the easy one
+    /// to state too narrowly: a `ROLLBACK` the text performs closes the bracket
+    /// exactly as a `COMMIT` does, and while it undoes what was still pending, the
+    /// statements after it commit themselves one by one — so
+    /// `INSERT …; ROLLBACK; INSERT …; INSERT INTO missing …;` leaves the second
+    /// insert durable even though the batch as a whole failed. A promise phrased
+    /// around `COMMIT` alone would be a guarantee this layer cannot keep.
+    ///
+    /// Nothing here can tell whether the text holds either without parsing it,
+    /// which decision 1 forbids and which `sqlite3_stmt_readonly` cannot answer
+    /// either (it reports transaction control **read-only**, since neither
+    /// changes rows itself). So the exception is stated rather than detected, and
+    /// the outcome the reader is shown afterwards is honest about it
+    /// independently — the app half counts committed and pending rows apart with
+    /// its rollback witness, and `DatabaseConsoleModel` tells the write hook on
+    /// the failure path for exactly this reason.
     ///
     /// Singular and plural are spelled out rather than dodged with "1
     /// statement(s)": this sentence is the one moment the reader is asked to
@@ -177,7 +201,7 @@ public enum DatabaseConsolePlan {
         if !classification.isComplete {
             sentences.append(
                 "The rest of the text is classified as it runs, inside the same transaction, "
-                + "so a failure there rolls everything back too."
+                + "so a failure there is rolled back the same way."
             )
         }
         if classification.writeCount < classification.classifiedCount {
@@ -206,8 +230,17 @@ public enum DatabaseConsolePlan {
         // One statement that is also the whole text is the only case that reads
         // as "it"; a deferred single statement is not, because more of the text
         // follows it into the same transaction.
+        //
+        // It is also the only case that can promise the rollback **without** the
+        // exception: this sentence is composed for a mutating batch, so the one
+        // classified statement is the write itself, and a text of one statement
+        // has no room for a `COMMIT` or a `ROLLBACK` beside it. Every other shape
+        // does — the deferred single statement included, which is why it takes
+        // the plural sentence here as well as for its grammar.
         guard classification.classifiedCount == 1, classification.isComplete else {
-            return "They run as one transaction: if any of them fails, the whole of it is rolled back."
+            return "They run as one transaction: if any of them fails, the whole of it is rolled back — "
+                + "unless the text ends that transaction itself, with a commit or a rollback of its own, "
+                + "after which what it already committed, and everything running past that point, stays."
         }
         return "It runs as one transaction: if it fails, the whole of it is rolled back."
     }

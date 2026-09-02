@@ -138,6 +138,12 @@ final class DatabaseConsolePlanTests: XCTestCase {
 
     // MARK: - The confirmation prompt
 
+    /// Spelled once here because three tests match it.
+    private static let pluralTransactionSentence =
+        "They run as one transaction: if any of them fails, the whole of it is rolled back — "
+        + "unless the text ends that transaction itself, with a commit or a rollback of its own, "
+        + "after which what it already committed, and everything running past that point, stays."
+
     func testThePromptSaysHowManyStatementsAndHowManyOfThemWrite() {
         let prompt = DatabaseConsolePlan.confirmationPrompt(for: classification([.write, .write, .read, .read]))
         XCTAssertTrue(prompt.hasPrefix("Classified 4 statements, 2 of which change the database."), prompt)
@@ -162,23 +168,45 @@ final class DatabaseConsolePlanTests: XCTestCase {
 
     func testThePromptAlwaysSaysTheBatchIsOneTransactionThatRollsBackWhole() {
         let prompt = DatabaseConsolePlan.confirmationPrompt(for: classification([.write, .read]))
-        XCTAssertTrue(
-            prompt.contains("They run as one transaction: if any of them fails, the whole of it is rolled back."),
-            prompt
-        )
+        XCTAssertTrue(prompt.contains(Self.pluralTransactionSentence), prompt)
+    }
+
+    /// The rollback is promised with its exception, because a statement in the
+    /// reader's own text that *ends* a transaction closes the bracket the app half
+    /// opened and everything past it commits itself. Nothing can detect that
+    /// without parsing the text — `sqlite3_stmt_readonly` reports transaction
+    /// control read-only — so the sentence states it instead.
+    func testAMultiStatementPromptSaysAnOwnEndOfTransactionEndsTheRollbackPromise() {
+        let prompt = DatabaseConsolePlan.confirmationPrompt(for: classification([.write, .write]))
+        XCTAssertTrue(prompt.contains("unless the text ends that transaction itself"), prompt)
+        XCTAssertTrue(prompt.contains("everything running past that point, stays"), prompt)
+    }
+
+    /// A `ROLLBACK` the text performs closes the same bracket a `COMMIT` does, and
+    /// the statements after it commit themselves one by one — so the exception is
+    /// phrased around *ending* the transaction rather than committing it, which
+    /// would promise `INSERT …; ROLLBACK; INSERT …;` a rollback it will not get.
+    func testTheExceptionCoversARollbackTheTextPerformsAndNotOnlyACommit() {
+        let prompt = DatabaseConsolePlan.confirmationPrompt(for: classification([.write, .write]))
+        XCTAssertTrue(prompt.contains("with a commit or a rollback of its own"), prompt)
+    }
+
+    /// The one shape that promises the rollback unqualified: the single
+    /// classified statement of a mutating batch *is* the write, so there is no
+    /// room in the text for a `COMMIT` beside it.
+    func testTheSingleStatementPromptPromisesTheRollbackWithoutTheException() {
+        let prompt = DatabaseConsolePlan.confirmationPrompt(for: classification([.write]))
+        XCTAssertFalse(prompt.contains("unless the text ends"), prompt)
     }
 
     func testASingleDeferredStatementStillReadsAsPluralBecauseMoreFollowsIt() {
         let prompt = DatabaseConsolePlan.confirmationPrompt(for: classification([.write], deferredWith: "no such table: x"))
-        XCTAssertTrue(
-            prompt.contains("They run as one transaction: if any of them fails, the whole of it is rolled back."),
-            prompt
-        )
+        XCTAssertTrue(prompt.contains(Self.pluralTransactionSentence), prompt)
     }
 
     func testThePromptSaysTheRestIsClassifiedAsItRunsOnlyWhenDeferred() {
         let deferredSentence = "The rest of the text is classified as it runs, inside the same transaction, "
-            + "so a failure there rolls everything back too."
+            + "so a failure there is rolled back the same way."
 
         let deferred = DatabaseConsolePlan.confirmationPrompt(for: classification([.write], deferredWith: "no such table: x"))
         XCTAssertTrue(deferred.contains(deferredSentence), deferred)

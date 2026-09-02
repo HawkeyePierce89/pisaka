@@ -384,12 +384,25 @@ actor DatabaseConnectionService: DatabaseServicing {
 
     /// What each statement of `text` is, in order, **running none of them**.
     ///
-    /// On the tab's own read-only connection, which costs nothing and changes
-    /// nothing: preparing resolves a statement's names and decides its kind
-    /// without executing it, and preparing a *mutating* statement on a read-only
-    /// connection succeeds — SQLite refuses a write at step time, not at prepare
-    /// time. Nothing here steps, so a `BEGIN` among the statements opens no
-    /// transaction and the connection is left exactly as it was found.
+    /// On the tab's own read-only connection: preparing resolves a statement's
+    /// names and decides its kind without executing it, and preparing a
+    /// *mutating* statement on a read-only connection succeeds — SQLite refuses a
+    /// write at step time, not at prepare time. Nothing here steps, so a `BEGIN`
+    /// among the statements opens no transaction.
+    ///
+    /// **Seam rule 6 is owed here too, and this is the one path where it is not
+    /// obvious.** A `PRAGMA` is the documented exception to "prepare executes
+    /// nothing": SQLite evaluates part of that family during compilation rather
+    /// than at the first step, so `PRAGMA locking_mode = EXCLUSIVE` typed into the
+    /// console takes effect on this handle while the console is still only
+    /// deciding whether to *ask* about the text. Deciding is not running, and a
+    /// reader who then cancels the confirmation has agreed to nothing — but the
+    /// setting would outlive the cancellation and, per
+    /// `DatabaseQuery.lockingModeNormal`, cost the tab every later write for the
+    /// rest of its life. The read path's reset cannot cover it: a text whose
+    /// pragma is followed by a mutation never reaches that path at all. So the
+    /// same unconditional reset runs here, asked of the library rather than of the
+    /// text, and is a no-op for every text that set nothing.
     ///
     /// The kind is `sqlite3_stmt_readonly`'s answer carried across unchanged; see
     /// `DatabaseConsoleStatementKind` for why this layer has no opinion of its
@@ -404,6 +417,12 @@ actor DatabaseConnectionService: DatabaseServicing {
     /// still thrown is a failure that is not about the text: no connection.
     func classifyConsole(_ text: String) async throws -> DatabaseConsoleClassification {
         guard let handle else { throw DatabaseError.closed }
+        // Rules 4 and 6, the same pair the read path defers, for the reason
+        // above: nothing here steps, but a pragma does not wait to be stepped.
+        defer {
+            restoreAutocommit(on: handle)
+            _ = try? execute(DatabaseQuery.lockingModeNormal, on: handle)
+        }
 
         var kinds: [DatabaseConsoleStatementKind] = []
         var deferral: DatabaseConsoleClassification.Deferral?

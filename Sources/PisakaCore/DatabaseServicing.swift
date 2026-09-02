@@ -228,7 +228,7 @@ public struct DatabaseConsoleTransaction: Equatable, Sendable {
 /// single statement `DatabaseQuery` composes and exactly wrong for the reader's
 /// text.
 ///
-/// **Five rules the app half owes the console**, none of which Core can enforce
+/// **Six rules the app half owes the console**, none of which Core can enforce
 /// from this side:
 ///
 /// 1. The reader's **text is carried verbatim** — never re-split, re-spelled or
@@ -264,6 +264,28 @@ public struct DatabaseConsoleTransaction: Equatable, Sendable {
 ///    attach could write another file entirely inside the batch's transaction.
 ///    The console is one tab, one database. An implementation refuses this
 ///    without parsing the text — SQLite's own `SQLITE_LIMIT_ATTACHED` answers it.
+/// 6. A console run **puts `PRAGMA locking_mode` back to `NORMAL`** on the tab's
+///    own connection, in the same `defer` as rule 4 and for rule 5's reason read
+///    one member further: `locking_mode = EXCLUSIVE` is reported *read-only* and
+///    is connection-scoped, so a text consisting of one runs on the handle the
+///    tab keeps for life and makes it take the file's lock at the next read and
+///    never give it back — after which the tab's own next write waits the busy
+///    timeout out and fails for the rest of the tab's life. Run unconditionally
+///    and asked of the library rather than of the text, so it is a no-op for
+///    every text that set nothing. The rest of that family (`case_sensitive_like`,
+///    `cache_size` and their like) is a named known limit: it changes what later
+///    answers *say* rather than whether the tab can write at all, and
+///    enumerating every connection-scoped pragma would be the second-guessing of
+///    SQLite's surface this seam refuses everywhere else.
+///
+///    **`classifyConsole(_:)` owes this one too**, which is the half that does
+///    not follow from "nothing here steps": a `PRAGMA` is SQLite's documented
+///    exception to "preparing executes nothing" — part of that family is
+///    evaluated during compilation — so the setting lands while the console is
+///    still only *deciding* whether to ask about the text, and a reader who then
+///    cancels the confirmation has agreed to nothing. The read path's reset
+///    cannot cover it, because a pragma followed by a mutation never reaches
+///    that path.
 public protocol DatabaseServicing: Sendable {
     /// Open the database at `url` for this connection.
     ///
@@ -318,9 +340,18 @@ public protocol DatabaseServicing: Sendable {
     /// Preparing a statement resolves its names and decides its kind without
     /// executing anything, and preparing a *mutating* statement on a read-only
     /// connection succeeds (SQLite refuses at step time, not at prepare time),
-    /// which is what makes this free and side-effect-free on the tab's own
-    /// connection. Each statement's kind is `sqlite3_stmt_readonly`'s answer,
-    /// carried across unchanged.
+    /// which is what makes this cost nothing on the tab's own connection. Each
+    /// statement's kind is `sqlite3_stmt_readonly`'s answer, carried across
+    /// unchanged.
+    ///
+    /// **Not side-effect-free, though, and so rules 4 and 6 are owed here as
+    /// well.** A `PRAGMA` is SQLite's documented exception to "preparing executes
+    /// nothing" — part of that family is evaluated during compilation rather than
+    /// at the first step — so `PRAGMA locking_mode = EXCLUSIVE` typed into the
+    /// console takes effect on the tab's handle while this member is still only
+    /// deciding whether to *ask* about the text, and would outlive a reader's
+    /// cancellation. An implementation therefore resets unconditionally on the
+    /// way out, exactly as the read path does.
     ///
     /// - Returns: the kinds in statement order, plus the deferral when a prepare
     ///   failed — see rule 2 above: **a prepare failure is returned, not

@@ -1567,7 +1567,9 @@ seam.
   nothing to detach.
 - **A connection-scoped `PRAGMA` typed into the console outlives its run**, on
   the handle the tab reads through for the rest of its life — SQLite reports such
-  a pragma read-only, so it runs there. `locking_mode` is the one member reset
+  a pragma read-only, so it runs there, and part of that family takes effect while
+  the statement is merely being *prepared*, which is why the classification pass
+  resets it as well as the read. `locking_mode` is the one member reset
   (seam rule 6), because it is the one that stops the tab writing at all rather
   than only colouring what later reads say. `case_sensitive_like`, `cache_size`
   and the rest stay set until the tab is closed and reopened.
@@ -1658,12 +1660,33 @@ and the console arrived beside them.
      write, and that the rest is classified **as it runs, inside the same
      transaction** — `performConsoleWrite(_:)` prepares each statement as it is
      reached, after the earlier ones have run, so a prepare failure there is an
-     ordinary failure that rolls the whole batch back.
+     ordinary failure that rolls the batch back.
 
    Classification therefore learns a statement's **kind only, never its shape**.
    A `DROP` followed by a `CREATE` of the same name prepares the third statement
    against the old table, which cannot mislead anything, because nothing
    downstream reads column names out of a classification.
+
+   **The confirmation promises the rollback with its exception**, because the
+   promise is not unconditional: the app half brackets the text in a `BEGIN
+   IMMEDIATE` of its own, but the text is the reader's, and any statement in it
+   that **ends** a transaction closes *that* bracket — after which every statement
+   following runs in autocommit and is durable whatever fails later. *Ends*, not
+   *commits*, is the load-bearing word and the easy one to get too narrow: a
+   `ROLLBACK` the text performs closes the bracket exactly as a `COMMIT` does,
+   undoing only what was still pending, so
+   `INSERT …; ROLLBACK; INSERT …; INSERT INTO missing …;` leaves the second insert
+   durable although the batch failed. Nothing can detect either without parsing
+   the text, which decision 1 forbids and which `sqlite3_stmt_readonly` cannot
+   answer either (transaction control is reported **read-only**, since neither
+   changes rows itself), so the sentence states the exception instead of
+   pretending to a guarantee it cannot keep. The single-statement prompt is the
+   one shape that promises it unqualified — that statement *is* the write, so the
+   text has no room for a `COMMIT` or a `ROLLBACK` beside it. What the reader is
+   told *afterwards* is honest about the same thing independently:
+   `performConsoleWrite(_:)` counts committed and pending rows apart with
+   `RollbackWitness`, and `DatabaseConsoleModel` tells the write hook on the
+   failure path for exactly this reason.
 
    A fully classified read-only text runs statement by statement on the tab's own
    read connection, and the result table shows the **last statement that answered
@@ -1792,7 +1815,7 @@ statement's, never the batch's) and `DatabaseConsoleTransaction` (the url, the
 text verbatim, and the `readRowLimit` a read-only statement inside a mutating
 batch may be stepped to).
 
-**Five rules the app half owes**, none of which Core can enforce from this side:
+**Six rules the app half owes**, none of which Core can enforce from this side:
 
 1. The reader's **text is carried verbatim** — never re-split, re-spelled or
    appended to. This is the *one stated exception* to "Core composes every byte
@@ -1827,9 +1850,9 @@ batch may be stepped to).
    rather than assumed. Asked of the library, never of the text: nothing parses
    the reader's SQL, and the refusal arrives as SQLite's own sentence when the
    statement runs.
-6. **A console read puts `PRAGMA locking_mode` back to `NORMAL`** on the tab's
-   own connection, in the same `defer` as rule 4 and for rule 5's reason read one
-   member further. `locking_mode = EXCLUSIVE` is read-only by
+6. **A console run puts `PRAGMA locking_mode` back to `NORMAL`** on the tab's
+   own connection — the classification pass included — in the same `defer` as
+   rule 4 and for rule 5's reason read one member further. `locking_mode = EXCLUSIVE` is read-only by
    `sqlite3_stmt_readonly` and connection-scoped, so a text consisting of one
    runs on the handle the tab keeps for life and makes it take the file's lock at
    its next read and never give it back — after which the tab's *own* next write,
@@ -1843,6 +1866,18 @@ batch may be stepped to).
    change what later answers *say* rather than whether the tab can write at all,
    and enumerating every connection-scoped pragma to reset would be exactly the
    second-guessing of SQLite's surface that decision 1 forbids.
+
+   **`classifyConsole(_:)` owes the reset too, and that is the non-obvious half.**
+   A `PRAGMA` is SQLite's documented exception to "preparing executes nothing":
+   part of that family is evaluated during compilation rather than at the first
+   step, so `PRAGMA locking_mode = EXCLUSIVE` typed into the console takes effect
+   on the tab's handle while the console is still only *deciding* whether to ask
+   about the text. The read path's `defer` cannot cover it — a pragma followed by
+   a mutation classifies as a write and never reaches that path — so a reader who
+   cancelled the confirmation, and therefore agreed to nothing, would be left with
+   a tab that cannot write for the rest of its life. The same unconditional reset
+   therefore runs at the end of the classification, asked of the library and not
+   of the text, and is a no-op for every text that set nothing.
 
 The app half (`DatabaseConnectionService`) satisfies all three members through
 **one private prepare-by-tail loop**, `enumerateStatements(in:on:…)` — the
