@@ -475,13 +475,13 @@ stays imported in exactly one file.
 
 ### Task 8: Verify acceptance criteria
 
-- [ ] `swift test` — the whole suite green
-- [ ] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' build`
-- [ ] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build`
-- [ ] `swiftlint --strict` from the repository root — clean
-- [ ] `git status` confirms `project.yml`, `Package.resolved` and `Resources/Licenses/`
+- [x] `swift test` — the whole suite green
+- [x] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' build`
+- [x] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build`
+- [x] `swiftlint --strict` from the repository root — clean
+- [x] `git status` confirms `project.yml`, `Package.resolved` and `Resources/Licenses/`
       are untouched
-- [ ] Re-read the acceptance list in the ticket against the tests that cover each item,
+- [x] Re-read the acceptance list in the ticket against the tests that cover each item,
       and name in the final report any criterion that only a manual run can show
 
 ## Post-Completion (manual, by the user)
