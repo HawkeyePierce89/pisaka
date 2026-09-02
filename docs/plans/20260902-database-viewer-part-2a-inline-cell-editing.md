@@ -369,22 +369,22 @@ on its own.
 **Files:**
 - Modify: `Sources/Pisaka/DatabaseViewerView.swift`
 
-- [ ] make a cell editable in place: double-click (or Return on the focused cell)
+- [x] make a cell editable in place: double-click (or Return on the focused cell)
       opens a field seeded with the value's text — a NULL cell seeds empty, since
       an empty entry means the empty string and NULL is a gesture, not a word;
       Return commits through the model, Escape cancels and writes nothing
-- [ ] add the explicit "Set to NULL" item to the cell's context menu, alongside a
+- [x] add the explicit "Set to NULL" item to the cell's context menu, alongside a
       "Copy" of the rendered text
-- [ ] draw the non-editable state honestly: a cell in a view, a generated column,
+- [x] draw the non-editable state honestly: a cell in a view, a generated column,
       a blob cell, a column the schema cannot name uniquely or an unaddressable
       table does not open an editor, and the refusal's own sentence is what the
       banner shows when the reader tries
-- [ ] disable editing while a write is in flight and while the grid is loading;
+- [x] disable editing while a write is in flight and while the grid is loading;
       the surface decides none of it — it draws the model's answers, per the
       file's standing rule
-- [ ] confirm the pane still declares no zoom surface and still sizes everything
+- [x] confirm the pane still declares no zoom surface and still sizes everything
       through `\.interfaceMetrics`
-- [ ] run `swift test` and `swiftlint --strict` — must pass before task 9
+- [x] run `swift test` and `swiftlint --strict` — must pass before task 9
 
 ### Task 9: Verify acceptance criteria
 
