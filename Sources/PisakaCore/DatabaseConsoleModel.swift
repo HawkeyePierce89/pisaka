@@ -256,6 +256,31 @@ public final class DatabaseConsoleModel: ObservableObject {
         pendingConfirmation = nil
     }
 
+    /// Drop a pending confirmation because the file underneath it was replaced.
+    ///
+    /// What `DatabaseViewerModel.reload(at:)` calls, beside `clearRowIdentity()`
+    /// and for that method's reason. A confirmation is the one thing on this pane
+    /// that carries a decision *across* the window a git operation opens: the
+    /// prompt describes a classification made against the database the tab was
+    /// showing, and `confirm()` sends the text to `fileURL()` — which by then
+    /// names the file the checkout put there instead. The gate `confirm()` asks
+    /// covers the operation while it runs; this covers the moment it finished and
+    /// the file became a different inode, which the gate reads as free.
+    ///
+    /// Silent, and `cancel()`'s reason applies unchanged: nothing ran and nothing
+    /// changed, so there is nothing to explain. Pressing Run again re-classifies
+    /// the text against the database that is actually there, which is the only
+    /// honest answer available. Not latched — unlike `stop()`, the tab is still
+    /// alive and its next run must work — but the token *is* bumped, so a
+    /// confirmation that had already been sent finds itself superseded rather
+    /// than publishing over what the reload is about to show.
+    public func invalidatePendingConfirmation() {
+        guard pendingConfirmation != nil else { return }
+        generation += 1
+        pendingConfirmation = nil
+        isRunning = false
+    }
+
     /// Send the classified text as one transaction, once every refusal has been
     /// asked.
     ///

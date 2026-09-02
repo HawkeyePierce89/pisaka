@@ -563,6 +563,45 @@ final class DatabaseConsoleModelTests: XCTestCase {
         XCTAssertEqual(service.consoleWriteCount, 0)
     }
 
+    // MARK: - Invalidation
+
+    /// `stop()`'s unlatched sibling: the file underneath the prompt was replaced,
+    /// so the prompt goes — and the console keeps working.
+    func testInvalidationDropsAPendingConfirmationWithoutSendingAnything() async {
+        let service = ScriptedDatabaseService()
+        let text = "DELETE FROM items"
+        service.serveClassification(text, kinds: [.write])
+        service.serveCommittedConsoleWrite(affectedRows: 1)
+        let model = await openedConsole(service)
+
+        await model.run(text)
+        XCTAssertNotNil(model.pendingConfirmation, "Staging: the reader is being asked")
+
+        model.invalidatePendingConfirmation()
+        await model.confirm()
+
+        XCTAssertNil(model.pendingConfirmation)
+        XCTAssertEqual(service.consoleWriteCount, 0, "A prompt about a database that is gone sends nothing")
+        XCTAssertFalse(model.isRunning)
+        XCTAssertNil(model.message, "Nothing ran and nothing changed, so there is nothing to explain")
+    }
+
+    /// Not latched, unlike `stop()`: the tab is still alive, and the honest
+    /// answer to a replaced file is that pressing Run re-classifies the text.
+    func testInvalidationLeavesTheConsoleAbleToRunAgain() async {
+        let service = ScriptedDatabaseService()
+        let text = "SELECT 1"
+        service.serveClassification(text, kinds: [.read])
+        service.serveConsoleRead(text, columns: ["1"], rows: [[.integer(1)]])
+        let model = await openedConsole(service)
+
+        model.invalidatePendingConfirmation()
+        await model.run(text)
+
+        XCTAssertEqual(service.consoleReadTexts, [text])
+        XCTAssertEqual(model.answer?.rows, [[.integer(1)]])
+    }
+
     // MARK: - Helpers
 
     /// A console over an opened connection.

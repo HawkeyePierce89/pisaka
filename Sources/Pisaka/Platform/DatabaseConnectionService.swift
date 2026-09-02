@@ -94,6 +94,7 @@ actor DatabaseConnectionService: DatabaseServicing {
             throw Self.openError(code: code, message: message)
         }
         sqlite3_busy_timeout(connection, Self.busyTimeoutMilliseconds)
+        Self.refuseAttachments(on: connection)
         handle = connection
     }
 
@@ -276,7 +277,35 @@ actor DatabaseConnectionService: DatabaseServicing {
             throw Self.openError(code: code, message: message)
         }
         sqlite3_busy_timeout(connection, Self.busyTimeoutMilliseconds)
+        Self.refuseAttachments(on: connection)
         return connection
+    }
+
+    /// Refuse `ATTACH` on `connection`, by lowering SQLite's own limit on how
+    /// many databases may be attached to zero.
+    ///
+    /// Seam rule 4 read one step further. That rule exists because a console run
+    /// must not leave state on a connection the tab keeps using — a stray `BEGIN`
+    /// freezing the read snapshot is the case it names — and an `ATTACH` is the
+    /// same leak with a longer life: SQLite reports it **read-only**
+    /// (`sqlite3_stmt_readonly` is true for it, since it changes the connection's
+    /// configuration rather than any file's content), so a text consisting of one
+    /// runs on the tab's own connection, succeeds, and the second database stays
+    /// attached for the rest of the tab's life — resolving names for every later
+    /// console read against a schema the grid beside it knows nothing about.
+    ///
+    /// On the write connection it is the sharper half: `CREATE TABLE …; ATTACH
+    /// …;` classifies as a mutation, so the reader is asked about *this*
+    /// database and the statements after the attach could then write another file
+    /// entirely — inside this method's transaction, checkpointed by nothing,
+    /// reported to Local Changes as a change to the tab's file. The console is
+    /// one tab, one database, and this is where that is true rather than assumed.
+    ///
+    /// Asked of the library rather than of the text: nothing here parses the
+    /// reader's SQL, and the refusal arrives as SQLite's own sentence when the
+    /// statement runs.
+    private static func refuseAttachments(on connection: OpaquePointer) {
+        _ = sqlite3_limit(connection, SQLITE_LIMIT_ATTACHED, 0)
     }
 
     // MARK: - The console
@@ -573,6 +602,22 @@ actor DatabaseConnectionService: DatabaseServicing {
             // the statement's own message with the rollback's would lose the
             // sentence that explains what went wrong.
             _ = try? execute(DatabaseQuery.rollback, on: connection)
+            // A failure is not proof that nothing landed: a `COMMIT` the reader's
+            // own text performed closed this method's bracket, and everything it
+            // committed is durable whatever failed after it. The rollback above
+            // has nothing of that left to undo, so the checkpoint the success
+            // path runs is owed here too — on a WAL database those bytes sit in
+            // the `-wal` file, the tab's own connection is still open so closing
+            // this one checkpoints nothing, and the tracked `.db` would stay
+            // byte-identical. `DatabaseConsoleModel.confirm()` tells the write
+            // hook on this path for exactly that reason; without this it would be
+            // telling Local Changes about a file whose bytes never moved. Asked
+            // as "did anything commit" for the `didCommit` flag's own reason, and
+            // `try?` for the success path's: a checkpoint that cannot run must
+            // not replace the statement's message with its own.
+            if witness.didCommit {
+                _ = try? execute(DatabaseQuery.walCheckpoint, on: connection)
+            }
             throw error
         }
     }

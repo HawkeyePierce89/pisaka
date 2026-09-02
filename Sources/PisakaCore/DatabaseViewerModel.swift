@@ -637,6 +637,12 @@ public final class DatabaseViewerModel: ObservableObject {
         // few statements: a re-open that fails leaves it open for the life of the
         // tab.
         clearRowIdentity()
+        // The console's half of the same sentence. A confirmation waiting for an
+        // answer describes a classification made against the database that is
+        // gone, while `confirm()` would send its text to `fileURL()` — the one
+        // that replaced it. The gate `confirm()` asks is down again by the time
+        // this runs, so nothing else would catch it.
+        console.invalidatePendingConfirmation()
         await service.close()
         await load()
     }

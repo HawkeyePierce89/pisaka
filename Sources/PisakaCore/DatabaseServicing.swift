@@ -228,7 +228,7 @@ public struct DatabaseConsoleTransaction: Equatable, Sendable {
 /// single statement `DatabaseQuery` composes and exactly wrong for the reader's
 /// text.
 ///
-/// **Four rules the app half owes the console**, none of which Core can enforce
+/// **Five rules the app half owes the console**, none of which Core can enforce
 /// from this side:
 ///
 /// 1. The reader's **text is carried verbatim** — never re-split, re-spelled or
@@ -254,6 +254,16 @@ public struct DatabaseConsoleTransaction: Equatable, Sendable {
 ///    opened a transaction of its own is rolled back before the member returns,
 ///    so a stray `BEGIN` in the console cannot freeze the tab's read snapshot for
 ///    the life of the tab.
+/// 5. A console run **attaches no second database**, on either connection. Rule 4
+///    read one step further, and its own rule because SQLite reports an `ATTACH`
+///    *read-only* — it changes the connection's configuration rather than any
+///    file's content — so a text consisting of one classifies as a read and runs
+///    on the tab's own long-lived connection, leaving a second schema resolving
+///    names there for the life of the tab. On the write connection it is sharper
+///    still: the reader is asked about *this* database, and statements after an
+///    attach could write another file entirely inside the batch's transaction.
+///    The console is one tab, one database. An implementation refuses this
+///    without parsing the text — SQLite's own `SQLITE_LIMIT_ATTACHED` answers it.
 public protocol DatabaseServicing: Sendable {
     /// Open the database at `url` for this connection.
     ///

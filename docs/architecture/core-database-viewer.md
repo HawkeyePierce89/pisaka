@@ -684,7 +684,18 @@ only *consults* one, before each of its two writes.
   lands on happens to match. Clearing turns every cell into the refusal an
   unaddressable table already gets (`.unaddressableRow(.noRowIdentity)`), which
   the re-selection then lifts; the window matters because a re-open that *fails*
-  leaves it open for the life of the tab. A re-open that fails leaves the tab as
+  leaves it open for the life of the tab. It also **drops a pending console
+  confirmation** (`DatabaseConsoleModel.invalidatePendingConfirmation()`), which
+  is the identity rule read once more for the second writer: a confirmation is
+  the only thing on either surface that carries a *decision* across the moment
+  the file becomes a different inode. The prompt describes a classification made
+  against the database that is gone, `confirm()` would send its text to
+  `fileURL()` — already the file that replaced it — and the gate `confirm()` asks
+  is back down by the time the reader answers, so nothing else catches it.
+  Silent, for `cancel()`'s reason (nothing ran and nothing changed, so there is
+  nothing to explain), and **not latched** the way `stop()` is: the tab is alive
+  and pressing Run re-classifies the text against the database that is actually
+  there, which is the only honest answer available. A re-open that fails leaves the tab as
   it was under the banner explaining why, rather than re-selecting into a closed connection and
   replacing the open's message with a second one about a statement. **That
   re-selection is recorded, not read off the reconnect's own `load()`**
@@ -1570,7 +1581,14 @@ seam.
   unmodified and a grid drawing rows that are gone. `VACUUM` and
   `PRAGMA journal_mode = …` are the same bracket seen from the other side —
   classified as writes, confirmed, and then refused by SQLite for running inside
-  a transaction.
+  a transaction. A `ROLLBACK TO <savepoint>` is the same family's
+  third member, and the one that costs a *number* rather than a run: SQLite fires
+  no rollback hook for it (the transaction does not end) and never reduces
+  `sqlite3_total_changes`, so rows a savepoint undid stay inside the affected-row
+  total the footer reports. A stated limit rather than a bug being carried —
+  nothing on the connection can answer the question, and the alternative is
+  parsing the reader's text for savepoint control, which is the one thing the app
+  half must not do.
 - **A run cannot be cancelled.** The 500-row cap bounds how many rows a read
   *keeps*, not how much work a statement does: a query with no useful bound runs
   to completion on the tab's own connection, and the tab answers nothing else
@@ -1751,7 +1769,7 @@ statement's, never the batch's) and `DatabaseConsoleTransaction` (the url, the
 text verbatim, and the `readRowLimit` a read-only statement inside a mutating
 batch may be stepped to).
 
-**Four rules the app half owes**, none of which Core can enforce from this side:
+**Five rules the app half owes**, none of which Core can enforce from this side:
 
 1. The reader's **text is carried verbatim** — never re-split, re-spelled or
    appended to. This is the *one stated exception* to "Core composes every byte
@@ -1770,6 +1788,22 @@ batch may be stepped to).
    `BEGIN` cannot freeze the tab's read snapshot for the life of the tab. On the
    tab's own connection that is the load-bearing half, since the tab keeps
    reading through that handle for the rest of its life.
+5. **`ATTACH` is refused**, on both connections, by lowering SQLite's own
+   `SQLITE_LIMIT_ATTACHED` to zero when each is opened. This is rule 4 read one
+   step further, and it needs its own line because `sqlite3_stmt_readonly` reports
+   an `ATTACH` **read-only** — it changes the connection's configuration, not any
+   file's content — so a text consisting of one classifies as a read, runs on the
+   tab's own connection, succeeds, and leaves a second database attached for the
+   rest of the tab's life, resolving names for every later console read against a
+   schema the grid beside it knows nothing about. On the write connection it is
+   the sharper half: `CREATE TABLE …; ATTACH …;` classifies as a mutation, so the
+   reader is asked about *this* database while the statements after the attach
+   could write another file entirely — inside the batch's transaction,
+   checkpointed by nothing, and reported to Local Changes as a change to the tab's
+   file. The console is one tab, one database, and the limit is where that is true
+   rather than assumed. Asked of the library, never of the text: nothing parses
+   the reader's SQL, and the refusal arrives as SQLite's own sentence when the
+   statement runs.
 
 The app half (`DatabaseConnectionService`) satisfies all three members through
 **one private prepare-by-tail loop**, `enumerateStatements(in:on:…)` — the
@@ -1784,7 +1818,12 @@ that throws. `performConsoleWrite(_:)` is otherwise `performWrite(_:)`'s bracket
 for `performWrite(_:)`'s reasons — a short-lived read-write connection at the
 transaction's own url, never creating, foreign keys on before the `BEGIN
 IMMEDIATE`, closed on every path, a WAL checkpoint after the commit that is
-never allowed to turn a write that succeeded into a failure — with one addition:
+never allowed to turn a write that succeeded into a failure, and **that same
+checkpoint on the failure path whenever anything committed** (the rollback there
+has nothing left to undo of what a self-committing text already landed, the tab's
+own connection is still open so closing this one checkpoints nothing, and without
+it the tracked `.db` stays byte-identical while `confirm()` is off telling Local
+Changes the file changed) — with one addition:
 the `COMMIT` runs only when a transaction is still open, so a text that committed
 its own is not turned into a reported failure by "cannot commit - no transaction
 is active". The tab's connection stays `SQLITE_OPEN_READONLY` for its whole life,

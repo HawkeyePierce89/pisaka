@@ -741,6 +741,38 @@ final class DatabaseViewerModelTests: XCTestCase {
         XCTAssertNil(model.errorMessage)
     }
 
+    /// `clearRowIdentity()`'s rule, asked of the console's own carried decision.
+    ///
+    /// A confirmation is the one thing on the pane that survives the window a git
+    /// operation opens: the prompt describes a classification made against the
+    /// database `reload` is about to replace, the gate `confirm()` asks is down
+    /// again by the time the reader answers, and `fileURL()` already names the
+    /// file the checkout put there. Agreeing would send the text to a database it
+    /// was never classified against.
+    func testReloadDropsAPendingConsoleConfirmationRatherThanLettingItLand() async {
+        let service = ScriptedDatabaseService()
+        let text = "DELETE FROM items"
+        serveSchema(on: service, table: "items")
+        serveCount(on: service, table: "items", total: 5)
+        servePage(on: service, table: "items", rows: [[.integer(1), .text("one")]])
+        service.serveClassification(text, kinds: [.write])
+        service.serveCommittedConsoleWrite(affectedRows: 5)
+        let model = await loadedModel(service)
+        await model.select(table: "items")
+
+        await model.console.run(text)
+        XCTAssertNotNil(model.console.pendingConfirmation, "Staging: the reader is being asked")
+
+        await model.reload(at: URL(fileURLWithPath: "/tmp/Project/renamed.sqlite"))
+        await model.console.confirm()
+
+        XCTAssertNil(model.console.pendingConfirmation)
+        XCTAssertTrue(
+            service.consoleTransactions.isEmpty,
+            "A prompt about the database that was replaced may not be sent to the one that replaced it"
+        )
+    }
+
     func testReloadDropsASelectionTheNewDatabaseNoLongerHolds() async {
         let service = ScriptedDatabaseService()
         serveSchema(on: service, table: "items")
