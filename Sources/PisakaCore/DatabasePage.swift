@@ -95,7 +95,14 @@ public struct DatabasePage: Equatable, Sendable {
     /// last page to clamp against, and inventing one would refuse a jump the
     /// count is about to justify.
     public func clamping(_ candidate: Int) -> Int {
-        let floored = max(0, candidate)
+        // Floored at 0, and ceilinged at the last index whose `offset` is still an
+        // `Int`. The second bound matters only while uncounted: once `lastIndex`
+        // exists it is itself derived from `totalRows / size`, so `index * size`
+        // cannot overflow — but before the count arrives there is no last page to
+        // clamp against, and an index accepted there would trap in `offset`
+        // instead of paging. `pageCount` is written the way it is to avoid the
+        // same class of overflow; this is the other half of that.
+        let floored = min(max(0, candidate), Int.max / size)
         guard let lastIndex else { return floored }
         return min(floored, lastIndex)
     }

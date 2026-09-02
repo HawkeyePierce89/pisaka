@@ -187,19 +187,23 @@ actor DatabaseConnectionService: DatabaseServicing {
                 // unnecessary; the copy `transient` asks for happens before this
                 // array goes out of scope.
                 code = sqlite3_bind_text(prepared, index, bytes, Int32(bytes.count - 1), Self.transient)
-            case .blob(let byteCount):
-                // A `DatabaseValue` blob carries its **length and nothing else**
-                // (see the case's own note), so a blob of that length is the only
-                // thing this can faithfully bind — which `sqlite3_bind_zeroblob`
-                // is exactly: a blob of N bytes, read as zeros. Passing `nil` to
-                // `sqlite3_bind_blob` with a length of zero would bind SQL NULL
-                // instead, a different value.
+            case .blob:
+                // **Refused, not guessed.** A `DatabaseValue` blob carries its
+                // length and nothing else (see the case's own note), so there is
+                // no faithful binding of one: `sqlite3_bind_zeroblob` would bind a
+                // blob of that length read as zeros — a *different value* from
+                // whatever the reader saw — and `sqlite3_bind_blob` with a nil
+                // pointer would bind SQL NULL, a different value again. Writing
+                // either one over the cell it meant to edit would report
+                // `SQLITE_OK` at every layer while the bytes were gone.
                 //
                 // Nothing in the repository binds a blob today: `DatabaseQuery`
-                // binds integers only. Part 2's cell writes must therefore carry
-                // the bytes in a value that *has* them rather than reach this
-                // line, which would write zeros over the row it meant to edit.
-                code = sqlite3_bind_zeroblob(prepared, index, Int32(clamping: max(0, byteCount)))
+                // binds integers only. Part 2's cell writes must carry the bytes
+                // in a value that *has* them, and this refusal is what says so
+                // when it lands, rather than a comment nobody re-reads.
+                throw DatabaseError.sqlError(
+                    message: "A blob value carries its length only and cannot be bound as a parameter."
+                )
             case .null:
                 code = sqlite3_bind_null(prepared, index)
             }

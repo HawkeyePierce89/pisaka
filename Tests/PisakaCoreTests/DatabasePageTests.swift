@@ -111,6 +111,21 @@ final class DatabasePageTests: XCTestCase {
         XCTAssertEqual(page.index, 7)
     }
 
+    /// The uncounted clamp still has a ceiling — the last index whose `offset` is
+    /// an `Int` — so no index this type accepts can trap the multiplication the
+    /// page query binds as its `OFFSET`. `pageCount` avoids the same class of
+    /// overflow on the other side of the count.
+    func testAnEnormousIndexDoesNotOverflowTheOffsetWhileUncounted() {
+        var page = DatabasePage(size: 10)
+        XCTAssertTrue(page.move(to: .max))
+        XCTAssertEqual(page.index, Int.max / 10)
+        XCTAssertEqual(page.offset, (Int.max / 10) * 10, "The offset is arithmetic, not a trap")
+
+        let constructed = DatabasePage(size: 200, index: .max)
+        XCTAssertEqual(constructed.index, Int.max / 200)
+        XCTAssertEqual(constructed.offset, (Int.max / 200) * 200)
+    }
+
     func testCountThatShrankPullsAStaleIndexBack() {
         var page = DatabasePage(size: 10, index: 39, totalRows: 400)
         XCTAssertEqual(page.index, 39)

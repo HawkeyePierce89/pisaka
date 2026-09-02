@@ -149,9 +149,14 @@ disk-writer gate and is never gated by it.
   (`DatabaseConnectionService`), so a page of blobs costs a page of integers;
   part 2's cell editor, when it needs a blob's contents, asks for *that one cell*.
   The same shape decides what a bound blob can mean: a `DatabaseValue` blob has
-  no bytes to bind, so the bind path can only bind a blob of that length
-  (`sqlite3_bind_zeroblob`) and part 2's cell writes must carry their bytes in a
-  value that has them rather than reach that line. The same file carries `DatabaseStatement` (SQL text plus positionally
+  no bytes to bind, so there is no faithful binding of one — a zero-blob of that
+  length and a SQL `NULL` are each a *different value* from the one the reader
+  saw — and the bind path **refuses** it with a `DatabaseError.sqlError` instead
+  of picking one. That refusal is the one place a `DatabaseError` carries words
+  of this app's rather than SQLite's (stated on the type), and it is what makes
+  part 2's cell writes carry their bytes in a value that has them: a write that
+  reached that line would otherwise report `SQLITE_OK` at every layer with the
+  bytes gone. The same file carries `DatabaseStatement` (SQL text plus positionally
   bound parameters) and `DatabaseResultSet` (column names, rows, `affectedRows`,
   and a bounds-checked `value(row:column:)` so a malformed answer is reported
   rather than trapped on). `affectedRows` is carried from the start although
@@ -260,7 +265,11 @@ disk-writer gate and is never gated by it.
   genuinely unknown — `totalRows` is `nil`, `pageCount` is `nil` with it, and
   `hasNext` is `false`, the type's one deliberate under-promise, because
   refusing to promise a next page for a moment is honest and claiming one that
-  may not exist is not. A table with **no rows still has one page**, the empty
+  may not exist is not. Uncounted, `clamping(_:)` therefore has no last page to
+  clamp against — but it still has a **ceiling**, the last index whose `offset`
+  is an `Int`, so no index this type accepts can trap the multiplication the page
+  query binds as its `OFFSET`; that is the same class of overflow `pageCount` is
+  written the long way round to avoid, taken on the other side of the count. A table with **no rows still has one page**, the empty
   one the reader is looking at; reporting zero would put them on page 1 of 0.
   `displayedRows(loaded:)` is driven by what actually arrived rather than by the
   page size, so a short last page does not claim rows the grid is not drawing.
@@ -376,10 +385,10 @@ disk-writer gate and is never gated by it.
   flash an error rather than wait the moment out — and five seconds is short
   enough that a genuinely *held* lock reports instead of hanging the tab. A text
   binding uses SQLite's transient destructor, because the Swift array backing it
-  dies at the end of the call; a blob **reads back as its length alone and binds
-  as one** — `sqlite3_column_bytes` without `sqlite3_column_blob` on the way out,
-  `sqlite3_bind_zeroblob` on the way in — so no page ever copies a blob's bytes
-  (see `DatabaseValue`). A `deinit` closes the handle as
+  dies at the end of the call; a blob **reads back as its length alone and cannot
+  be bound at all** — `sqlite3_column_bytes` without `sqlite3_column_blob` on the
+  way out, a refusal on the way in — so no page ever copies a blob's bytes and no
+  write can substitute bytes it does not have (see `DatabaseValue`). A `deinit` closes the handle as
   a **backstop**: `close()` is the normal path and the tab owner drives it, but it
   is `async`, so every route to it is a `Task` hop a torn-down owner may never run
   — and the handle nobody closed is a leaked file descriptor for the app's life. Every failure becomes a
@@ -704,7 +713,9 @@ Core-side, all in `Tests/PisakaCoreTests/`:
 - `DatabasePageTests`, `DatabaseViewerModelTests` — the paging and sort rules
   including the shrunken-total case, a total at `Int.max` (which the page-count
   arithmetic must answer rather than overflow on, since `count(*)` is clamped
-  from SQLite's `Int64`), two columns spelling one name sorting independently,
+  from SQLite's `Int64`), an index at `Int.max` while *uncounted* (which the
+  offset arithmetic must likewise answer rather than trap on), two columns
+  spelling one name sorting independently,
   and a sort surviving or not surviving a dropped versus a *reordered* answer —
   each of those two asserted at the model as *the stale ordinal never being
   sent*, since the drop's statement is one real SQLite refuses to prepare and the

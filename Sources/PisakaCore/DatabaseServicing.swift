@@ -3,8 +3,11 @@ import Foundation
 /// A `DatabaseServicing` failure, carrying the library's own words.
 ///
 /// Every case but `closed` holds a `message` that is the text SQLite produced,
-/// **verbatim**. Nothing in this layer swallows, paraphrases or summarises a
-/// failure: "file is not a database", "database is locked" and "no such column:
+/// **verbatim** — with one stated exception: `sqlError` is also what an
+/// implementation refuses with when it is handed a parameter it cannot bind
+/// faithfully (a `DatabaseValue.blob`, which carries a length and no bytes), a
+/// failure SQLite never sees and therefore has no words for. Nothing in this
+/// layer swallows, paraphrases or summarises a failure: "file is not a database", "database is locked" and "no such column:
 /// foo" each name precisely what went wrong and what to do about it, and any
 /// sentence this app writes instead would be a worse one. The cases exist only
 /// so the viewer can tell the three it reacts to differently apart from a
