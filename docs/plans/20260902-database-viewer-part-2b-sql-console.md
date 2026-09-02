@@ -156,9 +156,9 @@ stays imported in exactly one file.
 - Create: `Sources/PisakaCore/DatabaseConsolePlan.swift`
 - Create: `Tests/PisakaCoreTests/DatabaseConsolePlanTests.swift`
 
-- [ ] `DatabaseConsoleStatementKind` — a closed `.read` / `.write`, which is SQLite's
+- [x] `DatabaseConsoleStatementKind` — a closed `.read` / `.write`, which is SQLite's
       answer for one prepared statement and never a judgement of ours.
-- [ ] `DatabaseConsoleClassification` — the whole text's answer as far as it could be
+- [x] `DatabaseConsoleClassification` — the whole text's answer as far as it could be
       read: `kinds` in statement order, plus `deferral: Deferral?` — the case that
       says **"classified up to statement k, the rest deferred"**, carrying SQLite's
       verbatim message from the prepare that stopped it. `classifiedCount` is
@@ -167,7 +167,7 @@ stays imported in exactly one file.
       or only comments) is empty and complete, which is a state and not a failure.
       Documented: a deferral is **not** an error by itself — whether it is depends on
       what was classified before it, which is the policy's job.
-- [ ] `DatabaseConsolePlan.decide(_ classification:)` — the whole confirmation policy,
+- [x] `DatabaseConsolePlan.decide(_ classification:)` — the whole confirmation policy,
       four answers:
       - `.nothingToRun` — empty and complete.
       - `.refuse(message:)` — deferred with **no write** among the statements
@@ -179,23 +179,23 @@ stays imported in exactly one file.
         deferred or not.
       - `.read` — complete, non-empty, all read-only. This is the only answer that
         reaches `runConsoleRead`, so that member never sees a deferred text.
-- [ ] The prompt sentence, composed here and shown verbatim by the app: how many
+- [x] The prompt sentence, composed here and shown verbatim by the app: how many
       statements were classified, how many of them change the database, that they run
       as one transaction which rolls back whole if any of them fails, and — when
       deferred — that the rest of the text is classified as it runs, inside that same
       transaction, so a failure there rolls everything back too; plus, when the batch
       also holds a read, that rows a query inside a mutating batch returns are not
       shown. Singular/plural spelled out rather than "1 statement(s)".
-- [ ] `DatabaseConsolePlan.rowLimit = 500` — the one cap, with its reasoning (a page
+- [x] `DatabaseConsolePlan.rowLimit = 500` — the one cap, with its reasoning (a page
       is turnable, a cap is not; the grid's 200 is a different number for a different
       question and the two must not be tied).
-- [ ] The footer sentences: `resultFooter(rowCount:isTruncated:)` ("500 rows · first
+- [x] The footer sentences: `resultFooter(rowCount:isTruncated:)` ("500 rows · first
       500 rows shown" when truncated, the plain count otherwise, "No rows" for an
       empty answer) and `affectedRowsFooter(_:)` ("1 row changed" / "N rows changed" /
       "No rows changed").
-- [ ] The refusal sentences the console owns, because SQLite has no words for them:
+- [x] The refusal sentences the console owns, because SQLite has no words for them:
       the disk-writer gate's, "a run is already in flight", and "nothing to run".
-- [ ] Tests: the policy's four answers over every classification shape — empty;
+- [x] Tests: the policy's four answers over every classification shape — empty;
       all-read complete; all-write complete; mixed complete; single statement of each
       kind; **read-only prefix then a deferral → `.refuse` carrying SQLite's exact
       message**; **write prefix then a deferral → `.confirmWrite`**; nothing
@@ -205,7 +205,7 @@ stays imported in exactly one file.
       without a deferral. The footers at 0, 1, n and truncated. The bookkeeping
       (`classifiedCount`, `writeCount`, `isComplete`). The cap is a stated constant and
       is not `DatabasePage.defaultSize`.
-- [ ] run `swift test` — must pass before task 2
+- [x] run `swift test` — must pass before task 2
 
 ### Task 2: The seam's console half
 
