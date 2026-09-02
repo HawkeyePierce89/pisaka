@@ -309,30 +309,30 @@ on its own.
 - Modify: `Sources/PisakaCore/DatabaseViewerModel.swift`
 - Modify: `Tests/PisakaCoreTests/DatabaseViewerModelTests.swift`
 
-- [ ] add the injected `isWriteBlocked` predicate and `didWrite` hook (both
+- [x] add the injected `isWriteBlocked` predicate and `didWrite` hook (both
       defaulted so every existing construction site and test is unchanged)
-- [ ] add `updateCell(row:column:entry:)` and `setCellToNull(row:column:)`:
+- [x] add `updateCell(row:column:entry:)` and `setCellToNull(row:column:)`:
       refuse under the gate with a message; resolve the plan (refusal → message,
       nothing sent); refuse a second concurrent write on the tab; publish
       `isWriting`
-- [ ] interpret the outcome: committed → re-query the current page (and only the
+- [x] interpret the outcome: committed → re-query the current page (and only the
       page — the count cannot change) and call `didWrite`; rolled back with zero →
       "this row changed underneath you, nothing was written"; rolled back with more
       than one → say how many it would have touched; a thrown failure → SQLite's
       own words. No path blanks a good page.
-- [ ] give the message slot a third source so a write's message is not cleared by
+- [x] give the message slot a third source so a write's message is not cleared by
       a listing refresh or a page turn, and is cleared by the next successful write
       or by selecting another table
-- [ ] capture the rows token synchronously before the write hop, so a selection or
+- [x] capture the rows token synchronously before the write hop, so a selection or
       page turn that overtakes a write publishes the newer state and the write
       publishes nothing (the commit still stands, which is honest and asserted)
-- [ ] write tests, all against the scripted seam: a committed edit re-queries and
+- [x] write tests, all against the scripted seam: a committed edit re-queries and
       hooks; the gate refusal writes nothing and leaves the page; each typed
       refusal; zero-affected and many-affected rollbacks with their messages; a
       thrown SQLite failure; NULL set and unset round-tripping distinctly from
       `""`; a write superseded mid-flight by a table selection; a second write
       while one is in flight
-- [ ] run `swift test` — must pass before task 7
+- [x] run `swift test` — must pass before task 7
 
 ### Task 7: The app half — the write connection, the wiring and the gating pins
 

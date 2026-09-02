@@ -48,10 +48,20 @@ import Foundation
 /// page of it (`DatabaseQuery.page`, `LIMIT`/`OFFSET` bound), so opening a
 /// hundred-million-row table costs one page-sized read and one `count(*)`.
 ///
-/// **A reader, and only a reader.** Part 1 sends nothing but `SELECT`s and
-/// pragmas; it neither raises the disk-writer gate nor waits on it, exactly like
-/// the symbol index and the terminal. Part 2's writes arrive as new seam members
-/// and will make that decision for themselves.
+/// **It consults the disk-writer gate and never raises it.** Reading is exactly
+/// what it was: `SELECT`s and pragmas that neither take the gate nor wait on it,
+/// like the symbol index and the terminal. The one *write* — a cell edit — asks
+/// `isWriteBlocked()` in its synchronous prefix and refuses while a
+/// worktree-mutating operation is in flight, then, once committed, tells the app
+/// through `didWrite()`. Both are injected closures with harmless defaults, so
+/// nothing in this file names a gate call, a `LocalChangesModel` or a refresh:
+/// the model knows only that something may be in the way and that something
+/// wants to hear when the file changed.
+///
+/// **The write is a separate, short-lived connection.** `performWrite(_:)` opens
+/// the transaction's own `url` read-write, commits or rolls back and closes
+/// before it returns, so this tab's connection stays read-only for its whole life
+/// and a viewer tab never holds unflushed state.
 ///
 /// **Row identity is resolved once per selection and travels hidden.** Editing
 /// one cell means naming one row, and which of SQLite's two ways of doing that
@@ -102,8 +112,16 @@ public final class DatabaseViewerModel: ObservableObject {
     @Published public private(set) var sort: DatabaseSortState?
 
     /// The last failure's own words, or `nil` when the last thing that happened
-    /// worked. Never a sentence this layer wrote: it is SQLite's message or the
-    /// schema parser's description of the shape it could not read.
+    /// worked.
+    ///
+    /// On the **read** path it is never a sentence this layer wrote: it is
+    /// SQLite's message or the schema parser's description of the shape it could
+    /// not read. The **write** path is the one place that phrases anything, and
+    /// it phrases only what SQLite has no words for — a refusal that never
+    /// reached a database (`DatabaseEditRefusal.message`, the disk-writer gate,
+    /// a second edit while one is in flight) and the two readings of an
+    /// affected-row count that came back wrong. A write that actually *failed*
+    /// still arrives here in SQLite's own words, like every read.
     @Published public private(set) var errorMessage: String?
 
     /// How the selected table's rows are addressed — the fact every cell edit is
@@ -121,6 +139,15 @@ public final class DatabaseViewerModel: ObservableObject {
     /// Whether the schema and page are being loaded.
     @Published public private(set) var isLoadingRows = false
 
+    /// Whether a cell edit is in flight.
+    ///
+    /// One per tab: the second edit arriving while this is up is refused rather
+    /// than queued, because the first is still deciding whether the row it named
+    /// is the row that is there, and a second `UPDATE` composed against the page
+    /// on screen would be addressed by values the first may be in the middle of
+    /// replacing.
+    @Published public private(set) var isWriting = false
+
     /// The database this tab is showing — the URL the tab was opened with,
     /// spelled as the user spelled it.
     ///
@@ -133,6 +160,30 @@ public final class DatabaseViewerModel: ObservableObject {
     public private(set) var fileURL: URL
 
     private let service: DatabaseServicing
+
+    /// Whether a worktree-mutating operation is in flight right now, asked of the
+    /// app rather than known here.
+    ///
+    /// The viewer is a **reader** that has grown one write, and the seventh
+    /// writer bracket's rule is the one it has to keep on the correct side of: it
+    /// must not *raise* the gate — a cell edit is not a worktree rewrite and
+    /// serializing a branch switch behind one would be backwards — but it must
+    /// not write a file out from under an operation that is in the middle of
+    /// replacing it either. So it asks, and refuses when the answer is yes.
+    /// Wired in the scene to the same `LocalChangesModel.isReverting` flag ⌘S and
+    /// the project-tree file operations refuse on; defaulted to "nothing is in
+    /// the way" so every existing construction site and test is unchanged.
+    private let isWriteBlocked: @MainActor () -> Bool
+
+    /// Called after a write **committed**, so the app can re-read what the file
+    /// now says.
+    ///
+    /// The database is a file in the worktree, so an edit that lands makes it
+    /// modified: Local Changes is stale the moment this returns. Wired to the
+    /// same generation-pinned refresh a save already uses. Never called for a
+    /// rollback or a failure, which change nothing on disk and so leave nothing
+    /// stale.
+    private let didWrite: @MainActor () -> Void
 
     /// Ordering token for the table listing.
     private var entriesGeneration = 0
@@ -203,9 +254,20 @@ public final class DatabaseViewerModel: ObservableObject {
         let sort: DatabaseSortState?
     }
 
+    /// Which of the three things that can put a sentence in the one message slot
+    /// put the current one there.
+    ///
+    /// A write is the third because it is independently re-triggerable and
+    /// **outlives the loads around it**: the reader edits a cell, the edit is
+    /// refused, and the tab's `.task` refreshes the listing a moment later — with
+    /// two sources the refresh would clear the only sentence explaining why
+    /// nothing happened, and a page turn would do the same. So a write's message
+    /// is cleared by the next write that succeeds, or by moving to another table
+    /// (whose rows the sentence says nothing about), and by nothing else.
     private enum ErrorSource {
         case entries
         case rows
+        case write
     }
 
     /// - Parameters:
@@ -213,10 +275,21 @@ public final class DatabaseViewerModel: ObservableObject {
     ///   - service: the seam. One instance per tab: a connection is one file.
     ///   - pageSize: how many rows a page holds; injectable so the paging tests
     ///     can use a page small enough to write by hand.
-    public init(fileURL: URL, service: DatabaseServicing, pageSize: Int = DatabasePage.defaultSize) {
+    ///   - isWriteBlocked: the disk-writer gate, read at the moment an edit is
+    ///     asked for. Defaulted to "nothing is in the way".
+    ///   - didWrite: what to run after a committed edit. Defaulted to nothing.
+    public init(
+        fileURL: URL,
+        service: DatabaseServicing,
+        pageSize: Int = DatabasePage.defaultSize,
+        isWriteBlocked: @escaping @MainActor () -> Bool = { false },
+        didWrite: @escaping @MainActor () -> Void = {}
+    ) {
         self.fileURL = fileURL
         self.service = service
         self.page = DatabasePage(size: pageSize)
+        self.isWriteBlocked = isWriteBlocked
+        self.didWrite = didWrite
     }
 
     // MARK: - Loading
@@ -315,6 +388,11 @@ public final class DatabaseViewerModel: ObservableObject {
             clearRowIdentity()
             shown = nil
             page.reset()
+            // A write's message is about a cell of the table being left behind,
+            // so it goes with the rows it was about. It survives everything else
+            // — a listing refresh, a page turn, a sort — because those leave the
+            // cell it names on screen.
+            clearError(from: .write)
         }
         isLoadingRows = true
 
@@ -583,6 +661,143 @@ public final class DatabaseViewerModel: ObservableObject {
         return rowIdentityValues[index]
     }
 
+    // MARK: - Writing one cell
+
+    /// Write what the reader typed into the cell at `row`/`column`.
+    ///
+    /// The whole flow, in the order the refusals are asked:
+    ///
+    /// 1. **The disk-writer gate.** An operation that is rewriting the worktree
+    ///    may be replacing this very file, so an edit is refused while one is in
+    ///    flight rather than raced against it.
+    /// 2. **The plan.** `DatabaseUpdatePlanner` decides whether the cell may be
+    ///    written at all and composes the statement if it may; a refusal is shown
+    ///    in its own words and **nothing is sent**.
+    /// 3. **One write per tab.** A second edit arriving while one is in flight is
+    ///    refused, not queued: the plan behind it was composed against the page on
+    ///    screen, whose values the first write may be in the middle of replacing.
+    ///
+    /// Then one `performWrite(_:)` on a short-lived read-write connection at the
+    /// tab's **current** `fileURL` — the one thing that is true after a rename —
+    /// carrying a transaction that commits only if exactly one row changed.
+    ///
+    /// **The rows token is captured, not bumped.** A write is not a load and
+    /// publishes no page of its own, so it must not supersede the loads around it;
+    /// what it must do is notice that one of *them* superseded *it*. A selection
+    /// or a page turn that lands while the write is in flight therefore wins: the
+    /// newer state stays on screen and the write publishes nothing — no message,
+    /// no re-query, no hook. The commit still stands, which is the honest outcome:
+    /// the row was written, and what is on screen is a different page.
+    public func updateCell(row: Int, column: Int, entry: DatabaseCellEntry) async {
+        guard !isClosed else { return }
+
+        if isWriteBlocked() {
+            setMessage(Self.gateBlockedMessage, from: .write)
+            return
+        }
+        guard let target = editTarget, rows.indices.contains(row), let table = selectedTable else {
+            setMessage(DatabaseEditRefusal.cellNotOnPage.message, from: .write)
+            return
+        }
+        let plan: DatabaseUpdatePlan
+        switch DatabaseUpdatePlanner.plan(
+            target: target,
+            row: rows[row],
+            rowIdentity: rowIdentityValue(at: row),
+            columnIndex: column,
+            entry: entry
+        ) {
+        case .success(let composed):
+            plan = composed
+        case .failure(let refusal):
+            setMessage(refusal.message, from: .write)
+            return
+        }
+        guard !isWriting else {
+            setMessage(Self.writeInFlightMessage, from: .write)
+            return
+        }
+
+        let generation = rowsGeneration
+        let transaction = DatabaseWriteTransaction(
+            url: fileURL,
+            statements: [plan.statement],
+            requiredAffectedRows: plan.requiredAffectedRows
+        )
+        isWriting = true
+
+        do {
+            let outcome = try await service.performWrite(transaction)
+            // Cleared on **every** path, superseded included, and this is the one
+            // flag that behaves differently from `isLoadingRows` for it: a
+            // superseded load leaves its spinner to whichever load superseded it,
+            // while nothing but this write ever raises `isWriting`, so a write
+            // that returned to find itself superseded is the only thing that can
+            // lower it. Left up, the tab refuses every later edit for its life.
+            isWriting = false
+            guard generation == rowsGeneration else { return }
+            await settle(outcome, table: table, generation: generation)
+        } catch {
+            isWriting = false
+            guard generation == rowsGeneration else { return }
+            setError(error, from: .write)
+        }
+    }
+
+    /// Store NULL in the cell at `row`/`column` — the explicit gesture, which is
+    /// the only way NULL is reachable.
+    ///
+    /// Typing the word "null" stores the text `null`, and an empty field stores
+    /// the empty string (`DatabaseCellEntry`); a reader who means the absence of a
+    /// value says so with this instead of with a spelling the column might
+    /// legitimately hold.
+    public func setCellToNull(row: Int, column: Int) async {
+        await updateCell(row: row, column: column, entry: .null)
+    }
+
+    /// Read what the connection reported back.
+    ///
+    /// The three outcomes are told apart because they mean different things to
+    /// the reader and only one of them is their mistake. A commit re-reads the
+    /// page — **only** the page, since an `UPDATE` changes no row's existence and
+    /// so cannot change the count — and tells the app the file moved. A rollback
+    /// at zero is the collision case: the row was addressed by identity *and* by
+    /// the value the grid was showing, so nothing matching means somebody changed
+    /// it in between, and the edit was thrown away rather than applied over
+    /// theirs. A rollback at anything else means the identity did not identify,
+    /// which is a fact about the table worth stating with its number.
+    ///
+    /// No path here blanks a good page: a refused write leaves the rows, the
+    /// schema and the position exactly as they were, under the sentence.
+    private func settle(_ outcome: DatabaseWriteOutcome, table: String, generation: Int) async {
+        guard outcome.isCommitted else {
+            setMessage(Self.rollbackMessage(affectedRows: outcome.affectedRows), from: .write)
+            return
+        }
+        clearError(from: .write)
+        didWrite()
+        isLoadingRows = true
+        await loadPage(table: table, generation: generation)
+    }
+
+    /// Refused because the worktree is being rewritten right now.
+    static let gateBlockedMessage =
+        "The project is being changed on disk right now, so this database cannot be edited. "
+        + "Try again when that finishes."
+
+    /// Refused because this tab already has an edit in flight.
+    static let writeInFlightMessage =
+        "Another edit to this database is still being written. Wait for it to finish and try again."
+
+    /// What a rollback is told as, by the count that caused it.
+    static func rollbackMessage(affectedRows: Int) -> String {
+        guard affectedRows != 0 else {
+            return "This row changed underneath you, so nothing was written. Reload the table and try again."
+        }
+        let counted = affectedRows == 1 ? "1 row" : "\(affectedRows) rows"
+        return "This edit would have changed \(counted) instead of exactly one, so nothing was written."
+    }
+
     // MARK: - One page
 
     /// Load the page `page` and `sort` currently describe.
@@ -804,7 +1019,13 @@ public final class DatabaseViewerModel: ObservableObject {
     // MARK: - The one message slot
 
     private func setError(_ error: Error, from source: ErrorSource) {
-        errorMessage = Self.message(for: error)
+        setMessage(Self.message(for: error), from: source)
+    }
+
+    /// Put a sentence in the slot and record whose it is — see `ErrorSource` for
+    /// why the second half is not optional.
+    private func setMessage(_ message: String, from source: ErrorSource) {
+        errorMessage = message
         errorSource = source
     }
 
