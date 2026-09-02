@@ -1046,11 +1046,14 @@ user sees it.
   life). It commits
   only if exactly one row changed: if somebody else changed that row between the
   page being read and Return, nothing is written and the tab says so
-  ("this row changed underneath you"). Closing that connection does **not**
-  tidy a WAL database up: SQLite checkpoints and removes the `-wal`/`-shm`
-  sidecars only when the *last* connection to the database closes, and the tab's
-  own read-only one is still open — so on a WAL database the sidecars stay
-  beside the file until every connection to it is gone. What you type is stored as the column's
+  ("this row changed underneath you"). A commit is followed by a WAL checkpoint,
+  so the edit reaches the database file itself rather than sitting in the `-wal`
+  sidecar: without it the write would be complete and durable and yet leave the
+  tracked bytes untouched, so Local Changes, `git commit` and the git-based undo
+  below would all miss it. What the checkpoint does *not* do is remove the
+  sidecars — SQLite unlinks `-wal`/`-shm` only when the last connection to the
+  database closes, and the tab's own read-only one is still open — so on a WAL
+  database they stay beside the file until every connection to it is gone. What you type is stored as the column's
   declared type implies — typing `43` into an `INTEGER` column stores the number,
   into a `TEXT` column the two characters — and in a column declared with no type
   at all the cell keeps the kind of value it already held. Nothing is trimmed, an

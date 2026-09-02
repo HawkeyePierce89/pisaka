@@ -278,4 +278,26 @@ public enum DatabaseQuery {
 
     /// Run on every other path — a count that does not match, and any failure.
     public static let rollback = DatabaseStatement("ROLLBACK")
+
+    /// Fold a WAL database's committed frames back into the database file itself.
+    ///
+    /// Run **after** the commit and outside the transaction, and only when the
+    /// transaction committed. Without it a WAL database's edit is complete and
+    /// durable — and invisible to everything that reads the file's *bytes*: SQLite
+    /// writes committed frames to the `-wal` sidecar and folds them back only when
+    /// the last connection to the database closes, and the tab's own connection is
+    /// still open (and, being read-only, could not checkpoint even if it were the
+    /// last). The tracked `.db` would therefore be byte-for-byte unchanged, so the
+    /// `didWrite` hook would refresh Local Changes into showing nothing, `git
+    /// commit` would not contain the edit, and the one way the viewer says an edit
+    /// can be undone — with git — would not have anything to undo.
+    ///
+    /// `FULL` rather than `PASSIVE`: passive copies only what no reader is holding
+    /// and reports how much it skipped, which would make "did this reach the file?"
+    /// depend on timing. `RESTART`/`TRUNCATE` additionally wait for every reader to
+    /// leave the WAL, which is more than is needed — the sidecar may stay, the file
+    /// may not be stale. On a database that is not in WAL mode it is a no-op that
+    /// answers a row of `-1`s rather than failing, so it costs a rollback-journal
+    /// database one statement and nothing else.
+    public static let walCheckpoint = DatabaseStatement("PRAGMA wal_checkpoint(FULL)")
 }

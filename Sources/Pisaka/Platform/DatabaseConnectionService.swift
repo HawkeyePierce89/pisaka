@@ -187,7 +187,12 @@ actor DatabaseConnectionService: DatabaseServicing {
     /// sidecars only on the close of the *last* connection to the database, and
     /// the tab's read-only one is still open — and could not do it either, since a
     /// read-only handle cannot checkpoint. On a WAL database the sidecars
-    /// therefore outlive the edit. The url is the transaction's own because a viewer tab
+    /// therefore outlive the edit. What must **not** outlive it is the edit's
+    /// absence from the file itself, which is why a commit is followed here by
+    /// `DatabaseQuery.walCheckpoint`: sidecars staying beside the database is
+    /// untidy, whereas the tracked bytes not moving would make Local Changes,
+    /// `git commit` and the only undo the viewer offers all miss the edit.
+    /// The url is the transaction's own because a viewer tab
     /// outlives the path it was opened at — a rename retargets it — and Core's
     /// `fileURL` is the one thing that is current.
     ///
@@ -214,6 +219,14 @@ actor DatabaseConnectionService: DatabaseServicing {
             }
             let isCommitted = affectedRows == transaction.requiredAffectedRows
             _ = try execute(isCommitted ? DatabaseQuery.commit : DatabaseQuery.rollback, on: connection)
+            if isCommitted {
+                // After the commit, outside the transaction, and never allowed to
+                // turn a write that succeeded into a failure: a checkpoint that
+                // could not run leaves the edit committed and durable, which is
+                // what the outcome below reports. See `DatabaseQuery.walCheckpoint`
+                // for why a WAL database needs it at all.
+                _ = try? execute(DatabaseQuery.walCheckpoint, on: connection)
+            }
             return DatabaseWriteOutcome(affectedRows: affectedRows, isCommitted: isCommitted)
         } catch {
             // Undo whatever ran before the failure, then report the failure itself.

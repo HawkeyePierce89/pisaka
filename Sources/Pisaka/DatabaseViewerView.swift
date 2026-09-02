@@ -349,6 +349,17 @@ struct DatabaseViewerView: View {
             .focusable(refusal == nil && isGridIdle)
             .focused($focus, equals: .cell(coordinate))
             .onTapGesture(count: 2) { beginEditing(value, at: coordinate) }
+            // The single click is what makes the Return shortcut reachable at all.
+            // `.focusable` alone leaves Tab traversal as the only route to a cell,
+            // and Tab reaches a non-text control only when "Use keyboard
+            // navigation to move focus between controls" is on — off by default —
+            // so without this the documented "press Return while the cell has the
+            // keyboard" is dead on an ordinary Mac. Declared *after* the
+            // double-click so the two-click gesture still wins the disambiguation,
+            // and guarded by the same answer the cell is drawn from: a cell nothing
+            // may edit is not focusable, and focusing it would arm Return over a
+            // refusal.
+            .onTapGesture { if refusal == nil && isGridIdle { focus = .cell(coordinate) } }
             .contextMenu { cellMenu(value, at: coordinate, refusal: refusal) }
     }
 

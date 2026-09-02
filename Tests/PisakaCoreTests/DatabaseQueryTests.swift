@@ -467,4 +467,13 @@ final class DatabaseQueryTests: XCTestCase {
         XCTAssertEqual(DatabaseQuery.commit.parameters, [])
         XCTAssertEqual(DatabaseQuery.rollback.parameters, [])
     }
+
+    /// `FULL`, and pinned by text: a committed edit that never leaves the `-wal`
+    /// sidecar is invisible to Local Changes, to `git commit` and therefore to the
+    /// only undo the viewer offers. `PASSIVE` would make reaching the file depend
+    /// on what a reader happened to be holding.
+    func testTheCheckpointIsFullAndCarriesNoParameters() {
+        XCTAssertEqual(DatabaseQuery.walCheckpoint, DatabaseStatement("PRAGMA wal_checkpoint(FULL)"))
+        XCTAssertEqual(DatabaseQuery.walCheckpoint.parameters, [])
+    }
 }

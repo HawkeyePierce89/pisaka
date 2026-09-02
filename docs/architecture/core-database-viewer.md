@@ -631,8 +631,17 @@ disk-writer gate and is never gated by it.
   re-reads the listing, then re-selects
   the table it was showing when the new database still holds it (a re-selection
   is a *refresh*, so the sort and the page index survive) and drops it, rows and
-  all, when it does not. A re-open that fails leaves the tab as it was under the
-  banner explaining why, rather than re-selecting into a closed connection and
+  all, when it does not. It also **clears the row identity** on the way in: the
+  rows stay on screen — a reconnect blanks no good page — but `fileURL` has
+  already been retargeted at the file that replaced them, so for the length of the
+  reconnect the page names rows of a database that is gone while an edit would be
+  sent to the one that took its place, carrying the old rowid and the old previous
+  value into it, where the `IS` guard cannot tell the two apart if the row it
+  lands on happens to match. Clearing turns every cell into the refusal an
+  unaddressable table already gets (`.unaddressableRow(.noRowIdentity)`), which
+  the re-selection then lifts; the window matters because a re-open that *fails*
+  leaves it open for the life of the tab. A re-open that fails leaves the tab as
+  it was under the banner explaining why, rather than re-selecting into a closed connection and
   replacing the open's message with a second one about a statement. **That
   re-selection is recorded, not read off the reconnect's own `load()`**
   (`pendingReselection`): the reader selecting this tab starts a second `load()`
@@ -776,13 +785,22 @@ disk-writer gate and is never gated by it.
   **connection of its own** is the point of it rather than an implementation
   detail: the tab's handle stays `SQLITE_OPEN_READONLY` for its whole life, so a
   tab nobody edited never takes a write lock at all, while a write that is
-  *asked for* holds one for exactly as long as it takes to run. What closing the
-  write connection does **not** do is tidy a WAL database up — SQLite
-  checkpoints and unlinks the `-wal`/`-shm` sidecars only on the close of the
-  *last* connection, and the tab's read-only one is still open (and could not do
-  it either, a read-only handle being unable to checkpoint), so on a WAL
-  database the sidecars outlive the edit. `docs/FEATURES.md` says so in the
-  user's words rather than claiming the opposite. It opens `SQLITE_OPEN_READWRITE` and
+  *asked for* holds one for exactly as long as it takes to run. A commit is followed by
+  `DatabaseQuery.walCheckpoint` (`PRAGMA wal_checkpoint(FULL)`), outside the
+  transaction and under `try?` so a checkpoint that cannot run never turns a
+  write that succeeded into a failure. Without it a WAL database's edit is
+  committed and durable and yet leaves the tracked bytes untouched — SQLite folds
+  committed frames back only when the *last* connection to the database closes,
+  and the tab's read-only one is still open (and could not checkpoint even if it
+  were last) — so `didWrite` would refresh Local Changes into showing nothing,
+  `git commit` would not carry the edit, and the one undo the viewer offers would
+  have nothing to undo. `FULL` rather than `PASSIVE`, which copies only what no
+  reader is holding and would make "did this reach the file?" depend on timing;
+  on a database not in WAL mode it is a no-op answering a row of `-1`s. What
+  closing the write connection still does **not** do is tidy the sidecars up —
+  SQLite unlinks `-wal`/`-shm` only on the close of the last connection — so on a
+  WAL database they outlive the edit. `docs/FEATURES.md` says both halves in the
+  user's words. It opens `SQLITE_OPEN_READWRITE` and
   again **no** `SQLITE_OPEN_CREATE` (a database moved away since the page was
   read must report, not be conjured empty and then written into), at the
   transaction's own url (decision 6), sets the same busy timeout — which matters
@@ -909,9 +927,16 @@ disk-writer gate and is never gated by it.
   the empty string and NULL is a gesture: seeding the marker would make Return
   store the *text* `NULL`, the one confusion the marker exists to prevent, and
   NULL is instead reachable only through the cell menu's explicit "Set to NULL"
-  beside a "Copy" of the rendered text. A cell Core refuses is not focusable — so
-  Return cannot reach it either — carries the refusal's own sentence as its
-  tooltip, and on a double-click hands the attempt to the model anyway, which is
+  beside a "Copy" of the rendered text. A **single** click focuses the cell, which is what
+  makes the Return shortcut reachable at all: `.focusable` alone leaves Tab
+  traversal as the only route, and Tab reaches a non-text control only when the
+  system's "Use keyboard navigation to move focus between controls" is on — off by
+  default — so without the click the documented Return path would be dead on an
+  ordinary Mac. It is declared *after* the double-click, so the two-click gesture
+  still wins the disambiguation, and guarded by the same answer the cell is drawn
+  from, so focus is never armed over a refusal. A cell Core refuses is not
+  focusable — so Return cannot reach it either — carries the refusal's own
+  sentence as its tooltip, and on a double-click hands the attempt to the model anyway, which is
   what puts that same sentence in the banner and sends nothing by construction.
   The refusal is asked **once**, in the cell, and the tooltip, the disabled menu
   item and the banner are three renderings of that one answer. Editing is closed

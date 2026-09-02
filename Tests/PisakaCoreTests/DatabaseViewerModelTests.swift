@@ -891,6 +891,48 @@ final class DatabaseViewerModelTests: XCTestCase {
         XCTAssertFalse(model.isLoadingRows)
     }
 
+    /// The rows survive a reconnect; the right to *edit* them does not.
+    ///
+    /// `reload` is what a git operation calls once the file on disk has been
+    /// replaced, and it retargets `fileURL` before it re-opens anything. A page
+    /// left addressable across that window would let an edit carry the old
+    /// database's rowid and the old page's previous value into the new file,
+    /// where the statement's `IS` guard cannot tell the two apart if the row it
+    /// lands on happens to match. A failed re-open is the window at its widest:
+    /// it lasts for the life of the tab.
+    func testAReloadThatCannotReopenLeavesNoCellEditable() async {
+        let service = ScriptedDatabaseService()
+        let model = await editableModel(service)
+        XCTAssertNil(model.editRefusal(row: 0, column: 1), "Editable before the reconnect")
+
+        service.failOpen(with: DatabaseError.cannotOpen(message: "unable to open database file"))
+        await model.reload()
+
+        XCTAssertEqual(model.rows.count, 1, "A reconnect blanks no good page")
+        XCTAssertEqual(model.rowIdentity, .unavailable(.noRowIdentity))
+        XCTAssertEqual(model.editRefusal(row: 0, column: 1), .unaddressableRow(.noRowIdentity))
+
+        service.serveCommittedWrite()
+        await model.updateCell(row: 0, column: 1, entry: .typed("new"))
+
+        XCTAssertEqual(service.writeCount, 0, "Nothing may be sent against a page nothing addresses")
+        XCTAssertEqual(model.errorMessage, DatabaseEditRefusal.unaddressableRow(.noRowIdentity).message)
+    }
+
+    /// …and the re-selection puts it back, so the refusal above is the window and
+    /// not a tab that can never be edited again.
+    func testAReloadThatReopensMakesTheRowsEditableAgain() async {
+        let service = ScriptedDatabaseService()
+        let model = await editableModel(service)
+
+        await model.reload()
+
+        XCTAssertNil(model.editRefusal(row: 0, column: 1))
+        service.serveCommittedWrite()
+        await model.updateCell(row: 0, column: 1, entry: .typed("new"))
+        XCTAssertEqual(service.writeCount, 1)
+    }
+
     func testAReloadReopensTheURLItIsGivenRatherThanTheOneTheTabWasOpenedAt() async {
         let service = ScriptedDatabaseService()
         let model = await loadedModel(service)

@@ -582,6 +582,21 @@ public final class DatabaseViewerModel: ObservableObject {
         rowsGeneration += 1
         isLoadingRows = false
         isOpen = false
+        // The rows stay on screen — a reconnect blanks no good page — but how they
+        // are *addressed* does not survive it. `reload` is what a git operation
+        // calls once the file has been replaced, so from here until the
+        // re-selection republishes an identity the page on screen names rows of a
+        // database that is gone, while `fileURL` already names the one that
+        // replaced it. Left alone, `editTarget` would go on answering "yes, this
+        // cell may be edited" for that whole window — and an edit committed in it
+        // would carry the old page's rowid and the old page's previous value into
+        // the *new* file, where the `IS` guard cannot tell the difference if the
+        // row it lands on happens to match. Clearing the identity turns every cell
+        // into the refusal it already is for an unaddressable table, which is what
+        // the re-selection then lifts. The window is not only the reconnect's own
+        // few statements: a re-open that fails leaves it open for the life of the
+        // tab.
+        clearRowIdentity()
         await service.close()
         await load()
     }
