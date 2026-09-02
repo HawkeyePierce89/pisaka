@@ -425,7 +425,19 @@ disk-writer gate and is never gated by it.
   statement that needs one, so a second writer arriving in between turns into a
   `SQLITE_BUSY` *mid*-transaction, where asking up front spends the busy timeout
   before anything has been written — the failure a reader can be told about
-  plainly.
+  plainly. One statement runs *ahead* of the bracket: `foreignKeysOn`
+  (`PRAGMA foreign_keys = ON`), before the `BEGIN` because the pragma is a
+  documented no-op inside a transaction. SQLite enforces `NOT NULL`, `CHECK`,
+  `UNIQUE` and `PRIMARY KEY` whatever a connection asks for, and foreign keys
+  only when told to — per connection, defaulting to **off**. Unasked, a cell edit
+  that leaves a child row pointing at a parent which does not exist commits,
+  reports one row changed and tells the reader it succeeded: the single shape of
+  write this layer could let through while every other violation came back in
+  SQLite's own words. The affected-row rule means a committed edit is one the
+  database agreed to, and a foreign key the database was never asked to check is
+  an agreement nobody made. It does not disturb the count either — `sqlite3_
+  changes` does not count rows changed by foreign-key actions, so a cascading
+  update still reports the one row the statement itself touched.
 
 - `DatabaseSchema.swift` — the schema value types and the two **pure** parsers.
   `DatabaseTableEntry` is a name, a closed `Kind` (`table`/`view` — the listing
@@ -806,7 +818,10 @@ disk-writer gate and is never gated by it.
   transaction's own url (decision 6), sets the same busy timeout — which matters
   more here, since `BEGIN IMMEDIATE` asks for the write lock up front and a
   database another process is writing should wait the five seconds out rather
-  than refuse the edit the instant a lock is contended — brackets the statements,
+  than refuse the edit the instant a lock is contended — sends
+  `DatabaseQuery.foreignKeysOn` before the `BEGIN`, where it is not yet a no-op
+  and on this connection because the setting is per-connection, brackets the
+  statements,
   accumulates their `affectedRows`, commits only on an exact match and rolls back
   otherwise, rolls back and rethrows on any failure (with `try?`, because a
   rollback that fails has nothing further to say and replacing the statement's

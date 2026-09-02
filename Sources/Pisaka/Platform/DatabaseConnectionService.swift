@@ -211,6 +211,11 @@ actor DatabaseConnectionService: DatabaseServicing {
         // handle would hold the write lock for the life of the app.
         defer { sqlite3_close_v2(connection) }
 
+        // Before the `BEGIN`, where it is not a no-op, and on this connection
+        // because the setting is per-connection: without it a foreign key is the
+        // one declared constraint SQLite does not check, so an edit that orphans a
+        // row would commit and report success. See `DatabaseQuery.foreignKeysOn`.
+        _ = try execute(DatabaseQuery.foreignKeysOn, on: connection)
         _ = try execute(DatabaseQuery.beginImmediate, on: connection)
         do {
             var affectedRows = 0

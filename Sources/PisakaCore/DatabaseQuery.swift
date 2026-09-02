@@ -141,7 +141,12 @@ public enum DatabaseQuery {
     /// like everywhere else. `alias` is whichever spelling the table does not
     /// shadow — `DatabaseRowIdentity.probeAlias(columns:)` picks it — because a
     /// probe of a shadowed spelling answers about the declared column instead.
-    public static func rowIdProbe(table: String, alias: DatabaseRowIdAlias = .rowid) -> DatabaseStatement {
+    /// It is **required**, with no default: `.rowid` is the right answer for most
+    /// tables and exactly the wrong one for a table declaring a column of that
+    /// name, so a default would be the documented mistake pre-spelled for the
+    /// next caller — one that reads a declared column as "rowid-addressable" and
+    /// then composes every page against a column that does not exist.
+    public static func rowIdProbe(table: String, alias: DatabaseRowIdAlias) -> DatabaseStatement {
         DatabaseStatement(
             "SELECT \(alias.rawValue) FROM \(quoted(table)) LIMIT ?",
             parameters: [.integer(0)]
@@ -260,6 +265,25 @@ public enum DatabaseQuery {
             parameters: parameters
         )
     }
+
+    /// Turn foreign-key enforcement on, before the transaction that will need it.
+    ///
+    /// SQLite enforces `NOT NULL`, `CHECK`, `UNIQUE` and `PRIMARY KEY` whatever a
+    /// connection asks for; foreign keys are the one declared constraint it
+    /// enforces only when told to, and the default is **off**, per connection. A
+    /// write connection that never asks therefore commits a cell edit that leaves
+    /// a child row pointing at a parent that does not exist — reporting one row
+    /// changed, and success — which is the single shape of write this layer could
+    /// let through while every other violation came back in SQLite's own words.
+    /// The whole point of the affected-row rule is that a committed edit is one
+    /// the database agreed to; a foreign key the database was not asked to check
+    /// is an agreement nobody made.
+    ///
+    /// Run **before** `beginImmediate`, because the pragma is a documented no-op
+    /// inside a transaction. It does not disturb the affected-row count either:
+    /// `sqlite3_changes` does not count rows changed by foreign-key actions, so a
+    /// cascading update still reports the one row the statement itself touched.
+    public static let foreignKeysOn = DatabaseStatement("PRAGMA foreign_keys = ON")
 
     /// The transaction a write runs inside — its three texts, here rather than in
     /// the app half, because this file is the only thing in the repository that

@@ -139,7 +139,7 @@ final class DatabaseQueryTests: XCTestCase {
     /// fails at prepare with SQLite's own `no such column: rowid`.
     func testRowIdProbeAsksForNoRows() {
         XCTAssertEqual(
-            DatabaseQuery.rowIdProbe(table: "albums"),
+            DatabaseQuery.rowIdProbe(table: "albums", alias: .rowid),
             DatabaseStatement("SELECT rowid FROM \"albums\" LIMIT ?", parameters: [.integer(0)])
         )
     }
@@ -150,7 +150,7 @@ final class DatabaseQueryTests: XCTestCase {
     /// table and answer the text `rowid` — classifying it as addressable and
     /// making every edit report that the row changed underneath the reader.
     func testRowIdProbeSplicesTheAliasBare() {
-        let sql = DatabaseQuery.rowIdProbe(table: "albums").sql
+        let sql = DatabaseQuery.rowIdProbe(table: "albums", alias: .rowid).sql
 
         XCTAssertTrue(sql.hasPrefix("SELECT rowid FROM "), sql)
         XCTAssertFalse(sql.contains("\"rowid\""), sql)
@@ -174,7 +174,7 @@ final class DatabaseQueryTests: XCTestCase {
     /// name carrying a quote closes nothing.
     func testRowIdProbeQuotesTheTableName() {
         XCTAssertEqual(
-            DatabaseQuery.rowIdProbe(table: "od\"d; --").sql,
+            DatabaseQuery.rowIdProbe(table: "od\"d; --", alias: .rowid).sql,
             "SELECT rowid FROM \"od\"\"d; --\" LIMIT ?"
         )
     }
@@ -466,6 +466,14 @@ final class DatabaseQueryTests: XCTestCase {
         XCTAssertEqual(DatabaseQuery.beginImmediate.parameters, [])
         XCTAssertEqual(DatabaseQuery.commit.parameters, [])
         XCTAssertEqual(DatabaseQuery.rollback.parameters, [])
+    }
+
+    /// Foreign keys are the one declared constraint SQLite leaves off unless a
+    /// connection asks, so the write path asks — and pinned by text because `ON`
+    /// silently becoming `OFF` is a write that orphans a row and reports success.
+    func testForeignKeyEnforcementIsAskedForAndCarriesNoParameters() {
+        XCTAssertEqual(DatabaseQuery.foreignKeysOn, DatabaseStatement("PRAGMA foreign_keys = ON"))
+        XCTAssertEqual(DatabaseQuery.foreignKeysOn.parameters, [])
     }
 
     /// `FULL`, and pinned by text: a committed edit that never leaves the `-wal`

@@ -77,7 +77,7 @@ final class DatabaseViewerModelTests: XCTestCase {
                 DatabaseQuery.columnSchema(table: "items").sql,
                 // The rowid probe: one prepare, no rows, asked once per
                 // selection and never again on a page turn.
-                DatabaseQuery.rowIdProbe(table: "items").sql,
+                DatabaseQuery.rowIdProbe(table: "items", alias: .rowid).sql,
                 DatabaseQuery.rowCount(table: "items").sql,
                 pageSQL(table: "items"),
             ]
@@ -1345,7 +1345,7 @@ final class DatabaseViewerModelTests: XCTestCase {
         await model.select(table: "recent")
 
         XCTAssertEqual(
-            service.count(for: DatabaseQuery.rowIdProbe(table: "recent").sql),
+            service.count(for: DatabaseQuery.rowIdProbe(table: "recent", alias: .rowid).sql),
             0,
             "A view's rows are computed; the listing already answered the question"
         )
@@ -1419,7 +1419,7 @@ final class DatabaseViewerModelTests: XCTestCase {
         await model.goToPage(1)
         await model.goToPage(2)
 
-        XCTAssertEqual(service.count(for: DatabaseQuery.rowIdProbe(table: "items").sql), 1)
+        XCTAssertEqual(service.count(for: DatabaseQuery.rowIdProbe(table: "items", alias: .rowid).sql), 1)
         XCTAssertEqual(service.count(for: pageSQL(table: "items", identity: .rowid)), 3)
     }
 
@@ -1651,7 +1651,7 @@ final class DatabaseViewerModelTests: XCTestCase {
         // selection's, or the next page would ask the new table for the old
         // table's shape.
         let gate = Gate()
-        service.hold(DatabaseQuery.rowIdProbe(table: "items").sql, on: gate)
+        service.hold(DatabaseQuery.rowIdProbe(table: "items", alias: .rowid).sql, on: gate)
         let model = await loadedModel(service, tables: [("items", "table"), ("pairs", "table")])
 
         let held = Task { await model.select(table: "items") }

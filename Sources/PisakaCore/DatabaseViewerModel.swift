@@ -529,6 +529,20 @@ public final class DatabaseViewerModel: ObservableObject {
         await loadPage(table: table, generation: generation)
     }
 
+    /// Follow the file to a new path, keeping the open connection.
+    ///
+    /// A rename moves the *name*, not the inode: the handle this tab opened goes
+    /// on answering the same database, so nothing has to be re-read and the page
+    /// on screen stays. What must follow the rename is `fileURL`, because a cell
+    /// edit opens that path read-write of its own (`updateCell`) — and would
+    /// otherwise open, or fail to open, the name the tab was created under, for
+    /// the life of the tab. `reload(at:)` is the heavier sibling, for the case
+    /// where the *file* changed and not just its name.
+    public func retarget(to url: URL) {
+        guard !isClosed else { return }
+        fileURL = url
+    }
+
     /// Re-open the file and re-read everything on screen — what an operation that
     /// rewrote the database under this tab calls.
     ///
@@ -560,20 +574,6 @@ public final class DatabaseViewerModel: ObservableObject {
     ///   to open database file" over a file sitting in the tree under its new
     ///   name, and would go on reporting it for the life of the tab. `nil` keeps
     ///   the current url, for a caller with nothing newer to say.
-    /// Follow the file to a new path, keeping the open connection.
-    ///
-    /// A rename moves the *name*, not the inode: the handle this tab opened goes
-    /// on answering the same database, so nothing has to be re-read and the page
-    /// on screen stays. What must follow the rename is `fileURL`, because a cell
-    /// edit opens that path read-write of its own (`updateCell`) — and would
-    /// otherwise open, or fail to open, the name the tab was created under, for
-    /// the life of the tab. `reload(at:)` is the heavier sibling, for the case
-    /// where the *file* changed and not just its name.
-    public func retarget(to url: URL) {
-        guard !isClosed else { return }
-        fileURL = url
-    }
-
     public func reload(at url: URL? = nil) async {
         guard !isClosed else { return }
         if let url { fileURL = url }
