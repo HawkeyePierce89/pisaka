@@ -388,10 +388,10 @@ on its own.
 
 ### Task 9: Verify acceptance criteria
 
-- [ ] run `swift test`
-- [ ] run `xcodebuild` for the macOS destination and for `generic/platform=iOS`
-- [ ] run `swiftlint --strict` from the repository root
-- [ ] confirm `project.yml`, `Package.resolved` and `Resources/Licenses/` are
+- [x] run `swift test`
+- [x] run `xcodebuild` for the macOS destination and for `generic/platform=iOS`
+- [x] run `swiftlint --strict` from the repository root
+- [x] confirm `project.yml`, `Package.resolved` and `Resources/Licenses/` are
       untouched by `git status`
 
 ### Task 10: Update documentation
