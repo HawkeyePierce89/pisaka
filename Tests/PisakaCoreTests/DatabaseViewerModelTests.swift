@@ -942,6 +942,87 @@ final class DatabaseViewerModelTests: XCTestCase {
         XCTAssertTrue(service.isOpen, "The reload's re-open is the connection the tab ends on")
     }
 
+    /// The reconnect's re-selection may not be read off its *own* load's success.
+    ///
+    /// The reader selecting this tab starts a second `load()` — the view's
+    /// `.task` — and it can land inside the window the reconnect's own load is
+    /// suspended in `open`. That supersedes the reconnect's load, which then
+    /// publishes nothing and records no open, so a re-selection gated on `isOpen`
+    /// is skipped: the sidebar refreshes to the new database while the schema, the
+    /// rows and the sort go on describing the pre-operation one, silently. The
+    /// intent is therefore consumed by whichever listing load actually lands.
+    func testAReconnectSupersededByATabSelectionStillPutsTheSelectionBack() async {
+        let service = ScriptedDatabaseService()
+        serveSchema(on: service, table: "items")
+        serveCount(on: service, table: "items", total: 5)
+        servePage(on: service, table: "items", rows: [[.integer(1), .text("one")]])
+        let model = await loadedModel(service)
+        await model.select(table: "items")
+
+        // The database is rewritten under the tab: the same table, other rows.
+        servePage(on: service, table: "items", rows: [[.integer(9), .text("nine")]])
+
+        // Two gates rather than one, so the interleaving is staged rather than
+        // raced: the reconnect's own open waits on the first, the tab selection's
+        // on the second, and the test lets them through in that order.
+        let reconnectOpen = Gate()
+        service.holdOpen(on: reconnectOpen)
+        let reloading = Task { await model.reload() }
+        await waitUntil { reconnectOpen.reached }
+
+        let selectionOpen = Gate()
+        service.holdOpen(on: selectionOpen)
+        let selecting = Task { await model.load() }
+        await waitUntil { service.openedURLs.count == 3 }
+
+        // The reconnect's load resumes into a token the selection's load already
+        // took, and returns having published nothing.
+        reconnectOpen.release()
+        await reloading.value
+        selectionOpen.release()
+        await selecting.value
+
+        XCTAssertEqual(model.selectedTable, "items")
+        XCTAssertEqual(
+            model.rows,
+            [[.integer(9), .text("nine")]],
+            "The listing that landed owes the reconnect its re-selection; the rows on screen would "
+                + "otherwise still be the pre-operation database's, under the new database's sidebar"
+        )
+        XCTAssertEqual(service.count(for: pageSQL(table: "items")), 2, "The page was re-read once")
+        XCTAssertNil(model.errorMessage)
+        XCTAssertFalse(model.isLoadingRows)
+    }
+
+    /// A pending re-selection is the reconnect's memory of a click, and the
+    /// selection on screen is the reader's own: the later one wins.
+    func testAReconnectDoesNotPutItsSelectionBackOverAReaderWhoMovedOn() async {
+        let service = ScriptedDatabaseService()
+        serveSchema(on: service, table: "items")
+        serveCount(on: service, table: "items", total: 5)
+        servePage(on: service, table: "items", rows: [[.integer(1), .text("one")]])
+        let model = await loadedModel(service)
+        await model.select(table: "items")
+
+        service.failOpen(with: DatabaseError.cannotOpen(message: "unable to open database file"))
+        await model.reload()
+        XCTAssertEqual(model.errorMessage, "unable to open database file")
+
+        // Under the banner the reader picks another table. The connection is
+        // closed, so the read fails — but the selection is theirs either way.
+        await model.select(table: "orders")
+        XCTAssertEqual(model.selectedTable, "orders")
+
+        service.clearOpenFailure()
+        await model.load()
+
+        XCTAssertEqual(
+            model.selectedTable,
+            "orders",
+            "The refresh that finally opened the file must not undo the reader's own selection"
+        )
+    }
+
     func testAClosedTabIgnoresAReload() async {
         let service = ScriptedDatabaseService()
         let model = await loadedModel(service)

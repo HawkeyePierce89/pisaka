@@ -314,7 +314,9 @@ disk-writer gate and is never gated by it.
   including `isLoadingRows`. `settleConsumedRequest(_:)` therefore puts the
   position back onto the rows on screen and lowers the flag for any request that
   presented a token and then did nothing, which is reachable from two clicks on ◀
-  faster than the button redraws. A caller that presented no token superseded
+  faster than the button redraws. `toggleSort`'s own "nothing is selected"
+  early return settles the same way, for the same reason, whether or not a
+  click can reach it today. A caller that presented no token superseded
   nothing and keeps the plain no-op.
   `toggleSort(column:index:)` flips or re-aims the sort, resets to the first page and
   **keeps the count**: an `ORDER BY` reorders rows without changing how many
@@ -328,7 +330,19 @@ disk-writer gate and is never gated by it.
   is a *refresh*, so the sort and the page index survive) and drops it, rows and
   all, when it does not. A re-open that fails leaves the tab as it was under the
   banner explaining why, rather than re-selecting into a closed connection and
-  replacing the open's message with a second one about a statement. `close()`
+  replacing the open's message with a second one about a statement. **That
+  re-selection is recorded, not read off the reconnect's own `load()`**
+  (`pendingReselection`): the reader selecting this tab starts a second `load()`
+  — the view's `.task` — which can land while the reconnect's own load is
+  suspended in `open` and supersede it, and a superseded load records no `isOpen`
+  and publishes nothing, so a re-selection gated on that flag is skipped on the
+  one interleaving that most needs it — the sidebar refreshing to the new
+  database while the schema, the rows and the sort go on describing the
+  pre-operation one, with no banner and no spinner saying so. The intent is
+  therefore consumed by whichever listing load actually lands, is left standing by
+  one that failed (the next refresh recovers it), and is dropped rather than
+  applied when the reader has since selected something else — what is on screen
+  is their click, not the reconnect's memory of one. `close()`
   latches. `gridColumns` is published
   separately from `columns` and is deliberately **not** `columns.map(\.name)`: a
   hidden column appears in the pragma and not in `SELECT *`, so reading the
@@ -583,7 +597,9 @@ upward while uncounted) and bumps the token, so the select's schema and `count(*
 are discarded as superseded and the tab settles on page 2 of a table with an empty
 schema pane and a footer that can state no total. All three entry points now
 refuse a stale request before mutating anything. `reload()`'s own re-selection and
-Core's tests pass no request and are never refused.
+Core's tests pass no request and are never refused — and a caller that *did*
+present one and then early-returns settles it, on every one of the three paths
+that can do so.
 
 ## Two rules the model never breaks
 

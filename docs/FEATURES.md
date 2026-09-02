@@ -1436,8 +1436,10 @@ and iPhone. The feature scope landed so far:
   no cell editing, no SQL console and no way to write to a database from the app;
   on iOS a database file is not opened in a viewer at all (see above). Only
   tables and views are listed — indexes, triggers and SQLite's own `sqlite_`
-  bookkeeping tables are not shown — and the listing does not refresh itself, so
-  a table another process creates shows up only after the tab is reopened. The
+  bookkeeping tables are not shown — and the listing does not refresh itself
+  while you are looking at it, so a table another process creates shows up only
+  the next time the tab is selected (switching away and back is enough; the
+  listing is re-read every time the tab is shown). The
   page size is fixed at 200 rows and there is no jump-to-page field. The row
   count is read once when a table is selected, so a table being written by
   another process shows a total that is a moment old; if rows were deleted under

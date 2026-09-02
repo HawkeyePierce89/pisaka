@@ -187,7 +187,7 @@ struct DatabaseViewerView: View {
                         headerRow
                         Divider()
                         ForEach(Array(model.rows.enumerated()), id: \.offset) { index, row in
-                            dataRow(row, isAlternate: index.isMultiple(of: 2))
+                            dataRow(row, isTinted: !index.isMultiple(of: 2))
                         }
                     }
                 }
@@ -250,14 +250,14 @@ struct DatabaseViewerView: View {
         }
     }
 
-    private func dataRow(_ row: [DatabaseValue], isAlternate: Bool) -> some View {
+    private func dataRow(_ row: [DatabaseValue], isTinted: Bool) -> some View {
         HStack(spacing: 0) {
             ForEach(Array(row.enumerated()), id: \.offset) { _, value in
                 cell(value)
                 Divider()
             }
         }
-        .background(isAlternate ? Color.clear : Color.primary.opacity(0.04))
+        .background(isTinted ? Color.primary.opacity(0.04) : Color.clear)
     }
 
     /// One cell. NULL is dimmed and italic **as well as** carrying the marker,

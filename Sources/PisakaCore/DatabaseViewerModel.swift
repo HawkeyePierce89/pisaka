@@ -119,6 +119,26 @@ public final class DatabaseViewerModel: ObservableObject {
     /// again at termination rather than tracking which already happened.
     private var isClosed = false
 
+    /// The table a `reload(at:)` means to put back once the file has been listed
+    /// again, or `nil` when no reconnect is waiting on one.
+    ///
+    /// **The reconnect cannot read its own `load()`'s success off the model.** A
+    /// second `load()` — the view's `.task`, fired the moment the reader selects
+    /// this tab — can start while the reconnect's own load is suspended in
+    /// `open`, superseding it; the superseded load then publishes nothing and
+    /// records no open, so `isOpen` says "the re-open failed" about a re-open
+    /// that is in fact about to succeed. Re-selecting off that flag would skip
+    /// the re-selection on exactly the interleaving that needs it most: the
+    /// sidebar refreshes to the new database while the schema, the rows and the
+    /// sort go on describing the *pre-operation* one, with no banner and no
+    /// spinner saying so — the silence `reload` exists to break.
+    ///
+    /// So the intent is recorded here instead of inferred, and consumed by
+    /// whichever listing load actually lands. A load that *failed* leaves it
+    /// standing, which is the documented "leave the tab as it was under the
+    /// banner" for the re-open in front of it and a recovery for the next one.
+    private var pendingReselection: String?
+
     /// What the rows on screen were loaded with — the table they came from, the
     /// page they are and the sort they are in — or `nil` while the grid is empty.
     /// Written by `publish(_:table:)` alone, which is the only thing that puts
@@ -188,6 +208,9 @@ public final class DatabaseViewerModel: ObservableObject {
             entries = try DatabaseSchema.entries(from: result)
             clearError(from: .entries)
             isLoadingEntries = false
+            // The listing that lands is the one that puts a reconnect's selection
+            // back — never the reconnect's own load, which may not be it.
+            await reselectIfPending()
         } catch {
             guard generation == entriesGeneration else { return }
             setError(error, from: .entries)
@@ -327,7 +350,13 @@ public final class DatabaseViewerModel: ObservableObject {
     public func toggleSort(column: String, index: Int, request: Int? = nil) async {
         guard !isClosed else { return }
         if let request, request != rowsGeneration { return }
-        guard let table = selectedTable else { return }
+        guard let table = selectedTable else {
+            // The same settle `goToPage` makes for the same reason: the click
+            // already consumed the token, so the load it superseded will publish
+            // nothing — including not clearing the spinner it left up.
+            settleConsumedRequest(request)
+            return
+        }
         sort = DatabaseSortState.toggled(sort, column: column, index: index)
         page.move(to: 0)
         rowsGeneration += 1
@@ -354,6 +383,10 @@ public final class DatabaseViewerModel: ObservableObject {
     /// explaining why, rather than re-selecting into a closed connection and
     /// replacing the open's message with a second one about a statement.
     ///
+    /// The re-selection is *recorded*, not performed here: it is consumed by
+    /// whichever listing load succeeds, because this one's own may be superseded
+    /// by a `load()` the reader's tab selection started (`pendingReselection`).
+    ///
     /// - Parameter url: where the file is *now*, when the caller knows. The tab's
     ///   url is the one thing about a viewer tab that can change under it —
     ///   `WorkspaceModel.applyRenamePlan` retargets a `.viewer` tab like any
@@ -366,14 +399,29 @@ public final class DatabaseViewerModel: ObservableObject {
     public func reload(at url: URL? = nil) async {
         guard !isClosed else { return }
         if let url { fileURL = url }
-        let table = selectedTable
+        pendingReselection = selectedTable
         entriesGeneration += 1
         rowsGeneration += 1
         isLoadingRows = false
         isOpen = false
         await service.close()
         await load()
-        guard isOpen, let table else { return }
+    }
+
+    /// Put a reconnect's selection back, once there is a listing to put it back
+    /// against — see `pendingReselection` for why this is not something `reload`
+    /// can do for itself when its own `load()` returns.
+    ///
+    /// Run by the listing load that succeeded, on the main actor, so `entries` is
+    /// the new database's answer by the time the table is looked for in it.
+    private func reselectIfPending() async {
+        guard let table = pendingReselection else { return }
+        pendingReselection = nil
+        // The reader may have selected something else while the re-open was in
+        // flight, and what is on screen is their click, not this reconnect's
+        // memory of a click before it: putting the old table back over it would
+        // be the reconnect undoing a selection the reader just made.
+        guard selectedTable == table else { return }
         guard entries.contains(where: { $0.name == table }) else {
             selectedTable = nil
             columns = []
