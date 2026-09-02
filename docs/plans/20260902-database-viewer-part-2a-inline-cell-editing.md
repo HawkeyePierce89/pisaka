@@ -173,25 +173,25 @@ on its own.
 - Create: `Sources/PisakaCore/DatabaseCellEntry.swift`
 - Create: `Tests/PisakaCoreTests/DatabaseCellEntryTests.swift`
 
-- [ ] add `DatabaseTypeAffinity` (`integer`, `text`, `blob`, `real`, `numeric`)
+- [x] add `DatabaseTypeAffinity` (`integer`, `text`, `blob`, `real`, `numeric`)
       with `init(declaredType:)` implementing SQLite's five ordered rules,
       case-insensitively, over a possibly empty declaration
-- [ ] add the entry rule: typed text + affinity + **previous value** →
+- [x] add the entry rule: typed text + affinity + **previous value** →
       `DatabaseValue`, per decision 8 — no trimming, empty entry is `text("")`,
       the word "null" is never NULL, overflowing integers fall to real then to
       text, non-finite input stays text
-- [ ] implement the untyped-column clause: for `blob` affinity the previous
+- [x] implement the untyped-column clause: for `blob` affinity the previous
       value's storage class is preferred when the entry parses as it, text
       otherwise
-- [ ] add the explicit NULL gesture as its own value-producing entry point, so no
+- [x] add the explicit NULL gesture as its own value-producing entry point, so no
       caller can reach NULL by string
-- [ ] write tests: every affinity rule including the documented examples
+- [x] write tests: every affinity rule including the documented examples
       (`INT`/`VARCHAR(255)`/`BLOB`/`FLOATING POINT`/`STRING`/empty), the numeric
       cases, empty entry vs. NULL, "NULL"/"null"/"nil" typed as text, whitespace
       preserved, `Int64` boundary values; and the untyped column both ways —
       `43` over integer `42` stays integer, `43` over text `42` stays text, `4x`
       over integer `42` becomes text, over a NULL previous value becomes text
-- [ ] run `swift test` — must pass before task 2
+- [x] run `swift test` — must pass before task 2
 
 ### Task 2: Row identity — the engine and the two statements
 
