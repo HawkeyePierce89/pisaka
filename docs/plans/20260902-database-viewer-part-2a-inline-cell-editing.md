@@ -343,26 +343,26 @@ on its own.
 - Modify: `.swiftlint.yml`
 - Modify: `Tests/PisakaCoreTests/DatabaseViewerSourceGatingTests.swift`
 
-- [ ] implement `performWrite(_:)`: `sqlite3_open_v2` with
+- [x] implement `performWrite(_:)`: `sqlite3_open_v2` with
       `SQLITE_OPEN_READWRITE` and **no** `SQLITE_OPEN_CREATE`, the same busy
       timeout, `BEGIN IMMEDIATE`, the statements in order accumulating
       `affectedRows`, commit-or-rollback by the required count, rollback on any
       throw, close on every path (including the throwing ones), SQLite's message
       verbatim; the read-only connection and its flags are untouched
-- [ ] forward the gate predicate and the write hook through `DatabaseViewerTabs`
+- [x] forward the gate predicate and the write hook through `DatabaseViewerTabs`
       into each model it builds, naming no gate call anywhere in the feature
-- [ ] wire them once in the scene's existing start-once block: the gate flag
+- [x] wire them once in the scene's existing start-once block: the gate flag
       `LocalChangesModel.isReverting` and the generation-pinned local-changes
       refresh a save already uses
-- [ ] move the two measured lint ceilings by the measured procedure, recording in
+- [x] move the two measured lint ceilings by the measured procedure, recording in
       the config comment what the added lines buy (as every previous bump does)
-- [ ] extend the gating suite: the SQLite import stays in one file; the new Core
+- [x] extend the gating suite: the SQLite import stays in one file; the new Core
       files never import it; the app-side files stay macOS-gated; **no viewer file
       raises the writer gate** (the existing assertion, now covering the write
       path); the model's write entry points consult the gate predicate before
       sending anything; the scene wires that predicate to the gate flag; the
       viewer's read path names neither
-- [ ] run `swift test` — must pass before task 8
+- [x] run `swift test` — must pass before task 8
 
 ### Task 8: The editable grid
 

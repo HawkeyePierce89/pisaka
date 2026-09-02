@@ -22,9 +22,17 @@ import PisakaCore
 /// **The reader boundary.** The viewer neither raises the disk-writer gate
 /// (`autosave.suspend()` / `localChanges.beginRevert()`) nor waits on it — the
 /// terminal's and the symbol index's position. Part 1 sends nothing but `SELECT`s
-/// and pragmas, and even part 2's writes will go into the database file, which is
-/// not a worktree text file any gated operation is snapshotting. Nothing here may
-/// name either gate call, and `DatabaseViewerSourceGatingTests` pins that.
+/// and pragmas, and part 2's cell update goes into the database file, which is not
+/// a worktree text file any gated operation is snapshotting. Nothing here may name
+/// either gate call, and `DatabaseViewerSourceGatingTests` pins that.
+///
+/// It does, however, **consult** the gate, which is a different thing: a database
+/// that git is about to rewrite is one an edit should not land in the middle of.
+/// So this owner is handed the question — not the gate's own API — as a closure at
+/// `start(isWriteBlocked:didWrite:)` and forwards it into every model it builds,
+/// which is why no file under the viewer names `localChanges` at all. `didWrite`
+/// is the other direction: a committed edit modifies a tracked file, and the
+/// scene's generation-pinned Local Changes refresh is what makes the panel say so.
 ///
 /// **Tab close is observed, not called.** The owner subscribes to the workspace's
 /// `openFiles` and closes the connection of any tab that is no longer there,
@@ -48,6 +56,20 @@ final class DatabaseViewerTabs: ObservableObject {
     private let makeService: () -> DatabaseServicing
 
     private var openFilesObserver: AnyCancellable?
+
+    /// Whether a worktree-mutating operation is in flight right now, asked at the
+    /// moment an edit is attempted.
+    ///
+    /// Stored rather than passed at construction because the scene answers it out
+    /// of a model this owner is built alongside (`PisakaApp.init` runs before any
+    /// `@StateObject` the answer would have to read). Every model is built with a
+    /// closure that hops through *this* property, so a model created before
+    /// `start(isWriteBlocked:didWrite:)` still asks the real question afterwards —
+    /// the ordering of `.onAppear` against the first tab selection decides nothing.
+    private var isWriteBlocked: @MainActor () -> Bool = { false }
+
+    /// What to run after a committed edit — the scene's Local Changes refresh.
+    private var didWrite: @MainActor () -> Void = {}
 
     /// - Parameters:
     ///   - workspace: the tab set to follow. Held **weakly** through the
@@ -80,9 +102,33 @@ final class DatabaseViewerTabs: ObservableObject {
     func model(for file: OpenFile) -> DatabaseViewerModel? {
         guard file.kind == .viewer, let url = file.url else { return nil }
         if let existing = models[file.id] { return existing }
-        let model = DatabaseViewerModel(fileURL: url, service: makeService())
+        // Both closures read through `self` rather than capturing today's values,
+        // so a tab shown before the scene wired them is not stuck with the
+        // defaults. Weakly, because a model outliving this owner is a torn-down
+        // window's tab: it then answers "nothing is in the way" and refuses
+        // nothing, which is the same posture a model built in a test or a preview
+        // takes.
+        let model = DatabaseViewerModel(
+            fileURL: url,
+            service: makeService(),
+            isWriteBlocked: { [weak self] in self?.isWriteBlocked() ?? false },
+            didWrite: { [weak self] in self?.didWrite() }
+        )
         models[file.id] = model
         return model
+    }
+
+    /// Wire the gate question and the post-write hook, once, from the scene.
+    ///
+    /// Idempotent and safe to call again: `.onAppear` can fire a second time for a
+    /// reopened window, and both closures are answers to standing questions rather
+    /// than subscriptions, so replacing them costs nothing.
+    func start(
+        isWriteBlocked: @escaping @MainActor () -> Bool,
+        didWrite: @escaping @MainActor () -> Void
+    ) {
+        self.isWriteBlocked = isWriteBlocked
+        self.didWrite = didWrite
     }
 
     /// Re-read the database behind tab `id` over a fresh connection.

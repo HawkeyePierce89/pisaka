@@ -49,7 +49,7 @@ line_length:
   ignores_interpolated_strings: true
 
 # Configured honestly rather than disabled: this codebase carries dense doc
-# comments by design, so comment-only lines are not counted. 1833 is measured
+# comments by design, so comment-only lines are not counted. 1837 is measured
 # off the largest application file (PisakaApp.swift), which sits exactly at it,
 # so the next line added there comes back through this comment. Raised from 1550
 # when the project switcher bottom bar was added, from 1600 when Find Usages /
@@ -81,23 +81,31 @@ line_length:
 # learned that the find bar is a *text* tab's chrome: it renders inside the
 # editor zone alone, so ⌘F on a viewer tab armed a bar the next text tab would
 # come up already showing, and the four lines are the one
-# `isFindableTabSelected` the menu now greys out on. The number tracks the one
+# `isFindableTabSelected` the menu now greys out on, and from 1833 to the
+# measured 1837 when the viewer became a writer of exactly one shape: the four
+# lines are the single `databaseViewers.start(…)` call that hands the tab owner
+# the disk-writer gate as a *question* (`localChanges.isReverting`, so a cell
+# edit refuses while git is rewriting the worktree) and the generation-pinned
+# Local Changes refresh a committed edit owes the panel — the whole write path
+# itself is in Core and in `DatabaseConnectionService.swift`, which is why the
+# scene paid four lines for it. The number tracks the one
 # file that approaches
 # it — measured, never rounded up for room — and is not a licence to grow the
 # others.
 file_length:
-  warning: 1833
-  error: 1833
+  warning: 1837
+  error: 1837
   ignore_comment_only_lines: true
 
 # Same reasoning as file_length, and one number behind it again: the viewer's
 # skips landed inside the PisakaApp struct body, which is very nearly the whole
 # file, so this ceiling moved from 1800 to the measured 1810 with them, and to
-# 1813 with the viewer reconnect that followed, and to 1817 with the find menu's
-# tab-kind gate.
+# 1813 with the viewer reconnect that followed, to 1817 with the find menu's
+# tab-kind gate, and to 1821 with the viewer's write wiring — the same four
+# lines, which land inside the scene's start-once block.
 type_body_length:
-  warning: 1817
-  error: 1817
+  warning: 1821
+  error: 1821
 
 function_body_length:
   warning: 140

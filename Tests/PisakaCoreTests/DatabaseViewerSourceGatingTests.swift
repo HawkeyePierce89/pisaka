@@ -36,7 +36,17 @@ import XCTest
 /// 5. The compiler cannot enforce that the viewer stays a **reader**. Naming
 ///    `autosave.suspend()` / `localChanges.beginRevert()` anywhere inside the
 ///    feature would compile perfectly and turn a background query into a gate the
-///    editor waits behind.
+///    editor waits behind. Part 2a makes the distinction finer rather than
+///    weaker: the viewer now *consults* that gate before it writes a cell, which
+///    is the opposite direction, and the way it stays a reader is that the
+///    question arrives as an injected closure — no file under the viewer names
+///    `localChanges` at all, and the scene is the one place the closure is tied
+///    to the flag.
+/// 6. The compiler cannot see that the write entry points ask the question. Both
+///    `updateCell` and `setCellToNull` compile perfectly without ever calling
+///    `isWriteBlocked`, and a cell edit landing in a database git is rewriting is
+///    a silent failure by construction — the write succeeds, and the file it
+///    wrote into is replaced a moment later.
 final class DatabaseViewerSourceGatingTests: XCTestCase {
 
     private static let repositoryRoot = URL(fileURLWithPath: #filePath)
@@ -324,6 +334,99 @@ final class DatabaseViewerSourceGatingTests: XCTestCase {
                 + "Restore reaching it captures a revision claiming the database held the empty string and "
                 + "then restores nothing — the buffer half's skip, undone by the one command that opens a buffer of its own."
         )
+    }
+
+    // MARK: - The viewer consults the gate it never raises
+
+    func testTheWriteEntryPointsConsultTheGateBeforeSendingAnything() throws {
+        let model = try code(ofFileNamed: "DatabaseViewerModel.swift", under: "Sources/PisakaCore")
+        guard let start = model.range(of: "public func updateCell(")?.upperBound,
+              let gate = model.range(of: "isWriteBlocked()", range: start..<model.endIndex)?.lowerBound,
+              let send = model.range(of: "performWrite(", range: start..<model.endIndex)?.lowerBound
+        else {
+            XCTFail("updateCell must exist, ask isWriteBlocked() and then send the transaction")
+            return
+        }
+        XCTAssertLessThan(
+            gate,
+            send,
+            "The gate question comes before the write. A cell edit that lands while a revert, a checkout or a "
+                + "commit is rewriting the worktree writes into a file git is about to replace: the edit "
+                + "reports success and then disappears, with nothing anywhere saying so."
+        )
+
+        // The one other entry point routes through the first rather than
+        // repeating the refusal — a second copy is a second thing to keep true.
+        XCTAssertEqual(
+            try occurrences(of: "isWriteBlocked\\(\\)", in: model),
+            1,
+            "The gate is asked in exactly one place. setCellToNull is updateCell with an entry of .null, so a "
+                + "second ask would be a second answer to the same question."
+        )
+    }
+
+    func testNoViewerFileNamesTheGateItself() throws {
+        for url in try databaseFiles() {
+            let code = try self.code(of: url)
+            XCTAssertFalse(
+                LSPSourceGatingTests.containsToken("localChanges", in: code),
+                "\(url.lastPathComponent) must not name the gate's own model. The viewer is handed the "
+                    + "question as a closure precisely so the feature holds no opinion about who is writing "
+                    + "the worktree or how that is discovered — and so Core, which cannot see LocalChangesModel "
+                    + "at all, asks the same question the app does."
+            )
+        }
+    }
+
+    func testTheSceneWiresTheGateQuestionAndTheWriteHook() throws {
+        let app = try code(ofFileNamed: "PisakaApp.swift", under: "Sources/Pisaka")
+        guard let start = app.range(of: "databaseViewers.start(")?.upperBound,
+              let end = app.range(of: ")", range: start..<app.endIndex)?.upperBound
+        else {
+            XCTFail("the scene must wire the viewer's gate question and write hook exactly once")
+            return
+        }
+        let wiring = String(app[start..<end])
+        XCTAssertTrue(
+            wiring.contains("localChanges.isReverting"),
+            "The gate question must be the same flag ⌘S and the tree file operations refuse on. Wiring it to "
+                + "anything else would give the viewer a second, quieter opinion about when the worktree is "
+                + "being rewritten."
+        )
+        XCTAssertTrue(
+            wiring.contains("refreshLocalChanges()"),
+            "A committed edit modifies a tracked file, so it owes the panel the same generation-pinned refresh "
+                + "a save gives it — reusing that function rather than composing a second refresh is what keeps "
+                + "the pinning in one place."
+        )
+        XCTAssertEqual(
+            try occurrences(of: "databaseViewers\\.start\\(", in: app),
+            1,
+            "Wired once, in the scene's start-once block. A second site is a second pair of answers, and the "
+                + "later one silently wins."
+        )
+    }
+
+    /// The read path must stay innocent of both: a listing, a page load and a
+    /// sort are reads, and a read that consulted the writer gate would go blank
+    /// (or refuse) every time somebody committed.
+    func testTheReadPathNamesNeitherTheGateNorTheHook() throws {
+        let model = try code(ofFileNamed: "DatabaseViewerModel.swift", under: "Sources/PisakaCore")
+        for entryPoint in ["public func load()", "public func select(", "public func goToPage("] {
+            guard let start = model.range(of: entryPoint)?.upperBound else {
+                XCTFail("\(entryPoint) must exist — it is one of the viewer's read entry points")
+                continue
+            }
+            // To the next declaration at type scope, which is where this one ends.
+            let end = model.range(of: "\n    public func ", range: start..<model.endIndex)?.lowerBound
+                ?? model.endIndex
+            let body = String(model[start..<end])
+            XCTAssertFalse(
+                body.contains("isWriteBlocked") || body.contains("didWrite"),
+                "\(entryPoint) is a read and must consult neither. The viewer goes on answering questions "
+                    + "about a database while git rewrites the worktree; only a write waits for that to finish."
+            )
+        }
     }
 
     // MARK: - The viewer is a reader
