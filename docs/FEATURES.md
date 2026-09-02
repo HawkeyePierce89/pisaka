@@ -1014,7 +1014,7 @@ user sees it.
     one — and compile or runtime errors **in full**, monospaced and selectable,
     rather than clipped to a line. A disabled button always says why (not signed
     in, not a solution file, a language LeetCode does not accept).
-- **Database viewer (macOS only, read-only).** A file named `.sqlite`,
+- **Database viewer (macOS only).** A file named `.sqlite`,
   `.sqlite3` or `.db` opens into a viewer tab instead of the editor: a sidebar
   listing the database's tables and views (marked apart), the selected one's
   schema under it — column name, declared type, primary-key position, `NOT
@@ -1033,12 +1033,42 @@ user sees it.
   the rows you were looking at in place rather than blanking them. The tab behaves
   like any other: it carries the database icon in the project tree, is restored
   with the session, and closes without ever asking to save — it holds no text and
-  can never be dirty. **This version only reads.** Cells cannot be edited, there
-  is no SQL console, and the app issues no write of its own — the connection is
-  opened read-only, so nothing about opening a viewer tab changes the file on
-  disk. (One consequence: a WAL database whose sidecar files were left behind by a
-  process that died without checkpointing may refuse to open, in SQLite's words,
-  where a read-write connection would have recovered it.)
+  can never be dirty. Merely *opening* a viewer tab never changes the file on
+  disk: the tab's connection is opened read-only. (One consequence: a WAL
+  database whose sidecar files were left behind by a process that died without
+  checkpointing may refuse to open, in SQLite's words, where a read-write
+  connection would have recovered it.)
+- **Editing a cell.** Double-click a cell — or press Return while it has the
+  keyboard — to edit it in place; Return writes it, Escape cancels and writes
+  nothing. The write is one `UPDATE` of one row inside a transaction, addressed
+  by the row's identity **and** by the value the grid was showing, on a separate,
+  short-lived read-write connection (the tab's own stays read-only for its whole
+  life). It commits
+  only if exactly one row changed: if somebody else changed that row between the
+  page being read and Return, nothing is written and the tab says so
+  ("this row changed underneath you"). A commit is followed by a WAL checkpoint,
+  so the edit reaches the database file itself rather than sitting in the `-wal`
+  sidecar: without it the write would be complete and durable and yet leave the
+  tracked bytes untouched, so Local Changes, `git commit` and the git-based undo
+  below would all miss it. What the checkpoint does *not* do is remove the
+  sidecars — SQLite unlinks `-wal`/`-shm` only when the last connection to the
+  database closes, and the tab's own read-only one is still open — so on a WAL
+  database they stay beside the file until every connection to it is gone. What you type is stored as the column's
+  declared type implies — typing `43` into an `INTEGER` column stores the number,
+  into a `TEXT` column the two characters — and in a column declared with no type
+  at all the cell keeps the kind of value it already held. Nothing is trimmed, an
+  empty field stores the **empty string**, and `NULL` is *not* reachable by
+  typing the word: it is the cell menu's **Set to NULL**, next to a Copy of what
+  the cell is showing. What cannot be edited says so in a tooltip and in the
+  banner if you try anyway: a view's rows (they are computed), a generated or
+  hidden column, a cell holding binary data, a column whose name the table's
+  schema cannot resolve to exactly one column, and a table that declares neither
+  a row id nor a primary key. An edit is also refused — with a sentence, and
+  without writing anything — while the project is being rewritten on disk (a
+  branch switch, a revert, a merge, a commit, a project-wide Replace All or a
+  Rename), and while another edit in the same tab is still being written. A committed edit shows up in Local Changes like any other
+  change to a tracked file, and is undone the way any other file change is: with
+  git, or in the database's own tools. There is no undo inside the viewer.
 
 
 ## iOS / iPadOS
@@ -1432,9 +1462,12 @@ and iPhone. The feature scope landed so far:
     redirect chain and works, but a provider that drives its login through a
     **popup window** would have nowhere to open it and would stall. Not every
     provider was verified.
-- The database viewer is **read-only and macOS-only** in this version. There is
-  no cell editing, no SQL console and no way to write to a database from the app;
-  on iOS a database file is not opened in a viewer at all (see above). Only
+- The database viewer is **macOS-only**, and what it can write is **one cell at
+  a time**. There is no SQL console, no way to insert or delete rows, no schema
+  editing, no multi-cell edit and no undo inside the viewer; on iOS a database
+  file is not opened in a viewer at all (see above). Binary (blob) cells, views,
+  generated columns and tables with no row id and no primary key cannot be
+  edited, and each says which of those it is. Only
   tables and views are listed — indexes, triggers and SQLite's own `sqlite_`
   bookkeeping tables are not shown — and the listing does not refresh itself
   while you are looking at it, so a table another process creates shows up only

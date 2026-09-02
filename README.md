@@ -46,11 +46,15 @@ do — is in [`docs/FEATURES.md`](docs/FEATURES.md).
   snapshotted locally; browse a file's
   revisions, diff them against what it holds now and restore one
   (Cmd+Shift+H). 14 days or 30 revisions per file, independent of git.
-- **Database viewer (macOS, read-only)** — open a `.sqlite`, `.sqlite3` or
-  `.db` file from the project tree and get a tab that lists its tables and
-  views, shows the selected one's schema, and pages through its rows with
-  click-to-sort headers. This version only reads: no cell editing, no SQL
-  console, and the app issues no write of its own.
+- **Database viewer (macOS)** — open a `.sqlite`, `.sqlite3` or `.db` file from
+  the project tree and get a tab that lists its tables and views, shows the
+  selected one's schema, and pages through its rows with click-to-sort headers.
+  **Cells are editable in place**: double-click (or press Return on a cell), type,
+  and Return writes one row inside a transaction that only commits if the row is
+  still the one you were looking at; "Set to NULL" is in the cell's menu, because
+  typing the word stores the word. Views, generated columns, blob cells and
+  tables with no row identity are not editable and say why. There is no SQL
+  console yet.
 - **EditorConfig** — a project's `.editorconfig` drives auto-indent and the
   Tab key, and applies `trim_trailing_whitespace`, `insert_final_newline`
   and `end_of_line` on save.

@@ -1,5 +1,24 @@
 import Foundation
 
+/// One of SQLite's three spellings of a rowid table's implicit key column.
+///
+/// A closed type rather than a `String` for one reason, and it is the same
+/// reason `DatabaseQuery` exists at all: these three names are the **only**
+/// identifiers this file ever splices *unquoted*, so nothing that could carry a
+/// reader's text may ever reach that splice. A case cannot; a `String`
+/// parameter could, one refactor later.
+///
+/// The three are interchangeable to SQLite — until a table declares a column of
+/// its own by one of those names, which **shadows** that spelling for that table
+/// while the other two go on answering the true rowid. Which of them a given
+/// table can be addressed by is therefore a fact about its schema, decided by
+/// `DatabaseRowIdentity`, not something a query composer may assume.
+public enum DatabaseRowIdAlias: String, Equatable, Hashable, Sendable, CaseIterable {
+    case rowid
+    case underscored = "_rowid_"
+    case oid
+}
+
 /// The only thing in the repository that writes SQL.
 ///
 /// Every byte the database viewer sends is composed here and asserted
@@ -27,6 +46,28 @@ public enum DatabaseQuery {
     public static func quoted(_ identifier: String) -> String {
         "\"" + identifier.replacingOccurrences(of: "\"", with: "\"\"") + "\""
     }
+
+    /// The three spellings of the rowid alias, in the order the identity engine
+    /// prefers them — **the one name in this file that is never quoted**.
+    ///
+    /// Everything else spliced here goes through `quoted(_:)`, and it must; this
+    /// is the stated exception, and the exception is what makes the feature
+    /// correct rather than merely tidy. SQLite's double-quoted-string
+    /// misfeature says that a double-quoted identifier which resolves to nothing
+    /// is re-read as a string *literal*: `SELECT "rowid" FROM w LIMIT 0` against
+    /// a `WITHOUT ROWID` table therefore **succeeds**, answering the four
+    /// characters `rowid`. Quoted, the rowid probe would classify every
+    /// `WITHOUT ROWID` table as rowid-addressable, carry the literal text
+    /// `'rowid'` as every row's identity, and make every edit report that the row
+    /// changed underneath the reader. Bare, all three spellings fail honestly
+    /// with `no such column: rowid`, which is the answer the probe is asking for.
+    ///
+    /// The exception is safe because the set is **closed and chosen here**: three
+    /// literals of this file's own, spliced from a `CaseIterable` enum's raw
+    /// values and never from anything a reader typed. `DatabaseQueryTests`
+    /// asserts the bare spelling byte-for-byte, so a later tidy-up that routed
+    /// these through `quoted(_:)` fails the suite instead of the user's edit.
+    public static let rowIdAliases = DatabaseRowIdAlias.allCases.map(\.rawValue)
 
     /// Every table and view the viewer lists.
     ///
@@ -86,6 +127,32 @@ public enum DatabaseQuery {
         )
     }
 
+    /// Whether this table can be addressed by rowid at all, asked as a statement
+    /// SQLite answers.
+    ///
+    /// `SELECT rowid FROM "t" LIMIT ?` bound to zero: it prepares, learns
+    /// nothing, and steps straight to done on a rowid table; on a
+    /// `WITHOUT ROWID` table it fails **at prepare** with SQLite's own
+    /// `no such column: rowid`. One prepare, no rows, no version floor — and it
+    /// asks the question the feature actually has ("can I address a row here?")
+    /// rather than the schema trivia `PRAGMA table_list.wr` reports.
+    ///
+    /// The alias is spliced bare (see `rowIdAliases`) and the table name quoted,
+    /// like everywhere else. `alias` is whichever spelling the table does not
+    /// shadow — `DatabaseRowIdentity.probeAlias(columns:)` picks it — because a
+    /// probe of a shadowed spelling answers about the declared column instead.
+    /// It is **required**, with no default: `.rowid` is the right answer for most
+    /// tables and exactly the wrong one for a table declaring a column of that
+    /// name, so a default would be the documented mistake pre-spelled for the
+    /// next caller — one that reads a declared column as "rowid-addressable" and
+    /// then composes every page against a column that does not exist.
+    public static func rowIdProbe(table: String, alias: DatabaseRowIdAlias) -> DatabaseStatement {
+        DatabaseStatement(
+            "SELECT \(alias.rawValue) FROM \(quoted(table)) LIMIT ?",
+            parameters: [.integer(0)]
+        )
+    }
+
     /// One page of a table or view, optionally sorted.
     ///
     /// `limit` and `offset` are **bound**, and both are floored at zero. The floor
@@ -103,14 +170,31 @@ public enum DatabaseQuery {
     /// it is 1-based, so `orderByColumnIndex` (the grid's zero-based position) has
     /// one added to it here. An ordinal is a number, not an identifier, so nothing
     /// is spliced and `quoted(_:)` has one caller fewer.
+    ///
+    /// `identityAlias` appends the rowid alias as a **trailing** result column
+    /// (`SELECT *, rowid FROM "t"`), which is how a row the reader edits is
+    /// addressed later. Trailing, and never anywhere else, for three reasons that
+    /// are one reason: every 1-based `ORDER BY` ordinal, every grid column
+    /// position and the shape probe's answer all go on meaning exactly what they
+    /// meant without it. The model splits the extra column off **by position and
+    /// count** before publishing, so the grid shows no column nobody asked for —
+    /// by position because the trailing column's *name* is not dependable:
+    /// against a table with an `INTEGER PRIMARY KEY` alias, SQLite answers it
+    /// under the alias column's own name (`SELECT *, rowid FROM r` answers
+    /// `id|v|id`), and only where no such alias exists is it called `rowid`.
     public static func page(
         table: String,
         orderByColumnIndex column: Int? = nil,
         ascending: Bool = true,
         limit: Int,
-        offset: Int
+        offset: Int,
+        identityAlias: DatabaseRowIdAlias? = nil
     ) -> DatabaseStatement {
-        var sql = "SELECT * FROM \(quoted(table))"
+        var sql = "SELECT *"
+        if let identityAlias {
+            sql += ", \(identityAlias.rawValue)"
+        }
+        sql += " FROM \(quoted(table))"
         if let column, column >= 0 {
             sql += " ORDER BY \(column + 1) \(ascending ? "ASC" : "DESC")"
         }
@@ -123,4 +207,121 @@ public enum DatabaseQuery {
             ]
         )
     }
+
+    // MARK: - Writing
+
+    /// One cell of one row, rewritten.
+    ///
+    /// `UPDATE "t" SET "c" = ? WHERE <identity IS ?…> AND "c" IS ?` — the only
+    /// statement in this app that changes a database, and every part of it is
+    /// here for a reason:
+    ///
+    /// - **The `WHERE` names the row twice over.** The identity (a rowid, or
+    ///   every column of a `WITHOUT ROWID` table's key in key order) says *which*
+    ///   row; the trailing term says the cell still holds what the grid was
+    ///   showing when the reader started typing. A row somebody else changed in
+    ///   between therefore matches nothing, the affected-row count comes back
+    ///   zero, and the transaction rolls back — which is how "this changed
+    ///   underneath you" is detected rather than guessed at.
+    /// - **`IS`, not `=`.** Both the identity values and the previous value may
+    ///   be NULL, and `= NULL` is NULL — never true — so an `=` here would make
+    ///   every NULL cell silently unwritable. `IS` is SQLite's null-safe
+    ///   comparison, and it is what keeps NULL and the empty string distinct
+    ///   through a write.
+    /// - **Every value is bound; only names are spliced.** The new value, the
+    ///   identity values and the previous value are parameters, so a cell
+    ///   spelling `'; DROP TABLE t; --` travels as data. The table and column
+    ///   names go through `quoted(_:)`; the rowid alias is the one bare name
+    ///   (see `rowIdAliases`), and it is bare here for the same reason it is bare
+    ///   in the probe — quoted, it would compare against the *string* `rowid`.
+    /// - **Binding order is fixed** and asserted in the tests: the `SET` value
+    ///   first, then the identity values in address order, then the previous
+    ///   value. The app half binds positionally and knows none of this.
+    public static func update(
+        table: String,
+        column: String,
+        identity: DatabaseRowAddress,
+        newValue: DatabaseValue,
+        previousValue: DatabaseValue
+    ) -> DatabaseStatement {
+        var conditions: [String] = []
+        var parameters: [DatabaseValue] = [newValue]
+
+        switch identity {
+        case .rowid(let alias, let value):
+            conditions.append("\(alias.rawValue) IS ?")
+            parameters.append(value)
+        case .primaryKey(let keyValues):
+            for keyValue in keyValues {
+                conditions.append("\(quoted(keyValue.name)) IS ?")
+                parameters.append(keyValue.value)
+            }
+        }
+        conditions.append("\(quoted(column)) IS ?")
+        parameters.append(previousValue)
+
+        return DatabaseStatement(
+            "UPDATE \(quoted(table)) SET \(quoted(column)) = ? WHERE \(conditions.joined(separator: " AND "))",
+            parameters: parameters
+        )
+    }
+
+    /// Turn foreign-key enforcement on, before the transaction that will need it.
+    ///
+    /// SQLite enforces `NOT NULL`, `CHECK`, `UNIQUE` and `PRIMARY KEY` whatever a
+    /// connection asks for; foreign keys are the one declared constraint it
+    /// enforces only when told to, and the default is **off**, per connection. A
+    /// write connection that never asks therefore commits a cell edit that leaves
+    /// a child row pointing at a parent that does not exist — reporting one row
+    /// changed, and success — which is the single shape of write this layer could
+    /// let through while every other violation came back in SQLite's own words.
+    /// The whole point of the affected-row rule is that a committed edit is one
+    /// the database agreed to; a foreign key the database was not asked to check
+    /// is an agreement nobody made.
+    ///
+    /// Run **before** `beginImmediate`, because the pragma is a documented no-op
+    /// inside a transaction. It does not disturb the affected-row count either:
+    /// `sqlite3_changes` does not count rows changed by foreign-key actions, so a
+    /// cascading update still reports the one row the statement itself touched.
+    public static let foreignKeysOn = DatabaseStatement("PRAGMA foreign_keys = ON")
+
+    /// The transaction a write runs inside — its three texts, here rather than in
+    /// the app half, because this file is the only thing in the repository that
+    /// writes SQL and a `BEGIN` is no less SQL than a `SELECT`.
+    ///
+    /// `IMMEDIATE` rather than a deferred `BEGIN`: a deferred transaction takes
+    /// its write lock at the first statement that needs one, so a second writer
+    /// arriving in between turns into a `SQLITE_BUSY` *mid*-transaction. Asking
+    /// for the lock up front means the busy timeout is spent before anything has
+    /// been written, which is the failure the reader can be told about plainly.
+    public static let beginImmediate = DatabaseStatement("BEGIN IMMEDIATE")
+
+    /// Run only when the accumulated affected-row count is the one the plan
+    /// required.
+    public static let commit = DatabaseStatement("COMMIT")
+
+    /// Run on every other path — a count that does not match, and any failure.
+    public static let rollback = DatabaseStatement("ROLLBACK")
+
+    /// Fold a WAL database's committed frames back into the database file itself.
+    ///
+    /// Run **after** the commit and outside the transaction, and only when the
+    /// transaction committed. Without it a WAL database's edit is complete and
+    /// durable — and invisible to everything that reads the file's *bytes*: SQLite
+    /// writes committed frames to the `-wal` sidecar and folds them back only when
+    /// the last connection to the database closes, and the tab's own connection is
+    /// still open (and, being read-only, could not checkpoint even if it were the
+    /// last). The tracked `.db` would therefore be byte-for-byte unchanged, so the
+    /// `didWrite` hook would refresh Local Changes into showing nothing, `git
+    /// commit` would not contain the edit, and the one way the viewer says an edit
+    /// can be undone — with git — would not have anything to undo.
+    ///
+    /// `FULL` rather than `PASSIVE`: passive copies only what no reader is holding
+    /// and reports how much it skipped, which would make "did this reach the file?"
+    /// depend on timing. `RESTART`/`TRUNCATE` additionally wait for every reader to
+    /// leave the WAL, which is more than is needed — the sidecar may stay, the file
+    /// may not be stale. On a database that is not in WAL mode it is a no-op that
+    /// answers a row of `-1`s rather than failing, so it costs a rollback-journal
+    /// database one statement and nothing else.
+    public static let walCheckpoint = DatabaseStatement("PRAGMA wal_checkpoint(FULL)")
 }

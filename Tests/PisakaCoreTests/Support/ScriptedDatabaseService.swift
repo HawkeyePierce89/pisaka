@@ -59,9 +59,12 @@ final class ScriptedDatabaseService: DatabaseServicing, @unchecked Sendable {
     private var gates: [String: Gate] = [:]
     private var openGate: Gate?
     private var closeGate: Gate?
+    private var writeGate: Gate?
     private var openFailure: Error?
+    private var writeSteps: [Result<DatabaseWriteOutcome, Error>] = []
     private var runStorage: [DatabaseStatement] = []
     private var openedStorage: [URL] = []
+    private var writeStorage: [DatabaseWriteTransaction] = []
     private var closeCountStorage = 0
     private var isOpenStorage = false
 
@@ -95,6 +98,56 @@ final class ScriptedDatabaseService: DatabaseServicing, @unchecked Sendable {
         thenServe resultSet: DatabaseResultSet
     ) {
         script(sql, [Step(answer: .failure(error)), Step(answer: .success(resultSet))])
+    }
+
+    /// Answer every `performWrite(_:)` with `outcome`.
+    ///
+    /// Unlike a run, a write is **not** keyed by SQL text: a transaction is a
+    /// list of statements and the model composes it from a plan the test already
+    /// asserted elsewhere, so keying by text would mean restating the composed
+    /// `UPDATE` byte-for-byte in every write test just to script an answer. What
+    /// the write path is actually about is the *outcome* — committed, rolled back
+    /// at zero, rolled back at many, thrown — and what was handed over is read
+    /// back out of `writeTransactions`.
+    func serveWrite(_ outcome: DatabaseWriteOutcome) {
+        scriptWrites([.success(outcome)])
+    }
+
+    /// Answer `performWrite(_:)` with a committed write of `affectedRows` rows.
+    func serveCommittedWrite(affectedRows: Int = 1) {
+        serveWrite(DatabaseWriteOutcome(affectedRows: affectedRows, isCommitted: true))
+    }
+
+    /// Answer `performWrite(_:)` with a rollback at `affectedRows` — the "the row
+    /// changed underneath you" shape at zero, and the "that identity was not
+    /// unique" shape above one.
+    func serveRolledBackWrite(affectedRows: Int) {
+        serveWrite(DatabaseWriteOutcome(affectedRows: affectedRows, isCommitted: false))
+    }
+
+    /// Answer each write in turn, the last one sticking — the same rule the run
+    /// script follows, so "the second write also…" needs no extra machinery.
+    func serveWrites(sequence outcomes: [DatabaseWriteOutcome]) {
+        scriptWrites(outcomes.map { .success($0) })
+    }
+
+    /// Fail every `performWrite(_:)` with `error`.
+    func failWrite(with error: Error = DatabaseError.busy(message: "database is locked")) {
+        scriptWrites([.failure(error)])
+    }
+
+    /// Hold every `performWrite(_:)` until the gate is released — the window a
+    /// test supersedes an in-flight write in, or starts a second one in.
+    func holdWrite(on gate: Gate) {
+        lock.lock()
+        writeGate = gate
+        lock.unlock()
+    }
+
+    private func scriptWrites(_ newSteps: [Result<DatabaseWriteOutcome, Error>]) {
+        lock.lock()
+        writeSteps = newSteps
+        lock.unlock()
     }
 
     /// Fail `open(url:)` with `error`.
@@ -178,6 +231,18 @@ final class ScriptedDatabaseService: DatabaseServicing, @unchecked Sendable {
         return openedStorage
     }
 
+    /// The transactions `performWrite(_:)` was handed, verbatim and in call
+    /// order — the URL it was told to open, the statements with every bound
+    /// value, and the affected-row count Core required.
+    var writeTransactions: [DatabaseWriteTransaction] {
+        lock.lock()
+        defer { lock.unlock() }
+        return writeStorage
+    }
+
+    /// How many writes were asked for, including the ones that threw.
+    var writeCount: Int { writeTransactions.count }
+
     /// How many times `close()` was called — including the calls that closed
     /// nothing, because "closed exactly once" is an assertion about the caller.
     var closeCount: Int {
@@ -250,5 +315,32 @@ final class ScriptedDatabaseService: DatabaseServicing, @unchecked Sendable {
         closeCountStorage += 1
         isOpenStorage = false
         lock.unlock()
+    }
+
+    /// Records the transaction, then answers the script.
+    ///
+    /// Deliberately **not** gated on `isOpenStorage`: a write is a separate,
+    /// short-lived read-write connection the implementation opens for itself, so
+    /// whether this instance's read connection happens to be open says nothing
+    /// about it. An unscripted write throws for the same reason an unscripted
+    /// statement does — a test that forgot to script one must fail as a failure.
+    func performWrite(_ transaction: DatabaseWriteTransaction) async throws -> DatabaseWriteOutcome {
+        lock.lock()
+        writeStorage.append(transaction)
+        let gate = writeGate
+        var queue = writeSteps
+        let step = queue.first
+        if queue.count > 1 {
+            queue.removeFirst()
+            writeSteps = queue
+        }
+        lock.unlock()
+
+        gate?.wait()
+
+        guard let step else {
+            throw Failure.notScripted(sql: transaction.statements.map(\.sql).joined(separator: "; "))
+        }
+        return try step.get()
     }
 }

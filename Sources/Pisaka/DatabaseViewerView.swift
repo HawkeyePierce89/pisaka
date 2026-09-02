@@ -1,4 +1,5 @@
 #if os(macOS)
+import AppKit
 import PisakaCore
 import SwiftUI
 
@@ -23,11 +24,66 @@ import SwiftUI
 /// code font, so the viewer is chrome for zoom purposes and declares no
 /// `ZoomSurface` — the pointer over it zooms the interface, which is what a table
 /// of data means.
+///
+/// **Editing decides nothing either.** Whether a cell may be written at all is
+/// `DatabaseViewerModel.editRefusal(row:column:)`, what a typed string means as a
+/// stored value is `DatabaseCellEntry`, and whether the write landed is the
+/// model's message: this opens a field, hands over what was typed, and draws
+/// whatever came back. NULL is reachable only through the cell menu's explicit
+/// item and never by typing the word — an empty field means the empty string,
+/// which is why a NULL cell seeds an *empty* editor rather than the marker it
+/// renders.
 struct DatabaseViewerView: View {
     @ObservedObject var model: DatabaseViewerModel
 
     /// The interface zone's metrics, inherited from the window root.
     @Environment(\.interfaceMetrics) private var metrics
+
+    /// The cell whose editor is open, or `nil` while the grid is only being read.
+    ///
+    /// A coordinate, not a value: the row number is the *page's*, so an editor
+    /// left open across a page turn would be typing into whatever landed at the
+    /// same coordinates. Every path that replaces the rows raises
+    /// `isLoadingRows` first, which is what closes it.
+    @State private var editing: CellCoordinate?
+    /// The rows token as it stood when `editing` opened.
+    ///
+    /// The anchor for the write's staleness check is the moment the reader chose
+    /// the value they are editing, not the moment they press Return: every
+    /// rows-replacing path bumps the token before its first hop, so a load
+    /// starting under an open editor makes this stale by construction and the
+    /// write is refused. Reading the token at Return instead would leave that
+    /// property to `.onChange(of: model.isLoadingRows)` closing the editor first —
+    /// a per-render diff, which a load that raises and lowers the flag between two
+    /// renders never fires at all (`DatabaseViewerModel.rowsToken`).
+    @State private var editingToken: Int?
+
+    /// What is in the open field, seeded from the cell and never trimmed —
+    /// `DatabaseCellEntry` stores exactly what was typed, spaces included.
+    @State private var draft = ""
+
+    /// Where the keyboard is inside the grid: on a cell, where Return opens its
+    /// editor, or in the open field. One `@FocusState` rather than two, so the
+    /// two states cannot both claim to hold it.
+    @FocusState private var focus: GridFocus?
+
+    /// What a cell Core refuses is drawn at. Faint enough to read as unavailable
+    /// beside an editable neighbour, legible enough that the value is still the
+    /// point — a viewer's whole job is showing what is there, and a view or an
+    /// unaddressable table refuses *every* cell it has.
+    private static let refusedCellOpacity = 0.5
+
+    /// One cell's place on the page.
+    private struct CellCoordinate: Hashable {
+        let row: Int
+        let column: Int
+    }
+
+    /// What the keyboard is on inside the grid.
+    private enum GridFocus: Hashable {
+        case cell(CellCoordinate)
+        case editor(CellCoordinate)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -48,6 +104,14 @@ struct DatabaseViewerView: View {
         // already in flight for the same reconnect. One model is one tab is one
         // connection, so the object *is* the identity the load belongs to.
         .task(id: ObjectIdentifier(model)) { await model.load() }
+        // Every rows-replacing path — a selection, a page turn, a sort, the
+        // re-query after a committed write — raises this before its hop, so it is
+        // the one signal that says "the cell under the open editor is about to
+        // stop being that cell". Closing writes nothing, which is the honest
+        // answer for an edit the reader never committed.
+        .onChange(of: model.isLoadingRows) { isLoading in
+            if isLoading { cancelEditing() }
+        }
     }
 
     // MARK: - The failure
@@ -187,12 +251,13 @@ struct DatabaseViewerView: View {
                         headerRow
                         Divider()
                         ForEach(Array(model.rows.enumerated()), id: \.offset) { index, row in
-                            dataRow(row, isTinted: !index.isMultiple(of: 2))
+                            dataRow(row, at: index, isTinted: !index.isMultiple(of: 2))
                         }
                     }
                 }
                 Divider()
                 footer
+                returnOpensTheFocusedCell
             }
         }
     }
@@ -250,30 +315,248 @@ struct DatabaseViewerView: View {
         }
     }
 
-    private func dataRow(_ row: [DatabaseValue], isTinted: Bool) -> some View {
+    private func dataRow(_ row: [DatabaseValue], at index: Int, isTinted: Bool) -> some View {
         HStack(spacing: 0) {
-            ForEach(Array(row.enumerated()), id: \.offset) { _, value in
-                cell(value)
+            ForEach(Array(row.enumerated()), id: \.offset) { column, value in
+                cell(value, at: CellCoordinate(row: index, column: column))
                 Divider()
             }
         }
         .background(isTinted ? Color.primary.opacity(0.04) : Color.clear)
     }
 
-    /// One cell. NULL is dimmed and italic **as well as** carrying the marker,
-    /// which is the only thing that tells it apart from a text value spelling the
-    /// same word.
-    private func cell(_ value: DatabaseValue) -> some View {
-        Text(value.displayText)
+    /// One cell: the field while it is being edited, the value the rest of the
+    /// time.
+    @ViewBuilder
+    private func cell(_ value: DatabaseValue, at coordinate: CellCoordinate) -> some View {
+        if editing == coordinate {
+            cellEditor(coordinate)
+        } else {
+            cellText(value, at: coordinate)
+        }
+    }
+
+    /// One cell's value. NULL is dimmed and italic **as well as** carrying the
+    /// marker, which is the only thing that tells it apart from a text value
+    /// spelling the same word.
+    ///
+    /// No longer `.textSelection(.enabled)`: on selectable text a double-click
+    /// selects a word, and that is the gesture that now has to open the editor.
+    /// Copying is the cell menu's `Copy`, which puts on the pasteboard exactly the
+    /// rendered text a selection would have carried.
+    ///
+    /// A cell Core refuses is drawn dimmed, is not focusable — so Return cannot
+    /// reach it either — and carries the refusal's own sentence as its tooltip.
+    /// The reason is asked once, here, and nothing about it is re-derived: the
+    /// dimming, the tooltip, the menu's disabled item and the banner the
+    /// double-click produces are four renderings of the one answer.
+    ///
+    /// The dimming is `.opacity` on the whole cell rather than a second
+    /// foreground style, so it composes with the NULL rendering instead of
+    /// competing with it: a refused NULL stays italic and tertiary and simply
+    /// reads fainter, where a greyer `foregroundStyle` would have made a refused
+    /// value and an editable NULL the same colour. It is what tells a view or an
+    /// unaddressable table apart from an editable one at a glance, which hovering
+    /// every cell in turn is not.
+    private func cellText(_ value: DatabaseValue, at coordinate: CellCoordinate) -> some View {
+        let refusal = model.editRefusal(row: coordinate.row, column: coordinate.column)
+        // Captured beside the refusal, and for the same reason the double-click
+        // captures `editingToken`: this is the page the reader is looking at when
+        // they reach for the cell. The menu's own gesture is two moments — the
+        // right-click that builds it and the click on an item — and only the first
+        // is "the value they chose". Read inside the item's action instead, the
+        // token would be whatever the generation had become while the menu sat
+        // open, so a page that landed underneath it would pass the staleness check
+        // and NULL would be written to whichever row now occupies this coordinate,
+        // carrying that row's identity and that row's previous value — and so
+        // committing. `refusal` is already frozen here and `.disabled` does not
+        // re-evaluate under an open menu; the token belongs to the same snapshot.
+        let request = model.rowsToken
+        return Text(value.displayText)
             .font(metrics.scaledFont(.caption))
             .italic(value.isNull)
             .foregroundStyle(value.isNull ? AnyShapeStyle(.tertiary) : AnyShapeStyle(.primary))
             .lineLimit(1)
             .truncationMode(.tail)
-            .textSelection(.enabled)
             .padding(.horizontal, metrics.scaled(6))
             .padding(.vertical, metrics.scaled(3))
             .frame(width: metrics.scaled(160), alignment: .leading)
+            .opacity(refusal == nil ? 1 : Self.refusedCellOpacity)
+            .contentShape(Rectangle())
+            .help(refusal?.message ?? "")
+            .focusable(refusal == nil && isGridIdle)
+            .focused($focus, equals: .cell(coordinate))
+            .onTapGesture(count: 2) { beginEditing(value, at: coordinate) }
+            // The single click is what makes the Return shortcut reachable at all.
+            // `.focusable` alone leaves Tab traversal as the only route to a cell,
+            // and Tab reaches a non-text control only when "Use keyboard
+            // navigation to move focus between controls" is on — off by default —
+            // so without this the documented "press Return while the cell has the
+            // keyboard" is dead on an ordinary Mac. Declared *after* the
+            // double-click so the two-click gesture still wins the disambiguation,
+            // and guarded by the same answer the cell is drawn from: a cell nothing
+            // may edit is not focusable, and focusing it would arm Return over a
+            // refusal.
+            //
+            // It also closes an editor open somewhere *else*. Focus moving out of
+            // a field is not by itself a signal the model ever sees, so without
+            // this the abandoned field stays on screen unfocused while `editing`
+            // still points at it — and `focusedCoordinate` answers `nil` while an
+            // editor is open, so Return would silently stop working on the cell
+            // the reader just clicked. Closing writes nothing, the same answer
+            // Escape and every rows-replacing load give.
+            .onTapGesture {
+                let mayFocus = refusal == nil && isGridIdle
+                // Before the focus is set, because `cancelEditing()` clears it —
+                // and only for an editor open somewhere *else*, which is the whole
+                // of what this is for. A cell being edited draws the field rather
+                // than this text, so `editing == coordinate` here is reachable only
+                // within the double-click SwiftUI has not re-rendered yet; closing
+                // it there would leave the feature's primary gesture opening an
+                // editor and shutting it again, and only when the arbitration
+                // happened to run the two handlers in that order.
+                if let editing, editing != coordinate { cancelEditing() }
+                if mayFocus { focus = .cell(coordinate) }
+            }
+            .contextMenu { cellMenu(value, at: coordinate, refusal: refusal, request: request) }
+    }
+
+    /// The open editor: a plain field seeded from the cell.
+    ///
+    /// A NULL cell seeds **empty**, because an empty entry is the empty string and
+    /// NULL is a gesture: seeding the marker would make Return store the *text*
+    /// `NULL`, which is the one confusion the marker exists to prevent. Return
+    /// commits through the model, Escape closes the field and writes nothing.
+    private func cellEditor(_ coordinate: CellCoordinate) -> some View {
+        TextField("", text: $draft)
+            .textFieldStyle(.roundedBorder)
+            .font(metrics.scaledFont(.caption))
+            .focused($focus, equals: .editor(coordinate))
+            .onSubmit { commitEditing(coordinate) }
+            .onExitCommand { cancelEditing() }
+            .padding(.horizontal, metrics.scaled(2))
+            .frame(width: metrics.scaled(160), alignment: .leading)
+            .onAppear { focus = .editor(coordinate) }
+    }
+
+    /// The cell's menu: the rendered text, and the one gesture that reaches NULL.
+    @ViewBuilder
+    private func cellMenu(
+        _ value: DatabaseValue,
+        at coordinate: CellCoordinate,
+        refusal: DatabaseEditRefusal?,
+        request: Int
+    ) -> some View {
+        Button("Copy") { copy(value) }
+        Button("Set to NULL") {
+            // `request` was captured with the cell, not read here and not inside
+            // the task: see `cellText(_:at:)` and `DatabaseViewerModel.rowsToken`.
+            Task {
+                await model.setCellToNull(row: coordinate.row, column: coordinate.column, request: request)
+            }
+        }
+        .disabled(refusal != nil || !isGridIdle)
+    }
+
+    // MARK: - Opening, committing and abandoning an editor
+
+    /// Whether an edit may start at all.
+    ///
+    /// Not a judgement about the cell — that is Core's — but about the grid: a
+    /// write in flight was planned against the values currently on screen and is
+    /// about to replace one of them, and a page in flight is about to replace all
+    /// of them. An editor opened over either would be typing into rows that no
+    /// longer exist by the time Return arrives.
+    private var isGridIdle: Bool { !model.isWriting && !model.isLoadingRows }
+
+    /// Double-click, or Return on the focused cell.
+    ///
+    /// A refused cell opens no editor and the attempt is reported instead, which
+    /// is what puts the refusal's own sentence in the banner. Reported
+    /// synchronously and through `reportEditRefusal` rather than through the write
+    /// API: nothing is sent, nothing is composed, and no entry nobody typed is
+    /// invented to be refused (`DatabaseViewerModel.reportEditRefusal`).
+    private func beginEditing(_ value: DatabaseValue, at coordinate: CellCoordinate) {
+        guard isGridIdle else { return }
+        guard model.canEdit(row: coordinate.row, column: coordinate.column) else {
+            model.reportEditRefusal(row: coordinate.row, column: coordinate.column)
+            return
+        }
+        draft = value.isNull ? "" : value.displayText
+        // Captured here rather than at Return: see `editingToken`.
+        editingToken = model.rowsToken
+        editing = coordinate
+    }
+
+    /// Return commits what is in the field. The editor closes first, so the row
+    /// the write re-reads is drawn as a value rather than under a stale field.
+    ///
+    /// The rows token is the one `beginEditing` captured, so any page that
+    /// replaced the rows between opening the field and this keystroke — landed or
+    /// still in flight — refuses the write rather than letting it be planned
+    /// against whatever row has taken this coordinate (`editingToken`,
+    /// `DatabaseViewerModel.rowsToken`).
+    private func commitEditing(_ coordinate: CellCoordinate) {
+        let typed = draft
+        let request = editingToken ?? model.rowsToken
+        cancelEditing()
+        Task {
+            await model.updateCell(
+                row: coordinate.row,
+                column: coordinate.column,
+                entry: .typed(typed),
+                request: request
+            )
+        }
+    }
+
+    /// Escape — and every path that replaces the rows under an open editor.
+    private func cancelEditing() {
+        editing = nil
+        editingToken = nil
+        draft = ""
+        focus = nil
+    }
+
+    /// The rendered text, which is the same string the grid is showing: a blob
+    /// copies its placeholder and NULL copies the marker, because that is what the
+    /// reader pointed at.
+    private func copy(_ value: DatabaseValue) {
+        let board = NSPasteboard.general
+        board.clearContents()
+        board.setString(value.displayText, forType: .string)
+    }
+
+    /// Return opens the focused cell's editor.
+    ///
+    /// A zero-sized button carrying the shortcut rather than a key handler on the
+    /// cell itself: `onKeyPress(_:)` is macOS 14 and this app runs on 13. It is
+    /// enabled **only** while a grid cell actually holds the keyboard, so it can
+    /// take Return neither from the field it opens nor from anything else the
+    /// window is showing.
+    private var returnOpensTheFocusedCell: some View {
+        Button("Edit Cell") { beginEditingFocusedCell() }
+            .keyboardShortcut(.return, modifiers: [])
+            .buttonStyle(.plain)
+            .opacity(0)
+            .frame(width: 0, height: 0)
+            .disabled(focusedCoordinate == nil)
+            .accessibilityHidden(true)
+    }
+
+    /// The cell holding the keyboard, or `nil` when an editor is open or the
+    /// keyboard is somewhere else entirely.
+    private var focusedCoordinate: CellCoordinate? {
+        guard editing == nil, case .some(.cell(let coordinate)) = focus else { return nil }
+        return coordinate
+    }
+
+    private func beginEditingFocusedCell() {
+        guard let coordinate = focusedCoordinate,
+              model.rows.indices.contains(coordinate.row),
+              model.rows[coordinate.row].indices.contains(coordinate.column)
+        else { return }
+        beginEditing(model.rows[coordinate.row][coordinate.column], at: coordinate)
     }
 
     // MARK: - Where the reader is

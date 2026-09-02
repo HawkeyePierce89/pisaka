@@ -48,10 +48,40 @@ import Foundation
 /// page of it (`DatabaseQuery.page`, `LIMIT`/`OFFSET` bound), so opening a
 /// hundred-million-row table costs one page-sized read and one `count(*)`.
 ///
-/// **A reader, and only a reader.** Part 1 sends nothing but `SELECT`s and
-/// pragmas; it neither raises the disk-writer gate nor waits on it, exactly like
-/// the symbol index and the terminal. Part 2's writes arrive as new seam members
-/// and will make that decision for themselves.
+/// **It consults the disk-writer gate and never raises it.** Reading is exactly
+/// what it was: `SELECT`s and pragmas that neither take the gate nor wait on it,
+/// like the symbol index and the terminal. The one *write* — a cell edit — asks
+/// `isWriteBlocked()` in its synchronous prefix and refuses while a
+/// worktree-mutating operation is in flight, then, once committed, tells the app
+/// through `didWrite()`. Both are injected closures with harmless defaults, so
+/// nothing in this file names a gate call, a `LocalChangesModel` or a refresh:
+/// the model knows only that something may be in the way and that something
+/// wants to hear when the file changed.
+///
+/// **The write is a separate, short-lived connection.** `performWrite(_:)` opens
+/// the transaction's own `url` read-write, commits or rolls back and closes
+/// before it returns, so this tab's connection stays read-only for its whole life
+/// and a viewer tab never holds unflushed state.
+///
+/// **Row identity is resolved once per selection and travels hidden.** Editing
+/// one cell means naming one row, and which of SQLite's two ways of doing that
+/// applies is a fact about the table (`DatabaseRowIdentity`). So a selection
+/// asks the rowid probe once, alongside the schema, and every page it then
+/// composes carries the answer as a **trailing** result column — appended last
+/// precisely so every 1-based `ORDER BY` ordinal, every grid column position and
+/// the shape probe go on meaning what they meant without it. The column is split
+/// back off in `publish(_:table:)` **by position and count**, never by name: on a
+/// table with an `INTEGER PRIMARY KEY` alias SQLite answers the appended column
+/// under the *alias column's* name (`SELECT *, rowid FROM r` answers `id|v|id`),
+/// so a name match would either find the wrong column or none. `rows` and
+/// `gridColumns` are therefore exactly what part 1 published, and the grid shows
+/// no column the reader did not ask for.
+///
+/// **A probe that fails is an answer, not a failure.** A `WITHOUT ROWID` table
+/// refuses the probe at prepare time with SQLite's own `no such column: rowid`,
+/// and that is the probe working: it degrades to the primary-key strategy and
+/// publishes no banner, because *reading* the page still works and the refusal
+/// (with its own sentence) is what the reader meets only if they try to edit.
 @MainActor
 public final class DatabaseViewerModel: ObservableObject {
 
@@ -59,10 +89,14 @@ public final class DatabaseViewerModel: ObservableObject {
     @Published public private(set) var entries: [DatabaseTableEntry] = []
 
     /// The selected table or view's name, or `nil` before anything is selected.
-    @Published public private(set) var selectedTable: String?
+    @Published public private(set) var selectedTable: String? {
+        didSet { refreshEditTarget() }
+    }
 
     /// The selected table's columns, as the pragma described them.
-    @Published public private(set) var columns: [DatabaseColumn] = []
+    @Published public private(set) var columns: [DatabaseColumn] = [] {
+        didSet { refreshEditTarget() }
+    }
 
     /// The grid's column headers — the names the **page statement** answered,
     /// which is what the rows are actually positioned against.
@@ -70,7 +104,9 @@ public final class DatabaseViewerModel: ObservableObject {
     /// Deliberately not `columns.map(\.name)`: a hidden column appears in the
     /// pragma and not in `SELECT *`, so reading the headers off the schema would
     /// shift every cell in such a table one column to the left.
-    @Published public private(set) var gridColumns: [String] = []
+    @Published public private(set) var gridColumns: [String] = [] {
+        didSet { refreshEditTarget() }
+    }
 
     /// The page of rows on screen.
     @Published public private(set) var rows: [[DatabaseValue]] = []
@@ -82,15 +118,43 @@ public final class DatabaseViewerModel: ObservableObject {
     @Published public private(set) var sort: DatabaseSortState?
 
     /// The last failure's own words, or `nil` when the last thing that happened
-    /// worked. Never a sentence this layer wrote: it is SQLite's message or the
-    /// schema parser's description of the shape it could not read.
+    /// worked.
+    ///
+    /// On the **read** path it is never a sentence this layer wrote: it is
+    /// SQLite's message or the schema parser's description of the shape it could
+    /// not read. The **write** path is the one place that phrases anything, and
+    /// it phrases only what SQLite has no words for — a refusal that never
+    /// reached a database (`DatabaseEditRefusal.message`, the disk-writer gate,
+    /// a second edit while one is in flight) and the two readings of an
+    /// affected-row count that came back wrong. A write that actually *failed*
+    /// still arrives here in SQLite's own words, like every read.
     @Published public private(set) var errorMessage: String?
+
+    /// How the selected table's rows are addressed — the fact every cell edit is
+    /// planned against, resolved once per selection.
+    ///
+    /// `.unavailable(.noRowIdentity)` while nothing is selected, which is the
+    /// honest answer to "may a cell here be edited?" for a grid with no cells: a
+    /// surface asking the question before a table is chosen is told no, and told
+    /// it by the same value it would be told it by afterwards.
+    @Published public private(set) var rowIdentity: DatabaseRowIdentity = .unavailable(.noRowIdentity) {
+        didSet { refreshEditTarget() }
+    }
 
     /// Whether the table listing is being loaded.
     @Published public private(set) var isLoadingEntries = false
 
     /// Whether the schema and page are being loaded.
     @Published public private(set) var isLoadingRows = false
+
+    /// Whether a cell edit is in flight.
+    ///
+    /// One per tab: the second edit arriving while this is up is refused rather
+    /// than queued, because the first is still deciding whether the row it named
+    /// is the row that is there, and a second `UPDATE` composed against the page
+    /// on screen would be addressed by values the first may be in the middle of
+    /// replacing.
+    @Published public private(set) var isWriting = false
 
     /// The database this tab is showing — the URL the tab was opened with,
     /// spelled as the user spelled it.
@@ -104,6 +168,30 @@ public final class DatabaseViewerModel: ObservableObject {
     public private(set) var fileURL: URL
 
     private let service: DatabaseServicing
+
+    /// Whether a worktree-mutating operation is in flight right now, asked of the
+    /// app rather than known here.
+    ///
+    /// The viewer is a **reader** that has grown one write, and the seventh
+    /// writer bracket's rule is the one it has to keep on the correct side of: it
+    /// must not *raise* the gate — a cell edit is not a worktree rewrite and
+    /// serializing a branch switch behind one would be backwards — but it must
+    /// not write a file out from under an operation that is in the middle of
+    /// replacing it either. So it asks, and refuses when the answer is yes.
+    /// Wired in the scene to the same `LocalChangesModel.isReverting` flag ⌘S and
+    /// the project-tree file operations refuse on; defaulted to "nothing is in
+    /// the way" so every existing construction site and test is unchanged.
+    private let isWriteBlocked: @MainActor () -> Bool
+
+    /// Called after a write **committed**, so the app can re-read what the file
+    /// now says.
+    ///
+    /// The database is a file in the worktree, so an edit that lands makes it
+    /// modified: Local Changes is stale the moment this returns. Wired to the
+    /// same generation-pinned refresh a save already uses. Never called for a
+    /// rollback or a failure, which change nothing on disk and so leave nothing
+    /// stale.
+    private let didWrite: @MainActor () -> Void
 
     /// Ordering token for the table listing.
     private var entriesGeneration = 0
@@ -139,6 +227,25 @@ public final class DatabaseViewerModel: ObservableObject {
     /// banner" for the re-open in front of it and a recovery for the next one.
     private var pendingReselection: String?
 
+    /// The alias this selection's pages carry as their trailing identity column,
+    /// or `nil` when they carry none (a view, a `WITHOUT ROWID` table, a table
+    /// shadowing all three spellings).
+    ///
+    /// Written once per selection, from the probe, and read by every page load
+    /// the selection then makes — the probe is a question about the *table*, so
+    /// re-asking it on a page turn or a sort toggle would be one prepare per
+    /// click for an answer that cannot have changed within one selection.
+    private var identityAlias: DatabaseRowIdAlias?
+
+    /// The identity value each published row carries, positionally parallel to
+    /// `rows`, and empty when the page carried none.
+    ///
+    /// Kept beside the rows rather than inside them: a row on screen is exactly
+    /// what the grid draws, and threading an extra value through it would make
+    /// every column index in this file one that has to remember whether it is
+    /// counting the identity or not.
+    private(set) var rowIdentityValues: [DatabaseValue] = []
+
     /// What the rows on screen were loaded with — the table they came from, the
     /// page they are and the sort they are in — or `nil` while the grid is empty.
     /// Written by `publish(_:table:)` alone, which is the only thing that puts
@@ -155,9 +262,20 @@ public final class DatabaseViewerModel: ObservableObject {
         let sort: DatabaseSortState?
     }
 
+    /// Which of the three things that can put a sentence in the one message slot
+    /// put the current one there.
+    ///
+    /// A write is the third because it is independently re-triggerable and
+    /// **outlives the loads around it**: the reader edits a cell, the edit is
+    /// refused, and the tab's `.task` refreshes the listing a moment later — with
+    /// two sources the refresh would clear the only sentence explaining why
+    /// nothing happened, and a page turn would do the same. So a write's message
+    /// is cleared by the next write that succeeds, or by moving to another table
+    /// (whose rows the sentence says nothing about), and by nothing else.
     private enum ErrorSource {
         case entries
         case rows
+        case write
     }
 
     /// - Parameters:
@@ -165,10 +283,21 @@ public final class DatabaseViewerModel: ObservableObject {
     ///   - service: the seam. One instance per tab: a connection is one file.
     ///   - pageSize: how many rows a page holds; injectable so the paging tests
     ///     can use a page small enough to write by hand.
-    public init(fileURL: URL, service: DatabaseServicing, pageSize: Int = DatabasePage.defaultSize) {
+    ///   - isWriteBlocked: the disk-writer gate, read at the moment an edit is
+    ///     asked for. Defaulted to "nothing is in the way".
+    ///   - didWrite: what to run after a committed edit. Defaulted to nothing.
+    public init(
+        fileURL: URL,
+        service: DatabaseServicing,
+        pageSize: Int = DatabasePage.defaultSize,
+        isWriteBlocked: @escaping @MainActor () -> Bool = { false },
+        didWrite: @escaping @MainActor () -> Void = {}
+    ) {
         self.fileURL = fileURL
         self.service = service
         self.page = DatabasePage(size: pageSize)
+        self.isWriteBlocked = isWriteBlocked
+        self.didWrite = didWrite
     }
 
     // MARK: - Loading
@@ -241,6 +370,19 @@ public final class DatabaseViewerModel: ObservableObject {
         return rowsGeneration
     }
 
+    /// The rows token as it stands, **without** bumping it — what a write captures
+    /// synchronously in the gesture that starts it.
+    ///
+    /// The same rule as `prepareForRowsChange()` and for the same reason, with the
+    /// one difference that makes it a second method rather than a parameter: a
+    /// write publishes no page of its own, so it must not supersede the loads
+    /// around it. It captures the token it means to write *against* and is refused
+    /// when a load has replaced the page since — where a read bumps the token and
+    /// wins. Without this the plan would be composed against whatever the grid
+    /// held when the `Task` was picked up, which is not necessarily what the
+    /// reader was looking at when they pressed Return.
+    public var rowsToken: Int { rowsGeneration }
+
     /// Show `table`: its columns, its row count and its first page.
     ///
     /// Selecting a table the grid is already showing is a refresh — the sort
@@ -264,15 +406,37 @@ public final class DatabaseViewerModel: ObservableObject {
             columns = []
             gridColumns = []
             rows = []
+            clearRowIdentity()
             shown = nil
             page.reset()
         }
+        // A write's message is about a cell of one particular page, and `select`
+        // re-reads that table's schema, count and page whichever call it is: the
+        // move that leaves the cell behind, and the refresh — `reselectIfPending`
+        // after a reconnect — that replaces it with what the database says now.
+        // Both are the "reload the table" three of those messages *instruct*, so
+        // a message that outlived one would accuse the reader of a stale row over
+        // rows that are not stale. It still survives everything else — a listing
+        // refresh, a page turn, a sort — because those leave the cell it names on
+        // screen.
+        clearError(from: .write)
         isLoadingRows = true
 
         do {
             let schema = try await service.run(DatabaseQuery.columnSchema(table: table))
             guard generation == rowsGeneration else { return }
             columns = try DatabaseSchema.columns(from: schema)
+
+            // Asked here — once per selection, with the schema and before the
+            // count — because its answer decides the *shape* of every page this
+            // selection composes, and a page is composed three lines down. It is
+            // deliberately not part of the `do` block's failure story: a probe
+            // that fails has answered (`resolveIdentityAlias`), so nothing it
+            // does can reach the `catch` and put a banner over a page that reads
+            // perfectly well.
+            let alias = await resolveIdentityAlias(table: table)
+            guard generation == rowsGeneration else { return }
+            identityAlias = alias
 
             let counted = try await service.run(DatabaseQuery.rowCount(table: table))
             guard generation == rowsGeneration else { return }
@@ -365,6 +529,20 @@ public final class DatabaseViewerModel: ObservableObject {
         await loadPage(table: table, generation: generation)
     }
 
+    /// Follow the file to a new path, keeping the open connection.
+    ///
+    /// A rename moves the *name*, not the inode: the handle this tab opened goes
+    /// on answering the same database, so nothing has to be re-read and the page
+    /// on screen stays. What must follow the rename is `fileURL`, because a cell
+    /// edit opens that path read-write of its own (`updateCell`) — and would
+    /// otherwise open, or fail to open, the name the tab was created under, for
+    /// the life of the tab. `reload(at:)` is the heavier sibling, for the case
+    /// where the *file* changed and not just its name.
+    public func retarget(to url: URL) {
+        guard !isClosed else { return }
+        fileURL = url
+    }
+
     /// Re-open the file and re-read everything on screen — what an operation that
     /// rewrote the database under this tab calls.
     ///
@@ -404,6 +582,21 @@ public final class DatabaseViewerModel: ObservableObject {
         rowsGeneration += 1
         isLoadingRows = false
         isOpen = false
+        // The rows stay on screen — a reconnect blanks no good page — but how they
+        // are *addressed* does not survive it. `reload` is what a git operation
+        // calls once the file has been replaced, so from here until the
+        // re-selection republishes an identity the page on screen names rows of a
+        // database that is gone, while `fileURL` already names the one that
+        // replaced it. Left alone, `editTarget` would go on answering "yes, this
+        // cell may be edited" for that whole window — and an edit committed in it
+        // would carry the old page's rowid and the old page's previous value into
+        // the *new* file, where the `IS` guard cannot tell the difference if the
+        // row it lands on happens to match. Clearing the identity turns every cell
+        // into the refusal it already is for an unaddressable table, which is what
+        // the re-selection then lifts. The window is not only the reconnect's own
+        // few statements: a re-open that fails leaves it open for the life of the
+        // tab.
+        clearRowIdentity()
         await service.close()
         await load()
     }
@@ -427,16 +620,18 @@ public final class DatabaseViewerModel: ObservableObject {
             columns = []
             gridColumns = []
             rows = []
+            clearRowIdentity()
             sort = nil
             shown = nil
             page.reset()
-            // The rows this tab was showing are gone, so a `.rows` message about
-            // them goes with them: a banner left over from the page load before
-            // the re-open would sit above an empty grid and an unselected sidebar,
-            // explaining a state that no longer exists. `clearError` is
-            // source-checked, so an `.entries` message the re-open itself set is
-            // untouched.
+            // The rows this tab was showing are gone, so a message about them goes
+            // with them — the page load's and the write's alike: a banner left
+            // over from before the re-open would sit above an empty grid and an
+            // unselected sidebar, explaining a state that no longer exists.
+            // `clearError` is source-checked, so an `.entries` message the re-open
+            // itself set is untouched.
             clearError(from: .rows)
+            clearError(from: .write)
             return
         }
         await select(table: table)
@@ -452,6 +647,7 @@ public final class DatabaseViewerModel: ObservableObject {
         isClosed = true
         isOpen = false
         shown = nil
+        clearRowIdentity()
         entriesGeneration += 1
         rowsGeneration += 1
         isLoadingEntries = false
@@ -471,6 +667,276 @@ public final class DatabaseViewerModel: ObservableObject {
 
     /// The 1-based row range on screen, or `nil` when the page is empty.
     public var displayedRows: ClosedRange<Int>? { page.displayedRows(loaded: rows.count) }
+
+    // MARK: - What may be edited
+
+    /// Everything an edit is planned against — the table, its schema, the grid's
+    /// columns and how its rows are addressed — or `nil` while nothing is
+    /// selected.
+    ///
+    /// Assembled here rather than in the surface so the question "may this cell
+    /// be edited?" and the statement that edits it are answered from **one**
+    /// value: the grid greys a cell out from `editRefusal(row:column:)`, the
+    /// planner refuses from the same target, and the two therefore cannot come
+    /// to different conclusions about the same cell.
+    /// Stored rather than computed, and rebuilt only by the `didSet` on each of
+    /// the four properties it is made of: the surface asks for a refusal on every
+    /// cell it draws, and building the target resolves every grid column against
+    /// the schema. Rebuilt per cell that was the grid's hottest allocation; built
+    /// where the four change, it happens once per published page.
+    public private(set) var editTarget: DatabaseEditTarget?
+
+    /// Re-derive `editTarget` from the four properties that make it up.
+    ///
+    /// Run from their `didSet`s rather than from the handful of methods that
+    /// assign them, so a later path that clears or sets one cannot forget it and
+    /// leave the grid greying cells out from a previous table's schema.
+    private func refreshEditTarget() {
+        guard let selectedTable else {
+            editTarget = nil
+            return
+        }
+        editTarget = DatabaseEditTarget(
+            table: selectedTable,
+            columns: columns,
+            gridColumns: gridColumns,
+            identity: rowIdentity
+        )
+    }
+
+    /// Why the cell at `row`/`column` may not be edited, or `nil` when it may.
+    ///
+    /// The whole decision, including the per-cell half of it: a table may be
+    /// perfectly addressable while *this* cell is a blob or *this* column is
+    /// generated. The surface never re-derives any of it — it draws this answer
+    /// and shows the refusal's own sentence when the reader tries anyway.
+    public func editRefusal(row: Int, column: Int) -> DatabaseEditRefusal? {
+        guard let editTarget, rows.indices.contains(row) else { return .cellNotOnPage }
+        return DatabaseUpdatePlanner.refusal(
+            target: editTarget,
+            row: rows[row],
+            rowIdentity: rowIdentityValue(at: row),
+            columnIndex: column
+        )
+    }
+
+    /// Whether the cell at `row`/`column` may be edited.
+    public func canEdit(row: Int, column: Int) -> Bool {
+        editRefusal(row: row, column: column) == nil
+    }
+
+    /// Put the cell's refusal in the banner, for a reader who tried anyway.
+    ///
+    /// The gesture that opens an editor is the same gesture on a cell that has
+    /// none, so the refusal has to be *said* somewhere; this says it without going
+    /// near the write API. Routing the attempt through `updateCell` instead would
+    /// mean handing the planner an entry nobody typed purely to be refused again —
+    /// and for a blob cell that entry is the `<n bytes>` placeholder, one missing
+    /// refusal away from being written into the cell — while the gate's own
+    /// sentence would mask the cell's whenever a worktree operation happened to be
+    /// in flight. A cell that may be edited says nothing, which is the caller
+    /// having asked the wrong question rather than a state worth a banner.
+    public func reportEditRefusal(row: Int, column: Int) {
+        guard let refusal = editRefusal(row: row, column: column) else { return }
+        setMessage(refusal.message, from: .write)
+    }
+
+    /// The identity value the page answered for the row at `index`, or `nil`
+    /// where the page carried none.
+    func rowIdentityValue(at index: Int) -> DatabaseValue? {
+        guard rowIdentityValues.indices.contains(index) else { return nil }
+        return rowIdentityValues[index]
+    }
+
+    // MARK: - Writing one cell
+
+    /// Write what the reader typed into the cell at `row`/`column`.
+    ///
+    /// The whole flow, in the order the refusals are asked:
+    ///
+    /// 1. **The page it was planned against.** `request` is the rows token the
+    ///    gesture captured; a load that landed since owns a newer one and the
+    ///    write is refused rather than re-aimed at the coordinate's new occupant.
+    /// 2. **A page in flight.** A load that has started but not landed owns the
+    ///    same token the gesture captured, so the check above cannot see it; the
+    ///    rows it is about to replace are the ones the write would be planned
+    ///    against, and it is refused for the same reason and in the same words.
+    /// 3. **The disk-writer gate.** An operation that is rewriting the worktree
+    ///    may be replacing this very file, so an edit is refused while one is in
+    ///    flight rather than raced against it.
+    /// 4. **The plan.** `DatabaseUpdatePlanner` decides whether the cell may be
+    ///    written at all and composes the statement if it may; a refusal is shown
+    ///    in its own words and **nothing is sent**.
+    /// 5. **One write per tab.** A second edit arriving while one is in flight is
+    ///    refused, not queued: the plan behind it was composed against the page on
+    ///    screen, whose values the first write may be in the middle of replacing.
+    ///
+    /// Then one `performWrite(_:)` on a short-lived read-write connection at the
+    /// tab's **current** `fileURL` — the one thing that is true after a rename —
+    /// carrying a transaction that commits only if exactly one row changed.
+    ///
+    /// **The rows token is captured, not bumped.** A write is not a load and
+    /// publishes no page of its own, so it must not supersede the loads around it;
+    /// what it must do is notice that one of *them* superseded *it*. A selection
+    /// or a page turn that lands while the write is in flight therefore wins: the
+    /// newer state stays on screen and the write publishes nothing — no message
+    /// and no re-query. The commit still stands, which is the honest outcome: the
+    /// row was written, and what is on screen is a different page — and `didWrite`
+    /// is told either way, because that hook is about the file on disk rather than
+    /// about the page this tab happens to be holding.
+    public func updateCell(row: Int, column: Int, entry: DatabaseCellEntry, request: Int? = nil) async {
+        guard !isClosed else { return }
+        // Asked first, and before anything is read off the page: `request` is the
+        // token the gesture captured (`rowsToken`), so a page that landed between
+        // the keystroke and this task body turns the write into nothing at all
+        // rather than into a write of the typed text against whatever row now
+        // occupies that coordinate — which would carry that row's identity and
+        // that row's previous value, and so would commit.
+        if let request, request != rowsGeneration {
+            setMessage(DatabaseEditRefusal.cellNotOnPage.message, from: .write)
+            return
+        }
+        // The token cannot see a load that is *still in flight*: it was bumped
+        // before that load's first hop, so a gesture made after it captured the
+        // same number this comparison reads. The rows on screen are nonetheless
+        // the ones that load is about to replace, so a write planned against them
+        // is refused here rather than left to whichever caller happened to check
+        // first — the surface asks the same question before it opens an editor,
+        // but a caller that is not the grid inherits nothing from that.
+        guard !isLoadingRows else {
+            setMessage(DatabaseEditRefusal.cellNotOnPage.message, from: .write)
+            return
+        }
+
+        if isWriteBlocked() {
+            setMessage(Self.gateBlockedMessage, from: .write)
+            return
+        }
+        guard let target = editTarget, rows.indices.contains(row), let table = selectedTable else {
+            setMessage(DatabaseEditRefusal.cellNotOnPage.message, from: .write)
+            return
+        }
+        let plan: DatabaseUpdatePlan
+        switch DatabaseUpdatePlanner.plan(
+            target: target,
+            row: rows[row],
+            rowIdentity: rowIdentityValue(at: row),
+            columnIndex: column,
+            entry: entry
+        ) {
+        case .success(let composed):
+            plan = composed
+        case .failure(let refusal):
+            setMessage(refusal.message, from: .write)
+            return
+        }
+        guard !isWriting else {
+            setMessage(Self.writeInFlightMessage, from: .write)
+            return
+        }
+
+        let generation = rowsGeneration
+        let transaction = DatabaseWriteTransaction(
+            url: fileURL,
+            statements: [plan.statement],
+            requiredAffectedRows: plan.requiredAffectedRows
+        )
+        isWriting = true
+
+        do {
+            let outcome = try await service.performWrite(transaction)
+            // Cleared on **every** path, superseded included, and this is the one
+            // flag that behaves differently from `isLoadingRows` for it: a
+            // superseded load leaves its spinner to whichever load superseded it,
+            // while nothing but this write ever raises `isWriting`, so a write
+            // that returned to find itself superseded is the only thing that can
+            // lower it. Left up, the tab refuses every later edit for its life.
+            isWriting = false
+            // Told before the supersession guard, because it is not about the
+            // screen: a committed edit changed a tracked file on disk whether or
+            // not this tab still shows the page it changed, and Local Changes
+            // would otherwise go on calling the database unmodified until some
+            // unrelated refresh corrected it.
+            if outcome.isCommitted { didWrite() }
+            // Superseded, so nothing is said — the rollback sentences included,
+            // and deliberately. All three of them ("Reload the table and try
+            // again", and the count that did not identify) are about the page the
+            // write was planned against, and that page is gone: a newer load has
+            // published or is about to. Said here they would sit above rows they
+            // describe nothing on, which is the same lie a superseded load telling
+            // its own story would be.
+            guard generation == rowsGeneration else { return }
+            await settle(outcome, table: table)
+        } catch {
+            isWriting = false
+            guard generation == rowsGeneration else { return }
+            setError(error, from: .write)
+        }
+    }
+
+    /// Store NULL in the cell at `row`/`column` — the explicit gesture, which is
+    /// the only way NULL is reachable.
+    ///
+    /// Typing the word "null" stores the text `null`, and an empty field stores
+    /// the empty string (`DatabaseCellEntry`); a reader who means the absence of a
+    /// value says so with this instead of with a spelling the column might
+    /// legitimately hold.
+    public func setCellToNull(row: Int, column: Int, request: Int? = nil) async {
+        await updateCell(row: row, column: column, entry: .null, request: request)
+    }
+
+    /// Read what the connection reported back.
+    ///
+    /// The three outcomes are told apart because they mean different things to
+    /// the reader and only one of them is their mistake. A commit re-reads the
+    /// page — **only** the page, since an `UPDATE` changes no row's existence and
+    /// so cannot change the count. A rollback
+    /// at zero is the collision case: the row was addressed by identity *and* by
+    /// the value the grid was showing, so nothing matching means somebody changed
+    /// it in between, and the edit was thrown away rather than applied over
+    /// theirs. A rollback at anything else means the identity did not identify,
+    /// which is a fact about the table worth stating with its number.
+    ///
+    /// No path here blanks a good page: a refused write leaves the rows, the
+    /// schema and the position exactly as they were, under the sentence.
+    private func settle(_ outcome: DatabaseWriteOutcome, table: String) async {
+        guard outcome.isCommitted else {
+            setMessage(Self.rollbackMessage(affectedRows: outcome.affectedRows), from: .write)
+            return
+        }
+        clearError(from: .write)
+        // The re-query takes a **new** token rather than the write's own, and this
+        // is the one place a rows-replacing load is not started by a gesture that
+        // could bump one for it. What it lands is not what the write was planned
+        // against: sorting on the edited column reorders the page around the row
+        // that just changed, and anything else holding the database may have
+        // rewritten the rest of it meanwhile. Left on the write's token, a gesture
+        // captured *before* the write would still pass `updateCell`'s staleness
+        // check afterwards and be planned against a page nobody has looked at —
+        // carrying that row's identity and that row's previous value, and so
+        // committing. That is precisely what `rowsToken` exists to prevent.
+        let generation = prepareForRowsChange()
+        isLoadingRows = true
+        await loadPage(table: table, generation: generation)
+    }
+
+    /// Refused because the worktree is being rewritten right now.
+    static let gateBlockedMessage =
+        "The project is being changed on disk right now, so this database cannot be edited. "
+        + "Try again when that finishes."
+
+    /// Refused because this tab already has an edit in flight.
+    static let writeInFlightMessage =
+        "Another edit to this database is still being written. Wait for it to finish and try again."
+
+    /// What a rollback is told as, by the count that caused it.
+    static func rollbackMessage(affectedRows: Int) -> String {
+        guard affectedRows != 0 else {
+            return "This row changed underneath you, so nothing was written. Reload the table and try again."
+        }
+        let counted = affectedRows == 1 ? "1 row" : "\(affectedRows) rows"
+        return "This edit would have changed \(counted) instead of exactly one, so nothing was written."
+    }
 
     // MARK: - One page
 
@@ -497,14 +963,58 @@ public final class DatabaseViewerModel: ObservableObject {
 
     /// The one statement a page load sends — always `LIMIT`ed, never a bare
     /// `SELECT *`.
+    ///
+    /// `identityAlias` appends the trailing identity column when this selection
+    /// has one; `splitIdentity(from:)` takes it back off before anything is
+    /// published, so nothing between here and the grid has to know it was there.
     private func pageStatement(table: String) -> DatabaseStatement {
         DatabaseQuery.page(
             table: table,
             orderByColumnIndex: sort?.columnIndex,
             ascending: sort?.direction.isAscending ?? true,
             limit: page.size,
-            offset: page.offset
+            offset: page.offset,
+            identityAlias: identityAlias
         )
+    }
+
+    /// Ask the database, once per selection, whether this table's rows can be
+    /// addressed by rowid — and answer `nil` rather than throwing when they
+    /// cannot.
+    ///
+    /// The probe is `SELECT <alias> FROM "t" LIMIT 0`: free on a rowid table,
+    /// and a prepare-time failure on a `WITHOUT ROWID` one. **Every** failure is
+    /// read the same way, "no rowid here", which is why this cannot fail: a
+    /// connection that has gone away, a table dropped between the listing and the
+    /// selection and a `WITHOUT ROWID` table are indistinguishable from here, and
+    /// the two that are not really about identity will fail again — loudly, with
+    /// a banner — on the count or the page a moment later.
+    ///
+    /// A view is never probed: a view's rows are computed and have no rowid, so
+    /// the probe is a statement asked to confirm what the listing already said.
+    /// Nor is a table shadowing all three spellings, because there is then no
+    /// spelling left to ask with (`DatabaseRowIdentity.probeAlias(columns:)`).
+    private func resolveIdentityAlias(table: String) async -> DatabaseRowIdAlias? {
+        guard kind(of: table) == .table else { return nil }
+        guard let candidate = DatabaseRowIdentity.probeAlias(columns: columns) else { return nil }
+        do {
+            _ = try await service.run(DatabaseQuery.rowIdProbe(table: table, alias: candidate))
+            return candidate
+        } catch {
+            return nil
+        }
+    }
+
+    /// What the listing says `table` is.
+    ///
+    /// A table the listing does not hold — dropped between the listing and the
+    /// selection, or selected before a listing ever landed — is treated as a
+    /// table, which is the safe half of the guess: the probe then answers for
+    /// itself, and a view that reached here would fail the probe and report no
+    /// primary key either, landing on `.unavailable(.noRowIdentity)` rather than
+    /// on an editable grid.
+    private func kind(of table: String) -> DatabaseTableEntry.Kind {
+        entries.first { $0.name == table }?.kind ?? .table
     }
 
     /// Publish what a page read answered — and drop a sort the answer no longer
@@ -529,12 +1039,80 @@ public final class DatabaseViewerModel: ObservableObject {
     /// no re-selection in between — nothing re-checks the shape on those paths,
     /// because within one selection the ordinal came from the answer on screen.
     private func publish(_ result: DatabaseResultSet, table: String) {
-        gridColumns = result.columnNames
-        if let current = sort, !current.survives(columnNames: result.columnNames) { sort = nil }
-        rows = result.rows
+        let answer = splitIdentity(from: result)
+        gridColumns = answer.gridColumns
+        // The **grid**'s columns, not the raw answer's: with an identity column
+        // appended the raw list is one longer, so a sort at the last grid column
+        // would be checked against the identity column's name and dropped on
+        // every page load.
+        if let current = sort, !current.survives(columnNames: answer.gridColumns) { sort = nil }
+        rows = answer.rows
+        rowIdentityValues = answer.identities
+        rowIdentity = DatabaseRowIdentity.resolve(
+            kind: kind(of: table),
+            columns: columns,
+            answeredColumns: answer.gridColumns,
+            hasRowId: answer.carriesIdentity
+        )
         shown = Shown(table: table, page: page, sort: sort)
         clearError(from: .rows)
         isLoadingRows = false
+    }
+
+    /// A page answer, separated into what the grid shows and what names its rows.
+    private struct SplitAnswer {
+        let gridColumns: [String]
+        let rows: [[DatabaseValue]]
+        let identities: [DatabaseValue]
+        /// Whether the trailing identity column was actually found and taken off
+        /// — which is what the identity strategy is resolved against, so a page
+        /// that came back without the column it was asked for is *identity-less*
+        /// rather than a `.rowid` strategy with no values behind it.
+        let carriesIdentity: Bool
+    }
+
+    /// Take the trailing identity column off a page answer — **by position and
+    /// count**, never by name.
+    ///
+    /// The name is not dependable and it is not a near miss: against a table with
+    /// an `INTEGER PRIMARY KEY` alias, `SELECT *, rowid FROM r` answers its
+    /// columns as `id|v|id`, so a split that looked for a column called `rowid`
+    /// would find none there and would find the *first* `id` on a table that
+    /// happened to declare one. The column this model appended is the last one,
+    /// it appended exactly one, and that is the whole rule.
+    ///
+    /// An answer that is not one column wider than the rows it carries is left
+    /// exactly as it arrived and reported identity-less. That cannot happen —
+    /// `DatabaseResultSet` promises rectangular rows and SQLite answers the
+    /// column that was asked for — which is precisely why the degradation is a
+    /// whole, un-split answer rather than a repair: publishing a raw answer costs
+    /// the reader one visible column they did not ask for, where publishing a
+    /// half-split one would shift every cell in the grid.
+    private func splitIdentity(from result: DatabaseResultSet) -> SplitAnswer {
+        let unsplit = SplitAnswer(
+            gridColumns: result.columnNames,
+            rows: result.rows,
+            identities: [],
+            carriesIdentity: false
+        )
+        guard identityAlias != nil else { return unsplit }
+        let width = result.columnNames.count
+        guard width > 1, result.rows.allSatisfy({ $0.count == width }) else { return unsplit }
+        return SplitAnswer(
+            gridColumns: Array(result.columnNames.dropLast()),
+            rows: result.rows.map { Array($0.dropLast()) },
+            identities: result.rows.map { $0[width - 1] },
+            carriesIdentity: true
+        )
+    }
+
+    /// Forget everything about how the rows on screen were named — run wherever
+    /// those rows are cleared, so an identity can never outlive the page it
+    /// addressed.
+    private func clearRowIdentity() {
+        identityAlias = nil
+        rowIdentityValues = []
+        rowIdentity = .unavailable(.noRowIdentity)
     }
 
     /// Settle the state a request that turned out to be a no-op has already
@@ -581,7 +1159,13 @@ public final class DatabaseViewerModel: ObservableObject {
     // MARK: - The one message slot
 
     private func setError(_ error: Error, from source: ErrorSource) {
-        errorMessage = Self.message(for: error)
+        setMessage(Self.message(for: error), from: source)
+    }
+
+    /// Put a sentence in the slot and record whose it is — see `ErrorSource` for
+    /// why the second half is not optional.
+    private func setMessage(_ message: String, from source: ErrorSource) {
+        errorMessage = message
         errorSource = source
     }
 

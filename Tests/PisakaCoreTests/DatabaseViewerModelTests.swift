@@ -75,6 +75,9 @@ final class DatabaseViewerModelTests: XCTestCase {
             [
                 DatabaseQuery.tableListing.sql,
                 DatabaseQuery.columnSchema(table: "items").sql,
+                // The rowid probe: one prepare, no rows, asked once per
+                // selection and never again on a page turn.
+                DatabaseQuery.rowIdProbe(table: "items", alias: .rowid).sql,
                 DatabaseQuery.rowCount(table: "items").sql,
                 pageSQL(table: "items"),
             ]
@@ -525,9 +528,21 @@ final class DatabaseViewerModelTests: XCTestCase {
         await model.goToPage(1)
         await model.toggleSort(column: "label", index: 1)
 
+        service.serveCommittedWrite()
+        await model.updateCell(row: 0, column: 1, entry: .typed("new"))
+        await model.setCellToNull(row: 0, column: 1)
+
         XCTAssertEqual(service.runSQL.count, asked, "A closed tab runs nothing")
+        XCTAssertEqual(service.writeCount, 0, "And writes nothing — a torn-down tab has no page to write against")
+        XCTAssertFalse(model.isWriting, "Nothing raised it, so nothing is left latched")
         XCTAssertFalse(model.isLoadingRows)
         XCTAssertFalse(model.isLoadingEntries)
+        XCTAssertEqual(
+            model.rowIdentity,
+            .unavailable(.noRowIdentity),
+            "An identity must never outlive the page it addressed"
+        )
+        XCTAssertTrue(model.rowIdentityValues.isEmpty)
     }
 
     // MARK: - The lifetime the app drives
@@ -876,6 +891,48 @@ final class DatabaseViewerModelTests: XCTestCase {
         XCTAssertFalse(model.isLoadingRows)
     }
 
+    /// The rows survive a reconnect; the right to *edit* them does not.
+    ///
+    /// `reload` is what a git operation calls once the file on disk has been
+    /// replaced, and it retargets `fileURL` before it re-opens anything. A page
+    /// left addressable across that window would let an edit carry the old
+    /// database's rowid and the old page's previous value into the new file,
+    /// where the statement's `IS` guard cannot tell the two apart if the row it
+    /// lands on happens to match. A failed re-open is the window at its widest:
+    /// it lasts for the life of the tab.
+    func testAReloadThatCannotReopenLeavesNoCellEditable() async {
+        let service = ScriptedDatabaseService()
+        let model = await editableModel(service)
+        XCTAssertNil(model.editRefusal(row: 0, column: 1), "Editable before the reconnect")
+
+        service.failOpen(with: DatabaseError.cannotOpen(message: "unable to open database file"))
+        await model.reload()
+
+        XCTAssertEqual(model.rows.count, 1, "A reconnect blanks no good page")
+        XCTAssertEqual(model.rowIdentity, .unavailable(.noRowIdentity))
+        XCTAssertEqual(model.editRefusal(row: 0, column: 1), .unaddressableRow(.noRowIdentity))
+
+        service.serveCommittedWrite()
+        await model.updateCell(row: 0, column: 1, entry: .typed("new"))
+
+        XCTAssertEqual(service.writeCount, 0, "Nothing may be sent against a page nothing addresses")
+        XCTAssertEqual(model.errorMessage, DatabaseEditRefusal.unaddressableRow(.noRowIdentity).message)
+    }
+
+    /// …and the re-selection puts it back, so the refusal above is the window and
+    /// not a tab that can never be edited again.
+    func testAReloadThatReopensMakesTheRowsEditableAgain() async {
+        let service = ScriptedDatabaseService()
+        let model = await editableModel(service)
+
+        await model.reload()
+
+        XCTAssertNil(model.editRefusal(row: 0, column: 1))
+        service.serveCommittedWrite()
+        await model.updateCell(row: 0, column: 1, entry: .typed("new"))
+        XCTAssertEqual(service.writeCount, 1)
+    }
+
     func testAReloadReopensTheURLItIsGivenRatherThanTheOneTheTabWasOpenedAt() async {
         let service = ScriptedDatabaseService()
         let model = await loadedModel(service)
@@ -1214,6 +1271,1010 @@ final class DatabaseViewerModelTests: XCTestCase {
         XCTAssertEqual(model.rows, [[.integer(1), .text("one")]])
     }
 
+    // MARK: - Row identity
+
+    // The identity a cell edit will address a row by is resolved once per
+    // selection and travels as a trailing result column the grid never sees.
+    // Everything here is about that column being asked for, split off by
+    // position, and never mistaken for one of the reader's own.
+
+    func testARowIdTableCarriesItsIdentityWithoutShowingIt() async {
+        let service = ScriptedDatabaseService()
+        serveSchema(on: service, table: "items", primaryKey: [:])
+        serveProbe(on: service, table: "items")
+        serveCount(on: service, table: "items", total: 2)
+        servePage(
+            on: service,
+            table: "items",
+            identity: .rowid,
+            columns: ["id", "label", "rowid"],
+            rows: [[.integer(1), .text("one"), .integer(7)], [.integer(2), .null, .integer(9)]]
+        )
+        let model = await loadedModel(service)
+
+        await model.select(table: "items")
+
+        XCTAssertEqual(model.rowIdentity, .rowid(alias: .rowid))
+        XCTAssertTrue(
+            service.runSQL.contains(pageSQL(table: "items", identity: .rowid)),
+            "The page asks for the identity column"
+        )
+        XCTAssertEqual(model.gridColumns, ["id", "label"], "The grid shows no column the reader did not ask for")
+        XCTAssertEqual(model.rows, [[.integer(1), .text("one")], [.integer(2), .null]])
+        XCTAssertEqual(model.rowIdentityValues, [.integer(7), .integer(9)])
+        XCTAssertEqual(model.rowIdentityValue(at: 1), .integer(9))
+        XCTAssertNil(model.rowIdentityValue(at: 2))
+        XCTAssertTrue(model.canEdit(row: 0, column: 1))
+    }
+
+    /// The reason the split is by position: on a table with an
+    /// `INTEGER PRIMARY KEY` alias, SQLite answers the appended column under the
+    /// **alias column's own name**, so a split that looked for a column called
+    /// `rowid` would find none — and one that looked for the identity by name
+    /// would find the alias column instead and hand the grid a row one value
+    /// short.
+    func testAnIntegerPrimaryKeyAliasRepeatsItsNameAndTheSplitStillHolds() async {
+        let service = ScriptedDatabaseService()
+        serveSchema(on: service, table: "r", columns: ["id", "v"])
+        serveProbe(on: service, table: "r")
+        serveCount(on: service, table: "r", total: 1)
+        servePage(
+            on: service,
+            table: "r",
+            identity: .rowid,
+            columns: ["id", "v", "id"],
+            rows: [[.integer(4), .text("x"), .integer(4)]]
+        )
+        let model = await loadedModel(service, tables: [("r", "table")])
+
+        await model.select(table: "r")
+
+        XCTAssertEqual(model.gridColumns, ["id", "v"])
+        XCTAssertEqual(model.rows, [[.integer(4), .text("x")]])
+        XCTAssertEqual(model.rowIdentityValues, [.integer(4)])
+        XCTAssertEqual(model.rowIdentity, .rowid(alias: .rowid))
+    }
+
+    func testAViewIsNeverProbedAndRefusesEveryCell() async {
+        let service = ScriptedDatabaseService()
+        serveSchema(on: service, table: "recent", columns: ["a"], primaryKey: [:])
+        serveCount(on: service, table: "recent", total: 1)
+        servePage(on: service, table: "recent", columns: ["a"], rows: [[.text("x")]])
+        let model = await loadedModel(service, tables: [("recent", "view")])
+
+        await model.select(table: "recent")
+
+        XCTAssertEqual(
+            service.count(for: DatabaseQuery.rowIdProbe(table: "recent", alias: .rowid).sql),
+            0,
+            "A view's rows are computed; the listing already answered the question"
+        )
+        XCTAssertEqual(model.gridColumns, ["a"])
+        XCTAssertEqual(model.rows, [[.text("x")]])
+        XCTAssertEqual(model.rowIdentity, .unavailable(.view))
+        XCTAssertFalse(model.canEdit(row: 0, column: 0))
+        XCTAssertEqual(model.editRefusal(row: 0, column: 0), .unaddressableRow(.view))
+        XCTAssertNil(model.errorMessage)
+    }
+
+    func testAWithoutRowIdTableFallsBackToItsWholeKeyWithNoBanner() async {
+        let service = ScriptedDatabaseService()
+        serveSchema(on: service, table: "pairs", columns: ["a", "b"], primaryKey: [0: 1, 1: 2])
+        failProbe(on: service, table: "pairs")
+        serveCount(on: service, table: "pairs", total: 1)
+        servePage(on: service, table: "pairs", columns: ["a", "b"], rows: [[.integer(1), .text("x")]])
+        let model = await loadedModel(service, tables: [("pairs", "table")])
+
+        await model.select(table: "pairs")
+
+        XCTAssertEqual(
+            model.rowIdentity,
+            .primaryKey(columns: [
+                DatabaseKeyColumn(name: "a", resultIndex: 0),
+                DatabaseKeyColumn(name: "b", resultIndex: 1),
+            ])
+        )
+        XCTAssertFalse(
+            service.runSQL.contains(pageSQL(table: "pairs", identity: .rowid)),
+            "A key-addressed table appends nothing to its page"
+        )
+        XCTAssertEqual(model.gridColumns, ["a", "b"])
+        XCTAssertEqual(model.rows, [[.integer(1), .text("x")]])
+        XCTAssertTrue(model.rowIdentityValues.isEmpty)
+        XCTAssertNil(model.errorMessage, "A probe that says no is the probe working, not a failure")
+        XCTAssertTrue(model.canEdit(row: 0, column: 1))
+    }
+
+    func testATableWithNeitherARowIdNorAKeyReadsFineAndEditsNothing() async {
+        let service = ScriptedDatabaseService()
+        serveSchema(on: service, table: "loose", columns: ["a"], primaryKey: [:])
+        failProbe(on: service, table: "loose")
+        serveCount(on: service, table: "loose", total: 1)
+        servePage(on: service, table: "loose", columns: ["a"], rows: [[.text("x")]])
+        let model = await loadedModel(service, tables: [("loose", "table")])
+
+        await model.select(table: "loose")
+
+        XCTAssertEqual(model.rowIdentity, .unavailable(.noRowIdentity))
+        XCTAssertEqual(model.rows, [[.text("x")]], "Reading is untouched by not being able to write")
+        XCTAssertNil(model.errorMessage)
+        XCTAssertEqual(model.editRefusal(row: 0, column: 0), .unaddressableRow(.noRowIdentity))
+    }
+
+    func testTheProbeIsAskedOncePerSelectionAndNotOnEveryPage() async {
+        let service = ScriptedDatabaseService()
+        serveSchema(on: service, table: "items", primaryKey: [:])
+        serveProbe(on: service, table: "items")
+        serveCount(on: service, table: "items", total: 5)
+        servePage(
+            on: service,
+            table: "items",
+            identity: .rowid,
+            columns: ["id", "label", "rowid"],
+            rows: [[.integer(1), .text("a"), .integer(1)]]
+        )
+        let model = await loadedModel(service)
+
+        await model.select(table: "items")
+        await model.goToPage(1)
+        await model.goToPage(2)
+
+        XCTAssertEqual(service.count(for: DatabaseQuery.rowIdProbe(table: "items", alias: .rowid).sql), 1)
+        XCTAssertEqual(service.count(for: pageSQL(table: "items", identity: .rowid)), 3)
+    }
+
+    func testASortOrdinalStillNamesTheGridColumnWithTheIdentityColumnPresent() async {
+        let service = ScriptedDatabaseService()
+        serveSchema(on: service, table: "items", primaryKey: [:])
+        serveProbe(on: service, table: "items")
+        serveCount(on: service, table: "items", total: 1)
+        servePage(
+            on: service,
+            table: "items",
+            identity: .rowid,
+            columns: ["id", "label", "rowid"],
+            rows: [[.integer(1), .text("a"), .integer(5)]]
+        )
+        servePage(
+            on: service,
+            table: "items",
+            orderBy: 1,
+            identity: .rowid,
+            columns: ["id", "label", "rowid"],
+            rows: [[.integer(2), .text("b"), .integer(6)]]
+        )
+        let model = await loadedModel(service)
+
+        await model.select(table: "items")
+        await model.toggleSort(column: "label", index: 1)
+
+        // The appended column is last precisely so the 1-based ordinal the grid
+        // clicked goes on meaning the column the grid drew.
+        // Asserted against what the model *sent*, not against the helper's own
+        // output: the statement's text is `DatabaseQueryTests`' subject, and a
+        // `contains` over a string this test just built would hold whatever the
+        // model did with it.
+        let sorted = pageSQL(table: "items", orderBy: 1, identity: .rowid)
+        XCTAssertEqual(service.runSQL.last, sorted)
+        XCTAssertEqual(service.runSQL.last?.contains("ORDER BY 2 ASC"), true, sorted)
+        XCTAssertEqual(model.sort, DatabaseSortState(column: "label", columnIndex: 1, direction: .ascending))
+        XCTAssertEqual(model.gridColumns, ["id", "label"], "The sort survives against the grid, not the raw answer")
+        XCTAssertEqual(model.rows, [[.integer(2), .text("b")]])
+        XCTAssertEqual(model.rowIdentityValues, [.integer(6)])
+    }
+
+    func testACarriedSortIsCheckedAgainstTheGridShapeAndThePageStillCarriesItsIdentity() async {
+        let service = ScriptedDatabaseService()
+        serveSchema(on: service, table: "items", primaryKey: [:])
+        serveProbe(on: service, table: "items")
+        serveCount(on: service, table: "items", total: 1)
+        serveResultColumns(on: service, table: "items")
+        servePage(
+            on: service,
+            table: "items",
+            identity: .rowid,
+            columns: ["id", "label", "rowid"],
+            rows: [[.integer(1), .text("a"), .integer(5)]]
+        )
+        servePage(
+            on: service,
+            table: "items",
+            orderBy: 1,
+            identity: .rowid,
+            columns: ["id", "label", "rowid"],
+            rows: [[.integer(2), .text("b"), .integer(6)]]
+        )
+        let model = await loadedModel(service)
+
+        await model.select(table: "items")
+        await model.toggleSort(column: "label", index: 1)
+        await model.select(table: "items")
+
+        // The shape probe is `SELECT *` without the identity column — the grid's
+        // own shape — which is what the carried ordinal has to be checked against.
+        XCTAssertEqual(service.count(for: DatabaseQuery.resultColumns(table: "items").sql), 1)
+        XCTAssertEqual(model.sort, DatabaseSortState(column: "label", columnIndex: 1, direction: .ascending))
+        XCTAssertEqual(model.gridColumns, ["id", "label"])
+        XCTAssertEqual(model.rowIdentityValues, [.integer(6)])
+    }
+
+    func testAFailedPageTurnKeepsTheIdentityOfTheRowsStillOnScreen() async {
+        let service = ScriptedDatabaseService()
+        serveSchema(on: service, table: "items", primaryKey: [:])
+        serveProbe(on: service, table: "items")
+        serveCount(on: service, table: "items", total: 5)
+        servePage(
+            on: service,
+            table: "items",
+            identity: .rowid,
+            columns: ["id", "label", "rowid"],
+            rows: [[.integer(1), .text("a"), .integer(11)]]
+        )
+        let model = await loadedModel(service)
+        await model.select(table: "items")
+        // Re-scripting the page's key replaces its answer, so the *next* turn is
+        // the one that fails — with a good page already on screen behind it.
+        service.fail(pageSQL(table: "items", identity: .rowid), with: DatabaseError.busy(message: "database is locked"))
+
+        await model.goToPage(1)
+
+        XCTAssertEqual(model.errorMessage, "database is locked")
+        XCTAssertEqual(model.rows, [[.integer(1), .text("a")]], "A failure never blanks a good page")
+        XCTAssertEqual(model.rowIdentityValues, [.integer(11)], "…nor the identity that names its rows")
+        XCTAssertEqual(model.rowIdentity, .rowid(alias: .rowid))
+        XCTAssertEqual(model.page.index, 0)
+    }
+
+    // MARK: - What may be edited
+
+    /// The whole point of matching a grid column to its schema column **by
+    /// name**: `PRAGMA table_xinfo` lists a hidden column that `SELECT *` does
+    /// not answer, so a positional map here would call grid column 0 the hidden
+    /// one and refuse — or, worse, edit under the wrong name.
+    func testAHiddenSchemaColumnAheadOfTheVisibleOnesDoesNotShiftWhatMayBeEdited() async {
+        let service = ScriptedDatabaseService()
+        serveSchema(
+            on: service,
+            table: "virt",
+            columns: ["hidden_key", "id", "label"],
+            primaryKey: [:],
+            hidden: [0]
+        )
+        serveProbe(on: service, table: "virt")
+        serveCount(on: service, table: "virt", total: 1)
+        servePage(
+            on: service,
+            table: "virt",
+            identity: .rowid,
+            columns: ["id", "label", "rowid"],
+            rows: [[.integer(1), .text("x"), .integer(3)]]
+        )
+        let model = await loadedModel(service, tables: [("virt", "table")])
+
+        await model.select(table: "virt")
+
+        XCTAssertEqual(model.columns.map(\.name), ["hidden_key", "id", "label"])
+        XCTAssertTrue(model.columns[0].isHidden)
+        XCTAssertEqual(model.gridColumns, ["id", "label"])
+        XCTAssertTrue(model.canEdit(row: 0, column: 0))
+        XCTAssertTrue(model.canEdit(row: 0, column: 1))
+    }
+
+    func testAGeneratedColumnAndABlobCellAndAnUnmatchedNameAreEachRefused() async {
+        let service = ScriptedDatabaseService()
+        serveSchema(on: service, table: "items", columns: ["id", "label"], primaryKey: [:], hidden: [1])
+        serveProbe(on: service, table: "items")
+        serveCount(on: service, table: "items", total: 1)
+        servePage(
+            on: service,
+            table: "items",
+            identity: .rowid,
+            columns: ["id", "label", "extra", "rowid"],
+            rows: [[.blob(byteCount: 12), .text("x"), .text("y"), .integer(3)]]
+        )
+        let model = await loadedModel(service)
+
+        await model.select(table: "items")
+
+        XCTAssertEqual(model.gridColumns, ["id", "label", "extra"])
+        XCTAssertEqual(model.editRefusal(row: 0, column: 0), .blobCell(column: "id"))
+        XCTAssertEqual(model.editRefusal(row: 0, column: 1), .generatedColumn(name: "label"))
+        XCTAssertEqual(model.editRefusal(row: 0, column: 2), .columnNotMatched(name: "extra"))
+        XCTAssertEqual(model.editRefusal(row: 0, column: 3), .cellNotOnPage)
+        XCTAssertEqual(model.editRefusal(row: 4, column: 0), .cellNotOnPage)
+    }
+
+    func testNothingIsEditableBeforeATableIsSelected() async {
+        let service = ScriptedDatabaseService()
+        let model = await loadedModel(service)
+
+        XCTAssertNil(model.editTarget)
+        XCTAssertEqual(model.rowIdentity, .unavailable(.noRowIdentity))
+        XCTAssertFalse(model.canEdit(row: 0, column: 0))
+        XCTAssertEqual(model.editRefusal(row: 0, column: 0), .cellNotOnPage)
+    }
+
+    func testMovingToAnotherTableForgetsThePreviousTablesIdentity() async {
+        let service = ScriptedDatabaseService()
+        serveSchema(on: service, table: "items", primaryKey: [:])
+        serveProbe(on: service, table: "items")
+        serveCount(on: service, table: "items", total: 1)
+        servePage(
+            on: service,
+            table: "items",
+            identity: .rowid,
+            columns: ["id", "label", "rowid"],
+            rows: [[.integer(1), .text("a"), .integer(5)]]
+        )
+        serveSchema(on: service, table: "pairs", columns: ["a", "b"], primaryKey: [0: 1, 1: 2])
+        failProbe(on: service, table: "pairs")
+        serveCount(on: service, table: "pairs", total: 1)
+        servePage(on: service, table: "pairs", columns: ["a", "b"], rows: [[.integer(1), .text("x")]])
+        let model = await loadedModel(service, tables: [("items", "table"), ("pairs", "table")])
+
+        await model.select(table: "items")
+        await model.select(table: "pairs")
+
+        XCTAssertTrue(model.rowIdentityValues.isEmpty, "An identity never outlives the page it addressed")
+        XCTAssertEqual(
+            model.rowIdentity,
+            .primaryKey(columns: [
+                DatabaseKeyColumn(name: "a", resultIndex: 0),
+                DatabaseKeyColumn(name: "b", resultIndex: 1),
+            ])
+        )
+        XCTAssertFalse(
+            service.runSQL.contains(pageSQL(table: "pairs", identity: .rowid)),
+            "The new table composes its own page, not the previous one's shape"
+        )
+    }
+
+    func testASupersededSelectionPublishesNoneOfItsIdentity() async {
+        let service = ScriptedDatabaseService()
+        serveSchema(on: service, table: "items", primaryKey: [:])
+        serveProbe(on: service, table: "items")
+        serveCount(on: service, table: "items", total: 1)
+        servePage(
+            on: service,
+            table: "items",
+            identity: .rowid,
+            columns: ["id", "label", "rowid"],
+            rows: [[.integer(1), .text("stale"), .integer(1)]]
+        )
+        serveSchema(on: service, table: "pairs", columns: ["a", "b"], primaryKey: [0: 1, 1: 2])
+        failProbe(on: service, table: "pairs")
+        serveCount(on: service, table: "pairs", total: 1)
+        servePage(on: service, table: "pairs", columns: ["a", "b"], rows: [[.integer(9), .text("fresh")]])
+
+        // Held inside the probe, which is the one hop this task added: a
+        // selection superseded there must not latch its alias over the newer
+        // selection's, or the next page would ask the new table for the old
+        // table's shape.
+        let gate = Gate()
+        service.hold(DatabaseQuery.rowIdProbe(table: "items", alias: .rowid).sql, on: gate)
+        let model = await loadedModel(service, tables: [("items", "table"), ("pairs", "table")])
+
+        let held = Task { await model.select(table: "items") }
+        await waitUntil { gate.reached }
+        await model.select(table: "pairs")
+        gate.release()
+        await held.value
+
+        XCTAssertEqual(model.selectedTable, "pairs")
+        XCTAssertEqual(model.rows, [[.integer(9), .text("fresh")]])
+        XCTAssertEqual(
+            model.rowIdentity,
+            .primaryKey(columns: [
+                DatabaseKeyColumn(name: "a", resultIndex: 0),
+                DatabaseKeyColumn(name: "b", resultIndex: 1),
+            ])
+        )
+        XCTAssertTrue(model.rowIdentityValues.isEmpty, "The superseded selection's rowid never lands")
+        XCTAssertNil(model.errorMessage)
+    }
+
+    // MARK: - Writing one cell
+
+    func testACommittedEditSendsOneTransactionReQueriesThePageAndTellsTheApp() async {
+        let service = ScriptedDatabaseService()
+        var hookCount = 0
+        let model = await editableModel(
+            service,
+            pages: [itemsPage(label: .text("old")), itemsPage(label: .text("new"))],
+            didWrite: { hookCount += 1 }
+        )
+        service.serveCommittedWrite()
+
+        await model.updateCell(row: 0, column: 1, entry: .typed("new"))
+
+        XCTAssertEqual(service.writeCount, 1)
+        let transaction = service.writeTransactions[0]
+        XCTAssertEqual(transaction.url, url, "The write opens the tab's *current* url")
+        XCTAssertEqual(transaction.requiredAffectedRows, 1)
+        XCTAssertEqual(transaction.statements, [updateStatement(newValue: .text("new"))])
+        XCTAssertEqual(hookCount, 1)
+        XCTAssertEqual(model.rows, [[.integer(1), .text("new")]], "The committed page is re-read")
+        XCTAssertNil(model.errorMessage)
+        XCTAssertFalse(model.isWriting)
+        XCTAssertEqual(
+            service.count(for: DatabaseQuery.rowCount(table: "items").sql),
+            1,
+            "An UPDATE creates and deletes nothing, so the count is not re-asked"
+        )
+    }
+
+    func testAnEditIsRefusedWhileTheWorktreeIsBeingRewrittenAndSendsNothing() async {
+        let service = ScriptedDatabaseService()
+        var blocked = true
+        var hookCount = 0
+        let model = await editableModel(service, isWriteBlocked: { blocked }, didWrite: { hookCount += 1 })
+        service.serveCommittedWrite()
+
+        await model.updateCell(row: 0, column: 1, entry: .typed("new"))
+
+        XCTAssertEqual(model.errorMessage, DatabaseViewerModel.gateBlockedMessage)
+        XCTAssertEqual(service.writeCount, 0, "Nothing is sent while the gate is up")
+        XCTAssertEqual(hookCount, 0)
+        XCTAssertEqual(model.rows, [[.integer(1), .text("old")]], "A refusal never blanks a good page")
+
+        blocked = false
+        await model.updateCell(row: 0, column: 1, entry: .typed("new"))
+
+        XCTAssertEqual(service.writeCount, 1, "The gate is read at the moment of the edit, not latched")
+        XCTAssertNil(model.errorMessage)
+    }
+
+    /// The three sentences the write path raises on its own — as opposed to the
+    /// refusals, which carry theirs — say something, and say three different
+    /// things. Every other assertion about them compares the banner against the
+    /// very constant that produced it, which stays true if the constant empties.
+    func testTheWritesOwnSentencesAreDistinctAndSayAnything() {
+        let sentences = [
+            DatabaseViewerModel.gateBlockedMessage,
+            DatabaseViewerModel.writeInFlightMessage,
+            DatabaseViewerModel.rollbackMessage(affectedRows: 0),
+            DatabaseViewerModel.rollbackMessage(affectedRows: 3),
+        ]
+
+        XCTAssertEqual(Set(sentences).count, sentences.count)
+        for sentence in sentences {
+            XCTAssertGreaterThan(sentence.count, 20, sentence)
+        }
+        XCTAssertTrue(DatabaseViewerModel.gateBlockedMessage.contains("on disk"))
+        XCTAssertTrue(DatabaseViewerModel.writeInFlightMessage.contains("still being written"))
+        XCTAssertTrue(DatabaseViewerModel.rollbackMessage(affectedRows: 3).contains("3 rows"))
+    }
+
+    func testAViewRefusesTheEditInTheRefusalsOwnWords() async {
+        let service = ScriptedDatabaseService()
+        serveSchema(on: service, table: "recent", columns: ["a"], primaryKey: [:])
+        serveCount(on: service, table: "recent", total: 1)
+        servePage(on: service, table: "recent", columns: ["a"], rows: [[.text("x")]])
+        let model = await loadedModel(service, tables: [("recent", "view")])
+        await model.select(table: "recent")
+
+        await model.updateCell(row: 0, column: 0, entry: .typed("y"))
+
+        XCTAssertEqual(model.errorMessage, DatabaseEditRefusal.unaddressableRow(.view).message)
+        XCTAssertEqual(service.writeCount, 0)
+        XCTAssertEqual(model.rows, [[.text("x")]])
+    }
+
+    func testAGeneratedColumnABlobCellAndAnUnmatchedNameEachRefuseTheEdit() async {
+        let service = ScriptedDatabaseService()
+        serveSchema(on: service, table: "items", columns: ["id", "label"], primaryKey: [:], hidden: [1])
+        serveProbe(on: service, table: "items")
+        serveCount(on: service, table: "items", total: 1)
+        servePage(
+            on: service,
+            table: "items",
+            identity: .rowid,
+            columns: ["id", "label", "extra", "rowid"],
+            rows: [[.blob(byteCount: 12), .text("x"), .text("y"), .integer(3)]]
+        )
+        let model = await loadedModel(service)
+        await model.select(table: "items")
+
+        await model.updateCell(row: 0, column: 0, entry: .typed("z"))
+        XCTAssertEqual(model.errorMessage, DatabaseEditRefusal.blobCell(column: "id").message)
+
+        await model.updateCell(row: 0, column: 1, entry: .typed("z"))
+        XCTAssertEqual(model.errorMessage, DatabaseEditRefusal.generatedColumn(name: "label").message)
+
+        await model.updateCell(row: 0, column: 2, entry: .typed("z"))
+        XCTAssertEqual(model.errorMessage, DatabaseEditRefusal.columnNotMatched(name: "extra").message)
+
+        await model.updateCell(row: 4, column: 0, entry: .typed("z"))
+        XCTAssertEqual(model.errorMessage, DatabaseEditRefusal.cellNotOnPage.message)
+
+        XCTAssertEqual(service.writeCount, 0, "A refused plan reaches no connection")
+    }
+
+    func testARollbackAtZeroSaysTheRowChangedUnderneathAndKeepsThePage() async {
+        let service = ScriptedDatabaseService()
+        var hookCount = 0
+        let model = await editableModel(service, didWrite: { hookCount += 1 })
+        service.serveRolledBackWrite(affectedRows: 0)
+
+        await model.updateCell(row: 0, column: 1, entry: .typed("new"))
+
+        XCTAssertEqual(model.errorMessage, DatabaseViewerModel.rollbackMessage(affectedRows: 0))
+        XCTAssertEqual(hookCount, 0, "Nothing was written, so nothing is stale")
+        XCTAssertEqual(model.rows, [[.integer(1), .text("old")]])
+        XCTAssertEqual(
+            service.count(for: pageSQL(table: "items", identity: .rowid)),
+            1,
+            "A rollback re-reads nothing: the file is exactly as it was"
+        )
+        XCTAssertFalse(model.isWriting)
+    }
+
+    func testARollbackAtManySaysHowManyRowsItWouldHaveTouched() async {
+        let service = ScriptedDatabaseService()
+        let model = await editableModel(service)
+        service.serveRolledBackWrite(affectedRows: 3)
+
+        await model.updateCell(row: 0, column: 1, entry: .typed("new"))
+
+        XCTAssertEqual(model.errorMessage, DatabaseViewerModel.rollbackMessage(affectedRows: 3))
+        XCTAssertTrue(model.errorMessage?.contains("3 rows") == true)
+        XCTAssertEqual(model.rows, [[.integer(1), .text("old")]])
+    }
+
+    func testAFailedWriteReportsSQLitesOwnWordsAndLeavesThePage() async {
+        let service = ScriptedDatabaseService()
+        let model = await editableModel(service)
+        service.failWrite(with: DatabaseError.busy(message: "database is locked"))
+
+        await model.updateCell(row: 0, column: 1, entry: .typed("new"))
+
+        XCTAssertEqual(model.errorMessage, "database is locked")
+        XCTAssertEqual(model.rows, [[.integer(1), .text("old")]])
+        XCTAssertFalse(model.isWriting)
+    }
+
+    /// The one place NULL and the empty string have to stay apart, because the
+    /// gesture and the empty field are one keystroke away from each other.
+    func testTheNullGestureAndAnEmptyEntryAreWrittenDistinctly() async {
+        let service = ScriptedDatabaseService()
+        let model = await editableModel(
+            service,
+            pages: [
+                itemsPage(label: .text("old")),
+                itemsPage(label: .null),
+                itemsPage(label: .text("")),
+            ]
+        )
+        service.serveWrites(sequence: [
+            DatabaseWriteOutcome(affectedRows: 1, isCommitted: true),
+            DatabaseWriteOutcome(affectedRows: 1, isCommitted: true),
+        ])
+
+        await model.setCellToNull(row: 0, column: 1)
+        XCTAssertEqual(model.rows, [[.integer(1), .null]])
+
+        await model.updateCell(row: 0, column: 1, entry: .typed(""))
+        XCTAssertEqual(model.rows, [[.integer(1), .text("")]])
+
+        XCTAssertEqual(
+            service.writeTransactions.flatMap(\.statements),
+            [
+                updateStatement(newValue: .null, previousValue: .text("old")),
+                updateStatement(newValue: .text(""), previousValue: .null),
+            ]
+        )
+    }
+
+    /// The token is captured in the gesture, not inside the task the gesture
+    /// spawns: a page that landed in between means the coordinate no longer names
+    /// the row the reader was looking at, so the write is refused rather than
+    /// re-aimed. Nothing is sent, and the plan is never even composed.
+    func testAWriteCarryingAStaleRowsTokenIsRefusedAndSendsNothing() async {
+        let service = ScriptedDatabaseService()
+        var hookCount = 0
+        let model = await editableModel(service, didWrite: { hookCount += 1 })
+        service.serveCommittedWrite()
+
+        let stale = await model.rowsToken
+        _ = await model.prepareForRowsChange()
+
+        await model.updateCell(row: 0, column: 1, entry: .typed("new"), request: stale)
+
+        XCTAssertEqual(service.writeCount, 0, "Nothing is sent")
+        XCTAssertEqual(hookCount, 0)
+        let message = await model.errorMessage
+        XCTAssertEqual(message, DatabaseEditRefusal.cellNotOnPage.message)
+        let rows = await model.rows
+        XCTAssertEqual(rows, [[.integer(1), .text("old")]], "A refusal never blanks the page")
+        let isWriting = await model.isWriting
+        XCTAssertFalse(isWriting)
+    }
+
+    /// A page **still in flight** refuses the write, and the token cannot be what
+    /// refuses it.
+    ///
+    /// The load bumped the generation before its first hop, so a gesture made
+    /// after it captured the very number the staleness check compares — the two
+    /// are equal and that check passes. What is on screen is nonetheless the page
+    /// the load is about to replace, so planning against it would carry a row's
+    /// identity and previous value that nobody is looking at any more. The grid
+    /// asks the same question before it opens an editor, but a view is not where
+    /// the rule lives: this asserts the model refuses on its own.
+    func testAWriteArrivingWhileAPageIsInFlightIsRefusedAndSendsNothing() async {
+        let service = ScriptedDatabaseService()
+        var hookCount = 0
+        let model = await editableModel(service, didWrite: { hookCount += 1 })
+        service.serveCommittedWrite()
+
+        // A refresh of the table already shown: it re-reads the schema, the count
+        // and the page, and suspends inside that last read with the rows the
+        // reader is looking at still on screen.
+        let gate = Gate()
+        service.hold(pageSQL(table: "items", identity: .rowid), on: gate)
+        let held = Task { await model.select(table: "items", request: model.prepareForRowsChange()) }
+        await waitUntil { gate.reached }
+        XCTAssertTrue(model.isLoadingRows)
+
+        // The token a gesture would capture *now*, which is the load's own.
+        let request = model.rowsToken
+        await model.updateCell(row: 0, column: 1, entry: .typed("new"), request: request)
+
+        XCTAssertEqual(service.writeCount, 0, "Nothing is sent while the rows underneath are leaving")
+        XCTAssertEqual(hookCount, 0)
+        XCTAssertEqual(model.errorMessage, DatabaseEditRefusal.cellNotOnPage.message)
+        XCTAssertFalse(model.isWriting)
+
+        gate.release()
+        await held.value
+        XCTAssertEqual(model.rows, [[.integer(1), .text("old")]], "A refusal never blanks the page")
+    }
+
+    /// The token the gesture actually captured still writes — the refusal above is
+    /// about staleness, not about passing a token at all.
+    func testAWriteCarryingTheCurrentRowsTokenIsSent() async {
+        let service = ScriptedDatabaseService()
+        let model = await editableModel(service)
+        service.serveCommittedWrite()
+
+        let request = await model.rowsToken
+        await model.updateCell(row: 0, column: 1, entry: .typed("new"), request: request)
+
+        XCTAssertEqual(service.writeCount, 1)
+        XCTAssertEqual(
+            service.writeTransactions.flatMap(\.statements),
+            [updateStatement(newValue: .text("new"))]
+        )
+    }
+
+    /// The page a committed write re-queries is a *new* page, so it carries a new
+    /// token — and a gesture captured before that write is stale against it.
+    ///
+    /// The re-query is the one rows-replacing load with no gesture of its own to
+    /// bump a token for it, so it has to bump its own. Left on the write's token,
+    /// the second edit here would pass the staleness check and be planned against
+    /// the row the re-query landed — a different row, since a sort on the edited
+    /// column reorders the page around what just changed — carrying *that* row's
+    /// identity and *that* row's previous value, and so committing over a row
+    /// nobody looked at.
+    func testAPageRePublishedByACommittedWriteInvalidatesTheOlderRowsToken() async {
+        let service = ScriptedDatabaseService()
+        let model = await editableModel(
+            service,
+            pages: [itemsPage(label: .text("old")), itemsPage(label: .text("someone else's"), rowid: 9)]
+        )
+        service.serveCommittedWrite()
+        let request = await model.rowsToken
+
+        await model.updateCell(row: 0, column: 1, entry: .typed("new"), request: request)
+        let reloaded = await model.rows
+        XCTAssertEqual(reloaded, [[.integer(1), .text("someone else's")]], "The commit re-queried the page")
+
+        // The same token again, now that the page underneath it has been replaced.
+        await model.updateCell(row: 0, column: 1, entry: .typed("second"), request: request)
+
+        XCTAssertEqual(service.writeCount, 1, "The stale gesture sends nothing")
+        let message = await model.errorMessage
+        XCTAssertEqual(message, DatabaseEditRefusal.cellNotOnPage.message)
+        let token = await model.rowsToken
+        XCTAssertNotEqual(token, request, "The re-query published under a token of its own")
+    }
+
+    /// A rename moves the name and not the inode, so the connection is left alone
+    /// — but the *write* opens a path of its own, and that path has to follow.
+    func testARetargetedTabWritesToItsNewPath() async {
+        let service = ScriptedDatabaseService()
+        let model = await editableModel(service)
+        service.serveCommittedWrite()
+        let renamed = url.deletingLastPathComponent().appendingPathComponent("renamed.sqlite")
+
+        await model.retarget(to: renamed)
+        await model.updateCell(row: 0, column: 1, entry: .typed("new"))
+
+        let current = await model.fileURL
+        XCTAssertEqual(current, renamed)
+        XCTAssertEqual(service.writeTransactions.map(\.url), [renamed])
+        XCTAssertEqual(service.closeCount, 0, "Retargeting is not a reconnect")
+    }
+
+    /// The gesture that opens an editor is the same gesture on a cell that has
+    /// none, so the refusal has to be said — and said without going near the
+    /// write API, which would need an entry nobody typed to refuse.
+    func testReportingARefusalSaysItAndSendsNothing() async {
+        let service = ScriptedDatabaseService()
+        let model = await editableModel(
+            service,
+            pages: [itemsPage(label: .blob(byteCount: 12))]
+        )
+        service.serveCommittedWrite()
+
+        await model.reportEditRefusal(row: 0, column: 1)
+
+        let message = await model.errorMessage
+        XCTAssertEqual(message, DatabaseEditRefusal.blobCell(column: "label").message)
+        XCTAssertEqual(service.writeCount, 0)
+    }
+
+    /// And a cell that may be edited has nothing to say, so nothing is said: the
+    /// banner is not raised by asking the wrong question.
+    func testReportingARefusalForAnEditableCellSaysNothing() async {
+        let service = ScriptedDatabaseService()
+        let model = await editableModel(service)
+
+        await model.reportEditRefusal(row: 0, column: 1)
+
+        let message = await model.errorMessage
+        XCTAssertNil(message)
+    }
+
+    /// A page that came back without the identity column it was asked for is
+    /// *identity-less*, not a rowid strategy with no values behind it: the raw
+    /// answer is published unshifted, and the edit is refused rather than
+    /// addressed by a value the page never carried.
+    func testAPageMissingItsIdentityColumnPublishesUnsplitAndRefusesTheEdit() async {
+        let service = ScriptedDatabaseService()
+        serveSchema(on: service, table: "items", columns: ["id"], primaryKey: [:])
+        serveProbe(on: service, table: "items")
+        serveCount(on: service, table: "items", total: 1)
+        service.serve(
+            pageSQL(table: "items", identity: .rowid),
+            columns: ["id"],
+            rows: [[.integer(1)]]
+        )
+        service.serveCommittedWrite()
+        let model = await loadedModel(service)
+        await model.select(table: "items")
+
+        XCTAssertEqual(model.gridColumns, ["id"], "The raw answer is shown, never a column short")
+        XCTAssertEqual(model.rows, [[.integer(1)]])
+        XCTAssertTrue(model.rowIdentityValues.isEmpty)
+        XCTAssertNotNil(model.editRefusal(row: 0, column: 0))
+
+        await model.updateCell(row: 0, column: 0, entry: .typed("new"))
+
+        XCTAssertEqual(service.writeCount, 0, "A refusal never reaches a database")
+        XCTAssertNotNil(model.errorMessage)
+    }
+
+    /// The commit landed and the page it changed cannot be re-read: the write's
+    /// own banner is cleared, the read's failure takes its place in SQLite's
+    /// words, and nothing is left spinning.
+    func testACommittedWriteWhoseReReadFailsSaysSoAndStopsSpinning() async {
+        let service = ScriptedDatabaseService()
+        var hookCount = 0
+        let model = await editableModel(service, didWrite: { hookCount += 1 })
+        service.serveCommittedWrite()
+        service.fail(
+            pageSQL(table: "items", identity: .rowid),
+            with: DatabaseError.sqlError(message: "database is locked")
+        )
+
+        await model.updateCell(row: 0, column: 1, entry: .typed("new"))
+
+        XCTAssertEqual(service.writeCount, 1)
+        XCTAssertEqual(hookCount, 1, "The commit stands, so the file changed")
+        XCTAssertEqual(model.errorMessage, "database is locked")
+        XCTAssertFalse(model.isLoadingRows, "A failed re-read must not leave the grid spinning")
+        XCTAssertFalse(model.isWriting)
+        XCTAssertEqual(model.rows, [[.integer(1), .text("old")]], "A failed read never blanks a good page")
+    }
+
+    /// The composite-key path end to end, off a real page answer rather than off
+    /// a synthetic target: every key column's value reaches the `WHERE` **in key
+    /// order**, and no trailing identity column is expected or split off.
+    func testAWithoutRowIdTableWritesItsWholeKeyInKeyOrder() async {
+        let service = ScriptedDatabaseService()
+        serveSchema(
+            on: service,
+            table: "rooms",
+            columns: ["house", "room", "note"],
+            primaryKey: [0: 1, 1: 2]
+        )
+        failProbe(on: service, table: "rooms")
+        serveCount(on: service, table: "rooms", total: 1)
+        servePage(
+            on: service,
+            table: "rooms",
+            columns: ["house", "room", "note"],
+            rows: [[.text("Ash"), .text("3"), .text("dusty")]]
+        )
+        service.serveCommittedWrite()
+        let model = await loadedModel(service, tables: [("rooms", "table")])
+        await model.select(table: "rooms")
+
+        XCTAssertTrue(model.canEdit(row: 0, column: 2))
+        await model.updateCell(row: 0, column: 2, entry: .typed("clean"))
+
+        XCTAssertEqual(
+            service.writeTransactions.flatMap(\.statements),
+            [
+                DatabaseQuery.update(
+                    table: "rooms",
+                    column: "note",
+                    identity: .primaryKey([
+                        DatabaseColumnValue(name: "house", value: .text("Ash")),
+                        DatabaseColumnValue(name: "room", value: .text("3")),
+                    ]),
+                    newValue: .text("clean"),
+                    previousValue: .text("dusty")
+                ),
+            ]
+        )
+    }
+
+    func testASelectionThatOvertakesAWriteWinsAndTheWritePublishesNothing() async {
+        let service = ScriptedDatabaseService()
+        var hookCount = 0
+        let model = await editableModel(service, didWrite: { hookCount += 1 })
+        serveSchema(on: service, table: "orders")
+        serveProbe(on: service, table: "orders")
+        serveCount(on: service, table: "orders", total: 1)
+        servePage(
+            on: service,
+            table: "orders",
+            identity: .rowid,
+            columns: ["id", "label", "rowid"],
+            rows: [[.integer(9), .text("fresh"), .integer(11)]]
+        )
+        service.serveCommittedWrite()
+        let gate = Gate()
+        service.holdWrite(on: gate)
+
+        let held = Task { await model.updateCell(row: 0, column: 1, entry: .typed("new")) }
+        await waitUntil { gate.reached }
+        await model.select(table: "orders")
+        gate.release()
+        await held.value
+
+        XCTAssertEqual(model.selectedTable, "orders")
+        XCTAssertEqual(model.rows, [[.integer(9), .text("fresh")]], "The newer state stays on screen")
+        XCTAssertEqual(service.writeCount, 1, "The commit still stands — it is the publishing that is dropped")
+        XCTAssertEqual(
+            hookCount,
+            1,
+            "The hook is about the file on disk, not about the page: a committed edit changed a tracked file "
+                + "whether or not this tab still shows what it changed"
+        )
+        XCTAssertNil(model.errorMessage)
+        XCTAssertFalse(model.isWriting, "The only thing that raised it is the only thing that can lower it")
+    }
+
+    func testASecondEditWhileOneIsInFlightIsRefusedAndSendsNothing() async {
+        let service = ScriptedDatabaseService()
+        let model = await editableModel(
+            service,
+            pages: [itemsPage(label: .text("old")), itemsPage(label: .text("new"))]
+        )
+        service.serveCommittedWrite()
+        let gate = Gate()
+        service.holdWrite(on: gate)
+
+        let held = Task { await model.updateCell(row: 0, column: 1, entry: .typed("new")) }
+        await waitUntil { gate.reached }
+        await model.updateCell(row: 0, column: 1, entry: .typed("other"))
+
+        XCTAssertEqual(model.errorMessage, DatabaseViewerModel.writeInFlightMessage)
+        XCTAssertEqual(service.writeCount, 1, "The second edit is refused, not queued")
+
+        gate.release()
+        await held.value
+
+        XCTAssertNil(model.errorMessage, "The write that succeeded clears its own slot")
+        XCTAssertEqual(model.rows, [[.integer(1), .text("new")]])
+    }
+
+    func testAWriteMessageSurvivesAListingRefreshAndAPageTurnAndGoesWithATableMove() async {
+        let service = ScriptedDatabaseService()
+        serveSchema(on: service, table: "items")
+        serveProbe(on: service, table: "items")
+        serveCount(on: service, table: "items", total: 4)
+        service.serve(pageSQL(table: "items", identity: .rowid), with: itemsPage(label: .text("old")))
+        serveSchema(on: service, table: "orders")
+        serveProbe(on: service, table: "orders")
+        serveCount(on: service, table: "orders", total: 1)
+        servePage(
+            on: service,
+            table: "orders",
+            identity: .rowid,
+            columns: ["id", "label", "rowid"],
+            rows: [[.integer(9), .text("fresh"), .integer(11)]]
+        )
+        service.serveRolledBackWrite(affectedRows: 0)
+        let model = await loadedModel(service)
+        await model.select(table: "items")
+
+        await model.updateCell(row: 0, column: 1, entry: .typed("new"))
+        let message = DatabaseViewerModel.rollbackMessage(affectedRows: 0)
+        XCTAssertEqual(model.errorMessage, message)
+
+        await model.load()
+        XCTAssertEqual(model.errorMessage, message, "A listing refresh says nothing about a cell")
+
+        await model.goToPage(1)
+        XCTAssertEqual(model.errorMessage, message, "Nor does a page turn")
+
+        await model.select(table: "orders")
+        XCTAssertNil(model.errorMessage, "Moving to another table takes the sentence with the rows")
+    }
+
+    /// The other half of that rule, and the one the message's own last sentence
+    /// asks for: three of the write refusals end in "Reload the table and try
+    /// again", so a reload that leaves the banner up accuses the reader of a
+    /// stale row over rows that were just re-read.
+    func testARefreshOfTheSameTableTakesTheWriteMessageWithTheRowsItReplaces() async {
+        let service = ScriptedDatabaseService()
+        let model = await editableModel(service)
+        service.serveRolledBackWrite(affectedRows: 0)
+
+        await model.updateCell(row: 0, column: 1, entry: .typed("new"))
+        XCTAssertEqual(model.errorMessage, DatabaseViewerModel.rollbackMessage(affectedRows: 0))
+
+        await model.select(table: "items")
+
+        XCTAssertNil(
+            model.errorMessage,
+            "A refresh re-reads the schema, the count and the page, so the cell the sentence was about "
+                + "is no longer on screen to be stale"
+        )
+        XCTAssertEqual(model.rows, [[.integer(1), .text("old")]])
+    }
+
+    /// The reachable form of the case above: the sidebar cannot re-select the row
+    /// it already has, so the refresh a reader actually meets is the one a
+    /// reconnect makes — `reload()` re-opening the file and putting the selection
+    /// back through `select`.
+    func testAReconnectTakesAWriteMessageWithTheTableItPutsBack() async {
+        let service = ScriptedDatabaseService()
+        let model = await editableModel(service)
+        service.serveRolledBackWrite(affectedRows: 0)
+
+        await model.updateCell(row: 0, column: 1, entry: .typed("new"))
+        XCTAssertEqual(model.errorMessage, DatabaseViewerModel.rollbackMessage(affectedRows: 0))
+
+        await model.reload()
+
+        XCTAssertEqual(model.selectedTable, "items")
+        XCTAssertNil(model.errorMessage, "The rows the sentence named were replaced by the re-open's own")
+    }
+
+    /// And when the reconnect finds the table gone, the sentence goes with the
+    /// rows for the reason the page load's does: a banner over an empty grid and
+    /// an unselected sidebar explains a state that no longer exists.
+    func testAReconnectThatLosesTheTableTakesItsWriteMessageToo() async {
+        let service = ScriptedDatabaseService()
+        let model = await editableModel(service)
+        service.serveRolledBackWrite(affectedRows: 0)
+
+        await model.updateCell(row: 0, column: 1, entry: .typed("new"))
+        XCTAssertEqual(model.errorMessage, DatabaseViewerModel.rollbackMessage(affectedRows: 0))
+
+        serveListing(on: service, entries: [("orders", "table")])
+        await model.reload()
+
+        XCTAssertNil(model.selectedTable)
+        XCTAssertTrue(model.rows.isEmpty)
+        XCTAssertNil(model.errorMessage)
+    }
+
     // MARK: - Scripting helpers
 
     /// A model whose connection is open and whose listing has been read.
@@ -1226,12 +2287,68 @@ final class DatabaseViewerModelTests: XCTestCase {
     private func loadedModel(
         _ service: ScriptedDatabaseService,
         tables: [(String, String)] = [("items", "table"), ("orders", "table")],
-        pageSize: Int = 2
+        pageSize: Int = 2,
+        isWriteBlocked: @escaping @MainActor () -> Bool = { false },
+        didWrite: @escaping @MainActor () -> Void = {}
     ) async -> DatabaseViewerModel {
         serveListing(on: service, entries: tables)
-        let model = DatabaseViewerModel(fileURL: url, service: service, pageSize: pageSize)
+        let model = DatabaseViewerModel(
+            fileURL: url,
+            service: service,
+            pageSize: pageSize,
+            isWriteBlocked: isWriteBlocked,
+            didWrite: didWrite
+        )
         await model.load()
         return model
+    }
+
+    /// A model showing one editable row of `items`: rowid-addressed, `id`
+    /// declared INTEGER and `label` declared TEXT, with `label` holding "old".
+    ///
+    /// Where every write test starts, because the interesting half of a write
+    /// test is what the model does with the *outcome* and none of it is reachable
+    /// without a cell the planner agrees to compose a statement for.
+    private func editableModel(
+        _ service: ScriptedDatabaseService,
+        pages: [DatabaseResultSet]? = nil,
+        isWriteBlocked: @escaping @MainActor () -> Bool = { false },
+        didWrite: @escaping @MainActor () -> Void = {}
+    ) async -> DatabaseViewerModel {
+        serveSchema(on: service, table: "items")
+        serveProbe(on: service, table: "items")
+        serveCount(on: service, table: "items", total: 1)
+        service.serve(
+            pageSQL(table: "items", identity: .rowid),
+            sequence: pages ?? [itemsPage(label: .text("old"))]
+        )
+        let model = await loadedModel(service, isWriteBlocked: isWriteBlocked, didWrite: didWrite)
+        await model.select(table: "items")
+        return model
+    }
+
+    /// One identity-carrying page of `items` — the trailing `rowid` column
+    /// included, since that is what the model splits off.
+    private func itemsPage(label: DatabaseValue, rowid: Int64 = 7) -> DatabaseResultSet {
+        DatabaseResultSet(
+            columnNames: ["id", "label", "rowid"],
+            rows: [[.integer(1), label, .integer(rowid)]]
+        )
+    }
+
+    /// The statement the planner composes for `label` of that one row.
+    private func updateStatement(
+        newValue: DatabaseValue,
+        previousValue: DatabaseValue = .text("old"),
+        rowid: Int64 = 7
+    ) -> DatabaseStatement {
+        DatabaseQuery.update(
+            table: "items",
+            column: "label",
+            identity: .rowid(alias: .rowid, value: .integer(rowid)),
+            newValue: newValue,
+            previousValue: previousValue
+        )
     }
 
     /// A condition-wait that fails loudly.
@@ -1253,8 +2370,45 @@ final class DatabaseViewerModelTests: XCTestCase {
         XCTFail("Timed out waiting for the gated call", file: file, line: line)
     }
 
-    private func pageSQL(table: String, orderBy column: Int? = nil, ascending: Bool = true) -> String {
-        DatabaseQuery.page(table: table, orderByColumnIndex: column, ascending: ascending, limit: 1, offset: 0).sql
+    private func pageSQL(
+        table: String,
+        orderBy column: Int? = nil,
+        ascending: Bool = true,
+        identity: DatabaseRowIdAlias? = nil
+    ) -> String {
+        DatabaseQuery.page(
+            table: table,
+            orderByColumnIndex: column,
+            ascending: ascending,
+            limit: 1,
+            offset: 0,
+            identityAlias: identity
+        ).sql
+    }
+
+    /// Answer the rowid probe — the "this table has a rowid" half of a selection.
+    ///
+    /// The answer is a shape and no rows, which is what `LIMIT 0` returns; the
+    /// model reads nothing out of it and only cares that it did not throw.
+    private func serveProbe(
+        on service: ScriptedDatabaseService,
+        table: String,
+        alias: DatabaseRowIdAlias = .rowid
+    ) {
+        service.serve(DatabaseQuery.rowIdProbe(table: table, alias: alias).sql, columns: [alias.rawValue], rows: [])
+    }
+
+    /// Refuse the rowid probe the way a `WITHOUT ROWID` table does — at prepare
+    /// time, in SQLite's own words.
+    private func failProbe(
+        on service: ScriptedDatabaseService,
+        table: String,
+        alias: DatabaseRowIdAlias = .rowid
+    ) {
+        service.fail(
+            DatabaseQuery.rowIdProbe(table: table, alias: alias).sql,
+            with: DatabaseError.sqlError(message: "no such column: rowid")
+        )
     }
 
     private func serveListing(on service: ScriptedDatabaseService, entries: [(String, String)]) {
@@ -1269,15 +2423,21 @@ final class DatabaseViewerModelTests: XCTestCase {
 
     /// A `PRAGMA table_xinfo` answer: the first column is the primary key, the
     /// rest are plain.
-    private func serveSchema(on service: ScriptedDatabaseService, table: String, columns names: [String] = ["id", "label"]) {
+    private func serveSchema(
+        on service: ScriptedDatabaseService,
+        table: String,
+        columns names: [String] = ["id", "label"],
+        primaryKey keyPositions: [Int: Int] = [0: 1],
+        hidden: Set<Int> = []
+    ) {
         let rows: [[DatabaseValue]] = names.enumerated().map { offset, name in
             [
                 .text(name),
                 .text(offset == 0 ? "INTEGER" : "TEXT"),
                 .integer(offset == 0 ? 1 : 0),
                 .null,
-                .integer(offset == 0 ? 1 : 0),
-                .integer(0),
+                .integer(Int64(keyPositions[offset] ?? 0)),
+                .integer(hidden.contains(offset) ? 1 : 0),
             ]
         }
         service.serve(
@@ -1308,11 +2468,12 @@ final class DatabaseViewerModelTests: XCTestCase {
         table: String,
         orderBy column: Int? = nil,
         ascending: Bool = true,
+        identity: DatabaseRowIdAlias? = nil,
         columns names: [String] = ["id", "label"],
         rows: [[DatabaseValue]]
     ) {
         service.serve(
-            pageSQL(table: table, orderBy: column, ascending: ascending),
+            pageSQL(table: table, orderBy: column, ascending: ascending, identity: identity),
             columns: names,
             rows: rows
         )

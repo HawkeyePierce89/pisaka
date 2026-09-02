@@ -66,8 +66,11 @@ actor DatabaseConnectionService: DatabaseServicing {
         // viewer tab would show the file as modified in Local Changes, with no
         // writer gate held and no user action that asked for a write. It also
         // takes write locks that contend with whatever else has the database
-        // open. A read-only connection can do neither. Part 2 introduces the
-        // write path and is where this changes.
+        // open. A read-only connection can do neither. **Part 2's write path did
+        // not change this**: a cell update opens its own short-lived read-write
+        // connection in `performWrite(_:)` below, runs its transaction and closes
+        // it, so the tab's own connection stays a reader for its whole life and a
+        // tab nobody edited still never touches the file.
         let code = sqlite3_open_v2(
             url.path,
             &connection,
@@ -88,7 +91,21 @@ actor DatabaseConnectionService: DatabaseServicing {
 
     func run(_ statement: DatabaseStatement) async throws -> DatabaseResultSet {
         guard let handle else { throw DatabaseError.closed }
+        return try execute(statement, on: handle)
+    }
 
+    /// Prepare, bind, step and read `statement` on `handle`.
+    ///
+    /// Split out of `run(_:)` because the write path runs the *same* mechanics on
+    /// a different connection: `performWrite(_:)` opens one of its own, and every
+    /// statement inside its transaction — the bracket included — goes through
+    /// here. One prepare/bind/step is one implementation, or the two connections
+    /// would eventually disagree about what binding a text value or reading a
+    /// blob means.
+    private func execute(
+        _ statement: DatabaseStatement,
+        on handle: OpaquePointer
+    ) throws -> DatabaseResultSet {
         var prepared: OpaquePointer?
         let prepareCode = sqlite3_prepare_v2(handle, statement.sql, -1, &prepared, nil)
         guard prepareCode == SQLITE_OK, let prepared else {
@@ -154,6 +171,96 @@ actor DatabaseConnectionService: DatabaseServicing {
         // somehow still unfinalized instead of returning `SQLITE_BUSY` and
         // leaving the connection open forever.
         sqlite3_close_v2(handle)
+    }
+
+    // MARK: - Writing
+
+    /// Run `transaction` on a **connection of its own**, opened read-write at the
+    /// transaction's url, and closed before this returns.
+    ///
+    /// Not on `handle`, and this is the point of the member rather than an
+    /// implementation detail. The tab's connection is opened `SQLITE_OPEN_READONLY`
+    /// and stays that way for its whole life, so a tab nobody edited never takes a
+    /// write lock at all; a write that is *asked for* holds one, for as long as it
+    /// takes to run, and no longer. What closing this connection does **not** do
+    /// is tidy a WAL database up: SQLite checkpoints and unlinks the `-wal`/`-shm`
+    /// sidecars only on the close of the *last* connection to the database, and
+    /// the tab's read-only one is still open — and could not do it either, since a
+    /// read-only handle cannot checkpoint. On a WAL database the sidecars
+    /// therefore outlive the edit. What must **not** outlive it is the edit's
+    /// absence from the file itself, which is why a commit is followed here by
+    /// `DatabaseQuery.walCheckpoint`: sidecars staying beside the database is
+    /// untidy, whereas the tracked bytes not moving would make Local Changes,
+    /// `git commit` and the only undo the viewer offers all miss the edit.
+    /// The url is the transaction's own because a viewer tab
+    /// outlives the path it was opened at — a rename retargets it — and Core's
+    /// `fileURL` is the one thing that is current.
+    ///
+    /// **No `SQLITE_OPEN_CREATE`**, for the read path's reason and one more: a
+    /// database that has been moved away since the page was read must report, not
+    /// be conjured empty and then written into.
+    ///
+    /// The affected-row rule is enforced here because this is the only place it
+    /// *can* be — with the transaction still open. This compares two numbers and
+    /// commits or rolls back on the answer; what either outcome means to the reader
+    /// is `DatabaseViewerModel`'s to say.
+    func performWrite(_ transaction: DatabaseWriteTransaction) async throws -> DatabaseWriteOutcome {
+        let connection = try Self.openReadWrite(at: transaction.url)
+        // Closed on every path, the throwing ones included — the same reason the
+        // prepared statement above is finalized in a `defer`. A leaked write
+        // handle would hold the write lock for the life of the app.
+        defer { sqlite3_close_v2(connection) }
+
+        // Before the `BEGIN`, where it is not a no-op, and on this connection
+        // because the setting is per-connection: without it a foreign key is the
+        // one declared constraint SQLite does not check, so an edit that orphans a
+        // row would commit and report success. See `DatabaseQuery.foreignKeysOn`.
+        _ = try execute(DatabaseQuery.foreignKeysOn, on: connection)
+        _ = try execute(DatabaseQuery.beginImmediate, on: connection)
+        do {
+            var affectedRows = 0
+            for statement in transaction.statements {
+                affectedRows += try execute(statement, on: connection).affectedRows
+            }
+            let isCommitted = affectedRows == transaction.requiredAffectedRows
+            _ = try execute(isCommitted ? DatabaseQuery.commit : DatabaseQuery.rollback, on: connection)
+            if isCommitted {
+                // After the commit, outside the transaction, and never allowed to
+                // turn a write that succeeded into a failure: a checkpoint that
+                // could not run leaves the edit committed and durable, which is
+                // what the outcome below reports. See `DatabaseQuery.walCheckpoint`
+                // for why a WAL database needs it at all.
+                _ = try? execute(DatabaseQuery.walCheckpoint, on: connection)
+            }
+            return DatabaseWriteOutcome(affectedRows: affectedRows, isCommitted: isCommitted)
+        } catch {
+            // Undo whatever ran before the failure, then report the failure itself.
+            // `try?` because a rollback that fails has nothing further to say: the
+            // close below ends the transaction either way, and replacing the
+            // statement's own message with the rollback's would lose the sentence
+            // that explains what actually went wrong.
+            _ = try? execute(DatabaseQuery.rollback, on: connection)
+            throw error
+        }
+    }
+
+    /// Open a second connection at `url` read-write, with the read path's busy
+    /// timeout.
+    ///
+    /// The timeout matters more here than it does for a read: `BEGIN IMMEDIATE`
+    /// asks for the write lock up front, so a database another process is writing
+    /// makes this wait the five seconds out rather than refusing the edit the
+    /// instant a lock is contended.
+    private static func openReadWrite(at url: URL) throws -> OpaquePointer {
+        var connection: OpaquePointer?
+        let code = sqlite3_open_v2(url.path, &connection, SQLITE_OPEN_READWRITE, nil)
+        guard code == SQLITE_OK, let connection else {
+            let message = connection.map { Self.message(from: $0) } ?? Self.message(for: code)
+            sqlite3_close_v2(connection)
+            throw Self.openError(code: code, message: message)
+        }
+        sqlite3_busy_timeout(connection, Self.busyTimeoutMilliseconds)
+        return connection
     }
 
     // MARK: - Binding

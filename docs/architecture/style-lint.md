@@ -67,9 +67,12 @@ The procedure, when a feature genuinely has to land in that file:
    the same commit; the suite fails until they agree.
 
 The database viewer is the most recent bump (`file_length`
-1809 → 1826 → 1829 → 1833, `type_body_length` 1800 → 1810 → 1813 → 1817 — the
-second step is the viewer reconnect `resyncViewerTab` gained on review, the third
-the find menu's `isFindableTabSelected`), and it is also the shape to copy: everything
+1809 → 1826 → 1829 → 1833 → 1837 → 1838, `type_body_length`
+1800 → 1810 → 1813 → 1817 → 1821 → 1822 — the second step is the viewer reconnect
+`resyncViewerTab` gained on review, the third the find menu's
+`isFindableTabSelected`, the fourth the write wiring
+`databaseViewers.start(isWriteBlocked:didWrite:)`, the fifth the rename's
+`databaseViewers.retarget(id:url:)`), and it is also the shape to copy: everything
 with a state shape of its own went into `DatabaseViewerTabs.swift`, so
 `PisakaApp` paid four lines of wiring plus the tab-kind skips its own text-shaped
 passes needed, and not four hundred (`core-database-viewer.md`).

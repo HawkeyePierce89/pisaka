@@ -285,7 +285,184 @@ final class DatabaseServicingTests: XCTestCase {
         XCTAssertTrue(service.isOpen)
     }
 
+    // MARK: - The write member
+
+    /// The seam's write half is defaulted, so a stub that owns no write
+    /// connection still conforms — and it refuses *honestly* rather than
+    /// answering a zero-row rollback, which the model would otherwise read back
+    /// to the reader as "this row changed underneath you".
+    func testPerformWriteIsDefaultedToAnHonestReadOnlyRefusal() async {
+        struct FixedAnswerStub: DatabaseServicing {
+            func open(url: URL) async throws {}
+            func run(_ statement: DatabaseStatement) async throws -> DatabaseResultSet {
+                DatabaseResultSet(columnNames: ["one"], rows: [[.integer(1)]])
+            }
+        }
+
+        let transaction = DatabaseWriteTransaction(
+            url: url,
+            statements: [DatabaseStatement("UPDATE \"people\" SET \"name\" = ?", parameters: [.text("Ada")])],
+            requiredAffectedRows: 1
+        )
+
+        do {
+            _ = try await FixedAnswerStub().performWrite(transaction)
+            XCTFail("A conformer with no write half must refuse")
+        } catch let error as DatabaseError {
+            XCTAssertEqual(error, .sqlError(message: "This database connection is read-only."))
+            XCTAssertEqual(error.errorDescription, "This database connection is read-only.")
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+    }
+
+    /// What the write tests in the model suite read their assertions out of: the
+    /// transaction arrives verbatim — the URL it was told to open, every bound
+    /// value, and the affected-row count Core required.
+    func testTheScriptedServiceRecordsTheTransactionVerbatim() async throws {
+        let service = ScriptedDatabaseService()
+        service.serveCommittedWrite()
+
+        let statement = DatabaseStatement(
+            "UPDATE \"people\" SET \"name\" = ? WHERE rowid IS ? AND \"name\" IS ?",
+            parameters: [.text("Ada"), .integer(7), .null]
+        )
+        let transaction = DatabaseWriteTransaction(url: url, statements: [statement], requiredAffectedRows: 1)
+
+        let outcome = try await service.performWrite(transaction)
+
+        XCTAssertEqual(outcome, DatabaseWriteOutcome(affectedRows: 1, isCommitted: true))
+        XCTAssertEqual(service.writeTransactions, [transaction])
+        XCTAssertEqual(service.writeTransactions.first?.url, url)
+        XCTAssertEqual(service.writeTransactions.first?.statements, [statement])
+        XCTAssertEqual(service.writeTransactions.first?.requiredAffectedRows, 1)
+        XCTAssertEqual(service.writeCount, 1)
+    }
+
+    /// A write is its own connection, so the read connection being closed says
+    /// nothing about it — the fake must not gate one on the other.
+    func testAWriteDoesNotRequireTheReadConnectionToBeOpen() async throws {
+        let service = ScriptedDatabaseService()
+        service.serveCommittedWrite()
+
+        XCTAssertFalse(service.isOpen)
+        let outcome = try await service.performWrite(transaction())
+
+        XCTAssertTrue(outcome.isCommitted)
+        XCTAssertEqual(service.writeCount, 1)
+    }
+
+    /// The two rollback shapes the model tells apart: nothing matched, and the
+    /// identity was not unique after all.
+    func testRolledBackOutcomesCarryTheirCounts() async throws {
+        let service = ScriptedDatabaseService()
+
+        service.serveRolledBackWrite(affectedRows: 0)
+        let stale = try await service.performWrite(transaction())
+        XCTAssertEqual(stale, DatabaseWriteOutcome(affectedRows: 0, isCommitted: false))
+
+        service.serveRolledBackWrite(affectedRows: 3)
+        let ambiguous = try await service.performWrite(transaction())
+        XCTAssertEqual(ambiguous, DatabaseWriteOutcome(affectedRows: 3, isCommitted: false))
+    }
+
+    /// The same sticky-last-step rule the run script follows, so "and the second
+    /// write…" needs no extra machinery.
+    func testTheLastScriptedWriteSticks() async throws {
+        let service = ScriptedDatabaseService()
+        service.serveWrites(
+            sequence: [
+                DatabaseWriteOutcome(affectedRows: 1, isCommitted: true),
+                DatabaseWriteOutcome(affectedRows: 0, isCommitted: false),
+            ]
+        )
+
+        let first = try await service.performWrite(transaction())
+        let second = try await service.performWrite(transaction())
+        let third = try await service.performWrite(transaction())
+
+        XCTAssertTrue(first.isCommitted)
+        XCTAssertFalse(second.isCommitted)
+        XCTAssertFalse(third.isCommitted, "The last step must stick")
+        XCTAssertEqual(service.writeCount, 3)
+    }
+
+    func testAFailedWriteThrowsWhatWasInjected() async {
+        let service = ScriptedDatabaseService()
+        service.failWrite()
+
+        do {
+            _ = try await service.performWrite(transaction())
+            XCTFail("The injected write failure must be thrown")
+        } catch let error as DatabaseError {
+            XCTAssertEqual(error, .busy(message: "database is locked"))
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+
+        XCTAssertEqual(service.writeCount, 1, "A refused write is still an attempt worth logging")
+    }
+
+    func testAnUnscriptedWriteThrows() async {
+        let service = ScriptedDatabaseService()
+
+        do {
+            _ = try await service.performWrite(transaction())
+            XCTFail("An unscripted write must throw")
+        } catch let failure as ScriptedDatabaseService.Failure {
+            XCTAssertEqual(failure, .notScripted(sql: "UPDATE \"people\" SET \"name\" = ? WHERE rowid IS ?"))
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+    }
+
+    /// The window the model suite stages a superseding selection — or a second
+    /// write — in: the gate really does hold the write open.
+    func testAHeldWriteStaysInFlightUntilTheGateIsReleased() async throws {
+        let service = ScriptedDatabaseService()
+        service.serveCommittedWrite()
+        let gate = Gate()
+        service.holdWrite(on: gate)
+
+        let finished = OutcomeRecorder()
+        let running = Task {
+            let outcome = try await service.performWrite(self.transaction())
+            await finished.record(outcome)
+        }
+
+        await gate.waitUntilReached()
+        let recordedWhileHeld = await finished.value
+        XCTAssertNil(recordedWhileHeld, "The write must still be in flight while the gate holds it")
+
+        gate.release()
+        try await running.value
+
+        await waitFor("the held write to answer") { await finished.value != nil }
+        let delivered = await finished.value
+        XCTAssertEqual(delivered, DatabaseWriteOutcome(affectedRows: 1, isCommitted: true))
+    }
+
     // MARK: - Support
+
+    /// A one-statement transaction the write assertions above share.
+    private func transaction() -> DatabaseWriteTransaction {
+        DatabaseWriteTransaction(
+            url: url,
+            statements: [
+                DatabaseStatement(
+                    "UPDATE \"people\" SET \"name\" = ? WHERE rowid IS ?",
+                    parameters: [.text("Ada"), .integer(7)]
+                ),
+            ],
+            requiredAffectedRows: 1
+        )
+    }
+
+    /// A sink an off-main write writes into, polled the same way `Recorder` is.
+    private actor OutcomeRecorder {
+        private(set) var value: DatabaseWriteOutcome?
+        func record(_ outcome: DatabaseWriteOutcome) { value = outcome }
+    }
 
     /// A sink an off-main call writes into, polled by the assertions rather than
     /// assumed to have landed after any particular number of hops.
