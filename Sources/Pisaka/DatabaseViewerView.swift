@@ -211,25 +211,29 @@ struct DatabaseViewerView: View {
     }
 
     /// The column headers, which are also the sort control: a click asks
-    /// `toggleSort(column:)` and the arrow shows what came back.
+    /// `toggleSort(column:index:)` and the arrow shows what came back.
     ///
     /// Keyed by **position**, exactly like `dataRow` below, and not by the name:
     /// a view may legally select two columns with the same name
     /// (`SELECT t.id, u.id FROM t JOIN u`), SQLite answers both of them as `id`,
     /// and identifying a header by a string that repeats would draw fewer headers
     /// than there are cells — shifting every column heading in that view.
+    /// The position is also what the *sort* is keyed by — passed to
+    /// `toggleSort` and compared against for the arrow — for the same reason:
+    /// keying either by the name would make a click on one duplicate flip the
+    /// other and draw the arrow on both (`DatabaseSortState`).
     private var headerRow: some View {
         HStack(spacing: 0) {
-            ForEach(Array(model.gridColumns.enumerated()), id: \.offset) { _, name in
+            ForEach(Array(model.gridColumns.enumerated()), id: \.offset) { index, name in
                 Button {
                     let request = model.prepareForRowsChange()
-                    Task { await model.toggleSort(column: name, request: request) }
+                    Task { await model.toggleSort(column: name, index: index, request: request) }
                 } label: {
                     HStack(spacing: metrics.scaled(3)) {
                         Text(name)
                             .font(metrics.scaledFont(.caption, weight: .semibold))
                             .lineLimit(1)
-                        if let sort = model.sort, sort.column == name {
+                        if let sort = model.sort, sort.columnIndex == index {
                             Image(systemName: sort.direction.isAscending ? "chevron.up" : "chevron.down")
                                 .font(metrics.scaledFont(.caption2))
                         }

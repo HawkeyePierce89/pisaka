@@ -50,6 +50,17 @@ final class DatabasePageTests: XCTestCase {
         XCTAssertEqual(DatabasePage(size: 10, totalRows: 1).pageCount, 1)
     }
 
+    /// `count(*)` is clamped from SQLite's `Int64`, so the total may legally be
+    /// `Int.max`. The familiar `(total + size - 1) / size` adds before it divides
+    /// and traps on exactly that input; the arithmetic here never adds to the
+    /// total, so the ceiling is a number rather than a crash.
+    func testAnEnormousTotalDoesNotOverflowThePageCount() {
+        let page = DatabasePage(size: 200, totalRows: Int.max)
+        XCTAssertEqual(page.pageCount, (Int.max - 1) / 200 + 1)
+        XCTAssertEqual(page.lastIndex, (Int.max - 1) / 200)
+        XCTAssertTrue(page.hasNext)
+    }
+
     func testAnEmptyTableStillHasOnePage() {
         let page = DatabasePage(size: 10, totalRows: 0)
         XCTAssertEqual(page.pageCount, 1)
@@ -144,25 +155,72 @@ final class DatabasePageTests: XCTestCase {
     // MARK: - Sort state
 
     func testANewColumnSortsAscending() {
-        let sorted = DatabaseSortState.toggled(nil, column: "name")
-        XCTAssertEqual(sorted, DatabaseSortState(column: "name", direction: .ascending))
+        let sorted = DatabaseSortState.toggled(nil, column: "name", index: 1)
+        XCTAssertEqual(sorted, DatabaseSortState(column: "name", columnIndex: 1, direction: .ascending))
     }
 
     func testTheSameColumnFlips() {
-        var sorted = DatabaseSortState.toggled(nil, column: "name")
-        sorted = DatabaseSortState.toggled(sorted, column: "name")
-        XCTAssertEqual(sorted, DatabaseSortState(column: "name", direction: .descending))
+        var sorted = DatabaseSortState.toggled(nil, column: "name", index: 1)
+        sorted = DatabaseSortState.toggled(sorted, column: "name", index: 1)
+        XCTAssertEqual(sorted, DatabaseSortState(column: "name", columnIndex: 1, direction: .descending))
 
-        sorted = DatabaseSortState.toggled(sorted, column: "name")
-        XCTAssertEqual(sorted, DatabaseSortState(column: "name", direction: .ascending), "It flips; it never clears")
+        sorted = DatabaseSortState.toggled(sorted, column: "name", index: 1)
+        XCTAssertEqual(
+            sorted,
+            DatabaseSortState(column: "name", columnIndex: 1, direction: .ascending),
+            "It flips; it never clears"
+        )
     }
 
     func testAnotherColumnStartsAscendingAgain() {
-        let descending = DatabaseSortState(column: "name", direction: .descending)
+        let descending = DatabaseSortState(column: "name", columnIndex: 0, direction: .descending)
         XCTAssertEqual(
-            DatabaseSortState.toggled(descending, column: "price"),
-            DatabaseSortState(column: "price", direction: .ascending)
+            DatabaseSortState.toggled(descending, column: "price", index: 1),
+            DatabaseSortState(column: "price", columnIndex: 1, direction: .ascending)
         )
+    }
+
+    /// The case a name-keyed sort gets wrong: a view answering two columns both
+    /// called `id`. Clicking the second must sort the second — start it
+    /// ascending, not flip the first — and the two states must not compare equal,
+    /// which is what keeps the arrow off the header nobody clicked.
+    func testTwoColumnsSpellingTheSameNameSortIndependently() {
+        let first = DatabaseSortState.toggled(nil, column: "id", index: 0)
+        let second = DatabaseSortState.toggled(first, column: "id", index: 1)
+
+        XCTAssertEqual(second, DatabaseSortState(column: "id", columnIndex: 1, direction: .ascending))
+        XCTAssertNotEqual(first, second)
+
+        let flipped = DatabaseSortState.toggled(second, column: "id", index: 1)
+        XCTAssertEqual(flipped, DatabaseSortState(column: "id", columnIndex: 1, direction: .descending))
+    }
+
+    /// A position that does not exist is not a column: an ordinal reaching the
+    /// statement must always name one, so it is floored at the first.
+    func testANegativeColumnIndexIsFlooredAtTheFirstColumn() {
+        XCTAssertEqual(DatabaseSortState(column: "name", columnIndex: -3).columnIndex, 0)
+    }
+
+    // MARK: - Sort survival across a refresh
+
+    func testASortSurvivesAnAnswerThatStillCarriesItsColumn() {
+        let sorted = DatabaseSortState(column: "price", columnIndex: 1)
+        XCTAssertTrue(sorted.survives(columnNames: ["id", "price", "name"]))
+    }
+
+    func testASortDoesNotSurviveADroppedColumn() {
+        let sorted = DatabaseSortState(column: "price", columnIndex: 1)
+        XCTAssertFalse(sorted.survives(columnNames: ["id"]), "The position is gone")
+        XCTAssertFalse(sorted.survives(columnNames: []))
+    }
+
+    /// The case the *position* alone gets wrong: the answer still has a column 1,
+    /// but it is a different one. The name at the position is checked for exactly
+    /// this — an ordinal still in range would otherwise order the next page by a
+    /// column nobody asked about, under an arrow naming the one they chose.
+    func testASortDoesNotSurviveAReorderedAnswer() {
+        let sorted = DatabaseSortState(column: "price", columnIndex: 1)
+        XCTAssertFalse(sorted.survives(columnNames: ["price", "id", "name"]))
     }
 
     func testDirectionFlipsBothWays() {
@@ -173,13 +231,13 @@ final class DatabasePageTests: XCTestCase {
     }
 
     func testSelectingAnotherTableClearsTheSort() {
-        let sorted = DatabaseSortState(column: "price", direction: .descending)
+        let sorted = DatabaseSortState(column: "price", columnIndex: 2, direction: .descending)
         XCTAssertNil(DatabaseSortState.carriedOver(sorted, from: "orders", to: "customers"))
         XCTAssertNil(DatabaseSortState.carriedOver(sorted, from: nil, to: "customers"))
     }
 
     func testReselectingTheSameTableKeepsTheSort() {
-        let sorted = DatabaseSortState(column: "price", direction: .descending)
+        let sorted = DatabaseSortState(column: "price", columnIndex: 2, direction: .descending)
         XCTAssertEqual(DatabaseSortState.carriedOver(sorted, from: "orders", to: "orders"), sorted)
     }
 }

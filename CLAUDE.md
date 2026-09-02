@@ -246,7 +246,7 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
 - `DatabaseFileRule.swift` — the one recognized-extension rule; last extension only.
 - `DatabaseValue.swift` — the five storage classes + the one rendering (NULL vs. `""`, the blob placeholder); `DatabaseStatement`/`DatabaseResultSet`.
 - `DatabaseServicing.swift` — the async app/Core seam + `DatabaseError` (SQLite's words, verbatim).
-- `DatabaseQuery.swift` — the only SQL in the repository; identifier quoting, the four statements, bound `LIMIT`/`OFFSET`.
+- `DatabaseQuery.swift` — the only SQL in the repository; identifier quoting, the five statements (incl. the zero-limit shape probe a carried sort is checked against), bound `LIMIT`/`OFFSET`.
 - `DatabaseSchema.swift` — table/view + column value types and the two pure parsers; they refuse rather than guess.
 - `DatabasePage.swift` — the paging arithmetic (uncounted is a state, not a zero) + `DatabaseSortState`'s two rules.
 - `DatabaseViewerModel.swift` — the tab's model: two generation tokens, a failure never blanks a good answer, every read bounded.

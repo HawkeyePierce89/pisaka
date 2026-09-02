@@ -36,10 +36,10 @@ actor DatabaseConnectionService: DatabaseServicing {
     /// lock reports rather than hangs the tab forever.
     private static let busyTimeoutMilliseconds: Int32 = 5_000
 
-    /// SQLite's marker for "copy this buffer, I may free it" — the binding every
-    /// text and blob uses, because the Swift value backing it dies at the end of
-    /// the `withUnsafe…` call and `SQLITE_STATIC` would leave the statement
-    /// pointing at freed memory.
+    /// SQLite's marker for "copy this buffer, I may free it" — what a bound text
+    /// value uses, because the Swift array backing it dies at the end of the call
+    /// and `SQLITE_STATIC` would leave the statement pointing at freed memory.
+    /// (A bound blob carries no buffer at all; see the `.blob` case in `bind`.)
     private static let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
 
     /// The open connection, or `nil` before `open(url:)` and after `close()`.
@@ -187,16 +187,19 @@ actor DatabaseConnectionService: DatabaseServicing {
                 // unnecessary; the copy `transient` asks for happens before this
                 // array goes out of scope.
                 code = sqlite3_bind_text(prepared, index, bytes, Int32(bytes.count - 1), Self.transient)
-            case .blob(let data):
-                code = data.withUnsafeBytes { buffer in
-                    // An empty `Data` has no base address, and passing `nil` with
-                    // a length of zero binds SQL NULL rather than an empty blob —
-                    // a different value. `sqlite3_bind_zeroblob` is the empty one.
-                    guard let base = buffer.baseAddress, !buffer.isEmpty else {
-                        return sqlite3_bind_zeroblob(prepared, index, 0)
-                    }
-                    return sqlite3_bind_blob(prepared, index, base, Int32(buffer.count), Self.transient)
-                }
+            case .blob(let byteCount):
+                // A `DatabaseValue` blob carries its **length and nothing else**
+                // (see the case's own note), so a blob of that length is the only
+                // thing this can faithfully bind — which `sqlite3_bind_zeroblob`
+                // is exactly: a blob of N bytes, read as zeros. Passing `nil` to
+                // `sqlite3_bind_blob` with a length of zero would bind SQL NULL
+                // instead, a different value.
+                //
+                // Nothing in the repository binds a blob today: `DatabaseQuery`
+                // binds integers only. Part 2's cell writes must therefore carry
+                // the bytes in a value that *has* them rather than reach this
+                // line, which would write zeros over the row it meant to edit.
+                code = sqlite3_bind_zeroblob(prepared, index, Int32(clamping: max(0, byteCount)))
             case .null:
                 code = sqlite3_bind_null(prepared, index)
             }
@@ -232,13 +235,14 @@ actor DatabaseConnectionService: DatabaseServicing {
             let buffer = UnsafeBufferPointer(start: text, count: count)
             return .text(String(decoding: buffer, as: UTF8.self))
         case SQLITE_BLOB:
-            // The byte count is asked *after* the pointer, which is the order the
-            // library documents; a zero-length blob answers a null pointer and is
-            // an empty `Data`, not a NULL.
-            let bytes = sqlite3_column_blob(prepared, index)
-            let count = Int(sqlite3_column_bytes(prepared, index))
-            guard let bytes, count > 0 else { return .blob(Data()) }
-            return .blob(Data(bytes: bytes, count: count))
+            // The length alone, and **the bytes are never copied**: the value the
+            // grid renders is a placeholder naming the size, and a page holds two
+            // hundred rows of cells that may each be a gigabyte. `sqlite3_column_
+            // bytes` on a column already known to be `SQLITE_BLOB` performs no
+            // conversion — it answers the length of what is there — so this asks
+            // for the one fact anybody reads and leaves the bytes in the
+            // statement's own memory, which the next `step` reuses.
+            return .blob(byteCount: Int(sqlite3_column_bytes(prepared, index)))
         default:
             return .null
         }

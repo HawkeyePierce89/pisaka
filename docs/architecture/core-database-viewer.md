@@ -139,7 +139,19 @@ disk-writer gate and is never gated by it.
   marker is unforgeable against a text value that spells it out. A blob renders
   as `blobDisplayText(byteCount:)`, a placeholder rather than the bytes: a blob
   column holds images and archives, and its size is the one fact a reader can
-  act on. The same file carries `DatabaseStatement` (SQL text plus positionally
+  act on. The case therefore **carries the length and nothing else** —
+  `blob(byteCount:)`, not `blob(Data)`. That is not a rendering convenience: a
+  blob cell may hold a gigabyte and a page holds `DatabasePage.defaultSize` rows,
+  so a value that carried the bytes would make one page of a table of images an
+  unbounded read in the one layer whose whole discipline is that every read is
+  one bounded page — while the bytes it copied would be read by nobody. The app
+  half asks SQLite for the length and copies no bytes at all
+  (`DatabaseConnectionService`), so a page of blobs costs a page of integers;
+  part 2's cell editor, when it needs a blob's contents, asks for *that one cell*.
+  The same shape decides what a bound blob can mean: a `DatabaseValue` blob has
+  no bytes to bind, so the bind path can only bind a blob of that length
+  (`sqlite3_bind_zeroblob`) and part 2's cell writes must carry their bytes in a
+  value that has them rather than reach that line. The same file carries `DatabaseStatement` (SQL text plus positionally
   bound parameters) and `DatabaseResultSet` (column names, rows, `affectedRows`,
   and a bounds-checked `value(row:column:)` so a malformed answer is reported
   rather than trapped on). `affectedRows` is carried from the start although
@@ -177,7 +189,7 @@ disk-writer gate and is never gated by it.
   rejected: every string is a legal identifier once quoted, and refusing to show
   a table because of its name would refuse a database SQLite is happy with. The
   corollary is enforced too — everything that *can* be a parameter **must** be
-  one, which is why `LIMIT` and `OFFSET` travel as bound values. The four
+  one, which is why `LIMIT` and `OFFSET` travel as bound values. The five
   statements: `tableListing` (`sqlite_master`, not the modern `sqlite_schema`
   alias, so the text runs against every SQLite this app may meet; internal tables
   excluded by their *reserved* `sqlite_` prefix, so no table of the user's can be
@@ -186,12 +198,24 @@ disk-writer gate and is never gated by it.
   `PRAGMA table_xinfo` rather than `table_info` — it answers the same rows plus
   `hidden`, the only way to learn a column is generated, which is the fact part 2
   needs in order to refuse to write it; `rowCount(table:)`, asked separately
-  because a `LIMIT`ed page knows nothing about what lies past its end; and
-  `page(table:orderBy:ascending:limit:offset:)`, whose `limit` and `offset` are
-  bound and **floored at zero** — not defensive tidiness, but because SQLite
-  reads a *negative* `LIMIT` as "no limit at all", so a negative slipping through
-  would turn the one statement that must always be bounded into a full-table
-  select.
+  because a `LIMIT`ed page knows nothing about what lies past its end;
+  `resultColumns(table:)`, the same `SELECT *` with the limit bound to **zero**
+  — the shape of the answer, asked without reading it, which is what a sort
+  carried across a refresh is checked against before a page is composed (the
+  model's entry says why the page's own answer is one statement too late), and
+  free because SQLite learns the column names off the prepared statement and
+  steps straight to done; and
+  `page(table:orderByColumnIndex:ascending:limit:offset:)`, whose `limit` and
+  `offset` are bound and **floored at zero** — not defensive tidiness, but
+  because SQLite reads a *negative* `LIMIT` as "no limit at all", so a negative
+  slipping through would turn the one statement that must always be bounded into
+  a full-table select. Its sort names its column by **1-based result ordinal**
+  (`ORDER BY 3`), never by name: `SELECT *` over a view may answer two columns
+  spelling the same name, and `ORDER BY "id"` against such an answer silently
+  resolves to the first of them whichever header was clicked. The ordinal is
+  exactly the position the grid drew, so the two cannot disagree — and since an
+  ordinal is a number rather than an identifier, the sort splices nothing and
+  `quoted(_:)` has one caller fewer.
 
 - `DatabaseSchema.swift` — the schema value types and the two **pure** parsers.
   `DatabaseTableEntry` is a name, a closed `Kind` (`table`/`view` — the listing
@@ -242,20 +266,31 @@ disk-writer gate and is never gated by it.
   page size, so a short last page does not claim rows the grid is not drawing.
   `defaultSize` is 200, referenced by both the arithmetic and the statement that
   binds it rather than restated at either site. Alongside it
-  `DatabaseSortState`: a column plus `ascending`/`descending`, with two rules —
-  `toggled(_:column:)` (a **new** column sorts ascending, because that is the
-  order the reader means; the **same** column flips, with no third click that
+  `DatabaseSortState`: a column — as a **position** (`columnIndex`) with the name
+  at that position carried alongside — plus `ascending`/`descending`, with three
+  rules. The position is the identity, not the name: a view may answer two columns
+  both called `id` (which is already why the grid draws headers and cells by
+  position), and a sort keyed by the name would order by whichever of them SQLite
+  resolved the name to — the first — while the arrow appeared on *every* header
+  spelling it, so clicking the second `id` would silently order by the first and
+  say it had done what was asked. `toggled(_:column:index:)` (a **new** column
+  sorts ascending, because that is the order the reader means; the **same**
+  column — the same *position* — flips, with no third click that
   clears, because cycling back into SQLite's arbitrary storage order through a
-  header nobody aimed at would look like the sort had failed) and
+  header nobody aimed at would look like the sort had failed);
   `carriedOver(_:from:to:)` (nothing survives a genuine table change — a column
-  name is meaningful only inside its own table, and carrying `ORDER BY "price"`
-  into a table with no `price` would order the next page by a column nobody asked
-  about, and not even reliably as an error: SQLite's double-quoted-string fallback
-  reinterprets an identifier that resolves to nothing as a *string literal* and
-  sorts every row by one constant — while re-selecting the table already showing
-  keeps the sort, because that is a refresh and not a move. The column can
-  disappear under a *refresh* too, which is why the model drops a sort its own
-  answer does not name; see `publish` below). The two types live in one
+  is meaningful only inside its own table, and carrying a sort into a table that
+  does not have it would order the next page by a column nobody asked about —
+  while re-selecting the table already showing
+  keeps the sort, because that is a refresh and not a move); and
+  `survives(columnNames:)`, which the model asks of every answer. Both halves
+  must hold — the position must exist *and* the name at it must be the one the
+  sort was made against — because the column can change under a *refresh*: it can
+  be dropped (the ordinal falls out of range) or merely **reordered**, which is
+  the case a position alone gets wrong, since the ordinal would still be in range
+  and the next page would come back ordered by whatever now sits there under an
+  arrow still naming the column the reader chose. See `publish` below. The two
+  types live in one
   file because a sort change resets the page and a table change clears the sort:
   the rules are read together or not at all.
 
@@ -268,7 +303,9 @@ disk-writer gate and is never gated by it.
   knows SQLite exists. `load()` opens the connection once (a second call is a
   refresh; a failed open leaves `isOpen` false so the next call retries rather
   than running statements against nothing) and lists the tables and views.
-  `select(table:)` loads the schema, the count and the first page.
+  `select(table:)` loads the schema, the count and the first page — with one
+  statement in between when, and only when, a sort was carried into it: the
+  shape probe that keeps a stale ordinal from reaching SQLite (below).
   `goToPage(_:)` moves and reloads — a move to the page already shown is a no-op
   rather than a re-query, because the paging controls are clickable at both ends.
   It is not a no-op for the state the *click* already changed, though: the token
@@ -279,7 +316,7 @@ disk-writer gate and is never gated by it.
   presented a token and then did nothing, which is reachable from two clicks on ◀
   faster than the button redraws. A caller that presented no token superseded
   nothing and keeps the plain no-op.
-  `toggleSort(column:)` flips or re-aims the sort, resets to the first page and
+  `toggleSort(column:index:)` flips or re-aims the sort, resets to the first page and
   **keeps the count**: an `ORDER BY` reorders rows without changing how many
   there are, so re-asking `count(*)` would be a second full-table read for an
   answer already in hand. `reload(at:)` is the tab's `reloadFromDisk`: it releases
@@ -323,9 +360,12 @@ disk-writer gate and is never gated by it.
   can run: without it SQLite returns `SQLITE_BUSY` the instant a lock is
   contended, so a viewer opened over a database another process is writing would
   flash an error rather than wait the moment out — and five seconds is short
-  enough that a genuinely *held* lock reports instead of hanging the tab. Text and
-  blob bindings use SQLite's transient destructor, because the Swift value backing
-  them dies at the end of the `withUnsafe…` call. A `deinit` closes the handle as
+  enough that a genuinely *held* lock reports instead of hanging the tab. A text
+  binding uses SQLite's transient destructor, because the Swift array backing it
+  dies at the end of the call; a blob **reads back as its length alone and binds
+  as one** — `sqlite3_column_bytes` without `sqlite3_column_blob` on the way out,
+  `sqlite3_bind_zeroblob` on the way in — so no page ever copies a blob's bytes
+  (see `DatabaseValue`). A `deinit` closes the handle as
   a **backstop**: `close()` is the normal path and the tab owner drives it, but it
   is `async`, so every route to it is a `Task` hop a torn-down owner may never run
   — and the handle nobody closed is a leaked file descriptor for the app's life. Every failure becomes a
@@ -384,7 +424,10 @@ disk-writer gate and is never gated by it.
   legally select two columns with the same name (`SELECT t.id, u.id FROM t JOIN
   u`) and SQLite answers both of them as `id`, so identifying a header by its
   string would draw fewer headers than there are cells and shift every heading in
-  that view. The footer's one judgement is the same honesty rule as the model's:
+  that view. The position is what a header click *sends* as well as what draws
+  it: `toggleSort(column:index:)` takes it and the arrow is drawn from
+  `sort.columnIndex`, so a click on one duplicate cannot flip the other or put
+  the arrow on both (`DatabaseSortState`). The footer's one judgement is the same honesty rule as the model's:
   "Loading…" is said only while `isLoadingRows`, so the uncounted-and-empty state
   a *failed* selection leaves behind does not claim a load is in flight
   underneath the banner explaining that one failed. The grid's placeholder answers
@@ -492,7 +535,7 @@ disk-writer gate and is never gated by it.
 `DatabaseViewerModel` carries **two** tokens, because there are two
 independently re-triggerable loads. The table listing is re-asked by `load()`;
 the schema-and-page load is re-asked by `select(table:)`, `goToPage(_:)` and
-`toggleSort(column:)`, which a reader can fire far faster than a large table
+`toggleSort(column:index:)`, which a reader can fire far faster than a large table
 answers. One shared token would let a finished listing cancel a page load that
 has nothing to do with it, so the two are counted apart.
 
@@ -528,7 +571,7 @@ win, settling the tab on the table the user clicked first with nothing supersede
 and no error. So `prepareForRowsChange()` is the model's `prepareForSearch(root:)`
 — it bumps the rows token synchronously in the click and hands back the token the
 resulting load must present — and `select(table:request:)` /
-`toggleSort(column:request:)` refuse a request that is no longer the latest,
+`toggleSort(column:index:request:)` refuse a request that is no longer the latest,
 **before** either of them mutates anything (`toggleSort` would otherwise flip the
 header arrow for rows it never loaded). `goToPage(_:request:)` takes the same
 token, and the footer captures its *target index* in the click too. Two paging
@@ -552,13 +595,25 @@ one deliberate exception is selecting a *different* table, which clears the
 previous table's rows in its synchronous prefix — leaving them under another
 table's name would be a lie the error message does not correct.
 
-**A sort the answer does not name did not happen.** `publish` clears `sort` when
-the answered column names do not hold it, which is the one way a carried-over
-sort can outlive its column: `reload` re-selects the table by name after
-re-opening the file, that re-selection is a refresh, and the database underneath
-may have been rebuilt without the column. Left set, it would claim an ordering
-that no header arrow can even show (the column is not in `gridColumns` either)
-and re-send the same unresolvable `ORDER BY` on every later page.
+**A sort the answer no longer carries did not happen** — and it is asked
+*before* the page, not only after it. `reload` re-selects the table by name after
+re-opening the file, that re-selection is a refresh, so the sort is carried, and
+the database underneath may have been rebuilt with the sorted column dropped,
+renamed or reordered. `select` therefore asks `DatabaseQuery.resultColumns` for
+the shape the table answers now and drops a sort that fails
+`survives(columnNames:)` before composing its page, because the two ways a stale
+ordinal goes wrong are both settled by then: a **dropped** column leaves an
+ordinal SQLite rejects at *prepare* time (`ORDER BY 2` against a one-column
+`SELECT *` is an error, not an unsorted page), so the refresh would fail outright
+under a message about an ordinal rather than showing the rebuilt table; and a
+**reordered** answer — the case the position alone cannot catch — succeeds,
+putting a page ordered by a column nobody clicked on screen. `publish` keeps the
+same check on the answer itself, which is where a shape that changed between the
+two statements lands, and which is the only check a page turn or a sort toggle
+gets: within one selection the ordinal came from the answer on screen, so nothing
+re-probes on those paths. Left set either way, the sort would claim an ordering
+no header arrow can even show — a dropped column is not in `gridColumns` either —
+and re-send it on every later page.
 
 A failed read additionally puts the `page` and the `sort` back onto **the rows
 that are actually on screen**, which is the same rule read from the chrome's
@@ -620,9 +675,10 @@ Core-side, all in `Tests/PisakaCoreTests/`:
   set of text, untitled and viewer tabs — including that a restore into a
   switch-off workspace produces no viewer tab.
 - `DatabaseValueTests`, `DatabaseServicingTests` — rendering for all five storage
-  classes including NULL versus the empty string and the blob placeholder,
-  equality, and the fake's own call log and failure injection behaving as the
-  later suites assume.
+  classes including NULL versus the empty string and the blob placeholder, that a
+  blob value carries its length and no bytes (a gigabyte cell is the same size as
+  an empty one), equality, and the fake's own call log and failure injection
+  behaving as the later suites assume.
 - `DatabaseSchemaTests`, `DatabaseQueryTests` — quoting a plain identifier, one
   holding a double quote, a semicolon and a space; the listing parser over a
   table and a view; the column parser over a composite primary key (ordinals
@@ -630,7 +686,14 @@ Core-side, all in `Tests/PisakaCoreTests/`:
   malformed shape producing its typed error; and every built statement asserted
   **byte-for-byte** with its parameter list.
 - `DatabasePageTests`, `DatabaseViewerModelTests` — the paging and sort rules
-  including the shrunken-total case, then the model against
+  including the shrunken-total case, a total at `Int.max` (which the page-count
+  arithmetic must answer rather than overflow on, since `count(*)` is clamped
+  from SQLite's `Int64`), two columns spelling one name sorting independently,
+  and a sort surviving or not surviving a dropped versus a *reordered* answer —
+  each of those two asserted at the model as *the stale ordinal never being
+  sent*, since the drop's statement is one real SQLite refuses to prepare and the
+  reorder's is one it happily answers wrongly, and neither is visible in a
+  scripted answer alone; then the model against
   `ScriptedDatabaseService`: the happy path, paging forward and back with the
   bound `LIMIT`/`OFFSET` asserted per request, a sort toggle re-querying and
   resetting to page 1, a superseded load discarding its result (staged with

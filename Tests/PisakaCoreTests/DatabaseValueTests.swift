@@ -60,21 +60,24 @@ final class DatabaseValueTests: XCTestCase {
     }
 
     func testBlobRendersAsAByteCountPlaceholder() {
-        XCTAssertEqual(DatabaseValue.blob(Data()).displayText, "BLOB (0 bytes)")
-        XCTAssertEqual(DatabaseValue.blob(Data([0x00])).displayText, "BLOB (1 byte)")
-        XCTAssertEqual(DatabaseValue.blob(Data([0x01, 0x02, 0x03])).displayText, "BLOB (3 bytes)")
+        XCTAssertEqual(DatabaseValue.blob(byteCount: 0).displayText, "BLOB (0 bytes)")
+        XCTAssertEqual(DatabaseValue.blob(byteCount: 1).displayText, "BLOB (1 byte)")
+        XCTAssertEqual(DatabaseValue.blob(byteCount: 3).displayText, "BLOB (3 bytes)")
     }
 
-    /// The bytes themselves never reach the grid — including bytes that would
-    /// have decoded as perfectly readable text.
-    func testBlobNeverRendersItsBytes() {
-        let readable = DatabaseValue.blob(Data("secret".utf8))
-        XCTAssertEqual(readable.displayText, "BLOB (6 bytes)")
-        XCTAssertFalse(readable.displayText.contains("secret"))
+    /// A blob a page carries is its **length and nothing else**, which is what
+    /// keeps a page of a table of images the same bounded read as a page of
+    /// integers. The case has nowhere to put bytes, so a gigabyte cell costs the
+    /// same as an empty one — asserted here because it is the property, not an
+    /// implementation detail of the app half.
+    func testABlobCarriesItsLengthAndNoBytes() {
+        let huge = DatabaseValue.blob(byteCount: 1_000_000_000)
+        XCTAssertEqual(huge.displayText, "BLOB (1000000000 bytes)")
+        XCTAssertEqual(MemoryLayout.size(ofValue: huge), MemoryLayout.size(ofValue: DatabaseValue.blob(byteCount: 0)))
     }
 
     func testEveryNonNullValueReportsItselfNotNull() {
-        let values: [DatabaseValue] = [.integer(1), .real(1), .text("x"), .blob(Data([0x01]))]
+        let values: [DatabaseValue] = [.integer(1), .real(1), .text("x"), .blob(byteCount: 1)]
         for value in values {
             XCTAssertFalse(value.isNull, "\(value) should not be null")
         }
@@ -89,7 +92,7 @@ final class DatabaseValueTests: XCTestCase {
         XCTAssertNotEqual(DatabaseValue.integer(1), .real(1))
         XCTAssertNotEqual(DatabaseValue.integer(1), .text("1"))
         XCTAssertNotEqual(DatabaseValue.text("1"), .real(1))
-        XCTAssertNotEqual(DatabaseValue.blob(Data("1".utf8)), .text("1"))
+        XCTAssertNotEqual(DatabaseValue.blob(byteCount: 1), .text("1"))
     }
 
     func testEqualityWithinAStorageClass() {
@@ -98,8 +101,8 @@ final class DatabaseValueTests: XCTestCase {
         XCTAssertEqual(DatabaseValue.real(0.5), .real(0.5))
         XCTAssertEqual(DatabaseValue.text("a"), .text("a"))
         XCTAssertNotEqual(DatabaseValue.text("a"), .text("A"))
-        XCTAssertEqual(DatabaseValue.blob(Data([0x01])), .blob(Data([0x01])))
-        XCTAssertNotEqual(DatabaseValue.blob(Data([0x01])), .blob(Data([0x02])))
+        XCTAssertEqual(DatabaseValue.blob(byteCount: 1), .blob(byteCount: 1))
+        XCTAssertNotEqual(DatabaseValue.blob(byteCount: 1), .blob(byteCount: 2))
         XCTAssertEqual(DatabaseValue.null, .null)
     }
 

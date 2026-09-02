@@ -63,7 +63,15 @@ public struct DatabasePage: Equatable, Sendable {
     /// 1 of 0 and make the clamp below reject the only index that exists.
     public var pageCount: Int? {
         guard let totalRows else { return nil }
-        return max(1, (totalRows + size - 1) / size)
+        // `(total - 1) / size + 1` rather than the more familiar
+        // `(total + size - 1) / size`: the familiar one adds before it divides
+        // and therefore overflows on a total near `Int.max`, which is precisely
+        // what a `count(*)` clamped from SQLite's `Int64` is allowed to be. This
+        // form never adds to `totalRows`, so no input can trap here. Zero is
+        // handled by the guard rather than the arithmetic — see the note above on
+        // why an empty table still has one page.
+        guard totalRows > 0 else { return 1 }
+        return (totalRows - 1) / size + 1
     }
 
     /// The last valid page index, or `nil` while uncounted.
@@ -145,6 +153,15 @@ public struct DatabasePage: Equatable, Sendable {
 /// change on different events, but kept in the same file: a sort change resets
 /// the page and a table change clears the sort, so the two rules are read
 /// together or not at all.
+///
+/// **A column is identified by its position, not by its name.** A view may
+/// legally answer two columns with the same name (`SELECT t.id, u.id FROM t JOIN
+/// u` produces two columns both called `id`), which the grid already draws by
+/// position for exactly that reason. A sort keyed by the name alone would sort by
+/// whichever of them SQLite resolved the name to — the first — while the arrow
+/// appeared on *every* header spelling it, so clicking the second `id` would
+/// silently order by the first and say it had done what was asked. The position
+/// is unambiguous, and it is what `DatabaseQuery.page` orders by.
 public struct DatabaseSortState: Equatable, Sendable {
 
     /// Ascending or descending — SQLite's two, since `ORDER BY` has no third.
@@ -159,18 +176,25 @@ public struct DatabaseSortState: Equatable, Sendable {
         public var flipped: Direction { self == .ascending ? .descending : .ascending }
     }
 
-    /// The column name, as the schema spelled it — quoted by `DatabaseQuery`
-    /// when it reaches the statement, never here.
+    /// The sorted column's zero-based position among the result columns — the
+    /// grid's own column identity, and what `DatabaseQuery.page` turns into the
+    /// statement's `ORDER BY` ordinal.
+    public var columnIndex: Int
+    /// The name at that position, as the answer spelled it. Carried alongside the
+    /// position rather than instead of it: the position is what orders the rows,
+    /// the name is what the header draws and what `survives(columnNames:)` checks
+    /// a refreshed answer against.
     public var column: String
     /// Which way.
     public var direction: Direction
 
-    public init(column: String, direction: Direction = .ascending) {
+    public init(column: String, columnIndex: Int, direction: Direction = .ascending) {
         self.column = column
+        self.columnIndex = max(0, columnIndex)
         self.direction = direction
     }
 
-    /// The state a click on `column`'s header produces.
+    /// The state a click on the header at `index` produces.
     ///
     /// A **new** column sorts ascending — the reader asked to see that column
     /// ordered, and ascending is the order they mean. The **same** column flips,
@@ -178,11 +202,31 @@ public struct DatabaseSortState: Equatable, Sendable {
     /// arbitrary storage order, and cycling back into it through a header nobody
     /// aimed at would look like the sort had failed. Clearing is what selecting
     /// another table does, and that is the only thing that does it.
-    public static func toggled(_ current: DatabaseSortState?, column: String) -> DatabaseSortState {
-        guard let current, current.column == column else {
-            return DatabaseSortState(column: column, direction: .ascending)
+    ///
+    /// "Same" is the same *position*, per the type's note: two headers may spell
+    /// the same name, and flipping on the name would make a click on one of them
+    /// flip the other.
+    public static func toggled(
+        _ current: DatabaseSortState?,
+        column: String,
+        index: Int
+    ) -> DatabaseSortState {
+        guard let current, current.columnIndex == index else {
+            return DatabaseSortState(column: column, columnIndex: index, direction: .ascending)
         }
-        return DatabaseSortState(column: column, direction: current.direction.flipped)
+        return DatabaseSortState(column: column, columnIndex: index, direction: current.direction.flipped)
+    }
+
+    /// Whether this sort still describes a column of `columnNames`.
+    ///
+    /// Both halves must hold: the position must exist, and the name at it must be
+    /// the one the sort was made against. A refresh can answer fewer columns (the
+    /// file was replaced under the tab) or the same count in a different order,
+    /// and either would leave the ordinal pointing at a column nobody asked to
+    /// sort by — which is worse than no sort, because the arrow would still name
+    /// the column the reader chose.
+    public func survives(columnNames: [String]) -> Bool {
+        columnNames.indices.contains(columnIndex) && columnNames[columnIndex] == column
     }
 
     /// The sort that survives a move from `previous` to `table`.
@@ -196,8 +240,8 @@ public struct DatabaseSortState: Equatable, Sendable {
     /// already showing keeps the sort, because that is a refresh and not a move;
     /// the column can nonetheless disappear under a refresh (`reload` re-selects
     /// by name after re-opening the file), which is why
-    /// `DatabaseViewerModel.publish` drops a sort the answered columns do not
-    /// name.
+    /// `DatabaseViewerModel.publish` drops a sort the answered columns no longer
+    /// carry (`survives(columnNames:)`).
     public static func carriedOver(
         _ sort: DatabaseSortState?,
         from previous: String?,

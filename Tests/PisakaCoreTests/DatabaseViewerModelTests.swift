@@ -156,28 +156,28 @@ final class DatabaseViewerModelTests: XCTestCase {
         serveSchema(on: service, table: "items")
         serveCount(on: service, table: "items", total: 5)
         servePage(on: service, table: "items", rows: [[.integer(1), .null]])
-        servePage(on: service, table: "items", orderBy: "label", ascending: true, rows: [[.integer(3), .text("a")]])
-        servePage(on: service, table: "items", orderBy: "label", ascending: false, rows: [[.integer(9), .text("z")]])
+        servePage(on: service, table: "items", orderBy: 1, ascending: true, rows: [[.integer(3), .text("a")]])
+        servePage(on: service, table: "items", orderBy: 1, ascending: false, rows: [[.integer(9), .text("z")]])
         let model = await loadedModel(service)
         await model.select(table: "items")
         await model.goToPage(2)
 
-        await model.toggleSort(column: "label")
-        XCTAssertEqual(model.sort, DatabaseSortState(column: "label", direction: .ascending))
+        await model.toggleSort(column: "label", index: 1)
+        XCTAssertEqual(model.sort, DatabaseSortState(column: "label", columnIndex: 1, direction: .ascending))
         XCTAssertEqual(model.page.index, 0, "A new ordering makes the old page number meaningless")
         XCTAssertEqual(model.rows, [[.integer(3), .text("a")]])
         XCTAssertEqual(model.page.totalRows, 5, "An ORDER BY does not change how many rows there are")
         XCTAssertEqual(service.count(for: DatabaseQuery.rowCount(table: "items").sql), 1)
 
-        await model.toggleSort(column: "label")
-        XCTAssertEqual(model.sort, DatabaseSortState(column: "label", direction: .descending))
+        await model.toggleSort(column: "label", index: 1)
+        XCTAssertEqual(model.sort, DatabaseSortState(column: "label", columnIndex: 1, direction: .descending))
         XCTAssertEqual(model.rows, [[.integer(9), .text("z")]])
 
         XCTAssertEqual(
             Array(service.runSQL.suffix(2)),
             [
-                pageSQL(table: "items", orderBy: "label", ascending: true),
-                pageSQL(table: "items", orderBy: "label", ascending: false),
+                pageSQL(table: "items", orderBy: 1, ascending: true),
+                pageSQL(table: "items", orderBy: 1, ascending: false),
             ]
         )
     }
@@ -186,7 +186,7 @@ final class DatabaseViewerModelTests: XCTestCase {
         let service = ScriptedDatabaseService()
         let model = DatabaseViewerModel(fileURL: url, service: service)
 
-        await model.toggleSort(column: "label")
+        await model.toggleSort(column: "label", index: 1)
         await model.goToPage(3)
 
         XCTAssertTrue(service.runSQL.isEmpty)
@@ -200,14 +200,14 @@ final class DatabaseViewerModelTests: XCTestCase {
         serveSchema(on: service, table: "items")
         serveCount(on: service, table: "items", total: 5)
         servePage(on: service, table: "items", rows: [[.integer(1), .null]])
-        servePage(on: service, table: "items", orderBy: "label", ascending: true, rows: [[.integer(3), .text("a")]])
+        servePage(on: service, table: "items", orderBy: 1, ascending: true, rows: [[.integer(3), .text("a")]])
         serveSchema(on: service, table: "orders", columns: ["ref"])
         serveCount(on: service, table: "orders", total: 1)
         servePage(on: service, table: "orders", columns: ["ref"], rows: [[.text("x")]])
         let model = await loadedModel(service)
 
         await model.select(table: "items")
-        await model.toggleSort(column: "label")
+        await model.toggleSort(column: "label", index: 1)
         await model.select(table: "orders")
 
         XCTAssertNil(model.sort, "A column name means nothing in another table")
@@ -222,14 +222,14 @@ final class DatabaseViewerModelTests: XCTestCase {
         serveSchema(on: service, table: "items")
         serveCount(on: service, table: "items", total: 5)
         servePage(on: service, table: "items", rows: [[.integer(1), .null]])
-        servePage(on: service, table: "items", orderBy: "label", ascending: true, rows: [[.integer(3), .text("a")]])
+        servePage(on: service, table: "items", orderBy: 1, ascending: true, rows: [[.integer(3), .text("a")]])
         let model = await loadedModel(service)
 
         await model.select(table: "items")
-        await model.toggleSort(column: "label")
+        await model.toggleSort(column: "label", index: 1)
         await model.select(table: "items")
 
-        XCTAssertEqual(model.sort, DatabaseSortState(column: "label", direction: .ascending))
+        XCTAssertEqual(model.sort, DatabaseSortState(column: "label", columnIndex: 1, direction: .ascending))
         XCTAssertEqual(model.rows, [[.integer(3), .text("a")]], "A refresh re-asks the sorted page")
     }
 
@@ -300,10 +300,10 @@ final class DatabaseViewerModelTests: XCTestCase {
         await model.goToPage(1)
 
         service.fail(
-            pageSQL(table: "items", orderBy: "label"),
+            pageSQL(table: "items", orderBy: 1),
             with: DatabaseError.busy(message: "database is locked")
         )
-        await model.toggleSort(column: "label")
+        await model.toggleSort(column: "label", index: 1)
 
         XCTAssertEqual(model.errorMessage, "database is locked")
         XCTAssertNil(model.sort, "The header arrow must not claim an order the rows are not in")
@@ -357,7 +357,7 @@ final class DatabaseViewerModelTests: XCTestCase {
         )
         let model = await loadedModel(service)
         await model.select(table: "items")
-        await model.toggleSort(column: "label")
+        await model.toggleSort(column: "label", index: 1)
 
         await model.select(table: "orders")
 
@@ -523,7 +523,7 @@ final class DatabaseViewerModelTests: XCTestCase {
         await model.load()
         await model.select(table: "items")
         await model.goToPage(1)
-        await model.toggleSort(column: "label")
+        await model.toggleSort(column: "label", index: 1)
 
         XCTAssertEqual(service.runSQL.count, asked, "A closed tab runs nothing")
         XCTAssertFalse(model.isLoadingRows)
@@ -557,11 +557,11 @@ final class DatabaseViewerModelTests: XCTestCase {
         servePage(
             on: service,
             table: "items",
-            orderBy: "label",
+            orderBy: 1,
             rows: [[.integer(2), .text("two")], [.integer(1), .text("one")]]
         )
         await model.select(table: "items")
-        await model.toggleSort(column: "label")
+        await model.toggleSort(column: "label", index: 1)
         await model.goToPage(1)
 
         // What re-selecting the tab does: the surface reappears and refreshes the
@@ -570,7 +570,7 @@ final class DatabaseViewerModelTests: XCTestCase {
 
         XCTAssertEqual(service.openedURLs, [url], "A re-selected tab reuses the model it already had")
         XCTAssertEqual(model.selectedTable, "items")
-        XCTAssertEqual(model.sort, DatabaseSortState(column: "label", direction: .ascending))
+        XCTAssertEqual(model.sort, DatabaseSortState(column: "label", columnIndex: 1, direction: .ascending))
         XCTAssertEqual(model.page.index, 1)
         XCTAssertEqual(model.rows, [[.integer(2), .text("two")], [.integer(1), .text("one")]])
     }
@@ -787,7 +787,7 @@ final class DatabaseViewerModelTests: XCTestCase {
 
         let stale = model.prepareForRowsChange()
         model.prepareForRowsChange()
-        await model.toggleSort(column: "label", request: stale)
+        await model.toggleSort(column: "label", index: 1, request: stale)
 
         XCTAssertNil(
             model.sort,
@@ -1011,36 +1011,33 @@ final class DatabaseViewerModelTests: XCTestCase {
         )
     }
 
-    // MARK: - A sort the answer does not name
+    // MARK: - A sort the answer no longer carries
 
     func testAReloadDropsASortWhoseColumnTheRebuiltTableNoLongerHas() async {
         let service = ScriptedDatabaseService()
         serveSchema(on: service, table: "items")
         serveCount(on: service, table: "items", total: 5)
         servePage(on: service, table: "items", rows: [[.integer(1), .text("one")]])
+        serveResultColumns(on: service, table: "items")
         servePage(
             on: service,
             table: "items",
-            orderBy: "label",
+            orderBy: 1,
             rows: [[.integer(1), .text("one")]]
         )
         let model = await loadedModel(service)
         await model.select(table: "items")
-        await model.toggleSort(column: "label")
+        await model.toggleSort(column: "label", index: 1)
         XCTAssertEqual(model.sort?.column, "label")
+        let sortedPagesBefore = service.count(for: pageSQL(table: "items", orderBy: 1))
 
         // The database is rebuilt under the tab without `label`. The re-selection
-        // a reload makes is a *refresh*, so the sort is carried into a page query
-        // that names a column nothing resolves — which SQLite may answer rather
-        // than refuse, sorting every row by one string constant.
+        // a reload makes is a *refresh*, so the sort is carried — and an ordinal
+        // the answer no longer has is not a mis-sort but a statement real SQLite
+        // refuses to prepare, which is why the shape is asked for first.
         serveSchema(on: service, table: "items", columns: ["id"])
-        servePage(
-            on: service,
-            table: "items",
-            orderBy: "label",
-            columns: ["id"],
-            rows: [[.integer(1)]]
-        )
+        serveResultColumns(on: service, table: "items", columns: ["id"])
+        servePage(on: service, table: "items", columns: ["id"], rows: [[.integer(1)]])
         await model.reload()
 
         XCTAssertNil(
@@ -1048,8 +1045,53 @@ final class DatabaseViewerModelTests: XCTestCase {
             "A sort the answered columns do not name did not happen; leaving it set claims an ordering "
                 + "with no header arrow to click off and re-sends it on every later page"
         )
+        XCTAssertEqual(
+            service.count(for: pageSQL(table: "items", orderBy: 1)),
+            sortedPagesBefore,
+            "The stale ordinal must never reach SQLite: ORDER BY 2 against a one-column answer is "
+                + "rejected at prepare time, so the refresh would fail rather than come back unsorted"
+        )
         XCTAssertEqual(model.gridColumns, ["id"])
         XCTAssertEqual(model.rows, [[.integer(1)]])
+        XCTAssertNil(model.errorMessage)
+    }
+
+    /// The case a position alone cannot catch: the ordinal is still in range, so
+    /// the sorted statement would *succeed* and put a page ordered by a column
+    /// nobody clicked on screen. Checking the shape first is what keeps it from
+    /// being asked at all.
+    func testAReloadDropsASortTheRebuiltTableMerelyReordered() async {
+        let service = ScriptedDatabaseService()
+        serveSchema(on: service, table: "items")
+        serveCount(on: service, table: "items", total: 5)
+        servePage(on: service, table: "items", rows: [[.integer(1), .text("one")]])
+        serveResultColumns(on: service, table: "items")
+        servePage(on: service, table: "items", orderBy: 1, rows: [[.integer(1), .text("one")]])
+        let model = await loadedModel(service)
+        await model.select(table: "items")
+        await model.toggleSort(column: "label", index: 1)
+        let sortedPagesBefore = service.count(for: pageSQL(table: "items", orderBy: 1))
+
+        // Same two columns, the other way round: position 1 now spells `id`.
+        serveSchema(on: service, table: "items", columns: ["label", "id"])
+        serveResultColumns(on: service, table: "items", columns: ["label", "id"])
+        servePage(
+            on: service,
+            table: "items",
+            columns: ["label", "id"],
+            rows: [[.text("one"), .integer(1)]]
+        )
+        await model.reload()
+
+        XCTAssertNil(model.sort, "The name at the position is not the one the sort was made against")
+        XCTAssertEqual(
+            service.count(for: pageSQL(table: "items", orderBy: 1)),
+            sortedPagesBefore,
+            "An ordinal another column moved into orders by that column and says nothing; the page it "
+                + "would have answered must never be asked for"
+        )
+        XCTAssertEqual(model.gridColumns, ["label", "id"])
+        XCTAssertEqual(model.rows, [[.text("one"), .integer(1)]])
     }
 
     func testASortTheAnsweredColumnsStillNameSurvivesAReload() async {
@@ -1057,15 +1099,38 @@ final class DatabaseViewerModelTests: XCTestCase {
         serveSchema(on: service, table: "items")
         serveCount(on: service, table: "items", total: 5)
         servePage(on: service, table: "items", rows: [[.integer(1), .text("one")]])
-        servePage(on: service, table: "items", orderBy: "label", rows: [[.integer(1), .text("one")]])
+        serveResultColumns(on: service, table: "items")
+        servePage(on: service, table: "items", orderBy: 1, rows: [[.integer(1), .text("one")]])
         let model = await loadedModel(service)
         await model.select(table: "items")
-        await model.toggleSort(column: "label")
+        await model.toggleSort(column: "label", index: 1)
+        let sortedPagesBefore = service.count(for: pageSQL(table: "items", orderBy: 1))
 
         await model.reload()
 
         XCTAssertEqual(model.sort?.column, "label", "The drop is the exception, not the rule")
         XCTAssertEqual(model.sort?.direction, .ascending)
+        XCTAssertEqual(
+            service.count(for: pageSQL(table: "items", orderBy: 1)),
+            sortedPagesBefore + 1,
+            "A surviving sort is re-sent, so the refreshed page is in the order the arrow claims"
+        )
+    }
+
+    /// The probe is the carried sort's own cost and nobody else's: an unsorted
+    /// selection composes its page with nothing to check.
+    func testAnUnsortedSelectionAsksForNoShape() async {
+        let service = ScriptedDatabaseService()
+        serveSchema(on: service, table: "items")
+        serveCount(on: service, table: "items", total: 5)
+        servePage(on: service, table: "items", rows: [[.integer(1), .text("one")]])
+        let model = await loadedModel(service)
+
+        await model.select(table: "items")
+        await model.select(table: "items")
+
+        XCTAssertEqual(service.count(for: DatabaseQuery.resultColumns(table: "items").sql), 0)
+        XCTAssertEqual(model.rows, [[.integer(1), .text("one")]])
     }
 
     // MARK: - Scripting helpers
@@ -1107,8 +1172,8 @@ final class DatabaseViewerModelTests: XCTestCase {
         XCTFail("Timed out waiting for the gated call", file: file, line: line)
     }
 
-    private func pageSQL(table: String, orderBy column: String? = nil, ascending: Bool = true) -> String {
-        DatabaseQuery.page(table: table, orderBy: column, ascending: ascending, limit: 1, offset: 0).sql
+    private func pageSQL(table: String, orderBy column: Int? = nil, ascending: Bool = true) -> String {
+        DatabaseQuery.page(table: table, orderByColumnIndex: column, ascending: ascending, limit: 1, offset: 0).sql
     }
 
     private func serveListing(on service: ScriptedDatabaseService, entries: [(String, String)]) {
@@ -1149,10 +1214,18 @@ final class DatabaseViewerModelTests: XCTestCase {
         )
     }
 
+    private func serveResultColumns(
+        on service: ScriptedDatabaseService,
+        table: String,
+        columns names: [String] = ["id", "label"]
+    ) {
+        service.serve(DatabaseQuery.resultColumns(table: table).sql, columns: names, rows: [])
+    }
+
     private func servePage(
         on service: ScriptedDatabaseService,
         table: String,
-        orderBy column: String? = nil,
+        orderBy column: Int? = nil,
         ascending: Bool = true,
         columns names: [String] = ["id", "label"],
         rows: [[DatabaseValue]]

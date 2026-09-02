@@ -100,6 +100,38 @@ final class DatabaseQueryTests: XCTestCase {
         )
     }
 
+    // MARK: - The answer's shape
+
+    /// The shape probe reads no rows: it is the page statement's `SELECT *` with
+    /// the limit bound to zero, so SQLite answers the column names off the
+    /// prepared statement and steps straight to done.
+    func testResultColumnsAsksForNoRows() {
+        XCTAssertEqual(
+            DatabaseQuery.resultColumns(table: "albums"),
+            DatabaseStatement("SELECT * FROM \"albums\" LIMIT ?", parameters: [.integer(0)])
+        )
+    }
+
+    /// The zero is bound like every other bound this file writes, and the table
+    /// name is spliced and therefore quoted.
+    func testResultColumnsQuotesTheTableAndBindsTheZero() {
+        let statement = DatabaseQuery.resultColumns(table: "od\"d")
+
+        XCTAssertEqual(statement.sql, "SELECT * FROM \"od\"\"d\" LIMIT ?")
+        XCTAssertFalse(statement.sql.contains("0"))
+        XCTAssertEqual(statement.parameters, [.integer(0)])
+    }
+
+    /// It is not the page statement: a test — or a reader — that could not tell
+    /// the two apart could not tell a probe from a read of the whole first page
+    /// either.
+    func testResultColumnsIsNotThePageStatement() {
+        XCTAssertNotEqual(
+            DatabaseQuery.resultColumns(table: "albums").sql,
+            DatabaseQuery.page(table: "albums", limit: 0, offset: 0).sql
+        )
+    }
+
     // MARK: - The page
 
     func testUnsortedPageIsBoundedAndBound() {
@@ -112,27 +144,42 @@ final class DatabaseQueryTests: XCTestCase {
         )
     }
 
-    func testSortedPageOrdersByAQuotedColumn() {
+    /// The sort names its column by **1-based result ordinal**, not by name: a
+    /// view may answer two columns spelling the same name and `ORDER BY "id"`
+    /// would resolve to the first of them whichever header was clicked.
+    func testSortedPageOrdersByTheResultColumnOrdinal() {
         XCTAssertEqual(
-            DatabaseQuery.page(table: "albums", orderBy: "title", ascending: true, limit: 50, offset: 150),
+            DatabaseQuery.page(table: "albums", orderByColumnIndex: 0, ascending: true, limit: 50, offset: 150),
             DatabaseStatement(
-                "SELECT * FROM \"albums\" ORDER BY \"title\" ASC LIMIT ? OFFSET ?",
+                "SELECT * FROM \"albums\" ORDER BY 1 ASC LIMIT ? OFFSET ?",
                 parameters: [.integer(50), .integer(150)]
             )
         )
         XCTAssertEqual(
-            DatabaseQuery.page(table: "albums", orderBy: "title", ascending: false, limit: 50, offset: 0),
+            DatabaseQuery.page(table: "albums", orderByColumnIndex: 2, ascending: false, limit: 50, offset: 0),
             DatabaseStatement(
-                "SELECT * FROM \"albums\" ORDER BY \"title\" DESC LIMIT ? OFFSET ?",
+                "SELECT * FROM \"albums\" ORDER BY 3 DESC LIMIT ? OFFSET ?",
                 parameters: [.integer(50), .integer(0)]
             )
         )
     }
 
-    func testSortedPageQuotesBothIdentifiers() {
+    /// The table name is still spliced and therefore still quoted; the sort no
+    /// longer splices anything at all, so a column named `col; drop` cannot reach
+    /// the text however the grid drew it.
+    func testSortedPageQuotesTheTableAndSplicesNoColumnName() {
         XCTAssertEqual(
-            DatabaseQuery.page(table: "od\"d", orderBy: "col; drop", limit: 1, offset: 2).sql,
-            "SELECT * FROM \"od\"\"d\" ORDER BY \"col; drop\" ASC LIMIT ? OFFSET ?"
+            DatabaseQuery.page(table: "od\"d", orderByColumnIndex: 1, limit: 1, offset: 2).sql,
+            "SELECT * FROM \"od\"\"d\" ORDER BY 2 ASC LIMIT ? OFFSET ?"
+        )
+    }
+
+    /// A negative ordinal is not a column, and `ORDER BY 0` is out of range for
+    /// every answer — so it orders by nothing rather than failing the read.
+    func testNegativeSortColumnOrdersByNothing() {
+        XCTAssertEqual(
+            DatabaseQuery.page(table: "albums", orderByColumnIndex: -1, limit: 1, offset: 0).sql,
+            "SELECT * FROM \"albums\" LIMIT ? OFFSET ?"
         )
     }
 
@@ -150,7 +197,7 @@ final class DatabaseQueryTests: XCTestCase {
     /// never as text — the property that keeps the page query one prepared
     /// statement rather than a new one per page.
     func testTheBoundsNeverReachTheText() {
-        let statement = DatabaseQuery.page(table: "albums", orderBy: "title", limit: 100, offset: 400)
+        let statement = DatabaseQuery.page(table: "albums", orderByColumnIndex: 0, limit: 100, offset: 400)
 
         XCTAssertFalse(statement.sql.contains("100"))
         XCTAssertFalse(statement.sql.contains("400"))

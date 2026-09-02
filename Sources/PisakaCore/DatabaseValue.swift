@@ -17,7 +17,17 @@ public enum DatabaseValue: Equatable, Hashable, Sendable {
     case integer(Int64)
     case real(Double)
     case text(String)
-    case blob(Data)
+    /// A blob, carried as its **size alone** — never its bytes.
+    ///
+    /// The viewer renders a blob as a placeholder naming its length, so the bytes
+    /// are read by nobody; carrying them anyway would make a page of a table of
+    /// images an unbounded read in a layer whose whole discipline is that every
+    /// read is one bounded page. A blob cell may hold a gigabyte, and a page holds
+    /// `DatabasePage.defaultSize` rows — the app half therefore asks SQLite for
+    /// the length and copies nothing, so a page of blobs costs the same as a page
+    /// of integers. Part 2's cell editor, when it needs a blob's contents, will
+    /// ask for *that one cell* rather than have every page carry every blob.
+    case blob(byteCount: Int)
     case null
 
     /// Whether this is SQL `NULL`.
@@ -59,8 +69,8 @@ public enum DatabaseValue: Equatable, Hashable, Sendable {
             return String(value)
         case .text(let value):
             return value
-        case .blob(let data):
-            return Self.blobDisplayText(byteCount: data.count)
+        case .blob(let byteCount):
+            return Self.blobDisplayText(byteCount: byteCount)
         case .null:
             return Self.nullDisplayText
         }

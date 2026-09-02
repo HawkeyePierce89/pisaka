@@ -13,7 +13,7 @@ import Foundation
 ///
 /// **Two tokens, because there are two independently re-triggerable loads.** The
 /// table listing is re-asked by `load()`; the schema-and-page load is re-asked by
-/// `select(table:)`, `goToPage(_:)` and `toggleSort(column:)`, which the reader
+/// `select(table:)`, `goToPage(_:)` and `toggleSort(column:index:)`, which the reader
 /// can fire faster than a large table answers. One shared token would let a
 /// finished listing cancel a page load that has nothing to do with it, so the two
 /// are counted apart. Each token is bumped in its method's **synchronous
@@ -223,7 +223,10 @@ public final class DatabaseViewerModel: ObservableObject {
     /// Selecting a table the grid is already showing is a refresh — the sort
     /// survives and the page index does not reset — while moving to another table
     /// clears both (`DatabaseSortState.carriedOver`) along with the rows the
-    /// previous table owned.
+    /// previous table owned. A *surviving* sort is checked against the shape the
+    /// table answers now (`DatabaseQuery.resultColumns`) before the page is
+    /// composed, because a refresh may be reading a database rebuilt under the
+    /// tab.
     public func select(table: String, request: Int? = nil) async {
         guard !isClosed else { return }
         if let request, request != rowsGeneration { return }
@@ -252,6 +255,23 @@ public final class DatabaseViewerModel: ObservableObject {
             guard generation == rowsGeneration else { return }
             let total = try Self.rowCount(from: counted)
             page.setTotalRows(total)
+
+            // A carried sort is the one sort composed against an answer this load
+            // has not seen: the re-selection `reload` makes is a refresh, and the
+            // database underneath may have been rebuilt with the sorted column
+            // dropped or moved. The ordinal is therefore checked against the
+            // shape the table answers *now*, before the page is composed —
+            // `publish`'s check runs on the page's own answer, which is one
+            // statement too late for both halves of the problem: a dropped column
+            // leaves an ordinal SQLite rejects at prepare time, so the refresh
+            // fails outright instead of coming back unsorted, and a reordered one
+            // succeeds and puts a page ordered by a column nobody clicked on
+            // screen before anything can notice.
+            if let carried = sort {
+                let shape = try await service.run(DatabaseQuery.resultColumns(table: table))
+                guard generation == rowsGeneration else { return }
+                if !carried.survives(columnNames: shape.columnNames) { sort = nil }
+            }
 
             let result = try await service.run(pageStatement(table: table))
             guard generation == rowsGeneration else { return }
@@ -293,18 +313,22 @@ public final class DatabaseViewerModel: ObservableObject {
         await loadPage(table: table, generation: generation)
     }
 
-    /// Sort by `column`, or flip the direction when it is already the sort
-    /// column, and reload from the first page.
+    /// Sort by the column the grid drew at `index`, or flip the direction when it
+    /// is already the sort column, and reload from the first page.
+    ///
+    /// The column is named by **position**, with `column` carried along as the
+    /// name that position spelled: two headers may spell the same name and only
+    /// the position tells them apart (`DatabaseSortState`).
     ///
     /// The **count is kept**: an `ORDER BY` reorders rows and does not change how
     /// many there are, so re-asking `count(*)` here would be a second full-table
     /// read for an answer already in hand. The page index resets because page 3
     /// of one ordering has nothing to do with page 3 of another.
-    public func toggleSort(column: String, request: Int? = nil) async {
+    public func toggleSort(column: String, index: Int, request: Int? = nil) async {
         guard !isClosed else { return }
         if let request, request != rowsGeneration { return }
         guard let table = selectedTable else { return }
-        sort = DatabaseSortState.toggled(sort, column: column)
+        sort = DatabaseSortState.toggled(sort, column: column, index: index)
         page.move(to: 0)
         rowsGeneration += 1
         let generation = rowsGeneration
@@ -428,31 +452,37 @@ public final class DatabaseViewerModel: ObservableObject {
     private func pageStatement(table: String) -> DatabaseStatement {
         DatabaseQuery.page(
             table: table,
-            orderBy: sort?.column,
+            orderByColumnIndex: sort?.columnIndex,
             ascending: sort?.direction.isAscending ?? true,
             limit: page.size,
             offset: page.offset
         )
     }
 
-    /// Publish what a page read answered — and drop a sort the answer does not
-    /// name.
+    /// Publish what a page read answered — and drop a sort the answer no longer
+    /// carries.
     ///
     /// `carriedOver` keeps the sort across a *refresh* of the same table, and
     /// `reload` re-selects the table by name after re-opening the file, so a
     /// database rebuilt under the tab (a checkout, another process) can answer a
-    /// table that no longer has the sorted column. SQLite does not reliably refuse
-    /// `ORDER BY "gone"` for it: with double-quoted-string fallback enabled — the
-    /// default in the system library — an identifier that resolves to nothing is
-    /// reinterpreted as a *string literal*, so every row sorts by the same
-    /// constant and the read succeeds. The grid would then come back in storage
-    /// order, under a header with no arrow to click off (the column is not in
-    /// `gridColumns` either), while `sort` went on claiming an ordering nothing
-    /// applied. Cleared here, the next page load asks for the order that is
-    /// actually on screen.
+    /// table whose columns are no longer the ones the sort was made against —
+    /// dropped, renamed, or merely reordered. The sort points at a *position*, so
+    /// a reordered answer is the case that bites: the ordinal would still be in
+    /// range and the next page would come back ordered by whatever now sits there,
+    /// under an arrow still naming the column the reader chose.
+    /// `survives(columnNames:)` requires both the position and the name at it, so
+    /// every one of those lands here; cleared, the next page load asks for the
+    /// order that is actually on screen.
+    ///
+    /// `select` asks the same question of `DatabaseQuery.resultColumns` *before*
+    /// composing its page, which is what keeps a stale ordinal from ever reaching
+    /// SQLite; this is the same rule read off the answer itself, and it is what
+    /// still catches a page turn or a sort toggle whose table was rewritten with
+    /// no re-selection in between — nothing re-checks the shape on those paths,
+    /// because within one selection the ordinal came from the answer on screen.
     private func publish(_ result: DatabaseResultSet, table: String) {
         gridColumns = result.columnNames
-        if let current = sort, !result.columnNames.contains(current.column) { sort = nil }
+        if let current = sort, !current.survives(columnNames: result.columnNames) { sort = nil }
         rows = result.rows
         shown = Shown(table: table, page: page, sort: sort)
         clearError(from: .rows)

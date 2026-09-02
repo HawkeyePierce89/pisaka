@@ -64,6 +64,28 @@ public enum DatabaseQuery {
         DatabaseStatement("SELECT count(*) FROM \(quoted(table))")
     }
 
+    /// The columns `SELECT *` answers for a table or view, and no rows.
+    ///
+    /// The shape of the answer, asked without reading it. A page's sort names its
+    /// column by **result ordinal**, so a sort carried across a refresh has to be
+    /// checked against the columns the refreshed answer actually has *before* the
+    /// page is composed: an ordinal the answer lost is rejected at prepare time
+    /// (`ORDER BY 2` against a one-column `SELECT *` is an error, not an
+    /// unsorted page), and an ordinal some other column moved into succeeds while
+    /// ordering by a column nobody clicked. Neither is something a page's own
+    /// answer can be asked about, because by then the statement has already run.
+    ///
+    /// `LIMIT ?` bound to zero, per this file's rule that everything that can be
+    /// a parameter must be one — and zero is what makes it free: SQLite prepares
+    /// the statement, learns the column names from it, and steps straight to
+    /// done without touching a row.
+    public static func resultColumns(table: String) -> DatabaseStatement {
+        DatabaseStatement(
+            "SELECT * FROM \(quoted(table)) LIMIT ?",
+            parameters: [.integer(0)]
+        )
+    }
+
     /// One page of a table or view, optionally sorted.
     ///
     /// `limit` and `offset` are **bound**, and both are floored at zero. The floor
@@ -71,16 +93,26 @@ public enum DatabaseQuery {
     /// at all", so a negative slipping through here would turn the one statement
     /// that must always be bounded into a full-table select — the failure this
     /// layer exists to make impossible. A zero limit is an honest empty page.
+    ///
+    /// The sort names its column by **result-column ordinal** (`ORDER BY 3`),
+    /// which is SQLite's own way of pointing at the third column of the answer,
+    /// rather than by name. `SELECT *` over a view may answer two columns with the
+    /// same name, and `ORDER BY "id"` against such an answer silently resolves to
+    /// the first of them — ordering by a column the reader did not click. The
+    /// ordinal is exactly the position the grid drew, so the two cannot disagree;
+    /// it is 1-based, so `orderByColumnIndex` (the grid's zero-based position) has
+    /// one added to it here. An ordinal is a number, not an identifier, so nothing
+    /// is spliced and `quoted(_:)` has one caller fewer.
     public static func page(
         table: String,
-        orderBy column: String? = nil,
+        orderByColumnIndex column: Int? = nil,
         ascending: Bool = true,
         limit: Int,
         offset: Int
     ) -> DatabaseStatement {
         var sql = "SELECT * FROM \(quoted(table))"
-        if let column {
-            sql += " ORDER BY \(quoted(column)) \(ascending ? "ASC" : "DESC")"
+        if let column, column >= 0 {
+            sql += " ORDER BY \(column + 1) \(ascending ? "ASC" : "DESC")"
         }
         sql += " LIMIT ? OFFSET ?"
         return DatabaseStatement(
