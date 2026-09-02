@@ -214,15 +214,15 @@ stays imported in exactly one file.
 - Modify: `Tests/PisakaCoreTests/Support/ScriptedDatabaseService.swift`
 - Modify: `Tests/PisakaCoreTests/DatabaseServicingTests.swift`
 
-- [ ] `DatabaseConsoleAnswer` — what a console read answered: `columnNames`, `rows`,
+- [x] `DatabaseConsoleAnswer` — what a console read answered: `columnNames`, `rows`,
       `isTruncated`. Documented as the **last** statement in the text that answered
       columns, with truncation being that statement's.
-- [ ] `DatabaseConsoleTransaction` — `url`, the reader's `text` **verbatim**, and
+- [x] `DatabaseConsoleTransaction` — `url`, the reader's `text` **verbatim**, and
       `readRowLimit` (what a read-only statement *inside* a mutating batch may be
       stepped to before it is abandoned; a non-read-only statement is always stepped to
       completion, because abandoning one would half-perform it — an
       `INSERT … RETURNING` is the case that makes this rule necessary).
-- [ ] Three protocol members, each defaulted in the extension to the same honest
+- [x] Three protocol members, each defaulted in the extension to the same honest
       refusal `performWrite(_:)` uses (`sqlError`, because SQLite has no words for a
       failure it never saw), so a conformer with no console half refuses rather than
       fails to compile:
@@ -230,7 +230,7 @@ stays imported in exactly one file.
         — prepares statement by statement through the tail and **runs none**;
       - `runConsoleRead(_ text: String, rowLimit: Int) async throws -> DatabaseConsoleAnswer`;
       - `performConsoleWrite(_ transaction: DatabaseConsoleTransaction) async throws -> DatabaseWriteOutcome`.
-- [ ] Document on the seam the four rules the app half owes:
+- [x] Document on the seam the four rules the app half owes:
       1. the text is carried verbatim and never rewritten (**the console is the one
          stated exception to "Core composes every byte of SQL"**);
       2. `classifyConsole` **does not throw on a prepare failure** — it returns what it
@@ -242,18 +242,18 @@ stays imported in exactly one file.
       4. a console run leaves the connection in autocommit — a statement that opened a
          transaction of its own is rolled back before the member returns, so a stray
          `BEGIN` cannot freeze the tab's read snapshot for the life of the tab.
-- [ ] `performWrite(_:)` and `DatabaseWriteOutcome` are **not touched**; say so in the
+- [x] `performWrite(_:)` and `DatabaseWriteOutcome` are **not touched**; say so in the
       doc comment, next to the cell edit's exact-count rule.
-- [ ] `ScriptedDatabaseService`: script a classification per text (deferral included),
+- [x] `ScriptedDatabaseService`: script a classification per text (deferral included),
       script console read answers (a queue, last sticky, as everything else there),
       script console write outcomes, record every text and transaction handed over
       (`consoleTexts`, `consoleTransactions`), and a `Gate` hook for each of the three
       so a test can hold one open. An unscripted console call throws, like every other
       unscripted call.
-- [ ] Tests: the three defaults refuse honestly (extend the existing `FixedAnswerStub`
+- [x] Tests: the three defaults refuse honestly (extend the existing `FixedAnswerStub`
       cases); the fake's queue/sticky/record behavior for the console half, including
       a scripted deferral round-tripping unchanged.
-- [ ] run `swift test` — must pass before task 3
+- [x] run `swift test` — must pass before task 3
 
 ### Task 3: The console model, and the viewer's post-write refresh
 

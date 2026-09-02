@@ -60,11 +60,21 @@ final class ScriptedDatabaseService: DatabaseServicing, @unchecked Sendable {
     private var openGate: Gate?
     private var closeGate: Gate?
     private var writeGate: Gate?
+    private var classifyGate: Gate?
+    private var consoleReadGate: Gate?
+    private var consoleWriteGate: Gate?
     private var openFailure: Error?
     private var writeSteps: [Result<DatabaseWriteOutcome, Error>] = []
+    private var classifySteps: [String: [Result<DatabaseConsoleClassification, Error>]] = [:]
+    private var consoleReadSteps: [String: [Result<DatabaseConsoleAnswer, Error>]] = [:]
+    private var consoleWriteSteps: [Result<DatabaseWriteOutcome, Error>] = []
     private var runStorage: [DatabaseStatement] = []
     private var openedStorage: [URL] = []
     private var writeStorage: [DatabaseWriteTransaction] = []
+    private var classifyStorage: [String] = []
+    private var consoleReadStorage: [String] = []
+    private var consoleReadLimitStorage: [Int] = []
+    private var consoleWriteStorage: [DatabaseConsoleTransaction] = []
     private var closeCountStorage = 0
     private var isOpenStorage = false
 
@@ -147,6 +157,140 @@ final class ScriptedDatabaseService: DatabaseServicing, @unchecked Sendable {
     private func scriptWrites(_ newSteps: [Result<DatabaseWriteOutcome, Error>]) {
         lock.lock()
         writeSteps = newSteps
+        lock.unlock()
+    }
+
+    // MARK: - Scripting the console half
+
+    /// Classify `text` as `classification`, replacing any script it had.
+    ///
+    /// Keyed by the reader's text, like a run and unlike a write: the whole point
+    /// of the console path is that the text is carried verbatim, so a test that
+    /// scripts one text and asserts another was sent is asserting exactly the
+    /// rule that matters.
+    func serveClassification(_ text: String, _ classification: DatabaseConsoleClassification) {
+        scriptClassifications(text, [.success(classification)])
+    }
+
+    /// Classify `text` as `kinds`, optionally stopping at a deferral carrying
+    /// SQLite's message — the migration-shaped script's whole shape in one call.
+    func serveClassification(
+        _ text: String,
+        kinds: [DatabaseConsoleStatementKind],
+        deferredWith message: String? = nil
+    ) {
+        let deferral = message.map { DatabaseConsoleClassification.Deferral(index: kinds.count, message: $0) }
+        serveClassification(text, DatabaseConsoleClassification(kinds: kinds, deferral: deferral))
+    }
+
+    /// Classify `text` with each element in turn, the last one sticking.
+    func serveClassifications(_ text: String, sequence classifications: [DatabaseConsoleClassification]) {
+        scriptClassifications(text, classifications.map { .success($0) })
+    }
+
+    /// Fail every `classifyConsole(_:)` of `text` — the "not about the text at
+    /// all" failure the seam reserves a throw for, never a deferral.
+    func failClassification(_ text: String, with error: Error = DatabaseError.closed) {
+        scriptClassifications(text, [.failure(error)])
+    }
+
+    /// Answer every `runConsoleRead(_:rowLimit:)` of `text` with `answer`.
+    func serveConsoleRead(_ text: String, with answer: DatabaseConsoleAnswer) {
+        scriptConsoleReads(text, [.success(answer)])
+    }
+
+    /// Answer `runConsoleRead(_:rowLimit:)` of `text` with an answer built from
+    /// `columns` and `rows`.
+    func serveConsoleRead(
+        _ text: String,
+        columns: [String],
+        rows: [[DatabaseValue]],
+        isTruncated: Bool = false
+    ) {
+        serveConsoleRead(
+            text,
+            with: DatabaseConsoleAnswer(columnNames: columns, rows: rows, isTruncated: isTruncated)
+        )
+    }
+
+    /// Answer `text` with each element in turn, the last one sticking.
+    func serveConsoleReads(_ text: String, sequence answers: [DatabaseConsoleAnswer]) {
+        scriptConsoleReads(text, answers.map { .success($0) })
+    }
+
+    /// Fail every `runConsoleRead(_:rowLimit:)` of `text`.
+    func failConsoleRead(_ text: String, with error: Error = DatabaseError.sqlError(message: "no such table")) {
+        scriptConsoleReads(text, [.failure(error)])
+    }
+
+    /// Answer every `performConsoleWrite(_:)` with `outcome`.
+    ///
+    /// Not keyed by text, for `serveWrite(_:)`'s reason: what the console write
+    /// path is about is the outcome, and what was handed over is read back out of
+    /// `consoleTransactions` — where the text is, verbatim.
+    func serveConsoleWrite(_ outcome: DatabaseWriteOutcome) {
+        scriptConsoleWrites([.success(outcome)])
+    }
+
+    /// Answer `performConsoleWrite(_:)` with a committed batch of `affectedRows`
+    /// rows. A committed zero is an ordinary outcome here — a `DELETE` that
+    /// matched nothing, a `CREATE TABLE` — and not the collision it is for a cell
+    /// edit.
+    func serveCommittedConsoleWrite(affectedRows: Int = 1) {
+        serveConsoleWrite(DatabaseWriteOutcome(affectedRows: affectedRows, isCommitted: true))
+    }
+
+    /// Answer each console write in turn, the last one sticking.
+    func serveConsoleWrites(sequence outcomes: [DatabaseWriteOutcome]) {
+        scriptConsoleWrites(outcomes.map { .success($0) })
+    }
+
+    /// Fail every `performConsoleWrite(_:)` with `error` — the shape a prepare
+    /// failure on a deferred statement arrives in, which rolls the batch back.
+    func failConsoleWrite(with error: Error = DatabaseError.sqlError(message: "no such table: x")) {
+        scriptConsoleWrites([.failure(error)])
+    }
+
+    /// Hold every `classifyConsole(_:)` until the gate is released.
+    func holdClassification(on gate: Gate) {
+        lock.lock()
+        classifyGate = gate
+        lock.unlock()
+    }
+
+    /// Hold every `runConsoleRead(_:rowLimit:)` until the gate is released — the
+    /// window a superseding console run is started in.
+    func holdConsoleRead(on gate: Gate) {
+        lock.lock()
+        consoleReadGate = gate
+        lock.unlock()
+    }
+
+    /// Hold every `performConsoleWrite(_:)` until the gate is released.
+    func holdConsoleWrite(on gate: Gate) {
+        lock.lock()
+        consoleWriteGate = gate
+        lock.unlock()
+    }
+
+    private func scriptClassifications(
+        _ text: String,
+        _ newSteps: [Result<DatabaseConsoleClassification, Error>]
+    ) {
+        lock.lock()
+        classifySteps[text] = newSteps
+        lock.unlock()
+    }
+
+    private func scriptConsoleReads(_ text: String, _ newSteps: [Result<DatabaseConsoleAnswer, Error>]) {
+        lock.lock()
+        consoleReadSteps[text] = newSteps
+        lock.unlock()
+    }
+
+    private func scriptConsoleWrites(_ newSteps: [Result<DatabaseWriteOutcome, Error>]) {
+        lock.lock()
+        consoleWriteSteps = newSteps
         lock.unlock()
     }
 
@@ -242,6 +386,49 @@ final class ScriptedDatabaseService: DatabaseServicing, @unchecked Sendable {
 
     /// How many writes were asked for, including the ones that threw.
     var writeCount: Int { writeTransactions.count }
+
+    /// Every text handed to `classifyConsole(_:)` or
+    /// `runConsoleRead(_:rowLimit:)`, in call order — verbatim, which is what a
+    /// test asserting "the reader's text was not rewritten" reads.
+    var consoleTexts: [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return classifyStorage + consoleReadStorage
+    }
+
+    /// The texts `classifyConsole(_:)` was asked about, in call order.
+    var classifiedTexts: [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return classifyStorage
+    }
+
+    /// The texts `runConsoleRead(_:rowLimit:)` was asked to run, in call order.
+    var consoleReadTexts: [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return consoleReadStorage
+    }
+
+    /// The row caps `runConsoleRead(_:rowLimit:)` was given, in call order —
+    /// where the assertion that the cap travels as a number rather than as an
+    /// appended `LIMIT` reads its evidence.
+    var consoleReadRowLimits: [Int] {
+        lock.lock()
+        defer { lock.unlock() }
+        return consoleReadLimitStorage
+    }
+
+    /// The transactions `performConsoleWrite(_:)` was handed, verbatim and in
+    /// call order — the URL, the reader's text and the read cap inside it.
+    var consoleTransactions: [DatabaseConsoleTransaction] {
+        lock.lock()
+        defer { lock.unlock() }
+        return consoleWriteStorage
+    }
+
+    /// How many console writes were asked for, including the ones that threw.
+    var consoleWriteCount: Int { consoleTransactions.count }
 
     /// How many times `close()` was called — including the calls that closed
     /// nothing, because "closed exactly once" is an assertion about the caller.
@@ -341,6 +528,86 @@ final class ScriptedDatabaseService: DatabaseServicing, @unchecked Sendable {
         guard let step else {
             throw Failure.notScripted(sql: transaction.statements.map(\.sql).joined(separator: "; "))
         }
+        return try step.get()
+    }
+
+    /// Records the text, then answers the script.
+    ///
+    /// A scripted classification round-trips **unchanged**, deferral included: it
+    /// is the classifier's whole answer and the policy's whole input, so a fake
+    /// that normalised any part of it would be testing itself.
+    func classifyConsole(_ text: String) async throws -> DatabaseConsoleClassification {
+        lock.lock()
+        classifyStorage.append(text)
+        let open = isOpenStorage
+        lock.unlock()
+
+        // Asked before anything is consumed or held, for `run(_:)`'s reason: a
+        // classification against a connection that is not open is the
+        // connection's answer, not the script's.
+        guard open else { throw DatabaseError.closed }
+
+        lock.lock()
+        let gate = classifyGate
+        var queue = classifySteps[text] ?? []
+        let step = queue.first
+        if queue.count > 1 {
+            queue.removeFirst()
+            classifySteps[text] = queue
+        }
+        lock.unlock()
+
+        gate?.wait()
+
+        guard let step else { throw Failure.notScripted(sql: text) }
+        return try step.get()
+    }
+
+    /// Records the text and the cap it was given, then answers the script.
+    func runConsoleRead(_ text: String, rowLimit: Int) async throws -> DatabaseConsoleAnswer {
+        lock.lock()
+        consoleReadStorage.append(text)
+        consoleReadLimitStorage.append(rowLimit)
+        let open = isOpenStorage
+        lock.unlock()
+
+        guard open else { throw DatabaseError.closed }
+
+        lock.lock()
+        let gate = consoleReadGate
+        var queue = consoleReadSteps[text] ?? []
+        let step = queue.first
+        if queue.count > 1 {
+            queue.removeFirst()
+            consoleReadSteps[text] = queue
+        }
+        lock.unlock()
+
+        gate?.wait()
+
+        guard let step else { throw Failure.notScripted(sql: text) }
+        return try step.get()
+    }
+
+    /// Records the transaction, then answers the script.
+    ///
+    /// Not gated on `isOpenStorage`, for `performWrite(_:)`'s reason: a console
+    /// mutation is its own short-lived read-write connection.
+    func performConsoleWrite(_ transaction: DatabaseConsoleTransaction) async throws -> DatabaseWriteOutcome {
+        lock.lock()
+        consoleWriteStorage.append(transaction)
+        let gate = consoleWriteGate
+        var queue = consoleWriteSteps
+        let step = queue.first
+        if queue.count > 1 {
+            queue.removeFirst()
+            consoleWriteSteps = queue
+        }
+        lock.unlock()
+
+        gate?.wait()
+
+        guard let step else { throw Failure.notScripted(sql: transaction.text) }
         return try step.get()
     }
 }
