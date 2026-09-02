@@ -73,6 +73,29 @@ final class DatabaseViewerSourceGatingTests: XCTestCase {
     /// Every file whose name says it belongs to the feature, on both sides of the
     /// Core/app boundary. Matched by name rather than by a hand-kept list so a file
     /// added later falls under these rules the moment it exists.
+    /// The text of a call's argument list, from just past its opening paren to
+    /// just before the paren that closes it.
+    ///
+    /// Counted rather than found: the first `)` after the call is whichever
+    /// nested call happens to close first, so a scan for it makes the assertion
+    /// depend on the *order* the two arguments are written in — a harmless
+    /// re-ordering would truncate the extract and fail a rule it never touched.
+    static func balancedArgumentList(in code: String, from start: String.Index) -> String? {
+        var depth = 1
+        var index = start
+        while index < code.endIndex {
+            switch code[index] {
+            case "(": depth += 1
+            case ")":
+                depth -= 1
+                if depth == 0 { return String(code[start..<index]) }
+            default: break
+            }
+            index = code.index(after: index)
+        }
+        return nil
+    }
+
     private func databaseFiles() throws -> [URL] {
         let core = try swiftFiles(under: "Sources/PisakaCore")
         let app = try swiftFiles(under: "Sources/Pisaka")
@@ -92,6 +115,47 @@ final class DatabaseViewerSourceGatingTests: XCTestCase {
     private func occurrences(of pattern: String, in code: String) throws -> Int {
         let regex = try NSRegularExpression(pattern: pattern)
         return regex.numberOfMatches(in: code, range: NSRange(code.startIndex..., in: code))
+    }
+
+    // MARK: - The connection's flags
+
+    /// The whole feature rests on the tab's own connection being read-only for
+    /// its life — that is why a viewer tab holds no unflushed state and why
+    /// termination's best-effort `closeAll()` is correct. Changing that one flag
+    /// compiles and passes every other test, while a tab nobody edited starts
+    /// taking write locks and checkpointing a WAL database.
+    func testTheTabsConnectionIsOpenedReadOnlyAndTheWriteConnectionReadWrite() throws {
+        let service = try code(ofFileNamed: "DatabaseConnectionService.swift", under: "Sources/Pisaka/Platform")
+
+        XCTAssertEqual(
+            try occurrences(of: "SQLITE_OPEN_READONLY", in: service),
+            1,
+            "Exactly one open is read-only: the tab's own, held for the life of the tab."
+        )
+        XCTAssertEqual(
+            try occurrences(of: "SQLITE_OPEN_READWRITE", in: service),
+            1,
+            "And exactly one is read-write: the short-lived connection one committed edit runs on."
+        )
+        XCTAssertEqual(
+            try occurrences(of: "SQLITE_OPEN_CREATE", in: service),
+            0,
+            "Neither open may create a file. A viewer tab opens a database the workspace already probed "
+                + "into existence; a path that no longer names one must fail rather than answer an empty "
+                + "database nobody asked for."
+        )
+    }
+
+    /// And nothing else in the app opens one at all.
+    func testNoOtherFileOpensASQLiteConnection() throws {
+        for url in try swiftFiles(under: "Sources") {
+            guard url.lastPathComponent != "DatabaseConnectionService.swift" else { continue }
+            XCTAssertEqual(
+                try occurrences(of: "sqlite3_open", in: try code(of: url)),
+                0,
+                "\(url.lastPathComponent) must not open a database of its own."
+            )
+        }
     }
 
     // MARK: - The SQLite import
@@ -381,12 +445,11 @@ final class DatabaseViewerSourceGatingTests: XCTestCase {
     func testTheSceneWiresTheGateQuestionAndTheWriteHook() throws {
         let app = try code(ofFileNamed: "PisakaApp.swift", under: "Sources/Pisaka")
         guard let start = app.range(of: "databaseViewers.start(")?.upperBound,
-              let end = app.range(of: ")", range: start..<app.endIndex)?.upperBound
+              let wiring = Self.balancedArgumentList(in: app, from: start)
         else {
             XCTFail("the scene must wire the viewer's gate question and write hook exactly once")
             return
         }
-        let wiring = String(app[start..<end])
         XCTAssertTrue(
             wiring.contains("localChanges.isReverting"),
             "The gate question must be the same flag ⌘S and the tree file operations refuse on. Wiring it to "

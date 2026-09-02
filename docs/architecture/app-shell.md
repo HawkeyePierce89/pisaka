@@ -92,7 +92,19 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     wraps both in `StateObject`, and every other stored property keeps
     its inline default. `DatabaseViewerTabs`, the viewer's per-tab connection
     owner, is a third `StateObject` built in the same `init()` (it follows the
-    workspace's `$openFiles`) and injected as an `.environmentObject`.
+    workspace's `$openFiles`) and injected as an `.environmentObject`. It is
+    handed its two write closures separately, from the scene's start-once
+    `.onAppear` block: `databaseViewers.start(isWriteBlocked:didWrite:)` wires the
+    disk-writer gate as a *question* (`localChanges.isReverting`, read directly
+    rather than through `revertInFlight()`, which beeps and runs a modal alert on
+    top of the viewer's own banner — two notices for one refusal) and the
+    generation-pinned `refreshLocalChanges()` a committed cell edit owes the
+    panel. `performMove` — the one body the tree's rename and drag-and-drop move
+    share — additionally calls `databaseViewers.retarget(id:url:)` for every tab
+    the rename plan retargeted: a viewer tab's model holds the path its *write*
+    opens read-write, and `applyRenamePlan` moves the tab without telling it. The
+    connection is deliberately left alone there, because a rename moves the name
+    and not the inode (`core-database-viewer.md`).
     `openBuffers` returns every titled **text** tab's text (dirty
     or not — what the user sees is what gets searched; a file absent from the
     snapshot goes down the on-disk branch, and a url-less "Untitled" buffer names
@@ -841,7 +853,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     same file) and corrupt. The same synchronous-before-the-hop / `defer`-inside
     bracket raises and lowers `localChanges.beginRevert()`/`endRevert()` (the
     `isReverting` gate), blocking the *project-tree* file operations — the other
-    uncoordinated disk writer — for the same duration and the same reason. The suspend is *not* taken around the confirm dialog:
+    uncoordinated disk writer — and, since part 2a, a database viewer's inline
+    cell edit, which is the one blocked writer that is not a text file: it
+    *consults* the flag through the closure the scene hands
+    `DatabaseViewerTabs.start(isWriteBlocked:didWrite:)` and refuses in its own
+    banner, and it never raises the gate itself (`core-database-viewer.md`). All
+    of them for the same duration and the same reason. The suspend is *not* taken around the confirm dialog:
     an autosave *can* interleave there (the idle debounce is a GCD main-queue timer
     that fires inside the alert's nested run loop), but it is harmless — `preRevertText`
     is snapshotted *after* the confirm returns and `git checkout` then supersedes

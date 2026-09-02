@@ -4648,6 +4648,13 @@ struct PisakaApp: App {
         do {
             try fileService.move(from: source, to: destination)
             model.applyRenamePlan(plan)
+            // A viewer tab's model holds the path a cell edit opens read-write, and
+            // `applyRenamePlan` retargets the tab without telling it. Hand each
+            // retargeted viewer its new name, so a later write reaches the file the
+            // tree now shows rather than the one the tab was opened under. The
+            // connection is left alone on purpose: a rename moves the name, not the
+            // inode, so there is nothing stale to re-read.
+            plan.forEach { databaseViewers.retarget(id: $0.id, url: $0.newURL) }
             // The tabs now name their destinations, so nothing holds a buffer for the
             // old paths any more. Without this each entry stays marked buffer-sourced
             // — which exempts it from both the refresh's re-extraction and its

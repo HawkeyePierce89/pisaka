@@ -82,24 +82,6 @@ public enum DatabaseRowIdentity: Equatable, Hashable, Sendable {
     /// The table's rows cannot be addressed one at a time, for this reason.
     case unavailable(DatabaseRowIdentityGap)
 
-    /// The alias a page of this table carries as its trailing identity column, or
-    /// `nil` when it carries none.
-    ///
-    /// The one question `DatabaseQuery.page(…)` needs answered, so the model asks
-    /// it rather than re-matching on the strategy at the composition site.
-    public var pageIdentityAlias: DatabaseRowIdAlias? {
-        guard case .rowid(let alias) = self else { return nil }
-        return alias
-    }
-
-    /// Whether a cell of this table can be addressed at all. A `false` here is
-    /// the whole table's refusal; a *cell*'s may still be refused for reasons of
-    /// its own (a generated column, a blob).
-    public var isAddressable: Bool {
-        if case .unavailable = self { return false }
-        return true
-    }
-
     // MARK: - Resolving
 
     /// The alias to probe with, or `nil` when the table shadows all three.

@@ -379,7 +379,12 @@ struct DatabaseViewerView: View {
     ) -> some View {
         Button("Copy") { copy(value) }
         Button("Set to NULL") {
-            Task { await model.setCellToNull(row: coordinate.row, column: coordinate.column) }
+            // The rows token is captured here, in the click, and not inside the
+            // task: see `DatabaseViewerModel.rowsToken`.
+            let request = model.rowsToken
+            Task {
+                await model.setCellToNull(row: coordinate.row, column: coordinate.column, request: request)
+            }
         }
         .disabled(refusal != nil || !isGridIdle)
     }
@@ -397,23 +402,15 @@ struct DatabaseViewerView: View {
 
     /// Double-click, or Return on the focused cell.
     ///
-    /// A refused cell opens no editor, and the attempt is still handed to the
-    /// model — that is what puts the refusal's own sentence in the banner, and it
-    /// sends nothing by construction, since every refusal is decided before a
-    /// statement is composed. The refusal is re-asked after the hop so that a page
-    /// landing in between turns the attempt into nothing at all, rather than into
-    /// a write of whatever text happened to be on screen.
+    /// A refused cell opens no editor and the attempt is reported instead, which
+    /// is what puts the refusal's own sentence in the banner. Reported
+    /// synchronously and through `reportEditRefusal` rather than through the write
+    /// API: nothing is sent, nothing is composed, and no entry nobody typed is
+    /// invented to be refused (`DatabaseViewerModel.reportEditRefusal`).
     private func beginEditing(_ value: DatabaseValue, at coordinate: CellCoordinate) {
         guard isGridIdle else { return }
         guard model.canEdit(row: coordinate.row, column: coordinate.column) else {
-            Task { @MainActor in
-                guard model.editRefusal(row: coordinate.row, column: coordinate.column) != nil else { return }
-                await model.updateCell(
-                    row: coordinate.row,
-                    column: coordinate.column,
-                    entry: .typed(value.displayText)
-                )
-            }
+            model.reportEditRefusal(row: coordinate.row, column: coordinate.column)
             return
         }
         draft = value.isNull ? "" : value.displayText
@@ -422,10 +419,22 @@ struct DatabaseViewerView: View {
 
     /// Return commits what is in the field. The editor closes first, so the row
     /// the write re-reads is drawn as a value rather than under a stale field.
+    ///
+    /// The rows token is read here, in the keystroke, so a page landing before the
+    /// task body runs refuses the write rather than re-aiming it at whatever row
+    /// has taken this coordinate (`DatabaseViewerModel.rowsToken`).
     private func commitEditing(_ coordinate: CellCoordinate) {
         let typed = draft
+        let request = model.rowsToken
         cancelEditing()
-        Task { await model.updateCell(row: coordinate.row, column: coordinate.column, entry: .typed(typed)) }
+        Task {
+            await model.updateCell(
+                row: coordinate.row,
+                column: coordinate.column,
+                entry: .typed(typed),
+                request: request
+            )
+        }
     }
 
     /// Escape — and every path that replaces the rows under an open editor.

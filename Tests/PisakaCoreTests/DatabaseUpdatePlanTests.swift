@@ -348,6 +348,64 @@ final class DatabaseUpdatePlanTests: XCTestCase {
         )
     }
 
+    /// A binary primary key — a content-addressed `WITHOUT ROWID` table — makes
+    /// the whole *row* unaddressable, not one cell of it: the bytes a `WHERE`
+    /// would name it with never left the database. Refused for every column,
+    /// including the ordinary text one beside the key.
+    func testABlobPrimaryKeyRefusesEveryCellOfTheRow() {
+        let target = DatabaseEditTarget(
+            table: "blobs",
+            columns: [column("h", type: "BLOB", key: 1), column("v", type: "TEXT")],
+            gridColumns: ["h", "v"],
+            identity: .primaryKey(columns: [DatabaseKeyColumn(name: "h", resultIndex: 0)])
+        )
+        let row: [DatabaseValue] = [.blob(byteCount: 32), .text("payload")]
+
+        XCTAssertEqual(refusal(target, row: row, columnIndex: 0), .blobRowIdentity(column: "h"))
+        XCTAssertEqual(refusal(target, row: row, columnIndex: 1), .blobRowIdentity(column: "h"))
+    }
+
+    /// And nothing is composed for one — the refusal is what stops a statement
+    /// binding a value that carries its length and not its bytes.
+    func testABlobPrimaryKeyComposesNoStatement() {
+        let target = DatabaseEditTarget(
+            table: "blobs",
+            columns: [column("h", type: "BLOB", key: 1), column("v", type: "TEXT")],
+            gridColumns: ["h", "v"],
+            identity: .primaryKey(columns: [DatabaseKeyColumn(name: "h", resultIndex: 0)])
+        )
+
+        let result = DatabaseUpdatePlanner.plan(
+            target: target,
+            row: [.blob(byteCount: 32), .text("payload")],
+            rowIdentity: nil,
+            columnIndex: 1,
+            entry: .typed("new")
+        )
+
+        guard case .failure(let refusal) = result else {
+            return XCTFail("expected a refusal, got \(result)")
+        }
+        XCTAssertEqual(refusal, .blobRowIdentity(column: "h"))
+    }
+
+    /// A key column that happens to hold something bindable is untouched by the
+    /// rule above: the refusal is about the *value* on screen, not about the
+    /// column's declared type.
+    func testAKeyColumnHoldingATextValueStillWrites() throws {
+        let plan = try plan(
+            compositeKeyTarget(),
+            row: [.text("Ash"), .integer(3), .text("dusty")],
+            columnIndex: 2,
+            entry: .typed("clean")
+        )
+
+        XCTAssertEqual(
+            plan.statement.parameters,
+            [.text("clean"), .text("Ash"), .integer(3), .text("dusty")]
+        )
+    }
+
     /// A rowid table whose row arrived without an identity value: the page was
     /// split as though it carried none, so this row cannot be named.
     func testARowWithoutItsIdentityValueRefuses() {
@@ -368,6 +426,24 @@ final class DatabaseUpdatePlanTests: XCTestCase {
         )
     }
 
+    /// The one discriminator this file keeps, and the reason it is a `switch`
+    /// with no `default`: `DatabaseEditRefusal` carries associated values and so
+    /// cannot be `CaseIterable`, which would leave "every refusal has a sentence
+    /// of its own" a claim about however many literals somebody remembered to
+    /// list. A case added to the enum stops *this file* compiling until it is
+    /// named here, and the test below then insists it is in the sample list too.
+    private func tag(_ refusal: DatabaseEditRefusal) -> String {
+        switch refusal {
+        case .unaddressableRow(let gap): return "unaddressableRow.\(gap)"
+        case .rowIdentityMissing: return "rowIdentityMissing"
+        case .columnNotMatched: return "columnNotMatched"
+        case .generatedColumn: return "generatedColumn"
+        case .blobCell: return "blobCell"
+        case .blobRowIdentity: return "blobRowIdentity"
+        case .cellNotOnPage: return "cellNotOnPage"
+        }
+    }
+
     /// Every refusal says something, and says it about the thing that was
     /// refused — the surface has one place to read the sentence from.
     func testEveryRefusalCarriesItsOwnSentence() {
@@ -380,34 +456,121 @@ final class DatabaseUpdatePlanTests: XCTestCase {
             .columnNotMatched(name: "titel"),
             .generatedColumn(name: "slug"),
             .blobCell(column: "cover"),
+            .blobRowIdentity(column: "digest"),
             .cellNotOnPage,
         ]
         var seen: Set<String> = []
+        var tags: Set<String> = []
 
         for refusal in refusals {
             XCTAssertFalse(refusal.message.isEmpty, "\(refusal)")
             XCTAssertEqual(refusal.errorDescription, refusal.message)
             XCTAssertTrue(seen.insert(refusal.message).inserted, refusal.message)
+            XCTAssertTrue(tags.insert(tag(refusal)).inserted, "listed twice: \(tag(refusal))")
         }
+        // The sample list carries one of every case: the `tag(_:)` switch above
+        // cannot compile without naming a new case, and this count cannot pass
+        // without a sample of it being listed.
+        XCTAssertEqual(tags.count, refusals.count)
+        XCTAssertEqual(
+            tags,
+            [
+                "unaddressableRow.view",
+                "unaddressableRow.noRowIdentity",
+                "unaddressableRow.keyColumnNotAnswered(name: \"room\")",
+                "unaddressableRow.keyColumnAmbiguous(name: \"room\")",
+                "rowIdentityMissing",
+                "columnNotMatched",
+                "generatedColumn",
+                "blobCell",
+                "blobRowIdentity",
+                "cellNotOnPage",
+            ]
+        )
         XCTAssertTrue(DatabaseEditRefusal.generatedColumn(name: "slug").message.contains("slug"))
         XCTAssertTrue(DatabaseEditRefusal.columnNotMatched(name: "titel").message.contains("titel"))
         XCTAssertTrue(DatabaseEditRefusal.blobCell(column: "cover").message.contains("cover"))
+        XCTAssertTrue(DatabaseEditRefusal.blobRowIdentity(column: "digest").message.contains("digest"))
         XCTAssertTrue(DatabaseEditRefusal.unaddressableRow(.keyColumnAmbiguous(name: "room")).message.contains("room"))
     }
 
     /// The surface asks the same question the planner asks, so a cell the grid
     /// lets someone type into is never refused after they have typed.
+    ///
+    /// Asserted by asking **both** halves about the same cell rather than by
+    /// asking one twice: for every column of a table carrying a blob, a hidden
+    /// column and a name the schema cannot match, `refusal(…)` answering `nil`
+    /// must mean `plan(…)` composes, and `refusal(…)` answering must mean
+    /// `plan(…)` fails with *that same* refusal.
     func testTheSurfacesQuestionAgreesWithThePlanner() {
-        let target = rowIdTarget()
-        let row: [DatabaseValue] = [.integer(1), .blob(byteCount: 2)]
+        var target = rowIdTarget()
+        target.columns = [
+            column("id", type: "INTEGER", key: 1),
+            column("title", type: "TEXT"),
+            column("slug", type: "TEXT", hidden: true),
+            column("cover", type: "BLOB"),
+        ]
+        target.gridColumns = ["id", "title", "slug", "cover", "titel"]
+        let row: [DatabaseValue] = [
+            .integer(1), .text("old"), .text("generated"), .blob(byteCount: 2), .text("stray"),
+        ]
 
-        XCTAssertNil(
-            DatabaseUpdatePlanner.refusal(target: target, row: row, rowIdentity: .integer(7), columnIndex: 0)
-        )
+        for columnIndex in 0...row.count {
+            let refused = DatabaseUpdatePlanner.refusal(
+                target: target,
+                row: row,
+                rowIdentity: .integer(7),
+                columnIndex: columnIndex
+            )
+            let composed = DatabaseUpdatePlanner.plan(
+                target: target,
+                row: row,
+                rowIdentity: .integer(7),
+                columnIndex: columnIndex,
+                entry: .typed("new")
+            )
+            switch (refused, composed) {
+            case (nil, .success):
+                continue
+            case (let refusal?, .failure(let planned)):
+                XCTAssertEqual(refusal, planned, "column \(columnIndex)")
+            default:
+                XCTFail("column \(columnIndex): the surface said \(String(describing: refused)), the planner \(composed)")
+            }
+        }
+        // And the fixture is one that actually exercises both answers, so the
+        // loop above cannot pass by refusing everything.
+        XCTAssertNil(DatabaseUpdatePlanner.refusal(target: target, row: row, rowIdentity: .integer(7), columnIndex: 1))
         XCTAssertEqual(
-            DatabaseUpdatePlanner.refusal(target: target, row: row, rowIdentity: .integer(7), columnIndex: 1),
-            .blobCell(column: "title")
+            DatabaseUpdatePlanner.refusal(target: target, row: row, rowIdentity: .integer(7), columnIndex: 3),
+            .blobCell(column: "cover")
         )
+    }
+
+    /// The two backstops in `address(…)`: an empty key list and a key column
+    /// whose position is past the row on screen. Neither can arrive from
+    /// `DatabaseRowIdentity.resolve(…)`, and both exist so that no other
+    /// construction of a strategy can compose a `WHERE` naming no row — which
+    /// would be an `UPDATE` matching every row in the table.
+    func testAnUnusableKeyStrategyComposesNoStatement() {
+        var target = compositeKeyTarget()
+        let row: [DatabaseValue] = [.text("Ash"), .integer(3), .text("dusty")]
+
+        target.identity = .primaryKey(columns: [])
+        guard case .failure(let empty) = DatabaseUpdatePlanner.plan(
+            target: target, row: row, rowIdentity: nil, columnIndex: 2, entry: .typed("clean")
+        ) else {
+            return XCTFail("an empty key list must compose nothing")
+        }
+        XCTAssertEqual(empty, .cellNotOnPage)
+
+        target.identity = .primaryKey(columns: [DatabaseKeyColumn(name: "house", resultIndex: 9)])
+        guard case .failure(let outOfRange) = DatabaseUpdatePlanner.plan(
+            target: target, row: row, rowIdentity: nil, columnIndex: 2, entry: .typed("clean")
+        ) else {
+            return XCTFail("a key column off the page must compose nothing")
+        }
+        XCTAssertEqual(outOfRange, .cellNotOnPage)
     }
 
     // MARK: - NULL on either side

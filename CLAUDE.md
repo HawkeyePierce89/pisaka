@@ -245,7 +245,7 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
 `docs/architecture/core-database-viewer.md` — the database viewer tab (macOS; reads, plus one write — the inline cell edit):
 - `DatabaseFileRule.swift` — the one recognized-extension rule; last extension only.
 - `DatabaseValue.swift` — the five storage classes + the one rendering (NULL vs. `""`, the blob placeholder); `DatabaseStatement`/`DatabaseResultSet`.
-- `DatabaseServicing.swift` — the async app/Core seam + `DatabaseError` (SQLite's words, verbatim).
+- `DatabaseServicing.swift` — the async app/Core seam + `DatabaseError` (SQLite's words, verbatim); the write half — `DatabaseWriteTransaction`/`DatabaseWriteOutcome` and the defaulted `performWrite(_:)`, whose default is an honest refusal rather than a silent no-op.
 - `DatabaseQuery.swift` — the only SQL in the repository; identifier quoting (the three rowid alias spellings the one deliberate bare exception), the read statements (incl. the zero-limit shape probe a carried sort is checked against and the rowid probe), the one `UPDATE` and the transaction texts, bound `LIMIT`/`OFFSET`.
 - `DatabaseSchema.swift` — table/view + column value types and the two pure parsers; they refuse rather than guess.
 - `DatabasePage.swift` — the paging arithmetic (uncounted is a state, not a zero) + `DatabaseSortState`'s two rules.
@@ -388,7 +388,9 @@ ci.yml's `lint` job, and the version-bump procedure.
   the one that is not git's — a language server's project-wide **rename**) raises
   `autosave.suspend()` + `localChanges.beginRevert()` synchronously before its
   first `await` (balanced by `defer`); the project-tree file ops, ⌘S and the
-  run/test saves refuse while the gate is up.
+  run/test saves refuse while the gate is up — as does a database viewer's
+  inline cell edit, the one refuser that is not a text-file write and the one
+  that only *consults* the flag (`core-database-viewer.md`).
 - **Readers do not take the writer gate**: the symbol index only *reads*, so it
   neither raises the gate nor is gated by it — a refresh landing mid-revert
   costs at worst one entry the next refresh corrects, while taking the gate
@@ -685,7 +687,10 @@ folder-switch-mid-walk cases), `QueryScanner` (the `.scm` scanner two suites
 share), `ScriptedLSPTransport` (the deterministic `LSPTransport` fake),
 `ScriptedInstallSeams` (canned download/unpack plus the Go and Rust toolchain
 fakes — deliberately no Rust *installer* fake, that install is the shared pair)
-and `ScriptedLeetCodeTransport` (+ `InMemoryLeetCodeCredentialStore`). Reach for
+`ScriptedLeetCodeTransport` (+ `InMemoryLeetCodeCredentialStore`) and
+`ScriptedDatabaseService` (a scripted `DatabaseServicing`: answers keyed by SQL
+text, an unscripted statement throws, and a write half that scripts outcomes and
+captures the transactions sent). Reach for
 these before writing a new stub. A fake standing in for a `nonisolated async`
 seam runs on the cooperative pool, so anything it writes into a `StubFileTree`
 must hop to the main actor first — two threads in one `Dictionary` is a

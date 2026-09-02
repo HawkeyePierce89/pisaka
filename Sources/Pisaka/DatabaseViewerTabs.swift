@@ -152,6 +152,18 @@ final class DatabaseViewerTabs: ObservableObject {
         Task { await model.reload(at: url) }
     }
 
+    /// Tell the tab's model that its file is now at `url`, without reconnecting.
+    ///
+    /// The project tree's rename and move retarget a `.viewer` tab like any other
+    /// (`WorkspaceModel.applyRenamePlan`) and the open connection is unaffected —
+    /// a rename moves the name, not the inode. But the model's `fileURL` is what a
+    /// cell edit opens read-write, so without this every later edit on a renamed
+    /// database would address the path the tab was opened under. Synchronous and a
+    /// no-op for a tab that has never been shown, which has no model to correct.
+    func retarget(id: UUID, url: URL) {
+        models[id]?.retarget(to: url)
+    }
+
     /// Drop every model whose tab is no longer open, closing its connection.
     ///
     /// The connection is released in a detached `Task` because `close()` is

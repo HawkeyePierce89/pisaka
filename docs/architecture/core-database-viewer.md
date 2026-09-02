@@ -66,8 +66,10 @@ disk-writer gate and is never gated by it.
    `DatabaseViewerTabs.swift`, a file of their own, so `PisakaApp` paid four
    lines for the feature's wiring plus thirteen for the tab-kind skips rather
    than four hundred. Both ceilings moved by the measured amount only
-   (`file_length` 1809 → 1826 → 1829, `type_body_length` 1800 → 1810 → 1813 — the
-   second step is the viewer reconnect below), with the reason
+   (`file_length` 1809 → 1826 → 1829 → 1833 → 1837 → 1838, `type_body_length`
+   1800 → 1810 → 1813 → 1817 → 1821 → 1822 — the second step is the viewer
+   reconnect below, the fourth part 2a's write wiring and the fifth the rename's
+   viewer retarget; `style-lint.md` carries the whole chain), with the reason
    appended to `.swiftlint.yml`'s ceiling comment and both numbers updated in
    `LintConfigurationTests.documentedRootThresholds`. See `style-lint.md`.
 
@@ -151,7 +153,10 @@ disk-writer gate and is never gated by it.
 
 6. **The write connection carries the URL explicitly**, rather than inheriting
    the one the read connection opened with: a viewer tab outlives the path it was
-   opened at — a rename retargets it and `reload(at:)` follows — so the model's
+   opened at — the project tree's rename retargets the tab and
+   `DatabaseViewerTabs.retarget(id:url:)` hands the model the new path, while a
+   git operation that *replaced* the file goes through the heavier `reload(at:)`
+   — so the model's
    `fileURL` is the one thing that is current at the moment the write is
    composed. It is also what lets the write be a *separate, short-lived*
    read-write connection while the tab's own stays read-only.
@@ -660,9 +665,31 @@ disk-writer gate and is never gated by it.
   listing and the selection) fail again, loudly, on the count or the page a
   moment later. `editTarget` / `editRefusal(row:column:)` / `canEdit(row:column:)`
   are the read-only answers the surface greys cells out on, assembled here so the
-  question and the statement that acts on it come from **one** value.
-  `updateCell(row:column:entry:)` is the write, and the order of its refusals is
-  the design: the disk-writer gate first (an operation rewriting the worktree may
+  question and the statement that acts on it come from **one** value. `editTarget`
+  is **stored, not computed**, rebuilt by a `didSet` on each of the four
+  properties it is made of: it resolves every grid column to its schema column
+  (`DatabaseEditTarget.resolvedColumns`, a case-insensitive scan per column) and
+  the surface asks for a refusal on every cell it draws, so re-deriving it per
+  cell made this the grid's hottest allocation on a wide table. Rebuilt from the
+  `didSet`s rather than from the handful of methods that assign those properties,
+  so a later path that clears or sets one cannot forget it and leave the grid
+  greying cells out against a previous table's schema — and `resolvedColumns` is
+  kept in step by `didSet` inside the struct for the same reason, since both
+  lists it is derived from are `var`.
+  `reportEditRefusal(row:column:)` is how a gesture on a refused cell gets its
+  sentence into the banner **without going near the write path**: routing the
+  attempt through `updateCell` instead would mean inventing an entry nobody typed
+  purely to be refused again — for a blob cell that entry is the `<n bytes>`
+  placeholder, one missing refusal away from being written — and would let the
+  gate's own sentence mask the cell's whenever a worktree operation happened to be
+  in flight.
+  `updateCell(row:column:entry:request:)` is the write, and the order of its
+  refusals is the design: the **rows token** first (`request` is the token the
+  gesture captured through `rowsToken`, so a page that landed between the
+  keystroke and the task body turns the attempt into nothing rather than into a
+  write aimed at whatever row now holds that coordinate — carrying *that* row's
+  identity and *that* row's previous value, and so committing), then the
+  disk-writer gate (an operation rewriting the worktree may
   be replacing this very file), then the plan (a refusal is shown in its own
   words and **nothing is sent**), then "one write per tab" — a second edit
   arriving while one is in flight is refused rather than queued, because the plan
@@ -672,14 +699,19 @@ disk-writer gate and is never gated by it.
   captured, not bumped**: a write is not a load and publishes no page of its own,
   so it must not supersede the loads around it — what it must do is notice that
   one of them superseded *it*, in which case the newer state stays on screen and
-  the write publishes nothing, no message, no re-query, no hook. The commit still
-  stands, which is the honest outcome and is asserted. `isWriting` is the one
+  the write publishes nothing — no message and no re-query. The commit still
+  stands, which is the honest outcome and is asserted — and **`didWrite` is told
+  either way**, ahead of the supersession guard, because that hook is about the
+  file on disk rather than about the page this tab happens to be holding: a
+  committed edit changed a tracked file whether or not the grid still shows what
+  it changed, and Local Changes would otherwise go on calling the database
+  unmodified. `isWriting` is the one
   flag lowered on **every** path including the superseded one, because nothing
   but this write ever raises it and a write that returned to find itself
   superseded is the only thing that can lower it; left up, the tab would refuse
   every later edit for its life. `settle(_:)` reads the outcome: committed →
   re-query **only the page** (an `UPDATE` changes no row's existence, so the
-  count cannot have changed) and call `didWrite`; rolled back at zero → "this row
+  count cannot have changed); rolled back at zero → "this row
   changed underneath you, nothing was written"; rolled back at anything else →
   say how many it would have touched; a throw → SQLite's own words. No path
   blanks a good page. Finally the one message slot gained a **third source**: a
@@ -777,7 +809,15 @@ disk-writer gate and is never gated by it.
   surface — as a permanent "unable to open database file" over a file sitting in
   the tree under its new name. A tab that has never been shown has no model and nothing
   stale, so it is skipped — it opens against the new file when it is first
-  selected. `closeAll()` is what termination calls, and
+  selected. `retarget(id:url:)` is the lighter sibling and the rename's *own*
+  half: `performMove` calls it for every tab the rename plan retargeted, and it
+  only moves the model's `fileURL`. No reconnect, because a rename moves the name
+  and not the inode — the page on screen stays and the open handle is still
+  answering the same database. Part 1 needed neither, since `fileURL` was read at
+  reconnect and nowhere else; part 2a makes it the path a cell edit opens
+  **read-write**, so a renamed tab without this would address the name it was
+  created under for the life of the tab. `closeAll()` is what termination calls,
+  and
   is **best effort by construction and said to be**: it runs from
   `willTerminateNotification`, the last notification AppKit posts, so the `async`
   close may not get a run-loop turn — acceptable for these read-only connections,
@@ -1011,7 +1051,11 @@ click that lands after a sidebar selection reads the newly selected table, moves
 its still-uncounted page off index 0 (`clamping` deliberately does not clamp
 upward while uncounted) and bumps the token, so the select's schema and `count(*)`
 are discarded as superseded and the tab settles on page 2 of a table with an empty
-schema pane and a footer that can state no total. All three entry points now
+schema pane and a footer that can state no total. The **write** takes the same token by a second accessor rather than the same one:
+`rowsToken` reads the generation *without* bumping it, because a write publishes no
+page of its own and must not supersede the loads around it — it captures the page it
+means to write against and is refused when a load has replaced it, where a read bumps
+and wins. All three read entry points now
 refuse a stale request before mutating anything. `reload()`'s own re-selection and
 Core's tests pass no request and are never refused — and a caller that *did*
 present one and then early-returns settles it, on every one of the three paths
@@ -1151,7 +1195,15 @@ Core-side, all in `Tests/PisakaCoreTests/`:
   TABLE` travels bound), identifier quoting for names holding quotes and spaces,
   and — the case a positional map gets wrong — **a schema whose hidden column
   precedes a visible one**, where the plan must name the right column and an
-  unmatched name must refuse.
+  unmatched name must refuse. Plus a **blob primary key**, refused for every cell
+  of the row and composing nothing (while a key column merely holding text still
+  writes); the two backstops in `address(…)` — an empty key list and a key column
+  positioned past the row — which are what stop a `WHERE` naming no row and
+  therefore matching every one; and the surface-versus-planner agreement asserted
+  by asking **both** halves about every column of one fixture rather than by
+  asking `refusal(…)` twice. Every refusal's sentence is pinned non-empty and
+  distinct, and the sample list is held complete by a `tag(_:)` `switch` with no
+  `default`: a case added to `DatabaseEditRefusal` stops that test file compiling.
 - `DatabaseSchemaTests`, `DatabaseQueryTests` — quoting a plain identifier, one
   holding a double quote, a semicolon and a space; the listing parser over a
   table and a view; the column parser over a composite primary key (ordinals
@@ -1192,13 +1244,28 @@ Core-side, all in `Tests/PisakaCoreTests/`:
   zero-affected and many-affected rollbacks with their sentences, a thrown SQLite
   failure, NULL set and unset round-tripping distinctly from the empty string, a
   write superseded mid-flight by a table selection (which publishes nothing while
-  the commit still stands), and a second write refused while one is in flight.
+  the commit still stands, and where the hook *is* still called because the file
+  did change), and a second write refused while one is in flight. Then, on review:
+  a write carrying a **stale rows token** refused before anything is composed and
+  the same write with the current token going through; a retargeted tab writing to
+  its new path with no reconnect; `reportEditRefusal` saying the refusal and
+  sending nothing, and saying nothing for a cell that may be edited; a page that
+  came back **without** the identity column it asked for publishing unsplit and
+  refusing the edit; a committed write whose re-read fails saying so and leaving
+  nothing spinning; a `WITHOUT ROWID` table's write end-to-end off a real page
+  answer, with every key column in key order; `updateCell`/`setCellToNull` on a
+  closed tab sending nothing; and the write's own three sentences pinned by
+  content rather than against the constants that produce them.
 - `DatabaseViewerSourceGatingTests` — the static rules no compiler can see:
   SQLite imported in exactly one file and nowhere under `Sources/PisakaCore/`;
   every app-side file of the feature `#if os(macOS)`-gated; `viewerTabsEnabled`
   spelled in exactly one app file, and that file `PisakaApp.swift`, while
   `iOS/PisakaApp_iOS.swift` constructs its workspace without it; no file of the
-  feature naming either writer-gate call; and the app sites that iterate
+  feature naming either writer-gate call; the tab's connection opened
+  `SQLITE_OPEN_READONLY` and the write's `SQLITE_OPEN_READWRITE`, exactly once
+  each, with `SQLITE_OPEN_CREATE` nowhere and no other file opening a connection
+  at all — which is the flag the whole reader claim rests on and the one a
+  compiler is happy to see changed; and the app sites that iterate
   `openFiles` for text pinned **by count** against the count of tab-kind filters,
   so a new text-shaped consumer fails here until it skips viewer tabs; and part
   2a's four gate pins — the write entry points asking `isWriteBlocked()` before
@@ -1235,6 +1302,15 @@ seam.
   text field to show. Neither can a generated or hidden column, a view's rows, a
   column whose name the schema cannot resolve uniquely, or a table that declares
   no rowid and no primary key — each refused by name, with its own sentence.
+  A **binary primary key** is the same refusal one step further out
+  (`DatabaseEditRefusal.blobRowIdentity`): a `WITHOUT ROWID` table keyed on a
+  BLOB — a content-addressed table — has no row this layer can *name*, since the
+  bytes a `WHERE` would name it with never left the database, so every cell of
+  such a row is refused rather than the key column alone. Asked in one place
+  (`DatabaseUpdatePlanner.blobKeyColumn(identity:row:)`) and consulted from both
+  `refusal(…)` and `address(…)`, so the grid never draws as editable a cell the
+  planner would refuse — and so the binder's blob refusal, which speaks about a
+  seam rather than about a cell, stays unreachable.
 - **The tab's own connection is still read-only.** It is opened
   `SQLITE_OPEN_READONLY` and stays so for its whole life, so the reader claim
   holds *at the file level* and not merely at the SQL level — no hot-journal
@@ -1254,6 +1330,19 @@ seam.
   file" where a read-write handle would have recovered it. The failure is honest
   (SQLite's own sentence reaches the banner) and the trade is deliberate: taking a
   write handle to read a tracked file is the larger cost, per the bullet above.
+- **A value whose rendering does not round-trip cannot be edited faithfully.**
+  Two shapes reach the grid as text that is not what SQLite holds, and the write
+  binds *the rendering* back into the `WHERE` and the `SET`. A TEXT cell holding
+  bytes that are not valid UTF-8 is decoded with U+FFFD substitutions, so the
+  `IS` guard matches nothing and the edit is rolled back under the collision
+  sentence ("This row changed underneath you") — which is the wrong reason, and
+  reloading never helps. A REAL cell holding an infinity renders as `inf`, which
+  the typing rule correctly declines to read as a numeral, so re-committing an
+  untouched cell retypes it from a float to the text `inf` — SQLite's own
+  affinity answer for that spelling, but not what was there. Both are refusals
+  the layer *should* make and cannot: the page carries the rendering, not the
+  bytes, and making it carry both is a change to the seam rather than to the
+  planner. Neither is reachable from a database written by ordinary means.
 - **macOS only.** iOS opens a database as text and fails, honestly (decision 3).
 - The grid pages at a fixed 200 rows and has no jump-to-page field; the row count
   is read once per table selection, so a table another process is writing shows a

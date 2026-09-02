@@ -1041,10 +1041,15 @@ user sees it.
 - **Editing a cell.** Double-click a cell — or press Return while it has the
   keyboard — to edit it in place; Return writes it, Escape cancels and writes
   nothing. The write is one `UPDATE` of one row inside a transaction, addressed
-  by the row's identity **and** by the value the grid was showing, and it commits
+  by the row's identity **and** by the value the grid was showing, on a separate,
+  short-lived read-write connection (the tab's own stays read-only for its whole
+  life). It commits
   only if exactly one row changed: if somebody else changed that row between the
   page being read and Return, nothing is written and the tab says so
-  ("this row changed underneath you"). What you type is stored as the column's
+  ("this row changed underneath you"). That short-lived connection is also the
+  one thing an edit changes on disk beyond the row itself: closing it checkpoints
+  a WAL database and removes its `-wal`/`-shm` sidecars, which is the cost merely
+  opening a viewer tab is careful not to pay. What you type is stored as the column's
   declared type implies — typing `43` into an `INTEGER` column stores the number,
   into a `TEXT` column the two characters — and in a column declared with no type
   at all the cell keeps the kind of value it already held. Nothing is trimmed, an
@@ -1055,9 +1060,9 @@ user sees it.
   hidden column, a cell holding binary data, a column whose name the table's
   schema cannot resolve to exactly one column, and a table that declares neither
   a row id nor a primary key. An edit is also refused — with a sentence, and
-  without writing anything — while git is rewriting the working tree (a branch
-  switch, a revert, a merge, a commit), and while another edit in the same tab is
-  still being written. A committed edit shows up in Local Changes like any other
+  without writing anything — while the project is being rewritten on disk (a
+  branch switch, a revert, a merge, a commit, a project-wide Replace All or a
+  Rename), and while another edit in the same tab is still being written. A committed edit shows up in Local Changes like any other
   change to a tracked file, and is undone the way any other file change is: with
   git, or in the database's own tools. There is no undo inside the viewer.
 

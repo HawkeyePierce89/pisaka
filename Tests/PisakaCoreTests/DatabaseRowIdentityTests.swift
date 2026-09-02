@@ -69,8 +69,6 @@ final class DatabaseRowIdentityTests: XCTestCase {
         )
 
         XCTAssertEqual(identity, .rowid(alias: .rowid))
-        XCTAssertEqual(identity.pageIdentityAlias, .rowid)
-        XCTAssertTrue(identity.isAddressable)
     }
 
     /// The spelling the strategy carries is the one the probe was made with, so
@@ -84,7 +82,6 @@ final class DatabaseRowIdentityTests: XCTestCase {
         )
 
         XCTAssertEqual(identity, .rowid(alias: .underscored))
-        XCTAssertEqual(identity.pageIdentityAlias, .underscored)
     }
 
     /// A view's rows are computed. There is nothing to name, and no page of one
@@ -98,8 +95,6 @@ final class DatabaseRowIdentityTests: XCTestCase {
         )
 
         XCTAssertEqual(identity, .unavailable(.view))
-        XCTAssertNil(identity.pageIdentityAlias)
-        XCTAssertFalse(identity.isAddressable)
     }
 
     func testAWithoutRowIdTableIsAddressedByItsSingleKeyColumn() {
@@ -111,8 +106,6 @@ final class DatabaseRowIdentityTests: XCTestCase {
         )
 
         XCTAssertEqual(identity, .primaryKey(columns: [DatabaseKeyColumn(name: "code", resultIndex: 0)]))
-        XCTAssertNil(identity.pageIdentityAlias)
-        XCTAssertTrue(identity.isAddressable)
     }
 
     /// Every key column, in **key order** — which is not the declaration order
@@ -174,7 +167,6 @@ final class DatabaseRowIdentityTests: XCTestCase {
         )
 
         XCTAssertEqual(identity, .unavailable(.noRowIdentity))
-        XCTAssertFalse(identity.isAddressable)
     }
 
     /// A key column the answer does not carry has no value on screen to put in a
