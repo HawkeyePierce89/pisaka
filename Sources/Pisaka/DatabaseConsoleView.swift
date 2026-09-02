@@ -46,13 +46,18 @@ struct DatabaseConsoleView: View {
 
     @Environment(\.interfaceMetrics) private var metrics
 
-    /// The reader's text.
+    /// The reader's text, read and written straight through to the console.
     ///
-    /// `@State` on purpose: this is transient pane state and nothing else. It is
-    /// never persisted, never part of the session record, and never a buffer — a
-    /// viewer tab is `isDirty == false` by construction and typing SQL into it
-    /// must not be the one thing that changes that.
-    @State private var text = ""
+    /// **Not `@State`**: this view is keyed on the tab and torn down whenever
+    /// another tab is selected, so an input owning its own text would lose a
+    /// half-written query to a glance at a source file. The model outlives the
+    /// pane and is where the text lives; it is no less transient for that —
+    /// never persisted, never part of the session record, and never a buffer,
+    /// because a viewer tab is `isDirty == false` by construction and typing SQL
+    /// into it must not be the one thing that changes that.
+    private var text: Binding<String> {
+        Binding(get: { console.text }, set: { console.text = $0 })
+    }
 
     /// The width every result column is drawn at — the grid's number, because
     /// the two tables sit one above the other and a different column rhythm in
@@ -74,12 +79,17 @@ struct DatabaseConsoleView: View {
         // here — not whether one was asked for, not what it says, not what it
         // runs.
         .confirmationDialog(
-            console.pendingConfirmation?.prompt ?? "",
+            DatabaseConsolePlan.confirmationTitle,
             isPresented: $isConfirming,
             titleVisibility: .visible
         ) {
             Button("Run", role: .destructive) { Task { await console.confirm() } }
             Button("Cancel", role: .cancel) { console.cancel() }
+        } message: {
+            // The body slot, because the prompt is a paragraph: the heading above
+            // is drawn bold and sized for a question, and the sentence the reader
+            // is being asked to rely on would be the first thing truncated there.
+            Text(console.pendingConfirmation?.prompt ?? "")
         }
         // The model asks and answers; this only mirrors the ask onto the flag
         // SwiftUI presents from. The macOS 13 `onChange(of:perform:)` overload,
@@ -132,7 +142,7 @@ struct DatabaseConsoleView: View {
     /// runs must be what was classified, which is why the model carries the text
     /// through the confirmation rather than asking for it again.
     private func run() {
-        let typed = text
+        let typed = console.text
         Task { await console.run(typed) }
     }
 
@@ -157,7 +167,7 @@ struct DatabaseConsoleView: View {
     // MARK: - The reader's text
 
     private var input: some View {
-        TextEditor(text: $text)
+        TextEditor(text: text)
             .font(metrics.scaledFont(.body, design: .monospaced))
             .frame(minHeight: metrics.scaled(60))
             .padding(.horizontal, metrics.scaled(4))

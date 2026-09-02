@@ -1578,12 +1578,17 @@ seam.
   `INSERT … RETURNING` inside the batch produced are stepped (a statement nobody
   steps never runs) and discarded.
 - **The console has no history, no saved queries and no syntax highlighting.**
-  The input is plain monospaced text, `@State` on the pane. That is view state
-  and nothing else — never persisted, never part of the session record, never a
-  buffer — and the consequence is worth stating plainly rather than leaving to be
-  discovered: the pane is rebuilt when the window shows a different tab, so
-  **switching away from a viewer tab and back clears whatever was typed**. It is
-  scratch space for the run in front of you, not a document.
+  The input is plain monospaced text, held on `DatabaseConsoleModel` rather than
+  on the pane. Still transient — never persisted, never part of the session
+  record, never a buffer — but it lives as long as the *tab* does, and that is the
+  point: `ContentView` swaps the viewer surface out whole for a text tab and
+  `DatabaseViewerHost` keys it on the tab, so a text owned by the input itself
+  would be destroyed by a glance at a source file, silently and including a query
+  half-written. It would also leave the pane's one deliberate re-presentation
+  incoherent — a confirmation re-shown on the way back in, standing over an empty
+  box, asking the reader to authorise a text they cannot see. It is scratch space
+  for the tab in front of you rather than a document: closing the tab is what
+  discards it.
 - **A text that brackets its own transaction is not special-cased, and it is the
   one place the confirmation's "rolls back together" can be untrue.** The batch
   runs inside a `BEGIN IMMEDIATE` of the app's own, so a `BEGIN` in the reader's
@@ -1767,8 +1772,10 @@ whether more remained; **no `LIMIT` is ever appended to the reader's text.**
   `nothingToRun`, `refuse(message:)` carrying SQLite's own sentence,
   `confirmWrite(prompt:)`, `read`, the last being the **only** answer that ever
   reaches the read member, which is why that member never reasons about a
-  deferral. Also here: the confirmation prompt (composed here, shown verbatim,
-  singular and plural spelled out rather than dodged with "1 statement(s)"), the
+  deferral. Also here: the confirmation's two texts — `confirmationTitle`, the
+  short question the dialog heads with, and `confirmationPrompt(for:)`, the
+  paragraph under it (composed here, shown verbatim, singular and plural spelled
+  out rather than dodged with "1 statement(s)") — the
   two footers (`resultFooter(rowCount:isTruncated:)`,
   `affectedRowsFooter(_:)` — where "No rows changed" after a *committed*
   transaction is an honest outcome rather than the failure the same count means
@@ -1795,10 +1802,19 @@ whether more remained; **no `LIMIT` is ever appended to the reader's text.**
   answer has no row identity, no sort, no paging and above all no editing — but
   it draws values through `DatabaseValue.displayText` with NULL styled from
   `isNull`, which is the one thing the two tables must never disagree about. The
-  reader's text is `@State`: transient pane state, never persisted, never part of
-  the session record, and never a buffer — a viewer tab is `isDirty == false` by
-  construction and typing SQL into it must not be the one thing that changes
-  that.
+  reader's text is the **console's**, bound through rather than owned: transient
+  all the same — never persisted, never part of the session record, never a
+  buffer, because a viewer tab is `isDirty == false` by construction and typing
+  SQL into it must not be the one thing that changes that — but held where it
+  outlives a tab switch that tears this view down. It is deliberately *not*
+  published: nothing draws from it but the input's own binding, and publishing it
+  would re-render the grid beside it on every keystroke. The dialog's two text
+  slots are Core's too and are not interchangeable: `confirmationTitle` is the
+  heading (one short question) and `confirmationPrompt(for:)` is the body, because
+  a paragraph in a slot drawn bold and sized for a question is both the least
+  readable place available and the one at risk of truncation — which would cut the
+  transaction sentence's exception clause first, the part the promise is only true
+  with.
 
 ### The seam's three new members
 
@@ -1972,6 +1988,17 @@ all. A **failed run replaces nothing else**: the previous result, its footer and
 the last mutation's count all stand under the message, because they are still the
 last thing that actually happened.
 
+**`run(_:)` refuses a write already in flight too**, by the same two terms — the
+console's own `isWriting` and the tab's `isOtherWriteInFlight()`. The pane already
+disables Run for the whole of either write, but a rule the model owns must not be
+held up by a view: a Run slipping through would bump the token and supersede a
+mutation still deciding what the file says, leaving that batch to commit, tell the
+write hook and skip its re-read — a grid drawing rows from before a committed
+transaction, possibly of a table that transaction dropped, with the stale row
+identity a later cell edit would be planned against. The gate is *not* asked here
+(a classification and the read it may lead to are reads), which is the one term
+`run(_:)`'s list is shorter than `confirm()`'s.
+
 `confirm()` asks its refusals in order, with **nothing sent** until all pass:
 
 1. **The disk-writer gate**, asked *here* rather than before the prompt — the
@@ -2068,8 +2095,12 @@ transaction. `close()` stops the console the way it stops its own loads.
   race staged on `Gate` and no timed delay: the run order (nothing sent before
   classification answers), each of the four decisions' published state, the
   confirmation carrying the classified text rather than a later one, the refusal
-  order and its three sentences, a failed run replacing nothing, a superseded run
-  publishing nothing while `didWrite` still lands, the post-commit order, the
+  order and its three sentences, a failed run replacing nothing, Run itself
+  refused while either writer is in flight (the console's own batch and the
+  grid's cell edit, each with nothing sent and the same Run working once it
+  finishes), a run superseded by the *reload* path publishing nothing while
+  `didWrite` still lands, the reader's text living on the model and surviving both
+  a run and `stop()`, the post-commit order, the
   failure path's own two calls (the hook told and the tab re-read, with no count
   claimed), `isRunning` asserted **while the run is in flight** rather than after
   it landed, a read that answered no columns publishing an empty answer and no
@@ -2096,7 +2127,10 @@ transaction. `close()` stops the console the way it stops its own loads.
   about the console, `PisakaApp.swift`'s tab-kind filter counts unchanged, and the
   surface's disable terms — the paging buttons, the sort headers, the grid's idle
   test and Run all reading the tab-wide flag, and no view naming
-  `model.isWriting`, the half of it that a console batch does not raise.
+  `model.isWriting`, the half of it that a console batch does not raise — and that
+  the reader's text is held by the console rather than by the pane, which no
+  compiler can see either: an input owning its own text compiles perfectly and
+  loses a half-written query to a tab switch, silently.
 
 `ScriptedDatabaseService` grew a console half: a classification per text (the
 deferral included), an answer per text, and scripted console outcomes with the

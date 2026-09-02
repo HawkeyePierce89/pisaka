@@ -153,6 +153,20 @@ public enum DatabaseConsolePlan {
 
     // MARK: - What the reader is asked
 
+    /// The heading over the confirmation — the question itself, in one short
+    /// sentence.
+    ///
+    /// Composed here rather than in the pane for the pane's stated rule: it
+    /// writes no English of its own beyond the labels on its controls. It exists
+    /// because a dialog has two text slots and they are not interchangeable: the
+    /// heading is drawn bold, centred and sized for a question, while the body is
+    /// the slot a paragraph reads in. `confirmationPrompt(for:)` is a paragraph —
+    /// four sentences at its longest — and put in the heading it is both the
+    /// least readable place available and the one at risk of truncation, which
+    /// would cut the transaction sentence's exception clause first: the tail of
+    /// the paragraph, and the part the promise is only true with.
+    public static let confirmationTitle = "Run this SQL?"
+
     /// The confirmation the reader answers before a mutating text runs.
     ///
     /// Composed here and shown verbatim by the pane. It says four things, and

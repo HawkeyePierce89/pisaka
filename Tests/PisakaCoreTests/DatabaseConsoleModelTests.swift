@@ -141,6 +141,26 @@ final class DatabaseConsoleModelTests: XCTestCase {
         XCTAssertFalse(model.isRunning)
     }
 
+    func testTheReadersTextLivesOnTheModelAndSurvivesEveryRun() async {
+        let service = ScriptedDatabaseService()
+        let text = "SELECT 1"
+        service.serveClassification(text, kinds: [.read])
+        service.serveConsoleRead(text, columns: ["1"], rows: [[.integer(1)]])
+        let model = await openedConsole(service)
+
+        XCTAssertEqual(model.text, "", "A console opens empty")
+        model.text = text
+
+        await model.run(model.text)
+
+        // The pane is keyed on the tab and torn down whenever another tab is
+        // selected; the text it draws must outlive that, and nothing the console
+        // does to it is a reason to clear it.
+        XCTAssertEqual(model.text, text, "Running a text does not consume it")
+        model.stop()
+        XCTAssertEqual(model.text, text)
+    }
+
     // MARK: - The confirmation
 
     func testAMutatingTextAsksAndRunsNothingUntilItIsConfirmed() async {
@@ -494,7 +514,7 @@ final class DatabaseConsoleModelTests: XCTestCase {
         XCTAssertNil(model.message)
     }
 
-    func testASupersededMutationPublishesNothingButStillTellsTheApp() async {
+    func testRunIsRefusedWhileAConfirmedMutationIsInFlight() async {
         let service = ScriptedDatabaseService()
         let text = "DELETE FROM items"
         let read = "SELECT 1"
@@ -504,8 +524,6 @@ final class DatabaseConsoleModelTests: XCTestCase {
         service.serveClassification(text, kinds: [.write])
         service.serveCommittedConsoleWrite(affectedRows: 2)
         service.holdConsoleWrite(on: gate)
-        service.serveClassification(read, kinds: [.read])
-        service.serveConsoleRead(read, columns: ["1"], rows: [[.integer(1)]])
         let model = await openedConsole(
             service,
             didWrite: { didWriteCount += 1 },
@@ -516,15 +534,74 @@ final class DatabaseConsoleModelTests: XCTestCase {
         let writing = Task { await model.confirm() }
         await waitUntil { gate.reached }
 
+        // One write per tab, asked by the model and not only by the pane: a Run
+        // landing here would supersede the batch that is still deciding what the
+        // file says, and leave the grid drawing rows from before it.
         await model.run(read)
+        XCTAssertEqual(model.message, DatabaseConsolePlan.runInFlightMessage)
+        XCTAssertEqual(service.consoleTexts, [text], "Nothing about the newer text reached the seam")
+
+        gate.release()
+        await writing.value
+
+        XCTAssertEqual(didWriteCount, 1)
+        XCTAssertEqual(refreshCount, 1, "The batch was never superseded, so its re-read stands")
+        XCTAssertEqual(model.affectedRows, 2)
+        XCTAssertEqual(model.footer, DatabaseConsolePlan.affectedRowsFooter(2))
+        XCTAssertFalse(model.isWriting, "The write that raised the flag is the only thing that can lower it")
+    }
+
+    func testRunIsRefusedWhileTheGridsCellEditIsInFlight() async {
+        let service = ScriptedDatabaseService()
+        let text = "SELECT 1"
+        service.serveClassification(text, kinds: [.read])
+        service.serveConsoleRead(text, columns: ["1"], rows: [[.integer(1)]])
+        var isGridWriting = true
+        let model = await openedConsole(service, isOtherWriteInFlight: { isGridWriting })
+
+        await model.run(text)
+
+        XCTAssertEqual(model.message, DatabaseConsolePlan.runInFlightMessage)
+        XCTAssertNil(model.answer)
+        XCTAssertTrue(service.consoleTexts.isEmpty, "Nothing is sent while the tab's other writer is running")
+        XCTAssertFalse(model.isRunning, "A refusal is not work in flight")
+
+        isGridWriting = false
+        await model.run(text)
+
+        XCTAssertNil(model.message)
+        XCTAssertEqual(model.answer?.rows, [[.integer(1)]], "…and the same Run works once it finishes")
+    }
+
+    func testAMutationSupersededByAReloadPublishesNothingButStillTellsTheApp() async {
+        let service = ScriptedDatabaseService()
+        let text = "DELETE FROM items"
+        let gate = Gate()
+        var didWriteCount = 0
+        var refreshCount = 0
+        service.serveClassification(text, kinds: [.write])
+        service.serveCommittedConsoleWrite(affectedRows: 2)
+        service.holdConsoleWrite(on: gate)
+        let model = await openedConsole(
+            service,
+            didWrite: { didWriteCount += 1 },
+            refreshAfterWrite: { refreshCount += 1 }
+        )
+
+        await model.run(text)
+        let writing = Task { await model.confirm() }
+        await waitUntil { gate.reached }
+
+        // What the tab does when the file underneath it is replaced: the console
+        // token moves on, and `reload(at:)` re-reads everything itself.
+        model.invalidatePendingConfirmation()
         gate.release()
         await writing.value
 
         XCTAssertEqual(didWriteCount, 1, "The file changed on disk whatever the screen has moved on to")
         XCTAssertEqual(refreshCount, 0, "…but nothing about the screen is re-read for a superseded run")
         XCTAssertNil(model.affectedRows)
-        XCTAssertEqual(model.footer, DatabaseConsolePlan.resultFooter(rowCount: 1, isTruncated: false))
-        XCTAssertEqual(model.answer?.rows, [[.integer(1)]], "The newer run's answer stands")
+        XCTAssertNil(model.footer)
         XCTAssertFalse(model.isWriting, "The write that raised the flag is the only thing that can lower it")
     }
 

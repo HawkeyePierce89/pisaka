@@ -38,9 +38,9 @@ public final class DatabaseConsoleModel: ObservableObject {
     /// the text `confirm()` will send **verbatim** if they agree.
     ///
     /// The text is carried here rather than re-read from the input, and that is
-    /// the whole reason this is a value and not a bare `String?` prompt: the pane
-    /// owns the input as transient `@State` and the reader may go on typing while
-    /// the confirmation sits in front of them. What runs is what was classified,
+    /// the whole reason this is a value and not a bare `String?` prompt: the
+    /// reader may go on typing behind the confirmation, and `text` follows them.
+    /// What runs is what was classified,
     /// which is what the prompt describes — anything else would ask about one
     /// text and run another.
     public struct PendingConfirmation: Equatable, Sendable {
@@ -96,6 +96,29 @@ public final class DatabaseConsoleModel: ObservableObject {
     /// The mutation awaiting the reader's answer, or `nil` when nothing is being
     /// asked. Published by `run(_:)` and answered by `confirm()`/`cancel()`.
     @Published public private(set) var pendingConfirmation: PendingConfirmation?
+
+    /// The text in the pane's input.
+    ///
+    /// **Held here because the pane does not live as long as the reader's
+    /// typing.** The viewer surface is keyed on the tab and swapped out whole
+    /// whenever another tab is selected, so state owned by the input itself is
+    /// destroyed by a glance at a source file — silently, and including a query
+    /// half-written. It also left the one deliberate re-presentation incoherent:
+    /// a confirmation the pane re-shows on the way back in would stand over an
+    /// empty input, asking the reader to authorise a text they cannot see. One
+    /// tab is one console for the tab's life, which is exactly the lifetime the
+    /// input wants; the tab's selection already lives here for the same reason.
+    ///
+    /// Still transient, and deliberately so: never persisted, never part of the
+    /// session record, never a buffer. A viewer tab is `isDirty == false` by
+    /// construction and typing SQL into it must not be the one thing that changes
+    /// that.
+    ///
+    /// **Deliberately not `@Published`.** Nothing draws from it but the input's
+    /// own binding, which reads it back through the same object; publishing it
+    /// would re-render the grid beside it — the tab's surface observes this
+    /// console for `isWriting` — on every keystroke.
+    public var text = ""
 
     private let service: DatabaseServicing
 
@@ -183,8 +206,20 @@ public final class DatabaseConsoleModel: ObservableObject {
     /// A pending confirmation from a previous Run is dropped here rather than
     /// answered: pressing Run again is a new question, and leaving the old prompt
     /// up would let the reader agree to a text they have since replaced.
+    ///
+    /// **One write per tab is refused here too, and by the same two terms
+    /// `confirm()` asks.** The pane already disables Run while either writer is
+    /// in flight, but a rule the model owns must not be held up by a view: a Run
+    /// slipping through would bump the token and supersede a mutation that is
+    /// still deciding what the file says, leaving the batch to commit, tell the
+    /// write hook and skip the re-read — a grid drawing rows from before a
+    /// committed transaction, possibly of a table that transaction dropped.
     public func run(_ text: String) async {
         guard !isStopped else { return }
+        guard !isWriting, !isOtherWriteInFlight() else {
+            message = DatabaseConsolePlan.runInFlightMessage
+            return
+        }
         generation += 1
         let token = generation
         pendingConfirmation = nil

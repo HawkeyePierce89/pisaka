@@ -1112,8 +1112,9 @@ user sees it.
     flight, Run, the paging buttons and the sort headers are all disabled, and a
     mutation is refused outright while the project is being rewritten on disk.
   - The console holds no history and no saved queries, and its text is not part
-    of the session — it is scratch space for the run in front of you, cleared
-    when you switch the window to another tab and when the tab closes.
+    of the session — it is scratch space for the tab in front of you. It survives
+    switching the window to another tab and back; closing the tab is what
+    discards it.
   - A statement of your own that opens or commits a transaction is not
     special-cased: `BEGIN` fails, because the batch is already inside one, and a
     bare `COMMIT` partway through makes everything after it durable even if a

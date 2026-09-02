@@ -54,6 +54,12 @@ import XCTest
 ///    names `DatabaseQuery` and `DatabaseQuery` names no console member. A
 ///    console file that started appending `LIMIT` to the reader's text would
 ///    compile, run, and quietly rewrite the question that was asked.
+/// 8. The compiler cannot see who owns the reader's text. `ContentView` swaps the
+///    viewer surface out whole for a text tab and `DatabaseViewerHost` keys it on
+///    the tab, so a console input holding its own `@State` compiles perfectly and
+///    loses a half-written query to a glance at a source file — silently, and
+///    leaving the pane's deliberate re-presentation of a pending confirmation
+///    standing over an empty box.
 final class DatabaseViewerSourceGatingTests: XCTestCase {
 
     private static let repositoryRoot = URL(fileURLWithPath: #filePath)
@@ -706,6 +712,28 @@ final class DatabaseViewerSourceGatingTests: XCTestCase {
             try occurrences(of: #"\.disabled\(isRunDisabled\)"#, in: console),
             1,
             "…and the Run control must be the thing that reads it."
+        )
+    }
+
+    /// The reader's text belongs to the console, not to the pane drawing it.
+    ///
+    /// `ContentView` swaps the viewer surface out whole for a text tab and
+    /// `DatabaseViewerHost` keys it on the tab, so the pane is destroyed by any
+    /// tab switch while the console behind it lives as long as the tab. An input
+    /// owning its own text would therefore lose a half-written query to a glance
+    /// at a source file, silently — and would leave the pane's deliberate
+    /// re-presentation of a pending confirmation standing over an empty box.
+    func testTheReadersTextIsHeldByTheConsoleAndNotByThePane() throws {
+        let console = try code(ofFileNamed: "DatabaseConsoleView.swift", under: "Sources/Pisaka")
+        XCTAssertEqual(
+            try occurrences(of: #"@State private var text"#, in: console),
+            0,
+            "The input must not own the reader's text: this view does not live as long as the typing does."
+        )
+        XCTAssertGreaterThan(
+            try occurrences(of: #"console\.text"#, in: console),
+            0,
+            "…it reads and writes the console's own property instead."
         )
     }
 

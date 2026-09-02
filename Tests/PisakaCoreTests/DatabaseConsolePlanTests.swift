@@ -144,6 +144,20 @@ final class DatabaseConsolePlanTests: XCTestCase {
         + "unless the text ends that transaction itself, with a commit or a rollback of its own, "
         + "after which what it already committed, and everything running past that point, stays."
 
+    func testTheTitleIsOneShortQuestionAndThePromptIsTheBody() {
+        XCTAssertEqual(DatabaseConsolePlan.confirmationTitle, "Run this SQL?")
+        let prompt = DatabaseConsolePlan.confirmationPrompt(for: classification([.write, .write, .read]))
+        XCTAssertLessThan(
+            DatabaseConsolePlan.confirmationTitle.count,
+            prompt.count,
+            "The heading is the question; the paragraph belongs in the slot a paragraph reads in"
+        )
+        XCTAssertFalse(
+            prompt.contains(DatabaseConsolePlan.confirmationTitle),
+            "The two are separate texts, not a prefix the pane would show twice"
+        )
+    }
+
     func testThePromptSaysHowManyStatementsAndHowManyOfThemWrite() {
         let prompt = DatabaseConsolePlan.confirmationPrompt(for: classification([.write, .write, .read, .read]))
         XCTAssertTrue(prompt.hasPrefix("Classified 4 statements, 2 of which change the database."), prompt)
