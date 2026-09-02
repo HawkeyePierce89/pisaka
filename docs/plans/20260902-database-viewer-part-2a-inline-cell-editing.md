@@ -230,22 +230,22 @@ on its own.
 - Create: `Tests/PisakaCoreTests/DatabaseUpdatePlanTests.swift`
 - Modify: `Tests/PisakaCoreTests/DatabaseQueryTests.swift`
 
-- [ ] add `DatabaseEditRefusal` — the typed reasons, each with the sentence the
+- [x] add `DatabaseEditRefusal` — the typed reasons, each with the sentence the
       banner shows: the entry is a view; the column is generated or hidden; the
       column has no unique match in the schema by name (decision 4); the cell (old
       or new value) is a blob; the table is `WITHOUT ROWID` and its full key is
       unavailable; the table declares no usable row identity
-- [ ] add `DatabaseUpdatePlan` and the pure planner: schema + identity strategy +
+- [x] add `DatabaseUpdatePlan` and the pure planner: schema + identity strategy +
       identity values + previous value + new value → a plan carrying one
       `DatabaseStatement` and `requiredAffectedRows == 1`, or a refusal; the grid
       column is resolved to its schema column **by answered name**, per decision 4
-- [ ] add `DatabaseQuery.update(table:column:identity:)` composing
+- [x] add `DatabaseQuery.update(table:column:identity:)` composing
       `UPDATE "t" SET "c" = ? WHERE <identity IS ?…> AND "c" IS ?` — identifiers
       through `quoted(_:)` (the rowid alias the one bare name), every value bound,
       binding order fixed and asserted
-- [ ] add the transaction texts (`beginImmediate`, `commit`, `rollback`) as
+- [x] add the transaction texts (`beginImmediate`, `commit`, `rollback`) as
       `DatabaseQuery` constants, so no SQL is spelled outside this file
-- [ ] write tests: the plan for a rowid table and for a composite-key
+- [x] write tests: the plan for a rowid table and for a composite-key
       `WITHOUT ROWID` table (every key column in the `WHERE`, in key order); every
       refusal by reason; **a schema whose hidden column precedes a visible one, so
       a positional map would name the wrong column — the plan must name the right
@@ -253,7 +253,7 @@ on its own.
       new value; that no cell content ever reaches `sql` (a value spelling
       `'; DROP TABLE` travels bound); identifier quoting for names holding quotes
       and spaces
-- [ ] run `swift test` — must pass before task 4
+- [x] run `swift test` — must pass before task 4
 
 ### Task 4: The seam's write member
 

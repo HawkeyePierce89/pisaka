@@ -202,4 +202,80 @@ public enum DatabaseQuery {
             ]
         )
     }
+
+    // MARK: - Writing
+
+    /// One cell of one row, rewritten.
+    ///
+    /// `UPDATE "t" SET "c" = ? WHERE <identity IS ?…> AND "c" IS ?` — the only
+    /// statement in this app that changes a database, and every part of it is
+    /// here for a reason:
+    ///
+    /// - **The `WHERE` names the row twice over.** The identity (a rowid, or
+    ///   every column of a `WITHOUT ROWID` table's key in key order) says *which*
+    ///   row; the trailing term says the cell still holds what the grid was
+    ///   showing when the reader started typing. A row somebody else changed in
+    ///   between therefore matches nothing, the affected-row count comes back
+    ///   zero, and the transaction rolls back — which is how "this changed
+    ///   underneath you" is detected rather than guessed at.
+    /// - **`IS`, not `=`.** Both the identity values and the previous value may
+    ///   be NULL, and `= NULL` is NULL — never true — so an `=` here would make
+    ///   every NULL cell silently unwritable. `IS` is SQLite's null-safe
+    ///   comparison, and it is what keeps NULL and the empty string distinct
+    ///   through a write.
+    /// - **Every value is bound; only names are spliced.** The new value, the
+    ///   identity values and the previous value are parameters, so a cell
+    ///   spelling `'; DROP TABLE t; --` travels as data. The table and column
+    ///   names go through `quoted(_:)`; the rowid alias is the one bare name
+    ///   (see `rowIdAliases`), and it is bare here for the same reason it is bare
+    ///   in the probe — quoted, it would compare against the *string* `rowid`.
+    /// - **Binding order is fixed** and asserted in the tests: the `SET` value
+    ///   first, then the identity values in address order, then the previous
+    ///   value. The app half binds positionally and knows none of this.
+    public static func update(
+        table: String,
+        column: String,
+        identity: DatabaseRowAddress,
+        newValue: DatabaseValue,
+        previousValue: DatabaseValue
+    ) -> DatabaseStatement {
+        var conditions: [String] = []
+        var parameters: [DatabaseValue] = [newValue]
+
+        switch identity {
+        case .rowid(let alias, let value):
+            conditions.append("\(alias.rawValue) IS ?")
+            parameters.append(value)
+        case .primaryKey(let keyValues):
+            for keyValue in keyValues {
+                conditions.append("\(quoted(keyValue.name)) IS ?")
+                parameters.append(keyValue.value)
+            }
+        }
+        conditions.append("\(quoted(column)) IS ?")
+        parameters.append(previousValue)
+
+        return DatabaseStatement(
+            "UPDATE \(quoted(table)) SET \(quoted(column)) = ? WHERE \(conditions.joined(separator: " AND "))",
+            parameters: parameters
+        )
+    }
+
+    /// The transaction a write runs inside — its three texts, here rather than in
+    /// the app half, because this file is the only thing in the repository that
+    /// writes SQL and a `BEGIN` is no less SQL than a `SELECT`.
+    ///
+    /// `IMMEDIATE` rather than a deferred `BEGIN`: a deferred transaction takes
+    /// its write lock at the first statement that needs one, so a second writer
+    /// arriving in between turns into a `SQLITE_BUSY` *mid*-transaction. Asking
+    /// for the lock up front means the busy timeout is spent before anything has
+    /// been written, which is the failure the reader can be told about plainly.
+    public static let beginImmediate = DatabaseStatement("BEGIN IMMEDIATE")
+
+    /// Run only when the accumulated affected-row count is the one the plan
+    /// required.
+    public static let commit = DatabaseStatement("COMMIT")
+
+    /// Run on every other path — a count that does not match, and any failure.
+    public static let rollback = DatabaseStatement("ROLLBACK")
 }
