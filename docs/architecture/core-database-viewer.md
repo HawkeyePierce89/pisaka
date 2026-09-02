@@ -1790,6 +1790,28 @@ its own is not turned into a reported failure by "cannot commit - no transaction
 is active". The tab's connection stays `SQLITE_OPEN_READONLY` for its whole life,
 and SQLite is still imported in exactly one file.
 
+**A rollback the reader's own text performs is not a commit, and nothing on this
+connection can tell the two apart unaided.** `sqlite3_get_autocommit` reads the
+same after a `COMMIT` and after a `ROLLBACK` — both close the bracket — and
+`sqlite3_total_changes` is *never reduced* by a rollback, so a `DELETE …;
+ROLLBACK;` would otherwise be reported as a committed batch that changed every
+row it in fact undid, and Local Changes would be told about a file nobody
+touched. `RollbackWitness` asks SQLite instead: a rollback hook and a commit
+hook, installed **after** the batch's own `BEGIN IMMEDIATE` and removed before
+the teardown, so neither ever answers for something this method did rather than
+something the text did. SQLite invokes them for a real transaction only — never
+for the statement-level rollback a failing statement performs inside one. The
+rollback flag is cleared **before each statement**, which is what makes it two
+answers rather than one: mid-batch it says "that statement undid everything
+counted so far", so the running total starts again from zero and whatever runs
+after the rollback still counts; at the end it says "the text *ended* in a
+rollback, with nothing after it". That end state, **and no commit anywhere in the
+batch**, is the one outcome this member has that is neither a failure nor a
+change — `DatabaseWriteOutcome(affectedRows: 0, isCommitted: false)`, which is
+what `DatabaseConsoleModel.rolledBackMessage` says. Both terms are load-bearing:
+a text that commits partway and rolls back after it *did* change the file, and is
+reported as the change it is.
+
 **The affected-row total is a delta, never `sqlite3_changes`.** That call answers
 the connection's last INSERT/UPDATE/DELETE and *nothing else resets it*, so the
 read-only guard that makes it correct in `execute(_:on:)` — where one statement is

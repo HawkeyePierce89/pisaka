@@ -238,14 +238,17 @@ public enum DatabaseConsolePlan {
     /// The footer under a console read's result table.
     ///
     /// `rowCount` is what actually arrived — never the cap, and never what the
-    /// query would have answered — so a truncated result says both numbers: what
-    /// is on screen, and that it is only the first of them.
+    /// query would have answered, which is a number nobody here knows. A
+    /// truncated result therefore says the one number it has and then the one
+    /// fact the number alone does not carry: that the query had more to say.
+    /// Repeating the same count in both halves would read as a rendering fault
+    /// and would state nothing twice.
     public static func resultFooter(rowCount: Int, isTruncated: Bool) -> String {
         let rows = max(0, rowCount)
         guard rows > 0 else { return "No rows" }
         let counted = rows == 1 ? "1 row" : "\(rows) rows"
         guard isTruncated else { return counted }
-        return "\(counted) · first \(rows) rows shown"
+        return "\(counted) shown · more rows remain"
     }
 
     /// The footer after a committed console mutation.

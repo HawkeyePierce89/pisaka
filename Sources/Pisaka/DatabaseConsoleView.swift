@@ -75,12 +75,16 @@ struct DatabaseConsoleView: View {
         // runs.
         .confirmationDialog(
             console.pendingConfirmation?.prompt ?? "",
-            isPresented: isConfirming,
+            isPresented: $isConfirming,
             titleVisibility: .visible
         ) {
             Button("Run", role: .destructive) { Task { await console.confirm() } }
             Button("Cancel", role: .cancel) { console.cancel() }
         }
+        // The model asks and answers; this only mirrors the ask onto the flag
+        // SwiftUI presents from. The macOS 13 `onChange(of:perform:)` overload,
+        // the repository's idiom.
+        .onChange(of: console.pendingConfirmation) { pending in isConfirming = pending != nil }
     }
 
     // MARK: - Running
@@ -125,18 +129,21 @@ struct DatabaseConsoleView: View {
 
     /// Whether the confirmation is on screen.
     ///
-    /// The getter is the model's state; the setter does **nothing on purpose**.
-    /// Dismissal is reported by whichever button was pressed — Run through
-    /// `confirm()`, Cancel and Esc through the cancel-role button's `cancel()` —
-    /// and a `cancel()` here would run *before* the Run button's `Task` body
-    /// reached `confirm()`, clearing the very pending confirmation that call is
-    /// about to answer.
-    private var isConfirming: Binding<Bool> {
-        Binding(
-            get: { console.pendingConfirmation != nil },
-            set: { _ in }
-        )
-    }
+    /// **State of its own, mirrored from the model rather than derived from it.**
+    /// A `Binding` reading `console.pendingConfirmation != nil` with a no-op
+    /// setter is the shape this wants to be, and it is wrong in one direction:
+    /// SwiftUI writes `false` when the dialog is dismissed, a no-op setter drops
+    /// that write, and the pending confirmation the getter still sees is only
+    /// cleared a main-actor turn later — `confirm()` is `async`, so *nothing* of
+    /// it runs in the button's action. Any re-evaluation in that window
+    /// re-presents a dialog the reader has already answered.
+    ///
+    /// Answering is still the model's alone: the two buttons call `confirm()` and
+    /// `cancel()`, and this flag only follows what they publish. It must not
+    /// answer for them — a `cancel()` driven from the setter would run *before*
+    /// the Run button's task reached `confirm()` and would clear the very
+    /// confirmation that call is about to honour.
+    @State private var isConfirming = false
 
     // MARK: - The reader's text
 

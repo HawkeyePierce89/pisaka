@@ -348,6 +348,14 @@ public protocol DatabaseServicing: Sendable {
     /// changed" is a real outcome for a `DELETE` that matched nothing or a
     /// `CREATE TABLE`. A step or prepare failure anywhere rolls everything back.
     ///
+    /// **A text that rolls itself back answers `isCommitted: false`**, and it is
+    /// the one outcome here that is neither a failure nor a change: a `ROLLBACK`
+    /// the reader typed as the last thing in the text, with nothing committed
+    /// anywhere in it, leaves the file untouched and must be said so rather than
+    /// reported as a batch that changed the rows it undid. Anything the text
+    /// rolled back stops counting towards `affectedRows`; anything that ran after
+    /// a rollback still counts.
+    ///
     /// - Throws: the same `DatabaseError` cases `performWrite(_:)` throws,
     ///   carrying SQLite's own words.
     func performConsoleWrite(_ transaction: DatabaseConsoleTransaction) async throws -> DatabaseWriteOutcome

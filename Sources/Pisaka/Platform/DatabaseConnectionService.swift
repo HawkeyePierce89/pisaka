@@ -475,9 +475,23 @@ actor DatabaseConnectionService: DatabaseServicing {
     /// not a no-op, `BEGIN IMMEDIATE` so the write lock is taken up front,
     /// closed on every path, and a WAL checkpoint after a commit so the tracked
     /// bytes actually move.
+    ///
+    /// **A rollback the reader's own text performs is not a commit**, and
+    /// nothing else here can tell the two apart: `sqlite3_get_autocommit` reads
+    /// the same after either, and `sqlite3_total_changes` is never reduced by a
+    /// rollback — so without `RollbackWitness` a `DELETE …; ROLLBACK;` would
+    /// report every row it undid as changed and the batch as committed. See
+    /// that type for what each hook answers.
     func performConsoleWrite(_ transaction: DatabaseConsoleTransaction) async throws -> DatabaseWriteOutcome {
         let connection = try Self.openReadWrite(at: transaction.url)
+        let witness = RollbackWitness()
         defer {
+            // The hooks come off first, and `witness` is named here so it
+            // outlives them: what follows rolls back, which is exactly when a
+            // hook still installed would reach for it.
+            _ = sqlite3_rollback_hook(connection, nil, nil)
+            _ = sqlite3_commit_hook(connection, nil, nil)
+            withExtendedLifetime(witness) {}
             // Closing rolls back on its own; asking first is what keeps seam
             // rule 4 one line in one place rather than an inference about
             // SQLite's teardown.
@@ -487,6 +501,9 @@ actor DatabaseConnectionService: DatabaseServicing {
 
         _ = try execute(DatabaseQuery.foreignKeysOn, on: connection)
         _ = try execute(DatabaseQuery.beginImmediate, on: connection)
+        // Installed after the bracket is open, so neither hook can answer for
+        // anything this method did to set the batch up.
+        witness.install(on: connection)
         do {
             var affectedRows = 0
             try enumerateStatements(
@@ -494,11 +511,17 @@ actor DatabaseConnectionService: DatabaseServicing {
                 on: connection,
                 onPrepareFailure: { code, message, _ in throw Self.error(code: code, message: message) },
                 body: { prepared, _ in
-                    affectedRows += try stepConsoleStatement(
+                    witness.didRollback = false
+                    let changed = try stepConsoleStatement(
                         prepared,
                         on: connection,
                         readRowLimit: transaction.readRowLimit
                     )
+                    // Everything counted so far was undone by that rollback, so
+                    // it stops being part of the total the reader is shown —
+                    // whatever ran *after* it still counts, and starts from zero.
+                    if witness.didRollback { affectedRows = 0 }
+                    affectedRows += changed
                 }
             )
             // Only when a transaction is still open: a text that committed its
@@ -507,6 +530,14 @@ actor DatabaseConnectionService: DatabaseServicing {
             // failure.
             if sqlite3_get_autocommit(connection) == 0 {
                 _ = try execute(DatabaseQuery.commit, on: connection)
+            } else if witness.didRollback, !witness.didCommit {
+                // The text closed the bracket itself, its last statement was the
+                // rollback that closed it, and nothing in it ever committed: the
+                // file is untouched, which is the one outcome this member has
+                // that is neither a failure nor a change. Both terms are needed —
+                // a text that commits partway and rolls back after it *did*
+                // change the file, and is reported as the change it is.
+                return DatabaseWriteOutcome(affectedRows: 0, isCommitted: false)
             }
             // Never allowed to turn a write that succeeded into a failure: a
             // checkpoint that could not run leaves the batch committed and
@@ -726,6 +757,56 @@ actor DatabaseConnectionService: DatabaseServicing {
         case SQLITE_BUSY, SQLITE_LOCKED: return .busy(message: message)
         default: return .sqlError(message: message)
         }
+    }
+}
+
+/// Whether the reader's own console text rolled a transaction back, and whether
+/// anything in it committed — SQLite's own answers, never a reading of the text.
+///
+/// The two questions the app half cannot otherwise ask.
+/// `sqlite3_get_autocommit` reports the same after a `COMMIT` and after a
+/// `ROLLBACK` — both leave the connection in autocommit — and
+/// `sqlite3_total_changes` is never reduced by a rollback, so a
+/// `DELETE …; ROLLBACK;` looks exactly like a batch that committed every row it
+/// undid. The hooks answer both: SQLite invokes them for a real transaction
+/// only, never for the statement-level rollback a failing statement performs
+/// inside one.
+///
+/// Installed after the batch's own `BEGIN IMMEDIATE` and removed before the
+/// connection is torn down, so neither hook ever answers for something
+/// `performConsoleWrite(_:)` did rather than something the reader's text did.
+private final class RollbackWitness {
+
+    /// Whether the statement now running rolled a transaction back. Cleared
+    /// before each statement, so after the last one it answers the question that
+    /// matters: did the text *end* in a rollback, with nothing after it.
+    var didRollback = false
+
+    /// Whether any transaction committed while the batch ran. Sticky, and
+    /// deliberately so: a text that commits partway and rolls back after it
+    /// changed the file, and must not be reported as untouched.
+    var didCommit = false
+
+    func install(on connection: OpaquePointer) {
+        _ = sqlite3_rollback_hook(
+            connection,
+            { context in
+                guard let context else { return }
+                Unmanaged<RollbackWitness>.fromOpaque(context).takeUnretainedValue().didRollback = true
+            },
+            Unmanaged.passUnretained(self).toOpaque()
+        )
+        _ = sqlite3_commit_hook(
+            connection,
+            { context in
+                guard let context else { return 0 }
+                Unmanaged<RollbackWitness>.fromOpaque(context).takeUnretainedValue().didCommit = true
+                // Anything but zero here turns the commit it is reporting into a
+                // rollback, which is the last thing this is allowed to do.
+                return 0
+            },
+            Unmanaged.passUnretained(self).toOpaque()
+        )
     }
 }
 #endif

@@ -1080,7 +1080,7 @@ user sees it.
     them (a `NULL` styled apart from an empty string, a blob as its size), and
     the footer counts the rows. A read is capped at **500 rows** — nothing is
     appended to your SQL, the rows are simply stopped there — and when the cap is
-    reached the footer says so ("500 rows · first 500 rows shown").
+    reached the footer says so ("500 rows shown · more rows remain").
   - **Anything that can change the database asks first.** The confirmation says
     how many statements were classified, how many of them write, and that they
     run as one transaction that rolls back whole if any of them fails. Agree and
@@ -1089,7 +1089,10 @@ user sees it.
     honest outcome for a `DELETE` that matched nothing or a `CREATE TABLE`).
     Decline and nothing is sent. A mutating batch reports that count and nothing
     else: rows a `SELECT` inside it produced are not shown, which the
-    confirmation says before you agree to it.
+    confirmation says before you agree to it. A text that **rolls itself back** —
+    the `BEGIN`-less `UPDATE …; ROLLBACK;` dry run — is reported as what it is
+    ("The transaction was rolled back, so this database was not changed"), never
+    as a change of the rows it undid.
   - A text whose later statements depend on what its earlier ones create — the
     familiar `CREATE TABLE …; INSERT INTO …;` shape — is exactly the case SQLite
     cannot see through before running it, because it resolves table and column

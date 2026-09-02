@@ -220,10 +220,10 @@ final class DatabaseConsolePlanTests: XCTestCase {
         XCTAssertEqual(DatabaseConsolePlan.resultFooter(rowCount: 42, isTruncated: false), "42 rows")
     }
 
-    func testATruncatedResultFooterSaysBothNumbers() {
+    func testATruncatedResultFooterSaysTheCountItHasAndThatMoreRemain() {
         XCTAssertEqual(
             DatabaseConsolePlan.resultFooter(rowCount: DatabaseConsolePlan.rowLimit, isTruncated: true),
-            "500 rows · first 500 rows shown"
+            "500 rows shown · more rows remain"
         )
     }
 
