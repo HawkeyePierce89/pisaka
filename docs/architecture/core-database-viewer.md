@@ -1012,7 +1012,16 @@ disk-writer gate and is never gated by it.
   rows-replacing path bumps the generation before its first hop, so a load
   starting under an open editor makes that token stale by construction and
   `updateCell` refuses. Reading the token at the keystroke instead would have
-  made the whole guard depend on a render having happened in between. The **single click also closes an editor
+  made the whole guard depend on a render having happened in between. The **cell
+  menu's "Set to NULL" obeys the same rule**, and it is the one gesture where
+  obeying it takes an argument: a menu is two moments — the right-click that
+  builds it and the click on an item — so the token is captured with the cell,
+  beside the refusal the item is enabled from, and passed in. Read inside the
+  item's action it would be whatever the generation had become while the menu sat
+  open, which is exactly the stale-page write the token exists to refuse; and
+  since `.disabled` does not re-evaluate under an open menu, the refusal and the
+  token have to come from the same snapshot or the two guards disagree.
+  The **single click also closes an editor
   open somewhere else**, which is not tidiness: focus leaving a field is not a
   signal anything here sees, so without it the abandoned field would stay on
   screen unfocused with the editing coordinate still pointing at it — and since

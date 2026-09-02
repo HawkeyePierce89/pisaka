@@ -360,6 +360,18 @@ struct DatabaseViewerView: View {
     /// every cell in turn is not.
     private func cellText(_ value: DatabaseValue, at coordinate: CellCoordinate) -> some View {
         let refusal = model.editRefusal(row: coordinate.row, column: coordinate.column)
+        // Captured beside the refusal, and for the same reason the double-click
+        // captures `editingToken`: this is the page the reader is looking at when
+        // they reach for the cell. The menu's own gesture is two moments — the
+        // right-click that builds it and the click on an item — and only the first
+        // is "the value they chose". Read inside the item's action instead, the
+        // token would be whatever the generation had become while the menu sat
+        // open, so a page that landed underneath it would pass the staleness check
+        // and NULL would be written to whichever row now occupies this coordinate,
+        // carrying that row's identity and that row's previous value — and so
+        // committing. `refusal` is already frozen here and `.disabled` does not
+        // re-evaluate under an open menu; the token belongs to the same snapshot.
+        let request = model.rowsToken
         return Text(value.displayText)
             .font(metrics.scaledFont(.caption))
             .italic(value.isNull)
@@ -406,7 +418,7 @@ struct DatabaseViewerView: View {
                 if let editing, editing != coordinate { cancelEditing() }
                 if mayFocus { focus = .cell(coordinate) }
             }
-            .contextMenu { cellMenu(value, at: coordinate, refusal: refusal) }
+            .contextMenu { cellMenu(value, at: coordinate, refusal: refusal, request: request) }
     }
 
     /// The open editor: a plain field seeded from the cell.
@@ -432,13 +444,13 @@ struct DatabaseViewerView: View {
     private func cellMenu(
         _ value: DatabaseValue,
         at coordinate: CellCoordinate,
-        refusal: DatabaseEditRefusal?
+        refusal: DatabaseEditRefusal?,
+        request: Int
     ) -> some View {
         Button("Copy") { copy(value) }
         Button("Set to NULL") {
-            // The rows token is captured here, in the click, and not inside the
-            // task: see `DatabaseViewerModel.rowsToken`.
-            let request = model.rowsToken
+            // `request` was captured with the cell, not read here and not inside
+            // the task: see `cellText(_:at:)` and `DatabaseViewerModel.rowsToken`.
             Task {
                 await model.setCellToNull(row: coordinate.row, column: coordinate.column, request: request)
             }
