@@ -242,7 +242,10 @@ public final class PullRequestModel: ObservableObject {
     /// independently re-triggerable — a sheet can be opened, cancelled and
     /// opened again without a refresh in between — which is the same argument
     /// that separated the list's token from the checks'. Bumped in
-    /// `prepareForRefresh()` too, for the list token's reason.
+    /// `clearRows()` too — which is what `prepareForRefresh()` and the
+    /// not-ready branch of `refresh(branch:)` reach it through — because that is
+    /// where the sheet's state is blanked, and a read still in flight over
+    /// blanked state is exactly what a token is for.
     private var createGeneration = 0
 
     /// Which read put the current sentence in the one message slot.
@@ -370,7 +373,6 @@ public final class PullRequestModel: ObservableObject {
         guard root != lastRoot else { return }
         lastRoot = root
         listGeneration &+= 1
-        createGeneration &+= 1
         availability = nil
         isLoading = false
         clearRows()
@@ -387,8 +389,10 @@ public final class PullRequestModel: ObservableObject {
     /// pull requests could be listed.
     ///
     /// Three commands on a repository whose branch has no pull request, four
-    /// when the panel is showing one; the version probe is always the first, so
-    /// the transport re-locates `gh` exactly once per refresh (G7).
+    /// when the panel is showing one, five when a row is expanded — its jobs are
+    /// re-read with the list that carries its badge, or the two would contradict
+    /// each other on screen. The version probe is always the first, so the
+    /// transport re-locates `gh` exactly once per refresh (G7).
     public func refresh(branch: String?) async {
         // The clear comes *first*: it bumps the list token itself when the root
         // changed, and a refresh that captured its token before that bump would
@@ -432,6 +436,9 @@ public final class PullRequestModel: ObservableObject {
         }
 
         var failure: String?
+        /// The expanded row whose jobs this refresh must re-read, set only when
+        /// the list it is still open in was itself re-read.
+        var expandedReload: Int?
 
         do {
             let result = try await transport.run(GitHubCommands.openPullRequests(root: root))
@@ -440,6 +447,15 @@ public final class PullRequestModel: ObservableObject {
                 let rows = try GitHubAPI.pullRequests(fromListJSON: result.standardOutput)
                 pullRequests = rows
                 pruneChecks(keeping: rows)
+                // The row's summary badge has just been re-read from the rollup
+                // this list carries, and its per-job list is read by a command
+                // of its own. Left alone, the two drift apart in front of the
+                // reader: the badge flips green while the jobs underneath still
+                // say "pending", and Refresh — the one control there is for
+                // exactly that question — appears to do nothing to the detail
+                // being watched. Survives `pruneChecks`, which collapses a row
+                // that closed, so a row read here is a row still open.
+                expandedReload = expandedNumber
             } else {
                 failure = Self.message(for: result)
             }
@@ -489,6 +505,22 @@ public final class PullRequestModel: ObservableObject {
         } else {
             clearError(from: .refresh)
         }
+
+        // Last, and inside the refresh rather than after it: the loading flag is
+        // still up, because a read *is* still in flight, and the sentence this
+        // may leave is the one about the row the reader is looking at — so it
+        // speaks after the refresh's own, not under it.
+        if let number = expandedReload {
+            checksGeneration &+= 1
+            let checksToken = checksGeneration
+            // A row that failed last time is re-read from scratch, exactly as
+            // `expand(_:)` does, so it may not go on saying "could not read
+            // checks" for the whole of the new read.
+            checksFailures.remove(number)
+            await loadChecks(number: number, root: root, token: checksToken)
+            guard token == listGeneration else { return }
+        }
+
         isLoading = false
     }
 
@@ -693,7 +725,14 @@ public final class PullRequestModel: ObservableObject {
         // publish a plan over the one this flow just decided from fresher state.
         createGeneration &+= 1
 
-        guard isReady, let root = projectRoot() else { return false }
+        guard isReady, let root = projectRoot() else {
+            // Said, rather than returned in silence: this refusal is reachable
+            // from a sheet that is still on screen with its fields intact — `gh`
+            // signed out, or the project closed, while it stood open — and every
+            // other exit from this method leaves a sentence behind.
+            setMessage(Self.unavailableMessage, from: .create)
+            return false
+        }
 
         isWriteInFlight = true
         defer { isWriteInFlight = false }
@@ -766,6 +805,20 @@ public final class PullRequestModel: ObservableObject {
     /// a view is a rule no test can see and a second caller can walk past.
     public static let untitledMessage = "A pull request needs a title."
 
+    /// What a create refused because `gh` stopped being ready — or the project
+    /// closed — behind the open sheet says.
+    ///
+    /// Every other exit from `create(...)` puts a sentence in the one message
+    /// slot, and this one used to be the exception: a reader whose `gh` was
+    /// signed out while the sheet stood open pressed Create and got nothing at
+    /// all — no dismissal, no message, no spinner. Its own constant rather than
+    /// the availability state's sentence, which the *panel* is already drawing
+    /// behind the sheet: the question this one answers is why the **button** did
+    /// nothing, and the next step belongs to the state that owns it.
+    public static let unavailableMessage =
+        "Pull requests are no longer available for this project. "
+        + "Close this sheet and refresh the Pull Requests panel."
+
     // MARK: - The checkout
 
     /// The sentence a checkout refused because git is already rewriting the
@@ -776,6 +829,24 @@ public final class PullRequestModel: ObservableObject {
     /// asking the gate first.
     public static let blockedMessage =
         "Another operation is writing to the working tree. Try the checkout again when it has finished."
+
+    /// The gate, asked on its own, publishing its sentence when it refuses.
+    /// `true` when a checkout may **not** run.
+    ///
+    /// Public so the caller may ask it *before* whatever it puts in front of the
+    /// operation — the panel's Checkout puts a dirty-tree confirmation there —
+    /// which is the order `switchBranch` and `checkoutRemote` already ask in:
+    /// a refusal is then one alert rather than a confirmation followed by one.
+    /// ``checkout(_:)`` asks this same method, so the refusal keeps a single
+    /// site whether or not the caller asked first, and asking twice is free —
+    /// the gate is a synchronous predicate and the sentence it sets is the same
+    /// one both times.
+    @discardableResult
+    public func checkoutIsBlocked() -> Bool {
+        guard isWriteBlocked() else { return false }
+        setMessage(Self.blockedMessage, from: .checkout)
+        return true
+    }
 
     /// Check out pull request `number` into the worktree — the feature's one
     /// worktree write, and the app's **eighth** gated operation (G12).
@@ -805,17 +876,24 @@ public final class PullRequestModel: ObservableObject {
     @discardableResult
     public func checkout(_ number: Int) -> Bool {
         guard !isWriteInFlight else { return false }
-        guard !isWriteBlocked() else {
-            setMessage(Self.blockedMessage, from: .checkout)
-            return false
-        }
+        guard !checkoutIsBlocked() else { return false }
         guard isReady, let root = projectRoot() else { return false }
 
         isWriteInFlight = true
         clearError(from: .checkout)
         let command = GitHubCommands.checkoutPullRequest(number: number, root: root)
         runCheckout { [weak self] in
-            await self?.performCheckout(command) ?? nil
+            // Spelled out rather than `self?.performCheckout(command) ?? …`: an
+            // optional chain over a method that already answers `String?`
+            // flattens the two cases into one, and they mean opposite things
+            // here. A deallocated model is a checkout that **never ran**, and
+            // `nil` is this runner's *success* value — the bracket would resync
+            // the open tabs, bump the tree revision and re-read Local Changes
+            // and the Log for a `gh pr checkout` nobody sent. `""` is already
+            // this feature's "it failed and the sentence is elsewhere" answer,
+            // so nothing spurious is presented either.
+            guard let self else { return "" }
+            return await self.performCheckout(command)
         }
         return true
     }
@@ -945,6 +1023,15 @@ public final class PullRequestModel: ObservableObject {
         // which would land in the one message slot the caller clears on the very
         // next line and sit there talking about rows nobody is drawing.
         checksGeneration &+= 1
+        // And the create token, for the same reason applied to the sheet's read:
+        // this method blanks the create state a few lines down, and a
+        // `prepareCreate()` suspended in `repo view` or in the commit context
+        // would otherwise resume against an unmoved token and re-publish a plan
+        // over what was just blanked — a sheet whose Create button is enabled
+        // again over a `create` that now refuses. This is the *only* site that
+        // bumps it outside `prepareCreate()` and `create(...)`, which is why it
+        // lives beside the assignments it protects rather than at either caller.
+        createGeneration &+= 1
         pullRequests = []
         currentBranchPullRequest = nil
         checks = [:]

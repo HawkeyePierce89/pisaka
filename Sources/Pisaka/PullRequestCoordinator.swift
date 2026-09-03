@@ -293,11 +293,19 @@ final class PullRequestCoordinator: ObservableObject {
     /// Two refusals happen here rather than in the model, because both are
     /// answers only the scene has: an unwired coordinator has no bracket to run
     /// the operation in, and a dirty working tree is a modal alert. Everything
-    /// after them is the model's — the one-write rule, the gate and the command
-    /// — and the model is deliberately not asked until both have passed, since
-    /// it raises the one-write flag the moment it accepts.
+    /// after them is the model's — the one-write rule and the command — and the
+    /// model is deliberately not asked to *accept* until both have passed, since
+    /// it raises the one-write flag the moment it does.
+    ///
+    /// **The gate is asked before the dirty-tree prompt**, which is the order
+    /// `switchBranch` and `checkoutRemote` ask in for the same reason: a refusal
+    /// is then one alert rather than a confirmation the reader gives to an
+    /// operation that is refused straight afterwards. The question is still the
+    /// model's to answer and the sentence still the model's to publish —
+    /// `checkoutIsBlocked()` is the same call `checkout(_:)` makes — so the gate
+    /// keeps one site and this line only chooses *when* it is asked.
     func checkout(_ number: Int) {
-        guard isWired, confirmCheckout() else { return }
+        guard isWired, !model.checkoutIsBlocked(), confirmCheckout() else { return }
         // The branch the post-checkout refresh must ask about, read *before* the
         // operation runs — see `runCheckout` for why the branch widget cannot
         // answer that question at the moment it is asked.

@@ -523,6 +523,87 @@ final class PullRequestModelTests: XCTestCase {
         XCTAssertEqual(cli.count(for: checksArguments(53)), 1)
     }
 
+    /// One job, so a test can tell two answers to the same `pr checks` apart.
+    private func checksJSON(name: String, bucket: String, state: String) -> String {
+        """
+        [{"bucket":"\(bucket)","completedAt":"","description":"","event":"pull_request",
+        "link":"https://github.com/o/r/runs/1","name":"\(name)","startedAt":"2026-09-02T19:19:39Z",
+        "state":"\(state)","workflow":"CI"}]
+        """
+    }
+
+    /// The badge and the jobs underneath it are read by two different commands,
+    /// and a refresh that re-read only the first would leave them contradicting
+    /// each other on screen — a green summary over a list still saying
+    /// "pending", with Refresh appearing to do nothing to the detail the reader
+    /// is actually watching.
+    func testARefreshReReadsTheExpandedRowsJobs() async throws {
+        let cli = ScriptedGitHubCLI()
+        cli.serveReady()
+        let passingRollup = """
+        [{"__typename":"CheckRun","status":"COMPLETED","conclusion":"SUCCESS"}]
+        """
+        cli.serve(listArguments, sequence: [
+            GitHubCommandResult(standardOutput: listJSON(number: 7, head: "feature", rollup: runningRollup)),
+            GitHubCommandResult(standardOutput: listJSON(number: 7, head: "feature", rollup: passingRollup)),
+        ])
+        cli.serve(checksArguments(7), sequence: [
+            GitHubCommandResult(standardOutput: checksJSON(name: "test", bucket: "pending", state: "PENDING")),
+            GitHubCommandResult(standardOutput: checksJSON(name: "test", bucket: "pass", state: "SUCCESS")),
+        ])
+        let model = makeModel(cli)
+
+        await model.refresh(branch: nil)
+        await model.expand(7)
+        XCTAssertEqual(model.checks[7]?.first?.bucket, .pending)
+        XCTAssertEqual(model.pullRequests.first?.summary, .pending)
+
+        // CI finished between the two glances at the panel.
+        await model.refresh(branch: nil)
+
+        XCTAssertEqual(model.pullRequests.first?.summary, .success)
+        XCTAssertEqual(model.checks[7]?.first?.bucket, .pass, "the jobs are re-read with the badge above them")
+        XCTAssertEqual(cli.count(for: checksArguments(7)), 2)
+        XCTAssertEqual(model.expandedNumber, 7)
+        XCTAssertFalse(model.isLoading)
+        XCTAssertNil(model.errorMessage)
+    }
+
+    /// The re-read is scoped to a row that is still both expanded and open: a
+    /// collapsed panel costs a refresh nothing, and a row `pruneChecks` has just
+    /// collapsed is not read for.
+    func testARefreshReadsNoJobsWhenNoRowIsExpanded() async throws {
+        let cli = ScriptedGitHubCLI()
+        cli.serveReady()
+        cli.serve(listArguments, sequence: [
+            GitHubCommandResult(standardOutput: listJSON(number: 7, head: "feature", rollup: runningRollup)),
+            GitHubCommandResult(standardOutput: "[]"),
+        ])
+        cli.serve(checksArguments(7), stdout: checksJSON(name: "test", bucket: "pending", state: "PENDING"))
+        let model = makeModel(cli)
+
+        await model.refresh(branch: nil)
+        await model.refresh(branch: nil)
+        XCTAssertEqual(cli.count(for: checksArguments(7)), 0)
+
+        // And a row that was expanded but has since been merged away is
+        // collapsed by `pruneChecks` before the re-read is considered.
+        let second = ScriptedGitHubCLI()
+        second.serveReady()
+        second.serve(listArguments, sequence: [
+            GitHubCommandResult(standardOutput: listJSON(number: 7, head: "feature", rollup: runningRollup)),
+            GitHubCommandResult(standardOutput: "[]"),
+        ])
+        second.serve(checksArguments(7), stdout: checksJSON(name: "test", bucket: "pending", state: "PENDING"))
+        let closing = makeModel(second)
+        await closing.refresh(branch: nil)
+        await closing.expand(7)
+        await closing.refresh(branch: nil)
+
+        XCTAssertNil(closing.expandedNumber)
+        XCTAssertEqual(second.count(for: checksArguments(7)), 1, "the row closed, so nothing is read for it")
+    }
+
     func testToggleExpansionOpensThenCloses() async throws {
         let cli = ScriptedGitHubCLI()
         cli.serveReady()
@@ -893,13 +974,21 @@ final class PullRequestModelTests: XCTestCase {
         await model.refresh(branch: nil)
 
         let gate = Gate()
-        cli.hold(checksArguments(53), on: gate)
+        // Only the expand's own call is held: the refresh re-reads the expanded
+        // row's jobs itself, and holding the key would suspend that read too —
+        // on the main actor, with nobody left to release it.
+        cli.hold(checksArguments(53), on: gate, forCall: 0)
         let expand = Task { await model.expand(53) }
         await gate.waitUntilReached()
 
-        // A refresh finishing mid-expand must not cancel the checks load: one
-        // shared token would drop these rows on the floor.
+        // A refresh finishing mid-expand must not cancel the *list*: one shared
+        // token would drop these rows on the floor. It does supersede the checks
+        // read, and replaces it with one of its own in the same breath — which is
+        // what keeps the jobs agreeing with the badge above them — so the rows
+        // are here either way, and the two tokens are still counted apart.
         await model.refresh(branch: nil)
+        XCTAssertEqual(model.checks[53]?.count, 4)
+
         gate.release()
         await expand.value
 
@@ -1691,6 +1780,63 @@ final class PullRequestModelTests: XCTestCase {
         // `create` that would now return at its readiness guard without a word.
         XCTAssertNil(model.createPlan)
         XCTAssertNil(model.repository)
+    }
+
+    /// The other half of the rule above, and the half a token has to carry: the
+    /// sheet's read is *in flight* when `gh` goes not-ready, so blanking the
+    /// plan is not enough — the read has to be superseded, or it resumes and
+    /// puts the plan back.
+    func testASheetReadInFlightWhenGHGoesNotReadyPublishesNothing() async throws {
+        let cli = ScriptedGitHubCLI()
+        cli.serve(GitHubCommands.version(), stdout: "gh version 2.99.0 (2026-09-01)\n")
+        cli.serve(GitHubCommands.authStatus(), sequence: [
+            GitHubCommandResult(standardError: "✓ Logged in\n"),
+            GitHubCommandResult(standardError: "You are not logged into any GitHub hosts.\n", status: 1),
+        ])
+        cli.serve(listArguments, stdout: "[]")
+        cli.serve(repositoryArguments, stdout: try fixture("repo-view.json"))
+        let model = makeModel(cli, git: StubGit())
+        await model.refresh(branch: nil)
+
+        // The sheet is opened, and its `repo view` is held on the wire.
+        let gate = Gate()
+        cli.hold(repositoryArguments, on: gate, forCall: 0)
+        let opening = Task { await model.prepareCreate() }
+        await gate.waitUntilReached()
+
+        // A branch-change or panel-shown refresh lands in that window and finds
+        // a signed-out `gh`.
+        await model.refresh(branch: nil)
+        XCTAssertEqual(model.availability, .notSignedIn)
+        XCTAssertNil(model.createPlan)
+
+        gate.release()
+        await opening.value
+
+        // The held read resumes against a moved token and publishes nothing. A
+        // plan re-published here is an enabled Create button over a `create`
+        // that refuses — the very state the refresh just cleared.
+        XCTAssertNil(model.createPlan)
+        XCTAssertNil(model.repository)
+    }
+
+    /// Every exit from `create` leaves a sentence, this one included: a reader
+    /// who presses Create after `gh` went away gets an explanation rather than a
+    /// button that does nothing at all.
+    func testACreateRefusedForWantOfAReadyGHSaysSo() async throws {
+        let cli = ScriptedGitHubCLI()
+        cli.serve(GitHubCommands.version(), stdout: "gh version 2.49.0 (2024-01-01)\n")
+        let model = makeModel(cli, git: StubGit())
+        await model.refresh(branch: nil)
+        XCTAssertFalse(model.isReady)
+
+        let created = await model.create(title: "A change", body: "Why.", base: "master", draft: false)
+
+        XCTAssertFalse(created)
+        XCTAssertEqual(model.errorMessage, PullRequestModel.unavailableMessage)
+        // And nothing was sent: the refusal is decided before any command.
+        XCTAssertFalse(cli.argumentLists.contains { $0.contains("create") })
+        XCTAssertFalse(model.isWriteInFlight)
     }
 
     // MARK: - The reader rule

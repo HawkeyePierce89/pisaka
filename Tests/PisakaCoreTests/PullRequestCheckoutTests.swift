@@ -134,6 +134,32 @@ final class PullRequestCheckoutTests: XCTestCase {
         XCTAssertFalse(model.isWriteInFlight)
     }
 
+    /// The gate is askable on its own, which is what lets the panel ask it
+    /// *before* the dirty-tree confirmation — the order `switchBranch` and
+    /// `checkoutRemote` already ask in, so a refusal is one alert rather than a
+    /// confirmation the reader gives to an operation refused straight after.
+    func testTheGateCanBeAskedOnItsOwnBeforeAnythingIsPutInFrontOfTheCheckout() async {
+        let cli = ScriptedGitHubCLI()
+        let gate = WriteGate()
+        let bracket = Bracket()
+        let model = await readyModel(cli, gate: gate, bracket: bracket)
+        gate.isBlocked = true
+
+        XCTAssertTrue(model.checkoutIsBlocked())
+
+        // The sentence is the model's, published from the one site `checkout`
+        // itself refuses through.
+        XCTAssertEqual(model.errorMessage, PullRequestModel.blockedMessage)
+        XCTAssertEqual(gate.asks, 1)
+        XCTAssertTrue(bracket.operations.isEmpty)
+        XCTAssertFalse(model.isWriteInFlight, "asking may not accept")
+
+        // A clear gate answers `false` and says nothing.
+        gate.isBlocked = false
+        XCTAssertFalse(model.checkoutIsBlocked())
+        XCTAssertEqual(gate.asks, 2)
+    }
+
     func testAClearGateLetsTheCheckoutThrough() async {
         let cli = ScriptedGitHubCLI()
         let gate = WriteGate()

@@ -352,10 +352,22 @@ or a `repo view` suspended in `await transport.run(…)` captured the previous
 root's token, and nothing between the clear and the next refresh's own prefix
 would stop it resuming and publishing project A's rows — or project A's default
 base — over the cleared state, which is the very outcome the clear exists to
-prevent. So the root-changed branch bumps the list and create tokens beside the
-checks bump `clearRows()` already does, and `refresh(branch:)` calls
+prevent. So the root-changed branch bumps the list token beside the checks **and
+create** bumps `clearRows()` itself does, and `refresh(branch:)` calls
 `prepareForRefresh()` **before** capturing its own token, or it would supersede
 its own read.
+
+The create token's bump lives **in `clearRows()`**, beside the assignments it
+protects, rather than at either caller — and that placement is the fix to a real
+hole rather than tidiness. `clearRows()` is reached from two places: the root
+change above, and the **not-ready branch of `refresh(branch:)`**, which blanks
+the same create state without any root having changed. With the bump at the
+caller, only the first was covered: a `prepareCreate()` suspended in `repo view`
+or in `commitContext` while `gh` was signed out from the embedded terminal
+resumed against an unmoved token, passed both its guards and re-published the
+plan the not-ready branch had just dropped — an enabled Create button over a
+`create` that refuses. One bump inside the method that blanks the state covers
+every caller that ever blanks it.
 
 **And it lowers `isLoading` with them.** A superseded run publishes nothing on its
 way out — including its own `isLoading = false` — and the root subscription calls
@@ -444,8 +456,16 @@ a panel drawing no rows, contradicting the not-ready state's own next step.
 `clearRows()` drops `repository`, `createPlan` and the context they were planned
 over, for the same reason it drops the rows: the sheet's Create button is
 `createPlan?.canCreate` read from the view's side, and a plan left standing after
-`gh` stopped being ready is an enabled button over a `create` that now returns at
-its own readiness guard without a word.
+`gh` stopped being ready is an enabled button over a `create` that would refuse.
+The **create token goes with them** (above), so a sheet read still on the wire
+cannot put the plan back.
+
+And the refusal underneath is no longer silent. `create(...)`'s readiness guard
+publishes `PullRequestModel.unavailableMessage` — its own constant, not the
+availability state's sentence, which the panel behind the sheet is already
+drawing with its next step. Every exit from `create` leaves a sentence; this one
+was the exception, and the exception was a Create button that did nothing at all:
+no dismissal, no message, no spinner.
 
 ### G10 — One write in flight, read from both sides
 
@@ -519,14 +539,26 @@ the order they are asked:
    layer's own words, not `gh`'s, because `gh` was never asked;
 3. `gh` is not ready, or there is no project root.
 
-Two more are asked **before** the model is, in `PullRequestCoordinator.checkout(_:)`,
-because both are answers only the scene has and both must land before the model
-raises the one-write flag at the hand-out: an **unwired** coordinator (a preview
-or a test, whose bracket runs nothing — handing it an operation it would never
-run leaves the flag up for the app run), and the **dirty-tree confirmation**
-`switchBranch` and `checkoutRemote` already ask. `gh pr checkout` runs git's own
-checkout and is blocked by exactly the changes those two warn about, so a reader
-warned for one and not the other is being told they are different operations.
+Two more are asked **before** the model *accepts*, in
+`PullRequestCoordinator.checkout(_:)`, because both are answers only the scene has
+and both must land before the model raises the one-write flag at the hand-out: an
+**unwired** coordinator (a preview or a test, whose bracket runs nothing —
+handing it an operation it would never run leaves the flag up for the app run),
+and the **dirty-tree confirmation** `switchBranch` and `checkoutRemote` already
+ask. `gh pr checkout` runs git's own checkout and is blocked by exactly the
+changes those two warn about, so a reader warned for one and not the other is
+being told they are different operations.
+
+**The gate is asked before that confirmation**, which is the order those two ask
+in — `guard !revertInFlight(), confirmBranchSwitchIfDirty()` — and for their
+stated reason: a refusal is then one alert rather than a confirmation the reader
+gives to an operation refused straight afterwards, with the refusal arriving as a
+line in a panel they were not looking at. The question stays the model's:
+`checkoutIsBlocked()` is a public member the coordinator calls and `checkout(_:)`
+calls too, so the gate keeps one site and the sentence one author — the
+coordinator chooses only *when* it is asked, never what the answer means. Asking
+twice is free: the gate is a synchronous predicate and the sentence is the same
+one both times.
 That ordering is also the whole of the runner's contract: **a runner must invoke
 the operation exactly once**, and a runner that cannot must refuse before
 `checkout(_:)` is called.
@@ -672,6 +704,22 @@ across a refresh for rows still open — an expanded row whose jobs vanished whi
 the list reloaded would flicker — and pruned for rows that are not, so a closed
 pull request's jobs cannot appear under a reopened one that reused nothing but
 the key.
+
+**A refresh re-reads the expanded row's jobs**, last, after the list and the
+`--head` lookup: five commands when a row is open, four when the panel merely
+shows one, three otherwise. The badge and the jobs beneath it are read by two
+different commands — the summary off `statusCheckRollup` in the list, the list of
+jobs by `pr checks` — and re-reading only the first leaves them contradicting each
+other on screen: the badge flips green while every job underneath still says
+"pending", and Refresh, the one control there is for exactly that question,
+appears to do nothing to the detail being watched. The re-read carries the same
+token bump and the same failure-clearing `expand(_:)` does, so a row that failed
+last time is read from scratch rather than left asserting an old sentence; it is
+scoped to a row still both expanded *and* open (`pruneChecks(keeping:)` has
+already collapsed one that closed), so a collapsed panel costs a refresh nothing.
+It runs after the refresh's own message so that the sentence about the row the
+reader is looking at speaks last, and `isLoading` comes down only once it has
+landed, because a read is genuinely still in flight until then.
 
 `prepareCreate()` reads `repo view` and the commit context under the create
 token; `setCreateBase(_:)` re-plans synchronously (the repository state was
