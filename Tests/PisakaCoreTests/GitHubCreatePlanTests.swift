@@ -158,6 +158,75 @@ final class GitHubCreatePlanTests: XCTestCase {
         )
     }
 
+    func testTheBaseSentenceNamesTheRemoteBranchWhenTheTrackingRefIsSpelledDifferently() {
+        let plan = GitHubCreatePlan.plan(
+            context: context(upstream: "origin/other-name"),
+            base: "develop"
+        )
+
+        // The pull request really is opened from `other-name`; naming “feature”
+        // alone would describe one nobody is about to create.
+        XCTAssertEqual(
+            plan.baseSentence,
+            "The pull request will be opened from “other-name” "
+                + "(the branch “feature” tracks) into “develop”."
+        )
+    }
+
+    // MARK: - The remote head
+
+    func testTheRemoteHeadIsTheLocalNameWhenTheUpstreamCarriesIt() {
+        XCTAssertEqual(GitHubCreatePlan.plan(context: context(), base: "master").remoteHeadBranch, "feature")
+    }
+
+    func testTheRemoteHeadIsTheUpstreamsOwnNameWhenTheTwoDiffer() {
+        // `PushPlan.push` is a bare `git push`, which publishes to the tracking
+        // ref — so `--head` has to name that ref and not the local branch, or
+        // `gh` opens the pull request from a branch that is stale or absent.
+        let plan = GitHubCreatePlan.plan(context: context(upstream: "origin/other-name"), base: "master")
+
+        XCTAssertEqual(plan.headBranch, "feature")
+        XCTAssertEqual(plan.remoteHeadBranch, "other-name")
+    }
+
+    func testTheRemoteHeadKeepsSlashesInsideTheBranchName() {
+        // Only the remote's own name is stripped: matched against the
+        // repository's remote list, never split at the first slash.
+        let plan = GitHubCreatePlan.plan(
+            context: context(branch: "x", upstream: "origin/feature/nested", remotes: ["origin"]),
+            base: "master"
+        )
+
+        XCTAssertEqual(plan.remoteHeadBranch, "feature/nested")
+    }
+
+    func testTheRemoteHeadStripsTheRemoteThatExplainsTheUpstream() {
+        let plan = GitHubCreatePlan.plan(
+            context: context(upstream: "fork/other-name", remotes: ["origin", "fork"]),
+            base: "master"
+        )
+
+        XCTAssertEqual(plan.remoteHeadBranch, "other-name")
+    }
+
+    func testTheRemoteHeadFallsBackToTheLocalNameWhenNoRemoteExplainsTheUpstream() {
+        let plan = GitHubCreatePlan.plan(
+            context: context(upstream: "gone/other-name", remotes: ["origin"]),
+            base: "master"
+        )
+
+        XCTAssertEqual(plan.remoteHeadBranch, "feature")
+    }
+
+    func testSetUpstreamPublishesUnderTheLocalName() {
+        // `git push --set-upstream <remote> <branch>` publishes `branch` under
+        // its own name by construction, so there is nothing to derive.
+        let plan = GitHubCreatePlan.plan(context: context(upstream: nil), base: "master")
+
+        XCTAssertEqual(plan.push, .setUpstream(remote: "origin", branch: "feature"))
+        XCTAssertEqual(plan.remoteHeadBranch, "feature")
+    }
+
     func testTheUncommittedChangesNoteIsStatedOnce() {
         XCTAssertEqual(
             GitHubCreatePlan.uncommittedChangesNote,

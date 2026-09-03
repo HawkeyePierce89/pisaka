@@ -360,14 +360,26 @@ public final class PullRequestModel: ObservableObject {
     /// bumps the checks token for its own reason; the other two are bumped
     /// beside it.
     ///
-    /// **The loading flag comes down with the tokens.** Bumping them supersedes
-    /// whatever was in flight, and a superseded run publishes nothing — including
-    /// its `isLoading = false`. The root observer calls this *without* starting a
-    /// replacement read, on purpose, so the flag would otherwise stay raised for
-    /// the rest of the app run: a panel spinning on "Reading…" for a command
-    /// nobody sent, which is the one lie a read this quiet can still tell. No
-    /// read for this project is in flight once the tokens have moved, so the
-    /// honest value is `false`.
+    /// **The loading flag comes down with the tokens, and unconditionally.**
+    /// Bumping them supersedes whatever was in flight, and a superseded run
+    /// publishes nothing — including its `isLoading = false`. The root observer
+    /// calls this *without* starting a replacement read, on purpose, so the flag
+    /// would otherwise stay raised for the rest of the app run: a panel spinning
+    /// on "Reading…" for a command nobody sent, which is the one lie a read this
+    /// quiet can still tell. No read for this project is in flight once the
+    /// tokens have moved, so the honest value is `false`.
+    ///
+    /// It sits with the bump rather than with the clear because the two answer
+    /// different questions, and the root observer is where they come apart: the
+    /// folder-switch clear is right only when the rows stopped being this
+    /// project's, while a superseded read leaves the flag raised whether or not
+    /// the root moved. `BranchSwitcherModel.root` is cleared on a folder switch
+    /// and re-set when that folder's refresh resolves, so its observer fires a
+    /// *second* time — with the project root already settled, and so on the
+    /// early-return path — and a read started in between (Refresh pressed, the
+    /// panel shown) is superseded there by a call that starts no replacement.
+    /// Lowering it costs at most one frame of a spinner that is about to come
+    /// back; leaving it raised costs a spinner that never goes away.
     ///
     /// **It returns the list token, and that is the whole reason it is
     /// separable from the read.** The token is bumped here, in the caller's own
@@ -386,10 +398,10 @@ public final class PullRequestModel: ObservableObject {
     public func prepareForRefresh() -> Int {
         let root = projectRoot()
         listGeneration &+= 1
+        isLoading = false
         guard root != lastRoot else { return listGeneration }
         lastRoot = root
         availability = nil
-        isLoading = false
         clearRows()
         clearMessage()
         return listGeneration
@@ -854,11 +866,18 @@ public final class PullRequestModel: ObservableObject {
         // sheet's sentence stated — never `gh`'s "whatever is checked out now"
         // default: the push above may have taken a slow network's worth of
         // seconds, and the sheet is dismissable while it runs.
+        //
+        // And it is the plan's *remote* head, because `--head` names a ref on
+        // GitHub rather than a local branch: the push above publishes to the
+        // branch's tracking ref, which `PushPlan`'s own rule says may be spelled
+        // differently. `GitHubCreatePlan.remoteHeadBranch` is that spelling, and
+        // it equals `headBranch` for every branch whose upstream carries its own
+        // name.
         let command = GitHubCommands.createPullRequest(
             title: title,
             body: body,
             base: plan.base,
-            head: plan.headBranch,
+            head: plan.remoteHeadBranch,
             draft: draft,
             root: root
         )

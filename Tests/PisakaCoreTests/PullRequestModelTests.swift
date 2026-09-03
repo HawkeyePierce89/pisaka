@@ -1236,6 +1236,35 @@ final class PullRequestModelTests: XCTestCase {
         XCTAssertTrue(cli.argumentLists.contains { $0.contains("create") })
     }
 
+    func testTheHeadSentIsTheTrackingRefsNameAndNotTheLocalBranchs() async throws {
+        // A branch pushed as `HEAD:other-name`: `git push` publishes to
+        // `other-name`, so a `--head feature` would ask GitHub for a branch that
+        // is stale or absent. `--head` names a ref on GitHub, never a local one.
+        let cli = ScriptedGitHubCLI()
+        let git = StubGit()
+        git.context = CommitContext(
+            isUnbornHEAD: false,
+            isDetachedHEAD: false,
+            currentBranch: "feature",
+            upstream: "origin/other-name",
+            remotes: ["origin"],
+            inProgress: nil
+        )
+        let model = try await preparedModel(cli, git: git, repositoryJSON: try fixture("repo-view.json"))
+        cli.serve(createArguments(head: "other-name"), stdout: "https://github.com/o/r/pull/54\n")
+
+        let created = await model.create(title: "A change", body: "Why.", base: "master", draft: false)
+
+        // The scripted transport throws on an unscripted call, so a `--head
+        // feature` would have failed the create outright — but the argument list
+        // is read back verbatim as well, so the reason a failure would be a
+        // failure is stated rather than implied.
+        XCTAssertTrue(created)
+        let sent = try XCTUnwrap(cli.argumentLists.first { $0.contains("create") })
+        XCTAssertEqual(sent, createArguments(head: "other-name"))
+        XCTAssertFalse(sent.contains("feature"))
+    }
+
     func testAPushFailureNeverReachesCreate() async throws {
         let cli = ScriptedGitHubCLI()
         let git = StubGit()
@@ -1741,6 +1770,43 @@ final class PullRequestModelTests: XCTestCase {
             "The superseded run returns at its token guard and publishes nothing, so it cannot lower the "
                 + "flag on its way out either."
         )
+        XCTAssertTrue(model.pullRequests.isEmpty)
+    }
+
+    func testASupersedingPrepareLowersTheLoadingFlagWithTheRootUnchanged() async throws {
+        // The same hole, on the path the folder-switch clear does not take.
+        // `BranchSwitcherModel.root` is cleared on a folder switch and re-set
+        // when that folder's refresh resolves, so the root observer fires a
+        // *second* time — with the project root already settled, so
+        // `prepareForRefresh()` takes its early return — and a read started in
+        // between (Refresh pressed, the panel shown) is superseded by a call
+        // that starts no replacement. The bump is unconditional; the flag has to
+        // come down with it or nothing ever lowers it.
+        let root = URL(fileURLWithPath: "/tmp/pisaka-github")
+        let cli = ScriptedGitHubCLI()
+        cli.serveReady()
+        cli.serve(GitHubCommands.openPullRequests(root: root), stdout: listJSON(number: 7, head: "feature"))
+        let model = PullRequestModel(transport: cli, gitService: StubGit(), root: { root })
+
+        let gate = Gate()
+        cli.hold(GitHubCommands.openPullRequests(root: root), on: gate)
+        let reading = Task { await model.refresh(branch: nil) }
+        await gate.waitUntilReached()
+        XCTAssertTrue(model.isLoading)
+
+        model.prepareForRefresh()
+        XCTAssertFalse(
+            model.isLoading,
+            "The read in flight has just been superseded and no replacement was started, so a raised "
+                + "flag is a spinner for a command nobody sent."
+        )
+
+        gate.release()
+        await reading.value
+
+        XCTAssertFalse(model.isLoading)
+        // The early return is still an early return: nothing this project was
+        // holding was blanked.
         XCTAssertTrue(model.pullRequests.isEmpty)
     }
 

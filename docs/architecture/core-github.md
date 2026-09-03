@@ -398,6 +398,17 @@ fires and nothing re-reads until the panel is next shown or its button pressed).
 Once the tokens have moved, no read of *this* project is in flight, so `false` is
 the honest value.
 
+**Unconditionally, unlike the clear** — it sits with the bump, not with the
+blanking, because the two answer different questions and the root subscription is
+where they come apart. `BranchSwitcherModel.root` is cleared on a folder switch
+and re-set when that folder's refresh *resolves*, so the observer fires a **second
+time**, with the project root already settled: `prepareForRefresh()` takes its
+early return, bumps the token anyway, and supersedes whatever was started in
+between (Refresh pressed, the panel shown) without starting a replacement. Behind
+the guard the flag would stay raised there forever. Lowering it costs at most one
+frame of a spinner that is about to come back; leaving it raised costs a spinner
+that never goes away.
+
 It is called from **three places, and all three are the same call**: the top of
 `refresh(branch:)`, so a model driven directly is as honest as one driven through
 the app, and — in the app — `PullRequestCoordinator.refresh(branch:)`
@@ -534,12 +545,42 @@ wire — Cancel stays live — so a branch switched from the widget or the embed
 terminal in that window would otherwise open the pull request from the branch that
 is current *then*, carrying the title and base typed for another one, as a
 published remote act. The head is therefore pinned to the same **fresh** context
-reading the refusals and the push plan came from — `GitHubCreatePlan.headBranch`,
-the branch `baseSentence` names — and the project root is pinned for that same
-window by being read once at the top and used by both commands. The fresh read
-answers a branch switched *before* Create; the explicit head answers one switched
-*during* it. If the branch really did move, `gh` refuses in its own words, which
-is a stated failure instead of a wrong pull request.
+reading the refusals and the push plan came from — and the project root is pinned
+for that same window by being read once at the top and used by both commands. The
+fresh read answers a branch switched *before* Create; the explicit head answers
+one switched *during* it. If the branch really did move, `gh` refuses in its own
+words, which is a stated failure instead of a wrong pull request.
+
+**The pinned head is `GitHubCreatePlan.remoteHeadBranch`, not `headBranch`,
+because `--head` names a ref on GitHub and not a local branch.** The two are the
+same for almost every branch, and deliberately not assumed to be: the push
+immediately above is `PushPlan.push(upstream:)`, a bare `git push`, which
+publishes to the branch's *configured tracking ref* — and `PushPlan`'s own rule,
+shared with the commit dialog, is that that ref "may well be named differently
+from the local branch", which is exactly why it composes no refspec. Sending the
+local name would make the guess `PushPlan` refuses to make: on a branch pushed as
+`HEAD:other-name`, or a local branch renamed after its first push, the commits go
+to `other-name` and `gh` is then asked to open a pull request from a ref that is
+stale or absent — it refuses with "no commits between…", or opens the pull request
+from the wrong remote branch. The feature already reads `--head` this way
+everywhere else: the checkout trigger names the pull request's own `headRefName`
+for precisely this reason (G9).
+
+It is *derived*, never guessed. The remote's name is stripped off the upstream
+short ref by matching it against the repository's own remote list (longest name
+first), so `origin/feature/nested` under a remote called `origin` reads as
+`feature/nested` and not as `nested`; `setUpstream` publishes under the local name
+by construction (`git push --set-upstream <remote> <branch>`), so there is nothing
+to derive; and an upstream that no remote in the list explains falls back to
+`headBranch`. `baseSentence` names the derived ref when the two differ, with the
+local branch in parentheses as the thing the reader recognizes — a sentence naming
+only the local branch would describe a pull request nobody is about to create.
+
+The **fork case is out of scope and stays so**: an unqualified `--head` means "the
+head is in the base repository", so a clone whose base repo is the parent needs an
+`owner:branch` head, and no owner is composed anywhere in this feature (G6). What
+this rule fixes is the same-repository mismatch, which is the one the codebase
+already knew about.
 
 **The gate is asked as well, twice** — the same injected `isWriteBlocked` the
 checkout asks (G12), with its own sentence,
