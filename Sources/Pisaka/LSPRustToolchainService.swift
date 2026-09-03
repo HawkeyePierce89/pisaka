@@ -156,60 +156,34 @@ final class LSPRustToolchainService: LSPRustToolchainDiscovering, @unchecked Sen
         )
     }
 
-    /// A `cargo` and the `PATH` it must be run with.
-    ///
-    /// **The second half is never `nil` and always contains the first.**
-    /// `LSPGoToolchainService.FoundGo`'s invariant, and it is load-bearing for the
-    /// same reason one step further along: this `PATH` is what Core hands the
-    /// server as its `environment` overlay (D23), and rust-analyzer resolves
-    /// `cargo` by name off `PATH` exactly as gopls resolves `go`. A `searchPath`
-    /// that merely said "the app's own environment was enough to *find* it" would
-    /// be true for the well-known directories and useless to the server, so that
-    /// branch prepends the directory it found instead.
-    private struct FoundCargo {
-        let path: String
-        let searchPath: String
-    }
-
     /// The first `cargo` that exists, cheapest lookup first.
     ///
-    /// Order is the decision, and it is `LSPGoToolchainService.locateGo`'s. The
-    /// inherited `PATH` comes first because a Pisaka started from a terminal should
-    /// use the `cargo` that terminal would have run. The well-known directories
-    /// come next because they are three `stat`s and cover the mainstream installs —
-    /// and `~/.cargo/bin` leading them is why the common case, a rustup user who
-    /// already has rust-analyzer, costs no subprocess at all. The login shell comes
-    /// **last**, because it is the only step here that costs one and the only one
-    /// that can find a version-manager shim (`asdf`, `mise`, `rustup` installed
-    /// somewhere unusual) — so it runs exactly on the machines that need it, and on
-    /// the machines with no Rust at all, once per app run.
-    ///
-    /// A `cargo` found in the last of those is carried **with** the `PATH` that
-    /// found it, and that is the half without which the step buys nothing: a
-    /// version-manager `cargo` is a shim that re-execs something it looks up on
-    /// `PATH`, so running it back under launchd's four directories fails the probe
-    /// and reports "no toolchain" on exactly the machines this step was added for.
-    private func locateCargo() -> FoundCargo? {
-        let inheritedPath = ProcessInfo.processInfo.environment["PATH"] ?? ""
-        let inherited = Self.pathEntries(inheritedPath)
-        if let found = Self.firstExecutable(named: "cargo", in: inherited) {
-            return FoundCargo(path: found, searchPath: inheritedPath)
-        }
-        if let found = Self.firstExecutable(named: "cargo", in: Self.wellKnownCargoDirectories) {
-            // The one branch that has to *build* a `PATH` rather than report one:
-            // the app's environment was not what found this `cargo`, three `stat`s
-            // were. Prepended rather than appended so this is the `cargo` that
-            // runs even if a later entry has another, which keeps the toolchain
-            // the report names and the toolchain the server resolves the same one.
-            let directory = (found as NSString).deletingLastPathComponent
-            let rest = inherited.filter { $0 != directory }
-            return FoundCargo(path: found, searchPath: ([directory] + rest).joined(separator: ":"))
-        }
-        guard let login = loginShellPath() else { return nil }
-        guard let found = Self.firstExecutable(named: "cargo", in: Self.pathEntries(login)) else {
-            return nil
-        }
-        return FoundCargo(path: found, searchPath: login)
+    /// The search itself — the inherited `PATH`, then the well-known directories,
+    /// then the login shell's own `$PATH`, and the found path carried **with** the
+    /// `PATH` that found it — is `ExecutableLocator.locate(_:wellKnownDirectories:runningProgram:)`,
+    /// where it was moved verbatim when `gh` needed the same three steps. Every
+    /// reason for that order, and for the second half of the answer existing at
+    /// all, is written there; what stays here is what is specific to Rust: which
+    /// directories are well-known, and that the login shell is run through this
+    /// service's own registered, deadlined `run` so a quit during discovery leaves
+    /// nothing behind.
+    private func locateCargo() -> ExecutableLocator.Found? {
+        ExecutableLocator.locate(
+            "cargo",
+            wellKnownDirectories: Self.wellKnownCargoDirectories,
+            runningProgram: { [self] executable, arguments in
+                runLoginShell(executable, arguments)
+            }
+        )
+    }
+
+    /// The locator's one subprocess, run the way everything else here is run: in
+    /// the child registry, under `shellDeadline`, with its output taken only when
+    /// it exited zero.
+    private func runLoginShell(_ executable: URL, _ arguments: [String]) -> String? {
+        guard let result = try? run(executable, arguments, deadline: Self.shellDeadline),
+              result.status == 0 else { return nil }
+        return result.standardOutput
     }
 
     /// A rust-analyzer the *user* already has, if there is one that works.
@@ -240,9 +214,9 @@ final class LSPRustToolchainService: LSPRustToolchainDiscovering, @unchecked Sen
     /// run either way — this path is handed to `.executable(path:)` directly, so
     /// picking a later one is a decision this app is free to make.
     private func locateRustAnalyzer(searchPath: String) -> String? {
-        let directories = Self.pathEntries(searchPath) + Self.wellKnownCargoDirectories
+        let directories = ExecutableLocator.pathEntries(searchPath) + Self.wellKnownCargoDirectories
         let environment = environment(searchPath: searchPath)
-        for candidate in Self.executables(named: Self.rustAnalyzerExecutableName, in: directories)
+        for candidate in ExecutableLocator.executables(named: Self.rustAnalyzerExecutableName, in: directories)
         where probe(candidate, environment: environment) {
             return candidate
         }
@@ -265,42 +239,6 @@ final class LSPRustToolchainService: LSPRustToolchainDiscovering, @unchecked Sen
             deadline: Self.probeDeadline
         ) else { return false }
         return result.status == 0
-    }
-
-    /// What the user's login shell thinks `PATH` is, or `nil`.
-    ///
-    /// `LSPGoToolchainService.loginShellPath()` verbatim in its three decisions, so
-    /// only they are restated here. `-l` and not `-i`: a login shell reads the
-    /// profile files where `PATH` is actually assembled, while an interactive one
-    /// additionally reads the rc files, where a prompt framework may print, ask, or
-    /// simply take a second. `PATH` is asked for rather than `command -v cargo`, so
-    /// that what comes back is a list of directories this file then checks itself —
-    /// a shell function or alias named `cargo` would answer `command -v` with
-    /// something that is not a path, and the failure would be a launch error later
-    /// rather than a lookup that simply found nothing. And it is asked for by
-    /// running `env` and reading the `PATH=` line rather than by interpolating
-    /// `"$PATH"`, because in fish `PATH` is a *list* variable that expands
-    /// space-separated, which `pathEntries` — splitting on `:`, as `PATH` is
-    /// defined — would read as one bogus directory.
-    ///
-    /// stdin is `/dev/null` for `LSPToolchain.locate`'s reason: nothing here has
-    /// anything to answer with, and a shell waiting on a prompt nobody can see
-    /// would sit until the deadline.
-    private func loginShellPath() -> String? {
-        let shell = TerminalLaunch.shell(environment: ProcessInfo.processInfo.environment)
-        guard FileManager.default.isExecutableFile(atPath: shell) else { return nil }
-        guard let result = try? run(
-            URL(fileURLWithPath: shell),
-            ["-l", "-c", "/usr/bin/env"],
-            deadline: Self.shellDeadline
-        ), result.status == 0 else { return nil }
-        let path = result.standardOutput
-            .components(separatedBy: .newlines)
-            .first { $0.hasPrefix("PATH=") }
-            .map { String($0.dropFirst("PATH=".count)) }?
-            .trimmingCharacters(in: .whitespaces)
-        guard let path, !path.isEmpty else { return nil }
-        return path
     }
 
     /// The environment a probe runs under: everything inherited, with one variable
@@ -609,39 +547,6 @@ final class LSPRustToolchainService: LSPRustToolchainDiscovering, @unchecked Sen
             label: "LSPRustToolchainService.reap",
             attributes: .concurrent
         )
-    }
-
-    // MARK: - Paths
-
-    /// A `PATH`-shaped string as directories, blanks dropped.
-    private static func pathEntries(_ value: String?) -> [String] {
-        guard let value, !value.isEmpty else { return [] }
-        return value.split(separator: ":").map(String.init).filter { !$0.isEmpty }
-    }
-
-    /// The first `directory/name` that is actually executable, in the order given.
-    private static func firstExecutable(named name: String, in directories: [String]) -> String? {
-        executables(named: name, in: directories).first
-    }
-
-    /// Every executable of that name on the list, in order and without repeats.
-    ///
-    /// The duplicate rule is what makes this usable as a *probe* list rather than
-    /// as a listing: `locateRustAnalyzer` concatenates the discovered `PATH` with
-    /// the well-known directories, and `~/.cargo/bin` is routinely on both — a
-    /// second look at the same file would spend a second subprocess to reach the
-    /// same answer.
-    private static func executables(named name: String, in directories: [String]) -> [String] {
-        let manager = FileManager.default
-        var found: [String] = []
-        var seen: Set<String> = []
-        for directory in directories {
-            let candidate = URL(fileURLWithPath: directory, isDirectory: true)
-                .appendingPathComponent(name).path
-            guard seen.insert(candidate).inserted else { continue }
-            if manager.isExecutableFile(atPath: candidate) { found.append(candidate) }
-        }
-        return found
     }
 }
 

@@ -110,11 +110,11 @@ The main-actor model behind both the panel and the indicator. It re-probes avail
   - Modify: `Sources/Pisaka/LSPRustToolchainService.swift` — delegate `locateCargo`/`locateRustAnalyzer`'s directory search and `loginShellPath()` to the helper, passing `~/.cargo/bin` + Homebrew's two prefixes. Observable behaviour and existing tests unchanged. `LSPGoToolchainService` is deliberately left alone (its own directory list and its own decisions; touching it is out of scope, and the gating suite therefore pins **one definition, two callers**).
   - Create: `Sources/Pisaka/GitHubCLIProcessTransport.swift` (`#if os(macOS)`) — the **one** app file that runs `Process` for `gh`. Merges Core's non-interactive overlay over the inherited environment (with the discovered `PATH`), sets `currentDirectoryURL` to the repository root, drains both pipes, enforces the command's deadline (SIGTERM→SIGKILL, exactly as `LSPRustToolchainService` does), and maps "not found" / "timed out" to `GitHubCLIError`. **Located at most once per refresh**, and this is the file's stated rule, carried in its doc comment: the transport caches the located `gh` path **together with the `PATH` that found it**, and re-locates only when (a) the command carries `refreshesExecutableLocation` — the version probe, which is the first command of every refresh, so an install from the embedded terminal is picked up by the very next refresh — or (b) the cached path no longer exists on disk, or (c) launching it fails. A refresh is three or four commands; one login-shell spawn per refresh is the budget, not one per command. The cache is *not* an app-run cache: it never survives a refresh's own version probe.
 
-  - [ ] extract the shared locator and repoint the Rust service at it
-  - [ ] implement the transport with the deadline, the environment overlay and the escalating teardown
-  - [ ] implement the per-refresh location cache with its three re-locate triggers and write the doc comment stating the rule
-  - [ ] tests: the Rust service's existing suites still pass unchanged (no new Core tests are possible here — `Process` cannot be linked from the test target; the rules are pinned statically in Task 8)
-  - [ ] run `swift test` — must pass before Task 6
+  - [x] extract the shared locator and repoint the Rust service at it
+  - [x] implement the transport with the deadline, the environment overlay and the escalating teardown
+  - [x] implement the per-refresh location cache with its three re-locate triggers and write the doc comment stating the rule
+  - [x] tests: the Rust service's existing suites still pass unchanged (no new Core tests are possible here — `Process` cannot be linked from the test target; the rules are pinned statically in Task 8)
+  - [x] run `swift test` — must pass before Task 6
 
 ### Task 6: The panel case, the coordinator, and the eighth gated operation
 
