@@ -98,12 +98,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
   - `BottomPanel.swift` — pure, testable bottom-dock-panel state
     (Foundation-free — semantic enum only, the `FileIconColor`/`LogFilter`
     precedent). A `public enum BottomPanel: Equatable { case terminal, log,
-    changes, problems, usages }` (which panel, if any, sits in the bottom dock above the
+    changes, problems, usages, pullRequests }` (which panel, if any, sits in the bottom dock above the
     always-visible bar; a `BottomPanel?` of `nil` = hidden — Terminal, Git Log,
-    Local Changes, Problems and Usages share the one dock. `usages` is a *sibling*
+    Local Changes, Problems, Usages and Pull Requests share the one dock. `usages` is a *sibling*
     of `problems` rather than a mode of it: both are lists of places in the
     project, but one is what a server volunteered about the code and the other is
-    what the user asked about one name, so the two must be reachable at once) plus the only stateful logic, the pure
+  what the user asked about one name, so the two must be reachable at once;
+    `pullRequests` is the sixth and the only one whose content comes from outside
+    the machine, `core-github.md`) plus the only stateful logic, the pure
     `static func toggled(_ current: BottomPanel?, selecting target: BottomPanel)
     -> BottomPanel?`: re-selecting the shown panel collapses it (`nil`), otherwise
     the `target` is shown — so a bottom-bar button and its matching View-menu

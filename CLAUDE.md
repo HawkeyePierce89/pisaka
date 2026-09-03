@@ -256,6 +256,16 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
 - `DatabaseConsoleModel.swift` — the console's flow: one generation token, its own message slot, the write's refusal order (the gate, then one write per tab), the post-commit order.
 - `DatabaseViewerModel.swift` — the tab's model: two generation tokens, a failure never blanks a good answer, every read bounded; the write consults the gate, captures the rows token and never blanks the page; owns the console, answers `isWriteInFlight` for both writers and `refreshAfterWrite()` after a console mutation.
 
+`docs/architecture/core-github.md` — GitHub pull requests through the user's own `gh` (macOS; a reader except for checkout), incl. decisions G1–G12:
+- `GitHubCLI.swift` — the one app/Core seam: the command (incl. `refreshesExecutableLocation`), the result (both streams + status, raw), the transport protocol, the three typed launch failures, the non-interactive environment (G1, G5).
+- `GitHubCommands.swift` — **the whole argument vocabulary** (G6): seven commands, eight factories, the three ordered `--json` field lists, the three deadlines; no `--repo`, no `--web`.
+- `GitHubVersion.swift` — version parse/compare + the 2.50.0 minimum and its one reason (G4).
+- `GitHubAvailability.swift` — the probe value and the four states, each with its sentence and its exact next step (G8).
+- `GitHubPullRequest.swift` — the five closed vocabularies, the rollup item, the four-case summary, and the values the surfaces read.
+- `GitHubAPI.swift` — **the one schema file** (G2): the four parsers, the key-path-carrying schema error, the summary rule; the create-URL number is its one deliberate non-refusal.
+- `GitHubCreatePlan.swift` — the create sheet's pure half: the `repo view` base, the commit dialog's own two refusals, the three stated sentences (G11).
+- `PullRequestModel.swift` — the main-actor reader behind both surfaces: three generation tokens, a failure never blanks a good list, availability re-probed on every refresh and never more often, `pr checks` judged on stdout alone (G3), and the two writes — create (push first) and checkout (composed here, run by the app's bracket).
+
 ### `Pisaka` (app target, `Sources/Pisaka/`)
 
 Thin SwiftUI/AppKit (macOS, all under `#if os(macOS)`) and SwiftUI/UIKit (iOS,
@@ -325,6 +335,14 @@ in `Sources/Pisaka/Platform/` bridges per-platform APIs. Untested by convention.
 - `DatabaseViewerView.swift` — the surface (+ `DatabaseViewerHost`); draws Core's answers, decides nothing — including the editable cell, its refusals and the NULL gesture; hosts the console under the grid in a resizable split.
 - `DatabaseConsoleView.swift` — the console pane: input, Run (⌘↩), the result table, the footer and the message line; shows Core's prompt verbatim, composes no SQL, declares no zoom surface.
 
+`docs/architecture/core-github.md` — the Pull Requests app surfaces (same doc as the Core half):
+- `ExecutableLocator.swift` — the one definition of the discovery search (inherited `PATH` → well-known dirs → login shell), returning the path *and* the `PATH` that found it; one definition, two callers (G7).
+- `GitHubCLIProcessTransport.swift` — the one app file that runs `Process` for `gh`: the environment overlay, the per-command deadline (SIGTERM→SIGKILL), and the per-refresh location cache with its three re-locate triggers (G7).
+- `PullRequestCoordinator.swift` — owns the model and the transport, wired once from the scene; holds the feature's refresh triggers and is the one site through which a checkout reaches the writer bracket (G9, G12).
+- `PullRequestsPanelView.swift` — the sixth dock panel: the not-ready states with their next step, the rows, the expandable per-job checks, and the one `.onAppear` panel-shown trigger.
+- `NewPullRequestSheet.swift` — the create sheet: pre-filled title, base picker, Draft, and the three sentences naming everything Create will do.
+- `PullRequestIndicatorView.swift` — the bottom-bar `#N` + checks state beside the branch switcher; absent rather than empty, click opens the panel with that row expanded.
+
 `docs/architecture/app-window.md` — window chrome (macOS):
 - `ContentView.swift` — window layout; deliberately non-observed `commitDialog`.
 - `ProjectSwitcherView.swift` — bottom-bar project switcher; read-at-open, empty state, delegates actions.
@@ -387,9 +405,10 @@ ci.yml's `lint` job, and the version-bump procedure.
   monotonic tokens captured *synchronously* before the `Task` hop; superseded
   work discards its result instead of publishing over newer state.
 - **Disk-writer coordination**: every worktree-mutating operation (revert, merge
-  apply, branch switch/create, project Replace All, commit, and — the seventh,
-  the one that is not git's — a language server's project-wide **rename**) raises
-  `autosave.suspend()` + `localChanges.beginRevert()` synchronously before its
+  apply, branch switch/create, project Replace All, commit, — the seventh, the
+  one that is not git's — a language server's project-wide **rename**, and the
+  eighth, `gh pr checkout`, which shares the branch operations' own bracket)
+  raises `autosave.suspend()` + `localChanges.beginRevert()` synchronously before its
   first `await` (balanced by `defer`); the project-tree file ops, ⌘S and the
   run/test saves refuse while the gate is up — as do the database viewer's two
   writes (an inline cell edit and the SQL console's confirmed mutation), the
@@ -460,7 +479,7 @@ ci.yml's `lint` job, and the version-bump procedure.
   one Core file, every operation requires a login, and opening a problem never
   changes the project root (`core-leetcode.md`).
 - **Local History is a reader with a store of its own** (macOS only): it snapshots
-  every buffer the app writes and, under a label, every file the **seven** gated
+  every buffer the app writes and, under a label, every file the **eight** gated
   operations are about to overwrite, into
   `…/Application Support/Pisaka/LocalHistory` — outside the project, keyed by
   (root, project-relative path), the file *name* carrying timestamp/event/hash so
@@ -550,6 +569,33 @@ ci.yml's `lint` job, and the version-bump procedure.
   composes no SQL, names no
   gate, reaches the seam through one call site per member, and the scene knows
   nothing about it (`core-database-viewer.md`).
+- **Pull requests are a reader with one worktree write** (macOS only): the panel,
+  the create sheet and the bottom-bar indicator all speak to GitHub through the
+  user's own `gh`, discovered at run time and required to be 2.50.0 or newer
+  because that is where `pr checks --json` landed. Core composes every argument
+  list (`GitHubCommands` is the only place a `gh` flag is spelled — the app layer
+  spells none, and there is no `--repo`, so `gh` resolves the repository from the
+  remote already in the working directory and a GitHub Enterprise checkout works
+  for free) and reads every answer in **one schema file** whose closed tables
+  refuse rather than guess, naming the key path that did not match; `pr checks` is
+  the one command judged on its stdout parsing and **never on its exit status**,
+  because 8 means pending and 1 means a job failed and both print the JSON.
+  Freshness is **event-driven — a branch change, the panel becoming visible, one
+  of the feature's own writes — and never a timer**, with availability re-probed
+  at the top of every refresh and at no other moment, three generation tokens
+  ordering the three independently re-triggerable reads, and a failure that never
+  blanks a good list (the one exception being availability going not-ready, which
+  is a different world rather than a failed read). Discovery is per *refresh*, not
+  per command and not per app run: the version probe is the one command carrying
+  `refreshesExecutableLocation`, so a refresh costs one login-shell spawn and a
+  `gh` installed a moment ago from the embedded terminal is still picked up.
+  Exactly **one write is in flight at a time** — create pushes the branch before
+  it opens anything, always with an explicit `--base` read from `repo view` — and
+  `gh pr checkout` is the app's **eighth gated operation**: the model composes the
+  command, asks an injected gate before anything is sent and hands the operation
+  to `PisakaApp.runBranchOperation(_:_:)` through `PullRequestCoordinator`, the
+  one site, so no file under the feature names `autosave` or `localChanges` at
+  all (`core-github.md`).
 - **Zoom is three zones, one arithmetic, one pointer rule** (macOS only): `code`
   — which *is* `SettingsStore.fontSize`, never a second setting — `terminal` and
   `interface` each clamp/step/reset through one `ZoomScaleRule`, and every

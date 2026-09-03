@@ -66,16 +66,30 @@ The procedure, when a feature genuinely has to land in that file:
 4. Update both numbers in `LintConfigurationTests.documentedRootThresholds` in
    the same commit; the suite fails until they agree.
 
-The database viewer is the most recent bump (`file_length`
+The database viewer set the shape to copy (`file_length`
 1809 → 1826 → 1829 → 1833 → 1837 → 1838, `type_body_length`
 1800 → 1810 → 1813 → 1817 → 1821 → 1822 — the second step is the viewer reconnect
 `resyncViewerTab` gained on review, the third the find menu's
 `isFindableTabSelected`, the fourth the write wiring
 `databaseViewers.start(isWriteBlocked:didWrite:)`, the fifth the rename's
-`databaseViewers.retarget(id:url:)`), and it is also the shape to copy: everything
+`databaseViewers.retarget(id:url:)`): everything
 with a state shape of its own went into `DatabaseViewerTabs.swift`, so
 `PisakaApp` paid four lines of wiring plus the tab-kind skips its own text-shaped
 passes needed, and not four hundred (`core-database-viewer.md`).
+
+The most recent bump is the Pull Requests feature (`file_length` 1838 → **1859**,
+`type_body_length` 1822 → **1843**) — the largest single move either number has
+made, which is why it is itemised rather than absorbed. Twenty-one lines, all of
+them inside the struct body, so the two ceilings move by exactly the same amount:
+**seven** are `pullRequests.start(…)`, the scene's whole involvement in the eighth
+gated operation, since the feature's ownership, its transport and its one checkout
+site live in `PullRequestCoordinator.swift`; **five** are the View menu's panel
+toggle; **one** is the `@StateObject`; and the remaining **eight** are
+`runBranchOperation` growing a Local History event parameter and an operation that
+answers a message instead of a `Bool` — which is what lets one bracket serve two
+callers rather than two brackets serve one each. The same shape as the viewer's,
+and the reason a feature this size cost twenty-one lines here
+(`core-github.md`).
 
 ## The three-way version pin
 

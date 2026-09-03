@@ -698,10 +698,10 @@ user sees it.
   writes a file — Cmd+S, any autosave, a Save As, the close prompt's Save, the
   saves before Run and Test, and the flush on quit — it keeps a private copy of
   what it wrote. It also takes a *labeled* copy of every file that is about to be
-  overwritten by one of the seven operations that rewrite the working tree: a
+  overwritten by one of the eight operations that rewrite the working tree: a
   commit (whose `pre-commit` hook may reformat), a project-wide Replace All, a
-  revert, a merge apply, a branch switch or checkout, a branch create, and a
-  project-wide Rename. Those
+  revert, a merge apply, a branch switch or checkout, a branch create, a
+  project-wide Rename, and a pull request checkout. Those
   rows read "Before Revert", "Before Replace All" and so on, and they are taken
   *before* the operation runs, so what they hold is the state you would otherwise
   have lost — unless those exact bytes are already the newest revision, which an
@@ -875,6 +875,55 @@ user sees it.
   files. After a successful switch or create, open tabs are resynced from disk (an
   edited buffer is preserved, not overwritten) and the tree, Local Changes, and Git
   Log refresh to reflect the new branch.
+- **GitHub pull requests (macOS only).** A **Pull Requests** panel in the same
+  bottom dock (View ▸ Show/Hide Pull Requests, the Pull Requests button on the
+  bottom bar, or Cmd+Shift+R), listing every open pull request of the repository
+  you have open: number and title, author, `head → base`, a Draft marker, the
+  review decision (approved / changes requested / review required), and a summary
+  of its checks — passing, failing, still running, or none reported. Expand a row
+  to see each individual job with its state and a link that opens that job's page.
+  Each row offers **Checkout** and **Open in browser**; nothing ever opens a
+  browser on its own.
+  Everything here runs through **your own `gh`** — GitHub's official CLI, which
+  Pisaka finds on your `PATH` (including a login shell's, so a Homebrew install
+  works when the app was launched from the Finder). Pisaka holds no GitHub token,
+  speaks no HTTP of its own, and never composes an `owner/repo`: `gh` resolves the
+  repository from the git remote already in your project folder, which is also why
+  a GitHub Enterprise checkout works with no extra setup. If `gh` is missing, older
+  than 2.50.0 (the version whose `pr checks --json` this needs), or not signed in,
+  the panel says which of the three it is and prints the single command that fixes
+  it — `brew install gh`, `brew upgrade gh` or `gh auth login`. Install or sign in
+  from the embedded terminal and the next refresh picks it up.
+  **New Pull Request** opens a sheet in the commit dialog's shape: a title
+  pre-filled with your last commit's subject, a body, the base branch (defaulting
+  to the repository's own default branch, as GitHub reports it), and a Draft
+  checkbox. Above the buttons it states exactly what Create will do — which base
+  the pull request opens into, and, when the branch has never been pushed, which
+  remote it will be published to — plus a reminder that uncommitted changes will
+  not be part of it. Create **pushes the branch first** and only then opens the
+  pull request, so it never describes work that is not on the remote yet; a push
+  that fails stops there and tells you why, leaving the sheet open with everything
+  you typed. A detached HEAD or a repository with no remote refuses with the same
+  sentence the commit dialog already uses.
+  **Checkout** switches the working tree to that pull request's branch through
+  `gh pr checkout`, and it is treated exactly like a branch switch: autosave is
+  suspended, Local History takes a labeled "Before Pull Request Checkout" copy of
+  everything about to be overwritten *before* anything moves, and afterwards open
+  tabs are resynced (a clean tab reloads, an edited one keeps your edits and
+  beeps, a file that no longer exists is closed), with the tree, Local Changes,
+  the Git Log and the branch widget all refreshed. It refuses while a revert, a
+  merge apply or another branch operation is still running, and only one of the
+  panel's own writes runs at a time — while one does, New Pull Request, Checkout
+  and the refresh button are all disabled.
+  Beside the branch switcher, a small **indicator** shows `#N` and the checks
+  state of the pull request open from the branch you are on; clicking it opens the
+  panel with that row expanded. It is simply absent when the current branch has no
+  pull request, when `gh` is not ready, and on a detached HEAD.
+  The panel **does not poll**. It re-reads when you switch branches, when you open
+  the panel, after you create a pull request or check one out, and when you press
+  its refresh button — never on a timer, so an open panel costs no API calls while
+  you work. Merging, reviewing, commenting and issues are not part of this: each
+  row's Open in browser is one click away.
 - Embedded terminal: a collapsible bottom panel (toggle with "Show/Hide Terminal"
   in the View menu, the Terminal button on the bottom bar, or Cmd+Shift+T) hosting
   one or more live shell sessions in a
@@ -885,8 +934,8 @@ user sees it.
   restarts a running shell. Shells are terminated when you close their tab and
   when you quit, so no processes leak. Closing the last terminal tab collapses the
   panel (no empty gap), and a repeat click / Cmd+Shift+T reopens it. The Terminal,
-  Git Log, Local Changes, Problems and Usages panels share one bottom dock —
-  opening one replaces whichever was shown. The terminal follows the app theme — the system light/dark
+  Git Log, Local Changes, Problems, Usages and Pull Requests panels share one
+  bottom dock — opening one replaces whichever was shown. The terminal follows the app theme — the system light/dark
   appearance, or a theme forced in Settings — and recolors live, without restarting
   the shell or losing scrollback; every open tab is recolored, including inactive
   ones.
@@ -1231,7 +1280,7 @@ and iPhone. The feature scope landed so far:
 - Local History is macOS-only, and it only ever sees **the app's own writes**.
   Edits made by another application, a `git` command you run yourself (in the
   embedded terminal or anywhere else), or any other change made outside Pisaka's
-  save funnel and its seven worktree operations are not captured and leave no
+  save funnel and its eight worktree operations are not captured and leave no
   revision — the folder watcher keeps the project tree current, it does not
   snapshot. The store holds **copies of your file contents on the local disk**,
   unencrypted, under `~/Library/Application Support/Pisaka/LocalHistory`; anything
@@ -1296,6 +1345,20 @@ and iPhone. The feature scope landed so far:
   (Because a real `git commit` runs, your repository's own settings still apply:
   a repository with `commit.gpgsign` on produces signed commits as it always
   would — there is simply no per-commit toggle for it in the dialog.)
+- Pull requests are macOS-only and need **GitHub's own `gh`**, version 2.50.0 or
+  newer, signed in: nothing is bundled, nothing is downloaded, and iOS has no
+  subprocesses and therefore no panel. The panel lists **open** pull requests
+  only, at most 50 of them, and it does not merge, review, approve, comment, close
+  or reopen anything, does not touch issues, and never opens a browser except when
+  you click Open in browser. It does not poll: the list is re-read on a branch
+  change, when the panel is opened, after one of its own writes and when you press
+  refresh, so a pull request updated on GitHub while you are typing shows the
+  previous answer until one of those happens. Creating a pull request always
+  pushes the current branch first, and there is no way to open one from a branch
+  other than the one checked out. Repositories other than the open project's, and
+  hosts `gh` is not authenticated against, are not reachable — `gh` resolves both
+  from your remote, so if `gh pr list` does not work in that folder in a terminal,
+  neither does the panel.
 - Annotate with Git Blame is macOS-only (iOS has no gutter) and inspection-only:
   clicking an annotation opens no commit detail, there is no "annotate previous
   revision", no jump from an annotation into the Git Log, and the date format is

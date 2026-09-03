@@ -5,19 +5,24 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
   - `PisakaApp.swift` — `@main` App, menu commands and shortcuts
     (Cmd+N/O, Cmd+Shift+O for "Open Folder…", Cmd+S/W), and the save/close and
     folder/file-open orchestration that ties the model to the file panels. The
-    Terminal, Git Log, Local Changes, Problems and Usages are all *bottom
+    Terminal, Git Log, Local Changes, Problems, Usages and Pull Requests are all
+    *bottom
     dock
     panels* sharing one dock: it owns a
     single `@State private var bottomPanel: BottomPanel? = nil` (`nil` = no panel,
     passed as a binding to `ContentView`, which draws the always-visible
-    Terminal/Git/Changes/Problems/Usages bar) and five View-menu commands — "Show/Hide Git Log"
+    Terminal/Git/Changes/Problems/Usages/Pull Requests bar) and six View-menu commands — "Show/Hide Git Log"
     (Cmd+Shift+L), "Show/Hide Terminal" (Cmd+Shift+T), "Show/Hide Local Changes"
     (**Cmd+Shift+C**, moved off Cmd+Shift+G — the macOS standard for "Find
     Previous", which the Find menu below claims), "Show/Hide Problems"
     (**Cmd+Shift+M**, the language servers' published diagnostics) and "Show/Hide
     Usages" (**Cmd+Shift+U**, the last Find Usages answer — showing the panel
     *fetches nothing*, because a panel that re-ran the previous query on every open
-    would spend a project walk on a question nobody re-asked), their labels reflecting the
+    would spend a project walk on a question nobody re-asked) and "Show/Hide Pull
+    Requests" (**Cmd+Shift+R**, which — unlike Usages — *does* read on open, from
+    the panel view's own `.onAppear` rather than from this file: `gh`'s answer
+    goes stale on GitHub's clock and the feature refuses to poll, so opening the
+    panel is the read, `core-github.md`), their labels reflecting the
     active state —
     all routed through one shared `togglePanel(_:)` handler (also wired to the
     bottom bar via `ContentView`'s `onTogglePanel` so a button and its matching menu
@@ -772,7 +777,13 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     edited one — a checkout rewrites the worktree), a tree refresh
     (`bumpTreeRevision`), and generation-pinned Local Changes / Log refreshes. Both
     the switch and checkout-remote handlers run through the shared
-    `runBranchOperation { () async -> Bool }` orchestration; `checkoutRemote(_:)` is a
+    `runBranchOperation(_ event: LocalHistoryEvent = .branch, _ op: () async -> String?)`
+    orchestration — generalised for the Pull Requests feature, which passes
+    `.pullRequest` through `PullRequestCoordinator` and makes `gh pr checkout` the
+    **eighth** gated operation riding this, the one bracket that serves more than
+    one (`core-github.md`). The operation answers `nil` for success, a sentence for
+    a failure worth an alert, and `""` for one already published where the reader
+    is looking; `checkoutRemote(_:)` is a
     mirror of `switchBranch` (the same dirty-tree warning — the DWIM checkout part may
     be blocked just the same — synchronous `currentRefreshGeneration` pinning, then
     `runBranchOperation { await branchSwitcher.checkoutRemote(ref, originGeneration:) }`),
