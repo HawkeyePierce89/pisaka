@@ -49,12 +49,12 @@ The narrow seam and everything that can be decided before any GitHub data is par
   - Create: `Sources/PisakaCore/GitHubVersion.swift` — parse `gh version X.Y.Z (…)`, compare, and `GitHubVersion.minimum` = 2.50.0 with the reason (`pr checks --json`, cli/cli#9079, first shipped v2.50.0) in the doc comment.
   - Create: `Sources/PisakaCore/GitHubAvailability.swift` — the four states (`notInstalled`, `tooOld(found:minimum:)`, `notSignedIn`, `ready(version:)`), each with the sentence and the exact next step (`brew install gh`, `gh auth login`), decided purely from the two probes' results.
   - Create: `Tests/PisakaCoreTests/GitHubCommandsTests.swift`, `GitHubVersionTests.swift`, `GitHubAvailabilityTests.swift`.
-  - [ ] define the seam values, the transport protocol and the non-interactive environment
-  - [ ] compose the argument lists with their `--json` field lists as shared constants
-  - [ ] implement version parsing/comparison and pin the 2.50.0 minimum with its reason
-  - [ ] implement the four-state availability decision including its sentences
-  - [ ] tests: every argument list byte for byte; **`refreshesExecutableLocation` true for the version probe and false for every other command, asserted by set equality over the factories**; version parse (valid, garbage, prerelease, missing); comparison across major/minor/patch; all four availability states plus the too-old sentence naming both versions
-  - [ ] run `swift test` — must pass before Task 2
+  - [x] define the seam values, the transport protocol and the non-interactive environment
+  - [x] compose the argument lists with their `--json` field lists as shared constants
+  - [x] implement version parsing/comparison and pin the 2.50.0 minimum with its reason
+  - [x] implement the four-state availability decision including its sentences
+  - [x] tests: every argument list byte for byte; **`refreshesExecutableLocation` true for the version probe and false for every other command, asserted by set equality over the factories**; version parse (valid, garbage, prerelease, missing); comparison across major/minor/patch; all four availability states plus the too-old sentence naming both versions
+  - [x] run `swift test` — must pass before Task 2
 
 ### Task 2: The one schema file — value types, the two strict tables, the parsers, the summary rule
 All knowledge of `gh`'s output schema in one place, with closed vocabularies and a typed "the schema changed" error naming the key path.
