@@ -166,12 +166,12 @@ Thin, untested by convention. **`PisakaApp.swift` is not touched in this task** 
   - [x] run `swift test` — must pass before Task 9
 
 ### Task 9: Verify acceptance criteria
-  - [ ] run `swift test` — full suite green
-  - [ ] run `swiftlint --strict` from the repository root — clean
-  - [ ] run `xcodegen generate`
-  - [ ] run the macOS build (`xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' build`)
-  - [ ] run the iOS Simulator build (`-destination 'platform=iOS Simulator,name=iPhone 17 Pro'`)
-  - [ ] launch the built app once and confirm it comes up (the dyld gate CI runs)
+  - [x] run `swift test` — full suite green
+  - [x] run `swiftlint --strict` from the repository root — clean
+  - [x] run `xcodegen generate`
+  - [x] run the macOS build (`xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' build`)
+  - [x] run the iOS Simulator build (`-destination 'platform=iOS Simulator,name=iPhone 17 Pro'`)
+  - [x] launch the built app once and confirm it comes up (the dyld gate CI runs)
 
 ### Task 10: Update documentation
   - [ ] create `docs/architecture/core-github.md` covering both halves with numbered decisions G1–Gn: the narrow seam (G1), the one schema file and the two closed tables (G2), the checks-exit-status rule (G3), the 2.50.0 minimum and why (G4), the non-interactive environment (G5), "the app never composes `owner/repo`" and why that makes GitHub Enterprise work for free (G6), **discovery and its per-refresh cache — located at most once per refresh, re-located when the version probe runs (via `refreshesExecutableLocation`), when the cached path is gone, or when a launch fails, so a refresh costs one login-shell spawn rather than four and an install from the embedded terminal still lands on the next refresh (G7)**, the four availability states (G8), event-driven freshness, where each trigger lives and the two tokens (G9), one write in flight (G10), push-before-create and the `repo view` base (G11), the eighth gated operation and its capture-first order (G12)
