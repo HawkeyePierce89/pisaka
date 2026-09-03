@@ -155,15 +155,25 @@ public enum GitHubCommands {
         )
     }
 
-    /// `gh pr create`, with `--base` **always** explicit.
+    /// `gh pr create`, with `--base` **and** `--head` always explicit.
     ///
-    /// Never left to `gh`'s own default: that default is the upstream repository's
-    /// branch for a fork, which is a different pull request from the one the sheet
-    /// said it would open. The base the sentence names is the base that is sent.
+    /// Never left to `gh`'s own defaults. Its base default is the upstream
+    /// repository's branch for a fork, which is a different pull request from the
+    /// one the sheet said it would open; its head default is *whatever branch is
+    /// checked out at the moment the command runs*, which is not the same thing as
+    /// the branch the sheet described. Create pushes first, and a push over a slow
+    /// network is seconds during which the sheet can be dismissed and a branch
+    /// switched from the widget or the embedded terminal — with the head left
+    /// implicit, the pull request would then be opened from the branch that
+    /// happens to be current, carrying the title and base typed for another one.
+    /// Both sentences the sheet showed name a branch (`GitHubCreatePlan
+    /// .baseSentence` names them together), so both travel as arguments: what was
+    /// stated is what is sent.
     public static func createPullRequest(
         title: String,
         body: String,
         base: String,
+        head: String,
         draft: Bool,
         root: URL
     ) -> GitHubCommand {
@@ -172,6 +182,7 @@ public enum GitHubCommands {
             "--title", title,
             "--body", body,
             "--base", base,
+            "--head", head,
         ]
         if draft { arguments.append("--draft") }
         return GitHubCommand(arguments: arguments, workingDirectory: root, deadline: gitNetworkDeadline)

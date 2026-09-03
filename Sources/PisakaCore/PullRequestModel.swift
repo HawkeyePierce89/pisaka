@@ -716,9 +716,49 @@ public final class PullRequestModel: ObservableObject {
     /// The refusals are the plan's, decided from a **fresh** commit context
     /// rather than the one the sheet was drawn over: a branch switched, or a
     /// remote removed, behind an open sheet must refuse rather than push.
+    ///
+    /// **The head is pinned to that same reading**, and sent as `--head`. The
+    /// fresh context refuses a branch switched *before* Create; the explicit head
+    /// is what answers a branch switched *during* it — the sheet may be dismissed
+    /// while the push is still on the wire, and `gh`'s own head default is the
+    /// branch that is checked out when `pr create` finally runs, not the one this
+    /// flow planned and pushed. The root is pinned for the same window, by being
+    /// read once above and used by both commands.
+    ///
+    /// **The gate is asked twice**, for the window neither of those two closes.
+    /// `PushPlan.push(upstream:)` is a plain `git push`, which resolves HEAD at
+    /// *its own* process launch rather than from the plan — deliberately, because
+    /// the tracking ref may be named differently from the local branch and a
+    /// refspec composed here would be a guess. So a branch switch landing between
+    /// the context read and the push makes that push publish a branch this flow
+    /// never planned, and the pinned `--head` then opens the pull request from a
+    /// branch whose remote was left stale. Nothing after the fact can tell that
+    /// apart from the benign case the pinned head exists for (a switch *after*
+    /// the push launched, where the right branch did go out), so it is refused
+    /// before rather than detected after: while a branch switch, a revert, a
+    /// merge apply or a project Replace All is rewriting the worktree, Create
+    /// does not run.
+    ///
+    /// One reading would not be enough, and the second is the load-bearing one.
+    /// The consult at the top only answers for rewrites already in flight; this
+    /// flow then *suspends* — `commitContext` is several `git` subprocesses, and
+    /// the main actor is free for all of them, which is precisely when a branch
+    /// switch is started. Since none of the app's branch-change entry points
+    /// consults this feature's own one-write flag (they refuse on the writer gate
+    /// alone, which this flow deliberately never raises — it rewrites no file),
+    /// a single consult would leave the whole context read open. So it is asked
+    /// again as the last synchronous statement before the push, with no `await`
+    /// between the two. What is left is the window the commit dialog's own push
+    /// already names and accepts — the push's own process launch, and a
+    /// `git checkout` from the embedded terminal inside it, which no gate in this
+    /// app can see.
     @discardableResult
     public func create(title: String, body: String, base: String, draft: Bool) async -> Bool {
         guard !isWriteInFlight else { return false }
+        guard !isWriteBlocked() else {
+            setMessage(Self.createBlockedMessage, from: .create)
+            return false
+        }
 
         // Bumped, and deliberately never checked: a write is finished, not
         // superseded. The bump exists so a sheet read still in flight cannot
@@ -763,6 +803,21 @@ public final class PullRequestModel: ObservableObject {
             return false
         }
 
+        // The gate again, and this is the reading that matters: the one at the
+        // top catches a rewrite that was already running, this one catches the
+        // one that *started while this flow was suspended*. `commitContext` is
+        // several `git` subprocesses long, and the main actor is free for every
+        // one of them — which is exactly when a branch switch is initiated. It
+        // is read here rather than only there because the branch a plain
+        // `git push` publishes is decided at the push's own process launch, so
+        // the last synchronous moment before that launch is the last moment this
+        // question has an answer worth having. Nothing awaits between here and
+        // the push, which is what makes it that moment.
+        guard !isWriteBlocked() else {
+            setMessage(Self.createBlockedMessage, from: .create)
+            return false
+        }
+
         do {
             try await gitService.push(plan.push, root: root)
         } catch {
@@ -770,10 +825,15 @@ public final class PullRequestModel: ObservableObject {
             return false
         }
 
+        // The head is the plan's — the branch the fresh context read named and the
+        // sheet's sentence stated — never `gh`'s "whatever is checked out now"
+        // default: the push above may have taken a slow network's worth of
+        // seconds, and the sheet is dismissable while it runs.
         let command = GitHubCommands.createPullRequest(
             title: title,
             body: body,
             base: plan.base,
+            head: plan.headBranch,
             draft: draft,
             root: root
         )
@@ -818,6 +878,19 @@ public final class PullRequestModel: ObservableObject {
     public static let unavailableMessage =
         "Pull requests are no longer available for this project. "
         + "Close this sheet and refresh the Pull Requests panel."
+
+    /// The sentence a create refused because git is already rewriting the
+    /// worktree gets.
+    ///
+    /// Its own constant rather than ``blockedMessage``, for the reason that one
+    /// is its own constant: both name the operation the reader is being told to
+    /// try again, and a create is not a checkout. The first half is deliberately
+    /// word-for-word the checkout's — it describes the same state of the same
+    /// repository, and two wordings for one state read as two different
+    /// problems.
+    public static let createBlockedMessage =
+        "Another operation is writing to the working tree. "
+        + "Create the pull request again when it has finished."
 
     // MARK: - The checkout
 

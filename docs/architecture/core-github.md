@@ -304,7 +304,13 @@ Three triggers, and no fourth:
   the reader just left — the very thing this trigger exists to prevent. The head
   ref is also the right value rather than merely the available one, since `--head`
   matches the ref the pull request is open *from* on GitHub, which a
-  cross-repository checkout's local branch is free not to be spelled as.
+  cross-repository checkout's local branch is free not to be spelled as. It is
+  recorded **only once the model has accepted** the checkout — `checkout(_:)`
+  answers `Bool` and the coordinator reads it — because a click arriving while
+  one of this feature's writes is already in flight is refused inside the model
+  (G10), and recording ahead of that refusal would overwrite the *running*
+  checkout's head with the refused row's, leaving the post-checkout refresh to
+  ask `pr list --head` about a pull request that was never checked out.
 
 `PisakaApp.swift` names **no refresh trigger at all**, which
 `GitHubSourceGatingTests` pins along with where the other three live.
@@ -508,6 +514,58 @@ described — so the base the sentence names is the base that is sent, and the
 default the picker opens on is `gh repo view`'s `defaultBranchRef` and nothing
 else. (The ticket's alternative, "the upstream's branch", was dropped entirely.)
 
+`--head` is sent explicitly for the same reason read the other way round. `gh`'s
+head default is *whatever branch is checked out at the moment `pr create` runs*,
+and this flow pushes first: the sheet may be dismissed while that push is on the
+wire — Cancel stays live — so a branch switched from the widget or the embedded
+terminal in that window would otherwise open the pull request from the branch that
+is current *then*, carrying the title and base typed for another one, as a
+published remote act. The head is therefore pinned to the same **fresh** context
+reading the refusals and the push plan came from — `GitHubCreatePlan.headBranch`,
+the branch `baseSentence` names — and the project root is pinned for that same
+window by being read once at the top and used by both commands. The fresh read
+answers a branch switched *before* Create; the explicit head answers one switched
+*during* it. If the branch really did move, `gh` refuses in its own words, which
+is a stated failure instead of a wrong pull request.
+
+**The gate is asked as well, twice** — the same injected `isWriteBlocked` the
+checkout asks (G12), with its own sentence,
+`PullRequestModel.createBlockedMessage` — and it closes the window those two
+leave between them: **the push itself**. Neither a
+fresh read nor a pinned head reaches it, because `PushPlan.push(upstream:)` is a
+plain `git push`, which resolves HEAD at *its own* process launch rather than from
+the plan — deliberately, since the tracking ref may be named differently from the
+local branch and a refspec composed here would be a guess, and that is
+`PushPlan`'s rule, shared with the commit dialog, not this feature's to rewrite. So
+a branch switch landing between the context read and the push makes that push
+publish a branch this flow never planned, while the pinned head still opens the
+pull request from the one it did — against a remote left stale. Refused **before**
+rather than detected after, because after the fact nothing can tell it apart from
+the benign case the pinned head exists for: a switch after the push launched,
+where the right branch did go out and a post-push branch comparison would refuse a
+create that was entirely correct. So while a branch switch, a revert, a merge
+apply or a project Replace All is rewriting the worktree, Create does not run —
+and the refusal is a "not now" the same sheet retries out of, not a state it has
+to be reopened from.
+
+**Twice, because one reading covers only half the flow, and the second is the
+load-bearing one.** The consult before the context read answers for a rewrite
+already in flight; the flow then *suspends* over `commitContext`, which is several
+`git` subprocesses with the main actor free for all of them — which is exactly
+when a branch switch is initiated. Nothing on the other side closes that: the
+app's three branch-change entry points refuse on the writer gate alone
+(`revertInFlight()`), and this flow deliberately never raises it, so a switch
+started mid-read would run to completion. Hence the second consult, placed as the
+last synchronous statement before the push with **no `await` between the two** —
+which is what makes it the last moment the question still has an answer worth
+having, since the branch a plain `git push` publishes is decided at that push's own
+process launch. Both refusals land before the push and before `pr create`, so
+neither is sent. This is a *consult*, not a raise: create still takes no gate of
+its own, and the checkout stays the feature's one gated operation. What is left is
+the window `CommitDialogModel`'s own push already names and accepts — the push's
+own process launch, and a `git checkout` from the embedded terminal inside it,
+which no gate in this app can see.
+
 Every sentence names what will actually happen, because Create performs up to
 three operations nobody separately asked for: a push, possibly the first
 publication of the branch to a remote (stated, because that is a visible public
@@ -571,7 +629,11 @@ caller can walk past.
 The gate travels as an injected `isWriteBlocked` closure, wired in the scene
 alone to `LocalChangesModel.isReverting`, so **no file under the feature names
 `autosave` or `localChanges` at all** — `DatabaseViewerModel`'s arrangement,
-pinned here by `GitHubSourceGatingTests`.
+pinned here by `GitHubSourceGatingTests`. One closure, **two readers**: the
+checkout, whose worktree write this paragraph is about, and `create`, which reads
+it for the push (G11). Two readers, two sentences, because they name different
+operations to retry; one wiring, because they are asking about one state of one
+worktree.
 
 On the app side the bracket is reached through one generalisation rather than a
 second bracket: `PisakaApp.runBranchOperation(_:_:)` now takes the Local History
@@ -615,7 +677,7 @@ is `pr list` with `--head` rather than a command of its own:
 | `openPullRequests(root:)` | `pr list --state open --limit 50 --json …` | network |
 | `pullRequest(forHeadBranch:root:)` | `pr list --state open --head <b> --limit 1 --json …` | network |
 | `checks(pullRequest:root:)` | `pr checks <n> --json …` | network |
-| `createPullRequest(title:body:base:draft:root:)` | `pr create -t -b -B [--draft]` | git network, 120 s |
+| `createPullRequest(title:body:base:head:draft:root:)` | `pr create -t -b -B -H [--draft]` | git network, 120 s |
 | `checkoutPullRequest(number:root:)` | `pr checkout <n>` | git network |
 | `repositoryView(root:)` | `repo view --json defaultBranchRef,nameWithOwner` | network |
 

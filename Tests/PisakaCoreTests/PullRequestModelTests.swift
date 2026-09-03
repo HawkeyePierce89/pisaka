@@ -49,9 +49,18 @@ final class PullRequestModelTests: XCTestCase {
 
     private let root = URL(fileURLWithPath: "/tmp/pisaka-github")
 
-    private func makeModel(_ cli: ScriptedGitHubCLI, git: StubGit = StubGit()) -> PullRequestModel {
+    private func makeModel(
+        _ cli: ScriptedGitHubCLI,
+        git: StubGit = StubGit(),
+        isWriteBlocked: @escaping @MainActor () -> Bool = { false }
+    ) -> PullRequestModel {
         let root = root
-        return PullRequestModel(transport: cli, gitService: git, root: { root })
+        return PullRequestModel(
+            transport: cli,
+            gitService: git,
+            root: { root },
+            isWriteBlocked: isWriteBlocked
+        )
     }
 
     /// The one thing the model asks git for: the commit context the create
@@ -72,6 +81,10 @@ final class PullRequestModelTests: XCTestCase {
             inProgress: nil
         )
         var contextError: Error?
+        /// Runs *inside* `commitContext`, so a test can stage what lands while
+        /// the create flow is suspended over it — the several-subprocess read is
+        /// the window a branch switch is actually started in.
+        var onContext: (@Sendable () -> Void)?
         var pushError: Error?
         /// Every plan handed to `push`, in call order.
         var pushedPlans: [PushPlan] = []
@@ -96,6 +109,7 @@ final class PullRequestModelTests: XCTestCase {
 
         func commitContext(root: URL) async throws -> CommitContext {
             if let contextError { throw contextError }
+            onContext?()
             return context
         }
 
@@ -1004,12 +1018,14 @@ final class PullRequestModelTests: XCTestCase {
         title: String = "A change",
         body: String = "Why.",
         base: String = "master",
+        head: String = "feature",
         draft: Bool = false
     ) -> [String] {
         GitHubCommands.createPullRequest(
             title: title,
             body: body,
             base: base,
+            head: head,
             draft: draft,
             root: root
         ).arguments
@@ -1019,7 +1035,8 @@ final class PullRequestModelTests: XCTestCase {
     private func preparedModel(
         _ cli: ScriptedGitHubCLI,
         git: StubGit,
-        repositoryJSON: String? = nil
+        repositoryJSON: String? = nil,
+        isWriteBlocked: @escaping @MainActor () -> Bool = { false }
     ) async throws -> PullRequestModel {
         cli.serveReady()
         cli.serve(listArguments, stdout: "[]")
@@ -1029,7 +1046,7 @@ final class PullRequestModelTests: XCTestCase {
         if let repositoryJSON {
             cli.serve(repositoryArguments, stdout: repositoryJSON)
         }
-        let model = makeModel(cli, git: git)
+        let model = makeModel(cli, git: git, isWriteBlocked: isWriteBlocked)
         await model.refresh(branch: nil)
         await model.prepareCreate()
         return model
@@ -1063,6 +1080,49 @@ final class PullRequestModelTests: XCTestCase {
         let sent = try XCTUnwrap(cli.argumentLists.last { $0.contains("create") })
         let baseIndex = try XCTUnwrap(sent.firstIndex(of: "--base"))
         XCTAssertEqual(sent[baseIndex + 1], "master")
+    }
+
+    /// The head travels as an argument, pinned to the reading the plan was made
+    /// from — not left to `gh`'s "whatever branch is checked out now" default.
+    ///
+    /// Staged as the race it exists for: the push is held while the repository
+    /// moves to another branch, which is exactly what a reader who dismissed the
+    /// sheet and used the branch widget does. The pull request must still be the
+    /// one the sheet's sentence described, carrying the title and base typed for
+    /// it, and never one opened from the branch that happens to be current when
+    /// `pr create` finally runs.
+    func testTheHeadIsPinnedToThePlanEvenIfTheBranchMovesDuringThePush() async throws {
+        let cli = ScriptedGitHubCLI()
+        let git = StubGit()
+        let model = try await preparedModel(cli, git: git, repositoryJSON: try fixture("repo-view.json"))
+        cli.serve(createArguments(), stdout: "https://github.com/o/r/pull/54\n")
+
+        let pushGate = Gate()
+        git.pushGate = pushGate
+        let create = Task {
+            await model.create(title: "A change", body: "Why.", base: "master", draft: false)
+        }
+
+        // The branch moves while the push is on the wire. The push itself reads
+        // nothing more from the context, and nothing after it re-reads the
+        // repository — the head was decided before the first `await`.
+        await pushGate.waitUntilReached()
+        git.context = CommitContext(
+            isUnbornHEAD: false,
+            isDetachedHEAD: false,
+            currentBranch: "unrelated",
+            upstream: "origin/unrelated",
+            remotes: ["origin"],
+            inProgress: nil
+        )
+        pushGate.release()
+
+        let created = await create.value
+        XCTAssertTrue(created)
+
+        let sent = try XCTUnwrap(cli.argumentLists.last { $0.contains("create") })
+        let headIndex = try XCTUnwrap(sent.firstIndex(of: "--head"))
+        XCTAssertEqual(sent[headIndex + 1], "feature")
     }
 
     func testARepoViewFailureDisablesCreate() async throws {
@@ -1823,6 +1883,102 @@ final class PullRequestModelTests: XCTestCase {
     /// Every exit from `create` leaves a sentence, this one included: a reader
     /// who presses Create after `gh` went away gets an explanation rather than a
     /// button that does nothing at all.
+    /// A create asks the writer gate, and it asks it *before the push*.
+    ///
+    /// The push is the half neither the fresh context nor the pinned `--head`
+    /// can protect: `PushPlan.push(upstream:)` is a plain `git push`, which
+    /// resolves HEAD when its own process launches rather than from the plan, so
+    /// a branch switch landing between the context read and the push publishes a
+    /// branch this flow never planned while `--head` still opens the pull request
+    /// from the one it did. Asserted by what was *not* done — no push, no
+    /// `pr create` — because the refusal has to happen before the first of them,
+    /// not between them.
+    func testACreateIsRefusedWhileTheWorktreeIsBeingRewritten() async throws {
+        let cli = ScriptedGitHubCLI()
+        let git = StubGit()
+        var blocked = false
+        let model = try await preparedModel(
+            cli,
+            git: git,
+            repositoryJSON: try fixture("repo-view.json"),
+            isWriteBlocked: { blocked }
+        )
+        cli.serve(createArguments(), stdout: "https://github.com/o/r/pull/54\n")
+
+        blocked = true
+        let refused = await model.create(title: "A change", body: "Why.", base: "master", draft: false)
+
+        XCTAssertFalse(refused)
+        XCTAssertEqual(model.errorMessage, PullRequestModel.createBlockedMessage)
+        XCTAssertEqual(git.pushedPlans, [])
+        XCTAssertFalse(cli.argumentLists.contains { $0.contains("create") })
+        XCTAssertFalse(model.isWriteInFlight)
+
+        // And the very same create runs once the gate comes down: the refusal is
+        // a "not now", not a state the sheet has to be reopened out of.
+        blocked = false
+        let created = await model.create(title: "A change", body: "Why.", base: "master", draft: false)
+        XCTAssertTrue(created)
+        XCTAssertEqual(git.pushedPlans, [.push(upstream: "origin/feature")])
+    }
+
+    /// A worktree-mutating operation that starts *while the create is suspended*
+    /// is refused too — which is the reading that actually matters.
+    ///
+    /// The consult at the top of `create` answers only for a rewrite already in
+    /// flight. The flow then awaits `commitContext`, which is several `git`
+    /// subprocesses long with the main actor free throughout, and none of the
+    /// app's branch-change entry points consults this feature's own one-write
+    /// flag — they refuse on the writer gate, which this flow never raises. So a
+    /// branch switch started in that window would run, and a plain `git push`
+    /// resolves HEAD at its own process launch: it would publish the branch the
+    /// switch moved to while the pinned `--head` opened the pull request from the
+    /// one the plan named. Staged by raising the gate from inside the context
+    /// read, and asserted by what was *not* done — the refusal has to land before
+    /// the push, not between the push and `pr create`.
+    func testACreateIsRefusedWhenTheGateGoesUpWhileItIsSuspended() async throws {
+        /// Written from the cooperative pool (inside `commitContext`) and read
+        /// from the main actor (the gate closure), so the Bool is locked rather
+        /// than shared bare.
+        final class Flag: @unchecked Sendable {
+            private let lock = NSLock()
+            private var value = false
+            var isRaised: Bool {
+                lock.lock()
+                defer { lock.unlock() }
+                return value
+            }
+            func raise() {
+                lock.lock()
+                value = true
+                lock.unlock()
+            }
+        }
+
+        let cli = ScriptedGitHubCLI()
+        let git = StubGit()
+        let flag = Flag()
+        let model = try await preparedModel(
+            cli,
+            git: git,
+            repositoryJSON: try fixture("repo-view.json"),
+            isWriteBlocked: { flag.isRaised }
+        )
+        cli.serve(createArguments(), stdout: "https://github.com/o/r/pull/54\n")
+
+        // The gate was down when Create was pressed and goes up during the read
+        // the flow is suspended over — a branch switch initiated in that window.
+        git.onContext = { flag.raise() }
+
+        let created = await model.create(title: "A change", body: "Why.", base: "master", draft: false)
+
+        XCTAssertFalse(created)
+        XCTAssertEqual(model.errorMessage, PullRequestModel.createBlockedMessage)
+        XCTAssertEqual(git.pushedPlans, [], "the push must not run: it would publish the switched-to branch")
+        XCTAssertFalse(cli.argumentLists.contains { $0.contains("create") })
+        XCTAssertFalse(model.isWriteInFlight)
+    }
+
     func testACreateRefusedForWantOfAReadyGHSaysSo() async throws {
         let cli = ScriptedGitHubCLI()
         cli.serve(GitHubCommands.version(), stdout: "gh version 2.49.0 (2024-01-01)\n")

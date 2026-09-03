@@ -61,11 +61,12 @@ final class GitHubCommandsTests: XCTestCase {
         XCTAssertEqual(command.workingDirectory, root)
     }
 
-    func testCreateCommandAlwaysPassesBaseExplicitly() {
+    func testCreateCommandAlwaysPassesBaseAndHeadExplicitly() {
         let command = GitHubCommands.createPullRequest(
             title: "Add the panel",
             body: "Body text",
             base: "master",
+            head: "feature",
             draft: false,
             root: root
         )
@@ -74,8 +75,27 @@ final class GitHubCommandsTests: XCTestCase {
             "--title", "Add the panel",
             "--body", "Body text",
             "--base", "master",
+            "--head", "feature",
         ])
         XCTAssertEqual(command.deadline, 120)
+    }
+
+    /// The head is an argument for the base's reason, read the other way round:
+    /// `gh`'s own default is the branch checked out when `pr create` runs, and
+    /// create pushes first — so the branch can move between the sheet's sentence
+    /// and the command. What was stated is what is sent.
+    func testCreateCommandNeverLeavesTheHeadToGhsCurrentBranch() {
+        let command = GitHubCommands.createPullRequest(
+            title: "T",
+            body: "B",
+            base: "master",
+            head: "feature",
+            draft: false,
+            root: root
+        )
+        let index = command.arguments.firstIndex(of: "--head")
+        XCTAssertNotNil(index)
+        XCTAssertEqual(command.arguments[(index ?? 0) + 1], "feature")
     }
 
     func testCreateCommandAppendsDraftFlagLast() {
@@ -83,6 +103,7 @@ final class GitHubCommandsTests: XCTestCase {
             title: "T",
             body: "B",
             base: "develop",
+            head: "feature",
             draft: true,
             root: root
         )
@@ -91,6 +112,7 @@ final class GitHubCommandsTests: XCTestCase {
             "--title", "T",
             "--body", "B",
             "--base", "develop",
+            "--head", "feature",
             "--draft",
         ])
     }
@@ -98,8 +120,18 @@ final class GitHubCommandsTests: XCTestCase {
     func testCreateCommandPassesEmptyBodyAsAnEmptyArgument() {
         // Not omitted: `gh pr create` with no `--body` opens an editor, which in
         // a non-interactive process hangs until the deadline kills it.
-        let command = GitHubCommands.createPullRequest(title: "T", body: "", base: "master", draft: false, root: root)
-        XCTAssertEqual(command.arguments, ["pr", "create", "--title", "T", "--body", "", "--base", "master"])
+        let command = GitHubCommands.createPullRequest(
+            title: "T",
+            body: "",
+            base: "master",
+            head: "feature",
+            draft: false,
+            root: root
+        )
+        XCTAssertEqual(
+            command.arguments,
+            ["pr", "create", "--title", "T", "--body", "", "--base", "master", "--head", "feature"]
+        )
     }
 
     func testCheckoutCommand() {
@@ -146,7 +178,7 @@ final class GitHubCommandsTests: XCTestCase {
             ("pullRequestForHeadBranch", GitHubCommands.pullRequest(forHeadBranch: "b", root: root)),
             ("checks", GitHubCommands.checks(pullRequest: 1, root: root)),
             ("createPullRequest", GitHubCommands.createPullRequest(
-                title: "t", body: "b", base: "master", draft: false, root: root
+                title: "t", body: "b", base: "master", head: "feature", draft: false, root: root
             )),
             ("checkoutPullRequest", GitHubCommands.checkoutPullRequest(number: 1, root: root)),
             ("repositoryView", GitHubCommands.repositoryView(root: root)),

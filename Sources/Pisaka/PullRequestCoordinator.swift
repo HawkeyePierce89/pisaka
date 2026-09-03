@@ -309,8 +309,18 @@ final class PullRequestCoordinator: ObservableObject {
         // The branch the post-checkout refresh must ask about, read *before* the
         // operation runs — see `runCheckout` for why the branch widget cannot
         // answer that question at the moment it is asked.
-        checkedOutHeadBranch = model.pullRequests.first { $0.number == number }?.headRefName
-        model.checkout(number)
+        //
+        // Recorded only once the model has **accepted**, which is what its
+        // `@discardableResult` answer is for: a checkout arriving while one of
+        // this feature's writes is already in flight is refused there (G10), and
+        // recording first would overwrite the running checkout's head with the
+        // refused row's — leaving `refreshAfterCheckout()` to ask `pr list --head`
+        // about a pull request that was never checked out. The model raises the
+        // one-write flag and hands the operation to the bracket, which starts its
+        // own `Task`, so this line still lands before anything can read it.
+        let headBranch = model.pullRequests.first { $0.number == number }?.headRefName
+        guard model.checkout(number) else { return }
+        checkedOutHeadBranch = headBranch
     }
 
     /// Re-read for the branch `gh pr checkout` just moved to.
