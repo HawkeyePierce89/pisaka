@@ -97,10 +97,10 @@ The main-actor model behind both the panel and the indicator. It re-probes avail
   - Create: `Sources/PisakaCore/GitHubCreatePlan.swift` — the sheet's pure half: the default base is the `repo view` answer (read once when the sheet opens, under the model's generation token; on failure the picker is empty, Create disabled, and `gh`'s words are shown); the refusals reuse `PushUnavailableReason.detachedHEAD` / `.noRemote` and their existing sentences; the "uncommitted changes will not be part of the pull request" line; the sentence naming the base that will be used and, for `PushPlan.setUpstream`, the remote the branch will be published to.
   - Modify: `Sources/PisakaCore/PullRequestModel.swift` — `create(...)`: raise `isWriteInFlight`, read `CommitContext`, refuse per the plan, **push first through the existing `GitServicing.push(_:root:)`** on both `PushPlan` branches, then run `pr create` with an always-explicit `--base`, parse the number out of the printed URL, refresh the list, select the new row. Failure publishes trimmed stderr and leaves the caller's fields intact.
   - Modify: `Tests/PisakaCoreTests/PullRequestModelTests.swift`; create `Tests/PisakaCoreTests/GitHubCreatePlanTests.swift`.
-  - [ ] implement the create plan (base default, refusals, the stated sentences)
-  - [ ] implement the model's create flow with push-before-create and the write flag
-  - [ ] tests: the base default comes from `repo view` and is always passed explicitly; a `repo view` failure disables Create; detached HEAD and no-remote refuse with the commit dialog's own sentences; push runs before `pr create` on both `PushPlan` branches (assert call order in the log); a push failure never reaches `pr create`; the new number is parsed from the URL and the row selected; `isWriteInFlight` is up for the whole flow and down on every exit path
-  - [ ] run `swift test` — must pass before Task 5
+  - [x] implement the create plan (base default, refusals, the stated sentences)
+  - [x] implement the model's create flow with push-before-create and the write flag
+  - [x] tests: the base default comes from `repo view` and is always passed explicitly; a `repo view` failure disables Create; detached HEAD and no-remote refuse with the commit dialog's own sentences; push runs before `pr create` on both `PushPlan` branches (assert call order in the log); a push failure never reaches `pr create`; the new number is parsed from the URL and the row selected; `isWriteInFlight` is up for the whole flow and down on every exit path
+  - [x] run `swift test` — must pass before Task 5
 
 ### Task 5: The app-side transport and the shared executable locator
 

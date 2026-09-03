@@ -49,9 +49,62 @@ final class PullRequestModelTests: XCTestCase {
 
     private let root = URL(fileURLWithPath: "/tmp/pisaka-github")
 
-    private func makeModel(_ cli: ScriptedGitHubCLI) -> PullRequestModel {
+    private func makeModel(_ cli: ScriptedGitHubCLI, git: StubGit = StubGit()) -> PullRequestModel {
         let root = root
-        return PullRequestModel(transport: cli, root: { root })
+        return PullRequestModel(transport: cli, gitService: git, root: { root })
+    }
+
+    /// The one thing the model asks git for: the commit context the create
+    /// plan's refusals are decided from, and the push that runs before
+    /// `pr create`.
+    ///
+    /// Deliberately tiny — `GitServicing`'s protocol extension defaults the
+    /// other twenty-odd members to `throw GitError.gitUnavailable`, so anything
+    /// this feature reached for that is not one of these two would fail as a
+    /// failure rather than answer emptiness.
+    private final class StubGit: GitServicing {
+        var context = CommitContext(
+            isUnbornHEAD: false,
+            isDetachedHEAD: false,
+            currentBranch: "feature",
+            upstream: "origin/feature",
+            remotes: ["origin"],
+            inProgress: nil
+        )
+        var contextError: Error?
+        var pushError: Error?
+        /// Every plan handed to `push`, in call order.
+        var pushedPlans: [PushPlan] = []
+        /// Runs *inside* `push`, so a test can assert what has and has not been
+        /// sent to `gh` at the moment the push is still in flight.
+        var onPush: (@Sendable () -> Void)?
+        /// Holds `push` until released — the window a test reads the write flag
+        /// in from the main actor, which is free while the push blocks a
+        /// cooperative-pool thread.
+        var pushGate: Gate?
+
+        func repositoryRoot(for url: URL) async throws -> URL { url }
+
+        // The four members `GitServicing` does not default. None of them is
+        // reachable from this feature; each answers the emptiest honest thing so
+        // a stray call shows up as an empty answer rather than as a compile
+        // error nobody reads.
+        func changedFiles(root: URL) async throws -> [ChangedFile] { [] }
+        func commits(filter: LogFilter, limit: Int, root: URL) async throws -> [Commit] { [] }
+        func headContents(of path: String, root: URL) async throws -> String? { nil }
+        func revert(_ file: ChangedFile, root: URL) async throws {}
+
+        func commitContext(root: URL) async throws -> CommitContext {
+            if let contextError { throw contextError }
+            return context
+        }
+
+        func push(_ plan: PushPlan, root: URL) async throws {
+            pushedPlans.append(plan)
+            onPush?()
+            pushGate?.wait()
+            if let pushError { throw pushError }
+        }
     }
 
     /// The list command's own argument list, which is also its script key.
@@ -279,7 +332,7 @@ final class PullRequestModelTests: XCTestCase {
 
     func testNoProjectRootAsksNothingAndDecidesNoAvailability() async {
         let cli = ScriptedGitHubCLI()
-        let model = PullRequestModel(transport: cli, root: { nil })
+        let model = PullRequestModel(transport: cli, gitService: StubGit(), root: { nil })
 
         await model.refresh(branch: "feature")
 
@@ -611,6 +664,351 @@ final class PullRequestModelTests: XCTestCase {
 
         XCTAssertEqual(model.checks[53]?.count, 4)
         XCTAssertEqual(model.expandedNumber, 53)
+    }
+
+    // MARK: - The create flow
+
+    private var repositoryArguments: [String] { GitHubCommands.repositoryView(root: root).arguments }
+
+    private func createArguments(
+        title: String = "A change",
+        body: String = "Why.",
+        base: String = "master",
+        draft: Bool = false
+    ) -> [String] {
+        GitHubCommands.createPullRequest(
+            title: title,
+            body: body,
+            base: base,
+            draft: draft,
+            root: root
+        ).arguments
+    }
+
+    /// A ready model whose sheet has been prepared over `git`'s context.
+    private func preparedModel(
+        _ cli: ScriptedGitHubCLI,
+        git: StubGit,
+        repositoryJSON: String? = nil
+    ) async throws -> PullRequestModel {
+        cli.serveReady()
+        cli.serve(listArguments, stdout: "[]")
+        // The refresh a successful create ends with re-asks the current
+        // branch's lookup, so every create test needs it answered.
+        cli.serve(headArguments("feature"), stdout: "[]")
+        if let repositoryJSON {
+            cli.serve(repositoryArguments, stdout: repositoryJSON)
+        }
+        let model = makeModel(cli, git: git)
+        await model.refresh(branch: nil)
+        await model.prepareCreate()
+        return model
+    }
+
+    func testTheBaseDefaultComesFromRepoView() async throws {
+        let cli = ScriptedGitHubCLI()
+        let git = StubGit()
+        let model = try await preparedModel(cli, git: git, repositoryJSON: try fixture("repo-view.json"))
+
+        XCTAssertEqual(model.repository?.defaultBranch, "master")
+        XCTAssertEqual(model.repository?.nameWithOwner, "HawkeyePierce89/pisaka")
+        XCTAssertEqual(model.createPlan?.base, "master")
+        XCTAssertEqual(model.createPlan?.headBranch, "feature")
+        XCTAssertTrue(model.createPlan?.canCreate == true)
+        XCTAssertNil(model.errorMessage)
+    }
+
+    func testTheBaseIsAlwaysPassedExplicitly() async throws {
+        let cli = ScriptedGitHubCLI()
+        let git = StubGit()
+        let model = try await preparedModel(cli, git: git, repositoryJSON: try fixture("repo-view.json"))
+        cli.serve(createArguments(), stdout: "https://github.com/o/r/pull/54\n")
+
+        let created = await model.create(title: "A change", body: "Why.", base: "master", draft: false)
+        XCTAssertTrue(created)
+
+        // Never left to `gh`'s own default, which is the upstream repository's
+        // branch for a fork — a different pull request from the one the sheet
+        // described.
+        let sent = try XCTUnwrap(cli.argumentLists.last { $0.contains("create") })
+        let baseIndex = try XCTUnwrap(sent.firstIndex(of: "--base"))
+        XCTAssertEqual(sent[baseIndex + 1], "master")
+    }
+
+    func testARepoViewFailureDisablesCreate() async throws {
+        let cli = ScriptedGitHubCLI()
+        let git = StubGit()
+        cli.serveReady()
+        cli.serve(listArguments, stdout: "[]")
+        cli.serve(repositoryArguments, stderr: "could not determine base repository\n", status: 1)
+        let model = makeModel(cli, git: git)
+        await model.refresh(branch: nil)
+        await model.prepareCreate()
+
+        XCTAssertNil(model.repository)
+        XCTAssertEqual(model.createPlan?.base, "")
+        XCTAssertFalse(model.createPlan?.canCreate == true)
+        // `gh`'s own words, and no second sentence invented beside them.
+        XCTAssertEqual(model.errorMessage, "could not determine base repository")
+        XCTAssertNil(model.createPlan?.refusal)
+
+        // And the write refuses on the same rule the disabled button reads.
+        let refused = await model.create(title: "A change", body: "Why.", base: "", draft: false)
+        XCTAssertFalse(refused)
+        XCTAssertFalse(cli.argumentLists.contains { $0.contains("create") })
+    }
+
+    func testDetachedHEADRefusesWithTheCommitDialogsOwnSentence() async throws {
+        let cli = ScriptedGitHubCLI()
+        let git = StubGit()
+        git.context = CommitContext(
+            isUnbornHEAD: false,
+            isDetachedHEAD: true,
+            currentBranch: nil,
+            upstream: nil,
+            remotes: ["origin"],
+            inProgress: nil
+        )
+        let model = try await preparedModel(cli, git: git, repositoryJSON: try fixture("repo-view.json"))
+
+        XCTAssertEqual(model.createPlan?.refusal, .detachedHEAD)
+        let refused = await model.create(title: "A change", body: "Why.", base: "master", draft: false)
+        XCTAssertFalse(refused)
+
+        XCTAssertEqual(model.errorMessage, PushUnavailableReason.detachedHEAD.message)
+        XCTAssertTrue(git.pushedPlans.isEmpty)
+        XCTAssertFalse(cli.argumentLists.contains { $0.contains("create") })
+    }
+
+    func testNoRemoteRefusesWithTheCommitDialogsOwnSentence() async throws {
+        let cli = ScriptedGitHubCLI()
+        let git = StubGit()
+        git.context = CommitContext(
+            isUnbornHEAD: false,
+            isDetachedHEAD: false,
+            currentBranch: "feature",
+            upstream: nil,
+            remotes: [],
+            inProgress: nil
+        )
+        let model = try await preparedModel(cli, git: git, repositoryJSON: try fixture("repo-view.json"))
+
+        XCTAssertEqual(model.createPlan?.refusal, .noRemote)
+        let refused = await model.create(title: "A change", body: "Why.", base: "master", draft: false)
+        XCTAssertFalse(refused)
+
+        XCTAssertEqual(model.errorMessage, PushUnavailableReason.noRemote.message)
+        XCTAssertTrue(git.pushedPlans.isEmpty)
+        XCTAssertFalse(cli.argumentLists.contains { $0.contains("create") })
+    }
+
+    func testThePushRunsBeforeCreateOnAnUpstreamBranch() async throws {
+        let cli = ScriptedGitHubCLI()
+        let git = StubGit()
+        let model = try await preparedModel(cli, git: git, repositoryJSON: try fixture("repo-view.json"))
+        cli.serve(createArguments(), stdout: "https://github.com/o/r/pull/54\n")
+
+        var sentWhenPushRan: [[String]] = []
+        git.onPush = { [weak cli] in sentWhenPushRan = cli?.argumentLists ?? [] }
+
+        let created = await model.create(title: "A change", body: "Why.", base: "master", draft: false)
+        XCTAssertTrue(created)
+
+        XCTAssertEqual(git.pushedPlans, [.push(upstream: "origin/feature")])
+        // Read out of the log rather than out of a flag: at the moment the push
+        // was running, nothing had been sent to `gh pr create` yet.
+        XCTAssertFalse(sentWhenPushRan.contains { $0.contains("create") })
+        XCTAssertTrue(cli.argumentLists.contains { $0.contains("create") })
+    }
+
+    func testThePushRunsBeforeCreateOnASetUpstreamBranch() async throws {
+        let cli = ScriptedGitHubCLI()
+        let git = StubGit()
+        git.context = CommitContext(
+            isUnbornHEAD: false,
+            isDetachedHEAD: false,
+            currentBranch: "feature",
+            upstream: nil,
+            remotes: ["origin"],
+            inProgress: nil
+        )
+        let model = try await preparedModel(cli, git: git, repositoryJSON: try fixture("repo-view.json"))
+        cli.serve(createArguments(), stdout: "https://github.com/o/r/pull/54\n")
+
+        var sentWhenPushRan: [[String]] = []
+        git.onPush = { [weak cli] in sentWhenPushRan = cli?.argumentLists ?? [] }
+
+        let created = await model.create(title: "A change", body: "Why.", base: "master", draft: false)
+        XCTAssertTrue(created)
+
+        XCTAssertEqual(git.pushedPlans, [.setUpstream(remote: "origin", branch: "feature")])
+        XCTAssertFalse(sentWhenPushRan.contains { $0.contains("create") })
+        XCTAssertTrue(cli.argumentLists.contains { $0.contains("create") })
+    }
+
+    func testAPushFailureNeverReachesCreate() async throws {
+        let cli = ScriptedGitHubCLI()
+        let git = StubGit()
+        git.pushError = GitError.pushFailed(reason: "rejected: non-fast-forward")
+        let model = try await preparedModel(cli, git: git, repositoryJSON: try fixture("repo-view.json"))
+
+        let refused = await model.create(title: "A change", body: "Why.", base: "master", draft: false)
+        XCTAssertFalse(refused)
+
+        XCTAssertEqual(git.pushedPlans.count, 1)
+        // The difference between "nothing happened" and a pull request opened
+        // against commits the remote has never seen.
+        XCTAssertFalse(cli.argumentLists.contains { $0.contains("create") })
+        XCTAssertEqual(model.errorMessage, GitError.pushFailed(reason: "rejected: non-fast-forward").errorDescription)
+    }
+
+    func testTheNewNumberIsParsedFromTheURLAndTheRowSelected() async throws {
+        let cli = ScriptedGitHubCLI()
+        let git = StubGit()
+        let model = try await preparedModel(cli, git: git, repositoryJSON: try fixture("repo-view.json"))
+        cli.serve(
+            createArguments(),
+            stdout: """
+            Creating pull request for feature into master in o/r
+
+            https://github.com/o/r/pull/54
+            """
+        )
+        // The refresh that follows lists the new row, which is what the
+        // selection points into.
+        cli.serve(listArguments, stdout: listJSON(number: 54, head: "feature"))
+        cli.serve(headArguments("feature"), stdout: listJSON(number: 54, head: "feature"))
+
+        let created = await model.create(title: "A change", body: "Why.", base: "master", draft: false)
+        XCTAssertTrue(created)
+
+        XCTAssertEqual(model.selectedNumber, 54)
+        XCTAssertEqual(model.pullRequests.map(\.number), [54])
+        XCTAssertNil(model.errorMessage)
+    }
+
+    func testADraftPullRequestCarriesTheDraftFlag() async throws {
+        let cli = ScriptedGitHubCLI()
+        let git = StubGit()
+        let model = try await preparedModel(cli, git: git, repositoryJSON: try fixture("repo-view.json"))
+        cli.serve(createArguments(draft: true), stdout: "https://github.com/o/r/pull/54\n")
+
+        let created = await model.create(title: "A change", body: "Why.", base: "master", draft: true)
+        XCTAssertTrue(created)
+
+        let sent = try XCTUnwrap(cli.argumentLists.last { $0.contains("create") })
+        XCTAssertTrue(sent.contains("--draft"))
+    }
+
+    func testACreateFailurePublishesGhsWordsAndCreatesNothing() async throws {
+        let cli = ScriptedGitHubCLI()
+        let git = StubGit()
+        let model = try await preparedModel(cli, git: git, repositoryJSON: try fixture("repo-view.json"))
+        cli.serve(createArguments(), stderr: "pull request already exists for o:feature\n", status: 1)
+
+        let refused = await model.create(title: "A change", body: "Why.", base: "master", draft: false)
+        XCTAssertFalse(refused)
+
+        XCTAssertEqual(model.errorMessage, "pull request already exists for o:feature")
+        XCTAssertNil(model.selectedNumber)
+        XCTAssertFalse(model.isWriteInFlight)
+    }
+
+    func testTheWriteFlagIsUpForTheWholeFlowAndDownOnEveryExitPath() async throws {
+        let cli = ScriptedGitHubCLI()
+        let git = StubGit()
+        let model = try await preparedModel(cli, git: git, repositoryJSON: try fixture("repo-view.json"))
+        cli.serve(createArguments(), stdout: "https://github.com/o/r/pull/54\n")
+
+        let pushGate = Gate()
+        let createGate = Gate()
+        git.pushGate = pushGate
+        cli.hold(createArguments(), on: createGate)
+
+        let create = Task {
+            await model.create(title: "A change", body: "Why.", base: "master", draft: false)
+        }
+        // Up while the *push* is still running — before `gh` has been asked for
+        // anything, which is the earliest moment the flag has to be up.
+        await pushGate.waitUntilReached()
+        XCTAssertTrue(model.isWriteInFlight)
+        pushGate.release()
+
+        // And still up while `pr create` is on the wire, which is what the
+        // panel's disabled Checkout and refresh buttons read.
+        await createGate.waitUntilReached()
+        XCTAssertTrue(model.isWriteInFlight)
+        createGate.release()
+        let created = await create.value
+        XCTAssertTrue(created)
+
+        XCTAssertFalse(model.isWriteInFlight)
+        git.pushGate = nil
+
+        // Down after a refusal, after a push failure and after a failed command.
+        git.pushError = GitError.pushFailed(reason: "no")
+        let refused = await model.create(title: "A change", body: "Why.", base: "master", draft: false)
+        XCTAssertFalse(refused)
+        XCTAssertFalse(model.isWriteInFlight)
+
+        git.pushError = nil
+        git.contextError = GitError.gitUnavailable
+        let refusedAgain = await model.create(title: "A change", body: "Why.", base: "master", draft: false)
+        XCTAssertFalse(refusedAgain)
+        XCTAssertFalse(model.isWriteInFlight)
+    }
+
+    func testASecondCreateIsRefusedWhileTheFirstIsInFlight() async throws {
+        let cli = ScriptedGitHubCLI()
+        let git = StubGit()
+        let model = try await preparedModel(cli, git: git, repositoryJSON: try fixture("repo-view.json"))
+        cli.serve(createArguments(), stdout: "https://github.com/o/r/pull/54\n")
+
+        let gate = Gate()
+        cli.hold(createArguments(), on: gate)
+        let first = Task {
+            await model.create(title: "A change", body: "Why.", base: "master", draft: false)
+        }
+        await gate.waitUntilReached()
+
+        let refused = await model.create(title: "A change", body: "Why.", base: "master", draft: false)
+        XCTAssertFalse(refused)
+        gate.release()
+        let created = await first.value
+        XCTAssertTrue(created)
+
+        // One push, one create: the refused second flow sent nothing at all.
+        XCTAssertEqual(git.pushedPlans.count, 1)
+        XCTAssertEqual(cli.argumentLists.filter { $0.contains("create") }.count, 1)
+    }
+
+    func testMovingTheBasePickerRePlansWithoutASecondGitRead() async throws {
+        let cli = ScriptedGitHubCLI()
+        let git = StubGit()
+        let model = try await preparedModel(cli, git: git, repositoryJSON: try fixture("repo-view.json"))
+
+        model.setCreateBase("develop")
+
+        XCTAssertEqual(model.createPlan?.base, "develop")
+        XCTAssertEqual(
+            model.createPlan?.baseSentence,
+            "The pull request will be opened from “feature” into “develop”."
+        )
+    }
+
+    func testACreateFailureIsNotClearedByASucceedingRefresh() async throws {
+        let cli = ScriptedGitHubCLI()
+        let git = StubGit()
+        let model = try await preparedModel(cli, git: git, repositoryJSON: try fixture("repo-view.json"))
+        cli.serve(createArguments(), stderr: "pull request already exists for o:feature\n", status: 1)
+
+        let refused = await model.create(title: "A change", body: "Why.", base: "master", draft: false)
+        XCTAssertFalse(refused)
+        await model.refresh(branch: nil)
+
+        // The refresh that succeeded says nothing about the create that failed,
+        // and the sheet is still open showing the fields it refused.
+        XCTAssertEqual(model.errorMessage, "pull request already exists for o:feature")
     }
 
     // MARK: - The reader rule

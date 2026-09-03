@@ -13,14 +13,16 @@ import Foundation
 /// `GitHubCommands` and every answer is read by `GitHubAPI`, so nothing here
 /// knows what `gh`'s output looks like and nothing here spells a `gh` flag.
 ///
-/// **Two tokens, because there are two independently re-triggerable reads.** A
-/// refresh — availability, the list, the current branch's lookup — is re-asked
-/// by a branch change, by the panel becoming visible and by the refresh button;
-/// the per-row checks list is re-asked by expanding a row, which the reader can
-/// do faster than a large pull request answers. One shared token would let a
-/// finished refresh cancel a checks load that has nothing to do with it, so the
-/// two are counted apart. A superseded run publishes *nothing*: not its rows,
-/// not its message, not its loading flag.
+/// **Three tokens, because there are three independently re-triggerable
+/// reads.** A refresh — availability, the list, the current branch's lookup — is
+/// re-asked by a branch change, by the panel becoming visible and by the refresh
+/// button; the per-row checks list is re-asked by expanding a row, which the
+/// reader can do faster than a large pull request answers; the create sheet's
+/// own read is re-asked every time the sheet opens, while the panel behind it
+/// stays live. One shared token would let a finished refresh cancel a checks
+/// load that has nothing to do with it, or blank an open sheet's base picker, so
+/// the three are counted apart. A superseded run publishes *nothing*: not its
+/// rows, not its message, not its loading flag.
 ///
 /// **Availability is re-probed on every refresh and never more often** (G8).
 /// `gh` is the user's own binary: it can be installed, upgraded, signed in or
@@ -56,10 +58,14 @@ import Foundation
 /// for the other six commands and for that one it is not, which is a rule with
 /// exactly one site — `loadChecks(number:root:token:)` below.
 ///
-/// **A reader.** Nothing in this file writes to the worktree; the one write in
-/// the whole feature is `pr checkout`, which arrives in a later task, runs
-/// inside the app's writer bracket and is the only thing `isWriteInFlight` is
-/// ever raised for.
+/// **A reader except for `create` and, later, `checkout`.** Nothing in this file
+/// writes to the *worktree*: `create` pushes the branch it is already on and
+/// opens a pull request, which changes nothing on disk and therefore takes no
+/// writer gate. `pr checkout` — which does rewrite the worktree, and arrives in
+/// a later task — is the one operation that runs inside the app's writer
+/// bracket. Both raise `isWriteInFlight`, which is the panel's one "something is
+/// being written" term and the term each of them refuses on: exactly one write
+/// per repository at a time.
 @MainActor
 public final class PullRequestModel: ObservableObject {
 
@@ -93,6 +99,23 @@ public final class PullRequestModel: ObservableObject {
     /// per-row network read and the panel is a dock pane, not a page.
     @Published public private(set) var expandedNumber: Int?
 
+    /// The row the panel has selected, or `nil`.
+    ///
+    /// Written by exactly one thing: a successful `create`, which selects the
+    /// pull request it just opened so the row the reader was writing about is
+    /// the row they are looking at when the sheet closes. Cleared with the rows
+    /// it points into.
+    @Published public private(set) var selectedNumber: Int?
+
+    /// What `gh repo view` answered — the repository's name and, the reason the
+    /// command is in scope at all, its default branch (G11).
+    ///
+    /// `nil` until a create sheet has opened, and `nil` again when that read
+    /// failed: the create plan's `base` is this value and nothing else, so a
+    /// failure here is exactly the empty picker with Create disabled that
+    /// `GitHubCreatePlan` describes.
+    @Published public private(set) var repository: GitHubRepository?
+
     /// The one message slot — `gh`'s own words for a failed command, the schema
     /// error's sentence for output that did not parse.
     @Published public private(set) var errorMessage: String?
@@ -100,17 +123,32 @@ public final class PullRequestModel: ObservableObject {
     /// Whether a refresh is in flight. What the panel draws its spinner from.
     @Published public private(set) var isLoading = false
 
-    /// Whether the feature's one write — `pr checkout` — is running.
+    /// Whether one of the feature's two writes — `create` or `pr checkout` — is
+    /// running.
     ///
     /// Published here rather than in the coordinator because both surfaces
     /// disable on it: the panel greys New Pull Request, Checkout and refresh,
-    /// and nothing else may start a second one. It is raised and lowered by the
-    /// checkout flow alone; every read path leaves it untouched.
+    /// and nothing else may start a second one. It is raised and lowered by
+    /// those two flows alone, each of which also *refuses* on it, so the rule
+    /// holds even when a button forgot to disable; every read path leaves it
+    /// untouched.
     @Published public private(set) var isWriteInFlight = false
 
     // MARK: - Collaborators
 
     private let transport: GitHubCLITransport
+
+    /// The repository's own git, for the one thing `gh` is not asked to do: the
+    /// push that has to happen before `pr create` (G11).
+    ///
+    /// The existing `GitServicing`, not a second git: it already reads the
+    /// commit context the refusals are decided from and already performs both
+    /// `PushPlan` branches, with `GitCLIService`'s serial queues, its
+    /// `GIT_TERMINAL_PROMPT=0` and its typed failures. `gh` would push too — it
+    /// pushes silently as part of `pr create` — but only after prompting for a
+    /// remote on a branch that has none, which is a prompt no pipe can answer,
+    /// and it would make the push invisible to the sentence the sheet showed.
+    private let gitService: GitServicing
 
     /// The repository root **as it is now**.
     ///
@@ -132,6 +170,18 @@ public final class PullRequestModel: ObservableObject {
     /// row the reader has since closed publishes nothing.
     private var checksGeneration = 0
 
+    /// Orders the create sheet's reads and its write against each other. Bumped
+    /// in `prepareCreate()`'s and `create(...)`'s synchronous prefixes.
+    ///
+    /// A third token, and the reason it is not the list's: the sheet's base
+    /// default is read while the panel behind it stays live, so a branch-change
+    /// refresh landing in that window would supersede the sheet's own read and
+    /// leave it with an empty picker and no explanation. The two reads are
+    /// independently re-triggerable — a sheet can be opened, cancelled and
+    /// opened again without a refresh in between — which is the same argument
+    /// that separated the list's token from the checks'.
+    private var createGeneration = 0
+
     /// Which read put the current sentence in the one message slot.
     private var errorSource: ErrorSource?
 
@@ -144,15 +194,27 @@ public final class PullRequestModel: ObservableObject {
     private enum ErrorSource {
         case refresh
         case checks
+        /// The create sheet's own read and its write. Third for the reason the
+        /// second exists: a background refresh that succeeded says nothing about
+        /// a `pr create` that was refused a moment ago, and clearing that
+        /// sentence would close the sheet's explanation while the sheet is still
+        /// open showing the fields it refused.
+        case create
     }
 
     /// - Parameters:
     ///   - transport: the seam. Never a `Process` — that lives in the app layer,
     ///     behind this protocol, which is what lets every rule in this file be
     ///     asserted in a target that cannot link one.
+    ///   - gitService: the repository's git, for the create flow's push alone.
     ///   - root: where the repository is now.
-    public init(transport: GitHubCLITransport, root: @escaping @MainActor () -> URL?) {
+    public init(
+        transport: GitHubCLITransport,
+        gitService: GitServicing,
+        root: @escaping @MainActor () -> URL?
+    ) {
         self.transport = transport
+        self.gitService = gitService
         self.projectRoot = root
     }
 
@@ -316,6 +378,168 @@ public final class PullRequestModel: ObservableObject {
         }
     }
 
+    // MARK: - The create sheet
+
+    /// What the New Pull Request sheet draws its base, its sentences and its
+    /// disabled Create button from — `nil` before a sheet has been prepared.
+    ///
+    /// One value read from both sides: the sheet disables Create on
+    /// `canCreate == false` and `create(...)` refuses on the same rule, computed
+    /// again from a fresh reading of the repository, so a branch checked out
+    /// behind an open sheet cannot slip past a stale verdict.
+    @Published public private(set) var createPlan: GitHubCreatePlan?
+
+    /// The repository state the open sheet was planned over, kept so moving the
+    /// base picker re-plans without a second git read.
+    private var createContext: CommitContext?
+
+    /// Read everything the create sheet needs, once, as it opens: the
+    /// repository — for the default base, which comes from `gh repo view` and
+    /// from nowhere else (G11) — and the commit context the refusals are decided
+    /// from.
+    ///
+    /// A failed `repo view` is not a refusal: it leaves ``repository`` `nil`,
+    /// hence the plan's base empty, hence Create disabled, with `gh`'s own words
+    /// in the message slot. That is the whole stated behaviour, and it needs no
+    /// case of its own.
+    public func prepareCreate() async {
+        createGeneration &+= 1
+        let token = createGeneration
+        repository = nil
+        createPlan = nil
+        createContext = nil
+        clearError(from: .create)
+
+        guard isReady, let root = projectRoot() else { return }
+
+        var failure: String?
+
+        do {
+            let result = try await transport.run(GitHubCommands.repositoryView(root: root))
+            guard token == createGeneration else { return }
+            if result.isSuccess {
+                repository = try GitHubAPI.repository(fromViewJSON: result.standardOutput)
+            } else {
+                failure = Self.message(for: result)
+            }
+        } catch {
+            guard token == createGeneration else { return }
+            failure = Self.message(for: error)
+        }
+
+        do {
+            let context = try await gitService.commitContext(root: root)
+            guard token == createGeneration else { return }
+            createContext = context
+            createPlan = GitHubCreatePlan.plan(context: context, base: repository?.defaultBranch)
+        } catch {
+            guard token == createGeneration else { return }
+            if failure == nil { failure = Self.message(for: error) }
+        }
+
+        if let failure { setMessage(failure, from: .create) }
+    }
+
+    /// Re-plan for the base the picker has been moved to, so the sentences name
+    /// the branch that is selected rather than the one that was defaulted to.
+    ///
+    /// Synchronous and free: the repository state was read when the sheet
+    /// opened, and only the base has changed.
+    public func setCreateBase(_ base: String) {
+        guard let createContext else { return }
+        createPlan = GitHubCreatePlan.plan(context: createContext, base: base)
+    }
+
+    /// Push the branch, open the pull request, re-read the list and select the
+    /// new row. `true` when a pull request was created.
+    ///
+    /// **Push first, always** (G11), on both available `PushPlan` branches:
+    /// `gh pr create` compares a *remote* head against the base, so a branch that
+    /// was never pushed — or was pushed three commits ago — opens a pull request
+    /// missing the work it was opened for. A push that fails **never reaches**
+    /// `pr create`, which is the difference between "nothing happened" and a
+    /// pull request published against the wrong commits.
+    ///
+    /// **The one-write rule**: `isWriteInFlight` is raised for the whole flow —
+    /// the push, the create and the refresh that follows — and lowered on every
+    /// exit path, which is what the panel's disabled Create, Checkout and refresh
+    /// buttons read, and what the checkout refuses on. A second create started
+    /// while the first is in flight is refused here rather than trusted to the
+    /// disabled button.
+    ///
+    /// The refusals are the plan's, decided from a **fresh** commit context
+    /// rather than the one the sheet was drawn over: a branch switched, or a
+    /// remote removed, behind an open sheet must refuse rather than push.
+    @discardableResult
+    public func create(title: String, body: String, base: String, draft: Bool) async -> Bool {
+        guard !isWriteInFlight else { return false }
+
+        // Bumped, and deliberately never checked: a write is finished, not
+        // superseded. The bump exists so a sheet read still in flight cannot
+        // publish a plan over the one this flow just decided from fresher state.
+        createGeneration &+= 1
+
+        guard isReady, let root = projectRoot() else { return false }
+
+        isWriteInFlight = true
+        defer { isWriteInFlight = false }
+        clearError(from: .create)
+
+        let context: CommitContext
+        do {
+            context = try await gitService.commitContext(root: root)
+        } catch {
+            setMessage(Self.message(for: error), from: .create)
+            return false
+        }
+
+        let plan = GitHubCreatePlan.plan(context: context, base: base)
+        createContext = context
+        createPlan = plan
+
+        guard plan.canCreate else {
+            // A refusal has a sentence; an empty base has none by design — the
+            // `repo view` failure that produced it already put `gh`'s words in
+            // the slot, and a second sentence would talk over them.
+            if let refusal = plan.refusal { setMessage(refusal.message, from: .create) }
+            return false
+        }
+
+        do {
+            try await gitService.push(plan.push, root: root)
+        } catch {
+            setMessage(Self.message(for: error), from: .create)
+            return false
+        }
+
+        let command = GitHubCommands.createPullRequest(
+            title: title,
+            body: body,
+            base: plan.base,
+            draft: draft,
+            root: root
+        )
+        let result: GitHubCommandResult
+        do {
+            result = try await transport.run(command)
+        } catch {
+            setMessage(Self.message(for: error), from: .create)
+            return false
+        }
+
+        guard result.isSuccess else {
+            setMessage(Self.message(for: result), from: .create)
+            return false
+        }
+
+        // The pull request exists from here on, so nothing below may report a
+        // failure: an unreadable number costs the selection and nothing else.
+        let number = GitHubAPI.pullRequestNumber(fromCreateOutput: result.standardOutput)
+        await refresh(branch: context.currentBranch)
+        selectedNumber = number
+        return true
+    }
+
     // MARK: - Availability
 
     /// What the two probes decided, and the detail sentence — if any — that the
@@ -406,14 +630,16 @@ public final class PullRequestModel: ObservableObject {
         currentBranchPullRequest = nil
         checks = [:]
         expandedNumber = nil
+        selectedNumber = nil
     }
 
     /// Drop the cached checks of pull requests that are no longer open, and
-    /// collapse the expanded row when it was one of them.
+    /// collapse — and deselect — the row when it was one of them.
     private func pruneChecks(keeping rows: [GitHubPullRequest]) {
         let open = Set(rows.map(\.number))
         checks = checks.filter { open.contains($0.key) }
         if let expandedNumber, !open.contains(expandedNumber) { self.expandedNumber = nil }
+        if let selectedNumber, !open.contains(selectedNumber) { self.selectedNumber = nil }
     }
 
     // MARK: - Sentences
