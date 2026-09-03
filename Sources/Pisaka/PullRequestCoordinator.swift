@@ -70,6 +70,29 @@ final class PullRequestCoordinator: ObservableObject {
     /// this file exists to prevent.
     private var runBracket: (@escaping @MainActor () async -> String?) -> Void = { _ in }
 
+    /// Whether the reader wants a checkout to go ahead over an uncommitted
+    /// working tree — the same warning `switchBranch` and `checkoutRemote` ask,
+    /// asked for the same reason.
+    ///
+    /// `gh pr checkout` runs git's own checkout, so it is blocked by exactly the
+    /// changes those two warn about, and a reader who is shown the warning for
+    /// the branch widget's checkout and not for this one is being told the two
+    /// are different operations. It is asked *before* the model composes
+    /// anything, because the model raises the one-write flag at the hand-out and
+    /// a refusal after that would strand it.
+    ///
+    /// The default agrees, which is the right answer where there is no window to
+    /// put an alert on.
+    private var confirmCheckout: @MainActor () -> Bool = { true }
+
+    /// Whether the scene has wired this coordinator yet.
+    ///
+    /// Read by ``checkout(_:)`` alone. An unwired coordinator is a preview or a
+    /// test: its `runBracket` runs nothing, and handing the model a checkout it
+    /// would raise the one-write flag for and never lower is worse than doing
+    /// nothing at all.
+    private var isWired = false
+
     /// What the scene runs after the feature's write has landed — the branch
     /// widget's generation-pinned refresh.
     ///
@@ -119,13 +142,16 @@ final class PullRequestCoordinator: ObservableObject {
         branchSwitcher: BranchSwitcherModel,
         isWriteBlocked: @escaping @MainActor () -> Bool,
         runCheckout: @escaping (@escaping @MainActor () async -> String?) -> Void,
+        confirmCheckout: @escaping @MainActor () -> Bool,
         didWrite: @escaping @MainActor () -> Void
     ) {
         self.projectRoot = root
         self.branchSwitcher = branchSwitcher
         self.isWriteBlocked = isWriteBlocked
         self.runBracket = runCheckout
+        self.confirmCheckout = confirmCheckout
         self.didWrite = didWrite
+        self.isWired = true
 
         // The branch-change trigger. `@Published` fires *before* the property is
         // written, so the branch this feature must ask about is the one the
@@ -215,6 +241,31 @@ final class PullRequestCoordinator: ObservableObject {
     @discardableResult
     func create(title: String, body: String, base: String, draft: Bool) async -> Bool {
         await model.create(title: title, body: body, base: base, draft: draft)
+    }
+
+    /// The panel's Checkout button.
+    ///
+    /// Two refusals happen here rather than in the model, because both are
+    /// answers only the scene has: an unwired coordinator has no bracket to run
+    /// the operation in, and a dirty working tree is a modal alert. Everything
+    /// after them is the model's — the one-write rule, the gate and the command
+    /// — and the model is deliberately not asked until both have passed, since
+    /// it raises the one-write flag the moment it accepts.
+    func checkout(_ number: Int) {
+        guard isWired, confirmCheckout() else { return }
+        model.checkout(number)
+    }
+
+    /// End every `gh` this feature still has running, immediately.
+    ///
+    /// Called from the app's terminate observer beside the language servers'
+    /// own, and for a sharper version of their reason: a `gh pr checkout` in
+    /// flight has a `git` beneath it that is *rewriting the worktree* of a
+    /// project the app is about to stop having open, and a discovery login shell
+    /// is exactly the child slow enough to outlive a quit. Permanent as well as
+    /// immediate, so nothing started after the observer can leave a second one.
+    func terminateNow() {
+        (transport as? GitHubCLIProcessTransport)?.terminateNow()
     }
 
     /// Check out pull request `number`, through the scene's writer bracket.

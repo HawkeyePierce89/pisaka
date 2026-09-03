@@ -45,7 +45,7 @@ struct NewPullRequestSheet: View {
             fields
             sentences
 
-            if let message = model.errorMessage {
+            if let message = model.createMessage {
                 Text(message)
                     .font(metrics.scaledFont(.caption))
                     .foregroundStyle(Color.red)
@@ -194,7 +194,8 @@ struct NewPullRequestSheet: View {
 
     /// Create, and close only on success. A failure has already put `gh`'s own
     /// words in the model's message slot, which this sheet is drawing above the
-    /// buttons.
+    /// buttons — `createMessage` rather than the raw slot, so a background
+    /// refresh's failure cannot appear here as though Create had been refused.
     private func submit() async {
         let created = await coordinator.create(
             title: title.trimmingCharacters(in: .whitespacesAndNewlines),

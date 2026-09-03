@@ -291,6 +291,29 @@ says nothing about an expand that failed a moment earlier, and clearing that
 sentence would leave a row expanded over an empty checks list with no
 explanation.
 
+**A surface reads only its own sentence.** The panel's strip draws the slot
+whole — it is the surface every read of the feature happens under — but the
+create sheet draws `createMessage`, which is the slot **only when
+`errorSource == .create`**. A sheet drawing the raw slot would show a background
+refresh's failure, or a checks read that failed under a row behind it, in red
+above its buttons on a sheet where nothing has been submitted; and
+`prepareCreate()` cannot clear that sentence, because clearing it is exactly what
+the four sources forbid.
+
+**A read that failed is not a read still running.** `checks[number] == nil` means
+"still reading" and `[]` means "GitHub reported no jobs" — a two-state split the
+expanded row draws a spinner from. A failure is neither, so it is recorded in
+`checksFailures`, pruned and cleared exactly like `checks`: without it the row
+that failed would keep the spinner of the first state for as long as it stays
+open, which is the very thing the split was written to avoid.
+
+**A not-ready refresh clears the create sheet's state with the rows.**
+`clearRows()` drops `repository`, `createPlan` and the context they were planned
+over, for the same reason it drops the rows: the sheet's Create button is
+`createPlan?.canCreate` read from the view's side, and a plan left standing after
+`gh` stopped being ready is an enabled button over a `create` that now returns at
+its own readiness guard without a word.
+
 ### G10 — One write in flight, read from both sides
 
 `isWriteInFlight` is the feature's single "something is being written" term. It is
@@ -360,6 +383,23 @@ the order they are asked:
    under an operation already snapshotting it. The refusal's sentence is this
    layer's own words, not `gh`'s, because `gh` was never asked;
 3. `gh` is not ready, or there is no project root.
+
+Two more are asked **before** the model is, in `PullRequestCoordinator.checkout(_:)`,
+because both are answers only the scene has and both must land before the model
+raises the one-write flag at the hand-out: an **unwired** coordinator (a preview
+or a test, whose bracket runs nothing — handing it an operation it would never
+run leaves the flag up for the app run), and the **dirty-tree confirmation**
+`switchBranch` and `checkoutRemote` already ask. `gh pr checkout` runs git's own
+checkout and is blocked by exactly the changes those two warn about, so a reader
+warned for one and not the other is being told they are different operations.
+That ordering is also the whole of the runner's contract: **a runner must invoke
+the operation exactly once**, and a runner that cannot must refuse before
+`checkout(_:)` is called.
+
+Also stated on the title, which is a refusal of `create`'s rather than the
+sheet's: `PullRequestModel.untitledMessage` is published and nothing is pushed,
+because a rule that lives only in a view is a rule no test can see and a second
+caller can walk past.
 
 The gate travels as an injected `isWriteBlocked` closure, wired in the scene
 alone to `LocalChangesModel.isReverting`, so **no file under the feature names
@@ -551,7 +591,7 @@ timer there could only be a repeat.
 
 The `DatabaseViewerTabs` analogue: it owns the model and the transport, is wired
 once from the scene through
-`start(root:branchSwitcher:isWriteBlocked:runCheckout:didWrite:)` — idempotent,
+`start(root:branchSwitcher:isWriteBlocked:runCheckout:confirmCheckout:didWrite:)` — idempotent,
 because `.onAppear` can fire again for a reopened window, and assigning a second
 branch observer cancels the first rather than leaving two sinks — and is the
 **one site** through which a checkout reaches the writer bracket. The model is
@@ -565,6 +605,12 @@ to disagree) and `headSubject()` for the pre-filled title (a failure here is
 silent: it is a *suggestion* for a field the reader is about to type in, and a
 sentence explaining an empty field would talk over the one slot the sheet keeps
 for refusals that actually stop a pull request being opened).
+
+`checkout(_:)` is its one write entry point, and the two refusals above are
+what it exists for; `terminateNow()` is its one teardown one, forwarded to the
+transport from the scene's terminate observer beside the language servers' own —
+a `pr checkout` in flight has a `git` beneath it rewriting a worktree, and
+nothing else can reach it once the process is going away.
 
 `didWrite` is the scene's own post-write hook: the bracket's tail resyncs tabs and
 refreshes the tree, Local Changes and Log, but **not** the branch widget, because
@@ -605,11 +651,22 @@ zoom surface, like every other control in the bar.
 ### The two files that were only touched
 
 `ContentView.swift` gained the sixth bar button, the `panelContent(_:)` branch and
-the indicator in `bottomBar`. `PisakaApp.swift` gained one `@StateObject`, one
+the indicator in `bottomBar`. The button's glyph is `arrow.triangle.merge` rather
+than `arrow.triangle.pull`, which Changes two buttons to its left already uses —
+two adjacent dock buttons drawn with one symbol are indistinguishable at a glance.
+The indicator expands its row **only when the panel has one**: its pull request
+comes from the `--head` lookup, which is independent of the `--limit 50` list and
+survives a failed read of it, so on a repository with more open pull requests than
+that the row may not be there, and expanding a number nothing draws would spend a
+`gh pr checks` call to change nothing.
+
+`PisakaApp.swift` gained one `@StateObject`, one
 `pullRequests.start(…)` block in the existing start-once section, one View-menu
-item, and `runBranchOperation`'s generalisation (G12) — twenty-one lines, which
-moved both measured lint ceilings (`file_length` 1838 → 1859, `type_body_length`
-1822 → 1843; the reason is recorded beside the numbers in `.swiftlint.yml` and in
+item, `pullRequests.terminateNow()` in the terminate observer, and
+`runBranchOperation`'s generalisation (G12) — twenty-three lines, which
+moved both measured lint ceilings (`file_length` 1838 → 1859 → 1861,
+`type_body_length` 1822 → 1843 → 1845; the reason is recorded beside the numbers
+in `.swiftlint.yml` and in
 `style-lint.md`). It names no refresh trigger and no `gh` argument.
 
 ## Tests
@@ -628,6 +685,15 @@ unscripted call **throws**, every call logged in order, and a `Gate` per key so 
 test can hold a call mid-flight and stage the token races causally rather than
 with a sleep.
 
+A gate can be scoped to **one call** (`hold(_:on:forCall:)`), and for a
+generation-token test it must be: holding the key holds *both* racers, so
+releasing twice resumes them in call order, the stale run publishes first and the
+fresh answer lands on top of it — the final state is identical whether or not the
+token was ever checked, and the test passes over the deleted guard. Holding the
+first call alone lets the fresh run finish while the stale one is still on the
+wire, so the stale run publishes **last** and the assertion has something to
+catch.
+
 `Tests/PisakaCoreTests/Fixtures/github/` holds real captures — recorded on
 2026-09-03 with `gh version 2.99.0` against this repository, with provenance in
 its own `README.md` — plus two hand-built ones (the mixed `__typename` rollup and
@@ -645,7 +711,8 @@ list; the iOS layer naming none of it; **no `gh` argument spelled in the app
 layer**; the checkout reaching the bracket through exactly one site and no file
 under the feature naming the gate; the locator's one definition and two callers;
 the refresh triggers living in the coordinator and the panel view only, with the
-scene naming none; and the no-polling ban over the Core files and the three views,
+scene naming none (it touches the coordinator exactly twice, to wire it and to
+tear it down); and the no-polling ban over the Core files and the three views,
 with `GitHubCLIProcessTransport.swift` as the one stated exception.
 
 It uses **two strippers, deliberately**. Most rules read

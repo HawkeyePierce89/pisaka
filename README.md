@@ -95,8 +95,10 @@ do — is in [`docs/FEATURES.md`](docs/FEATURES.md).
 
 ## Install
 
-Requires macOS 13+. The git features use your own `git` CLI; the language
-servers are optional — Xcode unlocks Swift, a Go/Rust toolchain unlocks
+Requires macOS 13+. The git features use your own `git` CLI; the Pull Requests
+panel uses GitHub's own `gh` (2.50.0 or newer, signed in — `brew install gh`,
+then `gh auth login`), and says so with the exact command when it is missing;
+the language servers are optional — Xcode unlocks Swift, a Go/Rust toolchain unlocks
 `gopls`/`rust-analyzer`, and TypeScript/JavaScript, Python and YAML come as
 one-time downloads you explicitly accept.
 
@@ -108,8 +110,9 @@ one-time downloads you explicitly accept.
 
 Updates install themselves afterwards. Nothing phones home besides the update
 check (consent asked once, nothing about you or your projects is sent);
-git remotes, server downloads and LeetCode touch the network only when you
-use them — the one exception, stated in its consent prompt, is the YAML
+git remotes, server downloads, the Pull Requests panel (through your own `gh`,
+on the events that refresh it — never on a timer) and LeetCode touch the network
+only when you use them — the one exception, stated in its consent prompt, is the YAML
 server fetching JSON schemas while it runs.
 
 ## Keyboard Shortcuts

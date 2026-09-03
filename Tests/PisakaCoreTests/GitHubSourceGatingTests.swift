@@ -550,8 +550,8 @@ final class GitHubSourceGatingTests: XCTestCase {
         let app = try code(ofFileNamed: "PisakaApp.swift", under: "Sources/Pisaka")
         XCTAssertEqual(
             try occurrences(of: "pullRequests\\s*\\.", in: app),
-            1,
-            "The scene touches the coordinator exactly once, to wire it: `pullRequests.start(…)`. Every "
+            2,
+            "The scene touches the coordinator exactly twice: it wires it, and it tears it down. Every "
                 + "refresh trigger lives in the coordinator or in the panel's own view — PisakaApp.swift is at "
                 + "its measured file_length ceiling, and the ticket forbids growing it for behaviour that has "
                 + "a file of its own."
@@ -559,7 +559,20 @@ final class GitHubSourceGatingTests: XCTestCase {
         XCTAssertEqual(
             try occurrences(of: "pullRequests\\.start\\(", in: app),
             1,
-            "…and that one touch is the start(…) call."
+            "…the first of the two is the start(…) call."
+        )
+        XCTAssertEqual(
+            try occurrences(of: "pullRequests\\.terminateNow\\(\\)", in: app),
+            1,
+            "…and the second is the terminate observer's, beside the language servers' own. A `gh pr "
+                + "checkout` in flight has a `git` beneath it rewriting a worktree, and nothing else in the "
+                + "app can reach it once the process is going away."
+        )
+        XCTAssertEqual(
+            try occurrences(of: "pullRequests\\.(refresh|panelShown)", in: app),
+            0,
+            "…and neither of them is a refresh: freshness is event-driven and every event lives in the "
+                + "coordinator or the panel view."
         )
 
         let content = try code(ofFileNamed: "ContentView.swift", under: "Sources/Pisaka")

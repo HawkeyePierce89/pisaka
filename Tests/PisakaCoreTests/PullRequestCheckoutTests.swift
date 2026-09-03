@@ -191,23 +191,41 @@ final class PullRequestCheckoutTests: XCTestCase {
         XCTAssertTrue(bracket.operations.isEmpty)
     }
 
-    func testACheckoutIsRefusedWithoutAProjectRoot() async {
+    /// The root guard, exercised where it is the *only* thing that can refuse.
+    ///
+    /// A model built with `root: { nil }` never becomes ready — `refresh` returns
+    /// at its own root guard with `availability == nil` — so a checkout on one is
+    /// refused by the readiness guard a line earlier and says nothing about the
+    /// root at all. The case that matters is the one the panel actually produces:
+    /// a model that refreshed successfully, drew its rows, and then had its
+    /// folder closed while the reader was looking at them.
+    func testACheckoutIsRefusedWhenTheFolderWasClosedUnderAReadyPanel() async {
         let cli = ScriptedGitHubCLI()
         let bracket = Bracket()
-        let model = await readyModel(cli, bracket: bracket)
-        // The same model, retargeted at nothing: a window whose folder was
-        // closed while the panel was open still draws its last rows.
-        let rootless = PullRequestModel(
+        let root = root
+        // A root that can be taken away, which is what a folder switch does.
+        final class Box: @unchecked Sendable { var url: URL? }
+        let box = Box()
+        box.url = root
+        cli.serveReady()
+        cli.serve(GitHubCommands.openPullRequests(root: root), stdout: Self.listJSON)
+        cli.serve(GitHubCommands.pullRequest(forHeadBranch: "master", root: root), stdout: "[]")
+        let model = PullRequestModel(
             transport: cli,
             gitService: StubGit(),
-            root: { nil },
+            root: { box.url },
             runCheckout: bracket.runner
         )
-        await rootless.refresh(branch: "master")
+        await model.refresh(branch: "master")
+        XCTAssertTrue(model.isReady)
+        let sentSoFar = cli.argumentLists.count
 
-        XCTAssertFalse(rootless.checkout(54))
+        box.url = nil
+
+        XCTAssertFalse(model.checkout(54))
         XCTAssertTrue(bracket.operations.isEmpty)
-        XCTAssertTrue(model.isReady, "the ready model is the control, and it is still ready")
+        XCTAssertEqual(cli.argumentLists.count, sentSoFar, "nothing was sent")
+        XCTAssertFalse(model.isWriteInFlight, "a refusal leaves the one-write flag down")
     }
 
     // MARK: - One write at a time

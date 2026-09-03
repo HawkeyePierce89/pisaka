@@ -8,6 +8,15 @@ import Foundation
 /// should say out loud, and `""` for a failure that has already been published
 /// where the reader is looking — which is the only failure this feature returns
 /// (see ``PullRequestModel/performCheckout(_:)``).
+///
+/// **A runner must invoke the operation exactly once.** The one-write flag is
+/// raised synchronously at the hand-out — so a second Checkout pressed before
+/// the bracket's own `Task` has started is refused — and lowered only inside the
+/// operation. A runner that accepts an operation and drops it therefore leaves
+/// the flag up for the rest of the app run, with Checkout, New Pull Request and
+/// refresh all disabled and no sentence saying why. A runner that cannot run one
+/// must refuse *before* ``PullRequestModel/checkout(_:)`` is called, which is
+/// what the coordinator's unwired guard does.
 public typealias GitHubCheckoutRunner = @MainActor (@escaping @MainActor () async -> String?) -> Void
 
 /// The reader behind both GitHub surfaces: the Pull Requests panel and the
@@ -108,6 +117,18 @@ public final class PullRequestModel: ObservableObject {
     /// cannot be shown under a reopened one that reused nothing but the key.
     @Published public private(set) var checks: [Int: [GitHubCheckRow]] = [:]
 
+    /// The numbers whose checks read *failed*, so the expanded row can say so
+    /// instead of spinning.
+    ///
+    /// A third state, and the reason it is not folded into ``checks``: `nil`
+    /// there means "still reading" and `[]` means "GitHub reported no jobs", and
+    /// a failure is neither. Left out, a `pr checks` that threw or answered
+    /// something unparseable leaves the row on a spinner that never stops —
+    /// which is the very thing the two-state split was written to avoid. The
+    /// sentence itself stays in the one message slot; this only says which row
+    /// it belongs to. Pruned and cleared exactly like ``checks``.
+    @Published public private(set) var checksFailures: Set<Int> = []
+
     /// The one expanded row, or `nil`. One at a time: the checks list is a
     /// per-row network read and the panel is a dock pane, not a page.
     @Published public private(set) var expandedNumber: Int?
@@ -132,6 +153,18 @@ public final class PullRequestModel: ObservableObject {
     /// The one message slot — `gh`'s own words for a failed command, the schema
     /// error's sentence for output that did not parse.
     @Published public private(set) var errorMessage: String?
+
+    /// The message slot, but only when the sentence in it is the create sheet's
+    /// own.
+    ///
+    /// The one slot is shared by four independently re-triggerable reads, which
+    /// is exactly why each sentence is tagged with the read that produced it. A
+    /// sheet drawing ``errorMessage`` raw would show a failed background refresh
+    /// — or a checks read that failed under a row behind it — in red above its
+    /// buttons, reading as though Create had been refused on a sheet where
+    /// nothing has been submitted yet. `prepareCreate()` cannot clear that
+    /// sentence by design: it is not the create's to clear.
+    public var createMessage: String? { errorSource == .create ? errorMessage : nil }
 
     /// Whether a refresh is in flight. What the panel draws its spinner from.
     @Published public private(set) var isLoading = false
@@ -413,12 +446,14 @@ public final class PullRequestModel: ObservableObject {
         } catch {
             guard token == checksGeneration else { return }
             setMessage(Self.message(for: error), from: .checks)
+            checksFailures.insert(number)
             return
         }
         guard token == checksGeneration else { return }
 
         do {
             checks[number] = try GitHubAPI.checkRows(fromChecksJSON: result.standardOutput)
+            checksFailures.remove(number)
             clearError(from: .checks)
         } catch {
             let hasOutput = !result.standardOutput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -427,6 +462,7 @@ public final class PullRequestModel: ObservableObject {
             } else {
                 setMessage(Self.message(for: error), from: .checks)
             }
+            checksFailures.insert(number)
         }
     }
 
@@ -537,6 +573,11 @@ public final class PullRequestModel: ObservableObject {
         defer { isWriteInFlight = false }
         clearError(from: .create)
 
+        guard !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            setMessage(Self.untitledMessage, from: .create)
+            return false
+        }
+
         let context: CommitContext
         do {
             context = try await gitService.commitContext(root: root)
@@ -600,6 +641,13 @@ public final class PullRequestModel: ObservableObject {
     /// This layer's own words rather than `gh`'s, because `gh` was never asked:
     /// the refusal happens before anything is sent, which is the whole point of
     /// asking the gate first.
+    /// What a create refused for want of a title says.
+    ///
+    /// Here rather than in the sheet for the reason every other refusal is here:
+    /// the sheet disables Create on the same rule, and a rule that lives only in
+    /// a view is a rule no test can see and a second caller can walk past.
+    public static let untitledMessage = "A pull request needs a title."
+
     public static let blockedMessage =
         "Another operation is writing to the working tree. Try the checkout again when it has finished."
 
@@ -761,8 +809,17 @@ public final class PullRequestModel: ObservableObject {
         pullRequests = []
         currentBranchPullRequest = nil
         checks = [:]
+        checksFailures = []
         expandedNumber = nil
         selectedNumber = nil
+        // The create sheet's state goes with them. It is read from both sides —
+        // the sheet disables Create on `createPlan?.canCreate` and `create(...)`
+        // refuses on the same rule — and a plan left standing after `gh` stopped
+        // being ready is a sheet whose Create button is enabled over a `create`
+        // that now returns at its own readiness guard without a word.
+        repository = nil
+        createPlan = nil
+        createContext = nil
     }
 
     /// Drop the cached checks of pull requests that are no longer open, and
@@ -770,6 +827,7 @@ public final class PullRequestModel: ObservableObject {
     private func pruneChecks(keeping rows: [GitHubPullRequest]) {
         let open = Set(rows.map(\.number))
         checks = checks.filter { open.contains($0.key) }
+        checksFailures = checksFailures.intersection(open)
         if let expandedNumber, !open.contains(expandedNumber) { self.expandedNumber = nil }
         if let selectedNumber, !open.contains(selectedNumber) { self.selectedNumber = nil }
     }

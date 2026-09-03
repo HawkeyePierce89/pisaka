@@ -199,9 +199,10 @@ struct PullRequestsPanelView: View {
                         isSelected: model.selectedNumber == pullRequest.number,
                         isExpanded: model.expandedNumber == pullRequest.number,
                         checks: model.checks[pullRequest.number],
+                        checksFailed: model.checksFailures.contains(pullRequest.number),
                         isWriteInFlight: model.isWriteInFlight,
                         onToggle: { Task { await model.toggleExpansion(pullRequest.number) } },
-                        onCheckout: { model.checkout(pullRequest.number) }
+                        onCheckout: { coordinator.checkout(pullRequest.number) }
                     )
                 }
             }
@@ -233,6 +234,10 @@ private struct PullRequestRow: View {
     /// The per-job list, or `nil` while it is still being read — which is a
     /// different thing from an empty one, and drawn as such.
     let checks: [GitHubCheckRow]?
+    /// Whether this row's checks read failed. The third answer `checks` cannot
+    /// carry: `nil` there is "still reading", and a failure that kept it would
+    /// leave the row spinning for as long as it stays open.
+    let checksFailed: Bool
     let isWriteInFlight: Bool
     let onToggle: () -> Void
     let onCheckout: () -> Void
@@ -338,9 +343,21 @@ private struct PullRequestRow: View {
     /// The per-job list of the expanded row. `nil` is "still reading" and an
     /// empty array is "GitHub reported no jobs" — two different answers, and a
     /// spinner standing in for the second would never stop.
+    ///
+    /// A read that *failed* is the third answer and is drawn as such: the model
+    /// leaves `checks` unset there, so without it the row would keep the spinner
+    /// of the first state for as long as it stays expanded. The reason is `gh`'s
+    /// own and is in the panel's message strip; this only stops the row claiming
+    /// it is still working.
     @ViewBuilder
     private var checksList: some View {
-        if let checks {
+        if checksFailed {
+            Text("Could not read checks")
+                .font(metrics.scaledFont(.caption))
+                .foregroundStyle(.secondary)
+                .padding(.leading, metrics.scaled(34))
+                .padding(.bottom, metrics.scaled(4))
+        } else if let checks {
             if checks.isEmpty {
                 Text("No checks reported")
                     .font(metrics.scaledFont(.caption))
@@ -415,8 +432,18 @@ private struct PullRequestRow: View {
     /// say so. A url `gh` answered that will not parse simply does nothing:
     /// there is no repair for it here and no sentence worth interrupting a list
     /// with.
+    ///
+    /// **http/https only**, `LeetCodeDescriptionView`'s rule for its reason: a
+    /// check's `detailsUrl` is published by whatever third-party integration
+    /// posted the check, so it is untrusted text, and `NSWorkspace.open` would
+    /// hand a `file:` url to the Finder or a custom scheme to whichever app
+    /// claims it. Anything else is refused the same silent way an unparseable
+    /// one is.
     private func openInBrowser(_ address: String) {
-        guard let url = URL(string: address) else { return }
+        guard let url = URL(string: address),
+              let scheme = url.scheme?.lowercased(),
+              scheme == "http" || scheme == "https"
+        else { return }
         NSWorkspace.shared.open(url)
     }
 

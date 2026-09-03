@@ -506,7 +506,8 @@ The workflow then, in order:
     lines passes `--timestamp` explicitly — a re-signed bundle carries the flags
     of the invocation that re-signed it and none of the archive's. **No entitlements file goes with the hardened runtime**: it permits
     `fork`/`exec` by default and library validation is per-process, so the `git`
-    subprocess, the PTY shell and the downloaded language servers all launch with
+    subprocess, the PTY shell, `gh` (and the `git` and login shell it spawns for
+    the Pull Requests panel) and the downloaded language servers all launch with
     nothing declared. An entitlement is added when a concrete failure demands one
     and not in anticipation — every entitlement widens what the shipped app may
     do.

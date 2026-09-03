@@ -737,9 +737,12 @@ struct ContentView: View {
             bottomBarButton(title: "Changes", systemImage: "arrow.triangle.pull", panel: .changes)
             bottomBarButton(title: "Problems", systemImage: "exclamationmark.triangle", panel: .problems)
             bottomBarButton(title: "Usages", systemImage: "text.magnifyingglass", panel: .usages)
+            // `arrow.triangle.merge` rather than `arrow.triangle.pull`, which
+            // Changes two buttons to the left already uses: two adjacent dock
+            // buttons drawn with one glyph are indistinguishable at a glance.
             bottomBarButton(
                 title: "Pull Requests",
-                systemImage: "arrow.triangle.pull",
+                systemImage: "arrow.triangle.merge",
                 panel: .pullRequests
             )
             Spacer()
@@ -767,6 +770,15 @@ struct ContentView: View {
                 // and a toggle would collapse the panel when it happens to be the
                 // one already showing.
                 if bottomPanel.wrappedValue != .pullRequests { onTogglePanel(.pullRequests) }
+                // Only when the panel actually has that row. The indicator's
+                // pull request comes from the `--head` lookup, which is
+                // independent of the `--limit 50` list and survives a failed read
+                // of it, so on a repository with more open pull requests than
+                // that the row may not be there to expand — and expanding a
+                // number nothing draws would spend a `gh pr checks` call to
+                // change nothing on screen.
+                guard pullRequests.model.pullRequests.contains(where: { $0.number == number })
+                else { return }
                 Task { await pullRequests.model.expand(number) }
             }
             completionToggleButton

@@ -243,6 +243,22 @@ final class GitHubAPITests: XCTestCase {
         XCTAssertNil(rows.first?.completedAt)
     }
 
+    /// The second formatter, which is otherwise free to be deleted as dead: every
+    /// other fixture and inline row here carries whole seconds.
+    func testAFractionalSecondsTimestampParses() throws {
+        let json = """
+        [{"bucket":"pass","completedAt":"2026-09-02T19:19:39.123Z","description":"","event":"pull_request",\
+        "link":"","name":"test","startedAt":"2026-09-02T19:16:36.007Z","state":"SUCCESS","workflow":"CI"}]
+        """
+        let rows = try GitHubAPI.checkRows(fromChecksJSON: json)
+        let started = try XCTUnwrap(rows.first?.startedAt)
+        let completed = try XCTUnwrap(rows.first?.completedAt)
+        // Asserted against the whole-second instants either side, so the test
+        // reads the fraction rather than merely surviving it.
+        XCTAssertEqual(started.timeIntervalSince(try date("2026-09-02T19:16:36Z")), 0.007, accuracy: 0.001)
+        XCTAssertEqual(completed.timeIntervalSince(try date("2026-09-02T19:19:39Z")), 0.123, accuracy: 0.001)
+    }
+
     func testAnUnreadableTimestampIsMalformed() {
         let json = """
         [{"bucket":"pass","completedAt":"yesterday","description":"","event":"pull_request",\
@@ -318,6 +334,28 @@ final class GitHubAPITests: XCTestCase {
         https://github.com/HawkeyePierce89/pisaka/pull/107
         """
         XCTAssertEqual(GitHubAPI.pullRequestNumber(fromCreateOutput: output), 107)
+    }
+
+    /// The rule the doc comment states: the **last** `/pull/<n>` wins.
+    ///
+    /// `gh pr create` prints an existing pull request's URL before the new one
+    /// when it has something to say about a fork or an already-open request, so
+    /// first-wins would pre-select somebody else's row.
+    func testTheLastPullURLWinsWhenTheOutputNamesTwo() {
+        let output = """
+        Warning: a pull request for branch "feature" into branch "master" already exists:
+        https://github.com/HawkeyePierce89/pisaka/pull/12
+
+        https://github.com/HawkeyePierce89/pisaka/pull/107
+        """
+        XCTAssertEqual(GitHubAPI.pullRequestNumber(fromCreateOutput: output), 107)
+    }
+
+    /// Two on one line, which is the case a line-by-line scan can get wrong on
+    /// its own.
+    func testTheLastPullURLWinsWithinASingleLine() {
+        let output = "see https://github.com/o/r/pull/12 — opened https://github.com/o/r/pull/13\n"
+        XCTAssertEqual(GitHubAPI.pullRequestNumber(fromCreateOutput: output), 13)
     }
 
     func testAnUnreadableCreateAnswerIsNilRatherThanAFailure() {

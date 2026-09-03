@@ -110,6 +110,19 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     opens read-write, and `applyRenamePlan` moves the tab without telling it. The
     connection is deliberately left alone there, because a rename moves the name
     and not the inode (`core-database-viewer.md`).
+    `PullRequestCoordinator` is a fourth `StateObject`, injected on the same
+    modifier and wired in the same start-once block —
+    `pullRequests.start(root:branchSwitcher:isWriteBlocked:runCheckout:confirmCheckout:didWrite:)`
+    — for the viewer's reason and one more: `runCheckout` is the scene's *whole*
+    involvement in the eighth gated operation (it hands `runBranchOperation(.pullRequest, …)`
+    over as a closure), `confirmCheckout` is the same dirty-tree warning
+    `switchBranch` and `checkoutRemote` ask, and `didWrite` is what none of the
+    other seven need, because `gh pr checkout` moves the branch from outside
+    `BranchSwitcherModel` and the widget has to be told to re-read it. The
+    terminate observer calls `pullRequests.terminateNow()` beside the language
+    servers' own; everything else about the feature — its transport, its refresh
+    triggers, its one bracket site — lives in `PullRequestCoordinator.swift`
+    (`core-github.md`).
     `openBuffers` returns every titled **text** tab's text (dirty
     or not — what the user sees is what gets searched; a file absent from the
     snapshot goes down the on-disk branch, and a url-less "Untitled" buffer names

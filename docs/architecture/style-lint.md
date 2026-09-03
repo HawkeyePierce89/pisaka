@@ -77,8 +77,10 @@ with a state shape of its own went into `DatabaseViewerTabs.swift`, so
 `PisakaApp` paid four lines of wiring plus the tab-kind skips its own text-shaped
 passes needed, and not four hundred (`core-database-viewer.md`).
 
-The most recent bump is the Pull Requests feature (`file_length` 1838 → **1859**,
-`type_body_length` 1822 → **1843**) — the largest single move either number has
+The most recent bump is the Pull Requests feature (`file_length`
+1838 → 1859 → **1861**, `type_body_length` 1822 → 1843 → **1845**; the second step
+is the review's, for the checkout's dirty-tree confirmation and the terminate
+observer's `pullRequests.terminateNow()`) — the largest single move either number has
 made, which is why it is itemised rather than absorbed. Twenty-one lines, all of
 them inside the struct body, so the two ceilings move by exactly the same amount:
 **seven** are `pullRequests.start(…)`, the scene's whole involvement in the eighth
@@ -88,8 +90,8 @@ toggle; **one** is the `@StateObject`; and the remaining **eight** are
 `runBranchOperation` growing a Local History event parameter and an operation that
 answers a message instead of a `Bool` — which is what lets one bracket serve two
 callers rather than two brackets serve one each. The same shape as the viewer's,
-and the reason a feature this size cost twenty-one lines here
-(`core-github.md`).
+and the reason a feature this size cost twenty-one lines here — twenty-three with
+the review's two (`core-github.md`).
 
 ## The three-way version pin
 

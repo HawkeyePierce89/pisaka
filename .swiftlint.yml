@@ -100,13 +100,18 @@ line_length:
 # toggle, one is the `@StateObject`, and the remaining eight are
 # `runBranchOperation` growing a Local History event parameter and an operation
 # that answers a message instead of a `Bool`, which is what lets one bracket
-# serve two callers rather than two brackets serve one each. The number tracks
+# serve two callers rather than two brackets serve one each. And 1861 on review,
+# for the two lines the feature was missing: `confirmCheckout:` — the dirty-tree
+# warning `switchBranch` and `checkoutRemote` already ask, which `gh pr checkout`
+# owes for the same worktree it moves — and `pullRequests.terminateNow()` in the
+# terminate observer, beside the language servers' own, so a `pr checkout` in
+# flight does not outlive the app with a `git` beneath it. The number tracks
 # the one file that approaches
 # it — measured, never rounded up for room — and is not a licence to grow the
 # others.
 file_length:
-  warning: 1859
-  error: 1859
+  warning: 1861
+  error: 1861
   ignore_comment_only_lines: true
 
 # Same reasoning as file_length, and one number behind it again: the viewer's
@@ -117,10 +122,11 @@ file_length:
 # lines, which land inside the scene's start-once block — and to 1822 with the
 # rename's viewer retarget, which lands inside `performMove`, and to 1843 with
 # the Pull Requests feature: every one of its twenty-one lines lands inside the
-# struct body too, so this ceiling moves by exactly what `file_length` did.
+# struct body too, so this ceiling moves by exactly what `file_length` did — and
+# to 1845 with the review's two, which land inside it as well.
 type_body_length:
-  warning: 1843
-  error: 1843
+  warning: 1845
+  error: 1845
 
 function_body_length:
   warning: 140

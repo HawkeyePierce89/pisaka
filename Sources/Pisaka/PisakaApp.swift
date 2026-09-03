@@ -1114,6 +1114,7 @@ struct PisakaApp: App {
                     branchSwitcher: branchSwitcher,
                     isWriteBlocked: { localChanges.isReverting },
                     runCheckout: { operation in runBranchOperation(.pullRequest, operation) },
+                    confirmCheckout: { confirmBranchSwitchIfDirty() },
                     didWrite: { refreshBranchSwitcher() }
                 )
 
@@ -1235,6 +1236,13 @@ struct PisakaApp: App {
                         // a staging tree, which the process exit ends and the
                         // next launch's `sweepStaging()` reclaims (D13).
                         lspRustToolchain.terminateNow()
+                        // And whatever `gh` this feature still has running. The
+                        // sharpest case in the list: a `pr checkout` in flight
+                        // has a `git` beneath it rewriting the worktree of a
+                        // project that is about to stop being open, and the
+                        // discovery login shell is the same child the Rust seam's
+                        // note describes.
+                        pullRequests.terminateNow()
                         // And the zoom monitor, so no event handler outlives the
                         // app. Cheap and undramatic next to the teardown above —
                         // it is here because "installed in `.onAppear`, removed on

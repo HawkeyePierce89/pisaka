@@ -724,7 +724,15 @@ workspace omits it, the reader rule, the text-shaped `openFiles` consumers
 pinned by count against the tab-kind filters, and the console's own rules: it
 composes no SQL, asks the gate once and before anything is sent, reaches the
 seam through one call site per member, and the scene knows nothing about it;
-inventory in that suite's doc comments and `core-database-viewer.md`) and `LintConfigurationTests`
+inventory in that suite's doc comments and `core-database-viewer.md`),
+`GitHubSourceGatingTests` (the Pull Requests feature's cross-layer rules —
+`Process` for `gh` in one app file and never in Core, the app-side files
+macOS-gated and unnamed by the iOS layer, no `gh` argument spelled outside
+`GitHubCommands`, the checkout's one bracket site with no file under the feature
+naming the writer gate, the locator's one definition and two callers, where each
+refresh trigger lives and that the scene holds none, and the no-polling ban with
+`GitHubCLIProcessTransport.swift` as its one stated exception; inventory in that
+suite's doc comments and `core-github.md`) and `LintConfigurationTests`
 (both `.swiftlint.yml` files — the version pin, `mandatory_comma`, the root and
 child disabled-rule sets by set equality, every measured threshold ceiling,
 every in-file disable counted by path/rule — plus `.githooks/pre-commit`'s gate
@@ -733,6 +741,11 @@ in that suite's doc comments).
 **Every one of these suites matches against comment- and literal-stripped
 text** — load-bearing, not tidy: these files quote their own settings in
 comments, so a raw `contains` stays green when the setting it names is deleted.
+**One stated exception**, and it is the same argument read the other way:
+`GitHubSourceGatingTests`' `gh`-vocabulary rule strips comments *only*, because
+the tokens it forbids in the app layer (`--json`, `"pr", "list"`) **are** string
+literals, and the usual scanner would delete the very thing that rule checks
+(`core-github.md`).
 Follow the pattern for anything that ships in the bundle with no Swift code
 behind it, and for any architectural rule `swift test` cannot otherwise see.
 Non-Swift test data lives in `Tests/PisakaCoreTests/Fixtures/<area>/`, read
@@ -778,7 +791,13 @@ fakes — deliberately no Rust *installer* fake, that install is the shared pair
 `ScriptedDatabaseService` (a scripted `DatabaseServicing`: answers keyed by SQL
 text, an unscripted statement throws, a write half that scripts outcomes and
 captures the transactions sent, and a console half that scripts a classification
-and an answer per text and reads the console transactions back verbatim). Reach for
+and an answer per text and reads the console transactions back verbatim) and
+`ScriptedGitHubCLI` (a scripted `GitHubCLITransport`: answers keyed by the
+argument list `GitHubCommands` composes, a queue per key whose last step sticks,
+an unscripted call throws, every command logged in order — and a `Gate` per key,
+scopable to **one** call, which is what makes a generation-token test real: hold
+the key and both racers resume in call order, so the stale run always publishes
+first and the assertion passes with or without the guard). Reach for
 these before writing a new stub. A fake standing in for a `nonisolated async`
 seam runs on the cooperative pool, so anything it writes into a `StubFileTree`
 must hop to the main actor first — two threads in one `Dictionary` is a
@@ -830,7 +849,8 @@ acceptance criterion is in `docs/RELEASING.md`), then bumps the Homebrew cask in
 `HawkeyePierce89/homebrew-apps` — version and `sha256` of the exact zip it just
 uploaded — so `brew install --cask pisaka` follows the release. **No
 entitlements file ships**: the hardened runtime permits `fork`/`exec` and
-library validation is per-process, so `git`, the PTY shell and the provisioned
+library validation is per-process, so `git`, the PTY shell, `gh` (and the `git`
+and login shell it spawns) and the provisioned
 language servers need nothing declared; one is added only when a concrete
 failure demands it — and on the re-sign's `--entitlements` too, or it is
 silently stripped. The certificate lives only in a per-run `$RUNNER_TEMP`

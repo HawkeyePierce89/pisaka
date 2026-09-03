@@ -553,7 +553,7 @@ user sees it.
   **Problems** panel in the bottom dock listing every open file's findings. The
   panel toggles with "Show/Hide Problems" in the View menu, the ⚠ button on the
   bottom bar, or Cmd+Shift+M, and shares that one dock with Terminal, Git Log,
-  Local Changes and Usages. Its header counts errors and warnings across all files; rows
+  Local Changes, Usages and Pull Requests. Its header counts errors and warnings across all files; rows
   are grouped by file (path relative to the opened folder) showing severity icon,
   message and line number, ordered top-to-bottom through each file with the most
   serious finding first where several share a position. Clicking a row opens (or
@@ -881,7 +881,10 @@ user sees it.
   you have open: number and title, author, `head → base`, a Draft marker, the
   review decision (approved / changes requested / review required), and a summary
   of its checks — passing, failing, still running, or none reported. Expand a row
-  to see each individual job with its state and a link that opens that job's page.
+  to see each individual job with its state and a link that opens that job's page
+  (http/https only — the link is whatever the integration that posted the check
+  published). A row whose checks could not be read says so rather than spinning;
+  why is in the panel's message line, in `gh`'s own words.
   Each row offers **Checkout** and **Open in browser**; nothing ever opens a
   browser on its own.
   Everything here runs through **your own `gh`** — GitHub's official CLI, which
@@ -904,9 +907,13 @@ user sees it.
   pull request, so it never describes work that is not on the remote yet; a push
   that fails stops there and tells you why, leaving the sheet open with everything
   you typed. A detached HEAD or a repository with no remote refuses with the same
-  sentence the commit dialog already uses.
+  sentence the commit dialog already uses, and an empty title refuses before
+  anything is pushed.
   **Checkout** switches the working tree to that pull request's branch through
-  `gh pr checkout`, and it is treated exactly like a branch switch: autosave is
+  `gh pr checkout`, and it is treated exactly like a branch switch — including
+  the warning: with uncommitted changes in the tree it asks first, the same way
+  the branch widget's own Checkout does, since git may refuse the move either way.
+  Then autosave is
   suspended, Local History takes a labeled "Before Pull Request Checkout" copy of
   everything about to be overwritten *before* anything moves, and afterwards open
   tabs are resynced (a clean tab reloads, an edited one keeps your edits and

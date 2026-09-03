@@ -54,7 +54,10 @@ final class ScriptedGitHubCLI: GitHubCLITransport, @unchecked Sendable {
 
     private let lock = NSLock()
     private var steps: [[String]: [Result<GitHubCommandResult, Error>]] = [:]
-    private var gates: [[String]: Gate] = [:]
+    private var gates: [[String]: (gate: Gate, call: Int?)] = [:]
+    /// How many times each argument list has been run, so a gate can be scoped
+    /// to one call rather than to the key.
+    private var callCounts: [[String]: Int] = [:]
     private var commandStorage: [GitHubCommand] = []
 
     // MARK: - Scripting
@@ -105,13 +108,35 @@ final class ScriptedGitHubCLI: GitHubCLITransport, @unchecked Sendable {
     /// test starts a second, superseding refresh in.
     func hold(_ arguments: [String], on gate: Gate) {
         lock.lock()
-        gates[arguments] = gate
+        gates[arguments] = (gate, nil)
         lock.unlock()
     }
 
     /// Hold every run of `command` until the gate is released.
     func hold(_ command: GitHubCommand, on gate: Gate) {
         hold(command.arguments, on: gate)
+    }
+
+    /// Hold **one** run of `arguments` — the `call`-th, counted from zero —
+    /// letting every other run through untouched.
+    ///
+    /// What a generation-token test actually needs, and the reason the key-wide
+    /// form above is not enough for one. Holding the key holds *both* racers, so
+    /// releasing twice resumes them in call order and the stale run always
+    /// publishes first: the fresh answer lands on top of it and the final state
+    /// is the same whether or not the token was ever checked. Holding the first
+    /// call alone lets the fresh run finish while the stale one is still
+    /// suspended, so the stale run publishes **last** — and then the assertion
+    /// that the fresh answer is still on screen fails the moment the guard goes.
+    func hold(_ arguments: [String], on gate: Gate, forCall call: Int) {
+        lock.lock()
+        gates[arguments] = (gate, call)
+        lock.unlock()
+    }
+
+    /// Hold one run of `command`, counted from zero.
+    func hold(_ command: GitHubCommand, on gate: Gate, forCall call: Int) {
+        hold(command.arguments, on: gate, forCall: call)
     }
 
     /// Script the two probes of a signed-in `gh` of `version` — the prefix of
@@ -167,7 +192,10 @@ final class ScriptedGitHubCLI: GitHubCLITransport, @unchecked Sendable {
     func run(_ command: GitHubCommand) async throws -> GitHubCommandResult {
         lock.lock()
         commandStorage.append(command)
-        let gate = gates[command.arguments]
+        let ordinal = callCounts[command.arguments] ?? 0
+        callCounts[command.arguments] = ordinal + 1
+        let held = gates[command.arguments]
+        let gate = held.flatMap { $0.call == nil || $0.call == ordinal ? $0.gate : nil }
         var queue = steps[command.arguments] ?? []
         let step = queue.first
         // The last step sticks; earlier ones are consumed.
