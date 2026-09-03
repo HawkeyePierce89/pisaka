@@ -59,6 +59,12 @@ struct NewPullRequestSheet: View {
         .padding(metrics.scaled(16))
         .frame(width: metrics.scaled(560))
         .task { await prepare() }
+        // Every way out of the sheet — Cancel, Esc, and the `dismiss()` a
+        // successful Create runs — reaches this one place, which is why the
+        // clear lives here rather than on the Cancel button. A `.create`
+        // sentence is only ever drawn by this view; left behind, the panel would
+        // go on showing it above a list that has since refreshed cleanly.
+        .onDisappear { model.dismissCreate() }
     }
 
     // MARK: - Fields

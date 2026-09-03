@@ -155,25 +155,40 @@ public enum GitHubCommands {
         )
     }
 
-    /// `gh pr create`, with `--base` **and** `--head` always explicit.
+    /// `gh pr create`, with `--base` explicit and **the head deliberately left to
+    /// `gh`**.
     ///
-    /// Never left to `gh`'s own defaults. Its base default is the upstream
-    /// repository's branch for a fork, which is a different pull request from the
-    /// one the sheet said it would open; its head default is *whatever branch is
-    /// checked out at the moment the command runs*, which is not the same thing as
-    /// the branch the sheet described. Create pushes first, and a push over a slow
-    /// network is seconds during which the sheet can be dismissed and a branch
-    /// switched from the widget or the embedded terminal — with the head left
-    /// implicit, the pull request would then be opened from the branch that
-    /// happens to be current, carrying the title and base typed for another one.
-    /// Both sentences the sheet showed name a branch (`GitHubCreatePlan
-    /// .baseSentence` names them together), so both travel as arguments: what was
-    /// stated is what is sent.
+    /// The base is never left to `gh`'s own default, which for a fork is the
+    /// upstream repository's branch — a different pull request from the one the
+    /// sheet said it would open.
+    ///
+    /// The head is the opposite call, and for the reason `--base` exists: a
+    /// `--head` argument names a ref **in the base repository**, and `gh`'s own
+    /// help says so — it "supports `<user>:<branch>` syntax to select a head repo
+    /// owned by `<user>`", which is the only way to name a ref anywhere else.
+    /// Sending a bare branch name from a fork checkout therefore asks GitHub for
+    /// that branch *in the parent*, where it either does not exist ("no commits
+    /// between…") or, worse, is a same-named branch whose commits are somebody
+    /// else's. This layer cannot compose the qualified form: it never composes an
+    /// `owner/repo` (G6, `GitHubAPI`), the owner of the *push* remote is not in
+    /// anything read here, and `gh` does not accept an organization as the
+    /// `<user>` at all. Left implicit, `gh` reads the checked-out branch's
+    /// tracking configuration and qualifies it itself, which is the one place
+    /// that answer is known.
+    ///
+    /// What the implicit head costs is the branch-switch window — `gh` resolves
+    /// the current branch at *its own* launch, and Create pushes first, which
+    /// over a slow network is seconds during which the sheet can be dismissed and
+    /// a branch switched from the widget or the embedded terminal. That is paid
+    /// for where the window is, not here: `PullRequestModel.create` re-reads the
+    /// checked-out branch once the push has returned and **refuses** when it is no
+    /// longer the branch the sheet's sentence named. Refusing is what an argument
+    /// could not do anyway — a pinned `--head` in that situation would have opened
+    /// a pull request against a stale remote ref rather than stopping.
     public static func createPullRequest(
         title: String,
         body: String,
         base: String,
-        head: String,
         draft: Bool,
         root: URL
     ) -> GitHubCommand {
@@ -182,7 +197,6 @@ public enum GitHubCommands {
             "--title", title,
             "--body", body,
             "--base", base,
-            "--head", head,
         ]
         if draft { arguments.append("--draft") }
         return GitHubCommand(arguments: arguments, workingDirectory: root, deadline: gitNetworkDeadline)

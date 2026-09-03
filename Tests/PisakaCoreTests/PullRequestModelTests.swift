@@ -95,6 +95,9 @@ final class PullRequestModelTests: XCTestCase {
         /// in from the main actor, which is free while the push blocks a
         /// cooperative-pool thread.
         var pushGate: Gate?
+        /// What the post-push `currentBranch` read throws, when a test wants the
+        /// reading itself to fail rather than to move.
+        var currentBranchError: Error?
 
         func repositoryRoot(for url: URL) async throws -> URL { url }
 
@@ -118,6 +121,24 @@ final class PullRequestModelTests: XCTestCase {
             onPush?()
             pushGate?.wait()
             if let pushError { throw pushError }
+        }
+
+        /// The branch `create(...)` re-reads once the push has returned, to check
+        /// the repository is still standing where the sheet's sentence said.
+        ///
+        /// Derived from ``context`` by default, so an ordinary create passes
+        /// without a test having to say anything — and so a test that moves the
+        /// context mid-push is *staging the race*, exactly as it reads.
+        func currentBranch(root: URL) async throws -> BranchRef? {
+            if let currentBranchError { throw currentBranchError }
+            guard let name = context.currentBranch, !name.isEmpty else { return nil }
+            return BranchRef(
+                name: "refs/heads/\(name)",
+                isRemote: false,
+                remoteName: nil,
+                shortName: name,
+                isCurrent: true
+            )
         }
     }
 
@@ -1018,14 +1039,12 @@ final class PullRequestModelTests: XCTestCase {
         title: String = "A change",
         body: String = "Why.",
         base: String = "master",
-        head: String = "feature",
         draft: Bool = false
     ) -> [String] {
         GitHubCommands.createPullRequest(
             title: title,
             body: body,
             base: base,
-            head: head,
             draft: draft,
             root: root
         ).arguments
@@ -1082,19 +1101,28 @@ final class PullRequestModelTests: XCTestCase {
         XCTAssertEqual(sent[baseIndex + 1], "master")
     }
 
-    /// The head travels as an argument, pinned to the reading the plan was made
-    /// from — not left to `gh`'s "whatever branch is checked out now" default.
+    /// The head is **not** an argument, and a branch that moves during the push
+    /// is refused rather than published.
+    ///
+    /// `--head` names a ref in the *base* repository, so a bare branch name sent
+    /// from a fork checkout asks GitHub for that branch in the parent — which is
+    /// why the resolution is left to `gh`, which reads the branch's tracking
+    /// configuration. That makes the branch checked out at `gh`'s launch part of
+    /// the answer, so the window the pinned head used to cover is closed the only
+    /// other way there is: the branch is re-read once the push returns, and a
+    /// create whose branch moved stops.
     ///
     /// Staged as the race it exists for: the push is held while the repository
     /// moves to another branch, which is exactly what a reader who dismissed the
-    /// sheet and used the branch widget does. The pull request must still be the
-    /// one the sheet's sentence described, carrying the title and base typed for
-    /// it, and never one opened from the branch that happens to be current when
-    /// `pr create` finally runs.
-    func testTheHeadIsPinnedToThePlanEvenIfTheBranchMovesDuringThePush() async throws {
+    /// sheet and used the branch widget does. Nothing may be opened — not from
+    /// the branch that is now current, and not from the one the sheet named,
+    /// whose remote `gh` can no longer be trusted to resolve.
+    func testACreateIsRefusedWhenTheBranchMovesDuringThePush() async throws {
         let cli = ScriptedGitHubCLI()
         let git = StubGit()
         let model = try await preparedModel(cli, git: git, repositoryJSON: try fixture("repo-view.json"))
+        // Scripted, so the assertion below is about the create never being *sent*
+        // rather than about an unscripted call throwing.
         cli.serve(createArguments(), stdout: "https://github.com/o/r/pull/54\n")
 
         let pushGate = Gate()
@@ -1103,9 +1131,6 @@ final class PullRequestModelTests: XCTestCase {
             await model.create(title: "A change", body: "Why.", base: "master", draft: false)
         }
 
-        // The branch moves while the push is on the wire. The push itself reads
-        // nothing more from the context, and nothing after it re-reads the
-        // repository — the head was decided before the first `await`.
         await pushGate.waitUntilReached()
         git.context = CommitContext(
             isUnbornHEAD: false,
@@ -1118,11 +1143,58 @@ final class PullRequestModelTests: XCTestCase {
         pushGate.release()
 
         let created = await create.value
-        XCTAssertTrue(created)
+        XCTAssertFalse(created)
+        // The push is the one thing that did happen, and the sentence says so.
+        XCTAssertEqual(git.pushedPlans, [.push(upstream: "origin/feature")])
+        XCTAssertFalse(cli.argumentLists.contains { $0.contains("create") })
+        XCTAssertEqual(model.errorMessage, PullRequestModel.branchMovedMessage)
+        XCTAssertEqual(model.createMessage, PullRequestModel.branchMovedMessage)
+    }
 
-        let sent = try XCTUnwrap(cli.argumentLists.last { $0.contains("create") })
-        let headIndex = try XCTUnwrap(sent.firstIndex(of: "--head"))
-        XCTAssertEqual(sent[headIndex + 1], "feature")
+    func testACreateIsRefusedWhenTheBranchCannotBeReReadAfterThePush() async throws {
+        // A detached HEAD reads as no branch at all, which is not the branch the
+        // sheet named either.
+        let cli = ScriptedGitHubCLI()
+        let git = StubGit()
+        let model = try await preparedModel(cli, git: git, repositoryJSON: try fixture("repo-view.json"))
+        cli.serve(createArguments(), stdout: "https://github.com/o/r/pull/54\n")
+
+        let pushGate = Gate()
+        git.pushGate = pushGate
+        let create = Task {
+            await model.create(title: "A change", body: "Why.", base: "master", draft: false)
+        }
+
+        await pushGate.waitUntilReached()
+        git.context = CommitContext(
+            isUnbornHEAD: false,
+            isDetachedHEAD: true,
+            currentBranch: nil,
+            upstream: nil,
+            remotes: ["origin"],
+            inProgress: nil
+        )
+        pushGate.release()
+
+        let created = await create.value
+        XCTAssertFalse(created)
+        XCTAssertFalse(cli.argumentLists.contains { $0.contains("create") })
+        XCTAssertEqual(model.errorMessage, PullRequestModel.branchMovedMessage)
+    }
+
+    func testACreateIsRefusedWhenTheBranchReReadFails() async throws {
+        let cli = ScriptedGitHubCLI()
+        let git = StubGit()
+        git.currentBranchError = GitError.gitUnavailable
+        let model = try await preparedModel(cli, git: git, repositoryJSON: try fixture("repo-view.json"))
+        cli.serve(createArguments(), stdout: "https://github.com/o/r/pull/54\n")
+
+        let created = await model.create(title: "A change", body: "Why.", base: "master", draft: false)
+        XCTAssertFalse(created)
+        XCTAssertFalse(cli.argumentLists.contains { $0.contains("create") })
+        // git's own words, not this layer's: the read failed, it did not answer.
+        XCTAssertNotEqual(model.errorMessage, PullRequestModel.branchMovedMessage)
+        XCTAssertNotNil(model.errorMessage)
     }
 
     func testARepoViewFailureDisablesCreate() async throws {
@@ -1236,10 +1308,12 @@ final class PullRequestModelTests: XCTestCase {
         XCTAssertTrue(cli.argumentLists.contains { $0.contains("create") })
     }
 
-    func testTheHeadSentIsTheTrackingRefsNameAndNotTheLocalBranchs() async throws {
-        // A branch pushed as `HEAD:other-name`: `git push` publishes to
-        // `other-name`, so a `--head feature` would ask GitHub for a branch that
-        // is stale or absent. `--head` names a ref on GitHub, never a local one.
+    func testTheCreateCommandNamesNoHeadEvenWhenTheTrackingRefIsSpelledDifferently() async throws {
+        // A branch pushed as `HEAD:other-name`. Nothing here may compose a head:
+        // the *local* name would be wrong in the base repository, and the remote
+        // name would be wrong for a fork, whose ref lives in a repository this
+        // layer never names. `gh` reads the branch's tracking configuration and
+        // qualifies it, which is the one place both answers are known.
         let cli = ScriptedGitHubCLI()
         let git = StubGit()
         git.context = CommitContext(
@@ -1251,18 +1325,75 @@ final class PullRequestModelTests: XCTestCase {
             inProgress: nil
         )
         let model = try await preparedModel(cli, git: git, repositoryJSON: try fixture("repo-view.json"))
-        cli.serve(createArguments(head: "other-name"), stdout: "https://github.com/o/r/pull/54\n")
+        cli.serve(createArguments(), stdout: "https://github.com/o/r/pull/54\n")
 
         let created = await model.create(title: "A change", body: "Why.", base: "master", draft: false)
 
-        // The scripted transport throws on an unscripted call, so a `--head
-        // feature` would have failed the create outright — but the argument list
-        // is read back verbatim as well, so the reason a failure would be a
-        // failure is stated rather than implied.
         XCTAssertTrue(created)
         let sent = try XCTUnwrap(cli.argumentLists.first { $0.contains("create") })
-        XCTAssertEqual(sent, createArguments(head: "other-name"))
-        XCTAssertFalse(sent.contains("feature"))
+        XCTAssertEqual(sent, createArguments())
+        XCTAssertFalse(sent.contains("--head"))
+        XCTAssertFalse(sent.contains("other-name"))
+    }
+
+    func testHasProjectRootTellsNoProjectApartFromNothingReadYet() async {
+        // `availability == nil` covers two different worlds — no project open,
+        // and a project whose first read has not run, which is the state the
+        // coordinator's root observer leaves behind because it clears without
+        // starting a replacement read. The panel's placeholder has to tell them
+        // apart or it calls an open repository "No repository". Asked rather than
+        // published, so a retargeted model answers about the folder that is open
+        // now.
+        var openRoot: URL? = root
+        let cli = ScriptedGitHubCLI()
+        let model = PullRequestModel(
+            transport: cli,
+            gitService: StubGit(),
+            root: { openRoot }
+        )
+
+        XCTAssertNil(model.availability)
+        XCTAssertTrue(model.hasProjectRoot)
+
+        openRoot = nil
+        XCTAssertFalse(model.hasProjectRoot)
+    }
+
+    func testDismissingTheSheetDropsItsSentence() async throws {
+        // The panel draws the one message slot raw, so a create that failed and
+        // was then cancelled used to leave `gh`'s refusal pinned above the list
+        // with nothing on the ready path able to clear it: every later refresh
+        // asks for `.refresh` and returns early.
+        let cli = ScriptedGitHubCLI()
+        let git = StubGit()
+        git.pushError = GitError.pushFailed(reason: "rejected: non-fast-forward")
+        let model = try await preparedModel(cli, git: git, repositoryJSON: try fixture("repo-view.json"))
+
+        let created = await model.create(title: "A change", body: "Why.", base: "master", draft: false)
+        XCTAssertFalse(created)
+        XCTAssertNotNil(model.createMessage)
+
+        await model.refresh(branch: nil)
+        XCTAssertNotNil(model.errorMessage, "a refresh may not speak for the sheet that is still open")
+
+        model.dismissCreate()
+        XCTAssertNil(model.errorMessage)
+        XCTAssertNil(model.createMessage)
+    }
+
+    func testDismissingTheSheetLeavesARefreshsOwnSentenceAlone() async throws {
+        // Scoped, not a blanket clear: a refresh that failed behind the open
+        // sheet is the panel's sentence and outlives it.
+        let cli = ScriptedGitHubCLI()
+        let git = StubGit()
+        cli.serveReady()
+        cli.serve(listArguments, stderr: "could not resolve to a Repository\n", status: 1)
+        let model = makeModel(cli, git: git)
+        await model.refresh(branch: nil)
+        XCTAssertNotNil(model.errorMessage)
+
+        model.dismissCreate()
+        XCTAssertEqual(model.errorMessage, "could not resolve to a Repository")
     }
 
     func testAPushFailureNeverReachesCreate() async throws {

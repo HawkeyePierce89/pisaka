@@ -121,11 +121,15 @@ final class PullRequestCheckoutTests: XCTestCase {
         let bracket = Bracket()
         let model = await readyModel(cli, gate: gate, bracket: bracket)
         let sentByTheRefresh = cli.argumentLists.count
+        // Counted from here: a refresh consults the gate once itself, to clear a
+        // gate-refusal whose condition has since passed. What this asserts is the
+        // checkout's own consult.
+        let asksBeforeTheCheckout = gate.asks
         gate.isBlocked = true
 
         XCTAssertFalse(model.checkout(54))
 
-        XCTAssertEqual(gate.asks, 1, "the gate was not consulted")
+        XCTAssertEqual(gate.asks - asksBeforeTheCheckout, 1, "the gate was not consulted")
         XCTAssertTrue(bracket.operations.isEmpty, "a refused checkout still reached the writer bracket")
         XCTAssertEqual(cli.argumentLists.count, sentByTheRefresh, "a refused checkout still ran a command")
         XCTAssertEqual(model.errorMessage, PullRequestModel.blockedMessage)
@@ -143,6 +147,7 @@ final class PullRequestCheckoutTests: XCTestCase {
         let gate = WriteGate()
         let bracket = Bracket()
         let model = await readyModel(cli, gate: gate, bracket: bracket)
+        let asksBeforeTheCheckout = gate.asks
         gate.isBlocked = true
 
         XCTAssertTrue(model.checkoutIsBlocked())
@@ -150,14 +155,14 @@ final class PullRequestCheckoutTests: XCTestCase {
         // The sentence is the model's, published from the one site `checkout`
         // itself refuses through.
         XCTAssertEqual(model.errorMessage, PullRequestModel.blockedMessage)
-        XCTAssertEqual(gate.asks, 1)
+        XCTAssertEqual(gate.asks - asksBeforeTheCheckout, 1)
         XCTAssertTrue(bracket.operations.isEmpty)
         XCTAssertFalse(model.isWriteInFlight, "asking may not accept")
 
         // A clear gate answers `false` and says nothing.
         gate.isBlocked = false
         XCTAssertFalse(model.checkoutIsBlocked())
-        XCTAssertEqual(gate.asks, 2)
+        XCTAssertEqual(gate.asks - asksBeforeTheCheckout, 2)
     }
 
     func testAClearGateLetsTheCheckoutThrough() async {
@@ -165,10 +170,11 @@ final class PullRequestCheckoutTests: XCTestCase {
         let gate = WriteGate()
         let bracket = Bracket()
         let model = await readyModel(cli, gate: gate, bracket: bracket)
+        let asksBeforeTheCheckout = gate.asks
 
         XCTAssertTrue(model.checkout(54))
 
-        XCTAssertEqual(gate.asks, 1)
+        XCTAssertEqual(gate.asks - asksBeforeTheCheckout, 1)
         XCTAssertEqual(bracket.operations.count, 1)
     }
 
@@ -356,6 +362,28 @@ final class PullRequestCheckoutTests: XCTestCase {
         XCTAssertEqual(model.errorMessage, "The GitHub CLI did not answer within 120 seconds.")
         XCTAssertEqual(bracket.answers, [""])
         XCTAssertFalse(model.isWriteInFlight)
+    }
+
+    func testARefreshClearsAGateRefusalOnceTheGateIsDown() async throws {
+        let cli = ScriptedGitHubCLI()
+        let gate = WriteGate()
+        let model = await readyModel(cli, gate: gate, bracket: Bracket())
+        gate.isBlocked = true
+
+        XCTAssertTrue(model.checkoutIsBlocked())
+        XCTAssertEqual(model.errorMessage, PullRequestModel.blockedMessage)
+
+        // Still up: the sentence is still true, so it stands.
+        await model.refresh(branch: "master")
+        XCTAssertEqual(model.errorMessage, PullRequestModel.blockedMessage)
+
+        // The revert finished. Nothing tells this feature so — a refresh finding
+        // the gate down is the only proof there is, and left to `checkout(_:)`
+        // alone the sentence would sit above a clean list for the rest of the app
+        // run, telling a reader who did exactly what it asked to keep waiting.
+        gate.isBlocked = false
+        await model.refresh(branch: "master")
+        XCTAssertNil(model.errorMessage)
     }
 
     func testARefreshDoesNotClearACheckoutsSentence() async throws {

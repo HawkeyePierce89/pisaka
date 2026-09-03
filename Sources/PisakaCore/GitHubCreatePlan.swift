@@ -46,35 +46,10 @@ public struct GitHubCreatePlan: Equatable {
     /// The branch it will be opened *from*, trimmed. Empty on a detached HEAD,
     /// which is also the `.detachedHEAD` refusal.
     ///
-    /// The **local** short name — what the sheet's sentences name and what the
-    /// reader is standing on. What `gh` is sent is ``remoteHeadBranch``.
+    /// The **local** short name — what the sheet's sentences name, what the
+    /// reader is standing on, and what ``PullRequestModel/create(title:body:base:draft:)``
+    /// re-reads the checked-out branch against once the push has returned.
     public let headBranch: String
-
-    /// The branch the push above will actually publish, and therefore the one
-    /// `--head` names — which is a *remote* ref name, not a local one.
-    ///
-    /// The two are the same for almost every branch, and deliberately not
-    /// assumed to be: `PushPlan.push(upstream:)` is a bare `git push`, which
-    /// publishes to the branch's configured tracking ref, and `PushPlan`'s own
-    /// rule is that that ref "may well be named differently from the local
-    /// branch" — which is why it composes no refspec. Sending the *local* name
-    /// as `--head` would make exactly the guess `PushPlan` refuses to make, and
-    /// on a branch pushed as `HEAD:other-name` (or a renamed local branch) it
-    /// asks GitHub to open a pull request from a ref that is stale or absent:
-    /// `gh` either refuses with "no commits between…" or opens the pull request
-    /// from the wrong remote branch. The feature already knows `--head` is a
-    /// remote ref — the checkout trigger names the pull request's own
-    /// `headRefName` for that very reason (G9) — so the create half names it
-    /// too.
-    ///
-    /// Derived, never guessed: the remote's name is stripped off the upstream
-    /// short ref by matching it against the repository's own remote list, so a
-    /// branch called `feature/x` under a remote called `origin` is read as
-    /// `feature/x` and not as `x`. `setUpstream` publishes under the local name
-    /// by construction (`git push --set-upstream <remote> <branch>`), and an
-    /// upstream no remote in the list explains falls back to ``headBranch`` —
-    /// the value that was sent before this was derived at all.
-    public let remoteHeadBranch: String
 
     /// What has to happen to ``headBranch`` before `gh pr create` can run, and
     /// where the two refusals live.
@@ -86,13 +61,10 @@ public struct GitHubCreatePlan: Equatable {
     /// for.
     public let push: PushPlan
 
-    /// `remoteHeadBranch` defaults to `headBranch`, which is what it resolves to
-    /// for every branch whose tracking ref carries its own name.
-    public init(base: String, headBranch: String, push: PushPlan, remoteHeadBranch: String? = nil) {
+    public init(base: String, headBranch: String, push: PushPlan) {
         self.base = base
         self.headBranch = headBranch
         self.push = push
-        self.remoteHeadBranch = remoteHeadBranch ?? headBranch
     }
 
     /// Decide from the repository state the sheet opened over and the base the
@@ -107,27 +79,8 @@ public struct GitHubCreatePlan: Equatable {
         return GitHubCreatePlan(
             base: (base ?? "").trimmingCharacters(in: .whitespacesAndNewlines),
             headBranch: headBranch,
-            push: push,
-            remoteHeadBranch: remoteHead(push: push, remotes: context.remotes, headBranch: headBranch)
+            push: push
         )
-    }
-
-    /// The remote branch ``push`` will publish to — see ``remoteHeadBranch``.
-    ///
-    /// The remote list is matched **longest name first**, so a repository
-    /// carrying both `origin` and `origin/mirror` as remote names strips the one
-    /// that actually explains the upstream rather than whichever came first.
-    private static func remoteHead(push: PushPlan, remotes: [String], headBranch: String) -> String {
-        guard case .push(let upstream) = push else { return headBranch }
-        let names = remotes
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-            .sorted { $0.count > $1.count }
-        for remote in names where upstream.hasPrefix(remote + "/") {
-            let branch = String(upstream.dropFirst(remote.count + 1))
-            return branch.isEmpty ? headBranch : branch
-        }
-        return headBranch
     }
 
     /// Why a pull request cannot be opened from here at all, or `nil` when it
@@ -150,17 +103,15 @@ public struct GitHubCreatePlan: Equatable {
     /// a control the eye slides over and this is the one irreversible choice on
     /// the sheet: a pull request opened into the wrong base is closed and
     /// reopened, not edited into place.
-    /// **It names the branch GitHub will see.** When the tracking ref carries a
-    /// different name from the local branch, the pull request really is opened
-    /// from that ref, and a sentence naming the local one would describe a pull
-    /// request nobody is about to create — so the local name is kept, in
-    /// parentheses, as the thing the reader recognizes.
+    /// **It names the local branch**, which is the one `gh` resolves the head
+    /// from: the head is deliberately not pinned as an argument (see
+    /// `GitHubCommands.createPullRequest`), because `gh` reads the checked-out
+    /// branch's tracking configuration and, for a fork, qualifies the ref with
+    /// an owner this layer has no way to know. The model re-reads the branch
+    /// after the push and refuses rather than sends when it is no longer the one
+    /// this sentence named, so what was stated is still what is opened.
     public var baseSentence: String? {
         guard canCreate else { return nil }
-        guard remoteHeadBranch == headBranch else {
-            return "The pull request will be opened from “\(remoteHeadBranch)” "
-                + "(the branch “\(headBranch)” tracks) into “\(base)”."
-        }
         return "The pull request will be opened from “\(headBranch)” into “\(base)”."
     }
 

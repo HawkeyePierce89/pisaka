@@ -595,12 +595,15 @@ ci.yml's `lint` job, and the version-bump procedure.
   `refreshesExecutableLocation`, so a refresh costs one login-shell spawn and a
   `gh` installed a moment ago from the embedded terminal is still picked up.
   Exactly **one write is in flight at a time** — create pushes the branch before
-  it opens anything, always with an explicit `--base` read from `repo view` and an
-  explicit `--head` pinned to the same fresh reading the push plan came from, so a
-  branch switched while the push is on the wire cannot become the branch the pull
-  request is opened from, and *consulting* the same gate the checkout asks so the
-  plain `git push` a tracked branch resolves against HEAD cannot publish a branch
-  the plan never named — and
+  it opens anything, always with an explicit `--base` read from `repo view` and
+  deliberately **no `--head` at all**, because a `--head` value names a ref in the
+  *base* repository and a fork checkout's head lives in another one, which this
+  layer cannot name (it composes no `owner/repo`, and `gh` refuses an organization
+  as the `<user>` anyway); the branch-switch window that buys is closed by
+  re-reading the checked-out branch once the push returns and **refusing** when it
+  is no longer the branch the sheet's sentence named, and by *consulting* the same
+  gate the checkout asks so the plain `git push` a tracked branch resolves against
+  HEAD cannot publish a branch the plan never named — and
   `gh pr checkout` is the app's **eighth gated operation**: the model composes the
   command, asks an injected gate before anything is sent and hands the operation
   to `PisakaApp.runBranchOperation(_:_:)` through `PullRequestCoordinator`, the

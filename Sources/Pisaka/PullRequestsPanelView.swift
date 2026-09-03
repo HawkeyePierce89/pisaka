@@ -193,9 +193,20 @@ struct PullRequestsPanelView: View {
     /// publishes `availability == nil` until the first refresh has decided one,
     /// and accusing a repository of having no pull requests before anything has
     /// been asked is the same mistake the four-state enum exists to avoid.
+    ///
+    /// "Not looked yet" is itself two states, and the third line is the one that
+    /// matters: the coordinator's root observer clears without starting a
+    /// replacement read, so a folder switch whose branch never resolves — one
+    /// detached HEAD to another, a non-repository to a detached HEAD — leaves an
+    /// open repository sitting at `availability == nil` with no read in flight.
+    /// Keyed on availability alone this said "No repository" about a repository
+    /// that is open, and said it until the panel was hidden and shown again,
+    /// which for a panel that never hid is never. So the root is asked, and the
+    /// state that is really "nobody has looked" names the control that looks.
     private var emptyText: String {
-        if model.availability == nil { return model.isLoading ? "Reading…" : "No repository" }
-        return "No open pull requests"
+        guard model.availability == nil else { return "No open pull requests" }
+        if model.isLoading { return "Reading…" }
+        return model.hasProjectRoot ? "Press Refresh to read pull requests." : "No repository"
     }
 
     private var list: some View {

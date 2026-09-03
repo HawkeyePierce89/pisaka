@@ -61,12 +61,11 @@ final class GitHubCommandsTests: XCTestCase {
         XCTAssertEqual(command.workingDirectory, root)
     }
 
-    func testCreateCommandAlwaysPassesBaseAndHeadExplicitly() {
+    func testCreateCommandAlwaysPassesTheBaseExplicitly() {
         let command = GitHubCommands.createPullRequest(
             title: "Add the panel",
             body: "Body text",
             base: "master",
-            head: "feature",
             draft: false,
             root: root
         )
@@ -75,27 +74,29 @@ final class GitHubCommandsTests: XCTestCase {
             "--title", "Add the panel",
             "--body", "Body text",
             "--base", "master",
-            "--head", "feature",
         ])
         XCTAssertEqual(command.deadline, 120)
     }
 
-    /// The head is an argument for the base's reason, read the other way round:
-    /// `gh`'s own default is the branch checked out when `pr create` runs, and
-    /// create pushes first — so the branch can move between the sheet's sentence
-    /// and the command. What was stated is what is sent.
-    func testCreateCommandNeverLeavesTheHeadToGhsCurrentBranch() {
+    /// The head is deliberately **not** an argument, which is the base's reason
+    /// read the other way round: a `--head` value names a ref in the *base*
+    /// repository (`gh`'s own help: it "supports `<user>:<branch>` syntax to
+    /// select a head repo owned by `<user>`"), so a bare branch name sent from a
+    /// fork checkout asks GitHub for that branch in the parent. This layer
+    /// composes no `owner/repo` and has no reading of the push remote's owner, so
+    /// the resolution is left to `gh`, which reads the branch's tracking
+    /// configuration — and the branch-switch window that buys is closed by
+    /// `PullRequestModel.create` re-reading the branch after the push instead.
+    func testCreateCommandNeverPinsTheHead() {
         let command = GitHubCommands.createPullRequest(
             title: "T",
             body: "B",
             base: "master",
-            head: "feature",
-            draft: false,
+            draft: true,
             root: root
         )
-        let index = command.arguments.firstIndex(of: "--head")
-        XCTAssertNotNil(index)
-        XCTAssertEqual(command.arguments[(index ?? 0) + 1], "feature")
+        XCTAssertFalse(command.arguments.contains("--head"))
+        XCTAssertFalse(command.arguments.contains("-H"))
     }
 
     func testCreateCommandAppendsDraftFlagLast() {
@@ -103,7 +104,6 @@ final class GitHubCommandsTests: XCTestCase {
             title: "T",
             body: "B",
             base: "develop",
-            head: "feature",
             draft: true,
             root: root
         )
@@ -112,7 +112,6 @@ final class GitHubCommandsTests: XCTestCase {
             "--title", "T",
             "--body", "B",
             "--base", "develop",
-            "--head", "feature",
             "--draft",
         ])
     }
@@ -124,13 +123,12 @@ final class GitHubCommandsTests: XCTestCase {
             title: "T",
             body: "",
             base: "master",
-            head: "feature",
             draft: false,
             root: root
         )
         XCTAssertEqual(
             command.arguments,
-            ["pr", "create", "--title", "T", "--body", "", "--base", "master", "--head", "feature"]
+            ["pr", "create", "--title", "T", "--body", "", "--base", "master"]
         )
     }
 
@@ -178,7 +176,7 @@ final class GitHubCommandsTests: XCTestCase {
             ("pullRequestForHeadBranch", GitHubCommands.pullRequest(forHeadBranch: "b", root: root)),
             ("checks", GitHubCommands.checks(pullRequest: 1, root: root)),
             ("createPullRequest", GitHubCommands.createPullRequest(
-                title: "t", body: "b", base: "master", head: "feature", draft: false, root: root
+                title: "t", body: "b", base: "master", draft: false, root: root
             )),
             ("checkoutPullRequest", GitHubCommands.checkoutPullRequest(number: 1, root: root)),
             ("repositoryView", GitHubCommands.repositoryView(root: root)),

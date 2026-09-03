@@ -216,6 +216,19 @@ public final class PullRequestModel: ObservableObject {
     /// root that is not there, which is a state and not a failure.
     private let projectRoot: @MainActor () -> URL?
 
+    /// Whether there is a project open at all, for the one question `availability
+    /// == nil` cannot answer on its own.
+    ///
+    /// `nil` availability means "nothing has been decided yet", which covers two
+    /// different worlds: no project is open, and a project is open whose first
+    /// read has not run — the state the root observer leaves behind, since it
+    /// clears without starting a replacement read. The panel's placeholder has to
+    /// tell them apart or it accuses an open repository of not being one. Asked
+    /// at draw time rather than published, exactly like ``projectRoot`` itself:
+    /// this model is retargeted rather than recreated, and a stored answer would
+    /// be the stale one.
+    public var hasProjectRoot: Bool { projectRoot() != nil }
+
     /// The root everything published was read under, so a project change can be
     /// *seen* — there is no folder-change notification this file could take.
     private var lastRoot: URL?
@@ -271,6 +284,18 @@ public final class PullRequestModel: ObservableObject {
         /// behind it has refreshed itself, so a refresh that succeeded may not
         /// clear the one sentence explaining why the worktree did not move.
         case checkout
+        /// A checkout **refused by the gate**, which is a different sentence from
+        /// a checkout that ran and failed — and the one case in this enum that a
+        /// successful refresh *may* speak for.
+        ///
+        /// The others all record something that happened and stays true: a
+        /// command answered, or refused, and no later read changes what it said.
+        /// This one records a *condition* — another operation is rewriting the
+        /// worktree — that ends silently, with nothing in this feature told.
+        /// Sharing `.checkout` left it pinned above a list that had since
+        /// refreshed cleanly for the rest of the app run, telling a reader who
+        /// did what the sentence asked (wait, then look again) to keep waiting.
+        case checkoutBlocked
     }
 
     /// Whether a worktree-mutating operation is in flight right now, asked at
@@ -537,6 +562,21 @@ public final class PullRequestModel: ObservableObject {
             currentBranchPullRequest = nil
         }
 
+        // A gate-refused checkout's sentence goes here rather than waiting for the
+        // next checkout attempt. It names a condition that ends without anything
+        // in this feature being told — "another operation is writing to the
+        // working tree" — and `checkout(_:)` is the only other place that clears
+        // it, so a reader who takes the sentence at its word and simply waits
+        // would keep it above a list that has since refreshed cleanly for the
+        // rest of the app run. A refresh that reached this line with the gate
+        // down is the proof the condition has passed; a refresh that ran while it
+        // is still up leaves the sentence standing, because it is still true.
+        //
+        // Scoped to `.checkoutBlocked` and never to `.checkout`: a checkout that
+        // *ran* and failed said something a refresh has no standing to withdraw,
+        // and its row is still on screen waiting to be understood.
+        if !isWriteBlocked() { clearError(from: .checkoutBlocked) }
+
         if let failure {
             setMessage(failure, from: .refresh)
         } else {
@@ -723,6 +763,21 @@ public final class PullRequestModel: ObservableObject {
         if let failure { setMessage(failure, from: .create) }
     }
 
+    /// The create sheet has gone away — drop the sentence it was drawing.
+    ///
+    /// A `.create` sentence is the sheet's, and only the sheet draws it as such
+    /// (``createMessage`` is what `NewPullRequestSheet` reads). The panel draws
+    /// the slot raw, so a create that failed and was then cancelled would leave
+    /// `gh`'s refusal — or git's rejected push — pinned above the list, where
+    /// nothing on the ready path clears it: every later refresh asks
+    /// ``clearError(from:)`` for `.refresh` and returns early. Cleared here
+    /// instead, at the one moment the sentence stops having a surface that
+    /// explains it. Scoped, so a refresh failure that landed behind the open
+    /// sheet is not swept away with it.
+    public func dismissCreate() {
+        clearError(from: .create)
+    }
+
     /// Re-plan for the base the picker has been moved to, so the sentences name
     /// the branch that is selected rather than the one that was defaulted to.
     ///
@@ -862,22 +917,43 @@ public final class PullRequestModel: ObservableObject {
             return false
         }
 
-        // The head is the plan's — the branch the fresh context read named and the
-        // sheet's sentence stated — never `gh`'s "whatever is checked out now"
-        // default: the push above may have taken a slow network's worth of
-        // seconds, and the sheet is dismissable while it runs.
+        // The head is `gh`'s to resolve — see `GitHubCommands.createPullRequest`
+        // for why an argument cannot name it: a bare `--head` names a ref in the
+        // *base* repository, and the qualified `<user>:<branch>` form needs an
+        // owner this layer never composes and that `gh` rejects for an
+        // organization anyway. So `gh` reads the checked-out branch's tracking
+        // configuration, which is the one place a fork's head is known.
         //
-        // And it is the plan's *remote* head, because `--head` names a ref on
-        // GitHub rather than a local branch: the push above publishes to the
-        // branch's tracking ref, which `PushPlan`'s own rule says may be spelled
-        // differently. `GitHubCreatePlan.remoteHeadBranch` is that spelling, and
-        // it equals `headBranch` for every branch whose upstream carries its own
-        // name.
+        // Which makes the branch that is checked out *at `gh`'s launch* part of
+        // the answer, and the push above is exactly where that can change: it is
+        // seconds of network during which the sheet is dismissable and the widget
+        // or the embedded terminal can switch branches. So it is re-read here and
+        // the whole create is refused when it moved — the sheet's sentence named
+        // a branch, and a pull request opened from a different one is the failure
+        // this flow exists to prevent, not something to publish and report after
+        // the fact. A `nil` reading (a detached HEAD, or `git` failing) is a
+        // refusal for the same reason: it is not the branch that was stated.
+        //
+        // Note this closes the *stated* window and no more. The push's own
+        // process launch, and a `git checkout` racing inside it, remain what the
+        // commit dialog's push already names and accepts.
+        let branchAfterPush: BranchRef?
+        do {
+            branchAfterPush = try await gitService.currentBranch(root: root)
+        } catch {
+            setMessage(Self.message(for: error), from: .create)
+            return false
+        }
+
+        guard branchAfterPush?.shortName == plan.headBranch else {
+            setMessage(Self.branchMovedMessage, from: .create)
+            return false
+        }
+
         let command = GitHubCommands.createPullRequest(
             title: title,
             body: body,
             base: plan.base,
-            head: plan.remoteHeadBranch,
             draft: draft,
             root: root
         )
@@ -936,6 +1012,19 @@ public final class PullRequestModel: ObservableObject {
         "Another operation is writing to the working tree. "
         + "Create the pull request again when it has finished."
 
+    /// The sentence a create refused because the checked-out branch moved while
+    /// the branch was being pushed gets.
+    ///
+    /// The refusal exists because the head is `gh`'s to resolve, and `gh`
+    /// resolves it from the branch that is checked out at *its own* launch —
+    /// which the push, seconds of network with the sheet dismissable behind it,
+    /// is exactly long enough to change. It says the pull request was not opened
+    /// because that is the one thing the reader needs: the push already
+    /// happened, and it is the only part of this flow that did.
+    public static let branchMovedMessage =
+        "The checked-out branch changed while the branch was being pushed. "
+        + "No pull request was opened — reopen this sheet to create one from the branch you are on."
+
     // MARK: - The checkout
 
     /// The sentence a checkout refused because git is already rewriting the
@@ -961,7 +1050,7 @@ public final class PullRequestModel: ObservableObject {
     @discardableResult
     public func checkoutIsBlocked() -> Bool {
         guard isWriteBlocked() else { return false }
-        setMessage(Self.blockedMessage, from: .checkout)
+        setMessage(Self.blockedMessage, from: .checkoutBlocked)
         return true
     }
 
@@ -998,6 +1087,7 @@ public final class PullRequestModel: ObservableObject {
 
         isWriteInFlight = true
         clearError(from: .checkout)
+        clearError(from: .checkoutBlocked)
         let command = GitHubCommands.checkoutPullRequest(number: number, root: root)
         runCheckout { [weak self] in
             // Spelled out rather than `self?.performCheckout(command) ?? …`: an

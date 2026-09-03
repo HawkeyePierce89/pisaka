@@ -439,12 +439,48 @@ the clear; a new project whose branch never resolves (it, too, is detached) is
 read when the panel is next shown or its refresh button pressed, with nothing
 false on screen in the meantime.
 
+**Which is a claim the placeholder has to earn**, and it is why the model answers
+`hasProjectRoot`. `availability == nil` is "nothing decided yet", and that covers
+two different worlds: no project is open, and a project is open whose first read
+has not run — precisely the state the clear above leaves behind. Keyed on
+availability alone the panel said "No repository" about a repository that *is*
+open, and said it until the panel was hidden and shown again, which for a panel
+that never hid is never. So the root is asked (at draw time, like `projectRoot`
+itself — this model is retargeted rather than recreated), and the state that is
+really "nobody has looked" names the control that looks:
+`"Press Refresh to read pull requests."`
+
 **A failure is cleared by the read that caused it and by no other.** The one
 message slot records whose sentence it holds (`ErrorSource`: refresh, checks,
-create, checkout), for `DatabaseViewerModel`'s reason — a refresh that succeeded
-says nothing about an expand that failed a moment earlier, and clearing that
-sentence would leave a row expanded over an empty checks list with no
-explanation.
+create, checkout, checkoutBlocked), for `DatabaseViewerModel`'s reason — a refresh
+that succeeded says nothing about an expand that failed a moment earlier, and
+clearing that sentence would leave a row expanded over an empty checks list with
+no explanation.
+
+**Two of the five have an end, and it is not another read of their own.** The rule
+above keeps a sentence until its own read runs again, which is right for a
+*result* — a command answered, and no later read changes what it said — and wrong
+for a *condition* that ends silently:
+
+- **`checkoutBlocked`** is a checkout the gate refused, and it is its own source
+  precisely so that this exception does not reach `checkout`. The condition it
+  names — another operation is rewriting the worktree — ends with nothing in this
+  feature told, so a refresh that reaches its tail **with the gate down** clears
+  it, that being the only proof available. A refresh that runs while the gate is
+  still up leaves it standing, because it is still true. Sharing `checkout` left
+  it pinned above a list that had since refreshed cleanly for the rest of the app
+  run, telling a reader who did exactly what the sentence asked — wait, then look
+  again — to keep waiting. A checkout that *ran* and failed keeps the strict rule:
+  its row is still on screen waiting to be understood, and a refresh has no
+  standing to withdraw what `gh` said.
+- **`create`** is the sheet's, and only the sheet draws it as such
+  (`createMessage`). It ends when the sheet does: `dismissCreate()` — wired to
+  `NewPullRequestSheet`'s `.onDisappear`, the one place Cancel, Esc and a
+  successful Create all reach — clears it, scoped, so a refresh failure that
+  landed behind the open sheet is not swept away with it. Without that, a create
+  that failed and was then cancelled left `gh`'s refusal (or git's rejected push)
+  in the panel's strip with nothing on the ready path able to clear it, since
+  every later refresh asks for `refresh` and returns early.
 
 **Blanking the rows blanks the slot, whoever filled it.** The three moments the
 model clears everything a sentence could be about — availability going not-ready,
@@ -538,66 +574,68 @@ described — so the base the sentence names is the base that is sent, and the
 default the picker opens on is `gh repo view`'s `defaultBranchRef` and nothing
 else. (The ticket's alternative, "the upstream's branch", was dropped entirely.)
 
-`--head` is sent explicitly for the same reason read the other way round. `gh`'s
-head default is *whatever branch is checked out at the moment `pr create` runs*,
-and this flow pushes first: the sheet may be dismissed while that push is on the
-wire — Cancel stays live — so a branch switched from the widget or the embedded
-terminal in that window would otherwise open the pull request from the branch that
-is current *then*, carrying the title and base typed for another one, as a
-published remote act. The head is therefore pinned to the same **fresh** context
-reading the refusals and the push plan came from — and the project root is pinned
-for that same window by being read once at the top and used by both commands. The
-fresh read answers a branch switched *before* Create; the explicit head answers
-one switched *during* it. If the branch really did move, `gh` refuses in its own
-words, which is a stated failure instead of a wrong pull request.
+**`--head` is deliberately *not* sent**, and that is the base's reason read the
+other way round rather than the same one repeated. A `--head` value names a ref in
+the **base repository**: `gh`'s own help says it "supports `<user>:<branch>` syntax
+to select a head repo owned by `<user>`", which is the only way an argument can
+name a ref anywhere else. So a bare branch name sent from a fork checkout — where
+`gh` resolves the base repository to the *parent* — asks GitHub for that branch in
+the parent, where it either does not exist ("no commits between…") or, worse, is a
+same-named branch (`develop`, a shared feature name, a stale one) whose commits
+belong to somebody else. That is the one failure mode worse than the race an
+explicit head would close, and a fork checkout is the ordinary way people
+contribute.
 
-**The pinned head is `GitHubCreatePlan.remoteHeadBranch`, not `headBranch`,
-because `--head` names a ref on GitHub and not a local branch.** The two are the
-same for almost every branch, and deliberately not assumed to be: the push
-immediately above is `PushPlan.push(upstream:)`, a bare `git push`, which
-publishes to the branch's *configured tracking ref* — and `PushPlan`'s own rule,
-shared with the commit dialog, is that that ref "may well be named differently
-from the local branch", which is exactly why it composes no refspec. Sending the
-local name would make the guess `PushPlan` refuses to make: on a branch pushed as
-`HEAD:other-name`, or a local branch renamed after its first push, the commits go
-to `other-name` and `gh` is then asked to open a pull request from a ref that is
-stale or absent — it refuses with "no commits between…", or opens the pull request
-from the wrong remote branch. The feature already reads `--head` this way
-everywhere else: the checkout trigger names the pull request's own `headRefName`
-for precisely this reason (G9).
+The qualified form is not available to this layer, on three counts: no
+`owner/repo` is composed anywhere in this feature (G6), the owner of the **push**
+remote is in nothing that is read here (`CommitContext.remotes` carries names, not
+URLs, and `repo view` answers for the *base*), and `gh` does not accept an
+organization as the `<user>` at all. Left implicit, `gh` reads the checked-out
+branch's tracking configuration and qualifies the ref itself — which is the one
+place both the fork answer and the differently-spelled-tracking-ref answer are
+known. `PushPlan`'s rule that a tracking ref "may well be named differently from
+the local branch" is therefore honoured by *not guessing* here either, exactly as
+it is honoured by composing no refspec.
 
-It is *derived*, never guessed. The remote's name is stripped off the upstream
-short ref by matching it against the repository's own remote list (longest name
-first), so `origin/feature/nested` under a remote called `origin` reads as
-`feature/nested` and not as `nested`; `setUpstream` publishes under the local name
-by construction (`git push --set-upstream <remote> <branch>`), so there is nothing
-to derive; and an upstream that no remote in the list explains falls back to
-`headBranch`. `baseSentence` names the derived ref when the two differ, with the
-local branch in parentheses as the thing the reader recognizes — a sentence naming
-only the local branch would describe a pull request nobody is about to create.
+**What the implicit head costs is paid where the window is.** `gh` resolves the
+current branch at *its own* process launch, and this flow pushes first: the sheet
+may be dismissed while that push is on the wire — Cancel stays live — so a branch
+switched from the widget or the embedded terminal in that window would otherwise
+open the pull request from the branch that is current *then*, carrying the title
+and base typed for another one, as a published remote act. So the branch is
+**re-read once the push returns** (`GitServicing.currentBranch`) and the whole
+create is **refused** when it is no longer `GitHubCreatePlan.headBranch` — the
+branch `baseSentence` named. A `nil` reading (a detached HEAD) refuses for the same
+reason; a reading that *fails* carries git's own words instead, because that is a
+failed read and not a moved branch. The sentence is
+`PullRequestModel.branchMovedMessage`, and it says the push happened and no pull
+request was opened, because the push is the only part of the flow that did.
 
-The **fork case is out of scope and stays so**: an unqualified `--head` means "the
-head is in the base repository", so a clone whose base repo is the parent needs an
-`owner:branch` head, and no owner is composed anywhere in this feature (G6). What
-this rule fixes is the same-repository mismatch, which is the one the codebase
-already knew about.
+Refusing is also what an argument could not do. A pinned head in that situation
+would have opened a pull request against a ref the flow no longer had any reading
+of; stopping is the answer, and it costs at most a spurious refusal in the narrow
+case where the switch landed *after* the push launched (the right branch did go
+out, and the reader reopens the sheet). The project root is pinned across the same
+window by being read once at the top and used by both commands, and the fresh
+context read answers a branch switched *before* Create — the re-read answers one
+switched *during* it.
 
 **The gate is asked as well, twice** — the same injected `isWriteBlocked` the
 checkout asks (G12), with its own sentence,
 `PullRequestModel.createBlockedMessage` — and it closes the window those two
-leave between them: **the push itself**. Neither a
-fresh read nor a pinned head reaches it, because `PushPlan.push(upstream:)` is a
+leave between them: **the push itself**. Neither the
+fresh read before it nor the re-read after it reaches it, because
+`PushPlan.push(upstream:)` is a
 plain `git push`, which resolves HEAD at *its own* process launch rather than from
 the plan — deliberately, since the tracking ref may be named differently from the
 local branch and a refspec composed here would be a guess, and that is
 `PushPlan`'s rule, shared with the commit dialog, not this feature's to rewrite. So
 a branch switch landing between the context read and the push makes that push
-publish a branch this flow never planned, while the pinned head still opens the
-pull request from the one it did — against a remote left stale. Refused **before**
-rather than detected after, because after the fact nothing can tell it apart from
-the benign case the pinned head exists for: a switch after the push launched,
-where the right branch did go out and a post-push branch comparison would refuse a
-create that was entirely correct. So while a branch switch, a revert, a merge
+publish a branch this flow never planned — a remote act nothing afterwards can
+take back, and one the post-push re-read cannot repair, because by then the wrong
+branch has already gone out. Refused **before** rather than detected after, which
+is the difference between "nothing happened" and a published push nobody asked
+for. So while a branch switch, a revert, a merge
 apply or a project Replace All is rewriting the worktree, Create does not run —
 and the refusal is a "not now" the same sheet retries out of, not a state it has
 to be reopened from.
