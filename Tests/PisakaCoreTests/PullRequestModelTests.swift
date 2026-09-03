@@ -414,6 +414,56 @@ final class PullRequestModelTests: XCTestCase {
         XCTAssertEqual(model.errorMessage, "network is unreachable")
     }
 
+    func testAFailedHeadLookupForgetsThePreviousBranchsPullRequest() async throws {
+        // The one value here that is scoped to a *branch* rather than to the
+        // repository, so the one the "a failure never blanks a good answer" rule
+        // cannot keep: left standing after a branch change whose `--head` lookup
+        // failed, it makes the bottom-bar indicator assert the pull request of
+        // the branch the user just *left* — with no message slot of its own to
+        // qualify it, and a click opening the panel on a row this branch never
+        // opened.
+        let cli = ScriptedGitHubCLI()
+        cli.serveReady()
+        cli.serve(listArguments, stdout: try fixture("pr-list-merged.json"))
+        cli.serve(headArguments("feature"), stdout: try fixture("pr-list-merged.json"))
+        cli.serve(headArguments("other"), stderr: "network is unreachable\n", status: 1)
+        let model = makeModel(cli)
+
+        await model.refresh(branch: "feature")
+        XCTAssertEqual(model.currentBranchPullRequest?.number, 53)
+
+        await model.refresh(branch: "other")
+
+        XCTAssertNil(
+            model.currentBranchPullRequest,
+            "A `--head other` that failed says nothing about `other`, and certainly not that it has "
+                + "`feature`'s pull request open."
+        )
+        XCTAssertEqual(
+            model.pullRequests.map(\.number),
+            [53],
+            "The list is the repository's, not the branch's, so the rule still keeps it."
+        )
+        XCTAssertEqual(model.errorMessage, "network is unreachable")
+    }
+
+    func testAThrownHeadLookupAlsoForgetsThePreviousBranchsPullRequest() async throws {
+        let cli = ScriptedGitHubCLI()
+        cli.serveReady()
+        cli.serve(listArguments, stdout: try fixture("pr-list-merged.json"))
+        cli.serve(headArguments("feature"), stdout: try fixture("pr-list-merged.json"))
+        let model = makeModel(cli)
+
+        await model.refresh(branch: "feature")
+        XCTAssertEqual(model.currentBranchPullRequest?.number, 53)
+
+        cli.fail(headArguments("other"), with: GitHubCLIError.timedOut(seconds: 30))
+        await model.refresh(branch: "other")
+
+        XCTAssertNil(model.currentBranchPullRequest)
+        XCTAssertEqual(model.pullRequests.map(\.number), [53])
+    }
+
     func testASuccessfulRefreshClearsItsOwnPreviousMessage() async throws {
         let cli = ScriptedGitHubCLI()
         cli.serveReady()
@@ -1503,6 +1553,46 @@ final class PullRequestModelTests: XCTestCase {
         XCTAssertNil(model.currentBranchPullRequest)
         XCTAssertNil(model.availability)
         XCTAssertFalse(model.isReady)
+    }
+
+    func testAFolderSwitchLowersTheLoadingFlagOfTheReadItSuperseded() async throws {
+        // The clear supersedes whatever was in flight — and a superseded run
+        // publishes *nothing*, including its own `isLoading = false`. The root
+        // observer calls `prepareForRefresh()` without starting a replacement
+        // read, on purpose, so nothing else would ever lower the flag: the panel
+        // spins on "Reading…" for a command nobody sent, for the rest of the app
+        // run. Reachable on exactly the switch the root observer exists for —
+        // one `nil` branch to another, where the branch sink never fires.
+        let first = URL(fileURLWithPath: "/tmp/pisaka-github")
+        var current = first
+        let cli = ScriptedGitHubCLI()
+        cli.serveReady()
+        cli.serve(GitHubCommands.openPullRequests(root: first), stdout: listJSON(number: 7, head: "feature"))
+        let model = PullRequestModel(transport: cli, gitService: StubGit(), root: { current })
+
+        let gate = Gate()
+        cli.hold(GitHubCommands.openPullRequests(root: first), on: gate)
+        let reading = Task { await model.refresh(branch: nil) }
+        await gate.waitUntilReached()
+        XCTAssertTrue(model.isLoading)
+
+        current = URL(fileURLWithPath: "/tmp/pisaka-other")
+        model.prepareForRefresh()
+        XCTAssertFalse(
+            model.isLoading,
+            "No read of *this* project is in flight once the tokens have moved, so the honest answer is "
+                + "that nothing is loading."
+        )
+
+        gate.release()
+        await reading.value
+
+        XCTAssertFalse(
+            model.isLoading,
+            "The superseded run returns at its token guard and publishes nothing, so it cannot lower the "
+                + "flag on its way out either."
+        )
+        XCTAssertTrue(model.pullRequests.isEmpty)
     }
 
     func testASheetReadInFlightWhenTheFolderChangedPublishesNothingAfterwards() async throws {

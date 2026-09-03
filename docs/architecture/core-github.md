@@ -319,12 +319,20 @@ Each is bumped in its method's **synchronous prefix**, and a superseded run
 publishes *nothing* — not its rows, not its message, not its loading flag.
 
 **A failure never blanks a good list.** Every command failure and every schema
-refusal lands in `errorMessage` and leaves `pullRequests`,
-`currentBranchPullRequest` and `checks` exactly as they were: a list that failed
-to refresh is still the list the reader was reading. The one stated exception is
-availability going *not ready* — a `gh` that is gone, too old or signed out is
-not a failed read but a different state of the world, in which rows left standing
-under "sign in to GitHub" would be a lie the sentence does not correct.
+refusal lands in `errorMessage` and leaves `pullRequests` and `checks` exactly as
+they were: a list that failed to refresh is still the list the reader was reading.
+Two stated exceptions. The first is availability going *not ready* — a `gh` that
+is gone, too old or signed out is not a failed read but a different state of the
+world, in which rows left standing under "sign in to GitHub" would be a lie the
+sentence does not correct. The second is `currentBranchPullRequest`, which a
+failed `--head` lookup **does** clear (both a non-zero exit and a throw): the rule
+keeps a stale answer because it is still *this repository's*, and that one value
+is scoped to a **branch** instead. Kept across a branch change whose lookup
+failed, it makes the bottom-bar indicator assert the pull request of the branch
+the user just left — `#10` under a branch that has none, in a surface with no
+message slot of its own to qualify it, whose click opens the panel on a row this
+branch never opened. The list above it is the repository's and stands; this does
+not.
 
 **…and it is a rule about *one repository*.** The rows kept through a failure are
 this project's; rows read under a different root are somebody else's answer, with
@@ -348,6 +356,16 @@ prevent. So the root-changed branch bumps the list and create tokens beside the
 checks bump `clearRows()` already does, and `refresh(branch:)` calls
 `prepareForRefresh()` **before** capturing its own token, or it would supersede
 its own read.
+
+**And it lowers `isLoading` with them.** A superseded run publishes nothing on its
+way out — including its own `isLoading = false` — and the root subscription calls
+`prepareForRefresh()` *without* starting a replacement read, on purpose. So the
+flag has to come down here or it never does: the panel spins on "Reading…" for a
+command nobody sent, for the rest of the app run, on exactly the switch the second
+subscription exists for (one `nil` branch to another, where the branch sink never
+fires and nothing re-reads until the panel is next shown or its button pressed).
+Once the tokens have moved, no read of *this* project is in flight, so `false` is
+the honest value.
 
 It is called from **three places, and all three are the same call**: the top of
 `refresh(branch:)`, so a model driven directly is as honest as one driven through

@@ -409,8 +409,10 @@ ci.yml's `lint` job, and the version-bump procedure.
   one that is not git's — a language server's project-wide **rename**, and the
   eighth, `gh pr checkout`, which shares the branch operations' own bracket)
   raises `autosave.suspend()` + `localChanges.beginRevert()` synchronously before its
-  first `await` (balanced by `defer`); the project-tree file ops, ⌘S and the
-  run/test saves refuse while the gate is up — as do the database viewer's two
+  first `await` (balanced by `defer`); the project-tree file ops, ⌘S, the
+  run/test saves and the three branch-checkout entry points themselves
+  (`switchBranch`, `checkoutRemote`, `createBranch` — the bracket raises the flag
+  but does not read it) refuse while the gate is up — as do the database viewer's two
   writes (an inline cell edit and the SQL console's confirmed mutation), the
   refusers that are not text-file writes and the ones that only *consult* the
   flag (`core-database-viewer.md`).

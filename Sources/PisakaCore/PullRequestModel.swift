@@ -55,17 +55,21 @@ public typealias GitHubCheckoutRunner = @MainActor (@escaping @MainActor () asyn
 /// the sign-in and a `gh` that is too old is too old either way.
 ///
 /// **A failure never blanks a good list.** Every command failure and every
-/// schema refusal lands in `errorMessage` and leaves `pullRequests`,
-/// `currentBranchPullRequest` and `checks` exactly as they were: a list that
-/// failed to refresh is still the list the reader was reading, and replacing it
-/// with emptiness would destroy the only context the message has. The one
-/// deliberate exception is availability going *not ready* — a `gh` that is gone,
-/// too old or signed out is not a failed read but a different state of the
-/// world, in which the panel draws no rows at all, so rows left standing under
-/// "sign in to GitHub" would be a lie the sentence does not correct. The rule is
-/// also about *one repository*: a project switch drops everything before the
-/// next read starts (`prepareForRefresh()`), because another repository's rows
-/// are not this one's stale answer.
+/// schema refusal lands in `errorMessage` and leaves `pullRequests` and `checks`
+/// exactly as they were: a list that failed to refresh is still the list the
+/// reader was reading, and replacing it with emptiness would destroy the only
+/// context the message has. Two deliberate exceptions. The first is availability
+/// going *not ready* — a `gh` that is gone, too old or signed out is not a failed
+/// read but a different state of the world, in which the panel draws no rows at
+/// all, so rows left standing under "sign in to GitHub" would be a lie the
+/// sentence does not correct. The second is `currentBranchPullRequest`, which a
+/// failed `--head` lookup **does** clear: the rule keeps a stale answer because
+/// it is still this repository's, and that one value is scoped to a *branch*
+/// instead — after a branch change it would go on naming the pull request of the
+/// branch the user just left, in a bottom-bar indicator with no message slot to
+/// qualify it. The rule is also about *one repository*: a project switch drops
+/// everything before the next read starts (`prepareForRefresh()`), because
+/// another repository's rows are not this one's stale answer.
 ///
 /// **A failure is cleared by the read that caused it, and by no other.** The one
 /// message slot records whose sentence it is holding (`ErrorSource`), for
@@ -110,6 +114,10 @@ public final class PullRequestModel: ObservableObject {
     /// The open pull request whose head is the checked-out branch, or `nil` when
     /// there is none — which is the ordinary answer for most branches, and the
     /// only answer on a detached HEAD, where there is no branch to ask about.
+    ///
+    /// Also `nil` when its own `--head` lookup *failed*: this is the one answer
+    /// here that is scoped to a branch rather than to the repository, so it is
+    /// the one the "a failure never blanks a good answer" rule cannot keep.
     @Published public private(set) var currentBranchPullRequest: GitHubPullRequest?
 
     /// The per-job checks of every row that has been expanded, keyed by number.
@@ -348,6 +356,15 @@ public final class PullRequestModel: ObservableObject {
     /// same turn its answer stopped being about this project. `clearRows()`
     /// bumps the checks token for its own reason; the other two are bumped
     /// beside it.
+    ///
+    /// **The loading flag comes down with the tokens.** Bumping them supersedes
+    /// whatever was in flight, and a superseded run publishes nothing — including
+    /// its `isLoading = false`. The root observer calls this *without* starting a
+    /// replacement read, on purpose, so the flag would otherwise stay raised for
+    /// the rest of the app run: a panel spinning on "Reading…" for a command
+    /// nobody sent, which is the one lie a read this quiet can still tell. No
+    /// read for this project is in flight once the tokens have moved, so the
+    /// honest value is `false`.
     public func prepareForRefresh() {
         let root = projectRoot()
         guard root != lastRoot else { return }
@@ -355,6 +372,7 @@ public final class PullRequestModel: ObservableObject {
         listGeneration &+= 1
         createGeneration &+= 1
         availability = nil
+        isLoading = false
         clearRows()
         clearMessage()
     }
@@ -441,11 +459,24 @@ public final class PullRequestModel: ObservableObject {
                     currentBranchPullRequest = try GitHubAPI
                         .pullRequests(fromListJSON: result.standardOutput)
                         .first
-                } else if failure == nil {
-                    failure = Self.message(for: result)
+                } else {
+                    // The second exception to "a failure never blanks a good
+                    // answer", and for the rule's own reason: the rule keeps a
+                    // stale answer because it is still *this repository's*, and
+                    // this one value is scoped to a **branch** rather than to the
+                    // repository. A `--head` lookup that failed after a branch
+                    // change would leave the branch the user just left asserting
+                    // its pull request under the branch they are now on — the
+                    // indicator drawing `#10` for a branch that has none, with no
+                    // message slot of its own to qualify it, and a click opening
+                    // the panel on a row the current branch never opened. The
+                    // list above is repository-scoped and stands; this does not.
+                    currentBranchPullRequest = nil
+                    if failure == nil { failure = Self.message(for: result) }
                 }
             } catch {
                 guard token == listGeneration else { return }
+                currentBranchPullRequest = nil
                 if failure == nil { failure = Self.message(for: error) }
             }
         } else {

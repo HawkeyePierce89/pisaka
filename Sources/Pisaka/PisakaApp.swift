@@ -3989,8 +3989,19 @@ struct PisakaApp: App {
     /// may refuse to overwrite local changes), then runs the checkout under the same
     /// gates as the revert/apply-merge paths and resyncs open tabs to the new
     /// branch's working tree. A blocked checkout surfaces git's message.
+    ///
+    /// **It refuses outright while another writer holds the gate**
+    /// (`revertInFlight()`), like every other worktree-mutating operation and for
+    /// their reason: the bracket these three raise does not itself consult the flag
+    /// it sets, so a branch change started while a revert, a merge apply, a commit
+    /// or `gh pr checkout` is running would be a second `git` rewriting the same
+    /// worktree — one of the two losing on `index.lock`, and the resync afterwards
+    /// comparing its snapshot against a tree neither operation finished. The check
+    /// comes before the dirty-tree prompt, so a refusal is one alert rather than a
+    /// confirmation followed by one — which is also why the two conditions share
+    /// one `guard`: this file's length ceiling is measured, not rounded up.
     private func switchBranch(_ branch: BranchRef) {
-        guard confirmBranchSwitchIfDirty() else { return }
+        guard !revertInFlight(), confirmBranchSwitchIfDirty() else { return }
         // Pin the refresh generation synchronously, in this main-actor turn, before
         // `runBranchOperation`'s `Task` hop — so a folder switch that lands in the gap
         // makes `switchTo` bail rather than check out against the newly opened repo
@@ -4007,7 +4018,7 @@ struct PisakaApp: App {
     /// `switchBranch` — the same dirty-tree warning (the checkout part may be blocked
     /// just the same), synchronous generation pinning, and gated orchestration.
     private func checkoutRemote(_ ref: BranchRef) {
-        guard confirmBranchSwitchIfDirty() else { return }
+        guard !revertInFlight(), confirmBranchSwitchIfDirty() else { return }
         let origin = branchSwitcher.currentRefreshGeneration
         runBranchOperation {
             await self.branchSwitcher.checkoutRemote(ref, originGeneration: origin)
@@ -4069,11 +4080,17 @@ struct PisakaApp: App {
     /// On `.fetchUnavailable` (a remote start whose fetch failed — offline, or on
     /// iOS a missing PAT) it offers "create from the local copy" (retry with
     /// `fetchRemote: false`) or cancel; an invalid name / hard failure is reported.
+    ///
+    /// It refuses while another writer holds the gate, for `switchBranch`'s reason —
+    /// a create-and-switch is a checkout too. The guard sits here rather than at the
+    /// two call sites so the `.fetchUnavailable` retry is asked as well; by then the
+    /// first attempt has already lowered the gate, so an offline retry still runs.
     private func createBranch(
         name: String,
         from startPoint: BranchSwitcherModel.StartPoint,
         fetchRemote: Bool = true
     ) {
+        guard !revertInFlight() else { return }
         autosave.suspend()
         localChanges.beginRevert()
         let snapshot = openTabSnapshot()

@@ -791,6 +791,18 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     (`bumpTreeRevision`), and generation-pinned Local Changes / Log refreshes. Both
     the switch and checkout-remote handlers run through the shared
     `runBranchOperation(_ event: LocalHistoryEvent = .branch, _ op: () async -> String?)`
+    — and all three worktree-checkout entry points (`switchBranch`,
+    `checkoutRemote`, `createBranch`) **refuse outright while another writer holds
+    the gate**, through `revertInFlight()`, ahead of their dirty-tree prompt so a
+    refusal is one alert rather than a confirmation followed by one. The bracket
+    raises the flag but does not read it, so without those guards a branch change
+    started during a revert, a merge apply, a commit or the 120-second
+    `gh pr checkout` would be a second `git` rewriting the same worktree — one of
+    the two losing on `index.lock`, and the resync afterwards comparing its
+    snapshot against a tree neither finished. `createBranch` carries its own guard
+    rather than its two call sites' so the `.fetchUnavailable` retry is asked too
+    (the first attempt has already lowered the gate by then, so an offline retry
+    still runs).
     orchestration — generalised for the Pull Requests feature, which passes
     `.pullRequest` through `PullRequestCoordinator` and makes `gh pr checkout` the
     **eighth** gated operation riding this, the one bracket that serves more than
