@@ -738,6 +738,23 @@ coordinator passes `.pullRequest`. Local History's event vocabulary gained
 `case pullRequest = "pullrequest"` — the raw value written out because the tag is
 on-disk and must be lowercase ASCII with no `-`.
 
+Sharing the bracket is also what made its **failure path** grow a question the two
+branch callers never needed to ask. Their operation is a single `git checkout`,
+which fails atomically, so "it failed" and "nothing moved" were the same sentence.
+`gh pr checkout` is not one command: it fetches, checks out, fast-forwards and
+writes the tracking config, and the steps *after* the checkout can fail on their
+own — a local branch that has diverged refuses `--ff-only` — or be killed at the
+120-second deadline. Each of those exits non-zero with the worktree already on the
+pull request's branch, and the old behaviour (skip the tail, show the message)
+would have left every open buffer holding the branch the reader left, ready to be
+saved over the files of the one they are now on. So on failure the bracket
+**re-reads the branch and runs the tail only when it actually moved** — an
+ordinary failure compares equal and resyncs nothing, which is what keeps the
+edited-tab beep off the path where nothing happened, and both readings must be
+known for a move to be declared. That re-read publishes `current`, which fires the
+coordinator's own branch subscription, which is why `runCheckout`'s failure path
+still triggers nothing of its own (`app-shell.md`).
+
 Because the bracket is shared, `LocalHistorySourceGatingTests`' count of
 `autosave.suspend()` sites in `PisakaApp.swift` is unchanged: there are seven
 bracket **sites**, and the eighth *operation* rides the one that already served
@@ -769,7 +786,7 @@ is `pr list` with `--head` rather than a command of its own:
 | `openPullRequests(root:)` | `pr list --state open --limit 50 --json …` | network |
 | `pullRequest(forHeadBranch:root:)` | `pr list --state open --head <b> --limit 1 --json …` | network |
 | `checks(pullRequest:root:)` | `pr checks <n> --json …` | network |
-| `createPullRequest(title:body:base:head:draft:root:)` | `pr create -t -b -B -H [--draft]` | git network, 120 s |
+| `createPullRequest(title:body:base:draft:root:)` | `pr create --title --body --base [--draft]` — **no `--head`**, deliberately (below) | git network, 120 s |
 | `checkoutPullRequest(number:root:)` | `pr checkout <n>` | git network |
 | `repositoryView(root:)` | `repo view --json defaultBranchRef,nameWithOwner` | network |
 

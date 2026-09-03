@@ -809,13 +809,18 @@ public final class PullRequestModel: ObservableObject {
     /// rather than the one the sheet was drawn over: a branch switched, or a
     /// remote removed, behind an open sheet must refuse rather than push.
     ///
-    /// **The head is pinned to that same reading**, and sent as `--head`. The
-    /// fresh context refuses a branch switched *before* Create; the explicit head
-    /// is what answers a branch switched *during* it — the sheet may be dismissed
-    /// while the push is still on the wire, and `gh`'s own head default is the
-    /// branch that is checked out when `pr create` finally runs, not the one this
-    /// flow planned and pushed. The root is pinned for the same window, by being
-    /// read once above and used by both commands.
+    /// **The head is `gh`'s to resolve, and no argument names it** — see
+    /// `GitHubCommands.createPullRequest` for why one cannot: a bare `--head`
+    /// names a ref in the *base* repository, and the qualified form needs an
+    /// owner this layer never composes. Which makes the branch checked out at
+    /// `gh`'s own launch part of the answer, and the push above is seconds of
+    /// network during which the sheet is dismissable and the widget or the
+    /// embedded terminal can switch branches. So the branch is **re-read after
+    /// the push** and the whole create refused when it moved (or cannot be read
+    /// at all) — the sheet's sentence named a branch, and a pull request opened
+    /// from a different one is the failure this flow exists to prevent. The root
+    /// is pinned for the same window, by being read once above and used by both
+    /// commands.
     ///
     /// **The gate is asked twice**, for the window neither of those two closes.
     /// `PushPlan.push(upstream:)` is a plain `git push`, which resolves HEAD at
@@ -823,13 +828,12 @@ public final class PullRequestModel: ObservableObject {
     /// the tracking ref may be named differently from the local branch and a
     /// refspec composed here would be a guess. So a branch switch landing between
     /// the context read and the push makes that push publish a branch this flow
-    /// never planned, and the pinned `--head` then opens the pull request from a
-    /// branch whose remote was left stale. Nothing after the fact can tell that
-    /// apart from the benign case the pinned head exists for (a switch *after*
-    /// the push launched, where the right branch did go out), so it is refused
-    /// before rather than detected after: while a branch switch, a revert, a
-    /// merge apply or a project Replace All is rewriting the worktree, Create
-    /// does not run.
+    /// never planned. The re-read after the push refuses to *open* anything on
+    /// that reading — but by then the stray push has already happened, and a push
+    /// is not undone by returning `false`. That is the half no check after the
+    /// fact can repair, so it is refused before instead: while a branch switch, a
+    /// revert, a merge apply or a project Replace All is rewriting the worktree,
+    /// Create does not run.
     ///
     /// One reading would not be enough, and the second is the load-bearing one.
     /// The consult at the top only answers for rewrites already in flight; this

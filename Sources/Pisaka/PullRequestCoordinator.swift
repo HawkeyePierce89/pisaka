@@ -375,8 +375,15 @@ final class PullRequestCoordinator: ObservableObject {
     private func runCheckout(_ operation: @escaping @MainActor () async -> String?) {
         runBracket { [weak self] in
             let failure = await operation()
-            // A checkout that failed moved nothing, so there is nothing for the
-            // branch widget to catch up with — and nothing to re-read.
+            // Only a checkout that *succeeded* is re-read here. A failed one is
+            // not automatically a checkout that moved nothing — `gh pr checkout`
+            // is several commands and the ones after the checkout can fail on
+            // their own — but that case is the bracket's to notice, not this
+            // wrapper's: `runBranchOperation` re-reads the branch on its failure
+            // path and publishes it, which fires the branch subscription above
+            // and refreshes this feature for the move. A second trigger here
+            // would spend a round trip on every ordinary failure to learn that
+            // nothing changed.
             if failure == nil {
                 self?.didWrite()
                 // The third trigger: the worktree is now on the pull request's

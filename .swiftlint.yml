@@ -110,13 +110,21 @@ line_length:
 # while another writer holds the gate (`revertInFlight()`), which the bracket
 # they share raises but never reads — `switchBranch` and `checkoutRemote` pay
 # nothing for it, since their existing dirty-tree `guard` took the second
-# condition, and `createBranch` has no such guard to join. The number tracks
+# condition, and `createBranch` has no such guard to join. And 1882 on the review
+# after that, for twenty lines that are one question the shared bracket had never
+# had to ask: a failure is not a promise that nothing moved. Two of them capture
+# the branch and the requested root in the synchronous prefix, six are the call on
+# the failure path, and twelve are `resyncIfTheBranchMovedAnyway` itself — the
+# re-read that runs the success tail when `gh pr checkout` failed *after* already
+# switching the worktree (a diverged branch refusing `--ff-only`, or the deadline
+# killing it mid-way), which the two single-`git checkout` callers never needed
+# because theirs fail atomically. The number tracks
 # the one file that approaches
 # it — measured, never rounded up for room — and is not a licence to grow the
 # others.
 file_length:
-  warning: 1862
-  error: 1862
+  warning: 1882
+  error: 1882
   ignore_comment_only_lines: true
 
 # Same reasoning as file_length, and one number behind it again: the viewer's
@@ -128,11 +136,12 @@ file_length:
 # rename's viewer retarget, which lands inside `performMove`, and to 1843 with
 # the Pull Requests feature: every one of its twenty-one lines lands inside the
 # struct body too, so this ceiling moves by exactly what `file_length` did — and
-# to 1845 with the review's two, which land inside it as well, and to 1846 with
-# the branch-checkout gate's one — inside the struct body like all of them.
+# to 1845 with the review's two, which land inside it as well, to 1846 with
+# the branch-checkout gate's one — inside the struct body like all of them — and
+# to 1866 with the failure path's re-read, whose twenty lines are inside it too.
 type_body_length:
-  warning: 1846
-  error: 1846
+  warning: 1866
+  error: 1866
 
 function_body_length:
   warning: 140

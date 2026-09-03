@@ -78,12 +78,15 @@ with a state shape of its own went into `DatabaseViewerTabs.swift`, so
 passes needed, and not four hundred (`core-database-viewer.md`).
 
 The most recent bump is the Pull Requests feature (`file_length`
-1838 → 1859 → 1861 → **1862**, `type_body_length` 1822 → 1843 → 1845 → **1846**;
+1838 → 1859 → 1861 → 1862 → **1882**, `type_body_length` 1822 → 1843 → 1845 → 1846 → **1866**;
 the second step is the review's, for the checkout's dirty-tree confirmation and
 the terminate observer's `pullRequests.terminateNow()`, and the third is a later
 review's one line — the three branch-checkout entry points now refuse while
 another writer holds the gate, which the bracket they share raises but never
-reads) — the largest single move either number has
+reads, and the fourth is the last review's twenty: the shared bracket's failure
+path now re-reads the branch and runs the success tail when `gh pr checkout`
+failed *after* already switching the worktree, the one thing a single
+`git checkout` could never do) — the largest single move either number has
 made, which is why it is itemised rather than absorbed. Twenty-one lines, all of
 them inside the struct body, so the two ceilings move by exactly the same amount:
 **seven** are `pullRequests.start(…)`, the scene's whole involvement in the eighth

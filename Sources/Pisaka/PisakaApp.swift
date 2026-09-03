@@ -4191,6 +4191,12 @@ struct PisakaApp: App {
         // pointing at an unrelated repo/folder must not be reloaded or closed by this
         // repo's branch change.
         let repoRoot = branchSwitcher.root
+        // The branch this operation started from, and the folder it started under,
+        // read in the same synchronous stretch: the failure path below compares
+        // against both, and a reading taken after the `await` would be the answer
+        // rather than the question.
+        let branchBefore = branchSwitcher.current
+        let requestedRoot = model.projectRoot
         // Local History's inputs, in the same synchronous stretch as `snapshot`.
         let branchBuffers = openBufferTexts()
         let branchTargets = changedFileURLs(localChanges.changedFiles, root: repoRoot)
@@ -4206,13 +4212,62 @@ struct PisakaApp: App {
             autosave.resume()
             localChanges.endRevert()
             guard failure == nil else {
+                await resyncIfTheBranchMovedAnyway(
+                    from: branchBefore,
+                    requestedRoot: requestedRoot,
+                    snapshot: snapshot,
+                    repoRoot: repoRoot
+                )
                 // An empty message is a failure whose reason is already on
                 // screen; a second modal saying it again is not a second fact.
+                // Said *after* the re-read above, so the tree the alert is drawn
+                // over is the tree the reader will find when it is dismissed.
                 if let message = failure, !message.isEmpty { presentBranchError(message) }
                 return
             }
             finishBranchOperation(snapshot: snapshot, repoRoot: repoRoot)
         }
+    }
+
+    /// The failure path's question: did the working tree move anyway?
+    ///
+    /// A non-zero exit is not a promise that nothing happened. The two branch
+    /// callers run a single `git checkout`, which fails atomically — but the
+    /// eighth gated operation, `gh pr checkout`, is several commands (fetch,
+    /// checkout, a fast-forward, the tracking config), and the ones *after* the
+    /// checkout can fail on their own: a local branch that has diverged refuses
+    /// `--ff-only`, and the transport's 120-second deadline kills whatever is
+    /// running. Either leaves the worktree on the pull request's branch with a
+    /// failure to report — and skipping the tail there would leave every open
+    /// buffer holding the branch the reader left, ready to be saved over the
+    /// files of the one they are now on.
+    ///
+    /// So the branch is re-read and the tail runs **only when it actually
+    /// moved**: an ordinary failure — every one the two branch callers can have —
+    /// compares equal and resyncs nothing, which is what keeps
+    /// `resyncOpenTabsAfterCheckout`'s edited-tab beep off the path where nothing
+    /// happened. Both readings must be known: an unknown one (the widget never
+    /// loaded, or the re-read itself failing) is not evidence of a move, and
+    /// guessing costs a beep and a discarded undo stack per edited tab.
+    ///
+    /// The re-read doubles as the widget's own catch-up, and publishing `current`
+    /// is what re-triggers the Pull Requests coordinator's branch subscription —
+    /// which is why the coordinator's failure path needs no second trigger of its
+    /// own. It runs against the *requested* root the operation started under
+    /// (`prepareForRefresh` keys its folder-switch clear off that spelling, not
+    /// the resolved one) and is skipped outright when the folder changed under
+    /// the operation: the other repository's branch is not this one moving.
+    private func resyncIfTheBranchMovedAnyway(
+        from branchBefore: BranchRef?,
+        requestedRoot: URL?,
+        snapshot: [UUID: (text: String, wasDirty: Bool)],
+        repoRoot: URL?
+    ) async {
+        guard let branchBefore, let requestedRoot, requestedRoot == model.projectRoot else { return }
+        let request = branchSwitcher.prepareForRefresh(root: requestedRoot)
+        await branchSwitcher.refresh(root: requestedRoot, request: request)
+        guard let branchAfter = branchSwitcher.current, branchAfter != branchBefore else { return }
+        finishBranchOperation(snapshot: snapshot, repoRoot: repoRoot)
     }
 
     /// The post-success tail shared by switch and create: resync open tabs to the

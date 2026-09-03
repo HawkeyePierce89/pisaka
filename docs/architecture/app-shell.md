@@ -788,7 +788,23 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     resume/`endRevert`, and a snapshot of every open-tab buffer; on success the tab
     resync (`reloadFromDisk` for a clean tab, `reconcileSavedBaseline`+beep for an
     edited one — a checkout rewrites the worktree), a tree refresh
-    (`bumpTreeRevision`), and generation-pinned Local Changes / Log refreshes. Both
+    (`bumpTreeRevision`), and generation-pinned Local Changes / Log refreshes.
+    **On failure the same tail runs when — and only when — the branch moved
+    anyway** (`resyncIfTheBranchMovedAnyway`): a single `git checkout` fails
+    atomically, but `gh pr checkout` is several commands and the ones after the
+    checkout can fail (`--ff-only` against a diverged branch) or be killed at the
+    deadline with the worktree already switched, and skipping the tail there would
+    leave open buffers ready to be saved over another branch's files. The branch is
+    re-read against the *requested* root the operation started under (the spelling
+    `prepareForRefresh` keys its folder-switch clear off), skipped outright when
+    the folder changed under the operation, and a move is declared only when both
+    readings are known and differ — an unknown one is not evidence, and guessing
+    costs a beep and a discarded undo stack per edited tab. The re-read is also the
+    widget's catch-up, and publishing `current` is what re-triggers the Pull
+    Requests coordinator's branch subscription, so its `runCheckout` failure path
+    needs no trigger of its own (`core-github.md`). It happens *before* the alert,
+    so the tree the modal is drawn over is the tree found when it is dismissed.
+    Both
     the switch and checkout-remote handlers run through the shared
     `runBranchOperation(_ event: LocalHistoryEvent = .branch, _ op: () async -> String?)`
     — and all three worktree-checkout entry points (`switchBranch`,
