@@ -84,11 +84,11 @@ The main-actor model behind both the panel and the indicator. It re-probes avail
   - Create: `Sources/PisakaCore/PullRequestModel.swift` — `@MainActor`, `ObservableObject`. Published: `availability`, `pullRequests`, `currentBranchPullRequest`, `checks: [Int: [GitHubCheckRow]]`, `expandedNumber`, `errorMessage`, `isLoading`, `isWriteInFlight`. Two generation tokens (a list token and a per-PR checks token), captured synchronously before each hop. A failure sets `errorMessage` and **never blanks** a good list. `pr checks` is judged on stdout parsing, not on exit status.
   - Create: `Tests/PisakaCoreTests/Support/ScriptedGitHubCLI.swift` — answers keyed by the argument list, a queue per key with a sticky last step, an **unscripted call throws**, every call logged in order, a `Gate` per key so a test can hold a call mid-flight.
   - Create: `Tests/PisakaCoreTests/PullRequestModelTests.swift`.
-  - [ ] implement the model's read paths: availability probe → list → current-branch lookup → per-row checks on expand
-  - [ ] wire the two generation tokens and the "a failure never blanks a good list" rule
-  - [ ] build `ScriptedGitHubCLI` in `Support/`
-  - [ ] tests: token ordering (a superseded answer is discarded); a failed refresh keeps the previous list and adds a message; availability re-probed on every refresh and not otherwise; `pr checks` exit 8 and exit 1 still parse; an empty `--head` array is "no pull request", not an error; a schema refusal surfaces as the typed error's sentence
-  - [ ] run `swift test` — must pass before Task 4
+  - [x] implement the model's read paths: availability probe → list → current-branch lookup → per-row checks on expand
+  - [x] wire the two generation tokens and the "a failure never blanks a good list" rule
+  - [x] build `ScriptedGitHubCLI` in `Support/`
+  - [x] tests: token ordering (a superseded answer is discarded); a failed refresh keeps the previous list and adds a message; availability re-probed on every refresh and not otherwise; `pr checks` exit 8 and exit 1 still parse; an empty `--head` array is "no pull request", not an error; a schema refusal surfaces as the typed error's sentence
+  - [x] run `swift test` — must pass before Task 4
 
 ### Task 4: The create flow — the base default, push-first, and the one-write rule
 
