@@ -120,10 +120,32 @@ generic failure, 2 for cancelled and 4 for "requires authentication". Both 8 and
 The rule has exactly one site — `PullRequestModel.loadChecks(number:root:token:)`
 — and the schema file's blanket refusal to look at a status at all is what makes
 it impossible to forget at one of the other six call sites. Output that did *not*
-parse is read two ways, because two different things produce it: empty stdout
-with something on stderr is `gh` declining to answer in JSON ("no checks reported
-on the … branch" is the common one), shown verbatim; stdout that is there and did
-not parse is a schema change, reported by the typed error with its key path.
+parse is read **three** ways, because three different things produce it.
+
+The first is not a failure at all. `gh pr checks` has no JSON to print for a pull
+request with no checks: it exits non-zero, writes "no checks reported on the …
+branch" to stderr and prints nothing — which is the ordinary answer for a pull
+request without CI, and most pull requests on most repositories have none. The
+row already knows, because its `summary` is read from the same rollup `pr checks`
+reads and an empty rollup is `noChecks`; so an empty stdout under a `noChecks` row
+publishes the **empty list** the panel already has a state for ("No checks
+reported"), rather than an orange strip accusing `gh` of failing at the one thing
+it was asked. Without that agreement the panel would have had a warning across it
+for a healthy pull request, and the view's empty-list branch would have been
+unreachable.
+
+The second is the same shape *without* that agreement: empty stdout with
+something on stderr under a row that does claim checks is `gh` declining to
+answer in JSON, and its sentence is shown verbatim. The third is stdout that is
+there and did not parse — a schema change, reported by the typed error with its
+key path.
+
+Re-expanding a row **drops that row's recorded failure first**, in `expand`'s
+synchronous prefix: the read starts again from nothing, so "Could not read
+checks" may not outlive the read it described. The cached job list is
+deliberately *not* dropped with it — it describes the same pull request and is
+replaced the moment the new read lands, where blanking it would flicker every
+re-expand through a spinner.
 
 ### G4 — The minimum is `gh` 2.50.0, and the reason is one flag
 
@@ -262,7 +284,15 @@ Three triggers, and no fourth:
   coordinator could subscribe to, so "the panel is on screen" is a fact only the
   panel's own view has. Nothing re-reads while it merely *stays* open;
 - **one of the feature's own writes completing** — a created pull request and a
-  finished checkout, both in the coordinator.
+  finished checkout, both in the coordinator. The checkout's refresh names the
+  **pull request's own `headRefName`**, recorded at the click, and not
+  `branchSwitcher.current`: the widget's re-read is only *started* by `didWrite()`
+  and has not landed by the next line, so reading the widget there would spend a
+  `pr list --head` describing the indicator with the pull request of the branch
+  the reader just left — the very thing this trigger exists to prevent. The head
+  ref is also the right value rather than merely the available one, since `--head`
+  matches the ref the pull request is open *from* on GitHub, which a
+  cross-repository checkout's local branch is free not to be spelled as.
 
 `PisakaApp.swift` names **no refresh trigger at all**, which
 `GitHubSourceGatingTests` pins along with where the other three live.
@@ -290,6 +320,15 @@ create, checkout), for `DatabaseViewerModel`'s reason — a refresh that succeed
 says nothing about an expand that failed a moment earlier, and clearing that
 sentence would leave a row expanded over an empty checks list with no
 explanation.
+
+**Blanking the rows blanks the slot, whoever filled it.** The two moments the
+model clears everything a sentence could be about — availability going not-ready,
+and the project closing — clear the message *unconditionally* rather than through
+`clearError(from: .refresh)`. Those are the same two moments as the exception
+above, and for the same reason read the other way round: a checks failure or a
+refused create is a sentence about rows that have just stopped being drawn, and
+leaving it standing puts "could not reach github.com" above a panel whose own
+next step is `gh auth login`.
 
 **A surface reads only its own sentence.** The panel's strip draws the slot
 whole — it is the surface every read of the feature happens under — but the

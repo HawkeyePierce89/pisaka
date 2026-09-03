@@ -331,7 +331,7 @@ public final class PullRequestModel: ObservableObject {
             // has no repository, which is what `availability == nil` says.
             availability = nil
             clearRows()
-            clearError(from: .refresh)
+            clearMessage()
             isLoading = false
             return
         }
@@ -347,10 +347,13 @@ public final class PullRequestModel: ObservableObject {
             // is a different world, not a failed read, and the panel draws the
             // state's own sentence instead of rows.
             clearRows()
+            // Unconditionally, and not `clearError(from: .refresh)`: the rows a
+            // checks failure or a refused create was talking about have just
+            // been blanked, and a sentence about rows that are no longer drawn
+            // would sit above the state's own next step contradicting it.
+            clearMessage()
             if let detail = probe.detail {
                 setMessage(detail, from: .refresh)
-            } else {
-                clearError(from: .refresh)
             }
             isLoading = false
             return
@@ -418,6 +421,12 @@ public final class PullRequestModel: ObservableObject {
         expandedNumber = number
 
         guard let number, isReady, let root = projectRoot() else { return }
+        // A row that failed last time is re-read from scratch, so it may not go
+        // on saying "could not read checks" for the whole of the new read. The
+        // cached job list is deliberately *not* dropped with it: it describes
+        // the same pull request and is replaced the moment the read lands,
+        // whereas blanking it would flicker every re-expand through a spinner.
+        checksFailures.remove(number)
         await loadChecks(number: number, root: root, token: token)
     }
 
@@ -433,12 +442,24 @@ public final class PullRequestModel: ObservableObject {
     /// and both of those print the very JSON this parses. The decision is
     /// whether stdout parsed, and nothing else.
     ///
-    /// Output that did not parse is read two ways, because two different things
-    /// produce it. Empty stdout with something on stderr is `gh` declining to
-    /// answer in JSON at all — "no checks reported on the … branch" is the
-    /// common one — and that sentence is `gh`'s own, so it is shown verbatim.
-    /// Stdout that *is* there and did not parse is the schema having changed,
-    /// and the typed error names the key path to edit.
+    /// Output that did not parse is read three ways, because three different
+    /// things produce it.
+    ///
+    /// The first is not a failure at all. `gh pr checks` has no JSON to print
+    /// for a pull request that has no checks: it exits non-zero, writes "no
+    /// checks reported on the … branch" to stderr and prints nothing — the
+    /// ordinary answer for a pull request without CI, which is most of them on
+    /// most repositories. The row already knows: its summary is read from the
+    /// same rollup `pr checks` reads, and an empty rollup is
+    /// ``GitHubChecksSummary/noChecks``. So an empty stdout under a `noChecks`
+    /// row publishes the **empty list** the panel has a state for, rather than
+    /// accusing `gh` of failing at the one thing it was asked.
+    ///
+    /// The second is the same shape without that agreement: empty stdout with
+    /// something on stderr under a row that *does* claim checks is `gh`
+    /// declining to answer in JSON, and that sentence is `gh`'s own, so it is
+    /// shown verbatim. The third is stdout that *is* there and did not parse —
+    /// the schema having changed — and the typed error names the key path.
     private func loadChecks(number: Int, root: URL, token: Int) async {
         let result: GitHubCommandResult
         do {
@@ -457,6 +478,12 @@ public final class PullRequestModel: ObservableObject {
             clearError(from: .checks)
         } catch {
             let hasOutput = !result.standardOutput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            if !hasOutput, summary(of: number) == .noChecks {
+                checks[number] = []
+                checksFailures.remove(number)
+                clearError(from: .checks)
+                return
+            }
             if !hasOutput, !result.trimmedStandardError.isEmpty {
                 setMessage(result.trimmedStandardError, from: .checks)
             } else {
@@ -464,6 +491,12 @@ public final class PullRequestModel: ObservableObject {
             }
             checksFailures.insert(number)
         }
+    }
+
+    /// What the listed row said about `number`'s checks, or `nil` when no row
+    /// carries that number.
+    private func summary(of number: Int) -> GitHubChecksSummary? {
+        pullRequests.first { $0.number == number }?.summary
     }
 
     // MARK: - The create sheet
@@ -633,6 +666,13 @@ public final class PullRequestModel: ObservableObject {
         return true
     }
 
+    /// What a create refused for want of a title says.
+    ///
+    /// Here rather than in the sheet for the reason every other refusal is here:
+    /// the sheet disables Create on the same rule, and a rule that lives only in
+    /// a view is a rule no test can see and a second caller can walk past.
+    public static let untitledMessage = "A pull request needs a title."
+
     // MARK: - The checkout
 
     /// The sentence a checkout refused because git is already rewriting the
@@ -641,13 +681,6 @@ public final class PullRequestModel: ObservableObject {
     /// This layer's own words rather than `gh`'s, because `gh` was never asked:
     /// the refusal happens before anything is sent, which is the whole point of
     /// asking the gate first.
-    /// What a create refused for want of a title says.
-    ///
-    /// Here rather than in the sheet for the reason every other refusal is here:
-    /// the sheet disables Create on the same rule, and a rule that lives only in
-    /// a view is a rule no test can see and a second caller can walk past.
-    public static let untitledMessage = "A pull request needs a title."
-
     public static let blockedMessage =
         "Another operation is writing to the working tree. Try the checkout again when it has finished."
 
@@ -792,6 +825,13 @@ public final class PullRequestModel: ObservableObject {
     private func setMessage(_ message: String, from source: ErrorSource) {
         errorMessage = message
         errorSource = source
+    }
+
+    /// Drop whatever the one slot holds, whoever put it there — for the two
+    /// moments the model blanks everything a sentence could refer to.
+    private func clearMessage() {
+        errorMessage = nil
+        errorSource = nil
     }
 
     /// Clear the message only when it is `source`'s own — see `ErrorSource` for

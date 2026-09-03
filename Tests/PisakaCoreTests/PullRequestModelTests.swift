@@ -120,14 +120,25 @@ final class PullRequestModelTests: XCTestCase {
 
     /// One open pull request, built by hand so a test can assert a list it did
     /// not have to record.
-    private func listJSON(number: Int, head: String, title: String = "A change") -> String {
+    private func listJSON(
+        number: Int,
+        head: String,
+        title: String = "A change",
+        rollup: String = "[]"
+    ) -> String {
         """
         [{"number":\(number),"title":"\(title)","author":{"login":"someone"},
         "headRefName":"\(head)","baseRefName":"master","isDraft":false,
         "reviewDecision":"","url":"https://github.com/o/r/pull/\(number)",
-        "state":"OPEN","statusCheckRollup":[]}]
+        "state":"OPEN","statusCheckRollup":\(rollup)}]
         """
     }
+
+    /// A one-job rollup, so a hand-built row claims checks and its expand is
+    /// therefore expected to answer with jobs.
+    private let runningRollup = """
+    [{"__typename":"CheckRun","status":"IN_PROGRESS","conclusion":""}]
+    """
 
     // MARK: - Availability
 
@@ -422,20 +433,20 @@ final class PullRequestModelTests: XCTestCase {
     func testARefreshDoesNotClearAChecksFailuresSentence() async throws {
         let cli = ScriptedGitHubCLI()
         cli.serveReady()
-        cli.serve(listArguments, stdout: listJSON(number: 7, head: "feature"))
+        cli.serve(listArguments, stdout: listJSON(number: 7, head: "feature", rollup: runningRollup))
         cli.serve(headArguments("feature"), stdout: "[]")
-        cli.serve(checksArguments(7), stderr: "no checks reported on the 'feature' branch\n", status: 1)
+        cli.serve(checksArguments(7), stderr: "the server is having a moment\n", status: 1)
         let model = makeModel(cli)
 
         await model.refresh(branch: "feature")
         await model.expand(7)
-        XCTAssertEqual(model.errorMessage, "no checks reported on the 'feature' branch")
+        XCTAssertEqual(model.errorMessage, "the server is having a moment")
 
         // The refresh succeeded, but it has nothing to say about the expand that
         // failed — the sentence under the open row is the only explanation the
         // reader has for its empty jobs list.
         await model.refresh(branch: "feature")
-        XCTAssertEqual(model.errorMessage, "no checks reported on the 'feature' branch")
+        XCTAssertEqual(model.errorMessage, "the server is having a moment")
     }
 
     // MARK: - The checks list
@@ -515,6 +526,74 @@ final class PullRequestModelTests: XCTestCase {
 
         XCTAssertEqual(model.errorMessage, "no checks reported")
         XCTAssertEqual(model.checks[53]?.count, 4)
+    }
+
+    func testAPullRequestWithNoChecksAnswersAnEmptyListRatherThanAFailure() async throws {
+        let cli = ScriptedGitHubCLI()
+        cli.serveReady()
+        // An empty rollup, so the row's own summary is `.noChecks`…
+        cli.serve(listArguments, stdout: listJSON(number: 7, head: "feature"))
+        cli.serve(headArguments("feature"), stdout: "[]")
+        // …and `gh pr checks` answers a pull request without CI the only way it
+        // can: non-zero, a sentence on stderr and no JSON at all.
+        cli.serve(checksArguments(7), stderr: "no checks reported on the 'feature' branch\n", status: 1)
+        let model = makeModel(cli)
+
+        await model.refresh(branch: "feature")
+        XCTAssertEqual(model.pullRequests.first?.summary, .noChecks)
+
+        await model.expand(7)
+
+        // The empty list the panel has a state for — not the spinner of an
+        // unset entry, and not the failure of a row that could not be read.
+        XCTAssertEqual(model.checks[7], [])
+        XCTAssertFalse(model.checksFailures.contains(7))
+        XCTAssertNil(model.errorMessage)
+    }
+
+    func testAnEmptyChecksAnswerIsStillAFailureWhenTheRowClaimsChecks() async throws {
+        let cli = ScriptedGitHubCLI()
+        cli.serveReady()
+        // The row says a job is running, so `gh` printing nothing is `gh`
+        // declining to answer and not the shape above.
+        cli.serve(listArguments, stdout: listJSON(number: 7, head: "feature", rollup: runningRollup))
+        cli.serve(headArguments("feature"), stdout: "[]")
+        cli.serve(checksArguments(7), stderr: "could not reach github.com\n", status: 1)
+        let model = makeModel(cli)
+
+        await model.refresh(branch: "feature")
+        await model.expand(7)
+
+        XCTAssertNil(model.checks[7])
+        XCTAssertTrue(model.checksFailures.contains(7))
+        XCTAssertEqual(model.errorMessage, "could not reach github.com")
+    }
+
+    func testReExpandingARowDropsThePreviousReadsFailureBeforeReadingAgain() async throws {
+        let cli = ScriptedGitHubCLI()
+        cli.serveReady()
+        cli.serve(listArguments, stdout: try fixture("pr-list-merged.json"))
+        cli.fail(checksArguments(53), with: GitHubCLIError.timedOut(seconds: 30))
+        let model = makeModel(cli)
+        await model.refresh(branch: nil)
+
+        await model.expand(53)
+        XCTAssertTrue(model.checksFailures.contains(53))
+
+        // The read is held open, so the assertion lands while the *new* read is
+        // in flight: the row may not go on claiming the old read's failure for
+        // the whole of it, or "could not read checks" would outlive its reason.
+        let gate = Gate()
+        cli.hold(checksArguments(53), on: gate, forCall: 1)
+        await model.expand(nil)
+        let expanding = Task { await model.expand(53) }
+        await gate.waitUntilReached()
+        XCTAssertFalse(model.checksFailures.contains(53))
+        gate.release()
+        await expanding.value
+
+        // …and the second read failed too, so it says so again on its own.
+        XCTAssertTrue(model.checksFailures.contains(53))
     }
 
     func testChecksThatDidNotParseNameTheKeyPath() async throws {
@@ -1162,6 +1241,55 @@ final class PullRequestModelTests: XCTestCase {
     }
 
     // MARK: - The message slot's four sources
+
+    func testGoingNotReadyClearsASentenceLeftByAnotherSource() async throws {
+        let cli = ScriptedGitHubCLI()
+        cli.serve(GitHubCommands.version(), sequence: [
+            GitHubCommandResult(standardOutput: "gh version 2.99.0 (2026-09-01)\n"),
+            GitHubCommandResult(standardOutput: "gh version 2.99.0 (2026-09-01)\n"),
+        ])
+        cli.serve(GitHubCommands.authStatus(), sequence: [
+            GitHubCommandResult(standardError: "github.com\n  ✓ Logged in to github.com account someone\n"),
+            GitHubCommandResult(standardError: "You are not logged into any GitHub hosts.\n", status: 1),
+        ])
+        cli.serve(listArguments, stdout: try fixture("pr-list-merged.json"))
+        cli.serve(checksArguments(53), stderr: "could not reach github.com\n", status: 1)
+        let model = makeModel(cli)
+
+        await model.refresh(branch: nil)
+        await model.expand(53)
+        XCTAssertEqual(model.errorMessage, "could not reach github.com")
+
+        // `gh auth logout` between the two refreshes. The not-ready state blanks
+        // the rows, and the checks sentence was about those rows: leaving it
+        // standing would put "could not reach github.com" above a panel whose
+        // own next step is `gh auth login`.
+        await model.refresh(branch: nil)
+
+        XCTAssertEqual(model.availability, .notSignedIn)
+        XCTAssertTrue(model.pullRequests.isEmpty)
+        XCTAssertNil(model.errorMessage)
+    }
+
+    func testClosingTheProjectClearsASentenceLeftByAnotherSource() async throws {
+        let cli = ScriptedGitHubCLI()
+        cli.serveReady()
+        cli.serve(listArguments, stdout: try fixture("pr-list-merged.json"))
+        cli.serve(checksArguments(53), stderr: "could not reach github.com\n", status: 1)
+        var currentRoot: URL? = root
+        let model = PullRequestModel(transport: cli, gitService: StubGit(), root: { currentRoot })
+
+        await model.refresh(branch: nil)
+        await model.expand(53)
+        XCTAssertEqual(model.errorMessage, "could not reach github.com")
+
+        currentRoot = nil
+        await model.refresh(branch: nil)
+
+        XCTAssertNil(model.availability)
+        XCTAssertTrue(model.pullRequests.isEmpty)
+        XCTAssertNil(model.errorMessage)
+    }
 
     func testTheCreateSheetOnlySeesTheCreatesOwnSentence() async throws {
         let cli = ScriptedGitHubCLI()
