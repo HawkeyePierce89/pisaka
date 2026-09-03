@@ -112,8 +112,16 @@ struct PullRequestsPanelView: View {
         .padding(.vertical, metrics.scaled(6))
     }
 
+    /// The header's count — `50+` at the cap, because `pr list` asks for
+    /// `GitHubCommands.openListLimit` rows and no more.
+    ///
+    /// A repository with two hundred open pull requests would otherwise read
+    /// "50 open", which is not a rounding: it is the panel stating a total it
+    /// never asked for. The same reason `noChecks` is a case of its own rather
+    /// than a `success` with nothing in it.
     private var countLabel: String {
         let count = model.pullRequests.count
+        if count >= GitHubCommands.openListLimit { return "\(count)+ open" }
         return "\(count) open"
     }
 

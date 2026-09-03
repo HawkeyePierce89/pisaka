@@ -358,10 +358,23 @@ or a `repo view` suspended in `await transport.run(…)` captured the previous
 root's token, and nothing between the clear and the next refresh's own prefix
 would stop it resuming and publishing project A's rows — or project A's default
 base — over the cleared state, which is the very outcome the clear exists to
-prevent. So the root-changed branch bumps the list token beside the checks **and
-create** bumps `clearRows()` itself does, and `refresh(branch:)` calls
-`prepareForRefresh()` **before** capturing its own token, or it would supersede
-its own read.
+prevent. So the root-changed branch bumps the checks **and
+create** tokens `clearRows()` itself does, and the list token is bumped by
+`prepareForRefresh()` on **every** call, root change or not — superseding
+whatever read is in flight is right for every refresh, while blanking the rows is
+right only when they stopped being this project's.
+
+**The list token is the one that leaves the model, and that is the point.**
+`prepareForRefresh()` *returns* it, and `refresh(branch:token:)` takes it — the
+`CommitLogModel.prepareForRefresh(root:)` shape, for the reason CLAUDE.md states
+as a cross-cutting invariant: unstructured tasks are not guaranteed to start in
+the order they were created, so a token captured *inside* the async read lets two
+refreshes queued for two different branches settle on the older one, leaving the
+indicator naming a pull request of a branch nobody is on. `PullRequestCoordinator
+.refresh(branch:)` therefore takes the token in the trigger's own turn and hands
+it across the hop; a read whose token has already moved returns at its first
+guard, before it spends a single `gh`. The convenience `refresh(branch:)` — the
+form the tests call — simply takes its own token and forwards.
 
 The create token's bump lives **in `clearRows()`**, beside the assignments it
 protects, rather than at either caller — and that placement is the fix to a real
@@ -849,10 +862,18 @@ than asking git a second time — two lists of the same branches are two lists f
 to disagree) and `headSubject()` for the pre-filled title (a failure here is
 silent: it is a *suggestion* for a field the reader is about to type in, and a
 sentence explaining an empty field would talk over the one slot the sheet keeps
-for refusals that actually stop a pull request being opened).
+for refusals that actually stop a pull request being opened). The sheet *awaits*
+that subject and only then tests whether the field is still empty — never
+`if title.isEmpty { title = await … }`, which asks before the suspension and
+assigns after it: `headSubject()` queues behind every other `git` on
+`GitCLIService`'s one serial run queue, and a title typed in that window would be
+silently overwritten by the commit subject.
 
 `checkout(_:)` is its one write entry point, and the two refusals above are
-what it exists for; `terminateNow()` is its one teardown one, forwarded to the
+what it exists for — asked *after* the one-write flag, which is the order the
+model refuses in, so a checkout arriving while one of this feature's own writes is
+running cannot draw a sentence and a modal for an operation the model will refuse
+silently a moment later; `terminateNow()` is its one teardown one, forwarded to the
 transport from the scene's terminate observer beside the language servers' own —
 a `pr checkout` in flight has a `git` beneath it rewriting a worktree, and
 nothing else can reach it once the process is going away.
@@ -981,4 +1002,6 @@ would fail the moment somebody explained the rule.
 - **No merge, no review.** Part 1 lists, reads checks, creates and checks out.
   Everything else is a browser away, one explicit gesture from each row.
 - **The list is capped at 50 open pull requests**, and the checks list is
-  whatever `pr checks` answers for one pull request.
+  whatever `pr checks` answers for one pull request. The header says so: at the
+  cap it reads `50+ open`, never `50 open`, because `pr list` asked for fifty rows
+  and a total is not something this panel was told.

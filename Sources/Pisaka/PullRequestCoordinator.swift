@@ -230,8 +230,13 @@ final class PullRequestCoordinator: ObservableObject {
         // the sink fires there), and the previous project's rows must be gone in
         // that turn rather than one `Task` start later, while the panel is still
         // drawing them and Checkout would still run one.
-        model.prepareForRefresh()
-        Task { await model.refresh(branch: branch) }
+        // The token comes back from the clear and travels into the read, so two
+        // refreshes queued by two triggers settle in the order the triggers
+        // fired — unstructured tasks are not guaranteed to start in the order
+        // they were created, which is the whole reason every project-scoped
+        // model in this app captures its token on this side of the hop.
+        let token = model.prepareForRefresh()
+        Task { await model.refresh(branch: branch, token: token) }
     }
 
     /// The panel became visible.
@@ -304,8 +309,17 @@ final class PullRequestCoordinator: ObservableObject {
     /// model's to answer and the sentence still the model's to publish —
     /// `checkoutIsBlocked()` is the same call `checkout(_:)` makes — so the gate
     /// keeps one site and this line only chooses *when* it is asked.
+    ///
+    /// **The one-write flag is asked ahead of both**, which is the order
+    /// `checkout(_:)` itself refuses in. Reversed, a checkout arriving while one
+    /// of this feature's own writes is in flight would publish "another
+    /// operation is writing to the working tree" and put up the dirty-tree
+    /// modal, only for the model to refuse it silently on the flag afterwards —
+    /// a sentence and a confirmation for an operation that was never going to
+    /// run. The row's button is disabled on the same flag, so this is the two
+    /// sites agreeing rather than a second gate.
     func checkout(_ number: Int) {
-        guard isWired, !model.checkoutIsBlocked(), confirmCheckout() else { return }
+        guard isWired, !model.isWriteInFlight, !model.checkoutIsBlocked(), confirmCheckout() else { return }
         // The branch the post-checkout refresh must ask about, read *before* the
         // operation runs — see `runCheckout` for why the branch widget cannot
         // answer that question at the moment it is asked.

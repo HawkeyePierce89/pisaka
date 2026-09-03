@@ -1791,6 +1791,83 @@ final class PullRequestModelTests: XCTestCase {
         XCTAssertEqual(model.availability, .ready(version: GitHubVersion(major: 2, minor: 99, patch: 0)))
     }
 
+    func testARefreshWhoseTaskStartedAfterANewerTriggerPublishesNothing() async throws {
+        // The token is taken in the trigger's own turn and travels into the
+        // read, because unstructured tasks are not guaranteed to start in the
+        // order they were created. Staged here the way an out-of-order start
+        // looks from the model's side: both tokens taken first, then the reads
+        // run in the reverse order.
+        let cli = ScriptedGitHubCLI()
+        cli.serveReady()
+        cli.serve(listArguments, stdout: listJSON(number: 7, head: "old"))
+        cli.serve(headArguments("old"), stdout: listJSON(number: 7, head: "old"))
+        cli.serve(headArguments("new"), stdout: "[]")
+        let model = makeModel(cli)
+
+        let stale = model.prepareForRefresh()
+        let fresh = model.prepareForRefresh()
+
+        await model.refresh(branch: "new", token: fresh)
+        XCTAssertNil(model.currentBranchPullRequest)
+
+        await model.refresh(branch: "old", token: stale)
+
+        XCTAssertNil(
+            model.currentBranchPullRequest,
+            "The older trigger's read is superseded by the token the newer one took, so it may not "
+                + "leave the indicator naming a pull request of the branch that was left."
+        )
+        XCTAssertEqual(
+            cli.count(for: headArguments("old")),
+            0,
+            "A superseded refresh returns at its token guard, before it spends a single `gh`."
+        )
+        XCTAssertEqual(
+            cli.count(for: GitHubCommands.version()),
+            1,
+            "Availability is re-probed once per refresh that actually runs — never for one already "
+                + "superseded before it began."
+        )
+    }
+
+    func testTheTokenIsBumpedEvenWhenTheRootDidNotChange() async throws {
+        // The clear is conditional on the root; the bump is not. Superseding
+        // whatever read is in flight is right for every refresh, and a bump that
+        // only happened on a folder switch would let a `pr list` suspended in the
+        // transport publish over the branch change that replaced it.
+        let cli = ScriptedGitHubCLI()
+        cli.serveReady()
+        cli.serve(listArguments, stdout: listJSON(number: 7, head: "feature"))
+        cli.serve(headArguments("feature"), stdout: listJSON(number: 7, head: "feature"))
+        cli.serve(headArguments("other"), stdout: "[]")
+        let model = makeModel(cli)
+
+        let gate = Gate()
+        // The first run only: the fresh read below must reach the transport.
+        cli.hold(listArguments, on: gate, forCall: 0)
+        let stale = model.prepareForRefresh()
+        let reading = Task { await model.refresh(branch: "feature", token: stale) }
+        await gate.waitUntilReached()
+
+        // The branch change, in the turn the coordinator registers it in — same
+        // root, so nothing is blanked, but the read in flight is superseded.
+        let fresh = model.prepareForRefresh()
+        XCTAssertNotEqual(stale, fresh)
+
+        gate.release()
+        await reading.value
+
+        XCTAssertNil(
+            model.currentBranchPullRequest,
+            "The superseded read publishes nothing, even though the root it was reading is still the "
+                + "open project."
+        )
+        XCTAssertTrue(model.pullRequests.isEmpty)
+
+        await model.refresh(branch: "other", token: fresh)
+        XCTAssertNil(model.currentBranchPullRequest)
+    }
+
     // MARK: - Availability going not-ready
 
     func testAnAuthStatusThatCouldNotRunIsNotASignIn() async throws {

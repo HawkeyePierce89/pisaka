@@ -187,8 +187,14 @@ struct NewPullRequestSheet: View {
         if base.isEmpty, let defaultBranch = model.repository?.defaultBranch {
             base = defaultBranch
         }
+        // Read first, *then* test — never `if title.isEmpty { title = await … }`,
+        // which checks before the suspension and assigns after it. `headSubject`
+        // reaches `GitCLIService`'s one serial run queue and can sit behind a
+        // Local Changes status or a Log refresh for seconds, which is ample time
+        // to type a title this would then silently overwrite.
+        let subject = await coordinator.headSubject()
         if title.isEmpty {
-            title = await coordinator.headSubject()
+            title = subject
         }
     }
 

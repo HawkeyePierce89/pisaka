@@ -368,15 +368,31 @@ public final class PullRequestModel: ObservableObject {
     /// nobody sent, which is the one lie a read this quiet can still tell. No
     /// read for this project is in flight once the tokens have moved, so the
     /// honest value is `false`.
-    public func prepareForRefresh() {
+    ///
+    /// **It returns the list token, and that is the whole reason it is
+    /// separable from the read.** The token is bumped here, in the caller's own
+    /// turn, and handed to ``refresh(branch:token:)`` — the
+    /// `CommitLogModel.prepareForRefresh(root:)` shape, and for its reason:
+    /// unstructured tasks are not guaranteed to start in the order they were
+    /// created, so a token captured *inside* the async read lets two refreshes
+    /// queued for two different branches settle on the older one, leaving
+    /// ``currentBranchPullRequest`` describing a branch nobody is on. Captured
+    /// before the hop, the ordering is the order the triggers fired in.
+    ///
+    /// The bump is unconditional, unlike the clear: superseding whatever read is
+    /// in flight is right for every refresh, while blanking the rows is right
+    /// only when they stopped being this project's.
+    @discardableResult
+    public func prepareForRefresh() -> Int {
         let root = projectRoot()
-        guard root != lastRoot else { return }
-        lastRoot = root
         listGeneration &+= 1
+        guard root != lastRoot else { return listGeneration }
+        lastRoot = root
         availability = nil
         isLoading = false
         clearRows()
         clearMessage()
+        return listGeneration
     }
 
     /// Re-probe availability, then re-read the list and the current branch's
@@ -394,12 +410,21 @@ public final class PullRequestModel: ObservableObject {
     /// each other on screen. The version probe is always the first, so the
     /// transport re-locates `gh` exactly once per refresh (G7).
     public func refresh(branch: String?) async {
-        // The clear comes *first*: it bumps the list token itself when the root
-        // changed, and a refresh that captured its token before that bump would
-        // supersede its own read.
-        prepareForRefresh()
-        listGeneration &+= 1
-        let token = listGeneration
+        // The clear comes *first*, and it is what hands over the token: a
+        // refresh that captured one before that bump would supersede its own
+        // read.
+        await refresh(branch: branch, token: prepareForRefresh())
+    }
+
+    /// The same read for a token a caller already took, synchronously, before
+    /// its `Task` hop — the one entry point the app layer uses (`PullRequest\
+    /// Coordinator.refresh(branch:)`), so two refreshes fired by two triggers
+    /// settle in the order the triggers fired rather than in the order their
+    /// unstructured tasks happened to start.
+    public func refresh(branch: String?, token: Int) async {
+        // Superseded before it began: another trigger took a token after this
+        // one and before this task started. Nothing here may publish.
+        guard token == listGeneration else { return }
 
         guard let root = projectRoot() else {
             // No project is open, so there is no remote to resolve and nothing
