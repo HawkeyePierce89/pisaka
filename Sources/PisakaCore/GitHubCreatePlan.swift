@@ -21,11 +21,13 @@ import Foundation
 /// about two readings of the repository, and this plan is made from one.
 ///
 /// **There is a third way Create is off, and it carries no sentence of its
-/// own**: an empty ``base``. The base default is `gh repo view`'s answer and
-/// nothing else (G11), so a `repo view` that failed leaves the picker empty and
+/// own**: an empty ``base``. The base *default* is `gh repo view`'s answer and
+/// nothing else (G11), so a `repo view` that failed leaves nothing selected and
 /// Create disabled — with `gh`'s own words already in the model's one message
 /// slot. Inventing a sentence here would print a second, vaguer explanation
-/// underneath the real one.
+/// underneath the real one. The picker itself still lists the local branches it
+/// always lists, so a reader who knows the base can name it and go on; what a
+/// failed `repo view` costs is the default, not the sheet.
 ///
 /// **Every sentence names what will actually be done**, because the sheet's
 /// Create button performs up to three operations the user did not separately ask

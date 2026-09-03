@@ -133,12 +133,12 @@ final class PullRequestCoordinator: ObservableObject {
         self.gitService = gitService
     }
 
-    /// Wire the five answers only the scene can give, once, from the scene, and
+    /// Wire the six answers only the scene can give, once, from the scene, and
     /// take out the feature's one subscription.
     ///
     /// Idempotent and safe to call again — `.onAppear` can fire a second time for
-    /// a reopened window. Four of the five are answers to standing questions and
-    /// are simply overwritten; the fifth, the branch observer, is a subscription,
+    /// a reopened window. Five of the six are answers to standing questions and
+    /// are simply overwritten; the sixth, the branch observer, is a subscription,
     /// and assigning a second one cancels the first rather than leaving two sinks
     /// refreshing for every branch change.
     func start(
@@ -190,6 +190,14 @@ final class PullRequestCoordinator: ObservableObject {
     /// above, which is handed the branch being switched *to* while the widget
     /// still names the one being left.
     private func refresh(branch: String?) {
+        // Synchronously first, then the hop — the `prepareForFolderChange` rule
+        // every project-scoped model in this app follows. The branch trigger is
+        // what a folder switch arrives here as (`BranchSwitcherModel
+        // .prepareForRefresh` clears `current` in `openFolder`'s own turn, so
+        // the sink fires there), and the previous project's rows must be gone in
+        // that turn rather than one `Task` start later, while the panel is still
+        // drawing them and Checkout would still run one.
+        model.prepareForRefresh()
         Task { await model.refresh(branch: branch) }
     }
 

@@ -314,6 +314,29 @@ availability going *not ready* — a `gh` that is gone, too old or signed out is
 not a failed read but a different state of the world, in which rows left standing
 under "sign in to GitHub" would be a lie the sentence does not correct.
 
+**…and it is a rule about *one repository*.** The rows kept through a failure are
+this project's; rows read under a different root are somebody else's answer, with
+somebody else's numbers, and Checkout composes `gh pr checkout <number>` in
+whatever root is current *now*. So `prepareForRefresh()` compares the root against
+the one everything published was read under (`lastRoot` — there is no
+folder-change notification a Core model could take) and, when they differ, drops
+availability, the rows, the indicator's row, the checks, the create state and the
+message before the next read starts. Without it, opening project B after project A
+and getting a `pr list` failure for B — a folder that is not a repository, one
+with no GitHub remote, a refused API call — leaves A's pull requests listed under
+B, actionable.
+
+It is called from **two places, and both are the same call**: the top of
+`refresh(branch:)`, so a model driven directly is as honest as one driven through
+the app, and `PullRequestCoordinator.refresh(branch:)` **synchronously before its
+`Task` hop** — the `prepareForFolderChange` rule every project-scoped model in
+this app follows. The coordinator's call is what makes the rows gone in the folder
+switch's *own* main-actor turn: `BranchSwitcherModel.prepareForRefresh` clears
+`current` inside `openFolder`, the branch sink fires there, and a `Task` start
+later is already a turn in which the panel could draw a stale row and Checkout
+could compose one. Same-root calls cost a comparison, which is what lets every
+trigger go through it.
+
 **A failure is cleared by the read that caused it and by no other.** The one
 message slot records whose sentence it holds (`ErrorSource`: refresh, checks,
 create, checkout), for `DatabaseViewerModel`'s reason — a refresh that succeeded
@@ -321,10 +344,10 @@ says nothing about an expand that failed a moment earlier, and clearing that
 sentence would leave a row expanded over an empty checks list with no
 explanation.
 
-**Blanking the rows blanks the slot, whoever filled it.** The two moments the
+**Blanking the rows blanks the slot, whoever filled it.** The three moments the
 model clears everything a sentence could be about — availability going not-ready,
-and the project closing — clear the message *unconditionally* rather than through
-`clearError(from: .refresh)`. Those are the same two moments as the exception
+the project closing, and the project *changing* — clear the message
+*unconditionally* rather than through `clearError(from: .refresh)`. Those are the same moments as the exceptions
 above, and for the same reason read the other way round: a checks failure or a
 refused create is a sentence about rows that have just stopped being drawn, and
 leaving it standing puts "could not reach github.com" above a panel whose own
@@ -345,6 +368,17 @@ expanded row draws a spinner from. A failure is neither, so it is recorded in
 `checksFailures`, pruned and cleared exactly like `checks`: without it the row
 that failed would keep the spinner of the first state for as long as it stays
 open, which is the very thing the split was written to avoid.
+
+**Nothing to read is nothing expanded.** `expand(_:)` records `expandedNumber`
+*after* its own guard, not before: an expansion recorded for a read the guard
+then refuses to send (not ready, or no project root) would draw the "still
+reading" state of that same split for a command nobody ran. It also bumps the
+checks token wherever it collapses a row — `expand(nil)`, the refused expand,
+`clearRows()`, and `pruneChecks(keeping:)` when the expanded row is no longer
+open — because collapsing is the same statement supersession is: a load that
+resumes after its row stopped being drawn must publish neither its jobs nor its
+sentence, and a `.checks` sentence landing after `clearMessage()` would sit above
+a panel drawing no rows, contradicting the not-ready state's own next step.
 
 **A not-ready refresh clears the create sheet's state with the rows.**
 `clearRows()` drops `repository`, `createPlan` and the context they were planned
@@ -384,12 +418,14 @@ remote*. The third case, `.branchChanged`, is never produced here for the reason
 readings of the repository, and this plan is made from one. There is a **third
 way Create is off and it carries no sentence**: an empty base, which is what a
 failed `repo view` leaves behind, with `gh`'s own words already in the message
-slot.
+slot. What that failure costs is the *default*, not the sheet: the picker goes on
+listing the local branches it always lists, so a reader who knows the base can
+name it and Create comes back on.
 
 `--base` is **always** sent explicitly. `gh`'s own default is the *upstream*
 repository's branch for a fork — a different pull request from the one the sheet
 described — so the base the sentence names is the base that is sent, and the
-default that fills the picker is `gh repo view`'s `defaultBranchRef` and nothing
+default the picker opens on is `gh repo view`'s `defaultBranchRef` and nothing
 else. (The ticket's alternative, "the upstream's branch", was dropped entirely.)
 
 Every sentence names what will actually happen, because Create performs up to

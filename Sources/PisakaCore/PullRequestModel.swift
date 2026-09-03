@@ -62,7 +62,10 @@ public typealias GitHubCheckoutRunner = @MainActor (@escaping @MainActor () asyn
 /// deliberate exception is availability going *not ready* — a `gh` that is gone,
 /// too old or signed out is not a failed read but a different state of the
 /// world, in which the panel draws no rows at all, so rows left standing under
-/// "sign in to GitHub" would be a lie the sentence does not correct.
+/// "sign in to GitHub" would be a lie the sentence does not correct. The rule is
+/// also about *one repository*: a project switch drops everything before the
+/// next read starts (`prepareForRefresh()`), because another repository's rows
+/// are not this one's stale answer.
 ///
 /// **A failure is cleared by the read that caused it, and by no other.** The one
 /// message slot records whose sentence it is holding (`ErrorSource`), for
@@ -205,6 +208,10 @@ public final class PullRequestModel: ObservableObject {
     /// root that is not there, which is a state and not a failure.
     private let projectRoot: @MainActor () -> URL?
 
+    /// The root everything published was read under, so a project change can be
+    /// *seen* — there is no folder-change notification this file could take.
+    private var lastRoot: URL?
+
     // MARK: - Ordering
 
     /// Orders refreshes against each other. Bumped in `refresh(branch:)`'s
@@ -309,6 +316,34 @@ public final class PullRequestModel: ObservableObject {
 
     // MARK: - The refresh
 
+    /// Drop everything the *previous* project left behind, the instant the
+    /// project root has changed — synchronously, before any `await`, the way
+    /// every other project-scoped model's `prepareFor…` does.
+    ///
+    /// **The one thing "a failure never blanks a good list" does not cover.**
+    /// That rule is about one repository's list: a read that failed leaves the
+    /// rows the reader was reading, because they are still this repository's
+    /// answer. Rows read under a *different* root are not a stale answer worth
+    /// keeping — they are another repository's, with another repository's
+    /// numbers — and leaving them standing after a folder switch whose own
+    /// `pr list` fails (a folder that is not a repository, or has no GitHub
+    /// remote, or a refused API call) would list project A's pull requests under
+    /// project B, with Checkout composing `gh pr checkout <A's number>` in B.
+    ///
+    /// Called by the coordinator before its `Task` hop, so the previous
+    /// project's rows are gone in the same main-actor turn the folder changed
+    /// in, and again at the top of `refresh(branch:)`, so a model driven
+    /// directly is exactly as honest as one driven through the coordinator.
+    /// Idempotent: a root that has not changed costs a comparison.
+    public func prepareForRefresh() {
+        let root = projectRoot()
+        guard root != lastRoot else { return }
+        lastRoot = root
+        availability = nil
+        clearRows()
+        clearMessage()
+    }
+
     /// Re-probe availability, then re-read the list and the current branch's
     /// pull request.
     ///
@@ -324,6 +359,7 @@ public final class PullRequestModel: ObservableObject {
     public func refresh(branch: String?) async {
         listGeneration &+= 1
         let token = listGeneration
+        prepareForRefresh()
 
         guard let root = projectRoot() else {
             // No project is open, so there is no remote to resolve and nothing
@@ -418,9 +454,17 @@ public final class PullRequestModel: ObservableObject {
     public func expand(_ number: Int?) async {
         checksGeneration &+= 1
         let token = checksGeneration
-        expandedNumber = number
 
-        guard let number, isReady, let root = projectRoot() else { return }
+        guard let number, isReady, let root = projectRoot() else {
+            // Published *after* the guard, not before it: the panel draws a row
+            // whose checks are neither loaded nor failed as "Reading checks…",
+            // so recording an expansion the guard then refuses to read for would
+            // leave that row spinning for a command nobody sent. Nothing to read
+            // is nothing expanded.
+            expandedNumber = nil
+            return
+        }
+        expandedNumber = number
         // A row that failed last time is re-read from scratch, so it may not go
         // on saying "could not read checks" for the whole of the new read. The
         // cached job list is deliberately *not* dropped with it: it describes
@@ -520,9 +564,9 @@ public final class PullRequestModel: ObservableObject {
     /// from.
     ///
     /// A failed `repo view` is not a refusal: it leaves ``repository`` `nil`,
-    /// hence the plan's base empty, hence Create disabled, with `gh`'s own words
-    /// in the message slot. That is the whole stated behaviour, and it needs no
-    /// case of its own.
+    /// hence the plan's base empty, hence Create disabled until the picker is
+    /// moved to a base by hand, with `gh`'s own words in the message slot. That
+    /// is the whole stated behaviour, and it needs no case of its own.
     public func prepareCreate() async {
         createGeneration &+= 1
         let token = createGeneration
@@ -846,6 +890,12 @@ public final class PullRequestModel: ObservableObject {
 
     /// Everything a not-ready state has no business showing.
     private func clearRows() {
+        // The checks token goes with them, for `expand(_:)`'s reason read the
+        // other way round: a load in flight for a row that has just been blanked
+        // must publish nothing — not its jobs, and above all not its sentence,
+        // which would land in the one message slot the caller clears on the very
+        // next line and sit there talking about rows nobody is drawing.
+        checksGeneration &+= 1
         pullRequests = []
         currentBranchPullRequest = nil
         checks = [:]
@@ -868,7 +918,13 @@ public final class PullRequestModel: ObservableObject {
         let open = Set(rows.map(\.number))
         checks = checks.filter { open.contains($0.key) }
         checksFailures = checksFailures.intersection(open)
-        if let expandedNumber, !open.contains(expandedNumber) { self.expandedNumber = nil }
+        if let expandedNumber, !open.contains(expandedNumber) {
+            // Collapsing is the same statement `expand(nil)` makes, so it carries
+            // the same token bump: the read the row was closed on may not land
+            // afterwards and re-fill the entry this line has just pruned.
+            checksGeneration &+= 1
+            self.expandedNumber = nil
+        }
         if let selectedNumber, !open.contains(selectedNumber) { self.selectedNumber = nil }
     }
 

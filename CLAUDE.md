@@ -584,8 +584,11 @@ ci.yml's `lint` job, and the version-bump procedure.
   of the feature's own writes — and never a timer**, with availability re-probed
   at the top of every refresh and at no other moment, three generation tokens
   ordering the three independently re-triggerable reads, and a failure that never
-  blanks a good list (the one exception being availability going not-ready, which
-  is a different world rather than a failed read). Discovery is per *refresh*, not
+  blanks a good list — a rule about *one* repository, so the two exceptions are
+  availability going not-ready (a different world rather than a failed read) and
+  the project root changing, which the coordinator registers synchronously in the
+  folder switch's own turn so another repository's rows are never listed, or
+  checked out, under this one. Discovery is per *refresh*, not
   per command and not per app run: the version probe is the one command carrying
   `refreshesExecutableLocation`, so a refresh costs one login-shell spawn and a
   `gh` installed a moment ago from the embedded terminal is still picked up.

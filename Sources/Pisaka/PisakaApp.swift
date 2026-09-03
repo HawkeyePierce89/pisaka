@@ -1101,7 +1101,7 @@ struct PisakaApp: App {
                     didWrite: { refreshLocalChanges() }
                 )
 
-                // The Pull Requests feature's five scene answers, wired once and
+                // The Pull Requests feature's six scene answers, wired once and
                 // here for the same reason. `runCheckout` is the whole of this
                 // scene's involvement in the eighth gated operation: the
                 // coordinator hands over an operation and the writer bracket runs

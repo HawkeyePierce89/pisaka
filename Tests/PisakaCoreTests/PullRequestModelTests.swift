@@ -688,6 +688,61 @@ final class PullRequestModelTests: XCTestCase {
         XCTAssertNil(model.checks[53])
     }
 
+    func testExpandingWhileGHIsNotReadyRecordsNoExpansionRatherThanASpinner() async {
+        let cli = ScriptedGitHubCLI()
+        cli.fail(GitHubCommands.version(), with: GitHubCLIError.notInstalled)
+        let model = makeModel(cli)
+        await model.refresh(branch: nil)
+        XCTAssertFalse(model.isReady)
+
+        await model.expand(7)
+
+        // The panel draws a row whose checks are neither loaded nor failed as
+        // "Reading checks…", so an expansion recorded for a read the guard
+        // refused to send would spin for a command nobody ran.
+        XCTAssertNil(model.expandedNumber)
+        XCTAssertNil(model.checks[7])
+        XCTAssertEqual(cli.count(for: checksArguments(7)), 0)
+    }
+
+    func testChecksLandingAfterTheRowsAreBlankedPublishNothing() async throws {
+        let cli = ScriptedGitHubCLI()
+        cli.serve(GitHubCommands.version(), stdout: "gh version 2.99.0 (2026-09-01)\n")
+        cli.serve(GitHubCommands.authStatus(), sequence: [
+            GitHubCommandResult(standardError: "✓ Logged in\n"),
+            GitHubCommandResult(standardError: "You are not logged into any GitHub hosts.\n", status: 1),
+        ])
+        cli.serve(listArguments, stdout: listJSON(number: 7, head: "feature", rollup: runningRollup))
+        cli.serve(headArguments("feature"), stdout: "[]")
+        let model = makeModel(cli)
+        await model.refresh(branch: "feature")
+        XCTAssertEqual(model.pullRequests.map(\.number), [7])
+
+        // A checks read is suspended mid-flight…
+        let gate = Gate()
+        cli.hold(checksArguments(7), on: gate)
+        cli.serve(checksArguments(7), stderr: "could not read checks", status: 1)
+        let expanding = Task { await model.expand(7) }
+        await gate.waitUntilReached()
+
+        // …while a refresh finds a `gh` that is no longer signed in and blanks
+        // everything the checks read was about.
+        await model.refresh(branch: "feature")
+        XCTAssertEqual(model.availability, .notSignedIn)
+        XCTAssertNil(model.errorMessage)
+
+        gate.release()
+        await expanding.value
+
+        // The blanking is a supersession like any other: the load that resumes
+        // afterwards may publish neither its jobs nor — above all — its
+        // sentence, which would sit in the one message slot contradicting the
+        // not-ready state's own next step.
+        XCTAssertNil(model.errorMessage)
+        XCTAssertTrue(model.checks.isEmpty)
+        XCTAssertNil(model.expandedNumber)
+    }
+
     // MARK: - The two tokens
 
     /// The stale run must resume **last**, or the assertion is vacuous.
@@ -1331,6 +1386,103 @@ final class PullRequestModelTests: XCTestCase {
         XCTAssertTrue(git.pushedPlans.isEmpty)
         XCTAssertFalse(cli.argumentLists.contains { $0.contains("create") })
         XCTAssertFalse(model.isWriteInFlight)
+    }
+
+    // MARK: - A project switch
+
+    func testAProjectSwitchDropsThePreviousProjectsRowsEvenWhenTheNewOnesListFails() async throws {
+        // The rule "a failure never blanks a good list" is about *one*
+        // repository. Rows read under a different root are not this repository's
+        // stale answer, and leaving them would list project A's pull requests
+        // under project B — with Checkout composing A's number in B's worktree.
+        let first = URL(fileURLWithPath: "/tmp/pisaka-github")
+        let second = URL(fileURLWithPath: "/tmp/pisaka-other")
+        var current = first
+        let cli = ScriptedGitHubCLI()
+        cli.serveReady()
+        cli.serve(GitHubCommands.openPullRequests(root: first), stdout: listJSON(number: 7, head: "feature"))
+        cli.serve(
+            GitHubCommands.pullRequest(forHeadBranch: "feature", root: first),
+            stdout: listJSON(number: 7, head: "feature")
+        )
+        let model = PullRequestModel(transport: cli, gitService: StubGit(), root: { current })
+
+        await model.refresh(branch: "feature")
+        XCTAssertEqual(model.pullRequests.map(\.number), [7])
+        XCTAssertEqual(model.currentBranchPullRequest?.number, 7)
+
+        // The folder switch, and a new project that is not a GitHub repository.
+        current = second
+        cli.serve(
+            GitHubCommands.openPullRequests(root: second),
+            stderr: "no git remotes found in the current directory",
+            status: 1
+        )
+        cli.serve(
+            GitHubCommands.pullRequest(forHeadBranch: "feature", root: second),
+            stderr: "no git remotes found in the current directory",
+            status: 1
+        )
+        await model.refresh(branch: "feature")
+
+        XCTAssertTrue(
+            model.pullRequests.isEmpty,
+            "The previous project's rows must go with the project: the panel would otherwise list a "
+                + "repository the window has left, under a message about the one it is showing."
+        )
+        XCTAssertNil(
+            model.currentBranchPullRequest,
+            "…and so must the indicator's row, which is the one of the two that is always on screen."
+        )
+        XCTAssertEqual(model.errorMessage, "no git remotes found in the current directory")
+    }
+
+    func testTheSynchronousPrepareDropsThePreviousProjectsRowsBeforeAnyRead() async throws {
+        // The coordinator calls this in the folder switch's own main-actor turn,
+        // which is what makes the rows gone *before* the panel can draw them
+        // again or Checkout can compose one — a `Task` start later is already
+        // too late.
+        let first = URL(fileURLWithPath: "/tmp/pisaka-github")
+        var current = first
+        let cli = ScriptedGitHubCLI()
+        cli.serveReady()
+        cli.serve(GitHubCommands.openPullRequests(root: first), stdout: listJSON(number: 7, head: "feature"))
+        cli.serve(
+            GitHubCommands.pullRequest(forHeadBranch: "feature", root: first),
+            stdout: listJSON(number: 7, head: "feature")
+        )
+        let model = PullRequestModel(transport: cli, gitService: StubGit(), root: { current })
+        await model.refresh(branch: "feature")
+        XCTAssertEqual(model.pullRequests.map(\.number), [7])
+
+        current = URL(fileURLWithPath: "/tmp/pisaka-other")
+        model.prepareForRefresh()
+
+        XCTAssertTrue(model.pullRequests.isEmpty)
+        XCTAssertNil(model.currentBranchPullRequest)
+        XCTAssertNil(model.availability)
+        XCTAssertFalse(model.isReady)
+        // Nothing was asked: this is an invalidation, not a fourth trigger.
+        XCTAssertEqual(cli.count(for: GitHubCommands.version()), 1)
+    }
+
+    func testARootThatHasNotChangedKeepsEverythingTheRefreshJustPublished() async throws {
+        let cli = ScriptedGitHubCLI()
+        cli.serveReady()
+        cli.serve(listArguments, stdout: listJSON(number: 7, head: "feature"))
+        cli.serve(headArguments("feature"), stdout: listJSON(number: 7, head: "feature"))
+        let model = makeModel(cli)
+
+        await model.refresh(branch: "feature")
+        model.prepareForRefresh()
+
+        // Idempotent: the coordinator calls it before *every* refresh, not only
+        // after a folder switch, so a same-root call may cost nothing but a
+        // comparison — blanking here would flash the panel empty on every
+        // branch change.
+        XCTAssertEqual(model.pullRequests.map(\.number), [7])
+        XCTAssertEqual(model.currentBranchPullRequest?.number, 7)
+        XCTAssertEqual(model.availability, .ready(version: GitHubVersion(major: 2, minor: 99, patch: 0)))
     }
 
     // MARK: - Availability going not-ready
