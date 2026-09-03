@@ -203,7 +203,16 @@ final class GitHubCommandsTests: XCTestCase {
             "GH_PAGER": "cat",
             "PAGER": "cat",
             "GIT_TERMINAL_PROMPT": "0",
+            "GH_REPO": "",
         ])
+    }
+
+    /// `GH_REPO` re-targets every command at a repository the working directory
+    /// knows nothing about, which is the one way an inherited environment can
+    /// make G6 untrue. Empty is `gh`'s own spelling of "not set".
+    func testTheOverlayClearsAnInheritedRepositoryOverride() {
+        let merged = GitHubCLIEnvironment.merged(over: ["GH_REPO": "someone/else"])
+        XCTAssertEqual(merged["GH_REPO"], "")
     }
 
     func testOverlayWinsOverTheInheritedEnvironmentAndLeavesTheRestAlone() {

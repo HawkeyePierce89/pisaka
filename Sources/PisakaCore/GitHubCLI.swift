@@ -157,6 +157,19 @@ extension GitHubCLIError: LocalizedError {
 /// overlay turns all four off, and `GIT_TERMINAL_PROMPT=0` does the same for the
 /// `git` that `gh pr checkout` shells out to, matching what `GitCLIService`
 /// already sets for its own invocations.
+///
+/// It also clears `GH_REPO`, the one inherited variable that would silently make
+/// G6 untrue. No command here carries `--repo`, because every one of them is
+/// meant to resolve the repository from the remote in the working directory it
+/// runs in — and `GH_REPO` overrides exactly that, for every `gh` started under
+/// an environment that exports it. A user who has it set would get another
+/// repository's pull requests listed under this project, and `gh pr checkout`
+/// would fetch another repository's branch into *this* worktree, under the
+/// eighth writer bracket. Empty is how `gh` itself spells "not set" for it, so
+/// clearing it costs one entry and needs no second mechanism. `GH_HOST` and
+/// `GH_TOKEN` are deliberately left alone: they say *where* and *as whom*, which
+/// is the user's business — not *which repository*, which is the working
+/// directory's.
 public enum GitHubCLIEnvironment {
     /// The variables set for every command, merged *over* whatever the app
     /// inherited so a user's own `GH_HOST` or `GH_TOKEN` survives untouched.
@@ -168,6 +181,7 @@ public enum GitHubCLIEnvironment {
         "GH_PAGER": "cat",
         "PAGER": "cat",
         "GIT_TERMINAL_PROMPT": "0",
+        "GH_REPO": "",
     ]
 
     /// `inherited` with the overlay applied, and — when the app's discovery

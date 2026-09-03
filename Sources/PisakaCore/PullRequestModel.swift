@@ -215,7 +215,8 @@ public final class PullRequestModel: ObservableObject {
     // MARK: - Ordering
 
     /// Orders refreshes against each other. Bumped in `refresh(branch:)`'s
-    /// synchronous prefix.
+    /// synchronous prefix, and in `prepareForRefresh()`'s when the root changed
+    /// — a list read of the project that was left is not a stale answer to keep.
     private var listGeneration = 0
 
     /// Orders checks loads against each other. Bumped in `expand(_:)`'s
@@ -232,7 +233,8 @@ public final class PullRequestModel: ObservableObject {
     /// leave it with an empty picker and no explanation. The two reads are
     /// independently re-triggerable — a sheet can be opened, cancelled and
     /// opened again without a refresh in between — which is the same argument
-    /// that separated the list's token from the checks'.
+    /// that separated the list's token from the checks'. Bumped in
+    /// `prepareForRefresh()` too, for the list token's reason.
     private var createGeneration = 0
 
     /// Which read put the current sentence in the one message slot.
@@ -335,10 +337,23 @@ public final class PullRequestModel: ObservableObject {
     /// in, and again at the top of `refresh(branch:)`, so a model driven
     /// directly is exactly as honest as one driven through the coordinator.
     /// Idempotent: a root that has not changed costs a comparison.
+    ///
+    /// **Every token is bumped, not just the checks'.** Blanking what is
+    /// published is only half of a folder switch: a `pr list` or a `repo view`
+    /// already suspended in `await transport.run(…)` captured the *previous*
+    /// root's token, and nothing between the clear and the next refresh's own
+    /// prefix would stop it resuming and publishing project A's rows — or
+    /// project A's default base — over the cleared state. The read that is in
+    /// flight is a read of another repository, so it is superseded here, in the
+    /// same turn its answer stopped being about this project. `clearRows()`
+    /// bumps the checks token for its own reason; the other two are bumped
+    /// beside it.
     public func prepareForRefresh() {
         let root = projectRoot()
         guard root != lastRoot else { return }
         lastRoot = root
+        listGeneration &+= 1
+        createGeneration &+= 1
         availability = nil
         clearRows()
         clearMessage()
@@ -357,9 +372,12 @@ public final class PullRequestModel: ObservableObject {
     /// when the panel is showing one; the version probe is always the first, so
     /// the transport re-locates `gh` exactly once per refresh (G7).
     public func refresh(branch: String?) async {
+        // The clear comes *first*: it bumps the list token itself when the root
+        // changed, and a refresh that captured its token before that bump would
+        // supersede its own read.
+        prepareForRefresh()
         listGeneration &+= 1
         let token = listGeneration
-        prepareForRefresh()
 
         guard let root = projectRoot() else {
             // No project is open, so there is no remote to resolve and nothing

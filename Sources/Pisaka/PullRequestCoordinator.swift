@@ -113,13 +113,19 @@ final class PullRequestCoordinator: ObservableObject {
     /// the click and read once by ``refreshAfterCheckout()``.
     private var checkedOutHeadBranch: String?
 
-    /// The branch-change trigger (G9), and the feature's only subscription.
+    /// The branch-change trigger (G9), and one of the feature's two
+    /// subscriptions.
     ///
     /// Held here rather than in the scene for `DatabaseViewerTabs`' reason: it
     /// is state with a shape, and the scene is at its measured ceiling. Assigning
     /// a second one cancels the first, which is what makes `start(…)` idempotent
     /// for a reopened window.
     private var branchObserver: AnyCancellable?
+
+    /// The folder-switch registration, and the second subscription. Not a
+    /// trigger: it reads nothing — see `start(…)` for why a branch change alone
+    /// cannot see every folder switch.
+    private var rootObserver: AnyCancellable?
 
     /// - Parameters:
     ///   - transport: how `gh` is run. The app always passes the real one; a
@@ -134,13 +140,13 @@ final class PullRequestCoordinator: ObservableObject {
     }
 
     /// Wire the six answers only the scene can give, once, from the scene, and
-    /// take out the feature's one subscription.
+    /// take out the feature's two subscriptions.
     ///
     /// Idempotent and safe to call again — `.onAppear` can fire a second time for
     /// a reopened window. Five of the six are answers to standing questions and
-    /// are simply overwritten; the sixth, the branch observer, is a subscription,
-    /// and assigning a second one cancels the first rather than leaving two sinks
-    /// refreshing for every branch change.
+    /// are simply overwritten; the sixth, the branch model, is subscribed to
+    /// twice, and assigning over either cancellable cancels the previous
+    /// subscription rather than leaving two sinks reacting to every change.
     func start(
         root: @escaping @MainActor () -> URL?,
         branchSwitcher: BranchSwitcherModel,
@@ -174,6 +180,33 @@ final class PullRequestCoordinator: ObservableObject {
             .removeDuplicates()
             .dropFirst()
             .sink { [weak self] branch in self?.refresh(branch: branch) }
+
+        // The folder switch, registered in its own turn — and **not** a fourth
+        // trigger: it reads nothing, it only tells the model the rows it is
+        // holding belong to a project that is no longer open.
+        //
+        // A folder switch usually arrives as a branch change, because
+        // `BranchSwitcherModel.prepareForRefresh` clears `current` in
+        // `openFolder`'s own turn. But `nil` is where a detached HEAD, an unborn
+        // HEAD and a folder that is not a repository all already sit, so
+        // switching *from* one of them clears `current` to the value it already
+        // had, `removeDuplicates()` swallows it, and the sink above never fires
+        // — leaving project A's rows listed, and Checkout composing `gh pr
+        // checkout <A's number>`, under project B. `root` is cleared on every
+        // root change and on that one alone, so it sees the switches the branch
+        // cannot.
+        //
+        // It clears rather than refreshes because a read here would be a second
+        // one for every ordinary folder switch, where the branch sink is about
+        // to fire in the same turn: this feature spends a login shell and two
+        // network round trips per refresh, and safety is the clear. A new
+        // project whose branch never resolves (it, too, is detached) is read
+        // when the panel is next shown or its refresh button pressed — with
+        // nothing false on screen in the meantime.
+        rootObserver = branchSwitcher.$root
+            .removeDuplicates()
+            .dropFirst()
+            .sink { [weak self] _ in self?.model.prepareForRefresh() }
     }
 
     /// Re-read availability, the list and the current branch's pull request.

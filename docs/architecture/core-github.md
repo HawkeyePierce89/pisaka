@@ -183,6 +183,18 @@ It lives in Core, as data, so the set is unit-testable; the app merges it **over
 the inherited environment, so a user's own `GH_HOST` or `GH_TOKEN` survives
 untouched, and overrides `PATH` with the one discovery found (G7).
 
+The overlay carries **one entry that is not about interactivity**: `GH_REPO` is
+cleared, because it is the one inherited variable that would silently make G6
+below untrue. Nothing here passes `--repo` — every command resolves the
+repository from the remote in the working directory it runs in — and `GH_REPO`
+overrides exactly that for every `gh` started under an environment that exports
+it, which would list another repository's pull requests under this project and
+let `gh pr checkout` fetch another repository's branch into *this* worktree,
+under the eighth writer bracket. Empty is how `gh` itself spells "not set", so it
+costs one entry and needs no second mechanism. `GH_HOST` and `GH_TOKEN` stay
+untouched on purpose: they say *where* and *as whom*, which is the user's
+business — not *which repository*, which is the working directory's.
+
 ### G6 — The app never composes `owner/repo`, which is what makes Enterprise free
 
 There is **no `--repo` anywhere** in the vocabulary. Every command runs with its
@@ -326,16 +338,46 @@ and getting a `pr list` failure for B — a folder that is not a repository, one
 with no GitHub remote, a refused API call — leaves A's pull requests listed under
 B, actionable.
 
-It is called from **two places, and both are the same call**: the top of
+**It bumps every token, not only the checks'.** Blanking what is *published* is
+half of a folder switch; the other half is the read already in flight. A `pr list`
+or a `repo view` suspended in `await transport.run(…)` captured the previous
+root's token, and nothing between the clear and the next refresh's own prefix
+would stop it resuming and publishing project A's rows — or project A's default
+base — over the cleared state, which is the very outcome the clear exists to
+prevent. So the root-changed branch bumps the list and create tokens beside the
+checks bump `clearRows()` already does, and `refresh(branch:)` calls
+`prepareForRefresh()` **before** capturing its own token, or it would supersede
+its own read.
+
+It is called from **three places, and all three are the same call**: the top of
 `refresh(branch:)`, so a model driven directly is as honest as one driven through
-the app, and `PullRequestCoordinator.refresh(branch:)` **synchronously before its
-`Task` hop** — the `prepareForFolderChange` rule every project-scoped model in
-this app follows. The coordinator's call is what makes the rows gone in the folder
-switch's *own* main-actor turn: `BranchSwitcherModel.prepareForRefresh` clears
-`current` inside `openFolder`, the branch sink fires there, and a `Task` start
+the app, and — in the app — `PullRequestCoordinator.refresh(branch:)`
+**synchronously before its `Task` hop** plus the coordinator's root subscription,
+which calls nothing else. That is the `prepareForFolderChange` rule every
+project-scoped model in this app follows, and the coordinator's calls are what
+make the rows gone in the folder switch's *own* main-actor turn: a `Task` start
 later is already a turn in which the panel could draw a stale row and Checkout
 could compose one. Same-root calls cost a comparison, which is what lets every
 trigger go through it.
+
+**Why the branch sink alone cannot see every folder switch, and what the second
+subscription is for.** A folder switch usually arrives as a branch change:
+`BranchSwitcherModel.prepareForRefresh` clears `current` inside `openFolder`, so
+the coordinator's `$current` sink fires in that turn. But `nil` is where a
+detached HEAD, an unborn HEAD and a folder that is not a repository all already
+sit, so switching *from* one of them clears `current` to the value it already had,
+`removeDuplicates()` swallows it, and that sink never fires — leaving project A's
+rows listed, and Checkout composing `gh pr checkout <A's number>`, under project
+B. `BranchSwitcherModel.root` is cleared on every root change and on that one
+alone, so a second subscription on `$root` sees the switches the branch cannot.
+
+It is **not a fourth trigger**: it reads nothing, it only calls
+`prepareForRefresh()`. A read there would be a second one for every ordinary
+folder switch, where the branch sink is about to fire in the same turn — and this
+feature spends a login shell and two network round trips per refresh. Safety is
+the clear; a new project whose branch never resolves (it, too, is detached) is
+read when the panel is next shown or its refresh button pressed, with nothing
+false on screen in the meantime.
 
 **A failure is cleared by the read that caused it and by no other.** The one
 message slot records whose sentence it holds (`ErrorSource`: refresh, checks,

@@ -1466,6 +1466,73 @@ final class PullRequestModelTests: XCTestCase {
         XCTAssertEqual(cli.count(for: GitHubCommands.version()), 1)
     }
 
+    func testAListReadInFlightWhenTheFolderChangedPublishesNothingAfterwards() async throws {
+        // Blanking what is published is only half of a folder switch. A `pr
+        // list` already suspended in the transport captured the *previous*
+        // root's token, and if nothing supersedes it, it resumes after the clear
+        // and puts project A's rows back — under project B, where Checkout would
+        // compose `gh pr checkout <A's number>`.
+        let first = URL(fileURLWithPath: "/tmp/pisaka-github")
+        var current = first
+        let cli = ScriptedGitHubCLI()
+        cli.serveReady()
+        cli.serve(GitHubCommands.openPullRequests(root: first), stdout: listJSON(number: 7, head: "feature"))
+        cli.serve(
+            GitHubCommands.pullRequest(forHeadBranch: "feature", root: first),
+            stdout: listJSON(number: 7, head: "feature")
+        )
+        let model = PullRequestModel(transport: cli, gitService: StubGit(), root: { current })
+
+        let gate = Gate()
+        cli.hold(GitHubCommands.openPullRequests(root: first), on: gate)
+        let reading = Task { await model.refresh(branch: "feature") }
+        await gate.waitUntilReached()
+
+        // The folder switch, in the turn the coordinator registers it in.
+        current = URL(fileURLWithPath: "/tmp/pisaka-other")
+        model.prepareForRefresh()
+
+        gate.release()
+        await reading.value
+
+        XCTAssertTrue(
+            model.pullRequests.isEmpty,
+            "A read of the project that was left is not a stale answer worth keeping: it is another "
+                + "repository's numbers, and the clear must supersede it, not merely outrun it."
+        )
+        XCTAssertNil(model.currentBranchPullRequest)
+        XCTAssertNil(model.availability)
+        XCTAssertFalse(model.isReady)
+    }
+
+    func testASheetReadInFlightWhenTheFolderChangedPublishesNothingAfterwards() async throws {
+        // The same hole in the third token: `repo view` answers the create
+        // sheet's default base, and a base read under the project that was left
+        // is a pull request opened into another repository's branch name.
+        let first = URL(fileURLWithPath: "/tmp/pisaka-github")
+        var current = first
+        let cli = ScriptedGitHubCLI()
+        cli.serveReady()
+        cli.serve(GitHubCommands.openPullRequests(root: first), stdout: "[]")
+        cli.serve(GitHubCommands.repositoryView(root: first), stdout: try fixture("repo-view.json"))
+        let model = PullRequestModel(transport: cli, gitService: StubGit(), root: { current })
+        await model.refresh(branch: nil)
+
+        let gate = Gate()
+        cli.hold(GitHubCommands.repositoryView(root: first), on: gate)
+        let preparing = Task { await model.prepareCreate() }
+        await gate.waitUntilReached()
+
+        current = URL(fileURLWithPath: "/tmp/pisaka-other")
+        model.prepareForRefresh()
+
+        gate.release()
+        await preparing.value
+
+        XCTAssertNil(model.repository)
+        XCTAssertNil(model.createPlan)
+    }
+
     func testARootThatHasNotChangedKeepsEverythingTheRefreshJustPublished() async throws {
         let cli = ScriptedGitHubCLI()
         cli.serveReady()
