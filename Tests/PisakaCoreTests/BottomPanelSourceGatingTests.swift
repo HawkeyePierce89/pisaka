@@ -28,7 +28,7 @@ import XCTest
 ///   of it: what lands in the slot is a *view*, and a minimum on that view's own
 ///   `body` root reaches the slot exactly as one written at the call site would
 ///   — `TerminalPanelView` carried one, in its own file, for the whole life of
-///   this rule. So the five hosted panel roots (and `ContentView`'s
+///   this rule. So the six hosted panel roots (and `ContentView`'s
 ///   `problemsPanel` and `usagesPanel`, each one hop from the branch it serves)
 ///   are read too — each
 ///   hosted view **whole**, `struct` brace to matching brace, not by its `var
@@ -121,6 +121,7 @@ final class BottomPanelSourceGatingTests: XCTestCase {
             "changes": ("LocalChangesView.swift", "LocalChangesView"),
             "problems": ("ProblemsPanelView.swift", "ProblemsPanelView"),
             "usages": ("UsagesPanelView.swift", "UsagesPanelView"),
+            "pullRequests": ("PullRequestsPanelView.swift", "PullRequestsPanelView"),
         ]
 
         // The tie that makes this table complete rather than merely long. A

@@ -81,9 +81,18 @@ final class PullRequestCoordinator: ObservableObject {
     /// without this the widget would go on naming the branch the reader left.
     private var didWrite: @MainActor () -> Void = {}
 
-    /// The branch model, held weakly and read for one thing: which branch a
-    /// refresh should ask GitHub about.
+    /// The branch model, held weakly and read for two things: which branch a
+    /// refresh should ask GitHub about, and which local branches the create
+    /// sheet's base picker offers.
     private weak var branchSwitcher: BranchSwitcherModel?
+
+    /// The branch-change trigger (G9), and the feature's only subscription.
+    ///
+    /// Held here rather than in the scene for `DatabaseViewerTabs`' reason: it
+    /// is state with a shape, and the scene is at its measured ceiling. Assigning
+    /// a second one cancels the first, which is what makes `start(…)` idempotent
+    /// for a reopened window.
+    private var branchObserver: AnyCancellable?
 
     /// - Parameters:
     ///   - transport: how `gh` is run. The app always passes the real one; a
@@ -97,11 +106,14 @@ final class PullRequestCoordinator: ObservableObject {
         self.gitService = gitService
     }
 
-    /// Wire the four answers only the scene can give, once, from the scene.
+    /// Wire the five answers only the scene can give, once, from the scene, and
+    /// take out the feature's one subscription.
     ///
     /// Idempotent and safe to call again — `.onAppear` can fire a second time for
-    /// a reopened window, and every one of these is an answer to a standing
-    /// question rather than a subscription.
+    /// a reopened window. Four of the five are answers to standing questions and
+    /// are simply overwritten; the fifth, the branch observer, is a subscription,
+    /// and assigning a second one cancels the first rather than leaving two sinks
+    /// refreshing for every branch change.
     func start(
         root: @escaping @MainActor () -> URL?,
         branchSwitcher: BranchSwitcherModel,
@@ -114,6 +126,24 @@ final class PullRequestCoordinator: ObservableObject {
         self.isWriteBlocked = isWriteBlocked
         self.runBracket = runCheckout
         self.didWrite = didWrite
+
+        // The branch-change trigger. `@Published` fires *before* the property is
+        // written, so the branch this feature must ask about is the one the
+        // publisher hands over and never `branchSwitcher.current`, which is still
+        // the branch being left — `DatabaseViewerTabs` reads its own subscription
+        // the same way and for the same reason.
+        //
+        // `dropFirst()` drops the value that was already current when the scene
+        // wired this up: that is what the widget was showing a moment ago, not a
+        // change, and at launch it is the `nil` of a branch model that has not
+        // read the repository yet. Everything after it is a real transition —
+        // including the one *to* `nil`, a detached HEAD, which must clear the
+        // indicator rather than leave it naming the branch that was left.
+        branchObserver = branchSwitcher.$current
+            .map { $0?.shortName }
+            .removeDuplicates()
+            .dropFirst()
+            .sink { [weak self] branch in self?.refresh(branch: branch) }
     }
 
     /// Re-read availability, the list and the current branch's pull request.
@@ -123,8 +153,68 @@ final class PullRequestCoordinator: ObservableObject {
     /// a detached HEAD has none, which the model already treats as "no branch to
     /// ask about" rather than as a failure.
     func refresh() {
-        let branch = branchSwitcher?.current?.shortName
+        refresh(branch: branchSwitcher?.current?.shortName)
+    }
+
+    /// The same refresh for a branch the caller already knows — the subscription
+    /// above, which is handed the branch being switched *to* while the widget
+    /// still names the one being left.
+    private func refresh(branch: String?) {
         Task { await model.refresh(branch: branch) }
+    }
+
+    /// The panel became visible.
+    ///
+    /// The second of the three triggers, called from `PullRequestsPanelView`'s
+    /// one `.onAppear` — the panel's own view is where "the panel is on screen"
+    /// is actually known, since the scene holds the selected panel in `@State`
+    /// and publishes nothing this file could subscribe to. Opening the panel is
+    /// the moment its contents are looked at, which is exactly when they are
+    /// worth a read; nothing re-reads while it merely stays open, because that
+    /// would be polling.
+    func panelShown() {
+        refresh()
+    }
+
+    /// The local branches the create sheet's base picker offers, in the branch
+    /// widget's own order.
+    ///
+    /// Read from the model the widget already keeps refreshed rather than asked
+    /// of git a second time: the sheet opens over the repository the widget is
+    /// describing, and two lists of the same branches are two lists free to
+    /// disagree.
+    var localBranchNames: [String] {
+        (branchSwitcher?.branches ?? []).filter { !$0.isRemote }.map(\.shortName)
+    }
+
+    /// The subject line of `HEAD`'s message, for the create sheet's pre-filled
+    /// title — empty when there is no repository, no commit, or git refused.
+    ///
+    /// A failure is silent here and deliberately so: this is a *suggestion* for a
+    /// text field the user is about to type in, and a sentence explaining why a
+    /// field is empty would talk over the one slot the sheet keeps for the
+    /// refusals that actually stop a pull request being opened.
+    func headSubject() async -> String {
+        guard let root = projectRoot() else { return "" }
+        let message = try? await gitService.headMessage(root: root)
+        let subject = (message ?? "")
+            .split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: false)
+            .first
+            .map(String.init) ?? ""
+        return subject.trimmingCharacters(in: .whitespaces)
+    }
+
+    /// Open a pull request, through the model, and let the sheet know whether it
+    /// may close.
+    ///
+    /// The create flow's post-operation read is the model's own tail — it
+    /// re-reads the list and selects the row it just opened — so there is
+    /// deliberately no second refresh here: two reads of the same list, one of
+    /// them racing the other's generation token, is the shape this feature's
+    /// three tokens exist to avoid.
+    @discardableResult
+    func create(title: String, body: String, base: String, draft: Bool) async -> Bool {
+        await model.create(title: title, body: body, base: base, draft: draft)
     }
 
     /// Check out pull request `number`, through the scene's writer bracket.
@@ -136,8 +226,17 @@ final class PullRequestCoordinator: ObservableObject {
         runBracket { [weak self] in
             let failure = await operation()
             // A checkout that failed moved nothing, so there is nothing for the
-            // branch widget to catch up with.
-            if failure == nil { self?.didWrite() }
+            // branch widget to catch up with — and nothing to re-read.
+            if failure == nil {
+                self?.didWrite()
+                // The third trigger: the worktree is now on the pull request's
+                // head, so the row that was "checkout this" is the row the
+                // indicator is about to describe. The branch subscription would
+                // fire for the same move once the widget's own refresh lands, but
+                // that refresh is generation-pinned and asynchronous, and the
+                // panel the reader is looking at may not wait on it.
+                self?.refresh()
+            }
             return failure
         }
     }

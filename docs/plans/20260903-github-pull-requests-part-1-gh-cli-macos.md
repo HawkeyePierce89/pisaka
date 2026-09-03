@@ -142,11 +142,11 @@ Thin, untested by convention. **`PisakaApp.swift` is not touched in this task** 
   - Create: `Sources/Pisaka/PullRequestIndicatorView.swift` (`#if os(macOS)`) — beside the branch switcher: nothing when there is no open pull request for the current branch and nothing on detached HEAD; otherwise `#N` plus the summary state. Clicking opens the panel with that row expanded. It reads the same model.
   - Modify: `Sources/Pisaka/PullRequestCoordinator.swift` — the **branch-change trigger**: `start(…)` takes the `BranchSwitcherModel` and the coordinator subscribes to its published `current` (Combine, duplicates dropped), refreshing on each distinct branch, exactly as `DatabaseViewerTabs` subscribes to its own publisher. Plus `panelShown()` and the post-operation refreshes (a created pull request, a completed checkout). Event-driven only — no timer, no polling.
   - Modify: `Sources/Pisaka/ContentView.swift` — the sixth bar button, the `panelContent(_:)` branch, and the indicator in `bottomBar`. The panel root states **no** minimum height (`BottomPanelSourceGatingTests`' rule, which is pinned by set equality against the switch's case labels and will otherwise fail).
-  - [ ] build the panel, the sheet and the indicator
-  - [ ] wire the bar button, the panel branch and the indicator in `ContentView`
-  - [ ] put the branch-change subscription and the post-operation refreshes in the coordinator, and the panel-shown trigger in the panel view
-  - [ ] tests: extend `BottomPanelSourceGatingTests`' per-panel inventory to the new case so the new panel root is checked for a stated minimum height like the other five
-  - [ ] run `swift test` — must pass before Task 8
+  - [x] build the panel, the sheet and the indicator
+  - [x] wire the bar button, the panel branch and the indicator in `ContentView`
+  - [x] put the branch-change subscription and the post-operation refreshes in the coordinator, and the panel-shown trigger in the panel view
+  - [x] tests: extend `BottomPanelSourceGatingTests`' per-panel inventory to the new case so the new panel root is checked for a stated minimum height like the other five
+  - [x] run `swift test` — must pass before Task 8
 
 ### Task 8: The source-gating suite
 

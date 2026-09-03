@@ -962,12 +962,17 @@ struct PisakaApp: App {
                 onCommit: { origin in await commitFromDialog(originGeneration: origin) },
                 onCommitDialogDismissed: { autosave.resumeFromModal() }
             )
-            // The one thing the window's environment carries for the database
-            // viewer: the per-tab model owner, read by `DatabaseViewerHost` inside
-            // `ContentView.editorZone`. Injected here rather than passed as a
-            // parameter so `ContentView` gains no property for a surface it only
-            // routes to.
-            .environmentObject(databaseViewers)
+            // The two things the window's environment carries. The database
+            // viewer's per-tab model owner, read by `DatabaseViewerHost` inside
+            // `ContentView.editorZone`; and the Pull Requests coordinator, read by
+            // `ContentView` itself for the panel and the bottom-bar indicator.
+            // Both are injected here rather than passed as parameters so
+            // `ContentView` gains no property for a surface it only routes to —
+            // and both on one line, because this file is at its measured
+            // `file_length`/`type_body_length` ceilings and a feature's wiring is
+            // not a reason to move them. Neither is a refresh trigger: this scene
+            // names none, which `GitHubSourceGatingTests` pins.
+            .environmentObject(databaseViewers).environmentObject(pullRequests)
             // The explicit frame autosave name for the main window.
             // This is the only place the main window's frame identity is established
             // (the auxiliary windows deliberately have none). The attachment must
