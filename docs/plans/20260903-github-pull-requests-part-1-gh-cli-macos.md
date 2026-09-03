@@ -69,12 +69,12 @@ All knowledge of `gh`'s output schema in one place, with closed vocabularies and
 
 Summary rule, pinned: **pending** if any job is not finished; **failure** if any finished job failed, was cancelled or timed out; **success** when every job passed or was skipped; **noChecks** when the rollup is empty. A `StatusContext` contributes through its `state`, a `CheckRun` through `status` + `conclusion`, and a mixed array is decided over both.
 
-  - [ ] define the value types and the five closed enums with strict decode tables
-  - [ ] write the parsers and the typed schema error naming the key path
-  - [ ] implement and document the summary rule
-  - [ ] capture the fixtures from real `gh` output and list the folder in `Package.swift`'s `exclude:`
-  - [ ] tests: fixture round-trips for list, checks, repo view and create-URL; every strict table's refusal asserting the key path in the error; the summary rule across all four outcomes; the mixed-`__typename` case; `reviewDecision: ""` mapping to `.none`
-  - [ ] run `swift test` — must pass before Task 3
+  - [x] define the value types and the five closed enums with strict decode tables
+  - [x] write the parsers and the typed schema error naming the key path
+  - [x] implement and document the summary rule
+  - [x] capture the fixtures from real `gh` output and list the folder in `Package.swift`'s `exclude:`
+  - [x] tests: fixture round-trips for list, checks, repo view and create-URL; every strict table's refusal asserting the key path in the error; the summary rule across all four outcomes; the mixed-`__typename` case; `reviewDecision: ""` mapping to `.none`
+  - [x] run `swift test` — must pass before Task 3
 
 ### Task 3: `PullRequestModel` — the reader, its tokens and the scripted seam
 The main-actor model behind both the panel and the indicator. It re-probes availability on every refresh and never more often.

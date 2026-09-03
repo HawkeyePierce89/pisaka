@@ -1,0 +1,46 @@
+[
+  {
+    "bucket": "pass",
+    "completedAt": "2026-09-02T19:24:51Z",
+    "description": "",
+    "event": "pull_request",
+    "link": "https://github.com/HawkeyePierce89/pisaka/actions/runs/33672316821/job/100389653079",
+    "name": "build-macos",
+    "startedAt": "2026-09-02T19:19:39Z",
+    "state": "SUCCESS",
+    "workflow": "CI"
+  },
+  {
+    "bucket": "pass",
+    "completedAt": "2026-09-02T19:23:07Z",
+    "description": "",
+    "event": "pull_request",
+    "link": "https://github.com/HawkeyePierce89/pisaka/actions/runs/33672316821/job/100389653350",
+    "name": "build-ios",
+    "startedAt": "2026-09-02T19:19:38Z",
+    "state": "SUCCESS",
+    "workflow": "CI"
+  },
+  {
+    "bucket": "pass",
+    "completedAt": "2026-09-02T19:16:51Z",
+    "description": "",
+    "event": "pull_request",
+    "link": "https://github.com/HawkeyePierce89/pisaka/actions/runs/33672316821/job/100388651355",
+    "name": "lint",
+    "startedAt": "2026-09-02T19:16:37Z",
+    "state": "SUCCESS",
+    "workflow": "CI"
+  },
+  {
+    "bucket": "pass",
+    "completedAt": "2026-09-02T19:19:34Z",
+    "description": "",
+    "event": "pull_request",
+    "link": "https://github.com/HawkeyePierce89/pisaka/actions/runs/33672316821/job/100388651757",
+    "name": "test",
+    "startedAt": "2026-09-02T19:16:36Z",
+    "state": "SUCCESS",
+    "workflow": "CI"
+  }
+]
