@@ -162,8 +162,8 @@ Thin, untested by convention. **`PisakaApp.swift` is not touched in this task** 
   - **The refresh triggers live in the coordinator and the panel view only**: `PullRequestCoordinator.swift` holds the branch subscription and the post-operation refreshes, `PullRequestsPanelView.swift` holds the panel-shown call, and `PisakaApp.swift` names no refresh trigger at all.
   - **No polling — scoped, with one stated exception.** The rule bans `Timer`, `DispatchQueue.asyncAfter` and `Task.sleep` in the feature's **Core files and its three views** (`PullRequestsPanelView`, `NewPullRequestSheet`, `PullRequestIndicatorView`), where any sleep or timer would *be* polling. `GitHubCLIProcessTransport.swift` is the **one stated exception**, named as such in the suite's doc comment: its command deadline and its SIGTERM→SIGKILL teardown grace are lifted verbatim from `LSPRustToolchainService` (a `Thread.sleep` loop plus `DispatchSemaphore.wait(timeout:)`) and are a per-command bound, not a repeating read.
 
-  - [ ] write the suite with a doc comment carrying the full inventory (the repository's convention) and the transport's stated exception
-  - [ ] run `swift test` — must pass before Task 9
+  - [x] write the suite with a doc comment carrying the full inventory (the repository's convention) and the transport's stated exception
+  - [x] run `swift test` — must pass before Task 9
 
 ### Task 9: Verify acceptance criteria
   - [ ] run `swift test` — full suite green
