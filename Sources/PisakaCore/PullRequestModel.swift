@@ -1,5 +1,15 @@
 import Foundation
 
+/// How a checkout reaches the app's writer bracket: hand the bracket an
+/// operation, and it runs it with the disk writers suspended, Local History
+/// captured and the open tabs resynced around it.
+///
+/// The operation answers `nil` for success, a sentence for a failure the app
+/// should say out loud, and `""` for a failure that has already been published
+/// where the reader is looking — which is the only failure this feature returns
+/// (see ``PullRequestModel/performCheckout(_:)``).
+public typealias GitHubCheckoutRunner = @MainActor (@escaping @MainActor () async -> String?) -> Void
+
 /// The reader behind both GitHub surfaces: the Pull Requests panel and the
 /// bottom-bar indicator (G9).
 ///
@@ -58,14 +68,17 @@ import Foundation
 /// for the other six commands and for that one it is not, which is a rule with
 /// exactly one site — `loadChecks(number:root:token:)` below.
 ///
-/// **A reader except for `create` and, later, `checkout`.** Nothing in this file
-/// writes to the *worktree*: `create` pushes the branch it is already on and
-/// opens a pull request, which changes nothing on disk and therefore takes no
-/// writer gate. `pr checkout` — which does rewrite the worktree, and arrives in
-/// a later task — is the one operation that runs inside the app's writer
-/// bracket. Both raise `isWriteInFlight`, which is the panel's one "something is
+/// **A reader except for `create` and `checkout`.** Nothing in this file writes
+/// to the *worktree*: `create` pushes the branch it is already on and opens a
+/// pull request, which changes nothing on disk and therefore takes no writer
+/// gate, and `checkout` — the one operation that does rewrite the worktree —
+/// composes the command and hands it to the app's writer bracket rather than
+/// running it here (G12). This file names no gate call at all: it *asks* one,
+/// through the `isWriteBlocked` closure, exactly as `DatabaseViewerModel` does.
+/// Both writes raise `isWriteInFlight`, which is the panel's one "something is
 /// being written" term and the term each of them refuses on: exactly one write
 /// per repository at a time.
+
 @MainActor
 public final class PullRequestModel: ObservableObject {
 
@@ -200,7 +213,38 @@ public final class PullRequestModel: ObservableObject {
         /// sentence would close the sheet's explanation while the sheet is still
         /// open showing the fields it refused.
         case create
+        /// The checkout. Fourth for the third's reason: the operation runs
+        /// inside the app's writer bracket and finishes long after the panel
+        /// behind it has refreshed itself, so a refresh that succeeded may not
+        /// clear the one sentence explaining why the worktree did not move.
+        case checkout
     }
+
+    /// Whether a worktree-mutating operation is in flight right now, asked at
+    /// the moment a checkout is attempted (G12).
+    ///
+    /// A closure rather than the gate's own API, `DatabaseViewerModel`'s reason
+    /// exactly: this file may not name `autosave.suspend()` or
+    /// `localChanges.beginRevert()`, and the question it actually needs
+    /// answering — "is git rewriting this worktree right now?" — is one the
+    /// scene can answer and Core cannot. The default answers "nothing is in the
+    /// way", which is the truth in a test or a preview that has no gate.
+    private let isWriteBlocked: @MainActor () -> Bool
+
+    /// How a checkout reaches the app's writer bracket.
+    ///
+    /// Handed an operation to run; the app raises the gates, captures Local
+    /// History and resyncs the open tabs around it, then reports the operation's
+    /// answer — `nil` for success, a sentence for a failure worth an alert, and
+    /// `""` for a failure this model has already published in its own message
+    /// slot, which is the one this feature ever returns. The operation is handed
+    /// out exactly once per accepted checkout and never for a refused one.
+    ///
+    /// The default runs it with **no bracket at all**, which is the honest
+    /// answer where there is nothing to gate — a preview, or a test exercising
+    /// the command rather than the coordination. The app never takes it: the
+    /// coordinator wires the real bracket when it builds the model.
+    private let runCheckout: GitHubCheckoutRunner
 
     /// - Parameters:
     ///   - transport: the seam. Never a `Process` — that lives in the app layer,
@@ -208,14 +252,22 @@ public final class PullRequestModel: ObservableObject {
     ///     asserted in a target that cannot link one.
     ///   - gitService: the repository's git, for the create flow's push alone.
     ///   - root: where the repository is now.
+    ///   - isWriteBlocked: whether the worktree is being rewritten right now.
+    ///   - runCheckout: the app's writer bracket, as a closure.
     public init(
         transport: GitHubCLITransport,
         gitService: GitServicing,
-        root: @escaping @MainActor () -> URL?
+        root: @escaping @MainActor () -> URL?,
+        isWriteBlocked: @escaping @MainActor () -> Bool = { false },
+        runCheckout: @escaping GitHubCheckoutRunner = { operation in
+            Task { @MainActor in _ = await operation() }
+        }
     ) {
         self.transport = transport
         self.gitService = gitService
         self.projectRoot = root
+        self.isWriteBlocked = isWriteBlocked
+        self.runCheckout = runCheckout
     }
 
     /// Whether pull requests can be listed at all — the only state the panel
@@ -538,6 +590,86 @@ public final class PullRequestModel: ObservableObject {
         await refresh(branch: context.currentBranch)
         selectedNumber = number
         return true
+    }
+
+    // MARK: - The checkout
+
+    /// The sentence a checkout refused because git is already rewriting the
+    /// worktree gets.
+    ///
+    /// This layer's own words rather than `gh`'s, because `gh` was never asked:
+    /// the refusal happens before anything is sent, which is the whole point of
+    /// asking the gate first.
+    public static let blockedMessage =
+        "Another operation is writing to the working tree. Try the checkout again when it has finished."
+
+    /// Check out pull request `number` into the worktree — the feature's one
+    /// worktree write, and the app's **eighth** gated operation (G12).
+    ///
+    /// Nothing is sent from here. The command is composed, and then handed to
+    /// the app's writer bracket through ``runCheckout``, which is what makes
+    /// "capture Local History first, then move the worktree, then resync the
+    /// open tabs" the app's order rather than a promise this file makes. The
+    /// hand-out happens **exactly once** for an accepted checkout and **not at
+    /// all** for a refused one, which is what a refusal has to mean for an
+    /// operation nobody can take back.
+    ///
+    /// The three refusals, in the order they are asked:
+    ///
+    ///  1. a write of this feature's own is already in flight — the one-write
+    ///     rule `create` refuses on too, read from the same flag;
+    ///  2. **the gate**, asked before anything is composed: a checkout landing
+    ///     in the middle of a revert, a merge apply or a branch switch would
+    ///     move the worktree out from under an operation already snapshotting
+    ///     it;
+    ///  3. `gh` is not ready, or there is no project root, which are the same
+    ///     two states every other command refuses on.
+    ///
+    /// Synchronous, and deliberately: it is called from a button, its answer is
+    /// "was this accepted", and everything after the hand-out belongs to the
+    /// bracket. `true` when the operation was handed out.
+    @discardableResult
+    public func checkout(_ number: Int) -> Bool {
+        guard !isWriteInFlight else { return false }
+        guard !isWriteBlocked() else {
+            setMessage(Self.blockedMessage, from: .checkout)
+            return false
+        }
+        guard isReady, let root = projectRoot() else { return false }
+
+        isWriteInFlight = true
+        clearError(from: .checkout)
+        let command = GitHubCommands.checkoutPullRequest(number: number, root: root)
+        runCheckout { [weak self] in
+            await self?.performCheckout(command) ?? nil
+        }
+        return true
+    }
+
+    /// Run the composed checkout inside whatever bracket was handed it.
+    ///
+    /// The write flag is lowered on every exit path, including the two failures
+    /// — the panel's Checkout, New Pull Request and refresh buttons all read it,
+    /// and a flag left up by a failed checkout would disable the feature for the
+    /// rest of the app run.
+    ///
+    /// A failure is published here, in this model's one message slot, and
+    /// reported to the bracket as `""`: the panel the reader just clicked
+    /// Checkout in is on screen showing `gh`'s own words, and a modal saying the
+    /// same thing a second time is not a second piece of information.
+    private func performCheckout(_ command: GitHubCommand) async -> String? {
+        defer { isWriteInFlight = false }
+        do {
+            let result = try await transport.run(command)
+            guard result.isSuccess else {
+                setMessage(Self.message(for: result), from: .checkout)
+                return ""
+            }
+            return nil
+        } catch {
+            setMessage(Self.message(for: error), from: .checkout)
+            return ""
+        }
     }
 
     // MARK: - Availability

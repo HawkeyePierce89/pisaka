@@ -19,7 +19,7 @@ final class LocalHistorySnapshotTests: XCTestCase {
     func testTheTagSetIsExactlyTheDocumentedVocabulary() {
         XCTAssertEqual(
             Set(LocalHistoryEvent.allCases.map(\.tag)),
-            ["save", "replace", "revert", "merge", "branch", "commit", "restore", "rename"]
+            ["save", "replace", "revert", "merge", "branch", "commit", "restore", "rename", "pullrequest"]
         )
     }
 
@@ -36,6 +36,9 @@ final class LocalHistorySnapshotTests: XCTestCase {
 
     func testAnUnknownTagIsNotAnEvent() {
         XCTAssertNil(LocalHistoryEvent(tag: "rebase"))
+        // The case is spelled `pullRequest`; the tag is not, and the raw value is
+        // written out precisely so the capitalised spelling never reaches disk.
+        XCTAssertNil(LocalHistoryEvent(tag: "pullRequest"))
         XCTAssertNil(LocalHistoryEvent(tag: "Save"))
         XCTAssertNil(LocalHistoryEvent(tag: ""))
     }
@@ -54,6 +57,7 @@ final class LocalHistorySnapshotTests: XCTestCase {
         XCTAssertEqual(LocalHistoryEvent.commit.title, "Before Commit")
         XCTAssertEqual(LocalHistoryEvent.restore.title, "Before Restore")
         XCTAssertEqual(LocalHistoryEvent.rename.title, "Before Rename")
+        XCTAssertEqual(LocalHistoryEvent.pullRequest.title, "Before Pull Request Checkout")
     }
 
     /// Only `save` records something that happened; every other event records

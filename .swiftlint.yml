@@ -91,13 +91,22 @@ line_length:
 # scene paid four lines for it. And 1838 on review, for the fifth line: the
 # project tree's rename hands each retargeted viewer tab its new path
 # (`databaseViewers.retarget(id:url:)`), without which a cell edit after a rename
-# would open the name the tab was created under. The number tracks the one
-# file that approaches
+# would open the name the tab was created under. And 1859 with the Pull Requests
+# feature, which is the largest single move this number has made and the reason
+# is stated rather than absorbed: seven lines are the coordinator's
+# `pullRequests.start(…)` — the scene's whole involvement in the eighth gated
+# operation, since the feature's ownership, its transport and its one checkout
+# site live in `PullRequestCoordinator.swift` — five are the View menu's panel
+# toggle, one is the `@StateObject`, and the remaining eight are
+# `runBranchOperation` growing a Local History event parameter and an operation
+# that answers a message instead of a `Bool`, which is what lets one bracket
+# serve two callers rather than two brackets serve one each. The number tracks
+# the one file that approaches
 # it — measured, never rounded up for room — and is not a licence to grow the
 # others.
 file_length:
-  warning: 1838
-  error: 1838
+  warning: 1859
+  error: 1859
   ignore_comment_only_lines: true
 
 # Same reasoning as file_length, and one number behind it again: the viewer's
@@ -106,10 +115,12 @@ file_length:
 # 1813 with the viewer reconnect that followed, to 1817 with the find menu's
 # tab-kind gate, to 1821 with the viewer's write wiring — the same four
 # lines, which land inside the scene's start-once block — and to 1822 with the
-# rename's viewer retarget, which lands inside `performMove`.
+# rename's viewer retarget, which lands inside `performMove`, and to 1843 with
+# the Pull Requests feature: every one of its twenty-one lines lands inside the
+# struct body too, so this ceiling moves by exactly what `file_length` did.
 type_body_length:
-  warning: 1822
-  error: 1822
+  warning: 1843
+  error: 1843
 
 function_body_length:
   warning: 140

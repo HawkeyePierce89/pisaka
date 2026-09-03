@@ -126,11 +126,11 @@ The main-actor model behind both the panel and the indicator. It re-probes avail
   - Modify: `Sources/Pisaka/PisakaApp.swift` — a few lines only: one `@StateObject`, one `start(…)` block in the existing start-once section, one View-menu item, and generalising `runBranchOperation(_:)` to take the Local History event and an op returning `String?` (`nil` = success) so the branch callers keep passing `.branch` while the coordinator passes `.pullRequest`. Every line added is measured against the `file_length` / `type_body_length` ceilings.
   - Modify: `Tests/PisakaCoreTests/BottomPanelTests.swift`, `LocalHistorySnapshotTests.swift`; create `Tests/PisakaCoreTests/PullRequestCheckoutTests.swift` (the model's half of the checkout: the gate is consulted before anything is sent, the write flag is raised, the request is handed out exactly once).
   - Modify: `.swiftlint.yml` and `Tests/PisakaCoreTests/LintConfigurationTests.swift` if and only if a measured ceiling moves.
-  - [ ] add the panel case and the Local History label
-  - [ ] write the coordinator with its `start(…)` wiring and the single checkout call site
-  - [ ] generalise `runBranchOperation` and wire the scene
-  - [ ] tests: the new `BottomPanel` case toggles like the others; the new event's tag round-trips through the layout codec and is lowercase with no `-`; the checkout consults the gate before sending, refuses while a write is in flight, and reports `gh`'s stderr verbatim on failure
-  - [ ] run `swift test` — must pass before Task 7
+  - [x] add the panel case and the Local History label
+  - [x] write the coordinator with its `start(…)` wiring and the single checkout call site
+  - [x] generalise `runBranchOperation` and wire the scene
+  - [x] tests: the new `BottomPanel` case toggles like the others; the new event's tag round-trips through the layout codec and is lowercase with no `-`; the checkout consults the gate before sending, refuses while a write is in flight, and reports `gh`'s stderr verbatim on failure
+  - [x] run `swift test` — must pass before Task 7
 
 ### Task 7: The panel, the sheet, the indicator and the refresh triggers
 Thin, untested by convention. **`PisakaApp.swift` is not touched in this task** — it already sits at its measured ceiling and the ticket forbids growing it; every refresh trigger lands in the coordinator or in the feature's own view.

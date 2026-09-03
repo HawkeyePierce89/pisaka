@@ -82,6 +82,11 @@ struct PisakaApp: App {
     /// lifetime lives in `DatabaseViewerTabs.swift` rather than here on purpose —
     /// this file is at its measured lint ceiling.
     @StateObject private var databaseViewers: DatabaseViewerTabs
+    /// The Pull Requests feature — its model, its `gh` transport and its one
+    /// checkout site. Everything about it lives in `PullRequestCoordinator.swift`
+    /// for `databaseViewers`' reason: this file is at its measured lint ceiling,
+    /// and the feature's ownership is state with a shape, not scene wiring.
+    @StateObject private var pullRequests = PullRequestCoordinator()
     /// Persisted user preferences (tab orientation, theme, shared editor font
     /// size). Created once for the app's lifetime; hosted by the `Settings` scene
     /// below (the standard ⌘, Preferences window) and threaded into `ContentView`
@@ -1091,6 +1096,22 @@ struct PisakaApp: App {
                     didWrite: { refreshLocalChanges() }
                 )
 
+                // The Pull Requests feature's five scene answers, wired once and
+                // here for the same reason. `runCheckout` is the whole of this
+                // scene's involvement in the eighth gated operation: the
+                // coordinator hands over an operation and the writer bracket runs
+                // it, under Local History's own `.pullRequest` label. `didWrite`
+                // is what none of the other seven need — `gh pr checkout` moves
+                // the branch from outside `BranchSwitcherModel`, so the widget
+                // has to be told to re-read it.
+                pullRequests.start(
+                    root: { model.projectRoot },
+                    branchSwitcher: branchSwitcher,
+                    isWriteBlocked: { localChanges.isReverting },
+                    runCheckout: { operation in runBranchOperation(.pullRequest, operation) },
+                    didWrite: { refreshBranchSwitcher() }
+                )
+
                 // Start watching for zoom gestures. Idempotent by contract, for
                 // the same reason `terminateAll()` below is: `.onAppear` can fire
                 // again for a reopened window, and a second monitor would apply
@@ -1373,6 +1394,16 @@ struct PisakaApp: App {
                     togglePanel(.usages)
                 }
                 .keyboardShortcut("u", modifiers: [.command, .shift])
+
+                // Toggle the Pull Requests bottom dock panel. Nothing is fetched
+                // from here: the panel refreshes itself when it becomes visible,
+                // which is the trigger's only honest home — this menu item can
+                // also *hide* the panel, and a fetch on the hiding half would
+                // spend three `gh` calls on a panel nobody is looking at.
+                Button(bottomPanel == .pullRequests ? "Hide Pull Requests" : "Show Pull Requests") {
+                    togglePanel(.pullRequests)
+                }
+                .keyboardShortcut("r", modifiers: [.command, .shift])
             }
 
             CommandMenu("Find") {
@@ -3952,7 +3983,10 @@ struct PisakaApp: App {
         // makes `switchTo` bail rather than check out against the newly opened repo
         // (the `revert(_:originGeneration:)` precedent).
         let origin = branchSwitcher.currentRefreshGeneration
-        runBranchOperation { await self.branchSwitcher.switchTo(branch, originGeneration: origin) }
+        runBranchOperation {
+            await self.branchSwitcher.switchTo(branch, originGeneration: origin)
+                ? nil : (self.branchSwitcher.errorMessage ?? "")
+        }
     }
 
     /// Checkout a remote branch (git DWIM): switch to the same-named local if it
@@ -3962,7 +3996,10 @@ struct PisakaApp: App {
     private func checkoutRemote(_ ref: BranchRef) {
         guard confirmBranchSwitchIfDirty() else { return }
         let origin = branchSwitcher.currentRefreshGeneration
-        runBranchOperation { await self.branchSwitcher.checkoutRemote(ref, originGeneration: origin) }
+        runBranchOperation {
+            await self.branchSwitcher.checkoutRemote(ref, originGeneration: origin)
+                ? nil : (self.branchSwitcher.errorMessage ?? "")
+        }
     }
 
     /// If the working tree is dirty, warn (a checkout may be blocked) and ask for
@@ -4092,11 +4129,30 @@ struct PisakaApp: App {
         createBranch(name: name, from: startPoint, fetchRemote: false)
     }
 
-    /// Run a gated branch checkout: suspend the other disk writers, snapshot open
-    /// tabs, run `op` off the main actor, and on success resync tabs + refresh the
-    /// tree/Changes/Log. On failure surface git's message. Mirrors the
-    /// revert/apply-merge coordination.
-    private func runBranchOperation(_ op: @escaping () async -> Bool) {
+    /// Run a gated worktree checkout: suspend the other disk writers, snapshot
+    /// open tabs, run `op` off the main actor, and on success resync tabs +
+    /// refresh the tree/Changes/Log. On failure surface the operation's message.
+    /// Mirrors the revert/apply-merge coordination.
+    ///
+    /// **Two callers, two events, one bracket.** `event` is what Local History
+    /// labels the pre-operation capture with: the branch switch and the
+    /// checkout-remote pass `.branch`, the Pull Requests coordinator passes
+    /// `.pullRequest`. The bracket itself does not care which — it is the same
+    /// wholesale rewrite of the working tree either way — but the label is what a
+    /// reader restoring a revision reads, and "Before Branch Change" over a
+    /// revision taken before someone else's pull request landed on disk would
+    /// hide it among the day's own switches.
+    ///
+    /// `op` answers `nil` for success and a *message* for a failure: the empty
+    /// string means "it failed and there is nothing to add", which is what a
+    /// caller that has already put the reason where the user is looking returns.
+    /// A `Bool` would not carry that difference, and each caller's message lives
+    /// somewhere different — `branchSwitcher.errorMessage` for the two branch
+    /// paths, the pull request panel's own slot for the checkout.
+    private func runBranchOperation(
+        _ event: LocalHistoryEvent = .branch,
+        _ op: @escaping @MainActor () async -> String?
+    ) {
         autosave.suspend()
         localChanges.beginRevert()
         let snapshot = openTabSnapshot()
@@ -4110,17 +4166,19 @@ struct PisakaApp: App {
         let branchTargets = changedFileURLs(localChanges.changedFiles, root: repoRoot)
         Task { @MainActor in
             // Pre-empting the checkout `op` is about to run — the shared body
-            // behind branch *switch* and *checkout-remote*, both of which rewrite
-            // the working tree wholesale. First `await` in the body, ahead of the
-            // operation's own.
-            await captureBeforeOperation(.branch, buffers: branchBuffers, targets: branchTargets)
-            let ok = await op()
+            // behind branch *switch*, *checkout-remote* and `gh pr checkout`, all
+            // of which rewrite the working tree wholesale. First `await` in the
+            // body, ahead of the operation's own.
+            await captureBeforeOperation(event, buffers: branchBuffers, targets: branchTargets)
+            let failure = await op()
             // Git op done: lower the disk-writer gates before any modal so a quit during
             // an error alert still flushes other dirty files (see `createBranch`).
             autosave.resume()
             localChanges.endRevert()
-            guard ok else {
-                if let message = branchSwitcher.errorMessage { presentBranchError(message) }
+            guard failure == nil else {
+                // An empty message is a failure whose reason is already on
+                // screen; a second modal saying it again is not a second fact.
+                if let message = failure, !message.isEmpty { presentBranchError(message) }
                 return
             }
             finishBranchOperation(snapshot: snapshot, repoRoot: repoRoot)
