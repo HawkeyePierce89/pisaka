@@ -195,26 +195,26 @@ a source of its own.
 - Modify: `Sources/PisakaCore/PullRequestModel.swift`
 - Create: `Tests/PisakaCoreTests/PullRequestMergeTests.swift`
 
-- [ ] a fourth generation token for the merge sheet's own read and its write, bumped in
+- [x] a fourth generation token for the merge sheet's own read and its write, bumped in
       `prepareMerge(_:)`, in `merge(...)` and in `clearRows()` beside the create's
-- [ ] `prepareMerge(number:)` reads `repo view` and publishes the plan; a failed read
+- [x] `prepareMerge(number:)` reads `repo view` and publishes the plan; a failed read
       leaves no plan, Merge disabled and `gh`'s words in the slot, exactly as the create
       sheet's does; `dismissMerge()` clears only the merge's own sentence
-- [ ] `merge(...)`: refuses on `isWriteInFlight`, on `isWriteBlocked()` with a sentence
+- [x] `merge(...)`: refuses on `isWriteInFlight`, on `isWriteBlocked()` with a sentence
       of its own, on a not-ready `gh`/absent root, and on a plan that re-decides as not
       enabled from the row in hand; raises and lowers `isWriteInFlight` on every exit
       path; composes the command with the `headRefOid` the row was drawn from
-- [ ] success refreshes the list (the merged row leaves it, and the indicator clears
+- [x] success refreshes the list (the merged row leaves it, and the indicator clears
       through the ordinary refresh) and answers a `MergeOutcome` naming whether the tail
       is owed and into which base branch; failure keeps the row and says why
-- [ ] the tail's **one refusal sentence lives here as a constant** — a base branch that
+- [x] the tail's **one refusal sentence lives here as a constant** — a base branch that
       is neither a local ref nor an `origin/<base>` in the branch widget's list, which
       is the only case `checkoutRemote`'s DWIM cannot resolve — so the tail's refusal is
       testable without a view
-- [ ] write tests for this task: the argument list actually sent (through
+- [x] write tests for this task: the argument list actually sent (through
       `ScriptedGitHubCLI`), each refusal, the one-write rule across merge/create/
       checkout, the message slot's source rules, and the outcome's tail answer
-- [ ] run `swift test` — must pass before Task 4
+- [x] run `swift test` — must pass before Task 4
 
 ### Task 4: `PullRequestMergeWait` — the bounded, visible, cancelable wait
 

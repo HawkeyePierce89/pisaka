@@ -177,18 +177,28 @@ public final class PullRequestModel: ObservableObject {
     /// sentence by design: it is not the create's to clear.
     public var createMessage: String? { errorSource == .create ? errorMessage : nil }
 
+    /// The message slot, but only when the sentence in it is the merge sheet's
+    /// own.
+    ///
+    /// ``createMessage``'s argument, unchanged, applied to the second sheet: the
+    /// merge sheet stands over a live panel whose list, checks and indicator all
+    /// keep refreshing behind it, and a sheet drawing ``errorMessage`` raw would
+    /// show a failed background read in red above its Merge button as though the
+    /// merge had been refused.
+    public var mergeMessage: String? { errorSource == .merge ? errorMessage : nil }
+
     /// Whether a refresh is in flight. What the panel draws its spinner from.
     @Published public private(set) var isLoading = false
 
-    /// Whether one of the feature's two writes — `create` or `pr checkout` — is
-    /// running.
+    /// Whether one of the feature's three writes — `create`, `pr checkout` or
+    /// `pr merge` — is running.
     ///
     /// Published here rather than in the coordinator because both surfaces
-    /// disable on it: the panel greys New Pull Request, Checkout and refresh,
-    /// and nothing else may start a second one. It is raised and lowered by
-    /// those two flows alone, each of which also *refuses* on it, so the rule
-    /// holds even when a button forgot to disable; every read path leaves it
-    /// untouched.
+    /// disable on it: the panel greys New Pull Request, Checkout, Merge and
+    /// refresh, and nothing else may start a second one. It is raised and
+    /// lowered by those three flows alone, each of which also *refuses* on it,
+    /// so the rule holds even when a button forgot to disable; every read path
+    /// leaves it untouched.
     @Published public private(set) var isWriteInFlight = false
 
     // MARK: - Collaborators
@@ -261,6 +271,21 @@ public final class PullRequestModel: ObservableObject {
     /// blanked state is exactly what a token is for.
     private var createGeneration = 0
 
+    /// Orders the merge sheet's own read and its write against each other.
+    /// Bumped in `prepareMerge(number:)`'s and `merge(...)`'s synchronous
+    /// prefixes, and in `clearRows()` beside the create's.
+    ///
+    /// A fourth token, and the create's argument read once more rather than a
+    /// new one: the merge sheet's `repo view` runs while the panel behind it
+    /// stays live, so a branch-change refresh landing in that window would
+    /// supersede it and leave a sheet with no plan, no method picker and a Merge
+    /// button disabled with nothing saying why. It is not the create's token
+    /// either — both sheets read the *same* `repo view`, and sharing one token
+    /// would make opening the merge sheet cancel a create sheet's read that is
+    /// still in flight behind it (and the other way round), which is precisely
+    /// the accident separate tokens exist to prevent.
+    private var mergeGeneration = 0
+
     /// Which read put the current sentence in the one message slot.
     private var errorSource: ErrorSource?
 
@@ -279,6 +304,12 @@ public final class PullRequestModel: ObservableObject {
         /// sentence would close the sheet's explanation while the sheet is still
         /// open showing the fields it refused.
         case create
+        /// The merge sheet's own read and its write, for the create's reason
+        /// applied to the second sheet: the two sheets are opened one from the
+        /// other's panel, each outlives a refresh, and a `repo view` that failed
+        /// for the create sheet says nothing about a `pr merge` that GitHub
+        /// refused.
+        case merge
         /// The checkout. Fourth for the third's reason: the operation runs
         /// inside the app's writer bracket and finishes long after the panel
         /// behind it has refreshed itself, so a refresh that succeeded may not
@@ -1029,6 +1060,321 @@ public final class PullRequestModel: ObservableObject {
         "The checked-out branch changed while the branch was being pushed. "
         + "No pull request was opened — reopen this sheet to create one from the branch you are on."
 
+    // MARK: - The merge sheet
+
+    /// What a merge left behind for the caller that has to finish the job.
+    ///
+    /// Returned rather than published, because it is not state: it is the answer
+    /// to one merge, read once by the coordinator that owns the post-merge tail,
+    /// and a published copy would still be sitting there — naming a base branch
+    /// and a head that no longer exist — long after the tail had run.
+    ///
+    /// It carries the *decision* and not the operations: whether the tail is
+    /// owed at all, and which branch it is owed into. What the tail then does
+    /// with that — a branch switch through the widget's own list and a
+    /// `--ff-only` pull, each inside the app's writer bracket — is the app's,
+    /// and nothing under this feature names a gate to do it.
+    public struct MergeOutcome: Equatable, Sendable {
+        /// The pull request that was merged.
+        public let number: Int
+        /// The branch that was merged — the head the plan named.
+        public let headBranch: String
+        /// The branch it was merged into, and the branch the tail switches to.
+        public let baseBranch: String
+        /// Whether the merged head was the branch the working directory is
+        /// standing on, which is the only case the tail runs in
+        /// (``GitHubMergePlan/isTailOwed``).
+        public let isTailOwed: Bool
+
+        public init(number: Int, headBranch: String, baseBranch: String, isTailOwed: Bool) {
+            self.number = number
+            self.headBranch = headBranch
+            self.baseBranch = baseBranch
+            self.isTailOwed = isTailOwed
+        }
+    }
+
+    /// What the merge sheet draws its method picker, its sentences and its
+    /// disabled Merge button from — `nil` before a sheet has been prepared, and
+    /// `nil` after a read that could not describe the repository.
+    ///
+    /// One value read from both sides, exactly as ``createPlan`` is: the sheet
+    /// disables Merge on `canMerge == false` and ``merge(number:method:subject:body:)``
+    /// refuses on the same rule, re-decided from the row the list holds *now*
+    /// rather than from the row the sheet was drawn over.
+    @Published public private(set) var mergePlan: GitHubMergePlan?
+
+    /// Read everything the merge sheet needs, once, as it opens: the repository
+    /// — for the three method flags, the viewer's default and
+    /// `deleteBranchOnMerge`, which come from `gh repo view` and from nowhere
+    /// else — and the checked-out branch, which is the whole of the tail
+    /// decision.
+    ///
+    /// A failed `repo view` is not a refusal and needs no case of its own: it
+    /// leaves ``repository`` and ``mergePlan`` `nil`, hence Merge disabled and
+    /// `gh`'s own words in the message slot, which is what the create sheet's
+    /// failed read already does.
+    ///
+    /// A failed *branch* read is weaker than that and deliberately not fatal:
+    /// the merge itself does not depend on what is checked out locally, so the
+    /// plan is still published — with an empty branch, hence no tail — and the
+    /// failure's own sentence says so. What must not happen is a sheet that
+    /// refuses to merge a pull request because `git` could not name the local
+    /// branch.
+    public func prepareMerge(number: Int) async {
+        mergeGeneration &+= 1
+        let token = mergeGeneration
+        mergePlan = nil
+        clearError(from: .merge)
+
+        guard isReady, let root = projectRoot() else { return }
+        guard let row = pullRequests.first(where: { $0.number == number }) else { return }
+
+        var failure: String?
+        var repository: GitHubRepository?
+
+        do {
+            let result = try await transport.run(GitHubCommands.repositoryView(root: root))
+            guard token == mergeGeneration else { return }
+            if result.isSuccess {
+                repository = try GitHubAPI.repository(fromViewJSON: result.standardOutput)
+            } else {
+                failure = Self.message(for: result)
+            }
+        } catch {
+            guard token == mergeGeneration else { return }
+            failure = Self.message(for: error)
+        }
+
+        var branch: String?
+        do {
+            branch = try await gitService.currentBranch(root: root)?.shortName
+            guard token == mergeGeneration else { return }
+        } catch {
+            guard token == mergeGeneration else { return }
+            if failure == nil { failure = Self.message(for: error) }
+        }
+
+        if let repository {
+            // Published so the create sheet's picker and this sheet's methods
+            // are read from one reading of one repository, the way every other
+            // `repo view` answer in this model is.
+            self.repository = repository
+            mergePlan = GitHubMergePlan.plan(
+                pullRequest: row,
+                repository: repository,
+                checkedOutBranch: branch
+            )
+        }
+
+        if let failure { setMessage(failure, from: .merge) }
+    }
+
+    /// The merge sheet has gone away — drop the sentence it was drawing.
+    ///
+    /// ``dismissCreate()``'s reasoning, unchanged: the panel draws the slot raw,
+    /// so a merge GitHub refused and a sheet then cancelled would leave that
+    /// refusal pinned above the list where nothing on the ready path clears it.
+    /// Scoped, so a refresh failure that landed behind the open sheet survives
+    /// the sheet.
+    ///
+    /// The plan is deliberately *not* cleared: it is what the row's own waiting
+    /// state and the panel's Merge button keep reading after the sheet closes,
+    /// and it is replaced wholesale by the next ``prepareMerge(number:)``.
+    public func dismissMerge() {
+        clearError(from: .merge)
+    }
+
+    /// Merge pull request `number` on GitHub — the feature's **third write**, and
+    /// the one that changes nothing in the working tree by itself (G13).
+    ///
+    /// Answers the outcome the post-merge tail is decided from, or `nil` for
+    /// every refusal and every failure, each of which leaves its own sentence in
+    /// the message slot under ``mergeMessage``.
+    ///
+    /// The refusals, in the order they are asked:
+    ///
+    ///  1. **a write of this feature's own is already in flight** — the one-write
+    ///     rule read from the same flag `create` and `checkout` refuse on. A
+    ///     merge is not a read that can be re-run, so a second press is refused
+    ///     here rather than trusted to a disabled button;
+    ///  2. **the gate**, asked before anything is composed. `gh pr merge` writes
+    ///     no file, so this is not the checkout's reason: it is the *tail's*. A
+    ///     merge accepted while a revert or a branch switch is rewriting the
+    ///     worktree owes a branch switch and a pull the moment it lands, into a
+    ///     worktree already being rewritten by something else. The tail's own two
+    ///     operations ask the app's bracket again when they run;
+    ///  3. `gh` is not ready, or there is no project root;
+    ///  4. **the row is no longer in hand** — the list refreshed behind the sheet
+    ///     and this pull request is not in it, which is what a merge by somebody
+    ///     else looks like from here — or the repository could not be described;
+    ///  5. **the plan re-decides as not mergeable**, from the row the list holds
+    ///     *now*: a check that went red, a conflict that appeared or a draft
+    ///     toggled back behind an open sheet must refuse rather than send. The
+    ///     sentence is the refusal's own, so the button, this refusal and every
+    ///     tick of the wait word one state one way;
+    ///  6. **the method is not one the repository allows**, which the picker
+    ///     never offers and a caller could still pass.
+    ///
+    /// **The head guard is `--match-head-commit`, and it carries the head of the
+    /// row this plan was decided from.** A push landing between the read and the
+    /// merge is refused by GitHub, in GitHub's words, rather than merged: that is
+    /// why every row is read with its `headRefOid` and why the plan carries the
+    /// row whole rather than the four fields the enabled rule reads.
+    ///
+    /// On success the list is re-read — the merged row leaves it, which is also
+    /// how the bottom-bar indicator clears — and nothing below the merge may
+    /// report a failure: the pull request is merged from the moment `gh` answered,
+    /// and an unreadable refresh costs a list that is one refresh stale.
+    @discardableResult
+    public func merge(
+        number: Int,
+        method: GitHubMergeMethod,
+        subject: String,
+        body: String
+    ) async -> MergeOutcome? {
+        guard !isWriteInFlight else { return nil }
+        guard !isWriteBlocked() else {
+            setMessage(Self.mergeBlockedMessage, from: .merge)
+            return nil
+        }
+
+        // Bumped, and deliberately never checked, for `create(...)`'s reason: a
+        // write is finished rather than superseded, and the bump is here so a
+        // sheet read still in flight cannot publish a plan over the one this
+        // flow is about to decide from.
+        mergeGeneration &+= 1
+
+        guard isReady, let root = projectRoot() else {
+            setMessage(Self.unavailableMessage, from: .merge)
+            return nil
+        }
+
+        isWriteInFlight = true
+        defer { isWriteInFlight = false }
+        clearError(from: .merge)
+
+        guard
+            let row = pullRequests.first(where: { $0.number == number }),
+            let repository
+        else {
+            setMessage(Self.mergeRowMissingMessage, from: .merge)
+            return nil
+        }
+
+        // The branch is re-read rather than taken from the sheet's own reading:
+        // the sheet can stand open for minutes with the widget and the embedded
+        // terminal both able to switch branches behind it, and the tail is two
+        // worktree operations decided from this one answer. A read that *fails*
+        // falls back to what the sheet said — that is the state whose sentence
+        // the reader agreed to — rather than refusing a merge that does not
+        // depend on it.
+        let checkedOutBranch: String?
+        do {
+            checkedOutBranch = try await gitService.currentBranch(root: root)?.shortName
+        } catch {
+            checkedOutBranch = mergePlan?.checkedOutBranch
+        }
+
+        let plan = GitHubMergePlan.plan(
+            pullRequest: row,
+            repository: repository,
+            checkedOutBranch: checkedOutBranch
+        )
+        mergePlan = plan
+
+        guard plan.canMerge else {
+            // A refusal has a sentence; a repository allowing no method at all
+            // has none by design (`GitHubMergePlan.canMerge`), and GitHub does
+            // not permit that state.
+            if let refusal = plan.refusal { setMessage(refusal.message, from: .merge) }
+            return nil
+        }
+
+        guard plan.allowedMethods.contains(method) else {
+            setMessage(Self.mergeMethodMissingMessage, from: .merge)
+            return nil
+        }
+
+        let command = GitHubCommands.mergePullRequest(
+            number: number,
+            method: method,
+            headRefOid: plan.pullRequest.headRefOid,
+            subject: subject,
+            body: body,
+            root: root
+        )
+        let result: GitHubCommandResult
+        do {
+            result = try await transport.run(command)
+        } catch {
+            setMessage(Self.message(for: error), from: .merge)
+            return nil
+        }
+
+        guard result.isSuccess else {
+            setMessage(Self.message(for: result), from: .merge)
+            return nil
+        }
+
+        // Merged from here on, so nothing below reports a failure.
+        let outcome = MergeOutcome(
+            number: number,
+            headBranch: plan.pullRequest.headRefName,
+            baseBranch: plan.pullRequest.baseRefName,
+            isTailOwed: plan.isTailOwed
+        )
+        await refresh(branch: checkedOutBranch)
+        return outcome
+    }
+
+    /// The sentence a merge refused because git is already rewriting the
+    /// worktree gets.
+    ///
+    /// Its own constant rather than the checkout's or the create's, for the
+    /// reason those two are separate constants: each names the operation the
+    /// reader is being told to try again. The first half is deliberately
+    /// word-for-word all three, because it describes the same state of the same
+    /// repository.
+    public static let mergeBlockedMessage =
+        "Another operation is writing to the working tree. Merge again when it has finished."
+
+    /// The sentence a merge refused because the pull request is no longer in the
+    /// list — or the repository could not be described — gets.
+    ///
+    /// The commonest way to reach it is the honest one: somebody else merged or
+    /// closed the pull request while this sheet stood open, and the refresh
+    /// behind the sheet dropped the row.
+    public static let mergeRowMissingMessage =
+        "This pull request is no longer open, or its repository could not be read. "
+        + "Close this sheet and refresh the Pull Requests panel."
+
+    /// The sentence a merge refused because the method it was given is not one
+    /// the repository allows gets.
+    ///
+    /// Unreachable from the sheet, whose picker offers
+    /// ``GitHubMergePlan/allowedMethods`` and nothing else — which is exactly why
+    /// it is refused here as well: a rule enforced only by which rows a picker
+    /// draws is a rule the next caller walks past.
+    public static let mergeMethodMissingMessage =
+        "This repository does not allow that merge method. Reopen this sheet to pick one it allows."
+
+    /// What the post-merge tail says when it cannot resolve the base branch it
+    /// is owed a switch to.
+    ///
+    /// Here rather than in the coordinator that runs the tail, for the reason
+    /// every other sentence in this file is here: the tail's one refusal — a base
+    /// that is neither a local ref nor an `origin/<base>` in the branch widget's
+    /// list, the only case `checkoutRemote`'s DWIM cannot resolve — is then
+    /// testable without a view, and there is one wording of it.
+    ///
+    /// It says the merge landed first, because that is the fact the reader most
+    /// needs: nothing about a tail that did not run undoes a merge that did.
+    public static func tailBranchMissingMessage(base: String) -> String {
+        "The pull request was merged, but “\(base)” is not a branch in this repository — "
+            + "no branch was switched to and nothing was pulled."
+    }
+
     // MARK: - The checkout
 
     /// The sentence a checkout refused because git is already rewriting the
@@ -1243,6 +1589,12 @@ public final class PullRequestModel: ObservableObject {
         // bumps it outside `prepareCreate()` and `create(...)`, which is why it
         // lives beside the assignments it protects rather than at either caller.
         createGeneration &+= 1
+        // And the merge token, for the create token's reason applied to the
+        // second sheet: `prepareMerge(number:)` suspended in `repo view` or in
+        // the branch read would otherwise resume against an unmoved token and
+        // publish a plan — hence an enabled Merge button — over a row this
+        // method has just dropped.
+        mergeGeneration &+= 1
         pullRequests = []
         currentBranchPullRequest = nil
         checks = [:]
@@ -1257,6 +1609,11 @@ public final class PullRequestModel: ObservableObject {
         repository = nil
         createPlan = nil
         createContext = nil
+        // The merge sheet's does too, and for the identical reason: the sheet
+        // disables Merge on `mergePlan?.canMerge` and `merge(...)` refuses on
+        // the same rule, so a plan left standing over blanked rows is an enabled
+        // Merge button above a list that has none.
+        mergePlan = nil
     }
 
     /// Drop the cached checks of pull requests that are no longer open, and
