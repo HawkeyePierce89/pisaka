@@ -888,6 +888,46 @@ final class PullRequestMergeTests: XCTestCase {
         XCTAssertNil(model.errorMessage)
     }
 
+    /// And the window the guard above cannot see from where it is asked: the
+    /// switch is a *bracketed* operation, so it suspends for as long as git's own
+    /// checkout takes. A folder switch landing in that window leaves the pull —
+    /// which takes the root it is handed and asks nobody — fast-forwarding a
+    /// branch in a repository this merge had nothing to do with.
+    func testAFolderSwitchDuringTheSwitchStopsTheTailBeforeThePull() {
+        var current = root
+        let model = PullRequestModel(
+            transport: ScriptedGitHubCLI(),
+            gitService: StubGit(),
+            root: { current }
+        )
+        let bracket = ScriptedBracket()
+
+        let started = model.runMergeTail(
+            outcome(),
+            branches: [Self.local("master")],
+            confirm: { true },
+            run: bracket.run
+        )
+
+        XCTAssertTrue(started)
+        XCTAssertEqual(bracket.steps, [.switchToBase(Self.local("master"))])
+
+        // The project changes while git is checking the base branch out, and the
+        // switch still lands: it was pinned to the old repository by the refresh
+        // generation the caller captured before this hop, not by anything the
+        // completion can see.
+        current = URL(fileURLWithPath: "/tmp/pisaka-some-other-project")
+        bracket.finish(nil)
+
+        // The pull is not even composed.
+        XCTAssertEqual(bracket.steps, [.switchToBase(Self.local("master"))])
+        // Silently, for the up-front guard's reason: the reader closed that
+        // project on purpose, and the panel that would carry the sentence went
+        // with it.
+        XCTAssertNil(model.errorMessage)
+        XCTAssertNil(model.mergeMessage)
+    }
+
     // MARK: - The gate, asked again before the tail runs
 
     /// The tail's two steps are the app's ninth gated operation, and the bracket

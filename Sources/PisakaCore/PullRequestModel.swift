@@ -1688,7 +1688,10 @@ public final class PullRequestModel: ObservableObject {
     ///    arrives — and every step below would then read the *new* project's
     ///    branch list, find its own `master`, and switch and pull a worktree
     ///    nobody asked about. Silently, because the reader closed that project on
-    ///    purpose and the panel that would carry the sentence is gone;
+    ///    purpose and the panel that would carry the sentence is gone. **Asked
+    ///    twice**, here and again between the two steps: the switch is bracketed
+    ///    and therefore suspends, so the window this guard closes reopens while
+    ///    git's checkout runs;
     ///  - **the decision second**, so a tail that is not owed and a base that
     ///    cannot be named cost nothing and put no modal in front of anybody;
     ///  - **the gate third**, after the decision and ahead of the
@@ -1738,8 +1741,28 @@ public final class PullRequestModel: ObservableObject {
                 return false
             }
             guard confirm() else { return false }
-            run(.switchToBase(ref)) { failure in
+            run(.switchToBase(ref)) { [weak self] failure in
                 guard failure == nil else { return }
+                // **The repository, asked a second time**, and for the reason it
+                // is asked the first: the switch above is a *bracketed*
+                // operation, so it suspends — it raises the disk writers' gates,
+                // hops, runs git's own checkout and comes back later. A folder
+                // switch landing in that window leaves `projectRoot()` naming a
+                // different repository, and the pull below is a gated worktree
+                // write that would then run in it, silently, for a merge that
+                // happened somewhere else.
+                //
+                // The switch itself needs no second ask: the caller pins the
+                // branch widget's refresh generation synchronously, in the turn
+                // this method runs in, so a folder switch reaching the widget
+                // first makes the checkout bail. The pull has no such pin —
+                // `GitServicing.pull(root:)` takes the root it is handed and
+                // asks nobody — so it re-reads the one fact that settles it.
+                guard
+                    let self,
+                    let root = self.projectRoot(),
+                    CanonicalPath.canonical(root) == CanonicalPath.canonical(outcome.root)
+                else { return }
                 run(.pullBase) { _ in }
             }
             return true

@@ -932,7 +932,15 @@ is a network round trip that can outlive the project it was started in, and the
 folder switch that cancels an armed wait cannot un-send a sent command, so the
 outcome carries the root it was decided in and a tail whose root has since moved
 runs nothing and says nothing (silently: the reader closed that project on
-purpose, and the panel that would carry a sentence went with it) — then the
+purpose, and the panel that would carry a sentence went with it). **That question
+is asked twice**, here and again between the two steps, because the switch is
+itself a bracketed operation and therefore suspends: a folder switch landing while
+git's checkout runs reopens the very window the first ask closed, and the pull —
+which takes the root it is handed and asks nobody — would fast-forward a branch in
+a repository this merge had nothing to do with. The switch needs no second ask:
+the coordinator pins the branch widget's refresh generation synchronously, in the
+turn the tail is decided in, so a folder switch reaching the widget first makes
+the checkout bail. Then the
 decision (so a tail that is not
 owed costs nothing and puts no modal in front of anybody), then **the writer gate**,
 then the same dirty-tree
