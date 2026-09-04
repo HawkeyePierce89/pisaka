@@ -159,12 +159,14 @@ public enum GitHubMergeability: String, CaseIterable, Sendable {
 /// summary is separately, and more precisely, consulted about. Both are allowed
 /// by ``GitHubMergePlan`` only *together with* a summary that is green.
 ///
-/// Seven values, and the eighth GitHub's own enum used to carry — `DRAFT` — is
-/// deliberately absent: GitHub deprecated it in favour of `isDraft` and removed it
-/// in a scheduled breaking change years ago, and a draft now answers `BLOCKED`
-/// here while saying it is a draft in the field made for it. The table refusing
-/// `DRAFT` is therefore the honest reading (`pr-list-unknown-merge-state.json`
-/// pins exactly that), and the draft refusal is decided from `isDraft` alone.
+/// Seven values, and the eighth GitHub's own enum still carries — `DRAFT` — is
+/// deliberately absent. It is **deprecated rather than removed**: the value is
+/// still a member of GitHub's `MergeStateStatus`, marked deprecated in favour of
+/// `isDraft` with a removal date long past, and GitHub does not emit it — a draft
+/// answers `BLOCKED` here while saying it is a draft in the field made for it. So
+/// the table refusing `DRAFT` is the honest reading of what actually arrives
+/// (`pr-list-unknown-merge-state.json` pins exactly that), and the draft refusal
+/// is decided from `isDraft` alone.
 public enum GitHubMergeStateStatus: String, CaseIterable, Sendable {
     /// The merge commit cannot be cleanly created.
     case dirty = "DIRTY"

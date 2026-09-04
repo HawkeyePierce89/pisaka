@@ -227,11 +227,11 @@ final class GitHubAPITests: XCTestCase {
         }
     }
 
-    /// The fixture's value is `DRAFT` on purpose — a value GitHub's own enum used
-    /// to carry and removed years ago in a scheduled breaking change. The table
-    /// has seven cases rather than eight because a draft now answers `BLOCKED`
-    /// and says it is a draft in `isDraft`, which is where the draft refusal is
-    /// decided from.
+    /// The fixture's value is `DRAFT` on purpose — a value GitHub's own enum still
+    /// carries but no longer emits, deprecated in favour of `isDraft` rather than
+    /// removed. The table has seven cases rather than eight because a draft
+    /// answers `BLOCKED` and says it is a draft in `isDraft`, which is where the
+    /// draft refusal is decided from.
     func testUnknownMergeStateStatusNamesItsKeyPath() throws {
         let json = try fixture("pr-list-unknown-merge-state.json")
         assertSchemaError(.unknownValue(keyPath: "pr list[0].mergeStateStatus", value: "DRAFT")) {

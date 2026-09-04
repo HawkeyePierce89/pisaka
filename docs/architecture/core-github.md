@@ -810,9 +810,12 @@ Two orderings inside that table are load-bearing:
   for the whole time that check is running, so reading the merge state first would
   stop a wait on "GitHub's rules are blocking the merge" in exactly the state the
   wait exists to sit through.
-- **a draft is decided from `isDraft` alone.** GitHub removed `DRAFT` from
-  `mergeStateStatus` years ago and a draft now answers `BLOCKED` there, which is a
-  sentence about the repository rather than about this pull request.
+- **a draft is decided from `isDraft` alone.** `DRAFT` is still a member of
+  GitHub's `mergeStateStatus` enum but is deprecated in favour of `isDraft` and no
+  longer emitted, so a draft answers `BLOCKED` there — a sentence about the
+  repository rather than about this pull request. The table's seven cases are the
+  seven values that actually arrive, and the eighth is refused like any other word
+  the table does not know.
 
 Each refusal answers **two questions of its own**, so nothing re-derives them:
 `isArmable` (may a wait be armed here — `checksRunning` and nothing else) and
@@ -1151,8 +1154,14 @@ make.
 
 The armed wait (G14): `PullRequestMergeWaitEnding` — the closed four-case table,
 with `message` `nil` for the two endings that speak for themselves — and the
-`@MainActor` model itself, owned by `PullRequestModel` and holding it `unowned`
-for the transport and the write.
+`@MainActor` model itself, owned by `PullRequestModel` and holding it **`weak`**
+for the transport and the write, bound strongly for the duration of each tick.
+`weak` and not `unowned`, because the wait genuinely outlives its owner: the
+running `Task` holds the *wait* for the whole of a tick, so a wait suspended in a
+sleep is still there after the scene's `@StateObject` has gone — which a closed
+window does and which neither cancellation covers, quit and a project switch both
+cancelling first. A `nil` owner is not a new state either; it is the one the
+`stateLostMessage` ending already exists for.
 
 The two numbers are named constants (`pollInterval` 30 s, `deadline` 30 min), and
 `deadlineMessage` names the minutes *out of* the constant rather than spelling

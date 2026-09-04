@@ -795,6 +795,48 @@ final class PullRequestMergeWaitTests: XCTestCase {
         XCTAssertEqual(cli.count(for: mergeArguments(oid: "abc123")), 0)
     }
 
+    /// **The wait outlives its model, and must survive doing so.** The running
+    /// `Task` holds the wait strongly for the whole of a tick, so a wait
+    /// suspended in a sleep is still there after the scene's `@StateObject` — and
+    /// with it `PullRequestModel` — has been released. Quit and a project switch
+    /// both cancel first; a closed window does not, and an `unowned` reference
+    /// resumed into that world traps.
+    ///
+    /// Two properties, and neither alone is the test. The next tick must end with
+    /// the sentence for exactly this state rather than dereferencing what is
+    /// gone; and the model must be **deallocated by then** — the wait keeps no
+    /// reference of its own, so a stored strong `owner` would leave the released
+    /// model alive here and fail on that assertion instead.
+    func testAWaitWhoseModelIsReleasedStopsAtTheNextTickRatherThanReadingIt() async {
+        let cli = ScriptedGitHubCLI()
+        let clock = StubClock()
+        let sleeps = SleepLog()
+        var model: PullRequestModel? = await armedModel(cli, clock: clock, sleeps: sleeps)
+        cli.serve(viewCommand, Self.viewJSON())
+
+        // Held here rather than through the model, which is the whole staging:
+        // this is the reference the running loop has.
+        let wait = model!.mergeWait
+        weak var released = model
+        wait.sleep = { seconds in
+            sleeps.record(seconds)
+            clock.date.addTimeInterval(seconds)
+            // The window closed while this tick was suspended.
+            model = nil
+        }
+
+        XCTAssertTrue(arm(model!))
+        await wait.runningTask?.value
+
+        XCTAssertNil(released, "the wait kept a reference of its own to the model")
+        XCTAssertEqual(wait.ending, .stopped(PullRequestMergeWait.stateLostMessage))
+        XCTAssertFalse(wait.isArmed)
+        // One read, no second one, and above all no merge sent under a model
+        // that is not there.
+        XCTAssertEqual(cli.count(for: viewCommand), 1)
+        XCTAssertEqual(cli.count(for: mergeArguments(oid: "abc123")), 0)
+    }
+
     /// The create sheet is **not** the wait's world, and a base read that failed
     /// must not be reported as one.
     ///

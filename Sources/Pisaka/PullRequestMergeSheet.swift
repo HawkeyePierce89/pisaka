@@ -242,10 +242,14 @@ struct PullRequestMergeSheet: View {
 
     /// Merge now, or arm the wait — whichever the button said it would do.
     ///
-    /// The plan is re-read here rather than captured with the button, because a
-    /// refresh behind an open sheet republishes it: pressing *Merge when checks
-    /// pass* on a row that went green a second ago must merge it, and the model
-    /// re-decides once more from the row it holds either way.
+    /// The plan is read here rather than captured when the button was drawn,
+    /// because `prepareMerge(number:)` publishes it asynchronously and this sheet
+    /// is on screen before that read lands. It is the *sheet's* plan either way —
+    /// nothing republishes `mergePlan` behind an open sheet — and that is why
+    /// neither branch below trusts it as the last word: `merge(…)` re-decides
+    /// from the row the list holds now and refuses a state that went bad, and an
+    /// armed wait polls immediately, so a row that went green behind the sheet is
+    /// merged by that first tick rather than waited out.
     private func submit() async {
         guard let plan = model.mergePlan, let method else { return }
         if plan.canMerge {

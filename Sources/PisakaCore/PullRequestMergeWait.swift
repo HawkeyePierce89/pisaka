@@ -210,7 +210,24 @@ public final class PullRequestMergeWait: ObservableObject {
 
     // MARK: - Private state
 
-    private unowned let owner: PullRequestModel
+    /// The model this wait runs its commands and its merge through.
+    ///
+    /// **`weak`, not `unowned`, and the difference is a crash.** The running
+    /// `Task` captures the *wait* weakly, but a tick already inside
+    /// ``run(_:token:)`` holds it strongly for the whole call — so a wait
+    /// suspended in a sleep outlives the model that owns it the moment the
+    /// scene's `@StateObject` goes away, which a closed window does and which
+    /// neither of the two cancellations covers (quit and a project switch both
+    /// cancel first). An `unowned` reference resumed into that world is a
+    /// dangling pointer; a `nil` one is a state this loop already has a sentence
+    /// for — the world the wait was armed in is gone.
+    ///
+    /// Each tick binds it strongly for its own duration, so a model released
+    /// mid-tick survives to the end of that tick and no longer: the next one
+    /// reads `nil` and stops. Nothing outside this loop holds it, which is what
+    /// `testAWaitWhoseModelIsReleasedStopsAtTheNextTickRatherThanReadingIt`
+    /// asserts by watching the model deallocate.
+    private weak var owner: PullRequestModel?
 
     /// The wait's own generation token, checked after **every** suspension — the
     /// two `await`s in a tick (the read and the merge) and the sleep between
@@ -343,19 +360,28 @@ public final class PullRequestMergeWait: ObservableObject {
         while true {
             elapsed = now().timeIntervalSince(startedAt)
 
-            guard owner.isReady, let root = owner.currentRoot, let repository = owner.repository else {
+            guard
+                let owner,
+                owner.isReady,
+                let root = owner.currentRoot,
+                let repository = owner.repository
+            else {
                 // The world the wait was armed in is gone: `gh` stopped being
-                // ready, the project closed, or the rows — and with them the
-                // repository the plan is decided against — were blanked. Its own
-                // sentence, because this one is read in the panel's ending strip
-                // rather than under a sheet (see `stateLostMessage`).
+                // ready, the project closed, the rows — and with them the
+                // repository the plan is decided against — were blanked, or the
+                // model itself has been released out from under a suspended tick
+                // (a closed window; quit and a project switch both cancel first).
+                // Its own sentence, because this one is read in the panel's
+                // ending strip rather than under a sheet (see `stateLostMessage`).
                 finish(.stopped(Self.stateLostMessage), token: token)
                 return
             }
 
             let row: GitHubPullRequest
             do {
-                let result = try await owner.send(GitHubCommands.pullRequest(number: arming.number, root: root))
+                let result = try await owner.send(
+                    GitHubCommands.pullRequest(number: arming.number, root: root)
+                )
                 guard token == generation else { return }
                 guard result.isSuccess else {
                     finish(.stopped(PullRequestModel.message(for: result)), token: token)

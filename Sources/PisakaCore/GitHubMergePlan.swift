@@ -19,9 +19,9 @@ public enum GitHubMergeRefusal: String, CaseIterable, Equatable, Sendable {
     /// The pull request is a draft.
     ///
     /// Decided from `isDraft` alone, never from `mergeStateStatus`: GitHub
-    /// removed `DRAFT` from that enum years ago and a draft now answers
-    /// `BLOCKED` there, which is a sentence about the repository's rules rather
-    /// than about this pull request's state.
+    /// deprecated `DRAFT` in that enum in favour of `isDraft` and no longer emits
+    /// it, so a draft answers `BLOCKED` there — which is a sentence about the
+    /// repository's rules rather than about this pull request's state.
     case draft
 
     /// The diff no longer applies — `CONFLICTING`, or a `DIRTY` merge state.
