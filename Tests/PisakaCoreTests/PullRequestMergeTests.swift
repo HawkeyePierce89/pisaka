@@ -888,6 +888,92 @@ final class PullRequestMergeTests: XCTestCase {
         XCTAssertNil(model.errorMessage)
     }
 
+    // MARK: - The gate, asked again before the tail runs
+
+    /// The tail's two steps are the app's ninth gated operation, and the bracket
+    /// that runs them raises the writer flag without reading it. `merge(...)`'s
+    /// own gate check is spent before `gh pr merge` reaches the network, so by
+    /// the time the tail is handed out a round trip, a refresh and — on the
+    /// wait's path — up to half an hour have passed. A revert, a commit or a
+    /// branch switch started in that window must stop the tail, or two `git`
+    /// processes rewrite one worktree.
+    func testATailIsRefusedWhileAnotherOperationIsWritingToTheWorkingTree() {
+        var blocked = false
+        let model = PullRequestModel(
+            transport: ScriptedGitHubCLI(),
+            gitService: StubGit(),
+            root: { self.root },
+            isWriteBlocked: { blocked }
+        )
+        let bracket = ScriptedBracket()
+        var asks = 0
+
+        blocked = true
+        let started = model.runMergeTail(
+            outcome(),
+            branches: [Self.local("master")],
+            confirm: { asks += 1; return true },
+            run: bracket.run
+        )
+
+        XCTAssertFalse(started)
+        XCTAssertTrue(bracket.steps.isEmpty)
+        // Asked ahead of the modal, which is the order every other checkout in
+        // the app asks in: a refusal is one alert, not a confirmation followed
+        // by one.
+        XCTAssertEqual(asks, 0)
+        // Its own sentence, in the panel's slot under `.mergeTail` — the merge
+        // landed, and nothing here may start saying otherwise.
+        XCTAssertEqual(model.errorMessage, PullRequestModel.tailBlockedMessage)
+        XCTAssertNil(model.mergeMessage)
+        XCTAssertNotEqual(PullRequestModel.tailBlockedMessage, PullRequestModel.mergeBlockedMessage)
+    }
+
+    /// The gate is asked *after* the decision, so a tail that was never going to
+    /// run says nothing about a gate it did not need.
+    func testATailThatIsNotOwedIsNotRefusedByTheGateEither() {
+        let model = PullRequestModel(
+            transport: ScriptedGitHubCLI(),
+            gitService: StubGit(),
+            root: { self.root },
+            isWriteBlocked: { true }
+        )
+        let bracket = ScriptedBracket()
+
+        let started = model.runMergeTail(
+            outcome(isTailOwed: false),
+            branches: [Self.local("master")],
+            confirm: { XCTFail("a tail that is not owed asks nothing"); return true },
+            run: bracket.run
+        )
+
+        XCTAssertFalse(started)
+        XCTAssertTrue(bracket.steps.isEmpty)
+        XCTAssertNil(model.errorMessage)
+    }
+
+    /// And a gate that is down hands the tail out exactly as before.
+    func testATailRunsNormallyWhileNothingElseIsWriting() {
+        let model = PullRequestModel(
+            transport: ScriptedGitHubCLI(),
+            gitService: StubGit(),
+            root: { self.root },
+            isWriteBlocked: { false }
+        )
+        let bracket = ScriptedBracket()
+
+        let started = model.runMergeTail(
+            outcome(),
+            branches: [Self.local("master")],
+            confirm: { true },
+            run: bracket.run
+        )
+
+        XCTAssertTrue(started)
+        XCTAssertEqual(bracket.steps, [.switchToBase(Self.local("master"))])
+        XCTAssertNil(model.errorMessage)
+    }
+
     func testATailWhoseProjectHasClosedAltogetherRunsNothing() {
         let model = PullRequestModel(
             transport: ScriptedGitHubCLI(),

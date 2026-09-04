@@ -119,6 +119,23 @@ public final class PullRequestMergeWait: ObservableObject {
     public nonisolated static let noLongerOpenMessage =
         "This pull request is no longer open — it was merged or closed on GitHub while the wait was running."
 
+    /// What a tick that found the world the wait was armed in gone says.
+    ///
+    /// Its own sentence rather than ``PullRequestModel/mergeRowMissingMessage``,
+    /// which is the one this stop used to borrow. That sentence ends "Close this
+    /// sheet and refresh the Pull Requests panel", and it is right where it is
+    /// said — under an open merge sheet — but this ending is drawn in the
+    /// *panel's* ending strip, and a wait runs precisely when nobody is standing
+    /// in front of a sheet. Naming a control the reader cannot see is the one
+    /// thing an ending nobody witnessed may not do.
+    ///
+    /// It names the state rather than guessing which of its three causes ran:
+    /// `gh` stopped being ready, the project was closed or switched, or the rows
+    /// — and with them the repository the plan is decided against — were blanked.
+    public nonisolated static let stateLostMessage =
+        "The wait stopped because this pull request could no longer be read — GitHub CLI is no longer "
+        + "available, or this project changed while the wait was running. Nothing was merged."
+
     // MARK: - Published state
 
     /// What is armed, or `nil` when nothing is.
@@ -329,10 +346,10 @@ public final class PullRequestMergeWait: ObservableObject {
             guard owner.isReady, let root = owner.currentRoot, let repository = owner.repository else {
                 // The world the wait was armed in is gone: `gh` stopped being
                 // ready, the project closed, or the rows — and with them the
-                // repository the plan is decided against — were blanked. The
-                // row's own sentence says it, since from here it is
-                // indistinguishable from the row having left.
-                finish(.stopped(PullRequestModel.mergeRowMissingMessage), token: token)
+                // repository the plan is decided against — were blanked. Its own
+                // sentence, because this one is read in the panel's ending strip
+                // rather than under a sheet (see `stateLostMessage`).
+                finish(.stopped(Self.stateLostMessage), token: token)
                 return
             }
 

@@ -1328,8 +1328,11 @@ public final class PullRequestModel: ObservableObject {
     ///     no file, so this is not the checkout's reason: it is the *tail's*. A
     ///     merge accepted while a revert or a branch switch is rewriting the
     ///     worktree owes a branch switch and a pull the moment it lands, into a
-    ///     worktree already being rewritten by something else. The tail's own two
-    ///     operations ask the app's bracket again when they run;
+    ///     worktree already being rewritten by something else. It is asked a
+    ///     second time by ``runMergeTail(_:branches:confirm:run:)``, immediately
+    ///     before the tail's first step is handed to that bracket, because this
+    ///     answer is minutes — or, on the wait's path, half an hour — old by
+    ///     then;
     ///  3. `gh` is not ready, or there is no project root;
     ///  4. **the row is no longer in hand** — the list refreshed behind the sheet
     ///     and this pull request is not in it, which is what a merge by somebody
@@ -1554,6 +1557,27 @@ public final class PullRequestModel: ObservableObject {
             + "no branch was switched to and nothing was pulled."
     }
 
+    /// What the post-merge tail says when the writer gate is up as it is about
+    /// to run.
+    ///
+    /// Its own sentence rather than ``mergeBlockedMessage``, because the two
+    /// name different facts: that one refuses a merge that has not happened, and
+    /// this one reports a merge that **has** — nothing about a tail that did not
+    /// run undoes it — so it opens the way ``tailBranchMissingMessage(base:)``
+    /// does and asks for the two steps rather than for the merge.
+    ///
+    /// The gate is asked here at all because the bracket that runs the tail's
+    /// two steps raises the flag without reading it: `merge(...)`'s own gate
+    /// check is spent before `gh pr merge` goes to the network, and by the time
+    /// the tail is handed out a round trip, a refresh and — on the wait's path —
+    /// up to half an hour have passed, any of which is room enough for a revert,
+    /// a commit or a branch switch to start. The branch widget's own two entry
+    /// points refuse on exactly this flag for exactly this reason; the tail is
+    /// the third way into the same bracket and refuses with them.
+    public static let tailBlockedMessage =
+        "The pull request was merged, but another operation is writing to the working tree — "
+        + "no branch was switched to and nothing was pulled."
+
     // MARK: - The post-merge tail
 
     /// What the tail does to the working tree, one step at a time, in the order
@@ -1667,8 +1691,14 @@ public final class PullRequestModel: ObservableObject {
     ///    purpose and the panel that would carry the sentence is gone;
     ///  - **the decision second**, so a tail that is not owed and a base that
     ///    cannot be named cost nothing and put no modal in front of anybody;
-    ///  - **the confirmation second**, ahead of the switch and after the
-    ///    decision — the same dirty-tree warning `switchBranch` and
+    ///  - **the gate third**, after the decision and ahead of the
+    ///    confirmation, which is the order `switchBranch`, `checkoutRemote` and
+    ///    the panel's own Checkout ask in: a refusal is then one alert rather
+    ///    than a confirmation followed by one. It is asked at all because the
+    ///    bracket below raises the writer flag without reading it
+    ///    (``tailBlockedMessage``);
+    ///  - **the confirmation fourth**, ahead of the switch and after the gate —
+    ///    the same dirty-tree warning `switchBranch` and
     ///    `checkoutRemote` ask, asked because the tail runs git's own checkout
     ///    and is blocked by exactly the changes those two warn about, and asked
     ///    in the order they ask it in, so a refusal is one alert rather than a
@@ -1703,6 +1733,10 @@ public final class PullRequestModel: ObservableObject {
             setMessage(message, from: .mergeTail)
             return false
         case .switchThenPull(let ref):
+            guard !isWriteBlocked() else {
+                setMessage(Self.tailBlockedMessage, from: .mergeTail)
+                return false
+            }
             guard confirm() else { return false }
             run(.switchToBase(ref)) { failure in
                 guard failure == nil else { return }

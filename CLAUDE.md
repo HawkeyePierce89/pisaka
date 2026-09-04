@@ -629,7 +629,12 @@ ci.yml's `lint` job, and the version-bump procedure.
   tail's `pull --ff-only` the **ninth**: the model composes each command, asks an
   injected gate before anything is sent and owns the tail's order (switch to the
   base through the branch widget's own list, then pull, stopping at the first
-  failure and never reporting the merge as failed), while
+  failure and never reporting the merge as failed). **The tail asks that gate
+  again**, after its decision and ahead of the dirty-tree confirmation, because
+  the merge's own answer is spent before `gh pr merge` reaches the network and
+  the bracket the two steps ride raises the flag without reading it — which is
+  the very reason `switchBranch` and `checkoutRemote` refuse on it themselves.
+  Meanwhile
   `PisakaApp.runBranchOperation(_:_:_:)` — which grew an optional completion
   precisely because two bracketed operations cannot otherwise be ordered — is
   reached through `PullRequestCoordinator` alone, its three sites, so no file

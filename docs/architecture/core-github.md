@@ -871,10 +871,15 @@ indistinguishable from a branch that never had one.
 promise the app made on its own: `merged` (the plan said yes; the outcome is
 carried, `nil` when the model refused or `gh` failed, whose sentence is already in
 the message slot), `stopped(sentence)` (a failing check, a refusal
-`mayResolveByWaiting` says no later tick can leave, a row no longer open, or a
+`mayResolveByWaiting` says no later tick can leave, a row no longer open, a
 read that could not be made at all — in `gh`'s own words, now rather than in half
-an hour), `deadline`, and `cancelled` (Cancel, a project switch, quit, or another
-wait armed over this one). The merge's ending is **the one published past a moved
+an hour — or **the world the wait was armed in gone**, which is
+`PullRequestMergeWait.stateLostMessage` and not the sheet's
+`mergeRowMissingMessage` it would otherwise read like: that sentence ends "close
+this sheet", and this ending is drawn in the *panel's* ending strip, where a wait
+runs precisely because nobody is standing in front of a sheet), `deadline`, and
+`cancelled` (Cancel, a project switch, quit, or another wait armed over this
+one). The merge's ending is **the one published past a moved
 token**: it is a fact rather than a decision — the merge either landed or was
 refused — and a Cancel pressed while the write was in flight cannot un-send it.
 
@@ -929,10 +934,28 @@ outcome carries the root it was decided in and a tail whose root has since moved
 runs nothing and says nothing (silently: the reader closed that project on
 purpose, and the panel that would carry a sentence went with it) — then the
 decision (so a tail that is not
-owed costs nothing and puts no modal in front of anybody), the same dirty-tree
-confirmation `switchBranch` and `checkoutRemote` ask second, and the pull **only
+owed costs nothing and puts no modal in front of anybody), then **the writer gate**,
+then the same dirty-tree
+confirmation `switchBranch` and `checkoutRemote` ask, and the pull **only
 on the switch's success** — a pull after a refused checkout would fast-forward the
 branch the reader is still standing on with the base's commits.
+
+**The gate is asked twice, and the second time is the tail's own.** `merge(…)`
+asks it before anything is composed, but that answer is spent before `gh pr merge`
+reaches the network: by the time the tail is handed out, a round trip, a refresh
+and — on the wait's path — up to half an hour have gone by, any of which is room
+for a revert, a commit, a merge apply or a branch switch to start. The bracket the
+tail's two steps ride *raises* the flag without reading it (which is exactly why
+`switchBranch` and `checkoutRemote` refuse on it at their own entry points), so a
+tail that did not ask would be a second `git` rewriting a worktree the first one
+is still in. It is asked ahead of the confirmation, in the order every other
+checkout in the app asks in — a refusal is one alert, not a confirmation followed
+by one — and after the decision, so a tail that was never owed says nothing about
+a gate it did not need. The refusal has its own sentence,
+`PullRequestModel.tailBlockedMessage`, published under `.mergeTail` beside the
+unresolved base's: it opens by saying the merge landed, because
+`mergeBlockedMessage` refuses a merge that has *not* happened and this one reports
+one that has.
 
 The pull is `GitServicing.pull(root:)`, whose whole contract is `--ff-only` and
 nothing else: the only honest outcome after GitHub merged is "advance to what the
@@ -996,7 +1019,7 @@ part 1's ten plus `headRefOid`, `mergeable` and `mergeStateStatus` — asked for
 the merge is decided from, and the merge is guarded by that row's head (G13).
 `checkFields` is `pr checks`' exact nine, in `gh`'s own order — asking for all
 nine costs nothing on the wire and keeps the parser reading one shape.
-`repositoryFields` is seven: the default branch and the name, plus the four merge
+`repositoryFields` is seven: the default branch and the name, plus the five merge
 policy values (`mergeCommitAllowed`, `squashMergeAllowed`, `rebaseMergeAllowed`,
 `viewerDefaultMergeMethod`, `deleteBranchOnMerge` — the last read but never acted
 on, so the sheet can say what GitHub will do on its own side). The list
@@ -1194,7 +1217,7 @@ publish `repository` only on a read that succeeded**: that one value is shared �
 the merge plan is decided from it and `PullRequestMergeWait` re-reads it on every
 tick, treating `nil` as "the world this wait was armed in is gone" — so a base
 read that failed empties *this sheet's* base and nothing else. Blanking it there
-would end an armed wait with `mergeRowMissingMessage`, about a row that never
+would end an armed wait with `stateLostMessage`, about a row that never
 left, merely because New Pull Request was opened beside it, and permanently so
 when that sheet's own `repo view` failed too. Only the two states that really are
 a different world blank it, and both are `clearRows()`'s: the project root

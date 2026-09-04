@@ -783,8 +783,11 @@ final class PullRequestMergeWaitTests: XCTestCase {
         XCTAssertTrue(arm(model))
         await settle(model)
 
-        XCTAssertEqual(model.mergeWait.ending, .stopped(PullRequestModel.mergeRowMissingMessage))
-        XCTAssertEqual(model.mergeWait.ending?.message, PullRequestModel.mergeRowMissingMessage)
+        XCTAssertEqual(model.mergeWait.ending, .stopped(PullRequestMergeWait.stateLostMessage))
+        XCTAssertEqual(model.mergeWait.ending?.message, PullRequestMergeWait.stateLostMessage)
+        // Its own sentence, and not the sheet's: this one is drawn in the
+        // panel's ending strip, where "close this sheet" names nothing.
+        XCTAssertNotEqual(PullRequestMergeWait.stateLostMessage, PullRequestModel.mergeRowMissingMessage)
         XCTAssertFalse(model.mergeWait.isArmed)
         // The second tick got as far as the guard and no further: one read, and
         // above all no merge under a repository nobody opened.
@@ -850,7 +853,7 @@ final class PullRequestMergeWaitTests: XCTestCase {
         )
         XCTAssertNotEqual(
             model.mergeWait.ending,
-            .stopped(PullRequestModel.mergeRowMissingMessage)
+            .stopped(PullRequestMergeWait.stateLostMessage)
         )
         XCTAssertEqual(cli.count(for: viewCommand), 2)
         XCTAssertEqual(cli.count(for: mergeArguments(oid: "abc123")), 1)
