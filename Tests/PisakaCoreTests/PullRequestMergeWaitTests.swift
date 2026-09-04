@@ -1073,13 +1073,16 @@ final class PullRequestMergeWaitTests: XCTestCase {
         )
     }
 
-    // MARK: - The wait's merge asks the same gate the sheet's does
+    // MARK: - A write of this app's own is slept through, never ended on
 
-    /// The one ending where a wait spends its whole promise and merges nothing.
-    /// It is `.merged(nil)` — the wait does not re-arm around a refusal it did
-    /// not make — and the *sentence* is the model's, which is why a silent
-    /// refusal there would leave this ending with nothing on screen at all.
-    func testAWaitWhoseMergeTheGateRefusesEndsWithTheModelsOwnSentence() async {
+    /// The two refusals the *app* makes — the writer gate, and this feature's
+    /// own one-write flag — are as transient as a running check, so a green tick
+    /// that meets one sleeps and tries again rather than spending the promise.
+    ///
+    /// Ending there would publish `.merged(nil)`, whose strip says nothing: the
+    /// row's elapsed time and its Cancel button would vanish, half an hour after
+    /// somebody pressed Checkout in the same panel, with nothing merged.
+    func testAGreenTickBlockedByTheWriterGateSleepsAndMergesOnTheNext() async {
         let cli = ScriptedGitHubCLI()
         let clock = StubClock()
         let sleeps = SleepLog()
@@ -1095,14 +1098,100 @@ final class PullRequestMergeWaitTests: XCTestCase {
 
         var merges = 0
         model.mergeWait.didMerge = { _ in merges += 1 }
-        XCTAssertTrue(arm(model))
+        // The gate is up for the first tick and released by the sleep that tick
+        // asks for — a `gh pr checkout` finishing while the wait waits.
         isBlocked = true
+        model.mergeWait.sleep = { seconds in
+            sleeps.record(seconds)
+            clock.date.addTimeInterval(seconds)
+            isBlocked = false
+        }
+        XCTAssertTrue(arm(model))
         await settle(model)
 
-        XCTAssertEqual(model.mergeWait.ending, .merged(nil))
-        XCTAssertEqual(merges, 0)
+        XCTAssertEqual(sleeps.seconds, [PullRequestMergeWait.pollInterval], "One tick deferred, not spent.")
+        XCTAssertEqual(cli.count(for: mergeArguments(oid: "abc123")), 1)
+        XCTAssertEqual(merges, 1)
+        XCTAssertEqual(
+            model.mergeWait.ending,
+            .merged(PullRequestModel.MergeOutcome(
+                number: 54,
+                baseBranch: "master",
+                isTailOwed: true,
+                root: root
+            ))
+        )
+        // Nothing was sent, so nothing was refused: the busy sentence belongs to
+        // a reader who pressed a button, not to a tick nobody was watching.
+        XCTAssertNil(model.mergeMessage)
+    }
+
+    /// A gate held for the whole half hour is the deadline, not a merge that
+    /// answered `nil`: `pr merge` is never sent, the row is re-read every tick,
+    /// and the ending carries a sentence the panel actually draws.
+    func testAGateHeldForTheWholeWaitEndsAtTheDeadlineRatherThanAsAMergeOfNothing() async {
+        let cli = ScriptedGitHubCLI()
+        let clock = StubClock()
+        let sleeps = SleepLog()
+        let model = await armedModel(
+            cli,
+            clock: clock,
+            sleeps: sleeps,
+            isWriteBlocked: { true }
+        )
+        cli.serve(viewCommand, Self.viewJSON(rollup: Self.passedRollup))
+        cli.serve(mergeArguments(oid: "abc123"), stdout: "Merged\n")
+
+        var merges = 0
+        model.mergeWait.didMerge = { _ in merges += 1 }
+        XCTAssertTrue(arm(model))
+        await settle(model)
+
+        XCTAssertEqual(model.mergeWait.ending, .deadline)
+        XCTAssertEqual(model.mergeWait.ending?.message, PullRequestMergeWait.deadlineMessage)
+        XCTAssertEqual(sleeps.seconds.count, 60)
+        XCTAssertEqual(cli.count(for: viewCommand), 61)
         XCTAssertEqual(cli.count(for: mergeArguments(oid: "abc123")), 0)
-        XCTAssertEqual(model.mergeMessage, PullRequestModel.mergeBlockedMessage)
+        XCTAssertEqual(merges, 0)
+        XCTAssertNil(model.mergeMessage)
         XCTAssertFalse(model.mergeWait.isArmed)
+    }
+
+    /// The term the tick asks is the *pair* the write refuses on, so a merge
+    /// already in flight defers exactly as the gate does.
+    func testTheDeferredTermIsTheOneWriteFlagAndTheGateTogether() async {
+        let cli = ScriptedGitHubCLI()
+        let clock = StubClock()
+        let sleeps = SleepLog()
+        var isBlocked = false
+        // A row that is already green, because the second half of this test needs
+        // a merge that actually reaches the transport to hold open there.
+        let model = await armedModel(
+            cli,
+            clock: clock,
+            sleeps: sleeps,
+            list: "[\(Self.rowJSON(rollup: Self.passedRollup))]",
+            isWriteBlocked: { isBlocked }
+        )
+
+        XCTAssertFalse(model.mergeIsDeferred)
+        isBlocked = true
+        XCTAssertTrue(model.mergeIsDeferred)
+        isBlocked = false
+
+        // The other half of the term, raised by a write of this feature's own
+        // and held mid-flight so the question is asked while it is true.
+        let gate = Gate()
+        cli.serve(mergeArguments(oid: "abc123"), stdout: "Merged\n")
+        cli.hold(mergeArguments(oid: "abc123"), on: gate)
+        let merging = Task {
+            await model.merge(number: 54, method: .squash, subject: "A change (#54)", body: "")
+        }
+        await gate.waitUntilReached()
+        XCTAssertTrue(model.isWriteInFlight)
+        XCTAssertTrue(model.mergeIsDeferred)
+        gate.release()
+        _ = await merging.value
+        XCTAssertFalse(model.mergeIsDeferred)
     }
 }

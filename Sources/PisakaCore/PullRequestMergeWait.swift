@@ -455,41 +455,60 @@ public final class PullRequestMergeWait: ObservableObject {
             )
 
             if plan.canMerge {
-                let outcome = await owner.merge(
-                    row: row,
-                    method: arming.method,
-                    subject: arming.subject,
-                    body: arming.body
-                )
-                // **The one ending published past a moved token.** Every other
-                // one is a decision this wait is still entitled to make, and a
-                // token that moved says it is not. This one is a *fact*: the
-                // merge either landed or was refused, the reader has to be told
-                // either way, and the post-merge tail is owed off the back of it.
-                // A Cancel pressed while the write was in flight cannot un-send
-                // what was already sent. Disarming still respects the token, so
-                // a wait armed in that window keeps its own state.
-                if token == generation {
-                    generation &+= 1
-                    self.armed = nil
-                    runningTask = nil
+                // **A write of this app's own is as transient as a running
+                // check, and is slept through rather than ended on.**
+                // ``PullRequestModel/merge(row:method:subject:body:)`` refuses
+                // while this feature's one-write flag is up or the writer gate
+                // is held — a `gh pr checkout`, a New Pull Request, a revert, a
+                // branch switch — and answers `nil`, which is the same `nil`
+                // GitHub's own refusal answers with. The wait therefore cannot
+                // tell the two apart *after* the fact, and ending on it would
+                // publish `.merged(nil)`: an ending whose strip says nothing,
+                // so the row's elapsed time and its Cancel button would simply
+                // vanish and a half-hour promise would be spent because
+                // somebody pressed a button in the same panel a second ago.
+                // Asked here, ahead of the write, where the difference is
+                // knowable — and the cost of deferring is one tick, against
+                // writes all far shorter than the deadline.
+                if !owner.mergeIsDeferred {
+                    let outcome = await owner.merge(
+                        row: row,
+                        method: arming.method,
+                        subject: arming.subject,
+                        body: arming.body
+                    )
+                    // **The one ending published past a moved token.** Every
+                    // other one is a decision this wait is still entitled to
+                    // make, and a token that moved says it is not. This one is a
+                    // *fact*: the merge either landed or was refused, the reader
+                    // has to be told either way, and the post-merge tail is owed
+                    // off the back of it. A Cancel pressed while the write was in
+                    // flight cannot un-send what was already sent. Disarming
+                    // still respects the token, so a wait armed in that window
+                    // keeps its own state.
+                    if token == generation {
+                        generation &+= 1
+                        self.armed = nil
+                        runningTask = nil
+                    }
+                    ending = .merged(outcome)
+                    if let outcome { didMerge(outcome) }
+                    return
                 }
-                ending = .merged(outcome)
-                if let outcome { didMerge(outcome) }
-                return
-            }
-
-            guard let refusal = plan.refusal, refusal.mayResolveByWaiting else {
-                // Everything the plan refuses for a reason a later read cannot
-                // change — a failing check, a draft, a conflict, a blocked or
-                // behind branch — plus the one state that has no refusal at all
-                // (a repository allowing no merge method), which is the same
-                // sentence the sheet's own method guard uses.
-                finish(
-                    .stopped(plan.refusal?.message ?? PullRequestModel.mergeMethodMissingMessage),
-                    token: token
-                )
-                return
+            } else {
+                guard let refusal = plan.refusal, refusal.mayResolveByWaiting else {
+                    // Everything the plan refuses for a reason a later read
+                    // cannot change — a failing check, a draft, a conflict, a
+                    // blocked or behind branch — plus the one state that has no
+                    // refusal at all (a repository allowing no merge method),
+                    // which is the same sentence the sheet's own method guard
+                    // uses.
+                    finish(
+                        .stopped(plan.refusal?.message ?? PullRequestModel.mergeMethodMissingMessage),
+                        token: token
+                    )
+                    return
+                }
             }
 
             // **The deadline is *stated* here, after the tick.** The wait

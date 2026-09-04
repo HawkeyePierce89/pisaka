@@ -450,6 +450,27 @@ public final class PullRequestModel: ObservableObject {
         isReady && !isWriteInFlight && !mergeWait.isArmed
     }
 
+    /// Whether a write this app is running *right now* is what would make
+    /// ``merge(row:method:subject:body:)`` refuse — and therefore whether an
+    /// armed wait's green tick should sleep rather than spend itself.
+    ///
+    /// The two refusals ``performMerge`` asks before anything is composed: this
+    /// feature's own one-write flag (``isWriteInFlight``) and the writer gate a
+    /// revert, a branch switch or a commit holds. Both are as transient as a
+    /// running check — seconds, against a half-hour deadline — but the write
+    /// answers `nil` for them and `nil` is also what GitHub's own refusal
+    /// answers with, so the wait cannot tell the two apart *after* the fact and
+    /// would end on either. Asked before, where the difference is knowable.
+    ///
+    /// Deliberately **not** consulted by the sheet's Merge: a press is a reader
+    /// standing in front of the panel who is owed the refusal's sentence, not a
+    /// button that quietly does nothing.
+    ///
+    /// Internal for ``currentRoot``'s reason: one answer to one question, asked
+    /// where it is already known, rather than a second closure handed to the
+    /// companion.
+    var mergeIsDeferred: Bool { isWriteInFlight || isWriteBlocked() }
+
     /// The repository root as it is now, for the one companion that composes its
     /// own commands.
     ///
@@ -1316,9 +1337,14 @@ public final class PullRequestModel: ObservableObject {
     /// Scoped, so a refresh failure that landed behind the open sheet survives
     /// the sheet.
     ///
-    /// The plan is deliberately *not* cleared: it is what the row's own waiting
-    /// state and the panel's Merge button keep reading after the sheet closes,
-    /// and it is replaced wholesale by the next ``prepareMerge(number:)``.
+    /// The plan is deliberately *not* cleared. Nothing outside the sheet reads
+    /// it — the row's Merge button is drawn from ``mergeIsAvailable`` and its
+    /// waiting state from ``PullRequestMergeWait/isWaiting(on:)``, neither of
+    /// which is this value — so clearing it would buy nothing and cost the
+    /// closing sheet the fields it is still drawing through its dismissal. It is
+    /// replaced wholesale by the next ``prepareMerge(number:)``, which is what
+    /// keeps a stale plan from ever being merged on: the write re-decides from
+    /// the row the list holds now regardless.
     public func dismissMerge() {
         clearError(from: .merge)
     }
@@ -1406,14 +1432,20 @@ public final class PullRequestModel: ObservableObject {
         subject: String,
         body: String
     ) async -> MergeOutcome? {
-        // Publishes, like every other refusal here, and it is not the dead
+        // Both publish, like every other refusal here, and neither is the dead
         // branch a disabled button would make it: the sheet's Merge disables on
-        // this flag, but **the wait's merge does not go through a button**, and
-        // Checkout and New Pull Request are deliberately left enabled while a
-        // wait is armed. A tick going green during a `gh pr checkout` lands
-        // exactly here, and a silent `nil` would end the wait as `.merged(nil)`
-        // — the row's elapsed time and Cancel gone, nothing merged, and no
-        // sentence anywhere — which is the one thing a wait may never do.
+        // the flag, but a *press* still deserves the sentence rather than a
+        // button that quietly does nothing.
+        //
+        // **The wait does not reach these two at all.** Checkout and New Pull
+        // Request are deliberately left enabled while a wait is armed, so a tick
+        // going green during a `gh pr checkout` would land exactly here — and a
+        // `nil` is indistinguishable from GitHub's own refusal, so the wait would
+        // end as `.merged(nil)`: elapsed time and Cancel gone, nothing merged,
+        // and an ending whose strip says nothing, which is the one thing a wait
+        // may never do. Both terms are therefore published as
+        // ``mergeIsDeferred`` and asked by the tick *before* the write, where a
+        // transient app-side refusal is still a sleep rather than an ending.
         guard !isWriteInFlight else {
             setMessage(Self.mergeBusyMessage, from: .merge)
             return nil

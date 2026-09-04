@@ -886,6 +886,25 @@ one). The merge's ending is **the one published past a moved
 token**: it is a fact rather than a decision — the merge either landed or was
 refused — and a Cancel pressed while the write was in flight cannot un-send it.
 
+**A write of this app's own is slept through rather than ended on**, and it is
+the one thing a green tick may meet without becoming an ending. `merge(row:…)`
+refuses while this feature's one-write flag is up or the writer gate is held — a
+`gh pr checkout`, a New Pull Request, a revert, a branch switch — and answers
+`nil` for it, which is the same `nil` GitHub's own refusal answers with, so the
+wait cannot tell the two apart *after* the fact. Ending on it would publish
+`merged(nil)`, whose strip says nothing at all: the row's elapsed time and its
+Cancel button would simply vanish, and a half-hour promise the reader armed and
+walked away from would be spent because somebody pressed a button in the same
+panel a second later. So the tick asks **before** the write, through
+`PullRequestModel.mergeIsDeferred` — the two terms `merge(row:…)` refuses on,
+read as one — and where the answer is yes it takes its ordinary sleep and tries
+again. Both conditions are seconds long against a thirty-minute deadline; a gate
+that somehow stayed up for the whole of it ends as `deadline`, with a sentence,
+rather than as a merge of nothing. The **sheet's** Merge deliberately does not
+ask this: a press is a reader standing in front of the panel who is owed
+`mergeBusyMessage` or `mergeBlockedMessage`, not a button that quietly does
+nothing.
+
 **The head guard needs no rule of its own here either**: each tick merges with the
 head *that tick* read, so a push landing after it is GitHub's refusal, which stops
 the wait with GitHub's words on screen. A comparison against the arm's head would
@@ -1308,14 +1327,17 @@ conditions. A failed *branch* read is deliberately weaker and not fatal, because
 the merge does not depend on what is checked out locally and a sheet must not
 refuse to merge a pull request because `git` could not name a branch.
 `dismissMerge()` clears only the merge's own sentence and deliberately **not** the
-plan, which the row's own controls keep reading after the sheet closes.
+plan — nothing outside the sheet reads it (the row's Merge button is drawn from
+`mergeIsAvailable` and its waiting state from `isWaiting(on:)`), so clearing it
+would buy nothing and cost the closing sheet the fields it draws through its own
+dismissal; the next `prepareMerge(number:)` replaces it wholesale, and the write
+re-decides from the row the list holds now regardless.
 
 `merge(number:method:subject:body:)` is the write, with six refusals in the order
 they are asked, **each of them with a sentence**: the one-write flag
 (`mergeBusyMessage` — its own constant rather than the gate's, since it names a
 different state and a different cure, and *not* a dead branch behind a disabled
-button, because the wait's merge does not go through a button at all and a silent
-refusal there would end a wait with nothing merged and nothing said), the gate
+button, because the wait's merge does not go through a button at all), the gate
 (`mergeBlockedMessage`), a not-ready
 `gh` or absent root, the row no longer in hand (`mergeRowMissingMessage`), a plan
 that re-decides as not mergeable (the refusal's *own* sentence, so button, model
@@ -1443,7 +1465,20 @@ generation pinned **synchronously** in that turn (`switchBranch`'s rule: a folde
 switch landing in the gap makes the checkout bail rather than move the newly
 opened repository's worktree). Neither step's failure is published into the
 panel's slot: the merge landed, and this model's one sentence must not start
-saying otherwise. The same method wires `mergeWait.didMerge`, so the merge nobody
+saying otherwise.
+
+**A bail is not a failure with a sentence**, which is what the switch step's
+message is careful about. `switchTo` and `checkoutRemote` both answer `false`
+*without touching* `errorMessage` when the pinned generation moved under them or
+the widget has no root — their documented contract, and the whole point of
+pinning — so reading the slot on those paths would hand the bracket whatever
+*older* operation last failed and present it, in a modal, as this switch's
+reason (`prepareForRefresh` clears the slot only on a folder change, so a
+same-folder refresh landing in the gap leaves a stale sentence sitting there).
+The step therefore re-reads the two facts that distinguish the cases — the
+widget's generation against the one it pinned, and its root — and is **silent**
+when either says superseded, `""` being the bracket's own word for "there is
+nothing to say here". Only a step that actually ran git speaks. The same method wires `mergeWait.didMerge`, so the merge nobody
 was standing in front of reaches the identical tail.
 
 A **fourth** subscription-like duty landed here with the wait: `$root` cancels it

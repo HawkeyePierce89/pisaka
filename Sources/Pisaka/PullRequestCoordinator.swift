@@ -489,7 +489,19 @@ final class PullRequestCoordinator: ObservableObject {
                 let moved = ref.isRemote
                     ? await branchSwitcher.checkoutRemote(ref, originGeneration: origin)
                     : await branchSwitcher.switchTo(ref, originGeneration: origin)
-                return moved ? nil : (branchSwitcher.errorMessage ?? "")
+                guard !moved else { return nil }
+                // **A bail is not a failure with a sentence.** Both entry points
+                // answer `false` *without touching* `errorMessage` when the
+                // pinned generation moved under them or the widget has no root
+                // — their documented contract, and the whole point of pinning —
+                // so reading the slot on those paths would hand the bracket
+                // whatever older operation last failed and present it, in a
+                // modal, as this switch's reason. Only a step that actually ran
+                // git speaks; a superseded one is silent, and `""` is the
+                // bracket's own word for "there is nothing to say here".
+                let superseded = branchSwitcher.currentRefreshGeneration != origin
+                    || branchSwitcher.root == nil
+                return superseded ? "" : (branchSwitcher.errorMessage ?? "")
             }, completion)
         case .pullBase:
             runBracket(.pull, { [gitService] in
