@@ -749,6 +749,34 @@ final class PullRequestMergeTests: XCTestCase {
         XCTAssertEqual(tail, .unresolved(PullRequestModel.tailBranchMissingMessage(base: "master")))
     }
 
+    func testAnEmptyBranchListIsRefusedAsUnreadRatherThanAsAMissingBranch() {
+        // `BranchSwitcherModel` empties `branches` on every failed refresh and on
+        // a folder switch, and may simply not have answered yet — so an empty
+        // list is "unread", never "this repository has no branches": the repo a
+        // merge just ran in has at least the ref it ran from. The other sentence
+        // would name the base and call it absent, which is false and sticky.
+        let tail = PullRequestModel.mergeTail(for: outcome(), branches: [])
+
+        XCTAssertEqual(tail, .unresolved(PullRequestModel.tailBranchListUnknownMessage))
+        XCTAssertNotEqual(
+            PullRequestModel.tailBranchListUnknownMessage,
+            PullRequestModel.tailBranchMissingMessage(base: "master")
+        )
+        // It says the merge landed first, the way every other tail sentence does.
+        XCTAssertTrue(
+            PullRequestModel.tailBranchListUnknownMessage.hasPrefix("The pull request was merged, but")
+        )
+    }
+
+    func testAnEmptyBranchListStillOwesNoTailWhenTheMergeWasSomebodyElsesBranch() {
+        // The unread-list guard sits *after* `isTailOwed`, so a merge that owes
+        // nothing stays silent rather than gaining a sentence about a list it
+        // was never going to read.
+        let tail = PullRequestModel.mergeTail(for: outcome(isTailOwed: false), branches: [])
+
+        XCTAssertEqual(tail, .notOwed)
+    }
+
     func testAMergeOfSomebodyElsesBranchOwesNoTailAtAll() {
         let branches = [Self.local("master")]
 
@@ -853,6 +881,25 @@ final class PullRequestMergeTests: XCTestCase {
         XCTAssertNil(model.mergeMessage)
         model.dismissMerge()
         XCTAssertEqual(model.errorMessage, PullRequestModel.tailBranchMissingMessage(base: "master"))
+    }
+
+    func testAnUnreadBranchListConfirmsNothingAndPublishesItsOwnSentence() {
+        let model = bareModel()
+        let bracket = ScriptedBracket()
+        var asks = 0
+
+        let started = model.runMergeTail(
+            outcome(),
+            branches: [],
+            confirm: { asks += 1; return true },
+            run: bracket.run
+        )
+
+        XCTAssertFalse(started)
+        XCTAssertEqual(asks, 0)
+        XCTAssertTrue(bracket.steps.isEmpty)
+        XCTAssertEqual(model.errorMessage, PullRequestModel.tailBranchListUnknownMessage)
+        XCTAssertNil(model.mergeMessage)
     }
 
     func testATailThatIsNotOwedConfirmsNothingSaysNothingAndRunsNothing() {

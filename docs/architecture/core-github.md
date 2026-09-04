@@ -963,7 +963,14 @@ through `checkoutRemote`,
 whose DWIM already picks a same-named local or creates the tracking branch; and
 only when neither is listed is there `.unresolved`, the tail's one refusal, whose
 sentence says the merge landed first because that is the fact the reader most
-needs. **The remote is matched by stripping, never by composing `origin/`**: the
+needs. **An empty list is refused as *unread*, not as a missing branch**, and it
+is the one refusal that carries a different sentence
+(`tailBranchListUnknownMessage`): `BranchSwitcherModel` empties `branches` on
+every failed refresh and on a folder switch, and may not have answered yet, while
+a repository a merge just ran in has at least the ref it ran from — so routing
+that state into the sentence below would name a branch that plainly exists and
+call it absent, into a slot no refresh ever clears. The guard sits *after*
+`isTailOwed`, so a tail that owes nothing stays silent. **The remote is matched by stripping, never by composing `origin/`**: the
 whole branch pipeline is remote-agnostic (`BranchRef` carries `remoteName`,
 `BranchSwitcherModel.defaultBranchName(forRemote:)` strips whatever it says) and
 `gh` resolves the repository from whichever remote the working directory has, so
@@ -1368,10 +1375,11 @@ one merge, read once, and a published copy would sit there naming refs that no
 longer exist), carrying the number, the base, `isTailOwed` and **the root the
 merge was sent in**, `MergeTailStep` / `MergeTailRunner` / `MergeTail`,
 `mergeTail(for:branches:)` and `runMergeTail(_:branches:confirm:run:)` (G15). The
-tail's one refusal sentence, `tailBranchMissingMessage(base:)`, lives here rather
-than in the coordinator that runs the tail, for the reason every other sentence in
-this file does: it is then testable without a view, and there is one wording of
-it.
+tail's two refusal sentences — `tailBranchMissingMessage(base:)` for a base that
+is in neither half of a list that *was* read, and `tailBranchListUnknownMessage`
+for a list that was not — live here rather than in the coordinator that runs the
+tail, for the reason every other sentence in this file does: they are then
+testable without a view, and there is one wording of each.
 
 ## The app half (`Sources/Pisaka/`, all `#if os(macOS)`)
 

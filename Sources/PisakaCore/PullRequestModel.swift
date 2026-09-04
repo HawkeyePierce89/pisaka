@@ -1655,6 +1655,25 @@ public final class PullRequestModel: ObservableObject {
             + "no branch was switched to and nothing was pulled."
     }
 
+    /// What the post-merge tail says when the branch widget has **no list at
+    /// all** to resolve the base against.
+    ///
+    /// Its own sentence, and the reason it exists is that the other one would
+    /// otherwise be false. `BranchSwitcherModel.branches` is emptied by every
+    /// failed refresh (`commitFailure`) and by a folder switch, and the widget
+    /// may simply not have answered yet — so an empty list means "unread",
+    /// never "this repository has no branches": a repository a merge just
+    /// happened in has at least the ref the merge was run from. Routing that
+    /// state into ``tailBranchMissingMessage(base:)`` would publish
+    /// ““master” is not a branch in this repository” about a branch that
+    /// plainly is one, into a slot no refresh ever clears.
+    ///
+    /// It opens the way that one does, for that one's reason: the merge landed,
+    /// and nothing about a tail that did not run undoes it.
+    public static let tailBranchListUnknownMessage =
+        "The pull request was merged, but this repository’s branches could not be read — "
+            + "no branch was switched to and nothing was pulled."
+
     /// What the post-merge tail says when the writer gate is up as it is about
     /// to run.
     ///
@@ -1724,8 +1743,11 @@ public final class PullRequestModel: ObservableObject {
         case notOwed
         /// Switch to this ref, then pull it.
         case switchThenPull(BranchRef)
-        /// The base is in neither half of the branch widget's list — the tail's
-        /// one refusal, carrying ``tailBranchMissingMessage(base:)``.
+        /// The base cannot be named against the branch widget's list — the
+        /// tail's one refusal, carrying either
+        /// ``tailBranchMissingMessage(base:)`` (the base is in neither half of a
+        /// list that *was* read) or ``tailBranchListUnknownMessage`` (there is
+        /// no list to read it against).
         case unresolved(String)
     }
 
@@ -1757,6 +1779,11 @@ public final class PullRequestModel: ObservableObject {
     /// picks.
     public static func mergeTail(for outcome: MergeOutcome, branches: [BranchRef]) -> MergeTail {
         guard outcome.isTailOwed else { return .notOwed }
+        // **Empty is unread, not empty.** See
+        // ``tailBranchListUnknownMessage``: every path below reads absence as
+        // "the base is not a ref here", which an unread list would make a false
+        // statement rather than a refusal.
+        guard !branches.isEmpty else { return .unresolved(tailBranchListUnknownMessage) }
         let base = outcome.baseBranch
         if let local = branches.first(where: { !$0.isRemote && $0.shortName == base }) {
             return .switchThenPull(local)
