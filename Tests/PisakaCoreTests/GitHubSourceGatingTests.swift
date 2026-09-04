@@ -66,9 +66,21 @@ import XCTest
 /// **The second stated exception** is `PullRequestMergeWait.swift`, which is the
 /// one thing in this feature that *is* a poll and says so: a bounded, visible,
 /// cancelable wait, armed only by an explicit press, with a named interval and a
-/// named deadline and exactly one injectable sleep seam (G14). Task 8 of this
-/// part pins that shape here; until then the exception is scoped by name alone,
-/// and every other Core file and every view stays under the ban.
+/// named deadline and exactly one injectable sleep seam (G14). The exception is
+/// **scoped and pinned term by term** below rather than granted by name: the two
+/// bounds are named constants declared once in that file, the wait between ticks
+/// is exactly one `Task.sleep` behind exactly one injectable seam, and `Timer`
+/// and `asyncAfter` are as banned there as everywhere else. An exception that
+/// were only a file name would buy an unbounded, invisible, un-cancelable poll
+/// in the same file and read the same in a diff.
+///
+/// Pinned in the same place, because it is the same decision: the wait polls
+/// **the row**, and `GitHubCommands.checks` is not in it. The checks bucket
+/// table cannot see `mergeable` or `mergeStateStatus`, so checks can go green
+/// while GitHub still refuses the merge; a wait deciding "green" from a second
+/// table would hand a merge to the plan that refuses it. One rule, one table —
+/// and the table is `GitHubMergePlan`'s, which is the value the button is drawn
+/// from.
 final class GitHubSourceGatingTests: XCTestCase {
 
     // MARK: - The feature's files
@@ -353,6 +365,10 @@ final class GitHubSourceGatingTests: XCTestCase {
     // MARK: - The `gh` vocabulary (G6)
 
     /// The flags, as they are spelled on a command line.
+    ///
+    /// The last five arrived with the merge: the three method flags — of which
+    /// `pr merge` accepts exactly one — the subject of the commit GitHub will
+    /// compose, and the head-commit guard every merge carries.
     private static let bannedFlags = [
         "--json",
         "--base",
@@ -363,6 +379,11 @@ final class GitHubSourceGatingTests: XCTestCase {
         "--limit",
         "--title",
         "--body",
+        "--merge",
+        "--squash",
+        "--rebase",
+        "--subject",
+        "--match-head-commit",
     ]
 
     /// The subcommands, in both the shapes they could be written in: as adjacent
@@ -370,17 +391,26 @@ final class GitHubSourceGatingTests: XCTestCase {
     /// somebody shelling out by hand would).
     private static let bannedSubcommands = [
         "\"pr\"\\s*,\\s*\"list\"": "pr list",
+        "\"pr\"\\s*,\\s*\"view\"": "pr view",
         "\"pr\"\\s*,\\s*\"checks\"": "pr checks",
         "\"pr\"\\s*,\\s*\"create\"": "pr create",
         "\"pr\"\\s*,\\s*\"checkout\"": "pr checkout",
+        "\"pr\"\\s*,\\s*\"merge\"": "pr merge",
         "\"auth\"\\s*,\\s*\"status\"": "auth status",
         "\"repo\"\\s*,\\s*\"view\"": "repo view",
     ]
 
     /// How many factories compose each subcommand. All ones but `pr list`, which
-    /// is two: seven commands are reached through eight factories, because the
+    /// is two: **nine commands are reached through ten factories**, because the
     /// current-branch lookup is `pr list` with a `--head` filter rather than a
-    /// command of its own.
+    /// command of its own. (The ninth command is `--version`, which is a flag
+    /// rather than a subcommand and is therefore pinned in ``bannedFlags``.)
+    ///
+    /// `pr view` is the merge wait's one read and is a command of its own rather
+    /// than a second `pr list` filter: a `--head` value names a branch, which is
+    /// not unique across repositories, and a `--state open` list cannot answer
+    /// for the pull request somebody else has just merged — which is one of the
+    /// wait's four endings.
     private static let subcommandFactories = ["pr list": 2]
 
     /// The files the ban covers: the whole app half of the feature plus the two
@@ -437,9 +467,9 @@ final class GitHubSourceGatingTests: XCTestCase {
             XCTAssertEqual(
                 try occurrences(of: pattern, in: commands),
                 expected,
-                "GitHubCommands.swift must compose `gh \(spelling)` exactly \(expected) time(s): eight "
-                    + "factories over seven commands is what makes the argument-list tests exhaustive, and a "
-                    + "ninth composition is a command nothing asserts byte for byte."
+                "GitHubCommands.swift must compose `gh \(spelling)` exactly \(expected) time(s): ten "
+                    + "factories over nine commands is what makes the argument-list tests exhaustive, and an "
+                    + "eleventh composition is a command nothing asserts byte for byte."
             )
         }
     }
@@ -655,6 +685,107 @@ final class GitHubSourceGatingTests: XCTestCase {
                 )
             }
         }
+    }
+
+    /// The **second exception, pinned term by term** rather than granted by name.
+    ///
+    /// Naming a file in the ban's `where` clause buys that file the right to
+    /// sleep, and nothing else about it is visible to any other test: an
+    /// unbounded loop, a second sleep on a path nobody reads, or a `Timer`
+    /// re-armed forever would all compile in that file and read in a diff exactly
+    /// like the bounded wait the exception was granted for. So the four terms the
+    /// exception was granted *on* are asserted here.
+    func testTheWaitsExceptionIsBoundedNamedAndSingle() throws {
+        let wait = try code(ofFileNamed: Self.waitFile, under: "Sources/PisakaCore")
+
+        for declaration in ["pollInterval", "deadline"] {
+            XCTAssertEqual(
+                try occurrences(of: "static let \(declaration)\\s*:", in: wait),
+                1,
+                "\(Self.waitFile) must declare \(declaration) exactly once, as a named constant. A bound "
+                    + "spelled inline at the site that uses it is a number nothing can assert and nothing can "
+                    + "find; two declarations are two answers to how long the wait lasts."
+            )
+        }
+
+        XCTAssertEqual(
+            try occurrences(of: "var sleep\\s*:", in: wait),
+            1,
+            "The wait between ticks is exactly one injectable seam. A second sleeping path — or a direct "
+                + "Task.sleep beside the seam — is a path the suite cannot drive, which is the whole reason "
+                + "the deadline's sixty ticks cost `swift test` no wall-clock time at all."
+        )
+        XCTAssertEqual(
+            try occurrences(of: "await sleep\\(", in: wait),
+            1,
+            "…and it is awaited from exactly one place, the loop's own tail, so `pollInterval` is the whole "
+                + "answer to how often the row is read."
+        )
+        XCTAssertEqual(
+            try occurrences(of: "Task\\.sleep", in: wait),
+            1,
+            "…and the one real sleep in the file is that seam's default. Every other suspension the wait "
+                + "performs is a `gh` command, which has a deadline of its own."
+        )
+        for banned in ["Timer", "asyncAfter", "Thread\\.sleep", "DispatchSemaphore"] {
+            XCTAssertEqual(
+                try occurrences(of: banned, in: wait),
+                0,
+                "\(Self.waitFile) must not name \(banned). The exception is for a bounded, cancelable loop "
+                    + "whose token is checked after every suspension; a timer or a scheduled callback is work "
+                    + "that outlives the loop and answers to nothing."
+            )
+        }
+
+        var naming: Set<String> = []
+        for url in try featureFiles(under: "Sources/PisakaCore") + featureFiles(under: "Sources/Pisaka") {
+            guard LSPSourceGatingTests.containsToken("pollInterval", in: try code(of: url)) else { continue }
+            naming.insert(url.lastPathComponent)
+        }
+        XCTAssertEqual(
+            naming,
+            [Self.waitFile],
+            "The interval is the wait's own. A view naming it would be a surface running a clock, which is "
+                + "the thing the published `elapsed` exists to make unnecessary."
+        )
+    }
+
+    /// One rule, one table: the wait re-reads **the row**.
+    ///
+    /// `pr checks` answers with buckets, and a bucket cannot see `mergeable` or
+    /// `mergeStateStatus` — so checks can turn green while GitHub still refuses
+    /// the merge as `BLOCKED`, `BEHIND` or `UNKNOWN`. A wait deciding "green"
+    /// from that second table would hand a merge to the very plan that refuses
+    /// it, and the failure would arrive as `gh`'s refusal thirty minutes into a
+    /// wait somebody armed and walked away from.
+    func testTheWaitPollsTheRowAndNeverTheChecks() throws {
+        let wait = try code(ofFileNamed: Self.waitFile, under: "Sources/PisakaCore")
+        XCTAssertEqual(
+            try occurrences(of: "GitHubCommands\\.", in: wait),
+            1,
+            "The wait composes exactly one command per tick."
+        )
+        XCTAssertEqual(
+            try occurrences(of: "GitHubCommands\\.pullRequest\\(number:", in: wait),
+            1,
+            "…and it is the one-row `pr view`, whose fields are the same `pullRequestFields` the button was "
+                + "drawn from."
+        )
+        for forbidden in ["GitHubCommands\\.checks", "checkFields", "GitHubCheckBucket"] {
+            XCTAssertEqual(
+                try occurrences(of: forbidden, in: wait),
+                0,
+                "\(Self.waitFile) must not name \(forbidden): the checks table cannot see mergeability, and a "
+                    + "second table deciding when to merge is a second answer to a question GitHubMergePlan "
+                    + "already answers for the button."
+            )
+        }
+        XCTAssertGreaterThan(
+            try occurrences(of: "GitHubMergePlan", in: wait),
+            0,
+            "…and every tick's decision is the plan's, which is what makes the button, the model's refusal "
+                + "and the wait one rule rather than three."
+        )
     }
 
     func testTheTransportsExceptionIsBoundedRatherThanRepeating() throws {

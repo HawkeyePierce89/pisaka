@@ -371,24 +371,24 @@ visible where the reader is looking.
   `Tests/PisakaCoreTests/LocalHistorySourceGatingTests.swift`,
   `Tests/PisakaCoreTests/LintConfigurationTests.swift`
 
-- [ ] the file inventories gain the three new files; the view list gains the sheet
-- [ ] the `gh` vocabulary gains `--squash`, `--merge`, `--rebase`, `--subject`,
+- [x] the file inventories gain the three new files; the view list gains the sheet
+- [x] the `gh` vocabulary gains `--squash`, `--merge`, `--rebase`, `--subject`,
       `--match-head-commit` and the `pr merge` / `pr view` subcommands, banned in the app
       layer and required in `GitHubCommands.swift`; the counts become **ten factories
       over nine subcommands** (`pr list` still two) — the ticket's "ninth factory" is
       ninth *and* tenth, because the wait reads the row by number instead of `pr checks`
-- [ ] the writer-bracket rule is restated for three operations: the scene hands the
+- [x] the writer-bracket rule is restated for three operations: the scene hands the
       bracket over once, the coordinator is the only file that names it, and the pull
       reaches it through exactly one site
-- [ ] the no-polling ban gains its **second stated exception**, scoped to
+- [x] the no-polling ban gains its **second stated exception**, scoped to
       `PullRequestMergeWait.swift` and pinned there: the interval and the deadline are
       named constants, the sleep is exactly one injectable seam, no `Timer` and no
       `asyncAfter`, and nothing else in Core or in the four views may sleep
-- [ ] `LocalHistorySourceGatingTests` is updated for the ninth operation: seven bracket
+- [x] `LocalHistorySourceGatingTests` is updated for the ninth operation: seven bracket
       sites serving nine operations, with the alternation rule unchanged and its message
       saying so
-- [ ] `LintConfigurationTests` is updated for whatever Task 6 measured
-- [ ] run `swift test` — must pass before Task 9
+- [x] `LintConfigurationTests` is updated for whatever Task 6 measured
+- [x] run `swift test` — must pass before Task 9
 
 ### Task 9: Documentation, and part 1's two leftover lines
 

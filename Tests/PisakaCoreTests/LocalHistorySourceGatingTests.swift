@@ -15,8 +15,19 @@ import XCTest
 ///    text it was added to protect — there is no crash, no wrong pixel and no
 ///    failing assertion anywhere, only a revision that is missing on the day
 ///    somebody looks. So the *count* of capture sites is pinned against the count
-///    of write paths, and adding a seventh gated operation or a fourth save site
-///    fails here until it captures too.
+///    of write paths, and a new **bracket site**, or a fourth save site, fails
+///    here until it captures too.
+///
+///    **Sites and operations are two counts, and only one of them is here.**
+///    There are nine gated worktree operations and seven bracket sites: the
+///    branch bracket is shared by five of them — the widget's switch, its
+///    checkout-remote, `gh pr checkout`, and the post-merge tail's switch and
+///    its `--ff-only` pull — because they all rewrite the worktree wholesale and
+///    all want the same suspend, snapshot, capture, resync and refresh. What
+///    distinguishes them is the Local History *event*, which the shared bracket
+///    takes as a parameter, so a new operation riding it is captured under its
+///    own name without a site to count. That is deliberate and is what keeps
+///    this rule honest: it counts brackets, and every bracket captures.
 /// 2. The compiler cannot see that `AutosaveController` reports **every** branch
 ///    that writes. The quit branch silently skipped `onSaved` for the whole life
 ///    of that class, which was correct while the only listener was a UI refresh
@@ -79,6 +90,8 @@ final class LocalHistorySourceGatingTests: XCTestCase {
     /// Where each match starts, so a rule can be about *order* rather than about
     /// totals — the difference between "seven brackets and seven captures" and
     /// "seven brackets each of which captures".
+    ///
+    /// Seven is the number of *sites*; the operations they serve are nine.
     private func offsets(of pattern: String, in code: String) throws -> [Int] {
         let regex = try NSRegularExpression(pattern: pattern)
         return regex
@@ -142,19 +155,36 @@ final class LocalHistorySourceGatingTests: XCTestCase {
         XCTAssertEqual(
             suspends,
             7,
-            "There are seven gated worktree operations. If this changed, a write path was added or removed — "
-                + "and the capture count below must move with it."
+            "There are seven writer-bracket sites, serving nine gated worktree operations — the branch "
+                + "bracket is shared by five of them (the widget's switch and checkout-remote, `gh pr "
+                + "checkout`, and the post-merge tail's switch and its `--ff-only` pull), which is why the "
+                + "two numbers differ. If *this* one changed, a bracket site was added or removed — and the "
+                + "capture count below must move with it."
         )
         XCTAssertEqual(
             gates,
             7,
-            "Every gated operation raises both halves of the writer bracket; the two counts must agree."
+            "Every bracket site raises both halves of the writer bracket; the two counts must agree."
         )
         XCTAssertEqual(
             captures,
             suspends,
-            "Each gated operation must await captureBeforeOperation as the first await inside its bracket. "
-                + "An operation that rewrites the worktree without one destroys text no other copy of exists."
+            "Each bracket must await captureBeforeOperation as the first await inside itself. An operation "
+                + "that rewrites the worktree without one destroys text no other copy of exists — and an "
+                + "operation *sharing* a bracket inherits that capture, which is the whole reason the shared "
+                + "one takes its event as a parameter rather than naming `.branch` inside itself."
+        )
+
+        // The shared bracket's event really is a parameter. Were it hard-coded,
+        // the five operations behind it would file their revisions under one
+        // name, and the pull the post-merge tail runs would be indistinguishable
+        // from the branch switch in front of it in the very list somebody opens
+        // to undo one of them.
+        XCTAssertEqual(
+            try occurrences(of: "await captureBeforeOperation\\(event,", in: app),
+            1,
+            "The shared branch bracket captures under the event it was handed. A literal there is five "
+                + "operations filed under one name in the revisions list."
         )
 
         // Totals alone would stay green on the one arrangement this rule exists
