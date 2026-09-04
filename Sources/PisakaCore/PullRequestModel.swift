@@ -1480,6 +1480,17 @@ public final class PullRequestModel: ObservableObject {
             return nil
         }
 
+        // The method guard's own rule applied to the sheet's *other* term: a
+        // commit-producing method with a blank subject sends `--subject ""`,
+        // which is a merge commit with no message. `GitHubMergePlan
+        // .buttonIsEnabled(method:subject:)` refuses it, and refusing it only
+        // there would be the rule enforced by a disabled button that the next
+        // caller of this `public` method walks past.
+        guard !method.composesACommit || GitHubMergePlan.hasSubject(subject) else {
+            setMessage(Self.mergeSubjectMissingMessage, from: .merge)
+            return nil
+        }
+
         let command = GitHubCommands.mergePullRequest(
             number: number,
             method: method,
@@ -1508,7 +1519,30 @@ public final class PullRequestModel: ObservableObject {
             isTailOwed: plan.isTailOwed,
             root: root
         )
-        await refresh(branch: checkedOutBranch)
+
+        // **The branch is read once more for the refresh, and not reused from
+        // above.** The value the plan was decided from was true before
+        // `gh pr merge` went to the network; this refresh takes the *newest*
+        // list token, so it supersedes every read in flight — including the one
+        // the branch widget's own sink started when somebody switched branches
+        // during the round trip. Handing that read a branch from before the
+        // switch is the exact accident `prepareForRefresh()` exists to prevent,
+        // read the other way round: the freshest token would publish
+        // `currentBranchPullRequest` for a branch nobody is on, and no later
+        // trigger would correct it.
+        //
+        // The token is then taken **synchronously**, in the turn this read
+        // resumed in, so a switch landing after it fires its own trigger, takes
+        // a newer token still, and wins — which is what should happen. A read
+        // that fails falls back to the value the plan used, for its reason: that
+        // is the state the reader was shown.
+        let branchForRefresh: String?
+        do {
+            branchForRefresh = try await gitService.currentBranch(root: root)?.shortName
+        } catch {
+            branchForRefresh = checkedOutBranch
+        }
+        await refresh(branch: branchForRefresh, token: prepareForRefresh())
         return outcome
     }
 
@@ -1552,6 +1586,16 @@ public final class PullRequestModel: ObservableObject {
     /// draws is a rule the next caller walks past.
     public static let mergeMethodMissingMessage =
         "This repository does not allow that merge method. Reopen this sheet to pick one it allows."
+
+    /// The sentence a merge refused because the commit it would compose has no
+    /// subject gets.
+    ///
+    /// Unreachable from the sheet for ``mergeMethodMissingMessage``'s reason and
+    /// refused here for it too: `GitHubCommands.mergePullRequest(...)` appends
+    /// `--subject` unconditionally for a commit-producing method, so a blank one
+    /// is a merge commit with no message rather than a command that fails.
+    public static let mergeSubjectMissingMessage =
+        "A merge commit needs a subject. Reopen this sheet and type one."
 
     /// What the post-merge tail says when it cannot resolve the base branch it
     /// is owed a switch to.

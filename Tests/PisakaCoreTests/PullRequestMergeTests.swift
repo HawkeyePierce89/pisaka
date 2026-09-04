@@ -471,6 +471,72 @@ final class PullRequestMergeTests: XCTestCase {
         XCTAssertEqual(outcome?.isTailOwed, false)
     }
 
+    /// The refresh a merge runs afterwards asks about the branch as it is
+    /// **then**, not as it was before `gh pr merge` went to the network.
+    ///
+    /// That refresh takes the newest list token, so it supersedes the read the
+    /// branch widget's own sink started when the branch moved during the round
+    /// trip. Reusing the pre-merge value there would publish
+    /// `currentBranchPullRequest` for a branch nobody is on, with no later
+    /// trigger to correct it.
+    func testTheRefreshAfterAMergeAsksAboutTheBranchTheWorktreeIsOnByThen() async {
+        let cli = ScriptedGitHubCLI()
+        let git = StubGit()
+        let model = await readyModel(cli, git: git)
+        let gate = Gate()
+        cli.serve(mergeArguments(), stdout: "")
+        cli.serve(GitHubCommands.openPullRequests(root: root), stdout: "[]")
+        cli.hold(mergeArguments(), on: gate)
+
+        let merge = Task { @MainActor in
+            await model.merge(number: 54, method: .squash, subject: "A change (#54)", body: "")
+        }
+        await gate.waitUntilReached()
+        // The branch moved while `gh pr merge` was in flight.
+        git.branch = "some-other-branch"
+        gate.release()
+        _ = await merge.value
+
+        XCTAssertTrue(
+            cli.count(for: GitHubCommands.pullRequest(forHeadBranch: "some-other-branch", root: root)) > 0
+        )
+        XCTAssertEqual(
+            cli.count(for: GitHubCommands.pullRequest(forHeadBranch: "feature", root: root)),
+            0,
+            "“feature” was the branch before the round trip, and nothing asked about it afterwards"
+        )
+    }
+
+    // MARK: - The subject a commit-producing method needs
+
+    /// The sheet's Merge button refuses a blank subject, and so does the write:
+    /// `--subject ""` is a merge commit with no message, and a rule enforced
+    /// only by a disabled button is one the next caller walks past.
+    func testACommitProducingMergeWithABlankSubjectIsRefusedAndSendsNothing() async {
+        let cli = ScriptedGitHubCLI()
+        let model = await readyModel(cli)
+
+        let outcome = await model.merge(number: 54, method: .squash, subject: "   \n ", body: "")
+
+        XCTAssertNil(outcome)
+        XCTAssertEqual(model.errorMessage, PullRequestModel.mergeSubjectMissingMessage)
+        XCTAssertFalse(cli.trace.contains("pr merge"))
+    }
+
+    /// A rebase composes no commit, so it needs no subject and is never held up
+    /// by an empty one.
+    func testARebaseMergeIsNotHeldUpByABlankSubject() async {
+        let cli = ScriptedGitHubCLI()
+        let model = await readyModel(cli)
+        cli.serve(mergeArguments(method: .rebase, subject: ""), stdout: "")
+        cli.serve(GitHubCommands.openPullRequests(root: root), stdout: "[]")
+
+        let outcome = await model.merge(number: 54, method: .rebase, subject: "", body: "")
+
+        XCTAssertNotNil(outcome)
+        XCTAssertNil(model.errorMessage)
+    }
+
     // MARK: - The outcome
 
     func testASuccessfulMergeOwesTheTailWhenTheMergedHeadIsTheCheckedOutBranch() async {

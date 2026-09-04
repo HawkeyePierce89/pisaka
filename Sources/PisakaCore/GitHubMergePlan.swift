@@ -300,6 +300,25 @@ public struct GitHubMergePlan: Equatable, Sendable {
     /// working directory is standing on.
     ///
     /// Exact, case-sensitive comparison, because git's refs are.
+    ///
+    /// **A name, and deliberately not a repository — the feature's one stated
+    /// limit here.** `headRefName` is a branch name in whichever repository the
+    /// pull request was opened from, so a pull request from a *fork* whose head
+    /// is spelled the same as the local branch reads as owed when nothing local
+    /// moved. It is the ambiguity `pr list --head` already carries for
+    /// ``PullRequestModel/currentBranchPullRequest`` (a fork's head ref both
+    /// names a branch this checkout did not create and is free to match another
+    /// fork's pull request of the same name), reached through a second door —
+    /// and it is left standing rather than closed with a `isCrossRepository`
+    /// field for what it actually costs: the common shape, a contributor's fork
+    /// `main` merged into `main` while standing on `main`, resolves to a switch
+    /// to the branch already checked out and a `--ff-only` pull of the base that
+    /// was just merged into, which is what the tail is *for*. The misfire that
+    /// remains — a fork head sharing a name with some *other* local branch the
+    /// reader happens to be on — moves the worktree, and everything that move
+    /// costs is bounded by the two guards it still passes: the dirty-tree
+    /// confirmation ahead of the switch, and a pull that is `--ff-only` and can
+    /// therefore rewrite nothing.
     public var isTailOwed: Bool {
         !checkedOutBranch.isEmpty && pullRequest.headRefName == checkedOutBranch
     }
@@ -352,7 +371,20 @@ public struct GitHubMergePlan: Equatable, Sendable {
     public func buttonIsEnabled(method: GitHubMergeMethod, subject: String) -> Bool {
         guard buttonIsOffered, allowedMethods.contains(method) else { return false }
         guard method.composesACommit else { return true }
-        return !subject.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        return Self.hasSubject(subject)
+    }
+
+    /// Whether `subject` is a subject at all.
+    ///
+    /// Its own member because three callers ask it and a rule enforced only by
+    /// which button is greyed out is a rule the next caller walks past — the
+    /// reason ``PullRequestModel/mergeMethodMissingMessage`` exists beside it:
+    /// ``buttonIsEnabled(method:subject:)`` draws the button,
+    /// `PullRequestModel.merge(number:method:subject:body:)` refuses the write
+    /// and ``PullRequestMergeWait/arm(plan:method:subject:body:)`` refuses the
+    /// arming, all three reading one definition of blank.
+    public static func hasSubject(_ subject: String) -> Bool {
+        !subject.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     /// The line naming the tail — `nil` when the merge moves nothing local.

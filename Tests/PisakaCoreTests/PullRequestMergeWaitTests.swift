@@ -248,6 +248,24 @@ final class PullRequestMergeWaitTests: XCTestCase {
         }
     }
 
+    /// The third state the button offering a wait cannot be in: a
+    /// commit-producing method with a blank subject, which the merge itself
+    /// refuses. Asked here for the method guard's reason — before half an hour
+    /// is spent rather than after.
+    func testABlankSubjectIsRefusedBeforeHalfAnHourIsSpent() async {
+        let cli = ScriptedGitHubCLI()
+        let clock = StubClock()
+        let sleeps = SleepLog()
+        let model = await armedModel(cli, clock: clock, sleeps: sleeps)
+
+        XCTAssertFalse(model.mergeWait.arm(plan: model.mergePlan!, method: .squash, subject: " \n ", body: ""))
+        XCTAssertFalse(model.mergeWait.isArmed)
+        XCTAssertNil(model.mergeWait.ending)
+        // A rebase composes no commit, so the same blank subject arms it.
+        XCTAssertTrue(model.mergeWait.arm(plan: model.mergePlan!, method: .rebase, subject: "", body: ""))
+        model.mergeWait.cancel()
+    }
+
     func testAMethodTheRepositoryDoesNotAllowIsRefusedBeforeHalfAnHourIsSpent() async {
         let cli = ScriptedGitHubCLI()
         let clock = StubClock()

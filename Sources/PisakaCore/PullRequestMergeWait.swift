@@ -309,6 +309,13 @@ public final class PullRequestMergeWait: ObservableObject {
     ) -> Bool {
         guard plan.refusal?.isArmable == true else { return false }
         guard plan.allowedMethods.contains(method) else { return false }
+        // And the third thing that button cannot be in: a commit-producing
+        // method with a blank subject, which `PullRequestModel.merge(row:...)`
+        // refuses at the write. Asked here for the method guard's own reason —
+        // before half an hour is spent rather than after — and through the
+        // plan's own reading of "blank", so the button, the arming and the
+        // write it leads to cannot disagree.
+        guard !method.composesACommit || GitHubMergePlan.hasSubject(subject) else { return false }
 
         cancel()
         generation &+= 1

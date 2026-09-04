@@ -1159,7 +1159,25 @@ when a reader is looking for what the sheet is about — `deleteBranchSentence`,
 (`mergeButtonTitle` / `armButtonTitle`), `buttonIsOffered` and
 `buttonIsEnabled(method:subject:)` — the last carrying the two things only the
 open sheet knows, the selected method and what has been typed, so a
-commit-producing method with an empty subject cannot send `--subject ""`.
+commit-producing method with an empty subject cannot send `--subject ""`. Both of
+those terms are **re-asked where the write is**, not left to the button: the
+method by `PullRequestModel.merge(...)`'s `mergeMethodMissingMessage`, the subject
+by its `mergeSubjectMissingMessage` and by `PullRequestMergeWait.arm(...)`, all
+three reading one `hasSubject(_:)` on the plan — a rule enforced only by which
+button is greyed out is a rule the next caller of a `public` method walks past.
+
+`isTailOwed` is a **name compared to a name**, and that is the feature's one
+stated limit here: `headRefName` names a branch in whichever repository the pull
+request was opened from, so a *fork* pull request whose head is spelled like the
+local branch reads as owed when nothing local moved. It is the ambiguity
+`pr list --head` already carries for `currentBranchPullRequest`, reached through a
+second door, and it is left standing rather than closed with an
+`isCrossRepository` field for what it costs: the common shape — a contributor's
+fork `main` merged into `main` while standing on `main` — resolves to a switch to
+the branch already checked out and a `--ff-only` pull of the base just merged
+into, which is what the tail is *for*. The misfire that remains still passes both
+guards the tail keeps: the dirty-tree confirmation ahead of the switch, and a pull
+that is `--ff-only` and can therefore rewrite nothing.
 
 `canMerge` and `armsWait` both carry a second term, `!allowedMethods.isEmpty`:
 that is the way this is off *without* a sentence, exactly as the create plan's
@@ -1303,10 +1321,19 @@ refusal there would end a wait with nothing merged and nothing said), the gate
 that re-decides as not mergeable (the refusal's *own* sentence, so button, model
 and wait word one state one way), and a method the repository does not allow
 (`mergeMethodMissingMessage` — unreachable from the picker, which is exactly why
-it is refused here too). It raises and lowers `isWriteInFlight` on every exit
+it is refused here too) and a blank subject for a commit-producing method
+(`mergeSubjectMissingMessage`, refused for that same reason). It raises and lowers
+`isWriteInFlight` on every exit
 path, and on success re-reads the list — the merged row leaves it, which is also
 how the bottom-bar indicator clears — where nothing below the merge may report a
-failure, since the pull request is merged from the moment `gh` answered. The
+failure, since the pull request is merged from the moment `gh` answered. **That
+refresh asks about the branch as it is *then***: it takes the newest list token,
+so it supersedes the read the branch widget's own sink started if somebody
+switched branches during the round trip, and reusing the value the plan was
+decided from would publish `currentBranchPullRequest` for a branch nobody is on
+with no later trigger to correct it. So the branch is read once more and the token
+taken synchronously in that same turn — a switch landing after it then fires its
+own trigger, takes a newer token still, and wins. The
 `internal` `merge(row:…)` overload is the same method entered from the wait with
 **that tick's** row rather than the list's, which is the whole point of a wait
 acting on a reading newer than the list's.
