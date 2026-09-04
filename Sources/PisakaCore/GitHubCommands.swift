@@ -5,11 +5,11 @@ import Foundation
 /// `DatabaseQuery`'s rule applied to a second composed language: **the app layer
 /// spells no `gh` argument anywhere** (`GitHubSourceGatingTests` pins that by
 /// reading the sources), so the whole vocabulary is here, in a target that can be
-/// asserted byte for byte without linking `Process`. Seven `gh` commands are in
-/// scope — `--version`, `auth status`, `pr list`, `pr checks`, `pr create`,
-/// `pr checkout` and `repo view` — reached through eight factories, because the
-/// current-branch lookup is `pr list` with a `--head` filter rather than a
-/// command of its own.
+/// asserted byte for byte without linking `Process`. Nine `gh` commands are in
+/// scope — `--version`, `auth status`, `pr list`, `pr view`, `pr checks`,
+/// `pr create`, `pr checkout`, `pr merge` and `repo view` — reached through ten
+/// factories, because the current-branch lookup is `pr list` with a `--head`
+/// filter rather than a command of its own.
 ///
 /// Two things are deliberately absent. There is **no `--repo` anywhere** (G6):
 /// every command runs with its working directory set to the repository root and
@@ -21,8 +21,16 @@ import Foundation
 public enum GitHubCommands {
     // MARK: - The `--json` field lists
 
-    /// The fields `pr list` is asked for, in order, shared with the list parser
-    /// so the request and the schema it is read under cannot drift apart.
+    /// The fields a pull request row is asked for, in order, shared by the list
+    /// parser **and** the one-row `pr view` the merge wait polls, so the request
+    /// and the schema it is read under cannot drift apart.
+    ///
+    /// The last three are what a merge decision is made of: the head commit the
+    /// row was drawn from (which every merge carries as `--match-head-commit`),
+    /// GitHub's mergeability verdict and its merge-state status. They are asked
+    /// for on *every* row rather than only on the row being merged, because the
+    /// button that offers Merge is drawn from the same value the merge is decided
+    /// from — one rule, one table.
     ///
     /// Ordered rather than a `Set` because the list goes on a command line, and a
     /// suite that asserts the command byte for byte needs one spelling to assert.
@@ -37,6 +45,9 @@ public enum GitHubCommands {
         "url",
         "state",
         "statusCheckRollup",
+        "headRefOid",
+        "mergeable",
+        "mergeStateStatus",
     ]
 
     /// The nine fields `pr checks --json` publishes, in `gh`'s own order. Asking
@@ -54,12 +65,22 @@ public enum GitHubCommands {
         "workflow",
     ]
 
-    /// The two fields `repo view` is asked for: the default branch — which *is*
-    /// the create sheet's base default — and the repository's name, for the
-    /// panel's header.
+    /// The seven fields `repo view` is asked for: the default branch — which *is*
+    /// the create sheet's base default — the repository's name, for the panel's
+    /// header, and the repository's own merge policy, which is the whole source of
+    /// which methods the merge sheet may offer and which one it starts on.
+    ///
+    /// `deleteBranchOnMerge` is read but never *acted* on: no command here passes
+    /// `--delete-branch`, so the flag exists only so the sheet can say what GitHub
+    /// is going to do on its own side after the merge.
     public static let repositoryFields = [
         "defaultBranchRef",
         "nameWithOwner",
+        "mergeCommitAllowed",
+        "squashMergeAllowed",
+        "rebaseMergeAllowed",
+        "viewerDefaultMergeMethod",
+        "deleteBranchOnMerge",
     ]
 
     // MARK: - Deadlines
@@ -213,8 +234,97 @@ public enum GitHubCommands {
         )
     }
 
-    /// `gh repo view` — the seventh command, and the only source of the create
-    /// sheet's default base (G11).
+    /// One pull request, addressed by number — **the merge wait's one read**, and
+    /// the only command in the vocabulary that answers for a single row.
+    ///
+    /// Deliberately `pr view <n>` rather than `pr list --head <branch> --limit 1`.
+    /// A `--head` value names a *branch*, and a branch name is not unique across
+    /// repositories: a fork's head branch can be spelled exactly like another
+    /// one, and `--limit 1` then hands back whichever GitHub happened to order
+    /// first, which would turn an ordinary case into a stop with nothing useful to
+    /// say. Addressing by number is exact, answers with one object rather than an
+    /// array, and needs no discard rule. It also answers for a pull request that
+    /// is **no longer open**, which is precisely the "somebody else merged it"
+    /// ending the wait has to recognise — a `--head --state open` list would just
+    /// come back empty and be indistinguishable from a branch that never had one.
+    ///
+    /// The field list is ``pullRequestFields``, so the row the wait re-reads is
+    /// the same shape, read by the same parser, as the row the button was drawn
+    /// from. ``pullRequest(forHeadBranch:root:)`` is untouched and stays the
+    /// bottom-bar indicator's.
+    public static func pullRequest(number: Int, root: URL) -> GitHubCommand {
+        GitHubCommand(
+            arguments: [
+                "pr", "view", String(number),
+                "--json", pullRequestFields.joined(separator: ","),
+            ],
+            workingDirectory: root,
+            deadline: networkDeadline
+        )
+    }
+
+    /// `gh pr merge <number>` — the feature's third write, and the second command
+    /// that changes anything on GitHub's side.
+    ///
+    /// Four decisions are carried by the argument list rather than by a rule some
+    /// view has to remember:
+    ///
+    /// - **Exactly one method**, spelled from ``GitHubMergeMethod``. `gh` accepts
+    ///   at most one of the three and refuses interactively when given none, which
+    ///   in a non-interactive process is a hang until the deadline.
+    /// - **`--match-head-commit` always**, carrying the head commit the row this
+    ///   merge was decided from was drawn with. That is the whole guard against
+    ///   merging something other than what was read: a push landing between the
+    ///   read and the merge is refused by *GitHub*, in GitHub's words, rather than
+    ///   silently merged. It is why ``GitHubPullRequest/headRefOid`` is asked for
+    ///   on every row.
+    /// - **`--subject`/`--body` only for the two commit-producing methods.** A
+    ///   rebase composes no commit at all, so a subject sent with it is a value
+    ///   GitHub has nowhere to put. An empty body is *omitted* rather than sent
+    ///   empty — unlike `pr create`, whose missing `--body` opens an editor,
+    ///   `pr merge` composes GitHub's own default body when none is given.
+    /// - **Three flags that never appear**: `--admin` (merging past the repository
+    ///   rules the enabled rule just checked), `--auto` (a server-side promise this
+    ///   app cannot show, cancel or account for — the wait is the visible,
+    ///   cancelable answer to the same question) and `--delete-branch` (this layer
+    ///   deletes no branch, local or remote; GitHub's own `deleteBranchOnMerge` is
+    ///   read only so the sheet can say what GitHub will do by itself).
+    public static func mergePullRequest(
+        number: Int,
+        method: GitHubMergeMethod,
+        headRefOid: String,
+        subject: String,
+        body: String,
+        root: URL
+    ) -> GitHubCommand {
+        var arguments = [
+            "pr", "merge", String(number),
+            methodFlag(method),
+            "--match-head-commit", headRefOid,
+        ]
+        if method.composesACommit {
+            arguments.append(contentsOf: ["--subject", subject])
+            if !body.isEmpty { arguments.append(contentsOf: ["--body", body]) }
+        }
+        return GitHubCommand(arguments: arguments, workingDirectory: root, deadline: gitNetworkDeadline)
+    }
+
+    /// The one place a merge method is spelled as a `gh` flag.
+    ///
+    /// On the factory rather than on ``GitHubMergeMethod`` for the same reason the
+    /// whole file exists: the vocabulary is asserted byte for byte in one file, and
+    /// a flag spelled on the vocabulary type would be a `gh` argument living
+    /// somewhere the vocabulary rule does not read.
+    private static func methodFlag(_ method: GitHubMergeMethod) -> String {
+        switch method {
+        case .merge: return "--merge"
+        case .squash: return "--squash"
+        case .rebase: return "--rebase"
+        }
+    }
+
+    /// `gh repo view` — the only source of the create sheet's default base (G11)
+    /// and of the merge sheet's method list.
     public static func repositoryView(root: URL) -> GitHubCommand {
         GitHubCommand(
             arguments: ["repo", "view", "--json", repositoryFields.joined(separator: ",")],

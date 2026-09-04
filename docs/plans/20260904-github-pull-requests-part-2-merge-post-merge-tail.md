@@ -113,42 +113,42 @@ back empty.
   `Tests/PisakaCoreTests/GitHubAPITests.swift`,
   `Tests/PisakaCoreTests/Fixtures/github/*` and its `README.md`
 
-- [ ] grow `pullRequestFields` with `headRefOid`, `mergeable`, `mergeStateStatus`,
+- [x] grow `pullRequestFields` with `headRefOid`, `mergeable`, `mergeStateStatus`,
       and `repositoryFields` with `mergeCommitAllowed`, `squashMergeAllowed`,
       `rebaseMergeAllowed`, `viewerDefaultMergeMethod`, `deleteBranchOnMerge`
-- [ ] add three closed tables in `GitHubPullRequest.swift` — `GitHubMergeability`
+- [x] add three closed tables in `GitHubPullRequest.swift` — `GitHubMergeability`
       (`MERGEABLE`/`CONFLICTING`/`UNKNOWN`), `GitHubMergeStateStatus`
       (`DIRTY`/`UNKNOWN`/`BLOCKED`/`BEHIND`/`UNSTABLE`/`HAS_HOOKS`/`CLEAN`) and
       `GitHubMergeMethod` (`MERGE`/`SQUASH`/`REBASE`) — each refusing an unknown word
       with its key path like every other table
-- [ ] carry `headRefOid`, `mergeable`, `mergeStateStatus` on `GitHubPullRequest` and
+- [x] carry `headRefOid`, `mergeable`, `mergeStateStatus` on `GitHubPullRequest` and
       the four merge-policy values on `GitHubRepository`; parse them in `GitHubAPI`
       under the existing accessors
-- [ ] add `GitHubCommands.mergePullRequest(...)` — `pr merge <n>`, exactly one of
+- [x] add `GitHubCommands.mergePullRequest(...)` — `pr merge <n>`, exactly one of
       `--merge`/`--squash`/`--rebase`, `--match-head-commit <oid>` always, `--subject`
       and (only when non-empty) `--body` for the two commit-producing methods and
       **neither for rebase** (GitHub composes no commit there), never `--admin`, never
       `--auto`, never `--delete-branch`; deadline `gitNetworkDeadline`, working
       directory the root
-- [ ] add `GitHubCommands.pullRequest(number:root:)` — `pr view <n> --json
+- [x] add `GitHubCommands.pullRequest(number:root:)` — `pr view <n> --json
       <pullRequestFields>`, `networkDeadline`, working directory the root — the wait's
       one read; the existing `pullRequest(forHeadBranch:root:)` is untouched and stays
       the indicator's
-- [ ] `GitHubAPI.pullRequest(fromViewJSON:)` — the **same row decoder** the list parser
+- [x] `GitHubAPI.pullRequest(fromViewJSON:)` — the **same row decoder** the list parser
       uses, applied to one object instead of an array element, so there is one schema
       and one set of tables
-- [ ] re-record the verbatim fixtures with the grown field lists per the fixtures'
+- [x] re-record the verbatim fixtures with the grown field lists per the fixtures'
       README, adding a `pr-view.json` for the single-object shape; if `gh` is not
       available or not signed in on the machine, extend the recorded bodies by hand
       with the new keys and say so honestly in the README's provenance table (a
       re-record then joins the post-completion list)
-- [ ] extend the authored fixtures so an unknown `mergeable`/`mergeStateStatus` value
+- [x] extend the authored fixtures so an unknown `mergeable`/`mergeStateStatus` value
       throws `unknownValue` naming its key path
-- [ ] write tests for this task: every `pr merge` argument list byte for byte in each
+- [x] write tests for this task: every `pr merge` argument list byte for byte in each
       method, with and without a body, and the three absences asserted; the `pr view`
       argument list; the grown field lists; the three tables including their refusals;
       the view parser reading the same values as the list parser from the same row
-- [ ] run `swift test` — must pass before Task 2
+- [x] run `swift test` — must pass before Task 2
 
 ### Task 2: `GitHubMergePlan` — when Merge is enabled, and what it says when it is not
 

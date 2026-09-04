@@ -159,13 +159,17 @@ final class PullRequestModelTests: XCTestCase {
         number: Int,
         head: String,
         title: String = "A change",
-        rollup: String = "[]"
+        rollup: String = "[]",
+        headRefOid: String = "abc123",
+        mergeable: String = "MERGEABLE",
+        mergeStateStatus: String = "CLEAN"
     ) -> String {
         """
         [{"number":\(number),"title":"\(title)","author":{"login":"someone"},
         "headRefName":"\(head)","baseRefName":"master","isDraft":false,
         "reviewDecision":"","url":"https://github.com/o/r/pull/\(number)",
-        "state":"OPEN","statusCheckRollup":\(rollup)}]
+        "state":"OPEN","statusCheckRollup":\(rollup),
+        "headRefOid":"\(headRefOid)","mergeable":"\(mergeable)","mergeStateStatus":"\(mergeStateStatus)"}]
         """
     }
 
@@ -273,7 +277,7 @@ final class PullRequestModelTests: XCTestCase {
         let model = makeModel(cli)
 
         await model.refresh(branch: "feature")
-        XCTAssertEqual(model.pullRequests.map(\.number), [53])
+        XCTAssertEqual(model.pullRequests.map(\.number), [54])
 
         await model.refresh(branch: "feature")
 
@@ -301,16 +305,16 @@ final class PullRequestModelTests: XCTestCase {
         cli.serveReady()
         cli.serve(listArguments, stdout: try fixture("pr-list-merged.json"))
         cli.serve(
-            headArguments("database-viewer-part-2b-sql-console"),
+            headArguments("github-pull-requests-part-1-gh-cli-macos"),
             stdout: try fixture("pr-list-merged.json")
         )
         let model = makeModel(cli)
 
-        await model.refresh(branch: "database-viewer-part-2b-sql-console")
+        await model.refresh(branch: "github-pull-requests-part-1-gh-cli-macos")
 
-        XCTAssertEqual(model.pullRequests.map(\.number), [53])
+        XCTAssertEqual(model.pullRequests.map(\.number), [54])
         XCTAssertEqual(model.pullRequests.first?.summary, .success)
-        XCTAssertEqual(model.currentBranchPullRequest?.number, 53)
+        XCTAssertEqual(model.currentBranchPullRequest?.number, 54)
         XCTAssertEqual(cli.trace, ["--version", "auth status", "pr list", "pr list"])
         XCTAssertNil(model.errorMessage)
         XCTAssertFalse(model.isLoading)
@@ -321,11 +325,11 @@ final class PullRequestModelTests: XCTestCase {
         cli.serveReady()
         cli.serve(listArguments, stdout: try fixture("pr-list-merged.json"))
         cli.serve(headArguments("feature"), stdout: "[]")
-        cli.serve(checksArguments(53), stdout: try fixture("pr-checks.json"))
+        cli.serve(checksArguments(54), stdout: try fixture("pr-checks.json"))
         let model = makeModel(cli)
 
         await model.refresh(branch: "feature")
-        await model.expand(53)
+        await model.expand(54)
 
         let directories = cli.commands.map(\.workingDirectory)
         // `--version` and `auth status` are about the binary and the account,
@@ -345,7 +349,7 @@ final class PullRequestModelTests: XCTestCase {
 
         XCTAssertNil(model.currentBranchPullRequest)
         XCTAssertNil(model.errorMessage)
-        XCTAssertEqual(model.pullRequests.map(\.number), [53])
+        XCTAssertEqual(model.pullRequests.map(\.number), [54])
     }
 
     func testADetachedHEADNeverAsksForAHeadBranchAtAll() async throws {
@@ -370,7 +374,7 @@ final class PullRequestModelTests: XCTestCase {
         let model = makeModel(cli)
 
         await model.refresh(branch: "feature")
-        XCTAssertEqual(model.currentBranchPullRequest?.number, 53)
+        XCTAssertEqual(model.currentBranchPullRequest?.number, 54)
 
         await model.refresh(branch: "master")
         XCTAssertNil(model.currentBranchPullRequest)
@@ -400,11 +404,11 @@ final class PullRequestModelTests: XCTestCase {
         let model = makeModel(cli)
 
         await model.refresh(branch: "feature")
-        XCTAssertEqual(model.pullRequests.map(\.number), [53])
+        XCTAssertEqual(model.pullRequests.map(\.number), [54])
 
         await model.refresh(branch: "feature")
 
-        XCTAssertEqual(model.pullRequests.map(\.number), [53])
+        XCTAssertEqual(model.pullRequests.map(\.number), [54])
         XCTAssertEqual(model.errorMessage, "could not resolve to a Repository")
         XCTAssertFalse(model.isLoading)
     }
@@ -445,7 +449,7 @@ final class PullRequestModelTests: XCTestCase {
 
         await model.refresh(branch: "feature")
 
-        XCTAssertEqual(model.pullRequests.map(\.number), [53])
+        XCTAssertEqual(model.pullRequests.map(\.number), [54])
         XCTAssertEqual(model.errorMessage, "network is unreachable")
     }
 
@@ -465,7 +469,7 @@ final class PullRequestModelTests: XCTestCase {
         let model = makeModel(cli)
 
         await model.refresh(branch: "feature")
-        XCTAssertEqual(model.currentBranchPullRequest?.number, 53)
+        XCTAssertEqual(model.currentBranchPullRequest?.number, 54)
 
         await model.refresh(branch: "other")
 
@@ -476,7 +480,7 @@ final class PullRequestModelTests: XCTestCase {
         )
         XCTAssertEqual(
             model.pullRequests.map(\.number),
-            [53],
+            [54],
             "The list is the repository's, not the branch's, so the rule still keeps it."
         )
         XCTAssertEqual(model.errorMessage, "network is unreachable")
@@ -490,13 +494,13 @@ final class PullRequestModelTests: XCTestCase {
         let model = makeModel(cli)
 
         await model.refresh(branch: "feature")
-        XCTAssertEqual(model.currentBranchPullRequest?.number, 53)
+        XCTAssertEqual(model.currentBranchPullRequest?.number, 54)
 
         cli.fail(headArguments("other"), with: GitHubCLIError.timedOut(seconds: 30))
         await model.refresh(branch: "other")
 
         XCTAssertNil(model.currentBranchPullRequest)
-        XCTAssertEqual(model.pullRequests.map(\.number), [53])
+        XCTAssertEqual(model.pullRequests.map(\.number), [54])
     }
 
     func testASuccessfulRefreshClearsItsOwnPreviousMessage() async throws {
@@ -540,22 +544,22 @@ final class PullRequestModelTests: XCTestCase {
         let cli = ScriptedGitHubCLI()
         cli.serveReady()
         cli.serve(listArguments, stdout: try fixture("pr-list-merged.json"))
-        cli.serve(checksArguments(53), stdout: try fixture("pr-checks.json"))
+        cli.serve(checksArguments(54), stdout: try fixture("pr-checks.json"))
         let model = makeModel(cli)
 
         await model.refresh(branch: nil)
-        await model.expand(53)
+        await model.expand(54)
 
-        XCTAssertEqual(model.expandedNumber, 53)
-        XCTAssertEqual(model.checks[53]?.map(\.name), ["build-macos", "build-ios", "lint", "test"])
-        XCTAssertEqual(model.checks[53]?.first?.bucket, .pass)
+        XCTAssertEqual(model.expandedNumber, 54)
+        XCTAssertEqual(model.checks[54]?.map(\.name), ["build-macos", "build-ios", "lint", "test"])
+        XCTAssertEqual(model.checks[54]?.first?.bucket, .pass)
 
         await model.expand(nil)
         XCTAssertNil(model.expandedNumber)
         // The rows stay cached: re-expanding must not blank the list while the
         // network answers again.
-        XCTAssertEqual(model.checks[53]?.count, 4)
-        XCTAssertEqual(cli.count(for: checksArguments(53)), 1)
+        XCTAssertEqual(model.checks[54]?.count, 4)
+        XCTAssertEqual(cli.count(for: checksArguments(54)), 1)
     }
 
     /// One job, so a test can tell two answers to the same `pr checks` apart.
@@ -643,14 +647,14 @@ final class PullRequestModelTests: XCTestCase {
         let cli = ScriptedGitHubCLI()
         cli.serveReady()
         cli.serve(listArguments, stdout: try fixture("pr-list-merged.json"))
-        cli.serve(checksArguments(53), stdout: try fixture("pr-checks.json"))
+        cli.serve(checksArguments(54), stdout: try fixture("pr-checks.json"))
         let model = makeModel(cli)
 
         await model.refresh(branch: nil)
-        await model.toggleExpansion(53)
-        XCTAssertEqual(model.expandedNumber, 53)
+        await model.toggleExpansion(54)
+        XCTAssertEqual(model.expandedNumber, 54)
 
-        await model.toggleExpansion(53)
+        await model.toggleExpansion(54)
         XCTAssertNil(model.expandedNumber)
     }
 
@@ -662,13 +666,13 @@ final class PullRequestModelTests: XCTestCase {
             let cli = ScriptedGitHubCLI()
             cli.serveReady()
             cli.serve(listArguments, stdout: try fixture("pr-list-merged.json"))
-            cli.serve(checksArguments(53), stdout: try fixture("pr-checks.json"), status: status)
+            cli.serve(checksArguments(54), stdout: try fixture("pr-checks.json"), status: status)
             let model = makeModel(cli)
 
             await model.refresh(branch: nil)
-            await model.expand(53)
+            await model.expand(54)
 
-            XCTAssertEqual(model.checks[53]?.count, 4, "exit \(status)")
+            XCTAssertEqual(model.checks[54]?.count, 4, "exit \(status)")
             XCTAssertNil(model.errorMessage, "exit \(status)")
         }
     }
@@ -677,21 +681,21 @@ final class PullRequestModelTests: XCTestCase {
         let cli = ScriptedGitHubCLI()
         cli.serveReady()
         cli.serve(listArguments, stdout: try fixture("pr-list-merged.json"))
-        cli.serve(checksArguments(53), sequence: [
+        cli.serve(checksArguments(54), sequence: [
             GitHubCommandResult(standardOutput: try fixture("pr-checks.json")),
             GitHubCommandResult(standardError: "no checks reported\n", status: 1),
         ])
         let model = makeModel(cli)
 
         await model.refresh(branch: nil)
-        await model.expand(53)
-        XCTAssertEqual(model.checks[53]?.count, 4)
+        await model.expand(54)
+        XCTAssertEqual(model.checks[54]?.count, 4)
 
         await model.expand(nil)
-        await model.expand(53)
+        await model.expand(54)
 
         XCTAssertEqual(model.errorMessage, "no checks reported")
-        XCTAssertEqual(model.checks[53]?.count, 4)
+        XCTAssertEqual(model.checks[54]?.count, 4)
     }
 
     func testAPullRequestWithNoChecksAnswersAnEmptyListRatherThanAFailure() async throws {
@@ -739,86 +743,86 @@ final class PullRequestModelTests: XCTestCase {
         let cli = ScriptedGitHubCLI()
         cli.serveReady()
         cli.serve(listArguments, stdout: try fixture("pr-list-merged.json"))
-        cli.fail(checksArguments(53), with: GitHubCLIError.timedOut(seconds: 30))
+        cli.fail(checksArguments(54), with: GitHubCLIError.timedOut(seconds: 30))
         let model = makeModel(cli)
         await model.refresh(branch: nil)
 
-        await model.expand(53)
-        XCTAssertTrue(model.checksFailures.contains(53))
+        await model.expand(54)
+        XCTAssertTrue(model.checksFailures.contains(54))
 
         // The read is held open, so the assertion lands while the *new* read is
         // in flight: the row may not go on claiming the old read's failure for
         // the whole of it, or "could not read checks" would outlive its reason.
         let gate = Gate()
-        cli.hold(checksArguments(53), on: gate, forCall: 1)
+        cli.hold(checksArguments(54), on: gate, forCall: 1)
         await model.expand(nil)
-        let expanding = Task { await model.expand(53) }
+        let expanding = Task { await model.expand(54) }
         await gate.waitUntilReached()
-        XCTAssertFalse(model.checksFailures.contains(53))
+        XCTAssertFalse(model.checksFailures.contains(54))
         gate.release()
         await expanding.value
 
         // …and the second read failed too, so it says so again on its own.
-        XCTAssertTrue(model.checksFailures.contains(53))
+        XCTAssertTrue(model.checksFailures.contains(54))
     }
 
     func testChecksThatDidNotParseNameTheKeyPath() async throws {
         let cli = ScriptedGitHubCLI()
         cli.serveReady()
         cli.serve(listArguments, stdout: try fixture("pr-list-merged.json"))
-        cli.serve(checksArguments(53), stdout: """
+        cli.serve(checksArguments(54), stdout: """
         [{"bucket":"ascended","completedAt":"","description":"","event":"push","link":"",
         "name":"x","startedAt":"","state":"SUCCESS","workflow":"CI"}]
         """)
         let model = makeModel(cli)
 
         await model.refresh(branch: nil)
-        await model.expand(53)
+        await model.expand(54)
 
         let message = try XCTUnwrap(model.errorMessage)
         XCTAssertTrue(message.contains("pr checks[0].bucket"), message)
-        XCTAssertNil(model.checks[53])
+        XCTAssertNil(model.checks[54])
         // …and the row is told, so it stops claiming it is still reading.
-        XCTAssertTrue(model.checksFailures.contains(53))
+        XCTAssertTrue(model.checksFailures.contains(54))
     }
 
     func testAChecksFailureIsRecordedAgainstItsRowAndClearedByASuccess() async throws {
         let cli = ScriptedGitHubCLI()
         cli.serveReady()
         cli.serve(listArguments, stdout: try fixture("pr-list-merged.json"))
-        cli.serve(checksArguments(53), sequence: [
+        cli.serve(checksArguments(54), sequence: [
             GitHubCommandResult(standardError: "no checks reported on the 'feature' branch\n", status: 1),
             GitHubCommandResult(standardOutput: try fixture("pr-checks.json")),
         ])
         let model = makeModel(cli)
         await model.refresh(branch: nil)
 
-        await model.expand(53)
-        // `checks[53]` is still unset, which is what the row would draw a
+        await model.expand(54)
+        // `checks[54]` is still unset, which is what the row would draw a
         // never-ending spinner from; the failure set is the third answer.
-        XCTAssertNil(model.checks[53])
-        XCTAssertTrue(model.checksFailures.contains(53))
+        XCTAssertNil(model.checks[54])
+        XCTAssertTrue(model.checksFailures.contains(54))
         XCTAssertEqual(model.errorMessage, "no checks reported on the 'feature' branch")
 
         await model.expand(nil)
-        await model.expand(53)
+        await model.expand(54)
 
-        XCTAssertNotNil(model.checks[53])
-        XCTAssertFalse(model.checksFailures.contains(53))
+        XCTAssertNotNil(model.checks[54])
+        XCTAssertFalse(model.checksFailures.contains(54))
     }
 
     func testAThrownChecksReadIsRecordedAgainstItsRow() async throws {
         let cli = ScriptedGitHubCLI()
         cli.serveReady()
         cli.serve(listArguments, stdout: try fixture("pr-list-merged.json"))
-        cli.fail(checksArguments(53), with: GitHubCLIError.timedOut(seconds: 30))
+        cli.fail(checksArguments(54), with: GitHubCLIError.timedOut(seconds: 30))
         let model = makeModel(cli)
         await model.refresh(branch: nil)
 
-        await model.expand(53)
+        await model.expand(54)
 
-        XCTAssertNil(model.checks[53])
-        XCTAssertTrue(model.checksFailures.contains(53))
+        XCTAssertNil(model.checks[54])
+        XCTAssertTrue(model.checksFailures.contains(54))
     }
 
     func testAClosedPullRequestsChecksAreDroppedByTheNextRefresh() async throws {
@@ -828,18 +832,18 @@ final class PullRequestModelTests: XCTestCase {
             GitHubCommandResult(standardOutput: try fixture("pr-list-merged.json")),
             GitHubCommandResult(standardOutput: "[]"),
         ])
-        cli.serve(checksArguments(53), stdout: try fixture("pr-checks.json"))
+        cli.serve(checksArguments(54), stdout: try fixture("pr-checks.json"))
         let model = makeModel(cli)
 
         await model.refresh(branch: nil)
-        await model.expand(53)
-        XCTAssertEqual(model.expandedNumber, 53)
+        await model.expand(54)
+        XCTAssertEqual(model.expandedNumber, 54)
 
         await model.refresh(branch: nil)
 
-        XCTAssertNil(model.checks[53])
+        XCTAssertNil(model.checks[54])
         XCTAssertNil(model.expandedNumber)
-        XCTAssertFalse(model.checksFailures.contains(53))
+        XCTAssertFalse(model.checksFailures.contains(54))
     }
 
     func testExpandingIsRefusedWhileGHIsNotReady() async {
@@ -848,10 +852,10 @@ final class PullRequestModelTests: XCTestCase {
         let model = makeModel(cli)
 
         await model.refresh(branch: nil)
-        await model.expand(53)
+        await model.expand(54)
 
         XCTAssertEqual(cli.argumentLists, [["--version"]])
-        XCTAssertNil(model.checks[53])
+        XCTAssertNil(model.checks[54])
     }
 
     func testExpandingWhileGHIsNotReadyRecordsNoExpansionRatherThanASpinner() async {
@@ -944,10 +948,10 @@ final class PullRequestModelTests: XCTestCase {
         await first.value
 
         // The stale answer arrived after the fresh one and published nothing —
-        // not its rows, not its loading flag. `[53]` is the fixture's number,
+        // not its rows, not its loading flag. `[54]` is the fixture's number,
         // which is to say the stale run's distinctive value.
         XCTAssertEqual(model.pullRequests.map(\.number), [99])
-        XCTAssertFalse(model.pullRequests.contains { $0.number == 53 })
+        XCTAssertFalse(model.pullRequests.contains { $0.number == 54 })
         XCTAssertFalse(model.isLoading)
     }
 
@@ -966,7 +970,7 @@ final class PullRequestModelTests: XCTestCase {
         await gate.waitUntilReached()
         let second = Task { await model.refresh(branch: nil) }
         await second.value
-        XCTAssertEqual(model.pullRequests.map(\.number), [53])
+        XCTAssertEqual(model.pullRequests.map(\.number), [54])
 
         // The failing run resumes after the successful one. Its sentence must
         // not reach the slot the fresh read just cleared.
@@ -974,21 +978,21 @@ final class PullRequestModelTests: XCTestCase {
         await first.value
 
         XCTAssertNil(model.errorMessage)
-        XCTAssertEqual(model.pullRequests.map(\.number), [53])
+        XCTAssertEqual(model.pullRequests.map(\.number), [54])
     }
 
     func testASupersededChecksLoadPublishesNothing() async throws {
         let cli = ScriptedGitHubCLI()
         cli.serveReady()
         cli.serve(listArguments, stdout: try fixture("pr-list-merged.json"))
-        cli.serve(checksArguments(53), stdout: try fixture("pr-checks.json"))
+        cli.serve(checksArguments(54), stdout: try fixture("pr-checks.json"))
         let model = makeModel(cli)
         await model.refresh(branch: nil)
 
         let gate = Gate()
-        cli.hold(checksArguments(53), on: gate)
+        cli.hold(checksArguments(54), on: gate)
 
-        let expand = Task { await model.expand(53) }
+        let expand = Task { await model.expand(54) }
         await gate.waitUntilReached()
         // The reader closed the row while its jobs were still on the wire.
         let collapse = Task { await model.expand(nil) }
@@ -997,14 +1001,14 @@ final class PullRequestModelTests: XCTestCase {
         await collapse.value
 
         XCTAssertNil(model.expandedNumber)
-        XCTAssertNil(model.checks[53])
+        XCTAssertNil(model.checks[54])
     }
 
     func testTheTwoTokensAreCountedApart() async throws {
         let cli = ScriptedGitHubCLI()
         cli.serveReady()
         cli.serve(listArguments, stdout: try fixture("pr-list-merged.json"))
-        cli.serve(checksArguments(53), stdout: try fixture("pr-checks.json"))
+        cli.serve(checksArguments(54), stdout: try fixture("pr-checks.json"))
         let model = makeModel(cli)
         await model.refresh(branch: nil)
 
@@ -1012,8 +1016,8 @@ final class PullRequestModelTests: XCTestCase {
         // Only the expand's own call is held: the refresh re-reads the expanded
         // row's jobs itself, and holding the key would suspend that read too —
         // on the main actor, with nobody left to release it.
-        cli.hold(checksArguments(53), on: gate, forCall: 0)
-        let expand = Task { await model.expand(53) }
+        cli.hold(checksArguments(54), on: gate, forCall: 0)
+        let expand = Task { await model.expand(54) }
         await gate.waitUntilReached()
 
         // A refresh finishing mid-expand must not cancel the *list*: one shared
@@ -1022,13 +1026,13 @@ final class PullRequestModelTests: XCTestCase {
         // what keeps the jobs agreeing with the badge above them — so the rows
         // are here either way, and the two tokens are still counted apart.
         await model.refresh(branch: nil)
-        XCTAssertEqual(model.checks[53]?.count, 4)
+        XCTAssertEqual(model.checks[54]?.count, 4)
 
         gate.release()
         await expand.value
 
-        XCTAssertEqual(model.checks[53]?.count, 4)
-        XCTAssertEqual(model.expandedNumber, 53)
+        XCTAssertEqual(model.checks[54]?.count, 4)
+        XCTAssertEqual(model.expandedNumber, 54)
     }
 
     // MARK: - The create flow
@@ -1566,7 +1570,9 @@ final class PullRequestModelTests: XCTestCase {
     /// `repo view`'s answer, with a default branch a test can tell apart.
     private func repositoryJSON(defaultBranch: String) -> String {
         """
-        {"defaultBranchRef": {"name": "\(defaultBranch)"}, "nameWithOwner": "o/r"}
+        {"defaultBranchRef": {"name": "\(defaultBranch)"}, "nameWithOwner": "o/r",
+        "mergeCommitAllowed": true, "squashMergeAllowed": true, "rebaseMergeAllowed": true,
+        "viewerDefaultMergeMethod": "SQUASH", "deleteBranchOnMerge": false}
         """
     }
 
@@ -1667,11 +1673,11 @@ final class PullRequestModelTests: XCTestCase {
             GitHubCommandResult(standardError: "You are not logged into any GitHub hosts.\n", status: 1),
         ])
         cli.serve(listArguments, stdout: try fixture("pr-list-merged.json"))
-        cli.serve(checksArguments(53), stderr: "could not reach github.com\n", status: 1)
+        cli.serve(checksArguments(54), stderr: "could not reach github.com\n", status: 1)
         let model = makeModel(cli)
 
         await model.refresh(branch: nil)
-        await model.expand(53)
+        await model.expand(54)
         XCTAssertEqual(model.errorMessage, "could not reach github.com")
 
         // `gh auth logout` between the two refreshes. The not-ready state blanks
@@ -1689,12 +1695,12 @@ final class PullRequestModelTests: XCTestCase {
         let cli = ScriptedGitHubCLI()
         cli.serveReady()
         cli.serve(listArguments, stdout: try fixture("pr-list-merged.json"))
-        cli.serve(checksArguments(53), stderr: "could not reach github.com\n", status: 1)
+        cli.serve(checksArguments(54), stderr: "could not reach github.com\n", status: 1)
         var currentRoot: URL? = root
         let model = PullRequestModel(transport: cli, gitService: StubGit(), root: { currentRoot })
 
         await model.refresh(branch: nil)
-        await model.expand(53)
+        await model.expand(54)
         XCTAssertEqual(model.errorMessage, "could not reach github.com")
 
         currentRoot = nil
@@ -1709,11 +1715,11 @@ final class PullRequestModelTests: XCTestCase {
         let cli = ScriptedGitHubCLI()
         cli.serveReady()
         cli.serve(listArguments, stdout: try fixture("pr-list-merged.json"))
-        cli.serve(checksArguments(53), stderr: "no checks reported on the 'feature' branch\n", status: 1)
+        cli.serve(checksArguments(54), stderr: "no checks reported on the 'feature' branch\n", status: 1)
         cli.serve(repositoryArguments, stdout: try fixture("repo-view.json"))
         let model = makeModel(cli, git: StubGit())
         await model.refresh(branch: nil)
-        await model.expand(53)
+        await model.expand(54)
 
         // The one slot now holds a *checks* failure, which `prepareCreate()`
         // may not clear — it is not the create's to clear.
@@ -2276,11 +2282,11 @@ final class PullRequestModelTests: XCTestCase {
         cli.serveReady()
         cli.serve(listArguments, stdout: try fixture("pr-list-merged.json"))
         cli.serve(headArguments("feature"), stdout: "[]")
-        cli.serve(checksArguments(53), stdout: try fixture("pr-checks.json"))
+        cli.serve(checksArguments(54), stdout: try fixture("pr-checks.json"))
         let model = makeModel(cli)
 
         await model.refresh(branch: "feature")
-        await model.expand(53)
+        await model.expand(54)
         await model.expand(nil)
 
         XCTAssertFalse(model.isWriteInFlight)
@@ -2291,11 +2297,11 @@ final class PullRequestModelTests: XCTestCase {
         cli.serveReady()
         cli.serve(listArguments, stdout: try fixture("pr-list-merged.json"))
         cli.serve(headArguments("feature"), stdout: "[]")
-        cli.serve(checksArguments(53), stdout: try fixture("pr-checks.json"))
+        cli.serve(checksArguments(54), stdout: try fixture("pr-checks.json"))
         let model = makeModel(cli)
 
         await model.refresh(branch: "feature")
-        await model.expand(53)
+        await model.expand(54)
 
         // `pr create` and `pr checkout` are the feature's only two writes, and
         // neither is anywhere in a read path's call log.
