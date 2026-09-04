@@ -109,10 +109,6 @@ final class PullRequestCoordinator: ObservableObject {
     /// sheet's base picker offers.
     private weak var branchSwitcher: BranchSwitcherModel?
 
-    /// The head ref of the pull request a checkout is running for, recorded at
-    /// the click and read once by ``refreshAfterCheckout()``.
-    private var checkedOutHeadBranch: String?
-
     /// The branch-change trigger (G9), and one of the feature's two
     /// subscriptions.
     ///
@@ -320,39 +316,7 @@ final class PullRequestCoordinator: ObservableObject {
     /// sites agreeing rather than a second gate.
     func checkout(_ number: Int) {
         guard isWired, !model.isWriteInFlight, !model.checkoutIsBlocked(), confirmCheckout() else { return }
-        // The branch the post-checkout refresh must ask about, read *before* the
-        // operation runs — see `runCheckout` for why the branch widget cannot
-        // answer that question at the moment it is asked.
-        //
-        // Recorded only once the model has **accepted**, which is what its
-        // `@discardableResult` answer is for: a checkout arriving while one of
-        // this feature's writes is already in flight is refused there (G10), and
-        // recording first would overwrite the running checkout's head with the
-        // refused row's — leaving `refreshAfterCheckout()` to ask `pr list --head`
-        // about a pull request that was never checked out. The model raises the
-        // one-write flag and hands the operation to the bracket, which starts its
-        // own `Task`, so this line still lands before anything can read it.
-        let headBranch = model.pullRequests.first { $0.number == number }?.headRefName
-        guard model.checkout(number) else { return }
-        checkedOutHeadBranch = headBranch
-    }
-
-    /// Re-read for the branch `gh pr checkout` just moved to.
-    ///
-    /// The head ref is the pull request's own — the name the pull request is
-    /// open *from* on GitHub, which is what `--head` matches — rather than the
-    /// local branch `gh` created for it, which for a cross-repository pull
-    /// request is free to be spelled differently. Nothing recorded (a row that
-    /// vanished between the click and the answer) falls back to the widget,
-    /// which by then is the best reading there is.
-    private func refreshAfterCheckout() {
-        let branch = checkedOutHeadBranch
-        checkedOutHeadBranch = nil
-        if let branch, !branch.isEmpty {
-            refresh(branch: branch)
-        } else {
-            refresh()
-        }
+        model.checkout(number)
     }
 
     /// End every `gh` this feature still has running, immediately.
@@ -385,22 +349,18 @@ final class PullRequestCoordinator: ObservableObject {
             // would spend a round trip on every ordinary failure to learn that
             // nothing changed.
             if failure == nil {
+                // The third trigger, and it is the branch subscription rather
+                // than a read started here: `didWrite()` re-reads the branch
+                // widget, the widget publishes the branch `gh` moved to, and the
+                // sink refreshes for it. One trigger, and the *local* branch is
+                // the right question — `pr list --head` matches a ref by name in
+                // the base repository, so a cross-repository pull request's own
+                // head ref both names a branch this checkout did not create and
+                // is free to match a different fork's pull request of the same
+                // name. A read started here could only ask ahead of the widget
+                // and be superseded by the sink a moment later, which is the
+                // racing pair of reads `create` refuses for the same reason.
                 self?.didWrite()
-                // The third trigger: the worktree is now on the pull request's
-                // head, so the row that was "checkout this" is the row the
-                // indicator is about to describe. The branch subscription would
-                // fire for the same move once the widget's own refresh lands, but
-                // that refresh is generation-pinned and asynchronous, and the
-                // panel the reader is looking at may not wait on it.
-                //
-                // Which is exactly why the branch is the one `checkout(_:)`
-                // recorded and never `branchSwitcher.current`: `didWrite()` only
-                // *starts* the widget's re-read, so at this line the widget still
-                // names the branch that was just left — and asking `gh pr list
-                // --head` about it would spend a round trip to describe the
-                // indicator with the pull request of the branch the reader left,
-                // the very thing this call exists to prevent.
-                self?.refreshAfterCheckout()
             }
             return failure
         }

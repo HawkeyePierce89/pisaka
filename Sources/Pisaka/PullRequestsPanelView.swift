@@ -204,7 +204,15 @@ struct PullRequestsPanelView: View {
     /// which for a panel that never hid is never. So the root is asked, and the
     /// state that is really "nobody has looked" names the control that looks.
     private var emptyText: String {
-        guard model.availability == nil else { return "No open pull requests" }
+        if model.availability != nil {
+            // A read that *failed* never learned there are none. The rows are
+            // empty here only because no good list was ever published (a failure
+            // never blanks one that was), so the strip above says what went wrong
+            // and this line must not claim the repository as evidence for it —
+            // the same distinction between "nothing ran" and "everything passed"
+            // that `noChecks` is a case of its own for.
+            return model.errorMessage == nil ? "No open pull requests" : "Could not read pull requests."
+        }
         if model.isLoading { return "Reading…" }
         return model.hasProjectRoot ? "Press Refresh to read pull requests." : "No repository"
     }

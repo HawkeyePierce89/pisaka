@@ -296,21 +296,21 @@ Three triggers, and no fourth:
   coordinator could subscribe to, so "the panel is on screen" is a fact only the
   panel's own view has. Nothing re-reads while it merely *stays* open;
 - **one of the feature's own writes completing** — a created pull request and a
-  finished checkout, both in the coordinator. The checkout's refresh names the
-  **pull request's own `headRefName`**, recorded at the click, and not
-  `branchSwitcher.current`: the widget's re-read is only *started* by `didWrite()`
-  and has not landed by the next line, so reading the widget there would spend a
-  `pr list --head` describing the indicator with the pull request of the branch
-  the reader just left — the very thing this trigger exists to prevent. The head
-  ref is also the right value rather than merely the available one, since `--head`
-  matches the ref the pull request is open *from* on GitHub, which a
-  cross-repository checkout's local branch is free not to be spelled as. It is
-  recorded **only once the model has accepted** the checkout — `checkout(_:)`
-  answers `Bool` and the coordinator reads it — because a click arriving while
-  one of this feature's writes is already in flight is refused inside the model
-  (G10), and recording ahead of that refusal would overwrite the *running*
-  checkout's head with the refused row's, leaving the post-checkout refresh to
-  ask `pr list --head` about a pull request that was never checked out.
+  finished checkout. The created one is the model's own tail (it re-reads the
+  list and selects the row it opened), so the coordinator starts no second read
+  for it: two reads of the same list, one racing the other's generation token, is
+  what the three tokens exist to avoid. The finished checkout is read the same
+  way and for the same reason — the coordinator calls `didWrite()` and **nothing
+  else**, the branch widget re-reads, and the branch it publishes fires the first
+  trigger above. A read started beside `didWrite()` could only ask ahead of the
+  widget and be superseded by that sink a moment later, so it would cost a second
+  `pr list` per checkout to publish an answer that is always overwritten. The
+  *local* branch the widget names is also the right question rather than merely
+  the available one: `pr list --head` matches a ref **by name in the base
+  repository**, so a cross-repository pull request's own `headRefName` names a
+  branch this checkout did not create and is free to match a *different* fork's
+  pull request spelled the same way — an indicator naming the wrong pull request,
+  which is worse than one naming none.
 
 `PisakaApp.swift` names **no refresh trigger at all**, which
 `GitHubSourceGatingTests` pins along with where the other three live.
