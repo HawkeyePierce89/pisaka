@@ -411,8 +411,11 @@ public final class PullRequestModel: ObservableObject {
     /// for that one's reason: the panel's rows observe **it**, so a wait
     /// re-publishing its elapsed seconds every 30 s invalidates the row drawing
     /// them rather than every surface bound to this model — including the create
-    /// sheet standing open beside it. It holds an `unowned` reference back here
-    /// for the two things it cannot do itself: run a command, and merge.
+    /// sheet standing open beside it. It holds a `weak` reference back here
+    /// for the two things it cannot do itself: run a command, and merge —
+    /// `weak` and not `unowned`, because a tick suspended in its sleep outlives
+    /// this model when the scene's `@StateObject` goes away, and the difference
+    /// is a crash (`PullRequestMergeWait.owner`).
     ///
     /// `lazy` for the one reason lazy is ever right: it is constructed with
     /// `self`, which does not exist until this initialiser has run. Nothing
@@ -543,6 +546,15 @@ public final class PullRequestModel: ObservableObject {
         availability = nil
         clearRows()
         clearMessage()
+        // And the last wait's sentence, which is the one thing on this panel a
+        // folder switch would otherwise leave standing: `cancel()` — which the
+        // root observer calls in this same turn — is silent when nothing is
+        // armed, so an ending nobody acknowledged (a stop, a deadline) survives
+        // into the next project and is drawn in its ending strip, above its
+        // rows, about a pull request in a repository nobody has open. It is
+        // dropped **here** rather than in `clearRows()` so a refresh that keeps
+        // the rows keeps the sentence too: it is still true, and still unread.
+        mergeWait.acknowledgeEnding()
         return listGeneration
     }
 

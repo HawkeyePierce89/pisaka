@@ -70,7 +70,8 @@ public enum PullRequestMergeWaitEnding: Equatable, Sendable {
 ///
 /// `LeetCodeJudgeModel`'s shape (L18) applied to a second polled answer, and for
 /// its reasons: a companion `@MainActor` model owned by ``PullRequestModel``,
-/// with an `unowned` reference back for the transport and the write, its own
+/// with a `weak` reference back for the transport and the write (`weak` and not
+/// `unowned` — see ``owner``), its own
 /// generation token checked after **every** suspension, a `now` clock and a
 /// `sleep` seam — so the whole state machine, deadline included, runs
 /// deterministically in `swift test` and adds no wall-clock time to it.
@@ -355,6 +356,15 @@ public final class PullRequestMergeWait: ObservableObject {
     /// would be a second, weaker guard against the same accident — weaker
     /// because it cannot see the push that lands after the comparison.
     private func run(_ arming: Armed, token: Int) async {
+        // The token, before the first read as well as after every suspension:
+        // starting this task *is* a suspension. `arm(plan:method:subject:body:)`
+        // returns to its caller with the loop merely enqueued, so a cancellation
+        // landing in that gap — a project switch, quit — would otherwise be
+        // answered by a tick that composes and sends a `gh pr view` in whatever
+        // root is current *then*. The answer is discarded by the check after the
+        // await, but the command was already sent, which is precisely what the
+        // cancellation exists to prevent.
+        guard token == generation else { return }
         let startedAt = now()
 
         while true {

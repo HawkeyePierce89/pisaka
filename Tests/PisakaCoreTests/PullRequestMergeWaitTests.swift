@@ -752,6 +752,39 @@ final class PullRequestMergeWaitTests: XCTestCase {
         XCTAssertEqual(cli.count(for: mergeArguments(oid: "abc123")), 0)
     }
 
+    /// The guard **before** the first read, which is the one suspension the
+    /// other two tests cannot reach: arming returns to its caller with the loop
+    /// merely enqueued on the main actor, so a cancellation landing in that gap
+    /// meets a tick that has not run a line yet.
+    ///
+    /// Without it the loop opens by composing and sending a `pr view` in
+    /// whatever root is current *then* — the answer is discarded by the check
+    /// after the await, but the command was already sent, which is the accident
+    /// the project switch's cancellation exists to prevent, arriving by the one
+    /// door it does not cover.
+    func testAWaitCancelledBeforeItsFirstTickRanSendsNothingAtAll() async {
+        let cli = ScriptedGitHubCLI()
+        let clock = StubClock()
+        let sleeps = SleepLog()
+        let model = await armedModel(cli, clock: clock, sleeps: sleeps)
+        // Scripted green, so a tick that ran at all would merge — the loudest
+        // possible way for this assertion to fail.
+        cli.serve(viewCommand, Self.viewJSON(rollup: Self.passedRollup))
+        cli.serve(mergeArguments(oid: "abc123"), stdout: "Merged\n")
+
+        XCTAssertTrue(arm(model))
+        let task = model.mergeWait.runningTask
+        // In the arming's own turn, before the enqueued loop has had a hop.
+        model.mergeWait.cancel()
+        await task?.value
+
+        XCTAssertEqual(model.mergeWait.ending, .cancelled)
+        XCTAssertFalse(model.mergeWait.isArmed)
+        XCTAssertEqual(cli.count(for: viewCommand), 0, "The loop never got as far as composing a read.")
+        XCTAssertEqual(cli.count(for: mergeArguments(oid: "abc123")), 0)
+        XCTAssertEqual(sleeps.seconds, [])
+    }
+
     // MARK: - Ending two, reached from the top of the loop: the world is gone
 
     /// `gh` stopped being ready, the project closed, or the rows — and with them
@@ -899,6 +932,49 @@ final class PullRequestMergeWaitTests: XCTestCase {
         )
         XCTAssertEqual(cli.count(for: viewCommand), 2)
         XCTAssertEqual(cli.count(for: mergeArguments(oid: "abc123")), 1)
+    }
+
+    // MARK: - The ending strip belongs to the project it was earned in
+
+    /// An ending nobody acknowledged does **not** survive a folder switch.
+    ///
+    /// `cancel()` is silent when nothing is armed, which is right — a
+    /// cancellation nobody asked for is not an ending — but it means the three
+    /// endings that carry a *sentence* are not cleared by the project switch's
+    /// own cancellation. Left standing, project A's "this pull request is no
+    /// longer open" is drawn in the panel's ending strip above project **B**'s
+    /// rows, about a repository nobody has open.
+    ///
+    /// The clear rides `prepareForRefresh()`'s folder-switch branch — the same
+    /// one that blanks the rows — rather than `cancel()`, so the second half of
+    /// this test is the half that pins it: a refresh that keeps the rows keeps
+    /// the sentence too, because it is still true and still unread.
+    func testAnUnacknowledgedEndingIsDroppedByAFolderSwitchAndKeptByARefresh() async {
+        let cli = ScriptedGitHubCLI()
+        let clock = StubClock()
+        let sleeps = SleepLog()
+        var current: URL? = root
+        let model = await armedModel(cli, clock: clock, sleeps: sleeps, currentRoot: { current })
+        cli.serve(viewCommand, Self.viewJSON(state: "MERGED", rollup: Self.passedRollup))
+
+        XCTAssertTrue(arm(model))
+        await settle(model)
+        XCTAssertEqual(model.mergeWait.ending, .stopped(PullRequestMergeWait.noLongerOpenMessage))
+
+        // A refresh of the same project: the sentence is still this project's,
+        // and nobody has read it.
+        _ = model.prepareForRefresh()
+        XCTAssertEqual(model.mergeWait.ending, .stopped(PullRequestMergeWait.noLongerOpenMessage))
+
+        // The folder switch, in the order the coordinator makes it: the wait is
+        // cancelled — silently, since this one has already ended — and then the
+        // rows are blanked.
+        current = URL(fileURLWithPath: "/tmp/pisaka-some-other-project")
+        model.mergeWait.cancel()
+        _ = model.prepareForRefresh()
+
+        XCTAssertNil(model.mergeWait.ending, "Project A's sentence must not be drawn above project B's rows.")
+        XCTAssertNil(model.mergeWait.ending?.message)
     }
 
     // MARK: - The one ending published past a moved token

@@ -1179,10 +1179,23 @@ there is no path that leaves two loops polling one repository. `cancel()` is
 idempotent, silent when nothing is armed, and cancels the loop's task as well as
 moving the token — the token already guarantees nothing is published, but a real
 sleep would otherwise hold a task alive for up to 30 s past a project switch.
+That silence is why the *ending* is dropped somewhere else: an ending nobody
+acknowledged carries a sentence, and cancelling nothing leaves it standing, so
+`PullRequestModel.prepareForRefresh()` calls `acknowledgeEnding()` in its
+**folder-switch branch** — the one that blanks the rows — and nowhere else.
+Project A's "this pull request is no longer open" is then never drawn in the
+strip above project B's rows, while a refresh that keeps the rows keeps the
+sentence too, because it is still true and still unread.
 
 `run(_:token:)` is one read, one decision, one sleep, and `finish(_:token:)` is
 its single exit, bumping the token as it lands so anything still suspended
-resumes into a moved token and publishes nothing. The one thing published *past* a
+resumes into a moved token and publishes nothing. The token is checked **before
+the first read as well**, because starting the loop's task is itself a
+suspension: `arm(plan:method:subject:body:)` returns with the loop merely
+enqueued, and a cancellation landing in that gap would otherwise be answered by a
+tick that composes and sends a `pr view` in whatever root is current *then* — the
+answer discarded by the check after the await, but the command already sent,
+which is exactly what the project switch's cancellation exists to prevent. The one thing published *past* a
 moved token is the merge's own ending, and the comment there says why: it is a
 fact, not a decision this wait is still entitled to make.
 
