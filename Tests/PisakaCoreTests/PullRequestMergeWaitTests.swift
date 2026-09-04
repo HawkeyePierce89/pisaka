@@ -476,6 +476,40 @@ final class PullRequestMergeWaitTests: XCTestCase {
         XCTAssertFalse(model.mergeWait.isArmed)
     }
 
+    /// A sleep resumes no earlier than it was asked to and may resume much
+    /// later — a machine that suspended, a system under load. The half hour is
+    /// a **ceiling**, not a schedule, so the tick that woke past it does not
+    /// read the row at all, and cannot merge on what it would have found: the
+    /// green answer is scripted right behind the pending one, so a wait that
+    /// still ran that tick would merge here rather than merely poll late.
+    func testASleepThatResumesPastTheDeadlineEndsTheWaitWithoutReadingAgain() async {
+        let cli = ScriptedGitHubCLI()
+        let clock = StubClock()
+        let sleeps = SleepLog()
+        let model = await armedModel(cli, clock: clock, sleeps: sleeps)
+        // The one sleep the wait asks for is answered by a machine that was
+        // asleep for the rest of the half hour and a minute more.
+        let overslept = PullRequestMergeWait.deadline + 60
+        model.mergeWait.sleep = { seconds in
+            sleeps.record(seconds)
+            clock.date.addTimeInterval(overslept)
+        }
+        cli.serve(
+            viewCommand,
+            sequence: [Self.viewJSON(), Self.viewJSON(rollup: Self.passedRollup)]
+        )
+
+        XCTAssertTrue(arm(model))
+        await settle(model)
+
+        XCTAssertEqual(model.mergeWait.ending, .deadline)
+        XCTAssertEqual(sleeps.seconds, [PullRequestMergeWait.pollInterval])
+        XCTAssertEqual(cli.count(for: viewCommand), 1, "The late tick reads nothing.")
+        XCTAssertEqual(cli.count(for: mergeArguments(oid: "abc123")), 0)
+        XCTAssertEqual(model.mergeWait.elapsed, overslept)
+        XCTAssertFalse(model.mergeWait.isArmed)
+    }
+
     // MARK: - Ending four: cancellation
 
     func testCancellingAPollInFlightPublishesTheCancellationAndNothingElse() async {

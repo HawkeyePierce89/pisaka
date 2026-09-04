@@ -891,6 +891,24 @@ head *that tick* read, so a push landing after it is GitHub's refusal, which sto
 the wait with GitHub's words on screen. A comparison against the arm's head would
 be a second, weaker guard against the same accident.
 
+**The deadline is two guards, and they answer different questions.** The one at
+the *bottom* of a tick is the deadline's **statement**: it is asked after the row
+has been read and found still-running, so the wait covers `[0, deadline]`
+inclusive and the sixty-first on-time read — the one landing on the half hour —
+is still made. Stating it at the top of the loop instead would make the last
+observation one whole interval early, and `deadlineMessage` ("Checks did not
+finish within 30 minutes") would then be said over a suite that finished at 29:50
+and was never looked at again: a false sentence, and a merge the reader asked for
+withheld on it. The one at the *top* of a tick is the deadline's **bound**: a
+sleep resumes no earlier than it was asked to and may resume arbitrarily later —
+a machine that suspended, a system under load — and a tick woken past the half
+hour must not read the row at all, because the read can reach a *merge*, and a
+merge landing hours after the wait was armed, with nobody in front of it, is the
+thing the bound exists to prevent. It fires on **strictly greater** than
+`deadline`, which is exactly what leaves the boundary read to the other guard.
+Both are measured against `now` rather than counted in ticks, so reads that slow
+down shorten the wait rather than doubling it.
+
 While a wait is armed, **every** row's Merge is disabled — the merge it will run
 is the one-write rule spent in advance — while reads, Checkout and Create stay
 available, because none of them is a merge. `isWriteInFlight` is raised only for

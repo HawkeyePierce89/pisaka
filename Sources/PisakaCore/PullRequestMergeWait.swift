@@ -370,6 +370,28 @@ public final class PullRequestMergeWait: ObservableObject {
         while true {
             elapsed = now().timeIntervalSince(startedAt)
 
+            // **A tick that resumed late does not run at all.** The guard at
+            // the bottom of the loop is the deadline's *statement* — asked
+            // after a tick, so the read that lands on the half hour is one the
+            // wait is still entitled to make (see there). This one is the
+            // deadline's *bound*, and it is what makes the half hour a ceiling
+            // rather than a schedule: `sleep` resumes no earlier than it was
+            // asked to and may resume arbitrarily later — a machine that slept,
+            // a system under load — so without this a wait woken hours after it
+            // was armed would read the row once more and could merge on it,
+            // long past the bound the button's label promised and with nobody
+            // in front of it. Measured against `now` for the same reason the
+            // other guard is, and asked before the read rather than after it,
+            // because the write the read can reach is the thing being bounded.
+            //
+            // Strictly greater, so it never fires on the boundary read the
+            // guard below is about: an on-time sixty-first tick lands *on*
+            // `deadline` and is still made.
+            guard elapsed <= Self.deadline else {
+                finish(.deadline, token: token)
+                return
+            }
+
             guard
                 let owner,
                 owner.isReady,
@@ -463,6 +485,23 @@ public final class PullRequestMergeWait: ObservableObject {
                 return
             }
 
+            // **The deadline is *stated* here, after the tick.** The wait
+            // covers `[0, deadline]` inclusive: sixty on-time sleeps of thirty
+            // seconds are the half hour, so the sixty-first read lands on it,
+            // and that read is what the deadline ending is a statement about.
+            // Stating it at the top of the loop *instead* would make the last
+            // observation one whole interval early, and
+            // `deadlineMessage` — "Checks did not finish within 30 minutes" —
+            // would then be said over a suite that finished at 29:50 and was
+            // never looked at again: a false sentence, and a merge the reader
+            // asked for withheld on it. What this guard is *for* is the thing
+            // counting ticks would miss: it is measured against `now`, so reads
+            // that slow down shorten the wait rather than doubling it.
+            //
+            // It is only half the rule. A sleep that resumes *late* would
+            // otherwise reach the next read without passing this guard at all,
+            // which is the bound's business rather than its statement — see the
+            // overrun guard at the top of the tick.
             guard now().timeIntervalSince(startedAt) < Self.deadline else {
                 finish(.deadline, token: token)
                 return
