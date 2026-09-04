@@ -1443,6 +1443,133 @@ public final class PullRequestModel: ObservableObject {
             + "no branch was switched to and nothing was pulled."
     }
 
+    // MARK: - The post-merge tail
+
+    /// What the tail does to the working tree, one step at a time, in the order
+    /// ``runMergeTail(_:branches:confirm:run:)`` hands them out.
+    ///
+    /// A value rather than two closures, because each step is a **gated**
+    /// operation and the gate is the app's: whoever receives this puts it inside
+    /// the app's writer bracket under the Local History event the step deserves
+    /// — `.branch` for the switch, `.pull` for the pull — and nothing in this
+    /// layer names a bracket, an event, `autosave` or `localChanges` to do it.
+    public enum MergeTailStep: Equatable, Sendable {
+        /// Switch to the base branch. ``BranchRef/isRemote`` is which of the
+        /// branch widget's two checkouts runs it: a local ref goes through
+        /// `switchTo`, an `origin/<base>` through `checkoutRemote`, whose DWIM
+        /// already picks a same-named local or creates the tracking branch.
+        case switchToBase(BranchRef)
+        /// Pull the base branch — `--ff-only`, which is the whole of
+        /// ``GitServicing/pull(root:)``.
+        case pullBase
+    }
+
+    /// How a tail step is run: handed out, and answered on **both** paths.
+    ///
+    /// `nil` is success and a message is a failure — ``GitHubCheckoutRunner``'s
+    /// own vocabulary, for its reason, with `""` meaning "it failed and the
+    /// sentence is already where the reader is looking".
+    ///
+    /// The answer arrives as a *completion* rather than as a return value
+    /// because the bracket that runs these is fire-and-forget: it suspends the
+    /// disk writers, hops, and comes back later. That is the whole reason the
+    /// bracket grew a completion for this part — two bracketed operations cannot
+    /// be ordered without one, and the tail is exactly two.
+    public typealias MergeTailRunner = @MainActor (
+        MergeTailStep,
+        @escaping @MainActor (String?) -> Void
+    ) -> Void
+
+    /// What the tail *is*, for this merge and this branch list.
+    ///
+    /// Decided here so the caller that runs it re-derives nothing: the three
+    /// cases below are the three the ticket names, and a second reading of them
+    /// in a view is a table free to disagree with this one.
+    public enum MergeTail: Equatable, Sendable {
+        /// The merged head was not the checked-out branch, so nothing local
+        /// moved and nothing is owed (``MergeOutcome/isTailOwed``).
+        case notOwed
+        /// Switch to this ref, then pull it.
+        case switchThenPull(BranchRef)
+        /// The base is in neither half of the branch widget's list — the tail's
+        /// one refusal, carrying ``tailBranchMissingMessage(base:)``.
+        case unresolved(String)
+    }
+
+    /// Resolve the tail from the merge's own answer and the branch widget's own
+    /// list of refs.
+    ///
+    /// **The widget's list, and not a second reading of git.** The list is what
+    /// the reader is looking at, it is refreshed by every operation that could
+    /// change it, and asking `git` again here would be two answers to one
+    /// question with a checkout composed from whichever arrived first.
+    ///
+    /// The order is git's own DWIM read through
+    /// `BranchSwitcherModel.remoteCheckoutDecision`: a **local** ref named
+    /// `<base>` is switched to outright; failing that an `origin/<base>` is
+    /// checked out, which creates the tracking branch when there is no local
+    /// one; and only when neither is listed is there nothing this layer can
+    /// name. Exact, case-sensitive comparison, because git's refs are.
+    public static func mergeTail(for outcome: MergeOutcome, branches: [BranchRef]) -> MergeTail {
+        guard outcome.isTailOwed else { return .notOwed }
+        let base = outcome.baseBranch
+        if let local = branches.first(where: { !$0.isRemote && $0.shortName == base }) {
+            return .switchThenPull(local)
+        }
+        if let remote = branches.first(where: { $0.isRemote && $0.shortName == "origin/\(base)" }) {
+            return .switchThenPull(remote)
+        }
+        return .unresolved(tailBranchMissingMessage(base: base))
+    }
+
+    /// Run the tail — confirm, switch, then pull — **stopping at the first
+    /// failure**, and never reporting the merge as failed.
+    ///
+    /// `true` when the first step was handed out; `false` for the three ways
+    /// there is nothing to hand out.
+    ///
+    /// The order is the whole of this method, and every part of it is here
+    /// rather than at the caller for one reason each:
+    ///
+    ///  - **the decision first**, so a tail that is not owed and a base that
+    ///    cannot be named cost nothing and put no modal in front of anybody;
+    ///  - **the confirmation second**, ahead of the switch and after the
+    ///    decision — the same dirty-tree warning `switchBranch` and
+    ///    `checkoutRemote` ask, asked because the tail runs git's own checkout
+    ///    and is blocked by exactly the changes those two warn about, and asked
+    ///    in the order they ask it in, so a refusal is one alert rather than a
+    ///    confirmation followed by one;
+    ///  - **the pull only on the switch's success**, because a pull that ran
+    ///    after a refused checkout would fast-forward the branch the reader is
+    ///    still standing on — the merged head — with the base's own commits.
+    ///
+    /// A step's failure is *the step's* to report: the bracket running it
+    /// already presents its message, and this model's one slot must not start
+    /// saying a merge failed after `gh` said it landed. The one sentence
+    /// published from here is the refusal above, which no step ever ran to earn.
+    @discardableResult
+    public func runMergeTail(
+        _ outcome: MergeOutcome,
+        branches: [BranchRef],
+        confirm: @MainActor () -> Bool,
+        run: @escaping MergeTailRunner
+    ) -> Bool {
+        switch Self.mergeTail(for: outcome, branches: branches) {
+        case .notOwed:
+            return false
+        case .unresolved(let message):
+            setMessage(message, from: .merge)
+            return false
+        case .switchThenPull(let ref):
+            guard confirm() else { return false }
+            run(.switchToBase(ref)) { failure in
+                guard failure == nil else { return }
+                run(.pullBase) { _ in }
+            }
+            return true
+        }
+    }
+
     // MARK: - The checkout
 
     /// The sentence a checkout refused because git is already rewriting the

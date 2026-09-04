@@ -306,31 +306,31 @@ genuinely needs.
 - Modify: `Sources/Pisaka/PisakaApp.swift`, `Sources/Pisaka/PullRequestCoordinator.swift`
 - Modify: `Tests/PisakaCoreTests/PullRequestMergeTests.swift` (Core-visible halves)
 
-- [ ] `runBranchOperation` gains an optional completion called on both paths, so a caller
+- [x] `runBranchOperation` gains an optional completion called on both paths, so a caller
       can order two bracketed operations without the scene knowing what they are; the
       scene hands the bracket over once, still through `pullRequests.start(…)`, now as a
       three-argument closure (event, operation, completion)
-- [ ] the coordinator gains the three bracket call sites — the checkout
+- [x] the coordinator gains the three bracket call sites — the checkout
       (`.pullRequest`), the tail's branch switch (`.branch`) and the tail's pull
       (`.pull`) — and no file under the feature names `autosave` or `localChanges`
-- [ ] the tail's switch follows the branch widget's own list, with the refresh generation
+- [x] the tail's switch follows the branch widget's own list, with the refresh generation
       pinned synchronously: a **local** ref named `<base>` goes through
       `branchSwitcher.switchTo`; otherwise an `origin/<base>` in the list goes through
       `branchSwitcher.checkoutRemote`, whose DWIM already picks a same-named local or
       creates the tracking branch; **only when neither is listed** does the tail stop
       with the constant from Task 3
-- [ ] the tail runs **only** when the merged pull request's head is the checked-out
+- [x] the tail runs **only** when the merged pull request's head is the checked-out
       branch, in order, stopping at the first failure with *that step's* sentence and
       never reporting the merge as failed; the same dirty-tree confirmation the branch
       widget asks is asked before the switch
-- [ ] the wait is cancelled on a project switch and on `terminateNow()`
-- [ ] measure `PisakaApp.swift`'s new `file_length`/`type_body_length` and record the
+- [x] the wait is cancelled on a project switch and on `terminateNow()`
+- [x] measure `PisakaApp.swift`'s new `file_length`/`type_body_length` and record the
       bump in `.swiftlint.yml`'s comments (Task 9 carries it into `style-lint.md` and
       `core-github.md`)
-- [ ] write tests for this task: the tail's order and its stop-at-first-failure rule,
+- [x] write tests for this task: the tail's order and its stop-at-first-failure rule,
       and the three switch cases (local ref, remote-only ref, neither), exercised
       through Core's own seams with a scripted bracket runner
-- [ ] run `swift test` — must pass before Task 7
+- [x] run `swift test` — must pass before Task 7
 
 ### Task 7: The surfaces — the merge sheet, the row's Merge button, the waiting state
 

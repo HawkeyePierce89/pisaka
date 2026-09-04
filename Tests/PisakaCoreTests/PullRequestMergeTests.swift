@@ -557,4 +557,220 @@ final class PullRequestMergeTests: XCTestCase {
         XCTAssertTrue(sentence.contains("“master”"))
         XCTAssertTrue(sentence.contains("merged"))
     }
+
+    // MARK: - The post-merge tail
+
+    /// The app's writer bracket, scripted: it records the step it was handed and
+    /// **holds** the completion, so a test decides when — and how — each step
+    /// finished.
+    ///
+    /// That is the whole point of the seam. The real bracket suspends the disk
+    /// writers, hops off this turn and comes back later; a runner that answered
+    /// its completion straight away would run the tail's two steps in one
+    /// synchronous stretch and prove nothing about the ordering that costs the
+    /// scene a parameter.
+    private final class ScriptedBracket {
+        /// Every step handed out, in the order it was handed out.
+        var steps: [PullRequestModel.MergeTailStep] = []
+        private var pending: [@MainActor (String?) -> Void] = []
+
+        var run: PullRequestModel.MergeTailRunner {
+            { [self] step, completion in
+                steps.append(step)
+                pending.append(completion)
+            }
+        }
+
+        /// Answer the step that is still waiting — `nil` for success, a sentence
+        /// for a failure.
+        @MainActor
+        func finish(_ failure: String?) {
+            guard !pending.isEmpty else { return XCTFail("nothing was handed out to finish") }
+            pending.removeFirst()(failure)
+        }
+    }
+
+    /// A model with nothing scripted: the tail reaches no transport at all, which
+    /// is itself part of the rule — the merge already happened.
+    private func bareModel() -> PullRequestModel {
+        PullRequestModel(transport: ScriptedGitHubCLI(), gitService: StubGit(), root: { self.root })
+    }
+
+    private static func outcome(base: String = "master", isTailOwed: Bool = true)
+        -> PullRequestModel.MergeOutcome {
+        PullRequestModel.MergeOutcome(
+            number: 54,
+            headBranch: "feature",
+            baseBranch: base,
+            isTailOwed: isTailOwed
+        )
+    }
+
+    private static func local(_ short: String) -> BranchRef {
+        BranchRef(
+            name: "refs/heads/\(short)",
+            isRemote: false,
+            remoteName: nil,
+            shortName: short,
+            isCurrent: false
+        )
+    }
+
+    private static func remote(_ short: String) -> BranchRef {
+        BranchRef(
+            name: "refs/remotes/origin/\(short)",
+            isRemote: true,
+            remoteName: "origin",
+            shortName: "origin/\(short)",
+            isCurrent: false
+        )
+    }
+
+    // MARK: - The three switch cases
+
+    func testALocalRefNamedAfterTheBaseIsTheBranchTheTailSwitchesTo() {
+        let branches = [Self.local("master"), Self.remote("master")]
+
+        let tail = PullRequestModel.mergeTail(for: Self.outcome(), branches: branches)
+
+        // The local ref wins even though the remote one is listed too: that is
+        // git's own DWIM, and switching to `origin/master` when `master` exists
+        // would leave a detached HEAD nothing could then pull into.
+        XCTAssertEqual(tail, .switchThenPull(Self.local("master")))
+    }
+
+    func testAnOriginRefIsUsedWhenNoLocalBranchOfThatNameIsListed() {
+        let branches = [Self.local("feature"), Self.remote("master")]
+
+        let tail = PullRequestModel.mergeTail(for: Self.outcome(), branches: branches)
+
+        // `checkoutRemote`'s DWIM creates the tracking branch from here.
+        XCTAssertEqual(tail, .switchThenPull(Self.remote("master")))
+    }
+
+    func testABaseInNeitherHalfOfTheListIsTheTailsOneRefusal() {
+        let branches = [Self.local("feature"), Self.remote("develop")]
+
+        let tail = PullRequestModel.mergeTail(for: Self.outcome(), branches: branches)
+
+        XCTAssertEqual(tail, .unresolved(PullRequestModel.tailBranchMissingMessage(base: "master")))
+    }
+
+    func testAMergeOfSomebodyElsesBranchOwesNoTailAtAll() {
+        let branches = [Self.local("master")]
+
+        let tail = PullRequestModel.mergeTail(
+            for: Self.outcome(isTailOwed: false),
+            branches: branches
+        )
+
+        XCTAssertEqual(tail, .notOwed)
+    }
+
+    func testTheBaseIsMatchedExactlyAndCaseSensitively() {
+        let branches = [Self.local("Master"), Self.remote("MASTER")]
+
+        let tail = PullRequestModel.mergeTail(for: Self.outcome(), branches: branches)
+
+        XCTAssertEqual(tail, .unresolved(PullRequestModel.tailBranchMissingMessage(base: "master")))
+    }
+
+    // MARK: - The order, and the stop-at-first-failure rule
+
+    func testTheTailSwitchesFirstAndPullsOnlyAfterTheSwitchHasLanded() {
+        let model = bareModel()
+        let bracket = ScriptedBracket()
+
+        let started = model.runMergeTail(
+            Self.outcome(),
+            branches: [Self.local("master")],
+            confirm: { true },
+            run: bracket.run
+        )
+
+        XCTAssertTrue(started)
+        // One step, and only one, until the first has answered: the pull may not
+        // even be composed while the switch is still in flight.
+        XCTAssertEqual(bracket.steps, [.switchToBase(Self.local("master"))])
+
+        bracket.finish(nil)
+
+        XCTAssertEqual(bracket.steps, [.switchToBase(Self.local("master")), .pullBase])
+        // And the merge is still a merge that succeeded.
+        XCTAssertNil(model.mergeMessage)
+    }
+
+    func testAFailedSwitchStopsTheTailBeforeThePull() {
+        let model = bareModel()
+        let bracket = ScriptedBracket()
+
+        model.runMergeTail(
+            Self.outcome(),
+            branches: [Self.remote("master")],
+            confirm: { true },
+            run: bracket.run
+        )
+        bracket.finish("Your local changes would be overwritten by checkout")
+
+        XCTAssertEqual(bracket.steps, [.switchToBase(Self.remote("master"))])
+        // The step's failure is the step's to report — the bracket presents it.
+        // Nothing here may start saying the merge failed after `gh` said it
+        // landed.
+        XCTAssertNil(model.mergeMessage)
+    }
+
+    func testTheDirtyTreeConfirmationIsAskedBeforeAnythingIsHandedOut() {
+        let model = bareModel()
+        let bracket = ScriptedBracket()
+        var asks = 0
+
+        let started = model.runMergeTail(
+            Self.outcome(),
+            branches: [Self.local("master")],
+            confirm: { asks += 1; return false },
+            run: bracket.run
+        )
+
+        XCTAssertFalse(started)
+        XCTAssertEqual(asks, 1)
+        XCTAssertTrue(bracket.steps.isEmpty)
+        XCTAssertNil(model.mergeMessage)
+    }
+
+    func testAnUnresolvableBaseIsAskedBeforeTheConfirmationAndHandsNothingOut() {
+        let model = bareModel()
+        let bracket = ScriptedBracket()
+        var asks = 0
+
+        let started = model.runMergeTail(
+            Self.outcome(),
+            branches: [Self.local("feature")],
+            confirm: { asks += 1; return true },
+            run: bracket.run
+        )
+
+        XCTAssertFalse(started)
+        // No modal for a tail that was never going to run.
+        XCTAssertEqual(asks, 0)
+        XCTAssertTrue(bracket.steps.isEmpty)
+        XCTAssertEqual(model.mergeMessage, PullRequestModel.tailBranchMissingMessage(base: "master"))
+    }
+
+    func testATailThatIsNotOwedConfirmsNothingSaysNothingAndRunsNothing() {
+        let model = bareModel()
+        let bracket = ScriptedBracket()
+        var asks = 0
+
+        let started = model.runMergeTail(
+            Self.outcome(isTailOwed: false),
+            branches: [Self.local("master")],
+            confirm: { asks += 1; return true },
+            run: bracket.run
+        )
+
+        XCTAssertFalse(started)
+        XCTAssertEqual(asks, 0)
+        XCTAssertTrue(bracket.steps.isEmpty)
+        XCTAssertNil(model.mergeMessage)
+    }
 }

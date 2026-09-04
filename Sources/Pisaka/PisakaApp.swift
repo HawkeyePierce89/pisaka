@@ -1102,18 +1102,21 @@ struct PisakaApp: App {
                 )
 
                 // The Pull Requests feature's six scene answers, wired once and
-                // here for the same reason. `runCheckout` is the whole of this
-                // scene's involvement in the eighth gated operation: the
-                // coordinator hands over an operation and the writer bracket runs
-                // it, under Local History's own `.pullRequest` label. `didWrite`
-                // is what none of the other seven need — `gh pr checkout` moves
-                // the branch from outside `BranchSwitcherModel`, so the widget
-                // has to be told to re-read it.
+                // here for the same reason. `runBracket` is the whole of this
+                // scene's involvement in the eighth and ninth gated operations:
+                // the coordinator hands over an operation with the Local History
+                // event it deserves and the writer bracket runs it — `.pullRequest`
+                // for `gh pr checkout`, `.branch` and `.pull` for the post-merge
+                // tail's two steps — and the completion is what lets the
+                // coordinator order those two without this scene knowing what
+                // they are. `didWrite` is what none of the other seven need —
+                // `gh pr checkout` moves the branch from outside
+                // `BranchSwitcherModel`, so the widget has to be told to re-read it.
                 pullRequests.start(
                     root: { model.projectRoot },
                     branchSwitcher: branchSwitcher,
                     isWriteBlocked: { localChanges.isReverting },
-                    runCheckout: { operation in runBranchOperation(.pullRequest, operation) },
+                    runBracket: { runBranchOperation($0, $1, $2) },
                     confirmCheckout: { confirmBranchSwitchIfDirty() },
                     didWrite: { refreshBranchSwitcher() }
                 )
@@ -4179,9 +4182,20 @@ struct PisakaApp: App {
     /// A `Bool` would not carry that difference, and each caller's message lives
     /// somewhere different — `branchSwitcher.errorMessage` for the two branch
     /// paths, the pull request panel's own slot for the checkout.
+    ///
+    /// **`completion` is what lets a caller order two bracketed operations.**
+    /// This method is fire-and-forget by construction — it suspends the disk
+    /// writers, hops, and comes back later — so a caller owed a *second* gated
+    /// operation after the first has no way to wait for it. The post-merge
+    /// tail is exactly that: a branch switch and then a `--ff-only` pull, the
+    /// second of which must not run when the first failed. It is called on both
+    /// paths with the operation's own answer, after the tail above has run, so
+    /// what a caller does next is decided over a settled working tree. The scene
+    /// itself passes none: nothing here is ordered against anything.
     private func runBranchOperation(
         _ event: LocalHistoryEvent = .branch,
-        _ op: @escaping @MainActor () async -> String?
+        _ op: @escaping @MainActor () async -> String?,
+        _ completion: (@MainActor (String?) -> Void)? = nil
     ) {
         autosave.suspend()
         localChanges.beginRevert()
@@ -4223,9 +4237,11 @@ struct PisakaApp: App {
                 // Said *after* the re-read above, so the tree the alert is drawn
                 // over is the tree the reader will find when it is dismissed.
                 if let message = failure, !message.isEmpty { presentBranchError(message) }
+                completion?(failure)
                 return
             }
             finishBranchOperation(snapshot: snapshot, repoRoot: repoRoot)
+            completion?(nil)
         }
     }
 

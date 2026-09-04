@@ -438,23 +438,43 @@ final class GitHubSourceGatingTests: XCTestCase {
         }
     }
 
-    // MARK: - The eighth gated operation (G12)
+    // MARK: - The eighth and ninth gated operations (G12)
 
-    func testTheCheckoutReachesTheWriterBracketThroughExactlyOneSite() throws {
+    /// Three operations, three call sites, one hand-over.
+    ///
+    /// `gh pr checkout` is the eighth gated operation and the post-merge tail's
+    /// `--ff-only` pull is the ninth — but the *bracket* is still handed over
+    /// exactly once, by the scene, as a three-argument closure. What grew is
+    /// this file's side of it: the coordinator names the Local History event at
+    /// each of its three call sites, which is the only place in the app those
+    /// three events are chosen.
+    func testTheCheckoutAndTheTailReachTheWriterBracketThroughOneSiteEach() throws {
         let app = try code(ofFileNamed: "PisakaApp.swift", under: "Sources/Pisaka")
         XCTAssertEqual(
-            try occurrences(of: "runBranchOperation\\(\\.pullRequest", in: app),
+            try occurrences(of: "runBracket:", in: app),
             1,
-            "The scene hands its writer bracket over once, as the coordinator's runCheckout. A second site is "
-                + "a second answer to what a checkout suspends, snapshots and resyncs."
+            "The scene hands its writer bracket over once, as the coordinator's runBracket. A second site is "
+                + "a second answer to what a worktree rewrite suspends, snapshots and resyncs."
         )
 
         let coordinator = try code(ofFileNamed: "PullRequestCoordinator.swift", under: "Sources/Pisaka")
+        for (event, spelling) in [
+            ("runBracket\\(\\.pullRequest", "gh pr checkout"),
+            ("runBracket\\(\\.branch", "the tail's branch switch"),
+            ("runBracket\\(\\.pull,", "the tail's --ff-only pull"),
+        ] {
+            XCTAssertEqual(
+                try occurrences(of: event, in: coordinator),
+                1,
+                "\(spelling) reaches the bracket through exactly one site. A second one is a second answer to "
+                    + "what it is captured under and what it resyncs."
+            )
+        }
         XCTAssertEqual(
             try occurrences(of: "runBracket\\s*\\{|runBracket\\(", in: coordinator),
-            1,
-            "The coordinator is the one place an operation is put inside the bracket — the model composes the "
-                + "command and hands it out, and this is where it is run."
+            3,
+            "The coordinator is the one place an operation is put inside the bracket, and there are exactly "
+                + "three of them — the model composes each and hands it out, and this is where it is run."
         )
 
         var naming: Set<String> = []
