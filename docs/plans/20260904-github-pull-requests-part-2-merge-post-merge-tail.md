@@ -398,24 +398,24 @@ visible where the reader is looking.
   `app-shell.md`, `app-window.md`, `style-lint.md`, `CLAUDE.md`, `README.md`,
   `docs/FEATURES.md`
 
-- [ ] `core-github.md` gains the new decisions after G12 — the merge and its
+- [x] `core-github.md` gains the new decisions after G12 — the merge and its
       `--match-head-commit` guard, the enabled rule and its sentences, the wait as the
       stated polling exception **and its one-rule-one-table decision** (why it reads the
       row by number and not `pr checks`, and why `pr view <n>` rather than a `--head`
       list), and the post-merge tail as the ninth gated operation — plus per-file entries
       for the three new files
-- [ ] fix `app-window.md`'s `arrow.triangle.pull` sentence: the bar button is
+- [x] fix `app-window.md`'s `arrow.triangle.pull` sentence: the bar button is
       deliberately `arrow.triangle.merge`, and `ContentView` says why
-- [ ] fix `core-github.md`'s "the two files that were only touched" paragraph: the stale
+- [x] fix `core-github.md`'s "the two files that were only touched" paragraph: the stale
       1859/1861 and 1843/1845 numbers become the measured ones, in line with
       `.swiftlint.yml` and `style-lint.md`, and carry whatever this part moved them to
-- [ ] `core-git.md` gains the `pull` member; `core-local-history.md` and `app-shell.md`
+- [x] `core-git.md` gains the `pull` member; `core-local-history.md` and `app-shell.md`
       gain the ninth operation and the `pull` event; `CLAUDE.md`'s invariant paragraphs
       are updated (nine gated operations, the wait as the stated polling exception) —
       index lines only, no per-file essays
-- [ ] `README.md` and `docs/FEATURES.md` gain the feature and its limits (no `--admin`,
+- [x] `README.md` and `docs/FEATURES.md` gain the feature and its limits (no `--admin`,
       no server-side auto-merge, no branch deletion, `--ff-only` only)
-- [ ] run `swift test` — must pass before Task 10
+- [x] run `swift test` — must pass before Task 10
 
 ### Task 10: Verify acceptance criteria
 

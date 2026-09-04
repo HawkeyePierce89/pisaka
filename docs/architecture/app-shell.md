@@ -112,17 +112,20 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     and not the inode (`core-database-viewer.md`).
     `PullRequestCoordinator` is a fourth `StateObject`, injected on the same
     modifier and wired in the same start-once block —
-    `pullRequests.start(root:branchSwitcher:isWriteBlocked:runCheckout:confirmCheckout:didWrite:)`
-    — for the viewer's reason and one more: `runCheckout` is the scene's *whole*
-    involvement in the eighth gated operation (it hands `runBranchOperation(.pullRequest, …)`
-    over as a closure), `confirmCheckout` is the same dirty-tree warning
+    `pullRequests.start(root:branchSwitcher:isWriteBlocked:runBracket:confirmCheckout:didWrite:)`
+    — for the viewer's reason and one more: `runBracket` is the scene's *whole*
+    involvement in the eighth and ninth gated operations (it hands
+    `runBranchOperation(_:_:_:)` over as a closure, and the coordinator names the
+    event at each of its three call sites — `.pullRequest` for the checkout,
+    `.branch` for the post-merge tail's switch, `.pull` for its
+    `pull --ff-only`), `confirmCheckout` is the same dirty-tree warning
     `switchBranch` and `checkoutRemote` ask, and `didWrite` is what none of the
     other seven need, because `gh pr checkout` moves the branch from outside
     `BranchSwitcherModel` and the widget has to be told to re-read it. The
     terminate observer calls `pullRequests.terminateNow()` beside the language
     servers' own; everything else about the feature — its transport, its refresh
-    triggers, its one bracket site — lives in `PullRequestCoordinator.swift`
-    (`core-github.md`).
+    triggers, its three bracket sites, the merge and the post-merge tail's order
+    — lives in `PullRequestCoordinator.swift` (`core-github.md`).
     `openBuffers` returns every titled **text** tab's text (dirty
     or not — what the user sees is what gets searched; a file absent from the
     snapshot goes down the on-disk branch, and a url-less "Untitled" buffer names
@@ -824,7 +827,13 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     **eighth** gated operation riding this, the one bracket that serves more than
     one (`core-github.md`). The operation answers `nil` for success, a sentence for
     a failure worth an alert, and `""` for one already published where the reader
-    is looking; `checkoutRemote(_:)` is a
+    is looking. Its third parameter is an **optional completion, called on both
+    paths**, which the post-merge tail is the whole reason for: the bracket is
+    fire-and-forget, and the tail's `pull --ff-only` — the **ninth** gated
+    operation, and a second `.branch` caller ahead of it for the switch — must not
+    start until the switch has finished *and been judged*. Two bracketed
+    operations cannot be ordered without it, and the scene's share in that
+    ordering is the parameter and the two calls to it, nothing else; `checkoutRemote(_:)` is a
     mirror of `switchBranch` (the same dirty-tree warning — the DWIM checkout part may
     be blocked just the same — synchronous `currentRefreshGeneration` pinning, then
     `runBranchOperation { await branchSwitcher.checkoutRemote(ref, originGeneration:) }`),

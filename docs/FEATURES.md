@@ -698,10 +698,10 @@ user sees it.
   writes a file — Cmd+S, any autosave, a Save As, the close prompt's Save, the
   saves before Run and Test, and the flush on quit — it keeps a private copy of
   what it wrote. It also takes a *labeled* copy of every file that is about to be
-  overwritten by one of the eight operations that rewrite the working tree: a
+  overwritten by one of the nine operations that rewrite the working tree: a
   commit (whose `pre-commit` hook may reformat), a project-wide Replace All, a
   revert, a merge apply, a branch switch or checkout, a branch create, a
-  project-wide Rename, and a pull request checkout. Those
+  project-wide Rename, a pull request checkout, and the post-merge pull. Those
   rows read "Before Revert", "Before Replace All" and so on, and they are taken
   *before* the operation runs, so what they hold is the state you would otherwise
   have lost — unless those exact bytes are already the newest revision, which an
@@ -885,8 +885,8 @@ user sees it.
   (http/https only — the link is whatever the integration that posted the check
   published). A row whose checks could not be read says so rather than spinning;
   why is in the panel's message line, in `gh`'s own words.
-  Each row offers **Checkout** and **Open in browser**; nothing ever opens a
-  browser on its own.
+  Each row offers **Checkout**, **Merge** and **Open in browser**; nothing ever
+  opens a browser on its own.
   Everything here runs through **your own `gh`** — GitHub's official CLI, which
   Pisaka finds on your `PATH` (including a login shell's, so a Homebrew install
   works when the app was launched from the Finder). Pisaka holds no GitHub token,
@@ -922,15 +922,58 @@ user sees it.
   merge apply or another branch operation is still running, and only one of the
   panel's own writes runs at a time — while one does, New Pull Request, Checkout
   and the refresh button are all disabled.
+  **Merge** opens a sheet of its own: the merge method (a picker over exactly the
+  methods this repository allows, opening on the one you prefer — and no picker at
+  all when it allows only one), a commit subject pre-filled the way GitHub would
+  fill it (`<title> (#N)`), and an optional body; a Rebase merge shows neither
+  field, because it composes no commit. Above the button it states what will be
+  merged into what, whether GitHub will delete the head branch afterwards (it is
+  GitHub that does that — Pisaka deletes no branch, local or remote), and what
+  Pisaka itself will do next. The button merges only what it read: the exact head
+  commit the row was drawn from travels with it, so if somebody pushes to that
+  branch in between, GitHub refuses the merge and tells you so rather than merging
+  something you did not look at. When the pull request cannot be merged, the
+  button is disabled under a sentence saying why — a draft, conflicts with the
+  base, a failing check, GitHub's own rules (a required review or check), a head
+  behind its base, or mergeability GitHub has not finished computing.
+  **Merge when checks pass.** In the one case waiting can actually resolve — the
+  checks are still running and nothing else is in the way — the same button reads
+  *Merge when checks pass* and arms a wait instead: it re-reads that pull request
+  every 30 seconds for at most 30 minutes and merges the moment the same rule the
+  Merge button is drawn from says it may. The row it is armed on shows how long it
+  has been waiting and a **Cancel** beside it, and the wait ends — always with a
+  reason — when the merge runs, when a check fails or the pull request turns out
+  to be un-mergeable for any other reason, when somebody else merges or closes it,
+  at the 30 minutes, or when you cancel it. Switching project or quitting cancels
+  it too; nothing is left running on GitHub's side, because this is not GitHub's
+  auto-merge but Pisaka watching and merging itself. While a wait is armed, the
+  other rows' Merge buttons are disabled — one merge at a time — while reading,
+  Checkout and New Pull Request stay available.
+  **After a merge.** If the branch that was merged is the one you are standing on,
+  Pisaka switches to the base branch and pulls it — `git pull --ff-only`, never a
+  merge or a rebase — so the tree you are looking at is the merged result. The
+  sheet says so before you press anything. Both steps are treated exactly like a
+  branch switch (autosave suspended, a labeled Local History copy — "Before Branch
+  Change", then "Before Pull" — of everything about to be overwritten, and open
+  tabs resynced afterwards), and they ask the same warning about uncommitted
+  changes. Anything that goes wrong there is reported as itself: the pull request
+  is merged either way, and nothing about a failed switch or a pull that cannot
+  fast-forward undoes that. Merging a pull request whose branch you are *not* on
+  moves nothing local at all.
   Beside the branch switcher, a small **indicator** shows `#N` and the checks
   state of the pull request open from the branch you are on; clicking it opens the
   panel with that row expanded. It is simply absent when the current branch has no
   pull request, when `gh` is not ready, and on a detached HEAD.
   The panel **does not poll**. It re-reads when you switch branches, when you open
-  the panel, after you create a pull request or check one out, and when you press
-  its refresh button — never on a timer, so an open panel costs no API calls while
-  you work. Merging, reviewing, commenting and issues are not part of this: each
-  row's Open in browser is one click away.
+  the panel, after one of its own writes — a create, a checkout, a merge — and
+  when you press its refresh button; never on a timer, so an open panel costs no
+  API calls while you work. The one thing that repeats is an armed *Merge when
+  checks pass* wait, which you started, which says how long it has been running
+  and which you can cancel. Reviewing, approving, commenting and issues are not
+  part of this: each row's Open in browser is one click away.
+  Also deliberately absent from the merge: there is no "merge anyway" that
+  overrides the repository's own rules, no use of GitHub's server-side
+  auto-merge, and no branch deletion of any kind.
 - Embedded terminal: a collapsible bottom panel (toggle with "Show/Hide Terminal"
   in the View menu, the Terminal button on the bottom bar, or Cmd+Shift+T) hosting
   one or more live shell sessions in a
@@ -1287,7 +1330,7 @@ and iPhone. The feature scope landed so far:
 - Local History is macOS-only, and it only ever sees **the app's own writes**.
   Edits made by another application, a `git` command you run yourself (in the
   embedded terminal or anywhere else), or any other change made outside Pisaka's
-  save funnel and its eight worktree operations are not captured and leave no
+  save funnel and its nine worktree operations are not captured and leave no
   revision — the folder watcher keeps the project tree current, it does not
   snapshot. The store holds **copies of your file contents on the local disk**,
   unencrypted, under `~/Library/Application Support/Pisaka/LocalHistory`; anything
@@ -1355,12 +1398,21 @@ and iPhone. The feature scope landed so far:
 - Pull requests are macOS-only and need **GitHub's own `gh`**, version 2.50.0 or
   newer, signed in: nothing is bundled, nothing is downloaded, and iOS has no
   subprocesses and therefore no panel. The panel lists **open** pull requests
-  only, at most 50 of them, and it does not merge, review, approve, comment, close
+  only, at most 50 of them, and it does not review, approve, comment, close
   or reopen anything, does not touch issues, and never opens a browser except when
   you click Open in browser. It does not poll: the list is re-read on a branch
   change, when the panel is opened, after one of its own writes and when you press
   refresh, so a pull request updated on GitHub while you are typing shows the
-  previous answer until one of those happens. Creating a pull request always
+  previous answer until one of those happens — the one exception being an armed
+  *Merge when checks pass* wait, which is bounded at 30 minutes, shows its own
+  elapsed time and can be cancelled. Merging is the ordinary merge and nothing
+  more: no override of the repository's rules, no GitHub auto-merge (so nothing
+  survives quitting Pisaka), and no branch deletion — if GitHub is configured to
+  delete head branches on merge, GitHub does that itself, and the sheet says so.
+  The post-merge tail is `--ff-only` and stops rather than rewriting anything: a
+  base branch that cannot fast-forward, or one that is neither a local branch nor
+  an `origin/…` one in the branch list, leaves the merge done and the working tree
+  where it was, with a sentence saying which. Creating a pull request always
   pushes the current branch first, and there is no way to open one from a branch
   other than the one checked out. Repositories other than the open project's, and
   hosts `gh` is not authenticated against, are not reachable — `gh` resolves both

@@ -130,9 +130,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `VStack(spacing: 0) { mainArea; Divider(); bottomBar }`: an always-visible
     `bottomBar` of six toggle buttons (Terminal / Git / Changes /
     Problems / Usages / Pull Requests, the active one highlighted,
-    `arrow.triangle.pull` for Changes and for Pull Requests,
-    `exclamationmark.triangle` for Problems, `text.magnifyingglass` for
-    Usages) sits flush at
+    `arrow.triangle.pull` for Changes and — deliberately *not* the same glyph —
+    `arrow.triangle.merge` for Pull Requests, since two adjacent dock buttons
+    drawn with one symbol are indistinguishable at a glance, which `ContentView`
+    says in a comment beside it; `exclamationmark.triangle` for Problems,
+    `text.magnifyingglass` for Usages) sits flush at
     the bottom, and `mainArea` is the three-column `editorSplit` alone, or — when a
     `BottomPanel` is shown — `editorSplit` over the panel. The bottom bar also hosts
     the `BranchSwitcherView` (JetBrains status-bar convention) showing the current

@@ -37,7 +37,14 @@ do — is in [`docs/FEATURES.md`](docs/FEATURES.md).
   `head → base`, draft and review state and a live checks summary; expand a row
   for its per-job checks and their links, check one out, or open it in the
   browser. **New Pull Request** pushes the branch first (publishing it if it has
-  no upstream), then opens the pull request into the base it named. An indicator
+  no upstream), then opens the pull request into the base it named. **Merge**
+  opens a sheet with the methods the repository allows, a pre-filled commit
+  subject and every consequence of pressing it stated above the button; when the
+  only thing standing in the way is checks that are still running, the same button
+  reads **Merge when checks pass** and arms a visible, cancelable wait that
+  re-checks every 30 seconds for up to 30 minutes and merges the moment they do.
+  Merging the branch you are on then switches to the base branch and pulls it
+  `--ff-only`. An indicator
   beside the branch switcher shows `#N` and the checks state for the branch you
   are on. All through your own `gh` — Pisaka holds no token and never talks to
   GitHub itself; if `gh` is missing, too old or signed out, the panel says so and
@@ -51,8 +58,9 @@ do — is in [`docs/FEATURES.md`](docs/FEATURES.md).
 - **Autosave & sessions** — automatic saving (idle, tab switch, focus loss,
   quit) and per-project session restore, including hot exit for "Untitled"
   buffers.
-- **Local History** — every save, and every file one of the app's eight
-  worktree-rewriting operations (including Rename and a pull request checkout)
+- **Local History** — every save, and every file one of the app's nine
+  worktree-rewriting operations (including Rename, a pull request checkout and a
+  post-merge pull)
   is about to overwrite, is snapshotted locally; browse a file's revisions, diff
   them against what it holds now and restore one (Cmd+Shift+H). 14 days or 30
   revisions per file, independent of git.

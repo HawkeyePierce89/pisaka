@@ -1,7 +1,7 @@
 # PisakaCore — Local History (automatic per-file snapshots, browse and restore)
 
 Design documentation for the layer that keeps local, per-file copies of every
-buffer the app writes, labeled copies of every file eight worktree-mutating
+buffer the app writes, labeled copies of every file nine worktree-mutating
 operations are about to overwrite, and a macOS window that lists those revisions,
 diffs one against what the file holds now, and restores it. Each entry records a
 file's contract, invariants and the reasoning behind non-obvious decisions —
@@ -15,7 +15,8 @@ overwriting. Six Foundation-only Core files — the vocabulary, the path math, t
 policy, the `FileServicing` engine and two `@MainActor` observable models — plus
 three macOS app files (the support directory, the window controller, the view)
 and capture calls at three save sites and seven gated-operation brackets (which
-carry eight operations — `gh pr checkout` shares the branch operations'). **Nothing
+carry nine operations — `gh pr checkout` and the post-merge tail's two steps all
+ride the branch operations' bracket). **Nothing
 new compiles on iOS**: there is no iOS window to browse a history in and no iOS
 caller of the capture model, so building the store on that destination would
 create a directory nothing ever writes to.
@@ -35,7 +36,7 @@ never writes a file outside its store, so it takes no
 — the position the symbol index, the `.editorconfig` cache and the LSP client
 already hold, for the same reason: taking the gate would serialise a safety net
 behind the operations it is protecting the user from. What it *does* take from
-the eight gated operations is **timing**, and only that; see "The pre-operation
+the nine gated operations is **timing**, and only that; see "The pre-operation
 capture is race-free by construction" below. The one write it causes to a user's
 file is a **restore**, which is a buffer edit through the live text view — the
 ordinary save funnel puts it on disk when the user saves or the autosave fires.
@@ -102,8 +103,8 @@ changes.)
 ### `PisakaCore`
 
   - `LocalHistorySnapshot.swift` — the vocabulary. `LocalHistoryEvent` is a
-    **closed** enum of nine cases (`save`, `replace`, `revert`, `merge`,
-    `branch`, `commit`, `restore`, `rename`, `pullRequest`) with a stable lowercase
+    **closed** enum of ten cases (`save`, `replace`, `revert`, `merge`,
+    `branch`, `commit`, `restore`, `rename`, `pullRequest`, `pull`) with a stable lowercase
     `tag`, an `init?(tag:)`
     inverse and a display `title`. The tag is not a display detail: it is one of
     the three fields encoded into a snapshot's file name, so it is **on-disk
@@ -128,7 +129,13 @@ changes.)
     is "Before Pull Request Checkout" — a separate case from `branch` even though
     it shares that operation's bracket, because from a file's point of view "the
     branch was switched" and "a pull request was checked out" are different
-    answers to "why did this revision get taken" (`core-github.md`). Every tag
+    answers to "why did this revision get taken" (`core-github.md`). `pull` is the
+    newest, and it is `pullRequest`'s argument applied once more: the post-merge
+    tail's second step is a `pull --ff-only`, and a file it overwrites was
+    overwritten by *the remote's* work rather than by anything done on this
+    machine — "what did this file look like before I took everyone else's
+    changes?" is not the question "Before Branch Change" answers, so its title is
+    "Before Pull" (`core-github.md`). Every tag
     round-trips through `LocalHistoryLayout`'s name
     codec under test, because a tag *is* on-disk data. `LocalHistorySnapshot` is the `Equatable, Sendable` row —
     `fileName`, `timestamp`, `event`, `contentHash` — every field of which is
@@ -694,7 +701,7 @@ changes.)
     re-query, the tree bump, the `.editorconfig` cache drop — runs only when the
     session continues, while the Local History capture runs on both paths,
     synchronously on the way out.
-  - **Eight gated operations, seven brackets, seven pre-operation captures**:
+  - **Nine gated operations, seven brackets, seven pre-operation captures**:
     `commitFromDialog`
     (pre-empting a formatting `pre-commit` hook — the one way a commit rewrites
     the working tree, and the reason the open-tab resync is not enough on its own,
@@ -706,9 +713,11 @@ changes.)
     `runBranchOperation` (two functions, two brackets — and the second is the one
     bracket serving *two* operations: branch switch/checkout-remote pass
     `.branch`, while the Pull Requests coordinator passes `.pullRequest` for
-    `gh pr checkout`, the **eighth** gated operation, which is why the event
-    parameter exists at all and why the bracket count stayed at seven,
-    `core-github.md`), `applyMerge` (one target: the file being resolved, whose conflict
+    `gh pr checkout`, the **eighth** gated operation, and `.pull` for the
+    post-merge tail's `pull --ff-only`, the **ninth** — the tail's own branch
+    switch is a third `.branch` caller, so one bracket now serves four call sites
+    and three events, which is why the event parameter exists at all and why the
+    bracket count stayed at seven, `core-github.md`), `applyMerge` (one target: the file being resolved, whose conflict
     markers and any hand-editing inside them vanish the moment the apply
     succeeds), and `applyRename` — **the seventh, and the second one that is not
     git**. It is the operation this net most obviously exists for: a language
@@ -970,7 +979,7 @@ history, just not the newest one.
 ## Known limits
 
 - **Only what this app writes is captured.** A save through the app's own funnel
-  and the eight worktree operations are the whole capture surface: an edit made in
+  and the nine worktree operations are the whole capture surface: an edit made in
   another editor, a `git checkout` run in the embedded terminal or in another
   window, or any other out-of-band write is not seen and leaves no revision. The
   FSEvents watcher exists to keep the *tree* current and is deliberately not

@@ -78,7 +78,8 @@ with a state shape of its own went into `DatabaseViewerTabs.swift`, so
 passes needed, and not four hundred (`core-database-viewer.md`).
 
 The most recent bump is the Pull Requests feature (`file_length`
-1838 → 1859 → 1861 → 1862 → **1882**, `type_body_length` 1822 → 1843 → 1845 → 1846 → **1866**;
+1838 → 1859 → 1861 → 1862 → 1882 → **1885**, `type_body_length`
+1822 → 1843 → 1845 → 1846 → 1866 → **1869**;
 the second step is the review's, for the checkout's dirty-tree confirmation and
 the terminate observer's `pullRequests.terminateNow()`, and the third is a later
 review's one line — the three branch-checkout entry points now refuse while
@@ -86,7 +87,11 @@ another writer holds the gate, which the bracket they share raises but never
 reads, and the fourth is the last review's twenty: the shared bracket's failure
 path now re-reads the branch and runs the success tail when `gh pr checkout`
 failed *after* already switching the worktree, the one thing a single
-`git checkout` could never do) — the largest single move either number has
+`git checkout` could never do, and the fifth is part 2's three: the shared
+bracket gained an **optional completion** called on both paths — one parameter
+and two calls — because it is fire-and-forget and the post-merge tail is two
+bracketed operations that cannot be ordered without one, which is the whole of
+the scene's share in the ninth gated operation) — the largest single move either number has
 made, which is why it is itemised rather than absorbed. Twenty-one lines, all of
 them inside the struct body, so the two ceilings move by exactly the same amount:
 **seven** are `pullRequests.start(…)`, the scene's whole involvement in the eighth
@@ -95,9 +100,12 @@ site live in `PullRequestCoordinator.swift`; **five** are the View menu's panel
 toggle; **one** is the `@StateObject`; and the remaining **eight** are
 `runBranchOperation` growing a Local History event parameter and an operation that
 answers a message instead of a `Bool` — which is what lets one bracket serve two
-callers rather than two brackets serve one each. The same shape as the viewer's,
-and the reason a feature this size cost twenty-one lines here — twenty-three with
-the review's two (`core-github.md`).
+callers rather than two brackets serve one each; part 2 then added **three** more
+of exactly that kind, the completion parameter and its two calls, which is what
+lets that one bracket serve the tail's two ordered operations as well. The same
+shape as the viewer's, and the reason a feature this size cost twenty-one lines
+here — twenty-three with the review's two, and forty-seven all told once the two
+later reviews and part 2 had landed (`core-github.md`).
 
 ## The three-way version pin
 
