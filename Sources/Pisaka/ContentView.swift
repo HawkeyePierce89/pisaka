@@ -280,6 +280,17 @@ struct ContentView: View {
     /// drag arithmetic belong to `panelHeightRule`, so the dragged height and the
     /// rendered slot cannot disagree.
     @State private var panelHeight: CGFloat = 240
+
+    /// The Pull Requests feature's owner — its model, its `gh` transport, its
+    /// refresh triggers and its one checkout site.
+    ///
+    /// Read out of the window's environment rather than taken as a parameter,
+    /// for the reason `DatabaseViewerHost` reads `DatabaseViewerTabs` there: this
+    /// view only *routes* to the feature's two surfaces, and `PisakaApp.swift` is
+    /// at its measured `file_length` ceiling with no line to spend on a parameter
+    /// that would be threaded straight through. The scene injects it beside the
+    /// database viewers' owner, on the same modifier.
+    @EnvironmentObject private var pullRequests: PullRequestCoordinator
     /// The panel height captured at the start of a divider drag, so the cumulative
     /// `DragGesture` translation is applied to a fixed base rather than compounding
     /// against the live `panelHeight` each frame. `nil` when not dragging, so it is
@@ -672,6 +683,8 @@ struct ContentView: View {
             problemsPanel
         case .usages:
             usagesPanel
+        case .pullRequests:
+            PullRequestsPanelView(model: pullRequests.model, coordinator: pullRequests)
         }
     }
 
@@ -713,8 +726,8 @@ struct ContentView: View {
         }
     }
 
-    /// The always-visible bottom bar: Terminal/Git/Changes/Problems/Usages
-    /// toggle buttons, the active one highlighted. Clicking goes through `onTogglePanel`
+    /// The always-visible bottom bar: Terminal/Git/Changes/Problems/Usages/Pull
+    /// Requests toggle buttons, the active one highlighted. Clicking goes through `onTogglePanel`
     /// (shared with the View menu) so a button and its matching command behave
     /// identically.
     private var bottomBar: some View {
@@ -724,6 +737,14 @@ struct ContentView: View {
             bottomBarButton(title: "Changes", systemImage: "arrow.triangle.pull", panel: .changes)
             bottomBarButton(title: "Problems", systemImage: "exclamationmark.triangle", panel: .problems)
             bottomBarButton(title: "Usages", systemImage: "text.magnifyingglass", panel: .usages)
+            // `arrow.triangle.merge` rather than `arrow.triangle.pull`, which
+            // Changes two buttons to the left already uses: two adjacent dock
+            // buttons drawn with one glyph are indistinguishable at a glance.
+            bottomBarButton(
+                title: "Pull Requests",
+                systemImage: "arrow.triangle.merge",
+                panel: .pullRequests
+            )
             Spacer()
             // Recent-projects switcher widget.
             ProjectSwitcherView(
@@ -741,6 +762,25 @@ struct ContentView: View {
                 onCheckoutRemote: onCheckoutRemote,
                 onNewBranch: onNewBranch
             )
+            // Beside the branch widget, and reading the same model the panel
+            // does. It draws nothing at all unless the checked-out branch has an
+            // open pull request, so the bar is unchanged on every other branch.
+            PullRequestIndicatorView(model: pullRequests.model) { number in
+                // Open rather than toggle: the click asked to *look* at this row,
+                // and a toggle would collapse the panel when it happens to be the
+                // one already showing.
+                if bottomPanel.wrappedValue != .pullRequests { onTogglePanel(.pullRequests) }
+                // Only when the panel actually has that row. The indicator's
+                // pull request comes from the `--head` lookup, which is
+                // independent of the `--limit 50` list and survives a failed read
+                // of it, so on a repository with more open pull requests than
+                // that the row may not be there to expand — and expanding a
+                // number nothing draws would spend a `gh pr checks` call to
+                // change nothing on screen.
+                guard pullRequests.model.pullRequests.contains(where: { $0.number == number })
+                else { return }
+                Task { await pullRequests.model.expand(number) }
+            }
             completionToggleButton
         }
         .padding(.horizontal, metrics.scaled(8))

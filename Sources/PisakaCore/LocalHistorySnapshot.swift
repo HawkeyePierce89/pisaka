@@ -52,6 +52,18 @@ public enum LocalHistoryEvent: String, CaseIterable, Equatable, Sendable {
     /// no tab at all — is recoverable here and nowhere else.
     case rename
 
+    /// Before `gh pr checkout` moved the worktree onto a pull request's branch.
+    ///
+    /// Its own event rather than `branch`, and the raw value is written out
+    /// because the case name is not the tag: `pullRequest`'s default raw value
+    /// would carry a capital letter, and the tag is lowercase ASCII the file
+    /// name's grammar depends on. Separate from `branch` because it is a
+    /// different question afterwards — "what did this file look like before I
+    /// went to look at someone's pull request?" is asked while reviewing, not
+    /// while working, and a label that said "Before Branch Change" would hide it
+    /// among the day's own switches.
+    case pullRequest = "pullrequest"
+
     /// The on-disk token. Lowercase ASCII with no `-`, because `-` is the file
     /// name's field separator.
     public var tag: String { rawValue }
@@ -74,6 +86,7 @@ public enum LocalHistoryEvent: String, CaseIterable, Equatable, Sendable {
         case .commit: return "Before Commit"
         case .restore: return "Before Restore"
         case .rename: return "Before Rename"
+        case .pullRequest: return "Before Pull Request Checkout"
         }
     }
 }

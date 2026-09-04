@@ -8,6 +8,7 @@ final class BottomPanelTests: XCTestCase {
         XCTAssertNil(BottomPanel.toggled(.changes, selecting: .changes))
         XCTAssertNil(BottomPanel.toggled(.problems, selecting: .problems))
         XCTAssertNil(BottomPanel.toggled(.usages, selecting: .usages))
+        XCTAssertNil(BottomPanel.toggled(.pullRequests, selecting: .pullRequests))
     }
 
     func testClickingInactivePanelSwitchesToIt() {
@@ -19,6 +20,8 @@ final class BottomPanelTests: XCTestCase {
         XCTAssertEqual(BottomPanel.toggled(.problems, selecting: .log), .log)
         XCTAssertEqual(BottomPanel.toggled(.problems, selecting: .usages), .usages)
         XCTAssertEqual(BottomPanel.toggled(.usages, selecting: .problems), .problems)
+        XCTAssertEqual(BottomPanel.toggled(.usages, selecting: .pullRequests), .pullRequests)
+        XCTAssertEqual(BottomPanel.toggled(.pullRequests, selecting: .changes), .changes)
     }
 
     func testFromHiddenShowsTarget() {
@@ -27,5 +30,6 @@ final class BottomPanelTests: XCTestCase {
         XCTAssertEqual(BottomPanel.toggled(nil, selecting: .changes), .changes)
         XCTAssertEqual(BottomPanel.toggled(nil, selecting: .problems), .problems)
         XCTAssertEqual(BottomPanel.toggled(nil, selecting: .usages), .usages)
+        XCTAssertEqual(BottomPanel.toggled(nil, selecting: .pullRequests), .pullRequests)
     }
 }

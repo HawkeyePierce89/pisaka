@@ -5,19 +5,24 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
   - `PisakaApp.swift` — `@main` App, menu commands and shortcuts
     (Cmd+N/O, Cmd+Shift+O for "Open Folder…", Cmd+S/W), and the save/close and
     folder/file-open orchestration that ties the model to the file panels. The
-    Terminal, Git Log, Local Changes, Problems and Usages are all *bottom
+    Terminal, Git Log, Local Changes, Problems, Usages and Pull Requests are all
+    *bottom
     dock
     panels* sharing one dock: it owns a
     single `@State private var bottomPanel: BottomPanel? = nil` (`nil` = no panel,
     passed as a binding to `ContentView`, which draws the always-visible
-    Terminal/Git/Changes/Problems/Usages bar) and five View-menu commands — "Show/Hide Git Log"
+    Terminal/Git/Changes/Problems/Usages/Pull Requests bar) and six View-menu commands — "Show/Hide Git Log"
     (Cmd+Shift+L), "Show/Hide Terminal" (Cmd+Shift+T), "Show/Hide Local Changes"
     (**Cmd+Shift+C**, moved off Cmd+Shift+G — the macOS standard for "Find
     Previous", which the Find menu below claims), "Show/Hide Problems"
     (**Cmd+Shift+M**, the language servers' published diagnostics) and "Show/Hide
     Usages" (**Cmd+Shift+U**, the last Find Usages answer — showing the panel
     *fetches nothing*, because a panel that re-ran the previous query on every open
-    would spend a project walk on a question nobody re-asked), their labels reflecting the
+    would spend a project walk on a question nobody re-asked) and "Show/Hide Pull
+    Requests" (**Cmd+Shift+R**, which — unlike Usages — *does* read on open, from
+    the panel view's own `.onAppear` rather than from this file: `gh`'s answer
+    goes stale on GitHub's clock and the feature refuses to poll, so opening the
+    panel is the read, `core-github.md`), their labels reflecting the
     active state —
     all routed through one shared `togglePanel(_:)` handler (also wired to the
     bottom bar via `ContentView`'s `onTogglePanel` so a button and its matching menu
@@ -105,6 +110,19 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     opens read-write, and `applyRenamePlan` moves the tab without telling it. The
     connection is deliberately left alone there, because a rename moves the name
     and not the inode (`core-database-viewer.md`).
+    `PullRequestCoordinator` is a fourth `StateObject`, injected on the same
+    modifier and wired in the same start-once block —
+    `pullRequests.start(root:branchSwitcher:isWriteBlocked:runCheckout:confirmCheckout:didWrite:)`
+    — for the viewer's reason and one more: `runCheckout` is the scene's *whole*
+    involvement in the eighth gated operation (it hands `runBranchOperation(.pullRequest, …)`
+    over as a closure), `confirmCheckout` is the same dirty-tree warning
+    `switchBranch` and `checkoutRemote` ask, and `didWrite` is what none of the
+    other seven need, because `gh pr checkout` moves the branch from outside
+    `BranchSwitcherModel` and the widget has to be told to re-read it. The
+    terminate observer calls `pullRequests.terminateNow()` beside the language
+    servers' own; everything else about the feature — its transport, its refresh
+    triggers, its one bracket site — lives in `PullRequestCoordinator.swift`
+    (`core-github.md`).
     `openBuffers` returns every titled **text** tab's text (dirty
     or not — what the user sees is what gets searched; a file absent from the
     snapshot goes down the on-disk branch, and a url-less "Untitled" buffer names
@@ -770,9 +788,43 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     resume/`endRevert`, and a snapshot of every open-tab buffer; on success the tab
     resync (`reloadFromDisk` for a clean tab, `reconcileSavedBaseline`+beep for an
     edited one — a checkout rewrites the worktree), a tree refresh
-    (`bumpTreeRevision`), and generation-pinned Local Changes / Log refreshes. Both
+    (`bumpTreeRevision`), and generation-pinned Local Changes / Log refreshes.
+    **On failure the same tail runs when — and only when — the branch moved
+    anyway** (`resyncIfTheBranchMovedAnyway`): a single `git checkout` fails
+    atomically, but `gh pr checkout` is several commands and the ones after the
+    checkout can fail (`--ff-only` against a diverged branch) or be killed at the
+    deadline with the worktree already switched, and skipping the tail there would
+    leave open buffers ready to be saved over another branch's files. The branch is
+    re-read against the *requested* root the operation started under (the spelling
+    `prepareForRefresh` keys its folder-switch clear off), skipped outright when
+    the folder changed under the operation, and a move is declared only when both
+    readings are known and differ — an unknown one is not evidence, and guessing
+    costs a beep and a discarded undo stack per edited tab. The re-read is also the
+    widget's catch-up, and publishing `current` is what re-triggers the Pull
+    Requests coordinator's branch subscription, so its `runCheckout` failure path
+    needs no trigger of its own (`core-github.md`). It happens *before* the alert,
+    so the tree the modal is drawn over is the tree found when it is dismissed.
+    Both
     the switch and checkout-remote handlers run through the shared
-    `runBranchOperation { () async -> Bool }` orchestration; `checkoutRemote(_:)` is a
+    `runBranchOperation(_ event: LocalHistoryEvent = .branch, _ op: () async -> String?)`
+    — and all three worktree-checkout entry points (`switchBranch`,
+    `checkoutRemote`, `createBranch`) **refuse outright while another writer holds
+    the gate**, through `revertInFlight()`, ahead of their dirty-tree prompt so a
+    refusal is one alert rather than a confirmation followed by one. The bracket
+    raises the flag but does not read it, so without those guards a branch change
+    started during a revert, a merge apply, a commit or the 120-second
+    `gh pr checkout` would be a second `git` rewriting the same worktree — one of
+    the two losing on `index.lock`, and the resync afterwards comparing its
+    snapshot against a tree neither finished. `createBranch` carries its own guard
+    rather than its two call sites' so the `.fetchUnavailable` retry is asked too
+    (the first attempt has already lowered the gate by then, so an offline retry
+    still runs).
+    orchestration — generalised for the Pull Requests feature, which passes
+    `.pullRequest` through `PullRequestCoordinator` and makes `gh pr checkout` the
+    **eighth** gated operation riding this, the one bracket that serves more than
+    one (`core-github.md`). The operation answers `nil` for success, a sentence for
+    a failure worth an alert, and `""` for one already published where the reader
+    is looking; `checkoutRemote(_:)` is a
     mirror of `switchBranch` (the same dirty-tree warning — the DWIM checkout part may
     be blocked just the same — synchronous `currentRefreshGeneration` pinning, then
     `runBranchOperation { await branchSwitcher.checkoutRemote(ref, originGeneration:) }`),

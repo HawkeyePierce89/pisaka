@@ -91,13 +91,40 @@ line_length:
 # scene paid four lines for it. And 1838 on review, for the fifth line: the
 # project tree's rename hands each retargeted viewer tab its new path
 # (`databaseViewers.retarget(id:url:)`), without which a cell edit after a rename
-# would open the name the tab was created under. The number tracks the one
-# file that approaches
+# would open the name the tab was created under. And 1859 with the Pull Requests
+# feature, which is the largest single move this number has made and the reason
+# is stated rather than absorbed: seven lines are the coordinator's
+# `pullRequests.start(…)` — the scene's whole involvement in the eighth gated
+# operation, since the feature's ownership, its transport and its one checkout
+# site live in `PullRequestCoordinator.swift` — five are the View menu's panel
+# toggle, one is the `@StateObject`, and the remaining eight are
+# `runBranchOperation` growing a Local History event parameter and an operation
+# that answers a message instead of a `Bool`, which is what lets one bracket
+# serve two callers rather than two brackets serve one each. And 1861 on review,
+# for the two lines the feature was missing: `confirmCheckout:` — the dirty-tree
+# warning `switchBranch` and `checkoutRemote` already ask, which `gh pr checkout`
+# owes for the same worktree it moves — and `pullRequests.terminateNow()` in the
+# terminate observer, beside the language servers' own, so a `pr checkout` in
+# flight does not outlive the app with a `git` beneath it. And 1862 on the review
+# after that, for one line: the three branch-checkout entry points now refuse
+# while another writer holds the gate (`revertInFlight()`), which the bracket
+# they share raises but never reads — `switchBranch` and `checkoutRemote` pay
+# nothing for it, since their existing dirty-tree `guard` took the second
+# condition, and `createBranch` has no such guard to join. And 1882 on the review
+# after that, for twenty lines that are one question the shared bracket had never
+# had to ask: a failure is not a promise that nothing moved. Two of them capture
+# the branch and the requested root in the synchronous prefix, six are the call on
+# the failure path, and twelve are `resyncIfTheBranchMovedAnyway` itself — the
+# re-read that runs the success tail when `gh pr checkout` failed *after* already
+# switching the worktree (a diverged branch refusing `--ff-only`, or the deadline
+# killing it mid-way), which the two single-`git checkout` callers never needed
+# because theirs fail atomically. The number tracks
+# the one file that approaches
 # it — measured, never rounded up for room — and is not a licence to grow the
 # others.
 file_length:
-  warning: 1838
-  error: 1838
+  warning: 1882
+  error: 1882
   ignore_comment_only_lines: true
 
 # Same reasoning as file_length, and one number behind it again: the viewer's
@@ -106,10 +133,15 @@ file_length:
 # 1813 with the viewer reconnect that followed, to 1817 with the find menu's
 # tab-kind gate, to 1821 with the viewer's write wiring — the same four
 # lines, which land inside the scene's start-once block — and to 1822 with the
-# rename's viewer retarget, which lands inside `performMove`.
+# rename's viewer retarget, which lands inside `performMove`, and to 1843 with
+# the Pull Requests feature: every one of its twenty-one lines lands inside the
+# struct body too, so this ceiling moves by exactly what `file_length` did — and
+# to 1845 with the review's two, which land inside it as well, to 1846 with
+# the branch-checkout gate's one — inside the struct body like all of them — and
+# to 1866 with the failure path's re-read, whose twenty lines are inside it too.
 type_body_length:
-  warning: 1822
-  error: 1822
+  warning: 1866
+  error: 1866
 
 function_body_length:
   warning: 140

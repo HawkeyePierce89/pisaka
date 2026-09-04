@@ -1379,8 +1379,17 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     or writes. It reads directory entries and runs two programs with `--version`.
     Untested by repository convention, like every seam of this shape, so it is kept
     to the decisions it actually makes.
-    **The search order is `LSPGoToolchainService.locateGo`'s**, and the one
-    difference is which directories are well-known: the inherited `PATH` first
+    **The search itself is no longer here.** It was `LSPGoToolchainService
+    .locateGo`'s order re-stated a second time, and when `gh` needed the same
+    three steps it was lifted verbatim into `ExecutableLocator
+    .locate(_:wellKnownDirectories:runningProgram:)` — one answer to "where is a
+    program somebody else installed", with `GitHubSourceGatingTests` counting its
+    definitions and its callers (`core-github.md`). What stays in this file is
+    which directories are well-known (`wellKnownCargoDirectories`), the
+    `--version` probes below, and the fact that the locator's one subprocess runs
+    through *this service's* registered, deadlined `run` — so a quit during
+    discovery leaves no login shell behind. The order it applies, and why: the
+    inherited `PATH` first
     (a Pisaka started from a terminal should use the `cargo` that terminal would
     have run); then `~/.cargo/bin` and Homebrew's two prefixes — `~/.cargo/bin`
     leading, because rustup puts both `cargo` and the `rust-analyzer` proxy there
@@ -1390,7 +1399,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     the only step that costs a subprocess and the only one that can find a
     version-manager shim. Every branch reports a `PATH` that contains the `cargo`
     it found, the well-known-directory branch building one by prepending the
-    directory it found — that `PATH` is what Core hands the server as its
+    directory it found (`ExecutableLocator.Found` carries both halves, which is
+    the reason it is a pair rather than a path) — that `PATH` is what Core hands
+    the server as its
     `environment` overlay (D23), and rust-analyzer resolves `cargo` by name off
     `PATH` exactly as gopls resolves `go`, so a `searchPath` that merely said "the
     app's own environment was enough to *find* it" would be true and useless.
@@ -1413,8 +1424,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     **And because that dead proxy is the common candidate rather than an exotic
     one, a rust-analyzer that fails the probe is stepped over rather than ending
     the search**: `locateRustAnalyzer` walks *every* executable of that name on the
-    list (`executables(named:in:)`, de-duplicated so the same file is never probed
-    twice) and takes the first that answers. Stopping at the first executable file
+    list (`ExecutableLocator.executables(named:in:)`, de-duplicated there so the
+    same file is never probed twice) and takes the first that answers. Stopping at the first executable file
     would hide a working Homebrew rust-analyzer behind a rustup proxy whose
     component was never added, and offer a download of a server the machine already
     has. `cargo` deliberately does *not* do this: the server resolves `cargo` by

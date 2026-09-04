@@ -1,0 +1,30 @@
+[
+  {
+    "author": {
+      "id": "MDQ6VXNlcjI1NjAzODA1",
+      "is_bot": false,
+      "login": "octocat",
+      "name": "The Octocat"
+    },
+    "baseRefName": "main",
+    "headRefName": "feature/unknown-conclusion",
+    "isDraft": false,
+    "number": 8,
+    "reviewDecision": "",
+    "state": "OPEN",
+    "statusCheckRollup": [
+      {
+        "__typename": "CheckRun",
+        "completedAt": "2026-09-02T19:19:34Z",
+        "conclusion": "TELEPORTED",
+        "detailsUrl": "https://github.com/octocat/example/actions/runs/1/job/1",
+        "name": "test",
+        "startedAt": "2026-09-02T19:16:36Z",
+        "status": "COMPLETED",
+        "workflowName": "CI"
+      }
+    ],
+    "title": "A conclusion no table knows",
+    "url": "https://github.com/octocat/example/pull/8"
+  }
+]

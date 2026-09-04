@@ -128,16 +128,21 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     open" branch is deliberately left bare (no bar without a file). The window
     body is a
     `VStack(spacing: 0) { mainArea; Divider(); bottomBar }`: an always-visible
-    `bottomBar` of five toggle buttons (Terminal / Git / Changes /
-    Problems / Usages, the active one highlighted, `arrow.triangle.pull` for
-    Changes, `exclamationmark.triangle` for Problems, `text.magnifyingglass` for
+    `bottomBar` of six toggle buttons (Terminal / Git / Changes /
+    Problems / Usages / Pull Requests, the active one highlighted,
+    `arrow.triangle.pull` for Changes and for Pull Requests,
+    `exclamationmark.triangle` for Problems, `text.magnifyingglass` for
     Usages) sits flush at
     the bottom, and `mainArea` is the three-column `editorSplit` alone, or — when a
     `BottomPanel` is shown — `editorSplit` over the panel. The bottom bar also hosts
     the `BranchSwitcherView` (JetBrains status-bar convention) showing the current
     branch, threaded through as the `branchSwitcher: BranchSwitcherModel` /
     `onSwitchBranch` / `onCreateBranch` parameters (owned by `PisakaApp`, defaulted
-    for previews). Beside it sits the new project switcher (`ProjectSwitcherView`), threaded through as the `recentProjects: () -> [RecentProject]` / `onOpenRecentProject: (URL) -> Void` parameters (owned by `PisakaApp`, defaulted).
+    for previews). Beside it sits the new project switcher (`ProjectSwitcherView`), threaded through as the `recentProjects: () -> [RecentProject]` / `onOpenRecentProject: (URL) -> Void` parameters (owned by `PisakaApp`, defaulted). Beside the branch widget sits
+    `PullRequestIndicatorView`, reading the same model the panel does and drawing
+    nothing at all unless the checked-out branch has an open pull request; its
+    click **opens** rather than toggles (a toggle would collapse the panel when it
+    is already the one showing) and then expands that row (`core-github.md`).
     At the **trailing end** of the same bar, after the branch widget, sits the
     completion on/off switch (T-4): `completionToggleButton`, in the existing
     `bottomBarButton` idiom (plain button style, accent tint when active,
@@ -216,8 +221,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     satisfied — the child cannot make the slot grow, so its only available outcome
     is to overflow, over the divider above and the bottom bar below. The three
     former `.frame(minHeight:)` modifiers at the call site (Log's 160, Changes'
-    and Problems' 120) are deleted for that reason — and `UsagesPanelView`, added
-    later, states none anywhere, for exactly this rule; Log's 160 was the visible
+    and Problems' 120) are deleted for that reason — and `UsagesPanelView` and
+    `PullRequestsPanelView`, both added later, state none anywhere, for exactly
+    this rule; Log's 160 was the visible
     bleed, spilling at any dragged height between the 120 floor and it, in a large
     window with the editor nowhere near its own minimum. The call site is only
     half of the precondition, though: what lands in the slot is a *view*, and a
@@ -226,7 +232,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     metrics.scaled(120)` on its body — a tie with the floor, so invisible in the
     ordinary case and live on the degenerate path, where it would have slid the
     terminal's tab bar (the only way to switch or close a session) out from under
-    the clip. It is deleted too, and the rule now holds for all five panels in
+    the clip. It is deleted too, and the rule now holds for all six panels in
     their own files. The *guarantee* is `.clipped()` on the column,
     **pinned to the area first** — `.frame(width: geo.size.width, height:
     geo.size.height, alignment: .topLeading)` — because `.clipped()` clips a view
@@ -330,8 +336,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `LocalChangesView(model: localChanges, projectRoot:, onRevert:, onOpenDiff:)`
     rendered as the file list only (the diff opens in a separate window on
     double-click via `onOpenDiff`), `.problems` → `ProblemsPanelView(model:
-    diagnostics, projectRoot:, onActivate:)` and `.usages` →
-    `UsagesPanelView(model: usages, onActivate:)` — full entries below. The
+    diagnostics, projectRoot:, onActivate:)`, `.usages` →
+    `UsagesPanelView(model: usages, onActivate:)` and `.pullRequests` →
+    `PullRequestsPanelView(model:coordinator:)`, both read off the
+    `PullRequestCoordinator` this view takes from the **environment** rather than
+    as a parameter — `DatabaseViewerHost`'s arrangement, and for its reason: this
+    view only routes to the feature's two surfaces, and `PisakaApp.swift` is at
+    its measured `file_length` ceiling with no line to spend threading a
+    parameter straight through (`core-github.md`) — full entries below. The
     diagnostics model is optional here (`nil` in previews/tests), and a throwaway
     default would both allocate per body evaluation and never update, so the nil
     branch renders the same empty state a real model shows before any server has

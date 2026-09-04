@@ -32,6 +32,16 @@ do — is in [`docs/FEATURES.md`](docs/FEATURES.md).
   revert, a commit dialog with per-line selection and amend, a 3-pane
   merge-conflict resolver, a Git Log with branch graph and filters, a branch
   switcher, and git blame in the editor gutter. All through your own `git`.
+- **GitHub pull requests (macOS)** — a Pull Requests panel in the bottom dock
+  (Cmd+Shift+R) listing this repository's open pull requests with author,
+  `head → base`, draft and review state and a live checks summary; expand a row
+  for its per-job checks and their links, check one out, or open it in the
+  browser. **New Pull Request** pushes the branch first (publishing it if it has
+  no upstream), then opens the pull request into the base it named. An indicator
+  beside the branch switcher shows `#N` and the checks state for the branch you
+  are on. All through your own `gh` — Pisaka holds no token and never talks to
+  GitHub itself; if `gh` is missing, too old or signed out, the panel says so and
+  prints the one command that fixes it.
 - **Embedded terminal** — multiple shell tabs themed with the app; **Run
   File** (Cmd+R) and **Run Test** (Cmd+U) reuse dedicated tabs, with the test
   runner detected from the project's config files.
@@ -41,11 +51,11 @@ do — is in [`docs/FEATURES.md`](docs/FEATURES.md).
 - **Autosave & sessions** — automatic saving (idle, tab switch, focus loss,
   quit) and per-project session restore, including hot exit for "Untitled"
   buffers.
-- **Local History** — every save, and every file one of the app's seven
-  worktree-rewriting operations (including Rename) is about to overwrite, is
-  snapshotted locally; browse a file's
-  revisions, diff them against what it holds now and restore one
-  (Cmd+Shift+H). 14 days or 30 revisions per file, independent of git.
+- **Local History** — every save, and every file one of the app's eight
+  worktree-rewriting operations (including Rename and a pull request checkout)
+  is about to overwrite, is snapshotted locally; browse a file's revisions, diff
+  them against what it holds now and restore one (Cmd+Shift+H). 14 days or 30
+  revisions per file, independent of git.
 - **Database viewer (macOS)** — open a `.sqlite`, `.sqlite3` or `.db` file from
   the project tree and get a tab that lists its tables and views, shows the
   selected one's schema, and pages through its rows with click-to-sort headers.
@@ -85,8 +95,10 @@ do — is in [`docs/FEATURES.md`](docs/FEATURES.md).
 
 ## Install
 
-Requires macOS 13+. The git features use your own `git` CLI; the language
-servers are optional — Xcode unlocks Swift, a Go/Rust toolchain unlocks
+Requires macOS 13+. The git features use your own `git` CLI; the Pull Requests
+panel uses GitHub's own `gh` (2.50.0 or newer, signed in — `brew install gh`,
+then `gh auth login`), and says so with the exact command when it is missing;
+the language servers are optional — Xcode unlocks Swift, a Go/Rust toolchain unlocks
 `gopls`/`rust-analyzer`, and TypeScript/JavaScript, Python and YAML come as
 one-time downloads you explicitly accept.
 
@@ -98,8 +110,9 @@ one-time downloads you explicitly accept.
 
 Updates install themselves afterwards. Nothing phones home besides the update
 check (consent asked once, nothing about you or your projects is sent);
-git remotes, server downloads and LeetCode touch the network only when you
-use them — the one exception, stated in its consent prompt, is the YAML
+git remotes, server downloads, the Pull Requests panel (through your own `gh`,
+on the events that refresh it — never on a timer) and LeetCode touch the network
+only when you use them — the one exception, stated in its consent prompt, is the YAML
 server fetching JSON schemas while it runs.
 
 ## Keyboard Shortcuts
@@ -134,6 +147,7 @@ server fetching JSON schemas while it runs.
 | Cmd+Shift+C | Show/Hide the Local Changes panel          |
 | Cmd+Shift+M | Show/Hide the Problems panel               |
 | Cmd+Shift+U | Show/Hide the Usages panel                 |
+| Cmd+Shift+R | Show/Hide the Pull Requests panel          |
 | Cmd+Shift+H | Local History for the active file          |
 | Cmd+,       | Preferences                                |
 | Cmd+= / Cmd+− / Cmd+0 | Zoom in / out / reset the zone under the pointer |
