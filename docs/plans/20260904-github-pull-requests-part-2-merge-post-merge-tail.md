@@ -419,10 +419,13 @@ visible where the reader is looking.
 
 ### Task 10: Verify acceptance criteria
 
-- [ ] `swift test` green
-- [ ] `swiftlint --strict` clean from the repository root
-- [ ] `xcodegen generate`, then the macOS build and the iOS build both green
-- [ ] confirm no wall-clock time was added to the suite by the wait's tests
+- [x] `swift test` green — 5027 tests, 0 failures, 40.2 s
+- [x] `swiftlint --strict` clean from the repository root — 0 violations in 498 files (SwiftLint 0.65.1)
+- [x] `xcodegen generate`, then the macOS build and the iOS build both green — macOS
+      `-configuration Release` and iOS `generic/platform=iOS` both `** BUILD SUCCEEDED **`
+- [x] confirm no wall-clock time was added to the suite by the wait's tests — the three
+      merge suites run 86 tests in 0.025 s, slowest single test 0.003 s, so the wait's
+      `sleep` seam is never a real sleep
 
 ## Post-Completion (manual, by the user)
 
