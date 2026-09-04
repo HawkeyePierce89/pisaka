@@ -464,7 +464,12 @@ private struct PullRequestRow: View {
                     .font(metrics.scaledFont(.caption))
                     .buttonStyle(.plain)
                     .foregroundStyle(Color.accentColor)
-                    .help("Stop waiting. Nothing will be merged.")
+                    // Not "nothing will be merged": `PullRequestMergeWait`
+                    // publishes the merged ending past a moved token on purpose,
+                    // because a Cancel pressed while `gh pr merge` is already in
+                    // flight cannot un-send it — and that merge still owes its
+                    // post-merge tail. The sentence says what the press does.
+                    .help("Stop waiting. A merge already sent will still finish.")
             }
         } else {
             Button("Merge", action: onMerge)

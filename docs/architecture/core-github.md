@@ -810,12 +810,15 @@ Two orderings inside that table are load-bearing:
   for the whole time that check is running, so reading the merge state first would
   stop a wait on "GitHub's rules are blocking the merge" in exactly the state the
   wait exists to sit through.
-- **a draft is decided from `isDraft` alone.** `DRAFT` is still a member of
-  GitHub's `mergeStateStatus` enum but is deprecated in favour of `isDraft` and no
-  longer emitted, so a draft answers `BLOCKED` there — a sentence about the
-  repository rather than about this pull request. The table's seven cases are the
-  seven values that actually arrive, and the eighth is refused like any other word
-  the table does not know.
+- **a draft is one refusal reached two ways.** `isDraft` is the field made for the
+  question and is what a draft answers today; `DRAFT` is still a *declared* member
+  of GitHub's `mergeStateStatus` enum — deprecated in favour of `isDraft`, never
+  removed — so `GitHubMergeStateStatus` carries all eight and this refusal is
+  reached from either. The table is closed and this field rides on **every** row of
+  `pr list`, so refusing the deprecated word would take the whole list down — no
+  rows, no indicator, no Checkout, no Create — over a field that gates one button.
+  Carrying the declared member costs a line; omitting it bets the panel on a
+  deprecation notice.
 
 Each refusal answers **two questions of its own**, so nothing re-derives them:
 `isArmable` (may a wait be armed here — `checksRunning` and nothing else) and

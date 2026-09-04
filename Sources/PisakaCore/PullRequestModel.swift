@@ -1485,11 +1485,21 @@ public final class PullRequestModel: ObservableObject {
         // falls back to what the sheet said — that is the state whose sentence
         // the reader agreed to — rather than refusing a merge that does not
         // depend on it.
+        //
+        // **And only when the sheet said it about *this* pull request.**
+        // ``mergePlan`` is one slot that ``dismissMerge()`` deliberately does not
+        // clear, so on the wait's path — no sheet open, possibly another row's
+        // sheet opened and closed since the arm — an unguarded fallback would
+        // decide a branch switch and a pull from a reading that was never about
+        // this merge. Unmatched, the tail is simply not owed: skipping it costs a
+        // switch the reader can make, while mis-deciding it moves the worktree.
         let checkedOutBranch: String?
         do {
             checkedOutBranch = try await gitService.currentBranch(root: root)?.shortName
         } catch {
-            checkedOutBranch = mergePlan?.checkedOutBranch
+            checkedOutBranch = mergePlan.flatMap {
+                $0.pullRequest.number == number ? $0.checkedOutBranch : nil
+            }
         }
 
         let plan = GitHubMergePlan.plan(

@@ -159,14 +159,17 @@ public enum GitHubMergeability: String, CaseIterable, Sendable {
 /// summary is separately, and more precisely, consulted about. Both are allowed
 /// by ``GitHubMergePlan`` only *together with* a summary that is green.
 ///
-/// Seven values, and the eighth GitHub's own enum still carries — `DRAFT` — is
-/// deliberately absent. It is **deprecated rather than removed**: the value is
-/// still a member of GitHub's `MergeStateStatus`, marked deprecated in favour of
-/// `isDraft` with a removal date long past, and GitHub does not emit it — a draft
-/// answers `BLOCKED` here while saying it is a draft in the field made for it. So
-/// the table refusing `DRAFT` is the honest reading of what actually arrives
-/// (`pr-list-unknown-merge-state.json` pins exactly that), and the draft refusal
-/// is decided from `isDraft` alone.
+/// **Eight values: every member GitHub's `MergeStateStatus` declares**, `DRAFT`
+/// included. That value is *deprecated* — in favour of `isDraft`, with a removal
+/// date long past — but deprecated is not removed, and the table is closed: a
+/// value it does not know throws, and this field travels on **every** row of
+/// `pr list`, so one draft pull request answering the word GitHub still declares
+/// would take the whole list down — no rows, no indicator, no Checkout, no
+/// Create — over a field that only gates one button. Carrying the declared
+/// member costs a line; omitting it bets the panel on a deprecation notice.
+///
+/// It changes no decision: ``GitHubMergePlan`` decides a draft from `isDraft`
+/// first, and this value reaches the same refusal rather than a second sentence.
 public enum GitHubMergeStateStatus: String, CaseIterable, Sendable {
     /// The merge commit cannot be cleanly created.
     case dirty = "DIRTY"
@@ -181,6 +184,9 @@ public enum GitHubMergeStateStatus: String, CaseIterable, Sendable {
     case unstable = "UNSTABLE"
     /// Mergeable, and the repository has pre-receive hooks.
     case hasHooks = "HAS_HOOKS"
+    /// Merging is blocked because the pull request is a draft — GitHub's
+    /// deprecated spelling of what `isDraft` says in the field made for it.
+    case draft = "DRAFT"
     /// Mergeable, with passing checks and no rule standing in the way.
     case clean = "CLEAN"
 }

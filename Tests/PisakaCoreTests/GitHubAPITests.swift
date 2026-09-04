@@ -227,16 +227,55 @@ final class GitHubAPITests: XCTestCase {
         }
     }
 
-    /// The fixture's value is `DRAFT` on purpose — a value GitHub's own enum still
-    /// carries but no longer emits, deprecated in favour of `isDraft` rather than
-    /// removed. The table has seven cases rather than eight because a draft
-    /// answers `BLOCKED` and says it is a draft in `isDraft`, which is where the
-    /// draft refusal is decided from.
+    /// The fixture's value is a word GitHub declares nowhere, deliberately *not*
+    /// `DRAFT`: the table carries every member `MergeStateStatus` declares, the
+    /// deprecated one included, so `DRAFT` is a value that reads rather than one
+    /// that refuses (`testTheDeprecatedDraftMergeStateReadsAsADraftRefusal`).
     func testUnknownMergeStateStatusNamesItsKeyPath() throws {
         let json = try fixture("pr-list-unknown-merge-state.json")
-        assertSchemaError(.unknownValue(keyPath: "pr list[0].mergeStateStatus", value: "DRAFT")) {
+        assertSchemaError(
+            .unknownValue(keyPath: "pr list[0].mergeStateStatus", value: "PERHAPS_CLEAN")
+        ) {
             _ = try GitHubAPI.pullRequests(fromListJSON: json)
         }
+    }
+
+    /// `DRAFT` is deprecated in GitHub's own enum but never removed, and this
+    /// field rides on **every** row of `pr list` — so refusing the word would
+    /// discard the whole list (the panel, the indicator, Checkout and Create)
+    /// over a field that gates one button. It reads, and it reaches the draft
+    /// refusal rather than a second sentence.
+    func testTheDeprecatedDraftMergeStateReadsAsADraftRefusal() throws {
+        XCTAssertEqual(GitHubMergeStateStatus(rawValue: "DRAFT"), .draft)
+        let plan = GitHubMergePlan.plan(
+            pullRequest: GitHubPullRequest(
+                number: 7,
+                title: "A draft",
+                authorLogin: "octocat",
+                headRefName: "feature",
+                baseRefName: "main",
+                isDraft: false,
+                reviewDecision: .none,
+                url: "https://github.com/o/r/pull/7",
+                state: GitHubPullRequest.openState,
+                summary: .success,
+                headRefOid: "abc",
+                mergeable: .mergeable,
+                mergeStateStatus: .draft
+            ),
+            repository: GitHubRepository(
+                nameWithOwner: "o/r",
+                defaultBranch: "main",
+                mergeCommitAllowed: true,
+                squashMergeAllowed: true,
+                rebaseMergeAllowed: true,
+                viewerDefaultMergeMethod: .merge,
+                deleteBranchOnMerge: false
+            ),
+            checkedOutBranch: nil
+        )
+        XCTAssertEqual(plan.refusal, .draft)
+        XCTAssertFalse(plan.canMerge)
     }
 
     /// Every value of both tables, so the closed set is asserted rather than

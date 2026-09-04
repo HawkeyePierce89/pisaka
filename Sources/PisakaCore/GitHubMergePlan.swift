@@ -18,10 +18,13 @@ public enum GitHubMergeRefusal: String, CaseIterable, Equatable, Sendable {
 
     /// The pull request is a draft.
     ///
-    /// Decided from `isDraft` alone, never from `mergeStateStatus`: GitHub
-    /// deprecated `DRAFT` in that enum in favour of `isDraft` and no longer emits
-    /// it, so a draft answers `BLOCKED` there — which is a sentence about the
-    /// repository's rules rather than about this pull request's state.
+    /// Decided from `isDraft` **or** GitHub's deprecated `DRAFT` merge state, and
+    /// the two are one refusal rather than two: `isDraft` is the field made for
+    /// the question and is what a draft answers today, while `DRAFT` is still a
+    /// declared member of `MergeStateStatus` that the table therefore carries.
+    /// Reaching this case from either is what keeps the second spelling from
+    /// falling through to ``blocked`` — a sentence about the repository's rules
+    /// rather than about this pull request's state.
     case draft
 
     /// The diff no longer applies — `CONFLICTING`, or a `DIRTY` merge state.
@@ -193,7 +196,7 @@ public struct GitHubMergePlan: Equatable, Sendable {
     /// and the rest is written most-specific-first so the sentence names the
     /// thing the reader can act on.
     public var refusal: GitHubMergeRefusal? {
-        if pullRequest.isDraft { return .draft }
+        if pullRequest.isDraft || pullRequest.mergeStateStatus == .draft { return .draft }
         if pullRequest.mergeable == .conflicting || pullRequest.mergeStateStatus == .dirty {
             return .conflicts
         }
