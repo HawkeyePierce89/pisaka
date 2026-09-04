@@ -161,28 +161,28 @@ so they cannot disagree.
 - Create: `Sources/PisakaCore/GitHubMergePlan.swift`
 - Create: `Tests/PisakaCoreTests/GitHubMergePlanTests.swift`
 
-- [ ] the enabled rule: not a draft, `mergeable == MERGEABLE`, `mergeStateStatus` in
+- [x] the enabled rule: not a draft, `mergeable == MERGEABLE`, `mergeStateStatus` in
       `CLEAN`/`HAS_HOOKS`/`UNSTABLE`, and the checks summary `success` or `noChecks`;
       every other combination is a typed refusal carrying the sentence shown (draft,
       conflicts, blocked by GitHub's rules, behind the base, checks still running,
       checks failed, and `UNKNOWN` mergeability's "GitHub has not finished computing
       mergeability — refresh")
-- [ ] each refusal answers **two properties of its own**, so no other file re-derives
+- [x] each refusal answers **two properties of its own**, so no other file re-derives
       them: `isArmable` (may a wait be armed from this state — checks still running
       alone) and `mayResolveByWaiting` (checks still running **and** unknown
       mergeability — the two states a later tick can leave); everything else is a state
       waiting cannot change
-- [ ] the allowed merge methods (from the repository's three flags, in a stated order),
+- [x] the allowed merge methods (from the repository's three flags, in a stated order),
       the default (the viewer's, falling back to the first allowed), and "exactly one
       allowed ⇒ no picker" as a property of the plan
-- [ ] the sheet's stated lines: the pre-filled subject `<title> (#N)`, the
+- [x] the sheet's stated lines: the pre-filled subject `<title> (#N)`, the
       `deleteBranchOnMerge` line when GitHub has it on, and the tail line — "After
       merging, Pisaka will switch to “<base>” and pull it" when the head is the
       checked-out branch, nothing when it is not
-- [ ] write tests for this task: the enabled rule across every combination of the four
+- [x] write tests for this task: the enabled rule across every combination of the four
       inputs, each refusal's sentence, `isArmable`/`mayResolveByWaiting` per refusal,
       the method list/default/no-picker rule, and the subject/notes/tail sentences
-- [ ] run `swift test` — must pass before Task 3
+- [x] run `swift test` — must pass before Task 3
 
 ### Task 3: The merge write in `PullRequestModel`
 

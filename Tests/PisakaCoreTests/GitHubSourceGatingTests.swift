@@ -67,14 +67,15 @@ final class GitHubSourceGatingTests: XCTestCase {
     // MARK: - The feature's files
 
     /// The Core half. Everything that decides anything: the seam values, the
-    /// argument vocabulary, the one schema file, the availability decision and
-    /// the model.
+    /// argument vocabulary, the one schema file, the availability decision, the
+    /// two sheets' pure halves and the model.
     private static let expectedCoreFiles: Set<String> = [
         "GitHubAPI.swift",
         "GitHubAvailability.swift",
         "GitHubCLI.swift",
         "GitHubCommands.swift",
         "GitHubCreatePlan.swift",
+        "GitHubMergePlan.swift",
         "GitHubPullRequest.swift",
         "GitHubVersion.swift",
         "PullRequestModel.swift",
