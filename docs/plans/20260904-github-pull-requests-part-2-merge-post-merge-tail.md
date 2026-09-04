@@ -277,20 +277,20 @@ answer is the whole decision table:
 - Modify: `Tests/PisakaCoreTests/GitErrorTests.swift`,
   `Tests/PisakaCoreTests/LocalHistorySnapshotTests.swift`
 
-- [ ] `func pull(root: URL) async throws`, documented as `--ff-only` and nothing else,
+- [x] `func pull(root: URL) async throws`, documented as `--ff-only` and nothing else,
       defaulted in the protocol extension to `throw GitError.gitUnavailable` (iOS is
       left at the default: libgit2 gains nothing in this part)
-- [ ] a `GitError.pullFailed(reason:)` case carrying git's own words, with its
+- [x] a `GitError.pullFailed(reason:)` case carrying git's own words, with its
       `errorDescription`
-- [ ] `GitCLIService.pull` — `["pull", "--ff-only"]` on the serial queue under
+- [x] `GitCLIService.pull` — `["pull", "--ff-only"]` on the serial queue under
       `GIT_TERMINAL_PROMPT=0`, git's trimmed stderr as the reason
-- [ ] `LocalHistoryEvent.pull` with the lowercase tag `pull` and its own title
+- [x] `LocalHistoryEvent.pull` with the lowercase tag `pull` and its own title
       ("Before Pull"), stated as its own event rather than `branch`
-- [ ] write tests for this task: in `GitErrorTests` — the new case's sentence and that
+- [x] write tests for this task: in `GitErrorTests` — the new case's sentence and that
       the protocol default throws `gitUnavailable` (the suite that already asserts the
       defaults); in `LocalHistorySnapshotTests` — the event's tag round-trip plus the
       `allCases` coverage that suite already asserts
-- [ ] run `swift test` — must pass before Task 6
+- [x] run `swift test` — must pass before Task 6
 
 ### Task 6: The bracket, the tail, and the coordinator's orchestration
 

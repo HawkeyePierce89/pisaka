@@ -256,6 +256,27 @@ public protocol GitServicing {
     /// `throw GitError.gitUnavailable`.
     func push(_ plan: PushPlan, root: URL) async throws
 
+    /// Fast-forward the checked-out branch from its upstream: `git pull --ff-only`
+    /// in `root`, **and nothing else**.
+    ///
+    /// `--ff-only` is the whole contract, not a default this call could be talked
+    /// out of. The one caller is the post-merge tail, which has just switched to
+    /// the base branch of a pull request GitHub merged, so the only honest outcome
+    /// is "advance to what the remote already has". Anything else a plain `pull`
+    /// would do — a merge commit, a rebase, a conflicted worktree — would be this
+    /// feature writing history nobody asked for, inside a writer bracket, on a
+    /// branch the user has not looked at yet. A branch that cannot fast-forward is
+    /// a state to *report*, and git's refusal names the divergence.
+    ///
+    /// No remote or refspec is named: the checked-out branch's upstream is git's
+    /// own answer, and naming one here would let this call pull a branch the tail
+    /// never switched to. A non-zero exit throws `GitError.pullFailed(reason:)`
+    /// carrying git's own words. Defaulted in a protocol extension to
+    /// `throw GitError.gitUnavailable` so every existing stub keeps compiling —
+    /// and iOS is deliberately left at that default: the post-merge tail is macOS
+    /// only, and libgit2 gains nothing from a fast-forward it has no caller for.
+    func pull(root: URL) async throws
+
     /// Blame the file at `fileURL`, returning one entry per line of the file in
     /// final-line order (`nil` where the output carried no data for that line).
     ///
@@ -334,6 +355,8 @@ public extension GitServicing {
     }
 
     func push(_ plan: PushPlan, root: URL) async throws { throw GitError.gitUnavailable }
+
+    func pull(root: URL) async throws { throw GitError.gitUnavailable }
 }
 
 /// A `revert` failure that also reports which repo-relative paths it had already

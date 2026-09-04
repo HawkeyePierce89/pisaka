@@ -34,6 +34,12 @@ public enum GitError: Error, Equatable {
     /// state the dialog has to report as such — the work is not lost and must not
     /// be retried as a commit.
     case pushFailed(reason: String)
+    /// A `pull --ff-only` failed. Deliberately a separate case from `fetchFailed`:
+    /// the commonest refusal here is not a network failure at all but git declining
+    /// to fast-forward (the local branch has diverged from its upstream), and the
+    /// post-merge tail reports that as its own step rather than as a failed merge.
+    /// `reason` carries git's own words, which name the divergence.
+    case pullFailed(reason: String)
     /// A network operation needs a Personal Access Token for `host` that is not
     /// stored (Part B, iOS HTTPS fetch of a private repo). The view layer directs
     /// the user to add one in Settings.
@@ -62,6 +68,8 @@ extension GitError: LocalizedError {
         case .commitFailed(let reason):
             return reason
         case .pushFailed(let reason):
+            return reason
+        case .pullFailed(let reason):
             return reason
         case .credentialsRequired(let host):
             return "Add a Personal Access Token for \(host) in Settings."

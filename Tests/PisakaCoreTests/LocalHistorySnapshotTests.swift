@@ -19,7 +19,10 @@ final class LocalHistorySnapshotTests: XCTestCase {
     func testTheTagSetIsExactlyTheDocumentedVocabulary() {
         XCTAssertEqual(
             Set(LocalHistoryEvent.allCases.map(\.tag)),
-            ["save", "replace", "revert", "merge", "branch", "commit", "restore", "rename", "pullrequest"]
+            [
+                "save", "replace", "revert", "merge", "branch",
+                "commit", "restore", "rename", "pullrequest", "pull",
+            ]
         )
     }
 
@@ -32,6 +35,14 @@ final class LocalHistorySnapshotTests: XCTestCase {
             XCTAssertFalse(event.tag.isEmpty)
             XCTAssertEqual(event.tag, event.tag.lowercased())
         }
+    }
+
+    /// `pull` and `pullrequest` are two events whose tags share a prefix; the tag
+    /// is matched whole, so neither can be read back as the other.
+    func testPullAndPullRequestAreTwoEventsAndNeitherPrefixMatchesTheOther() {
+        XCTAssertEqual(LocalHistoryEvent(tag: "pull"), .pull)
+        XCTAssertEqual(LocalHistoryEvent(tag: "pullrequest"), .pullRequest)
+        XCTAssertNotEqual(LocalHistoryEvent.pull, .pullRequest)
     }
 
     func testAnUnknownTagIsNotAnEvent() {
@@ -58,6 +69,7 @@ final class LocalHistorySnapshotTests: XCTestCase {
         XCTAssertEqual(LocalHistoryEvent.restore.title, "Before Restore")
         XCTAssertEqual(LocalHistoryEvent.rename.title, "Before Rename")
         XCTAssertEqual(LocalHistoryEvent.pullRequest.title, "Before Pull Request Checkout")
+        XCTAssertEqual(LocalHistoryEvent.pull.title, "Before Pull")
     }
 
     /// Only `save` records something that happened; every other event records

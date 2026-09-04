@@ -1130,6 +1130,31 @@ struct GitCLIService: GitServicing {
         }
     }
 
+    /// Fast-forward the checked-out branch from its upstream via
+    /// `git pull --ff-only`.
+    ///
+    /// Exactly those two arguments: no remote, no refspec, no rebase, no merge
+    /// fallback (see `GitServicing.pull(root:)` for why `--ff-only` is the
+    /// contract rather than a preference). `GIT_TERMINAL_PROMPT=0` for the reason
+    /// `push` sets it — this is the other command here that routinely reaches the
+    /// network, and a credential prompt nothing can answer would wedge this
+    /// service's serial queue and with it every other git read in the app.
+    ///
+    /// A non-zero exit throws `GitError.pullFailed(reason:)` carrying git's own
+    /// words, which name the divergence when the branch cannot fast-forward.
+    func pull(root: URL) async throws {
+        let result = try await run(
+            ["pull", "--ff-only"],
+            in: root,
+            environment: ["GIT_TERMINAL_PROMPT": "0"]
+        )
+        guard result.exitCode == 0 else {
+            throw GitError.pullFailed(
+                reason: failureReason(result, fallback: "Could not pull from the remote.")
+            )
+        }
+    }
+
     /// One step against the throw-away index, failing the whole commit with git's
     /// own output on a non-zero exit.
     private func indexStep(
