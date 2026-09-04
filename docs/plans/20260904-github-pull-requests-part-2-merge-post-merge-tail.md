@@ -244,27 +244,27 @@ answer is the whole decision table:
 - Modify: `Sources/PisakaCore/PullRequestModel.swift`
 - Create: `Tests/PisakaCoreTests/PullRequestMergeWaitTests.swift`
 
-- [ ] named constants `pollInterval = 30` and `deadline = 30 * 60`, an injectable `now`
+- [x] named constants `pollInterval = 30` and `deadline = 30 * 60`, an injectable `now`
       clock and an injectable `sleep` seam, and a generation token checked after every
       suspension
-- [ ] one armed wait per repository: what is armed (number, title, method, subject,
+- [x] one armed wait per repository: what is armed (number, title, method, subject,
       body, the head the arm was made against), the elapsed time published at each poll
       tick — the sheet and the row read it, and no view runs a clock of its own
-- [ ] exactly four endings: the merge running (the enabled branch above), a stop the
+- [x] exactly four endings: the merge running (the enabled branch above), a stop the
       plan named (a failing check, or a refusal waiting cannot change, or a row no
       longer open), the deadline, and cancellation — Cancel, a project switch, quit,
       arming another wait
-- [ ] the head guard needs no rule of its own: `--match-head-commit` carries the head
+- [x] the head guard needs no rule of its own: `--match-head-commit` carries the head
       read on the same tick, so a push landing between that read and the merge is
       GitHub's refusal in GitHub's words, which stops the wait and shows them
-- [ ] while armed, other rows' Merge buttons are disabled; reads, Checkout and Create
+- [x] while armed, other rows' Merge buttons are disabled; reads, Checkout and Create
       stay available, and `isWriteInFlight` is raised only for the merge itself
-- [ ] write tests for this task: the two constants, the sleep as a seam (no wall clock
+- [x] write tests for this task: the two constants, the sleep as a seam (no wall clock
       in the suite), each of the four endings, that no tick composes a `pr checks`
       command, a poll invalidated in flight by a moved token, the plan-driven table
       above tick by tick (keep-waiting vs. stop-with-this-sentence), and the merge
       carrying the tick's head plus `gh`'s refusal when the head moved after that read
-- [ ] run `swift test` — must pass before Task 5
+- [x] run `swift test` — must pass before Task 5
 
 ### Task 5: `GitServicing.pull` and `LocalHistoryEvent.pull`
 

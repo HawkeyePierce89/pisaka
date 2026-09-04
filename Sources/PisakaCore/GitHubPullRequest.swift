@@ -292,7 +292,19 @@ public struct GitHubPullRequest: Equatable, Sendable, Identifiable {
     /// list this app runs already carries `--state open`, so the value is a
     /// constant in practice and a sixth closed vocabulary would be five cases of
     /// ceremony guarding a filter that is on the command line.
+    ///
+    /// It is read exactly once, against ``openState``: `pr view <n>` — the merge
+    /// wait's one read — is addressed by number rather than filtered by state, so
+    /// it is the one command in this feature that can answer for a pull request
+    /// somebody else has just merged or closed.
     public let state: String
+
+    /// The one value of ``state`` this app ever compares against.
+    ///
+    /// A constant rather than a table, for the field's own reason: two callers
+    /// spelling `"OPEN"` by hand is the accident a table would be over-built to
+    /// prevent, and one of them is a wait whose ending depends on it.
+    public static let openState = "OPEN"
     /// The rollup, collapsed by ``GitHubChecksSummary/summarise(_:)``.
     public let summary: GitHubChecksSummary
     /// The head branch's commit SHA **as this row was read**.

@@ -1,0 +1,593 @@
+import XCTest
+@testable import PisakaCore
+
+/// *Merge when checks pass* — the bounded, visible, cancelable wait (G14).
+///
+/// Four properties carry the suite:
+///
+/// - **No wall clock.** The interval and the deadline are named constants, the
+///   sleep is one injectable seam and the clock is another, so the whole state
+///   machine — including a deadline sixty ticks deep — is exercised in
+///   microseconds. Every test here asserts the *sleeps* rather than measuring
+///   time, and a wait that reached a real `Task.sleep` would hang the suite
+///   rather than pass it slowly.
+/// - **One rule, one table.** Every tick is decided by `GitHubMergePlan` from a
+///   row read by number, and `pr checks` is asserted **absent** from the call
+///   log — a wait deciding "green" from the jobs table would hand a merge to a
+///   plan that refuses it.
+/// - **Exactly four endings**, each asserted as a published value *and* as what
+///   did or did not reach the transport: a stop that still sent `pr merge` is
+///   not a stop.
+/// - **The head is this tick's.** `--match-head-commit` is asserted against the
+///   oid the *poll* answered, not the one the arm was made with, which is the
+///   only reason a push landing mid-wait is GitHub's refusal rather than a merge
+///   of something nobody read.
+@MainActor
+final class PullRequestMergeWaitTests: XCTestCase {
+
+    private let root = URL(fileURLWithPath: "/tmp/pisaka-github")
+
+    // MARK: - Stubs
+
+    /// A clock the sleep seam winds forward, so "half an hour passed" is sixty
+    /// function calls rather than half an hour.
+    private final class StubClock {
+        var date = Date(timeIntervalSince1970: 1_700_000_000)
+        var read: () -> Date { { [self] in date } }
+    }
+
+    private final class StubGit: GitServicing {
+        var branch: String? = "feature"
+
+        func repositoryRoot(for url: URL) async throws -> URL { url }
+        func changedFiles(root: URL) async throws -> [ChangedFile] { [] }
+        func commits(filter: LogFilter, limit: Int, root: URL) async throws -> [Commit] { [] }
+        func headContents(of path: String, root: URL) async throws -> String? { nil }
+        func revert(_ file: ChangedFile, root: URL) async throws {}
+
+        func currentBranch(root: URL) async throws -> BranchRef? {
+            guard let branch, !branch.isEmpty else { return nil }
+            return BranchRef(
+                name: "refs/heads/\(branch)",
+                isRemote: false,
+                remoteName: nil,
+                shortName: branch,
+                isCurrent: true
+            )
+        }
+    }
+
+    // MARK: - Rows
+
+    private static let pendingRollup = """
+    [{"__typename":"CheckRun","name":"build","workflowName":"CI",
+    "status":"IN_PROGRESS","conclusion":"","detailsUrl":"https://x"}]
+    """
+
+    private static let failedRollup = """
+    [{"__typename":"CheckRun","name":"build","workflowName":"CI",
+    "status":"COMPLETED","conclusion":"FAILURE","detailsUrl":"https://x"}]
+    """
+
+    private static let passedRollup = """
+    [{"__typename":"CheckRun","name":"build","workflowName":"CI",
+    "status":"COMPLETED","conclusion":"SUCCESS","detailsUrl":"https://x"}]
+    """
+
+    /// One row, as `pr list` prints it — the state a wait is armed from.
+    private static func rowJSON(
+        number: Int = 54,
+        isDraft: Bool = false,
+        head: String = "feature",
+        base: String = "master",
+        oid: String = "abc123",
+        state: String = "OPEN",
+        mergeable: String = "MERGEABLE",
+        mergeState: String = "CLEAN",
+        rollup: String = pendingRollup
+    ) -> String {
+        """
+        {"number":\(number),"title":"A change","author":{"login":"someone"},
+        "headRefName":"\(head)","baseRefName":"\(base)","isDraft":\(isDraft),
+        "reviewDecision":"","url":"https://github.com/o/r/pull/\(number)",
+        "state":"\(state)","statusCheckRollup":\(rollup),
+        "headRefOid":"\(oid)","mergeable":"\(mergeable)","mergeStateStatus":"\(mergeState)"}
+        """
+    }
+
+    /// The same row as `pr view <n>` prints it: one object, not an array.
+    private static func viewJSON(
+        oid: String = "abc123",
+        state: String = "OPEN",
+        isDraft: Bool = false,
+        mergeable: String = "MERGEABLE",
+        mergeState: String = "CLEAN",
+        rollup: String = pendingRollup
+    ) -> GitHubCommandResult {
+        GitHubCommandResult(
+            standardOutput: rowJSON(
+                oid: oid,
+                state: state,
+                mergeable: mergeable,
+                mergeState: mergeState,
+                rollup: rollup
+            ),
+            standardError: "",
+            status: 0
+        )
+    }
+
+    private static let repositoryJSON = """
+    {"nameWithOwner":"o/r","defaultBranchRef":{"name":"master"},
+    "mergeCommitAllowed":true,"squashMergeAllowed":true,"rebaseMergeAllowed":true,
+    "viewerDefaultMergeMethod":"SQUASH","deleteBranchOnMerge":false}
+    """
+
+    // MARK: - The harness
+
+    private var viewCommand: GitHubCommand { GitHubCommands.pullRequest(number: 54, root: root) }
+
+    private func mergeArguments(
+        oid: String,
+        method: GitHubMergeMethod = .squash,
+        subject: String = "A change (#54)",
+        body: String = ""
+    ) -> [String] {
+        GitHubCommands.mergePullRequest(
+            number: 54,
+            method: method,
+            headRefOid: oid,
+            subject: subject,
+            body: body,
+            root: root
+        ).arguments
+    }
+
+    /// A model refreshed against a signed-in `gh` showing one row whose checks
+    /// are still running — the one state a wait may be armed from — with its
+    /// merge sheet prepared over it.
+    private func armedModel(
+        _ cli: ScriptedGitHubCLI,
+        clock: StubClock,
+        sleeps: SleepLog,
+        list: String? = nil
+    ) async -> PullRequestModel {
+        let root = root
+        cli.serveReady()
+        cli.serve(
+            GitHubCommands.openPullRequests(root: root),
+            stdout: list ?? "[\(Self.rowJSON())]"
+        )
+        for name in ["feature", "master"] {
+            cli.serve(GitHubCommands.pullRequest(forHeadBranch: name, root: root), stdout: "[]")
+        }
+        cli.serve(GitHubCommands.repositoryView(root: root), stdout: Self.repositoryJSON)
+
+        let model = PullRequestModel(transport: cli, gitService: StubGit(), root: { root })
+        await model.refresh(branch: "feature")
+        await model.prepareMerge(number: 54)
+        model.mergeWait.now = clock.read
+        model.mergeWait.sleep = { seconds in
+            sleeps.record(seconds)
+            clock.date.addTimeInterval(seconds)
+        }
+        return model
+    }
+
+    /// Every sleep the wait asked for, which is the suite's whole account of
+    /// elapsed time.
+    private final class SleepLog {
+        private(set) var seconds: [TimeInterval] = []
+        func record(_ value: TimeInterval) { seconds.append(value) }
+    }
+
+    /// Arm the prepared sheet's plan and run the loop to a standstill.
+    @discardableResult
+    private func arm(
+        _ model: PullRequestModel,
+        method: GitHubMergeMethod = .squash,
+        subject: String = "A change (#54)",
+        body: String = ""
+    ) -> Bool {
+        guard let plan = model.mergePlan else { return false }
+        return model.mergeWait.arm(plan: plan, method: method, subject: subject, body: body)
+    }
+
+    private func settle(_ model: PullRequestModel) async {
+        await model.mergeWait.runningTask?.value
+    }
+
+    // MARK: - The two numbers
+
+    func testTheIntervalAndTheDeadlineAreNamedConstants() {
+        XCTAssertEqual(PullRequestMergeWait.pollInterval, 30)
+        XCTAssertEqual(PullRequestMergeWait.deadline, 30 * 60)
+        // The sentence is built from the constant rather than spelling it again,
+        // so the two cannot drift apart.
+        XCTAssertTrue(PullRequestMergeWait.deadlineMessage.contains("30 minutes"))
+    }
+
+    // MARK: - Arming
+
+    func testAWaitIsArmableOnlyWhileChecksAreStillRunning() async {
+        let cli = ScriptedGitHubCLI()
+        let clock = StubClock()
+        let sleeps = SleepLog()
+        let model = await armedModel(cli, clock: clock, sleeps: sleeps)
+
+        XCTAssertEqual(model.mergePlan?.refusal, .checksRunning)
+        XCTAssertTrue(model.mergeWait.arm(plan: model.mergePlan!, method: .squash, subject: "s", body: ""))
+        XCTAssertTrue(model.mergeWait.isArmed)
+        XCTAssertTrue(model.mergeWait.isWaiting(on: 54))
+        XCTAssertFalse(model.mergeWait.isWaiting(on: 55))
+        model.mergeWait.cancel()
+    }
+
+    func testAMergeablePlanAndAFailedOneAreBothUnarmable() async {
+        for rollup in [Self.passedRollup, Self.failedRollup] {
+            let cli = ScriptedGitHubCLI()
+            let clock = StubClock()
+            let sleeps = SleepLog()
+            let model = await armedModel(
+                cli,
+                clock: clock,
+                sleeps: sleeps,
+                list: "[\(Self.rowJSON(rollup: rollup))]"
+            )
+
+            XCTAssertFalse(arm(model), "Only “checks are still running” is a state a reader waits through.")
+            XCTAssertFalse(model.mergeWait.isArmed)
+            XCTAssertNil(model.mergeWait.ending)
+        }
+    }
+
+    func testAMethodTheRepositoryDoesNotAllowIsRefusedBeforeHalfAnHourIsSpent() async {
+        let cli = ScriptedGitHubCLI()
+        let clock = StubClock()
+        let sleeps = SleepLog()
+        cli.serveReady()
+        cli.serve(GitHubCommands.openPullRequests(root: root), stdout: "[\(Self.rowJSON())]")
+        cli.serve(GitHubCommands.pullRequest(forHeadBranch: "feature", root: root), stdout: "[]")
+        cli.serve(
+            GitHubCommands.repositoryView(root: root),
+            stdout: """
+            {"nameWithOwner":"o/r","defaultBranchRef":{"name":"master"},
+            "mergeCommitAllowed":false,"squashMergeAllowed":true,"rebaseMergeAllowed":false,
+            "viewerDefaultMergeMethod":"SQUASH","deleteBranchOnMerge":false}
+            """
+        )
+        let model = PullRequestModel(transport: cli, gitService: StubGit(), root: { self.root })
+        await model.refresh(branch: "feature")
+        await model.prepareMerge(number: 54)
+        model.mergeWait.now = clock.read
+        model.mergeWait.sleep = { seconds in sleeps.record(seconds) }
+
+        XCTAssertFalse(arm(model, method: .rebase))
+        XCTAssertTrue(arm(model, method: .squash))
+        model.mergeWait.cancel()
+    }
+
+    // MARK: - Ending one: the merge
+
+    func testTheWaitMergesOnTheFirstGreenTickAndCarriesThatTicksHead() async {
+        let cli = ScriptedGitHubCLI()
+        let clock = StubClock()
+        let sleeps = SleepLog()
+        let model = await armedModel(cli, clock: clock, sleeps: sleeps)
+        // Two ticks: still running, then green — and the head has moved between
+        // the arm (`abc123`) and the green read.
+        cli.serve(viewCommand, sequence: [
+            Self.viewJSON(),
+            Self.viewJSON(oid: "def456", rollup: Self.passedRollup),
+        ])
+        cli.serve(mergeArguments(oid: "def456"), stdout: "Merged\n")
+
+        var merged: PullRequestModel.MergeOutcome?
+        model.mergeWait.didMerge = { merged = $0 }
+        XCTAssertTrue(arm(model))
+        await settle(model)
+
+        XCTAssertEqual(model.mergeWait.ending, .merged(merged))
+        XCTAssertNil(model.mergeWait.ending?.message)
+        XCTAssertFalse(model.mergeWait.isArmed)
+        XCTAssertEqual(cli.count(for: viewCommand), 2)
+        XCTAssertEqual(sleeps.seconds, [PullRequestMergeWait.pollInterval])
+        // The head guard has no rule of its own: it is whatever the tick read.
+        XCTAssertEqual(cli.count(for: mergeArguments(oid: "def456")), 1)
+        XCTAssertEqual(cli.count(for: mergeArguments(oid: "abc123")), 0)
+        XCTAssertEqual(merged?.number, 54)
+        XCTAssertEqual(merged?.baseBranch, "master")
+        XCTAssertTrue(merged?.isTailOwed == true)
+        XCTAssertNil(model.mergeMessage)
+    }
+
+    func testGitHubsRefusalOfAMovedHeadEndsTheWaitInGitHubsOwnWords() async {
+        let cli = ScriptedGitHubCLI()
+        let clock = StubClock()
+        let sleeps = SleepLog()
+        let model = await armedModel(cli, clock: clock, sleeps: sleeps)
+        cli.serve(viewCommand, Self.viewJSON(oid: "def456", rollup: Self.passedRollup))
+        cli.serve(
+            mergeArguments(oid: "def456"),
+            stderr: "X Pull request #54 is not mergeable: the head commit has changed.",
+            status: 1
+        )
+
+        var merged: PullRequestModel.MergeOutcome?
+        model.mergeWait.didMerge = { merged = $0 }
+        XCTAssertTrue(arm(model))
+        await settle(model)
+
+        // The merge *ran* — that is the ending — and `gh`'s words are where the
+        // reader is looking. No tail is owed for a merge that did not land.
+        XCTAssertEqual(model.mergeWait.ending, .merged(nil))
+        XCTAssertNil(merged)
+        XCTAssertEqual(
+            model.mergeMessage,
+            "X Pull request #54 is not mergeable: the head commit has changed."
+        )
+    }
+
+    // MARK: - Ending two: a stop the plan named
+
+    func testAFailingCheckStopsTheWaitWithThatRefusalsSentence() async {
+        let cli = ScriptedGitHubCLI()
+        let clock = StubClock()
+        let sleeps = SleepLog()
+        let model = await armedModel(cli, clock: clock, sleeps: sleeps)
+        cli.serve(viewCommand, sequence: [
+            Self.viewJSON(),
+            Self.viewJSON(rollup: Self.failedRollup),
+        ])
+
+        XCTAssertTrue(arm(model))
+        await settle(model)
+
+        XCTAssertEqual(model.mergeWait.ending, .stopped(GitHubMergeRefusal.checksFailed.message))
+        XCTAssertEqual(model.mergeWait.ending?.message, "Some checks did not pass.")
+        XCTAssertFalse(model.mergeWait.isArmed)
+        XCTAssertEqual(cli.count(for: mergeArguments(oid: "abc123")), 0)
+    }
+
+    /// The plan-driven table, tick by tick: what a wait sits through, and what it
+    /// stops on — read off `mayResolveByWaiting` rather than restated here.
+    func testEveryRefusalWaitingCannotChangeStopsTheWaitWithItsOwnSentence() async {
+        let states: [(String, String, String, GitHubMergeRefusal)] = [
+            ("CONFLICTING", "DIRTY", Self.passedRollup, .conflicts),
+            ("MERGEABLE", "BEHIND", Self.passedRollup, .behind),
+            ("MERGEABLE", "BLOCKED", Self.passedRollup, .blocked),
+            ("MERGEABLE", "CLEAN", Self.failedRollup, .checksFailed),
+        ]
+        for (mergeable, mergeState, rollup, expected) in states {
+            let cli = ScriptedGitHubCLI()
+            let clock = StubClock()
+            let sleeps = SleepLog()
+            let model = await armedModel(cli, clock: clock, sleeps: sleeps)
+            cli.serve(
+                viewCommand,
+                Self.viewJSON(mergeable: mergeable, mergeState: mergeState, rollup: rollup)
+            )
+
+            XCTAssertTrue(arm(model))
+            await settle(model)
+
+            XCTAssertFalse(expected.mayResolveByWaiting)
+            XCTAssertEqual(model.mergeWait.ending, .stopped(expected.message))
+            XCTAssertEqual(sleeps.seconds, [], "A state waiting cannot change is not slept on.")
+            XCTAssertEqual(cli.count(for: mergeArguments(oid: "abc123")), 0)
+        }
+    }
+
+    func testTheTwoComputingStatesAreSleptThroughRatherThanStoppedOn() async {
+        let cli = ScriptedGitHubCLI()
+        let clock = StubClock()
+        let sleeps = SleepLog()
+        let model = await armedModel(cli, clock: clock, sleeps: sleeps)
+        cli.serve(viewCommand, sequence: [
+            // Checks still running…
+            Self.viewJSON(),
+            // …then mergeability not computed yet…
+            Self.viewJSON(mergeable: "UNKNOWN", mergeState: "UNKNOWN", rollup: Self.passedRollup),
+            // …then green.
+            Self.viewJSON(rollup: Self.passedRollup),
+        ])
+        cli.serve(mergeArguments(oid: "abc123"), stdout: "Merged\n")
+
+        XCTAssertTrue(arm(model))
+        await settle(model)
+
+        XCTAssertTrue(GitHubMergeRefusal.checksRunning.mayResolveByWaiting)
+        XCTAssertTrue(GitHubMergeRefusal.mergeabilityUnknown.mayResolveByWaiting)
+        XCTAssertEqual(cli.count(for: viewCommand), 3)
+        XCTAssertEqual(sleeps.seconds, [30, 30])
+        XCTAssertEqual(cli.count(for: mergeArguments(oid: "abc123")), 1)
+    }
+
+    func testARowThatIsNoLongerOpenStopsTheWaitWithItsOwnSentence() async {
+        let cli = ScriptedGitHubCLI()
+        let clock = StubClock()
+        let sleeps = SleepLog()
+        let model = await armedModel(cli, clock: clock, sleeps: sleeps)
+        cli.serve(
+            viewCommand,
+            Self.viewJSON(state: "MERGED", mergeable: "UNKNOWN", mergeState: "UNKNOWN")
+        )
+
+        XCTAssertTrue(arm(model))
+        await settle(model)
+
+        XCTAssertEqual(model.mergeWait.ending, .stopped(PullRequestMergeWait.noLongerOpenMessage))
+        XCTAssertEqual(cli.count(for: mergeArguments(oid: "abc123")), 0)
+    }
+
+    func testAReadThatCouldNotBeMadeStopsTheWaitInGitHubsWords() async {
+        let cli = ScriptedGitHubCLI()
+        let clock = StubClock()
+        let sleeps = SleepLog()
+        let model = await armedModel(cli, clock: clock, sleeps: sleeps)
+        cli.serve(viewCommand, stderr: "could not resolve to a PullRequest", status: 1)
+
+        XCTAssertTrue(arm(model))
+        await settle(model)
+
+        XCTAssertEqual(model.mergeWait.ending, .stopped("could not resolve to a PullRequest"))
+        XCTAssertEqual(sleeps.seconds, [], "A failing read is reported now, not in half an hour.")
+    }
+
+    // MARK: - Ending three: the deadline
+
+    func testAWaitThatNeverGoesGreenEndsAtTheDeadline() async {
+        let cli = ScriptedGitHubCLI()
+        let clock = StubClock()
+        let sleeps = SleepLog()
+        let model = await armedModel(cli, clock: clock, sleeps: sleeps)
+        cli.serve(viewCommand, Self.viewJSON())
+
+        XCTAssertTrue(arm(model))
+        await settle(model)
+
+        XCTAssertEqual(model.mergeWait.ending, .deadline)
+        XCTAssertEqual(model.mergeWait.ending?.message, PullRequestMergeWait.deadlineMessage)
+        // Sixty sleeps of thirty seconds is the deadline exactly, so the
+        // sixty-first read is the one that finds it spent.
+        XCTAssertEqual(sleeps.seconds.count, 60)
+        XCTAssertEqual(cli.count(for: viewCommand), 61)
+        XCTAssertEqual(model.mergeWait.elapsed, PullRequestMergeWait.deadline)
+        XCTAssertEqual(cli.count(for: mergeArguments(oid: "abc123")), 0)
+        XCTAssertFalse(model.mergeWait.isArmed)
+    }
+
+    // MARK: - Ending four: cancellation
+
+    func testCancellingAPollInFlightPublishesTheCancellationAndNothingElse() async {
+        let cli = ScriptedGitHubCLI()
+        let clock = StubClock()
+        let sleeps = SleepLog()
+        let model = await armedModel(cli, clock: clock, sleeps: sleeps)
+        let gate = Gate()
+        // The green answer is already scripted: if the resumed poll published
+        // anything, it would publish a *merge*, which is the loudest possible
+        // way for this assertion to fail.
+        cli.serve(viewCommand, Self.viewJSON(rollup: Self.passedRollup))
+        cli.serve(mergeArguments(oid: "abc123"), stdout: "Merged\n")
+        cli.hold(viewCommand, on: gate)
+
+        XCTAssertTrue(arm(model))
+        let task = model.mergeWait.runningTask
+        await gate.waitUntilReached()
+        model.mergeWait.cancel()
+        gate.release()
+        await task?.value
+
+        XCTAssertEqual(model.mergeWait.ending, .cancelled)
+        XCTAssertNil(model.mergeWait.ending?.message)
+        XCTAssertFalse(model.mergeWait.isArmed)
+        XCTAssertEqual(cli.count(for: mergeArguments(oid: "abc123")), 0)
+    }
+
+    func testCancellingWithNothingArmedPublishesNoEnding() async {
+        let cli = ScriptedGitHubCLI()
+        let clock = StubClock()
+        let sleeps = SleepLog()
+        let model = await armedModel(cli, clock: clock, sleeps: sleeps)
+
+        model.mergeWait.cancel()
+
+        XCTAssertNil(model.mergeWait.ending)
+    }
+
+    func testArmingASecondWaitCancelsTheFirst() async {
+        let cli = ScriptedGitHubCLI()
+        let clock = StubClock()
+        let sleeps = SleepLog()
+        let model = await armedModel(cli, clock: clock, sleeps: sleeps)
+        let gate = Gate()
+        cli.serve(viewCommand, Self.viewJSON())
+        cli.hold(viewCommand, on: gate, forCall: 0)
+
+        XCTAssertTrue(arm(model))
+        let first = model.mergeWait.runningTask
+        await gate.waitUntilReached()
+        XCTAssertTrue(arm(model, subject: "A second arming (#54)"))
+        let second = model.mergeWait.runningTask
+        XCTAssertNotEqual(first, second, "The second arming is a second loop, not a re-entry into the first.")
+        gate.release()
+        await first?.value
+
+        // The first loop resumed into a moved token and published nothing: the
+        // armed state is the second arming's, and no ending was recorded for a
+        // wait that was replaced.
+        XCTAssertEqual(model.mergeWait.armed?.subject, "A second arming (#54)")
+        XCTAssertNil(model.mergeWait.ending)
+        model.mergeWait.cancel()
+        await second?.value
+    }
+
+    // MARK: - What a wait may not do
+
+    func testNoTickEverComposesAChecksCommand() async {
+        let cli = ScriptedGitHubCLI()
+        let clock = StubClock()
+        let sleeps = SleepLog()
+        let model = await armedModel(cli, clock: clock, sleeps: sleeps)
+        cli.serve(viewCommand, sequence: [
+            Self.viewJSON(),
+            Self.viewJSON(),
+            Self.viewJSON(rollup: Self.passedRollup),
+        ])
+        cli.serve(mergeArguments(oid: "abc123"), stdout: "Merged\n")
+
+        XCTAssertTrue(arm(model))
+        await settle(model)
+
+        XCTAssertFalse(
+            cli.trace.contains("pr checks"),
+            "The checks command cannot see mergeable or mergeStateStatus, so a wait deciding “green” from "
+                + "it would hand a merge to a plan that refuses it. Every tick reads the row itself."
+        )
+        XCTAssertEqual(cli.count(for: GitHubCommands.checks(pullRequest: 54, root: root)), 0)
+    }
+
+    func testThePollsRaiseNoWriteFlagAndTheMergeAloneDoes() async {
+        let cli = ScriptedGitHubCLI()
+        let clock = StubClock()
+        let sleeps = SleepLog()
+        let model = await armedModel(cli, clock: clock, sleeps: sleeps)
+        let gate = Gate()
+        cli.serve(viewCommand, Self.viewJSON())
+        cli.hold(viewCommand, on: gate, forCall: 0)
+
+        XCTAssertTrue(arm(model))
+        let task = model.mergeWait.runningTask
+        await gate.waitUntilReached()
+
+        // Armed, a read in flight — and Checkout, Create and refresh all still
+        // available, because none of them is the merge this wait has not run yet.
+        XCTAssertTrue(model.mergeWait.isArmed)
+        XCTAssertFalse(model.isWriteInFlight)
+
+        model.mergeWait.cancel()
+        gate.release()
+        await task?.value
+        XCTAssertFalse(model.isWriteInFlight)
+    }
+
+    func testTheElapsedTimeIsPublishedFromTheWaitsOwnClock() async {
+        let cli = ScriptedGitHubCLI()
+        let clock = StubClock()
+        let sleeps = SleepLog()
+        let model = await armedModel(cli, clock: clock, sleeps: sleeps)
+        cli.serve(viewCommand, sequence: [
+            Self.viewJSON(),
+            Self.viewJSON(),
+            Self.viewJSON(rollup: Self.failedRollup),
+        ])
+
+        XCTAssertTrue(arm(model))
+        await settle(model)
+
+        // Three ticks: 0 s, 30 s, 60 s — read off the injected clock, so no view
+        // has to run one of its own.
+        XCTAssertEqual(model.mergeWait.elapsed, 2 * PullRequestMergeWait.pollInterval)
+    }
+}

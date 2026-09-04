@@ -383,6 +383,42 @@ public final class PullRequestModel: ObservableObject {
     /// draws rows in and the indicator is visible under.
     public var isReady: Bool { availability?.isReady == true }
 
+    // MARK: - The wait
+
+    /// *Merge when checks pass* — the bounded, visible, cancelable wait (G14).
+    ///
+    /// Owned here the way `LeetCodeModel` owns its judge, and a separate object
+    /// for that one's reason: the panel's rows observe **it**, so a wait
+    /// re-publishing its elapsed seconds every 30 s invalidates the row drawing
+    /// them rather than every surface bound to this model — including the create
+    /// sheet standing open beside it. It holds an `unowned` reference back here
+    /// for the two things it cannot do itself: run a command, and merge.
+    ///
+    /// `lazy` for the one reason lazy is ever right: it is constructed with
+    /// `self`, which does not exist until this initialiser has run. Nothing
+    /// observable happens on first access, so where it is first touched does not
+    /// matter.
+    public private(set) lazy var mergeWait = PullRequestMergeWait(owner: self)
+
+    /// The repository root as it is now, for the one companion that composes its
+    /// own commands.
+    ///
+    /// Internal rather than a second closure handed to the wait: there is one
+    /// answer to "where is this repository now", it is already asked at compose
+    /// time here (see ``projectRoot``), and a wait holding its own copy would be
+    /// polling the root the arm was made under.
+    var currentRoot: URL? { projectRoot() }
+
+    /// Run a command on this model's transport.
+    ///
+    /// Internal for `LeetCodeModel.send(_:)`'s reason: the wait is a companion of
+    /// this model and sends its own read through the seam this model already
+    /// holds, rather than being handed a second reference to the transport that
+    /// could outlive or diverge from this one.
+    func send(_ command: GitHubCommand) async throws -> GitHubCommandResult {
+        try await transport.run(command)
+    }
+
     // MARK: - The refresh
 
     /// Drop everything the *previous* project left behind, the instant the
@@ -1233,6 +1269,38 @@ public final class PullRequestModel: ObservableObject {
         subject: String,
         body: String
     ) async -> MergeOutcome? {
+        await performMerge(number: number, row: nil, method: method, subject: subject, body: body)
+    }
+
+    /// The same write, entered from ``PullRequestMergeWait`` with **the row that
+    /// tick read** rather than the row the list holds.
+    ///
+    /// One method with a supplied row, not a second merge path: every refusal,
+    /// the branch re-read, the plan, the `--match-head-commit` guard, the write
+    /// flag and the refresh are the ones above, in the order above. What differs
+    /// is only where the row came from, and it has to differ — the wait's whole
+    /// job is to act on a reading *newer* than the list's, and looking the row up
+    /// here would merge against a `headRefOid` up to a refresh old and re-decide
+    /// the plan from a summary the panel has not re-read.
+    ///
+    /// Internal, so the one caller is the companion this model owns.
+    @discardableResult
+    func merge(
+        row: GitHubPullRequest,
+        method: GitHubMergeMethod,
+        subject: String,
+        body: String
+    ) async -> MergeOutcome? {
+        await performMerge(number: row.number, row: row, method: method, subject: subject, body: body)
+    }
+
+    private func performMerge(
+        number: Int,
+        row suppliedRow: GitHubPullRequest?,
+        method: GitHubMergeMethod,
+        subject: String,
+        body: String
+    ) async -> MergeOutcome? {
         guard !isWriteInFlight else { return nil }
         guard !isWriteBlocked() else {
             setMessage(Self.mergeBlockedMessage, from: .merge)
@@ -1255,7 +1323,7 @@ public final class PullRequestModel: ObservableObject {
         clearError(from: .merge)
 
         guard
-            let row = pullRequests.first(where: { $0.number == number }),
+            let row = suppliedRow ?? pullRequests.first(where: { $0.number == number }),
             let repository
         else {
             setMessage(Self.mergeRowMissingMessage, from: .merge)
@@ -1639,7 +1707,13 @@ public final class PullRequestModel: ObservableObject {
     ///
     /// Never a paraphrase. `gh`'s messages name the repository, the host and the
     /// scope that is missing, none of which this app knows.
-    private static func message(for result: GitHubCommandResult) -> String {
+    ///
+    /// Internal rather than private because `PullRequestMergeWait` publishes the
+    /// same two sentences for the same two failures: it is a companion of this
+    /// model, not a stranger, and a second fold of a command result into a
+    /// sentence would be a second place for "`gh`'s own words, never a
+    /// paraphrase" to be forgotten.
+    static func message(for result: GitHubCommandResult) -> String {
         let stderr = result.trimmedStandardError
         if !stderr.isEmpty { return stderr }
         return "The GitHub CLI exited with status \(result.status)."
@@ -1647,7 +1721,7 @@ public final class PullRequestModel: ObservableObject {
 
     /// What a *thrown* error says — the transport's three failures and the
     /// schema's three, each of which already carries its own sentence.
-    private static func message(for error: Error) -> String {
+    static func message(for error: Error) -> String {
         if let localized = error as? LocalizedError, let description = localized.errorDescription {
             return description
         }

@@ -56,12 +56,19 @@ import XCTest
 ///    like a responsive feature while spending a GitHub API call every two
 ///    seconds for as long as the panel is open.
 ///
-/// **The one stated exception.** `GitHubCLIProcessTransport.swift` is exempt from
+/// **The first stated exception.** `GitHubCLIProcessTransport.swift` is exempt from
 /// the no-polling ban: its command deadline and its SIGTERM→SIGKILL teardown
 /// grace are lifted verbatim from `LSPRustToolchainService` (a `Thread.sleep`
 /// loop plus `DispatchSemaphore.wait(timeout:)`) and are a *per-command bound* on
 /// a child process, not a repeating read of anything. It is still held to the
 /// `Timer` half of the ban, because a timer there could only be a repeat.
+///
+/// **The second stated exception** is `PullRequestMergeWait.swift`, which is the
+/// one thing in this feature that *is* a poll and says so: a bounded, visible,
+/// cancelable wait, armed only by an explicit press, with a named interval and a
+/// named deadline and exactly one injectable sleep seam (G14). Task 8 of this
+/// part pins that shape here; until then the exception is scoped by name alone,
+/// and every other Core file and every view stays under the ban.
 final class GitHubSourceGatingTests: XCTestCase {
 
     // MARK: - The feature's files
@@ -78,6 +85,7 @@ final class GitHubSourceGatingTests: XCTestCase {
         "GitHubMergePlan.swift",
         "GitHubPullRequest.swift",
         "GitHubVersion.swift",
+        "PullRequestMergeWait.swift",
         "PullRequestModel.swift",
     ]
 
@@ -99,6 +107,11 @@ final class GitHubSourceGatingTests: XCTestCase {
         "PullRequestIndicatorView.swift",
         "PullRequestsPanelView.swift",
     ]
+
+    /// The merge wait — the no-polling ban's **second stated exception**, and the
+    /// one file in Core allowed to sleep. Named here so the exception is a
+    /// spelling in one place rather than a condition repeated at each rule.
+    private static let waitFile = "PullRequestMergeWait.swift"
 
     /// Matched by name rather than by a hand-kept list alone, so a file added
     /// later falls under these rules the moment it exists — and fails the
@@ -603,7 +616,7 @@ final class GitHubSourceGatingTests: XCTestCase {
             "The three views must exist; if one was renamed, this rule is looking in the wrong place."
         )
 
-        for url in core + views {
+        for url in core + views where url.lastPathComponent != Self.waitFile {
             let code = try self.code(of: url)
             for term in ["Timer", "asyncAfter", "Task\\.sleep", "Thread\\.sleep", "DispatchSemaphore"] {
                 XCTAssertEqual(
