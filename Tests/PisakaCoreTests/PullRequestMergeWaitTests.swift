@@ -792,6 +792,70 @@ final class PullRequestMergeWaitTests: XCTestCase {
         XCTAssertEqual(cli.count(for: mergeArguments(oid: "abc123")), 0)
     }
 
+    /// The create sheet is **not** the wait's world, and a base read that failed
+    /// must not be reported as one.
+    ///
+    /// `prepareCreate()` reads `gh repo view` for the picker's default base, and
+    /// that read fails for ordinary reasons — offline, or a remote `gh` cannot
+    /// resolve. `PullRequestModel.repository` is *shared*: this loop reads it on
+    /// every tick and treats `nil` as "the world this wait was armed in is gone".
+    /// So the sheet plans from a local and leaves the published value alone, or
+    /// pressing New Pull Request beside an armed wait ends it — with the row's
+    /// own sentence, about a row that never left, and permanently when the read
+    /// behind that sheet failed too.
+    ///
+    /// Staged in the sleep seam, which is the gap between two ticks: the first
+    /// tick is still running its checks, the sheet opens and fails in the gap,
+    /// and the second tick has to find the same world it left.
+    func testACreateSheetOpenedBesideAnArmedWaitDoesNotEndIt() async {
+        let cli = ScriptedGitHubCLI()
+        let clock = StubClock()
+        let sleeps = SleepLog()
+        let model = await armedModel(cli, clock: clock, sleeps: sleeps)
+        cli.serve(viewCommand, sequence: [
+            Self.viewJSON(),
+            Self.viewJSON(rollup: Self.passedRollup),
+        ])
+        cli.serve(mergeArguments(oid: "abc123"), stdout: "Merged\n")
+
+        model.mergeWait.sleep = { seconds in
+            sleeps.record(seconds)
+            clock.date.addTimeInterval(seconds)
+            // The New Pull Request sheet opens in the gap, and its `repo view`
+            // cannot describe the repository.
+            cli.serve(
+                GitHubCommands.repositoryView(root: self.root),
+                stderr: "could not determine base repository\n",
+                status: 1
+            )
+            await model.prepareCreate()
+            // The failure is the sheet's own, said in `gh`'s words...
+            XCTAssertEqual(model.createMessage, "could not determine base repository")
+            // ...and it left the one value three readers share standing.
+            XCTAssertNotNil(model.repository)
+        }
+
+        XCTAssertTrue(arm(model))
+        await settle(model)
+
+        // The wait ran its own course: the second tick was green, so it merged.
+        XCTAssertEqual(
+            model.mergeWait.ending,
+            .merged(PullRequestModel.MergeOutcome(
+                number: 54,
+                baseBranch: "master",
+                isTailOwed: true,
+                root: root
+            ))
+        )
+        XCTAssertNotEqual(
+            model.mergeWait.ending,
+            .stopped(PullRequestModel.mergeRowMissingMessage)
+        )
+        XCTAssertEqual(cli.count(for: viewCommand), 2)
+        XCTAssertEqual(cli.count(for: mergeArguments(oid: "abc123")), 1)
+    }
+
     // MARK: - The one ending published past a moved token
 
     /// Cancel cannot un-send a `pr merge` already sent, so the merge is published

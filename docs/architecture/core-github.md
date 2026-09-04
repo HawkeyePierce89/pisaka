@@ -1189,7 +1189,16 @@ landed, because a read is genuinely still in flight until then.
 
 `prepareCreate()` reads `repo view` and the commit context under the create
 token; `setCreateBase(_:)` re-plans synchronously (the repository state was
-already read; only the base changed). `create(...)`, `merge(...)` and
+already read; only the base changed). Both sheets **plan from a local and
+publish `repository` only on a read that succeeded**: that one value is shared —
+the merge plan is decided from it and `PullRequestMergeWait` re-reads it on every
+tick, treating `nil` as "the world this wait was armed in is gone" — so a base
+read that failed empties *this sheet's* base and nothing else. Blanking it there
+would end an armed wait with `mergeRowMissingMessage`, about a row that never
+left, merely because New Pull Request was opened beside it, and permanently so
+when that sheet's own `repo view` failed too. Only the two states that really are
+a different world blank it, and both are `clearRows()`'s: the project root
+changing, and `gh` going not-ready. `create(...)`, `merge(...)` and
 `checkout(_:)` are the three writes (G10–G13). `checkout(_:)` is **synchronous**
 and deliberately so: it is called from a button, its answer is "was this
 accepted", and everything after the hand-out belongs to the bracket.

@@ -152,13 +152,20 @@ public final class PullRequestModel: ObservableObject {
     /// it points into.
     @Published public private(set) var selectedNumber: Int?
 
-    /// What `gh repo view` answered — the repository's name and, the reason the
-    /// command is in scope at all, its default branch (G11).
+    /// What `gh repo view` answered — the repository's name and default branch
+    /// (G11), and the three merge-method flags, the viewer's default method and
+    /// `deleteBranchOnMerge` the merge plan is decided from (G13).
     ///
-    /// `nil` until a create sheet has opened, and `nil` again when that read
-    /// failed: the create plan's `base` is this value and nothing else, so a
-    /// failure here is exactly the empty picker with Create disabled that
-    /// `GitHubCreatePlan` describes.
+    /// **The last reading that succeeded, not the last reading.** `nil` until a
+    /// sheet has opened, and blanked again only by the two states in which there
+    /// is no repository to describe — ``clearRows()``'s project switch and `gh`
+    /// going not-ready. A *failed* read leaves it alone: three readers share this
+    /// one value, and only one of them is the sheet whose read failed.
+    /// ``prepareCreate()`` and ``prepareMerge(number:)`` both plan from a local,
+    /// so an empty base or an absent merge plan is that sheet's own answer, while
+    /// ``PullRequestMergeWait`` — which reads this every tick and treats `nil` as
+    /// "the world this wait was armed in is gone" — is not ended by a sheet
+    /// somebody opened beside it.
     @Published public private(set) var repository: GitHubRepository?
 
     /// The one message slot — `gh`'s own words for a failed command, the schema
@@ -828,14 +835,26 @@ public final class PullRequestModel: ObservableObject {
     /// from nowhere else (G11) — and the commit context the refusals are decided
     /// from.
     ///
-    /// A failed `repo view` is not a refusal: it leaves ``repository`` `nil`,
-    /// hence the plan's base empty, hence Create disabled until the picker is
-    /// moved to a base by hand, with `gh`'s own words in the message slot. That
-    /// is the whole stated behaviour, and it needs no case of its own.
+    /// A failed `repo view` is not a refusal: it leaves this read's base empty,
+    /// hence Create disabled until the picker is moved to a base by hand, with
+    /// `gh`'s own words in the message slot. That is the whole stated behaviour,
+    /// and it needs no case of its own.
+    ///
+    /// **The read lands in a local, and ``repository`` is written only when it
+    /// succeeded** — ``prepareMerge(number:)``'s shape, and for a reason that is
+    /// this sheet's alone. ``repository`` is not the create sheet's property: it
+    /// is the one reading of `gh repo view` this model publishes, and
+    /// ``PullRequestMergeWait`` reads it on *every* tick, treating `nil` as "the
+    /// world this wait was armed in is gone". Blanking it here — which the sheet
+    /// has no business doing, since a failed base read says nothing about the
+    /// repository an armed wait is merging into — would end that wait with the
+    /// wrong sentence merely because somebody opened the New Pull Request sheet
+    /// beside it, and permanently so when the `repo view` behind that sheet also
+    /// failed. Only the two states that really are a different world —
+    /// ``clearRows()``'s project switch and `gh` going not-ready — blank it.
     public func prepareCreate() async {
         createGeneration &+= 1
         let token = createGeneration
-        repository = nil
         createPlan = nil
         createContext = nil
         clearError(from: .create)
@@ -843,12 +862,14 @@ public final class PullRequestModel: ObservableObject {
         guard isReady, let root = projectRoot() else { return }
 
         var failure: String?
+        var repository: GitHubRepository?
 
         do {
             let result = try await transport.run(GitHubCommands.repositoryView(root: root))
             guard token == createGeneration else { return }
             if result.isSuccess {
                 repository = try GitHubAPI.repository(fromViewJSON: result.standardOutput)
+                self.repository = repository
             } else {
                 failure = Self.message(for: result)
             }

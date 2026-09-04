@@ -1201,6 +1201,42 @@ final class PullRequestModelTests: XCTestCase {
         XCTAssertNotNil(model.errorMessage)
     }
 
+    /// The other half of the rule above: a failed `repo view` empties *this
+    /// read's* base without blanking the value the whole model publishes.
+    ///
+    /// `repository` is shared — the merge plan is decided from it and
+    /// `PullRequestMergeWait` reads it every tick, treating `nil` as the world
+    /// being gone — so the create sheet, whose read is the one that failed,
+    /// plans from a local instead. Only the two states that really are a
+    /// different world blank it, and both are asserted elsewhere in this suite.
+    func testARepoViewFailureEmptiesTheBaseWithoutBlankingTheSharedReading() async throws {
+        let cli = ScriptedGitHubCLI()
+        let git = StubGit()
+        cli.serveReady()
+        cli.serve(listArguments, stdout: "[]")
+        cli.serve(repositoryArguments, sequence: [
+            GitHubCommandResult(standardOutput: try fixture("repo-view.json")),
+            GitHubCommandResult(standardError: "could not determine base repository\n", status: 1),
+        ])
+        let model = makeModel(cli, git: git)
+        await model.refresh(branch: nil)
+
+        await model.prepareCreate()
+        XCTAssertEqual(model.repository?.defaultBranch, "master")
+
+        // The sheet is closed and opened again, and this time the read fails.
+        model.dismissCreate()
+        await model.prepareCreate()
+
+        // The sheet's own answer is unchanged: an empty base, Create disabled,
+        // and `gh`'s words in the slot.
+        XCTAssertEqual(model.createPlan?.base, "")
+        XCTAssertFalse(model.createPlan?.canCreate == true)
+        XCTAssertEqual(model.createMessage, "could not determine base repository")
+        // What the failure may not do is speak for anybody else's reading.
+        XCTAssertEqual(model.repository?.defaultBranch, "master")
+    }
+
     func testARepoViewFailureDisablesCreate() async throws {
         let cli = ScriptedGitHubCLI()
         let git = StubGit()
