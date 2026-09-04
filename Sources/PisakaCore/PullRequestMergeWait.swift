@@ -1,5 +1,47 @@
 import Foundation
 
+/// Why a wait that ran out of time was still waiting — the whole table, and
+/// deliberately a closed one.
+///
+/// The deadline ending has to *name* what the last tick found, because three
+/// different states reach it and only one of them is about the checks: a tick
+/// may sleep on running checks, on a mergeability GitHub has not computed
+/// (``GitHubMergeRefusal/mergeabilityUnknown``, which
+/// ``GitHubMergeRefusal/mayResolveByWaiting`` says a later read may still
+/// resolve), or on a plan that said **yes** while this app's own gate was up.
+/// A single sentence over all three would tell a reader whose checks passed
+/// half an hour ago that his checks did not finish — the one thing a wait that
+/// may never stop without saying so must not do, since it is worse than silence:
+/// it is a wrong statement the reader would act on.
+public enum PullRequestMergeWaitDeadlineCause: Equatable, Sendable {
+
+    /// The last tick's plan refused with ``GitHubMergeRefusal/checksRunning``.
+    /// The case the deadline was designed for, and the only one whose sentence
+    /// is about the checks.
+    case checksRunning
+
+    /// The last tick's plan refused with ``GitHubMergeRefusal/mergeabilityUnknown``:
+    /// GitHub answered `UNKNOWN` for the whole wait and never finished computing
+    /// whether the diff applies.
+    case mergeabilityUnknown
+
+    /// The last tick's plan said the merge could go, and
+    /// ``PullRequestMergeWait`` deferred it anyway because
+    /// ``PullRequestModel/mergeIsDeferred`` was up — another of this feature's
+    /// writes, or the app's writer gate held by a revert, a branch switch or a
+    /// commit. Nothing was ever sent, and the checks are not what stopped it.
+    case deferred
+
+    /// What the ending's strip says for this cause.
+    var message: String {
+        switch self {
+        case .checksRunning: return PullRequestMergeWait.deadlineMessage
+        case .mergeabilityUnknown: return PullRequestMergeWait.deadlineMergeabilityMessage
+        case .deferred: return PullRequestMergeWait.deadlineDeferredMessage
+        }
+    }
+}
+
 /// How an armed wait ended — the whole table, and deliberately a closed one.
 ///
 /// A wait is a promise the app makes on its own ("I will merge this when the
@@ -27,9 +69,13 @@ public enum PullRequestMergeWaitEnding: Equatable, Sendable {
     /// at all (in `gh`'s own words).
     case stopped(String)
 
-    /// ``PullRequestMergeWait/deadline`` passed with the answer still "checks
-    /// are running".
-    case deadline
+    /// ``PullRequestMergeWait/deadline`` passed with the last tick still
+    /// waiting on something.
+    ///
+    /// It carries **what** that something was, because three states reach here
+    /// and they are not the same news — see
+    /// ``PullRequestMergeWaitDeadlineCause``.
+    case deadline(PullRequestMergeWaitDeadlineCause)
 
     /// Cancel, a project switch, quit, or another wait armed over this one.
     case cancelled
@@ -43,7 +89,7 @@ public enum PullRequestMergeWaitEnding: Equatable, Sendable {
         switch self {
         case .merged, .cancelled: return nil
         case .stopped(let sentence): return sentence
-        case .deadline: return PullRequestMergeWait.deadlineMessage
+        case .deadline(let cause): return cause.message
         }
     }
 }
@@ -110,6 +156,32 @@ public final class PullRequestMergeWait: ObservableObject {
     public nonisolated static let deadlineMessage =
         "Checks did not finish within \(Int(deadline / 60)) minutes, so nothing was merged. "
         + "Merge this pull request when they do."
+
+    /// What the deadline ending says when every tick found GitHub still
+    /// answering `UNKNOWN`.
+    ///
+    /// A separate sentence rather than ``deadlineMessage`` because the checks
+    /// may well have passed on the first tick: what never finished is GitHub's
+    /// own computation of whether the diff applies, and the next step for a
+    /// reader is to look at the pull request rather than at a check suite that
+    /// is green.
+    public nonisolated static let deadlineMergeabilityMessage =
+        "GitHub had still not worked out whether this pull request can be merged after "
+        + "\(Int(deadline / 60)) minutes, so nothing was merged. "
+        + "Refresh the panel and merge it when it has."
+
+    /// What the deadline ending says when every tick found the plan green and
+    /// the merge deferred.
+    ///
+    /// The checks passed — saying they did not would be the one wrong sentence
+    /// in this table. What withheld the merge is
+    /// ``PullRequestModel/mergeIsDeferred``: this feature's own one-write flag,
+    /// or the app's writer gate held by a revert, a branch switch or a commit
+    /// for the rest of the wait. Both end silently with nothing here told, so
+    /// the ending names the condition and the reader merges by hand.
+    public nonisolated static let deadlineDeferredMessage =
+        "The checks passed, but another operation held the working tree for the rest of the "
+        + "\(Int(deadline / 60)) minutes, so nothing was merged. Merge this pull request now."
 
     /// What a tick that found the pull request no longer open says.
     ///
@@ -374,6 +446,17 @@ public final class PullRequestMergeWait: ObservableObject {
         guard token == generation else { return }
         let startedAt = now()
 
+        // **What the deadline, if it comes, is a statement about.** Only a tick
+        // that decided to *keep waiting* reaches the next sleep, and there are
+        // three ways to do that — see ``PullRequestMergeWaitDeadlineCause`` —
+        // so the last one to happen is carried here rather than re-derived at
+        // the deadline, where the row that produced it is long gone. It seeds
+        // as `.checksRunning`, the only value a deadline reached without a
+        // completed tick could honestly carry; neither deadline guard can fire
+        // before the first tick has run (`elapsed` is zero on entry), so the
+        // seed is a definition rather than a fallback.
+        var cause = PullRequestMergeWaitDeadlineCause.checksRunning
+
         while true {
             elapsed = now().timeIntervalSince(startedAt)
 
@@ -395,7 +478,7 @@ public final class PullRequestMergeWait: ObservableObject {
             // guard below is about: an on-time sixty-first tick lands *on*
             // `deadline` and is still made.
             guard elapsed <= Self.deadline else {
-                finish(.deadline, token: token)
+                finish(.deadline(cause), token: token)
                 return
             }
 
@@ -495,6 +578,12 @@ public final class PullRequestMergeWait: ObservableObject {
                     if let outcome { didMerge(outcome) }
                     return
                 }
+                // Reached only by falling past that `if`: the plan said yes and
+                // the gate said not now. If this is the last thing that happens
+                // before the half hour is up, the deadline must not report it
+                // as checks that did not finish — they finished, and they
+                // passed.
+                cause = .deferred
             } else {
                 guard let refusal = plan.refusal, refusal.mayResolveByWaiting else {
                     // Everything the plan refuses for a reason a later read
@@ -509,6 +598,12 @@ public final class PullRequestMergeWait: ObservableObject {
                     )
                     return
                 }
+                // The two refusals a later read may leave, and they are
+                // different news at the deadline: `checksRunning` is the case
+                // the wait was built for, `mergeabilityUnknown` is GitHub never
+                // finishing a computation of its own over a suite that may have
+                // gone green on the first tick.
+                cause = refusal == .checksRunning ? .checksRunning : .mergeabilityUnknown
             }
 
             // **The deadline is *stated* here, after the tick.** The wait
@@ -529,7 +624,7 @@ public final class PullRequestMergeWait: ObservableObject {
             // which is the bound's business rather than its statement — see the
             // overrun guard at the top of the tick.
             guard now().timeIntervalSince(startedAt) < Self.deadline else {
-                finish(.deadline, token: token)
+                finish(.deadline(cause), token: token)
                 return
             }
 

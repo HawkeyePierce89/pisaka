@@ -63,6 +63,22 @@ struct PullRequestMergeSheet: View {
     /// The commit body. Not `body`, which is the view's own.
     @State private var commitBody = ""
 
+    /// Whether `prepareMerge(number:)` came back having published neither a plan
+    /// nor a sentence — the one way this sheet can be left with nothing to draw.
+    ///
+    /// **View-local on purpose.** That read returns silently when its generation
+    /// token moved, which is `clearRows()` blanking the panel behind the sheet: a
+    /// refresh that found `gh` not ready, a project closed, a folder switched.
+    /// The model is right not to publish there — the sentence explaining *that*
+    /// is already in its one slot under `.refresh`, and a `.merge` message
+    /// written over it would replace a specific reason with a general one. But
+    /// `reading` draws its spinner on "no plan **and** no message", so the sheet
+    /// would sit on "Reading this repository's merge settings…" for as long as
+    /// it is left open: `.task` runs once, so nothing retries and nothing ever
+    /// says why. The state is therefore read back *here*, where saying so costs
+    /// the model nothing.
+    @State private var readWasSuperseded = false
+
     var body: some View {
         VStack(alignment: .leading, spacing: metrics.scaled(10)) {
             Text("Merge Pull Request")
@@ -104,9 +120,21 @@ struct PullRequestMergeSheet: View {
     /// `repo view`, `gh` no longer being ready, and a row a refresh dropped are
     /// three different sentences, and a fixed second line above them could only
     /// agree with one.
+    ///
+    /// The fourth way leaves no sentence in the model's slot by design (see
+    /// ``readWasSuperseded``), so this draws that one itself rather than
+    /// spinning forever: the *panel* behind the sheet is already saying what
+    /// went wrong with `gh` or the project, and what is owed here is the same
+    /// thing every other exit owes — why the sheet has nothing, and what to do.
     @ViewBuilder
     private var reading: some View {
-        if model.mergeMessage == nil {
+        if readWasSuperseded {
+            Text(PullRequestModel.unavailableMessage)
+                .font(metrics.scaledFont(.caption))
+                .foregroundStyle(Color.red)
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+        } else if model.mergeMessage == nil {
             HStack(spacing: metrics.scaled(6)) {
                 ProgressView().controlSize(.small)
                 Text("Reading this repository’s merge settings…")
@@ -235,6 +263,10 @@ struct PullRequestMergeSheet: View {
     /// so a reader who changes nothing gets the commit GitHub would have written.
     private func prepare() async {
         await model.prepareMerge(number: number)
+        // Asked in exactly this order: a plan is the good answer, a sentence in
+        // the merge slot is the honest bad one, and neither means the read was
+        // dropped past a moved token with the panel behind it already blanked.
+        readWasSuperseded = model.mergePlan == nil && model.mergeMessage == nil
         guard let plan = model.mergePlan else { return }
         if method == nil { method = plan.defaultMethod }
         if subject.isEmpty { subject = plan.defaultSubject }

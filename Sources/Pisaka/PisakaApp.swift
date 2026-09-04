@@ -4167,21 +4167,27 @@ struct PisakaApp: App {
     /// refresh the tree/Changes/Log. On failure surface the operation's message.
     /// Mirrors the revert/apply-merge coordination.
     ///
-    /// **Two callers, two events, one bracket.** `event` is what Local History
-    /// labels the pre-operation capture with: the branch switch and the
-    /// checkout-remote pass `.branch`, the Pull Requests coordinator passes
-    /// `.pullRequest`. The bracket itself does not care which — it is the same
-    /// wholesale rewrite of the working tree either way — but the label is what a
-    /// reader restoring a revision reads, and "Before Branch Change" over a
-    /// revision taken before someone else's pull request landed on disk would
-    /// hide it among the day's own switches.
+    /// **Five operations, three events, one bracket.** `event` is what Local
+    /// History labels the pre-operation capture with. This file's own two — the
+    /// branch switch and the checkout-remote — pass `.branch`; the Pull Requests
+    /// coordinator, which is handed this method as `runBracket` once from the
+    /// scene and is its only other caller, passes `.pullRequest` for
+    /// `gh pr checkout`, `.branch` again for the post-merge tail's switch to the
+    /// base, and `.pull` for the `--ff-only` pull that follows it. The bracket
+    /// itself does not care which — it is the same wholesale rewrite of the
+    /// working tree every time — but the label is what a reader restoring a
+    /// revision reads, and "Before Branch Change" over a revision taken before
+    /// someone else's pull request landed on disk would hide it among the day's
+    /// own switches.
     ///
     /// `op` answers `nil` for success and a *message* for a failure: the empty
     /// string means "it failed and there is nothing to add", which is what a
     /// caller that has already put the reason where the user is looking returns.
     /// A `Bool` would not carry that difference, and each caller's message lives
-    /// somewhere different — `branchSwitcher.errorMessage` for the two branch
-    /// paths, the pull request panel's own slot for the checkout.
+    /// somewhere different — `branchSwitcher.errorMessage` for the three paths
+    /// that move a branch (this file's two and the tail's switch), the pull
+    /// request panel's own slot for the checkout, and git's own words for the
+    /// tail's pull, which the coordinator deliberately keeps out of that slot.
     ///
     /// **`completion` is what lets a caller order two bracketed operations.**
     /// This method is fire-and-forget by construction — it suspends the disk

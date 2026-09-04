@@ -903,7 +903,9 @@ panel a second later. So the tick asks **before** the write, through
 read as one — and where the answer is yes it takes its ordinary sleep and tries
 again. Both conditions are seconds long against a thirty-minute deadline; a gate
 that somehow stayed up for the whole of it ends as `deadline`, with a sentence,
-rather than as a merge of nothing. The **sheet's** Merge deliberately does not
+rather than as a merge of nothing — and with the **deferral's own** sentence, not
+the checks', because on that path the checks passed and saying they did not would
+be the one wrong statement in the ending table (see below). The **sheet's** Merge deliberately does not
 ask this: a press is a reader standing in front of the panel who is owed
 `mergeBusyMessage` or `mergeBlockedMessage`, not a button that quietly does
 nothing.
@@ -930,6 +932,25 @@ thing the bound exists to prevent. It fires on **strictly greater** than
 `deadline`, which is exactly what leaves the boundary read to the other guard.
 Both are measured against `now` rather than counted in ticks, so reads that slow
 down shorten the wait rather than doubling it.
+
+**The deadline ending names what the last tick was waiting on**, because three
+states reach it and only one of them is about the checks. `deadline` therefore
+carries a `PullRequestMergeWaitDeadlineCause` — a third closed vocabulary in this
+file — with one case and one sentence each: `checksRunning` (the case the wait was
+built for, `deadlineMessage`), `mergeabilityUnknown` (`mayResolveByWaiting` sleeps
+through it too, and it is reachable with a suite that went green on the very first
+tick — GitHub simply never finished computing whether the diff applies, so the
+sentence sends the reader to the pull request rather than to a check suite that is
+fine) and `deferred` (every tick's plan said yes and `mergeIsDeferred` was up for
+all of them, so nothing was ever sent and the checks are not what stopped it). The
+loop carries the cause forward from the tick that set it rather than re-deriving it
+at the deadline, where the row that produced it is long gone; it seeds as
+`checksRunning`, which neither guard can publish before a tick has run. A single
+sentence over all three would tell a reader whose checks passed half an hour ago
+that his checks did not finish — worse than the silence the whole table exists to
+prevent, because it is a wrong statement he would act on. All three name the
+minutes *out of* `deadline`, so none can drift from the constant or from each
+other.
 
 While a wait is armed, **every** row's Merge is disabled — the merge it will run
 is the one-write rule spent in advance — while reads, Checkout and Create stay
@@ -1229,8 +1250,9 @@ cancelling first. A `nil` owner is not a new state either; it is the one the
 `stateLostMessage` ending already exists for.
 
 The two numbers are named constants (`pollInterval` 30 s, `deadline` 30 min), and
-`deadlineMessage` names the minutes *out of* the constant rather than spelling
-"30" a second time. `armed` (the number and exactly what the merge needs — method,
+the three deadline sentences (`deadlineMessage`, `deadlineMergeabilityMessage`,
+`deadlineDeferredMessage`) name the minutes *out of* the constant rather than
+spelling "30" a fourth time. `armed` (the number and exactly what the merge needs — method,
 subject, body; deliberately **not** the row's title, which the panel draws from
 its own row, and deliberately not the head the arm was made against, since each
 tick merges with the head *that tick* read), `elapsed` (published from `now` at the top of every tick, so **no view
@@ -1333,7 +1355,15 @@ merge settings…" until it is cancelled, with no retry and no reason. A not-rea
 `gh` or absent root gets `unavailableMessage`, and a row a refresh dropped between
 the press and the read — the honest case, somebody else merged it — gets
 `mergeRowMissingMessage`, which is what `merge(…)` already says for the same two
-conditions. A failed *branch* read is deliberately weaker and not fatal, because
+conditions. The **generation** guards are the one exception, and the sheet closes
+it rather than the model: a read dropped past a moved token is `clearRows()`
+blanking the panel behind the sheet, and the reason for *that* is already in the
+one slot under `.refresh` — a `.merge` sentence written over it would replace a
+specific reason with a general one. So `PullRequestMergeSheet` reads the state
+back instead (`readWasSuperseded`: no plan **and** no sentence, asked once, right
+after the `await`) and draws `unavailableMessage` itself, which is the same
+sentence the model's own readiness guard uses and costs the model nothing.
+A failed *branch* read is deliberately weaker and not fatal, because
 the merge does not depend on what is checked out locally and a sheet must not
 refuse to merge a pull request because `git` could not name a branch.
 `dismissMerge()` clears only the merge's own sentence and deliberately **not** the

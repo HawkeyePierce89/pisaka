@@ -209,9 +209,24 @@ final class PullRequestMergeWaitTests: XCTestCase {
     func testTheIntervalAndTheDeadlineAreNamedConstants() {
         XCTAssertEqual(PullRequestMergeWait.pollInterval, 30)
         XCTAssertEqual(PullRequestMergeWait.deadline, 30 * 60)
-        // The sentence is built from the constant rather than spelling it again,
-        // so the two cannot drift apart.
-        XCTAssertTrue(PullRequestMergeWait.deadlineMessage.contains("30 minutes"))
+        // The sentences are built from the constant rather than spelling it
+        // again, so the three cannot drift apart from it or from each other.
+        for sentence in [
+            PullRequestMergeWait.deadlineMessage,
+            PullRequestMergeWait.deadlineMergeabilityMessage,
+            PullRequestMergeWait.deadlineDeferredMessage,
+        ] {
+            XCTAssertTrue(sentence.contains("30 minutes"), sentence)
+        }
+        // And only the one the deadline was designed for is about the checks
+        // not finishing: the other two are reached with a suite that is green.
+        XCTAssertTrue(PullRequestMergeWait.deadlineMessage.hasPrefix("Checks did not finish"))
+        for sentence in [
+            PullRequestMergeWait.deadlineMergeabilityMessage,
+            PullRequestMergeWait.deadlineDeferredMessage,
+        ] {
+            XCTAssertFalse(sentence.contains("Checks did not finish"), sentence)
+        }
     }
 
     // MARK: - Arming
@@ -483,13 +498,50 @@ final class PullRequestMergeWaitTests: XCTestCase {
         XCTAssertTrue(arm(model))
         await settle(model)
 
-        XCTAssertEqual(model.mergeWait.ending, .deadline)
+        XCTAssertEqual(model.mergeWait.ending, .deadline(.checksRunning))
         XCTAssertEqual(model.mergeWait.ending?.message, PullRequestMergeWait.deadlineMessage)
         // Sixty sleeps of thirty seconds is the deadline exactly, so the
         // sixty-first read is the one that finds it spent.
         XCTAssertEqual(sleeps.seconds.count, 60)
         XCTAssertEqual(cli.count(for: viewCommand), 61)
         XCTAssertEqual(model.mergeWait.elapsed, PullRequestMergeWait.deadline)
+        XCTAssertEqual(cli.count(for: mergeArguments(oid: "abc123")), 0)
+        XCTAssertFalse(model.mergeWait.isArmed)
+    }
+
+    /// The other refusal a later read may leave is **not** the checks, and the
+    /// deadline says so.
+    ///
+    /// `mergeabilityUnknown` is slept through for the whole half hour by
+    /// `mayResolveByWaiting`, and it is reachable with a suite that went green
+    /// on the first tick: GitHub simply never finished computing whether the
+    /// diff applies. Reporting that as "checks did not finish" would send the
+    /// reader to a check suite that has nothing wrong with it.
+    func testAMergeabilityThatNeverResolvesEndsWithItsOwnSentenceRatherThanTheChecks() async {
+        let cli = ScriptedGitHubCLI()
+        let clock = StubClock()
+        let sleeps = SleepLog()
+        let model = await armedModel(cli, clock: clock, sleeps: sleeps)
+        cli.serve(
+            viewCommand,
+            Self.viewJSON(mergeable: "UNKNOWN", mergeState: "UNKNOWN", rollup: Self.passedRollup)
+        )
+
+        XCTAssertTrue(arm(model))
+        await settle(model)
+
+        XCTAssertEqual(model.mergeWait.ending, .deadline(.mergeabilityUnknown))
+        XCTAssertEqual(
+            model.mergeWait.ending?.message,
+            PullRequestMergeWait.deadlineMergeabilityMessage
+        )
+        XCTAssertNotEqual(
+            model.mergeWait.ending?.message,
+            PullRequestMergeWait.deadlineMessage,
+            "The checks finished, and passed, on the first read."
+        )
+        XCTAssertEqual(sleeps.seconds.count, 60)
+        XCTAssertEqual(cli.count(for: viewCommand), 61)
         XCTAssertEqual(cli.count(for: mergeArguments(oid: "abc123")), 0)
         XCTAssertFalse(model.mergeWait.isArmed)
     }
@@ -520,7 +572,7 @@ final class PullRequestMergeWaitTests: XCTestCase {
         XCTAssertTrue(arm(model))
         await settle(model)
 
-        XCTAssertEqual(model.mergeWait.ending, .deadline)
+        XCTAssertEqual(model.mergeWait.ending, .deadline(.checksRunning))
         XCTAssertEqual(sleeps.seconds, [PullRequestMergeWait.pollInterval])
         XCTAssertEqual(cli.count(for: viewCommand), 1, "The late tick reads nothing.")
         XCTAssertEqual(cli.count(for: mergeArguments(oid: "abc123")), 0)
@@ -1129,6 +1181,13 @@ final class PullRequestMergeWaitTests: XCTestCase {
     /// A gate held for the whole half hour is the deadline, not a merge that
     /// answered `nil`: `pr merge` is never sent, the row is re-read every tick,
     /// and the ending carries a sentence the panel actually draws.
+    ///
+    /// **And the sentence is the deferral's own, not the checks'.** The rollup
+    /// passed on the first tick and every tick after it; the only thing that
+    /// withheld the merge is this app's gate. `deadlineMessage` — "checks did
+    /// not finish" — would be a wrong statement about a suite that is green,
+    /// which is worse than the silence the whole ending table exists to
+    /// prevent.
     func testAGateHeldForTheWholeWaitEndsAtTheDeadlineRatherThanAsAMergeOfNothing() async {
         let cli = ScriptedGitHubCLI()
         let clock = StubClock()
@@ -1147,8 +1206,16 @@ final class PullRequestMergeWaitTests: XCTestCase {
         XCTAssertTrue(arm(model))
         await settle(model)
 
-        XCTAssertEqual(model.mergeWait.ending, .deadline)
-        XCTAssertEqual(model.mergeWait.ending?.message, PullRequestMergeWait.deadlineMessage)
+        XCTAssertEqual(model.mergeWait.ending, .deadline(.deferred))
+        XCTAssertEqual(
+            model.mergeWait.ending?.message,
+            PullRequestMergeWait.deadlineDeferredMessage
+        )
+        XCTAssertNotEqual(
+            model.mergeWait.ending?.message,
+            PullRequestMergeWait.deadlineMessage,
+            "The checks passed on every one of the sixty-one reads."
+        )
         XCTAssertEqual(sleeps.seconds.count, 60)
         XCTAssertEqual(cli.count(for: viewCommand), 61)
         XCTAssertEqual(cli.count(for: mergeArguments(oid: "abc123")), 0)
