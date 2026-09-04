@@ -341,7 +341,7 @@ in `Sources/Pisaka/Platform/` bridges per-platform APIs. Untested by convention.
 - `ExecutableLocator.swift` — the one definition of the discovery search (inherited `PATH` → well-known dirs → login shell), returning the path *and* the `PATH` that found it; one definition, two callers (G7).
 - `GitHubCLIProcessTransport.swift` — the one app file that runs `Process` for `gh`: the environment overlay, the per-command deadline (SIGTERM→SIGKILL), and the per-refresh location cache with its three re-locate triggers (G7).
 - `PullRequestCoordinator.swift` — owns the model and the transport, wired once from the scene; holds the feature's refresh triggers and its three writer-bracket sites — the checkout, and the post-merge tail's switch and pull (G9, G12, G15).
-- `PullRequestsPanelView.swift` — the sixth dock panel: the not-ready states with their next step, the rows (Checkout, Merge, the armed wait's elapsed/Cancel), the expandable per-job checks, and the one `.onAppear` panel-shown trigger.
+- `PullRequestsPanelView.swift` — the sixth dock panel: the not-ready states with their next step, the rows (Checkout, Merge, the armed wait's elapsed/Cancel), the dismissible wait-ending strip above the list, the expandable per-job checks, and the one `.onAppear` panel-shown trigger.
 - `NewPullRequestSheet.swift` — the create sheet: pre-filled title, base picker, Draft, and the three sentences naming everything Create will do.
 - `PullRequestMergeSheet.swift` — the merge sheet: method picker, pre-filled subject and optional body, the three stated sentences, and the button the plan labels (Merge, or Merge when checks pass).
 - `PullRequestIndicatorView.swift` — the bottom-bar `#N` + checks state beside the branch switcher; absent rather than empty, click opens the panel with that row expanded.
@@ -766,11 +766,16 @@ inventory in that suite's doc comments and `core-database-viewer.md`),
 `GitHubSourceGatingTests` (the Pull Requests feature's cross-layer rules —
 `Process` for `gh` in one app file and never in Core, the app-side files
 macOS-gated and unnamed by the iOS layer, no `gh` argument spelled outside
-`GitHubCommands`, the checkout's one bracket site with no file under the feature
-naming the writer gate, the locator's one definition and two callers, where each
-refresh trigger lives and that the scene holds none, and the no-polling ban with
-`GitHubCLIProcessTransport.swift` as its one stated exception; inventory in that
-suite's doc comments and `core-github.md`) and `LintConfigurationTests`
+`GitHubCommands`, the feature's **three** bracket sites living in the coordinator
+alone (the checkout and the tail's two steps) with the scene handing the bracket
+over once and no file under the feature naming the writer gate, the tail's
+`pull --ff-only` pinned flag by flag in `GitCLIService.swift`, the locator's one
+definition and two callers, where each refresh trigger lives and that the scene
+holds none, the armed wait's four cancellations (two of them app-layer, hence
+invisible to every other test), and the no-polling ban with **two** stated
+exceptions — `GitHubCLIProcessTransport.swift` and `PullRequestMergeWait.swift`,
+the latter scoped term by term rather than granted by file name; inventory in
+that suite's doc comments and `core-github.md`) and `LintConfigurationTests`
 (both `.swiftlint.yml` files — the version pin, `mandatory_comma`, the root and
 child disabled-rule sets by set equality, every measured threshold ceiling,
 every in-file disable counted by path/rule — plus `.githooks/pre-commit`'s gate

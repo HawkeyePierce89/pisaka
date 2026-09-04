@@ -310,6 +310,19 @@ public final class PullRequestModel: ObservableObject {
         /// for the create sheet says nothing about a `pr merge` that GitHub
         /// refused.
         case merge
+        /// The **post-merge tail's** one refusal, and its own source rather than
+        /// `.merge`'s for a reason the two sheets' separation already carries:
+        /// the tail is decided and published *while the merge sheet is still on
+        /// screen* — `runMergeTail(…)` runs inside the same turn the sheet's
+        /// Merge button returns from — and the sheet's `dismissMerge()` clears
+        /// `.merge` on its way out. Sharing the source made the one sentence the
+        /// tail can produce unreadable on the path that produces it most, which
+        /// is the sheet's.
+        ///
+        /// It records something that happened and stays true — the merge landed
+        /// and no branch was switched to — so nothing but a new merge sheet, or
+        /// a blank of everything, clears it.
+        case mergeTail
         /// The checkout. Fourth for the third's reason: the operation runs
         /// inside the app's writer bracket and finishes long after the panel
         /// behind it has refreshed itself, so a refresh that succeeded may not
@@ -403,17 +416,26 @@ public final class PullRequestModel: ObservableObject {
     /// Whether the panel may offer **Merge** on a row at all.
     ///
     /// The one term every row's button disables on, so the panel decides nothing
-    /// and cannot disagree with the two rules it is made of: this feature
-    /// performs exactly one write at a time (``isWriteInFlight``, the same flag
-    /// Checkout and New Pull Request read), and **one armed wait disables every
-    /// row's Merge, not merely its own** — the merge that wait will run is the
-    /// one-write rule spent in advance, and a second row merged in the meantime
-    /// would raise the flag under a wait about to need it.
+    /// and cannot disagree with the three rules it is made of: `gh` is ready at
+    /// all (``isReady``), this feature performs exactly one write at a time
+    /// (``isWriteInFlight``, the same flag Checkout and New Pull Request read),
+    /// and **one armed wait disables every row's Merge, not merely its own** —
+    /// the merge that wait will run is the one-write rule spent in advance, and a
+    /// second row merged in the meantime would raise the flag under a wait about
+    /// to need it.
     ///
     /// Reads, Checkout and Create are deliberately untouched by the wait: none of
     /// them is a merge. The row being waited on draws its elapsed time and its
     /// Cancel button instead of a Merge button, which is
     /// ``PullRequestMergeWait/isWaiting(on:)``'s question rather than this one.
+    ///
+    /// **Two of the three are also refused on** in
+    /// ``merge(number:method:subject:body:)`` — readiness and the one-write flag
+    /// — so the rule holds even when a button forgot to disable. The wait term is
+    /// deliberately *not*, and cannot be: the wait's own merge runs while the
+    /// wait is armed, so refusing on it there would make the feature's one
+    /// polling exception unable to do the single thing it exists for. That term
+    /// is a surface rule, stated here rather than assumed.
     public var mergeIsAvailable: Bool {
         isReady && !isWriteInFlight && !mergeWait.isArmed
     }
@@ -1131,20 +1153,31 @@ public final class PullRequestModel: ObservableObject {
     public struct MergeOutcome: Equatable, Sendable {
         /// The pull request that was merged.
         public let number: Int
-        /// The branch that was merged — the head the plan named.
-        public let headBranch: String
         /// The branch it was merged into, and the branch the tail switches to.
         public let baseBranch: String
         /// Whether the merged head was the branch the working directory is
         /// standing on, which is the only case the tail runs in
         /// (``GitHubMergePlan/isTailOwed``).
         public let isTailOwed: Bool
+        /// **The repository the merge was decided and sent in**, carried so the
+        /// tail can refuse to run in a different one.
+        ///
+        /// A merge is a network round trip that can outlive the project it was
+        /// started in: switching folders while `gh pr merge` is in flight cancels
+        /// an armed wait and blanks the rows, but it cannot un-send a command
+        /// already sent, and the outcome still comes back. Without this the tail
+        /// would resolve project A's base branch against project **B**'s branch
+        /// list — which usually contains a `master` or a `main` — and then switch
+        /// B's worktree to it and pull, which is exactly the accident the wait's
+        /// cancellation exists to prevent, arriving by the one door it does not
+        /// cover.
+        public let root: URL
 
-        public init(number: Int, headBranch: String, baseBranch: String, isTailOwed: Bool) {
+        public init(number: Int, baseBranch: String, isTailOwed: Bool, root: URL) {
             self.number = number
-            self.headBranch = headBranch
             self.baseBranch = baseBranch
             self.isTailOwed = isTailOwed
+            self.root = root
         }
     }
 
@@ -1180,9 +1213,27 @@ public final class PullRequestModel: ObservableObject {
         let token = mergeGeneration
         mergePlan = nil
         clearError(from: .merge)
+        // And the last tail's refusal, which is the one sentence in this feature
+        // a refresh never speaks for: it survives on purpose until the reader
+        // does something about the merge it describes, and opening a merge sheet
+        // is that.
+        clearError(from: .mergeTail)
 
-        guard isReady, let root = projectRoot() else { return }
-        guard let row = pullRequests.first(where: { $0.number == number }) else { return }
+        // Both guards publish, and the sentence is the whole point: the sheet
+        // draws its spinner on "no plan **and** no message", so a silent return
+        // here is a modal that reads "Reading this repository's merge settings…"
+        // for as long as it is left open — `.task` runs once, so nothing retries
+        // and nothing ever says why. The likeliest way to reach the second guard
+        // is the honest one: a refresh behind the press dropped the row because
+        // somebody else merged it.
+        guard isReady, let root = projectRoot() else {
+            setMessage(Self.unavailableMessage, from: .merge)
+            return
+        }
+        guard let row = pullRequests.first(where: { $0.number == number }) else {
+            setMessage(Self.mergeRowMissingMessage, from: .merge)
+            return
+        }
 
         var failure: String?
         var repository: GitHubRepository?
@@ -1319,7 +1370,18 @@ public final class PullRequestModel: ObservableObject {
         subject: String,
         body: String
     ) async -> MergeOutcome? {
-        guard !isWriteInFlight else { return nil }
+        // Publishes, like every other refusal here, and it is not the dead
+        // branch a disabled button would make it: the sheet's Merge disables on
+        // this flag, but **the wait's merge does not go through a button**, and
+        // Checkout and New Pull Request are deliberately left enabled while a
+        // wait is armed. A tick going green during a `gh pr checkout` lands
+        // exactly here, and a silent `nil` would end the wait as `.merged(nil)`
+        // — the row's elapsed time and Cancel gone, nothing merged, and no
+        // sentence anywhere — which is the one thing a wait may never do.
+        guard !isWriteInFlight else {
+            setMessage(Self.mergeBusyMessage, from: .merge)
+            return nil
+        }
         guard !isWriteBlocked() else {
             setMessage(Self.mergeBlockedMessage, from: .merge)
             return nil
@@ -1406,9 +1468,9 @@ public final class PullRequestModel: ObservableObject {
         // Merged from here on, so nothing below reports a failure.
         let outcome = MergeOutcome(
             number: number,
-            headBranch: plan.pullRequest.headRefName,
             baseBranch: plan.pullRequest.baseRefName,
-            isTailOwed: plan.isTailOwed
+            isTailOwed: plan.isTailOwed,
+            root: root
         )
         await refresh(branch: checkedOutBranch)
         return outcome
@@ -1424,6 +1486,16 @@ public final class PullRequestModel: ObservableObject {
     /// repository.
     public static let mergeBlockedMessage =
         "Another operation is writing to the working tree. Merge again when it has finished."
+
+    /// The sentence a merge refused because one of this feature's **own** three
+    /// writes is already running gets.
+    ///
+    /// Separate from ``mergeBlockedMessage`` because it names a different state
+    /// and a different cure: that one is git rewriting the worktree from
+    /// somewhere else in the app, this one is a `pr create`, a `pr checkout` or
+    /// another `pr merge` of this panel's own, which the reader can see running.
+    public static let mergeBusyMessage =
+        "Another pull request operation is already running. Merge again when it has finished."
 
     /// The sentence a merge refused because the pull request is no longer in the
     /// list — or the repository could not be described — gets.
@@ -1524,17 +1596,32 @@ public final class PullRequestModel: ObservableObject {
     ///
     /// The order is git's own DWIM read through
     /// `BranchSwitcherModel.remoteCheckoutDecision`: a **local** ref named
-    /// `<base>` is switched to outright; failing that an `origin/<base>` is
-    /// checked out, which creates the tracking branch when there is no local
-    /// one; and only when neither is listed is there nothing this layer can
-    /// name. Exact, case-sensitive comparison, because git's refs are.
+    /// `<base>` is switched to outright; failing that a *remote* ref whose
+    /// branch half is `<base>` is checked out, which creates the tracking branch
+    /// when there is no local one; and only when neither is listed is there
+    /// nothing this layer can name. Exact, case-sensitive comparison, because
+    /// git's refs are.
+    ///
+    /// **The remote is matched by stripping, never by composing `origin/`.**
+    /// Nothing else in the branch pipeline assumes a remote's name —
+    /// `BranchRef` carries `remoteName` and
+    /// `BranchSwitcherModel.defaultBranchName(forRemote:)` strips whatever it
+    /// says — and `gh` resolves the repository from whichever remote the working
+    /// directory has, so a checkout whose only remote is `upstream` merges
+    /// perfectly well and would then be told its own base branch "is not a
+    /// branch in this repository". `origin` is still *preferred* where several
+    /// remotes carry the same branch, because that is the one git's own DWIM
+    /// picks.
     public static func mergeTail(for outcome: MergeOutcome, branches: [BranchRef]) -> MergeTail {
         guard outcome.isTailOwed else { return .notOwed }
         let base = outcome.baseBranch
         if let local = branches.first(where: { !$0.isRemote && $0.shortName == base }) {
             return .switchThenPull(local)
         }
-        if let remote = branches.first(where: { $0.isRemote && $0.shortName == "origin/\(base)" }) {
+        let remotes = branches.filter {
+            $0.isRemote && BranchSwitcherModel.defaultBranchName(forRemote: $0) == base
+        }
+        if let remote = remotes.first(where: { $0.remoteName == "origin" }) ?? remotes.first {
             return .switchThenPull(remote)
         }
         return .unresolved(tailBranchMissingMessage(base: base))
@@ -1549,7 +1636,15 @@ public final class PullRequestModel: ObservableObject {
     /// The order is the whole of this method, and every part of it is here
     /// rather than at the caller for one reason each:
     ///
-    ///  - **the decision first**, so a tail that is not owed and a base that
+    ///  - **the repository first of all**, because a merge is a network round
+    ///    trip that can outlive the project it was started in. Switching folders
+    ///    while `gh pr merge` is in flight cancels an armed wait and blanks the
+    ///    rows, but it cannot un-send a sent command, so the outcome still
+    ///    arrives — and every step below would then read the *new* project's
+    ///    branch list, find its own `master`, and switch and pull a worktree
+    ///    nobody asked about. Silently, because the reader closed that project on
+    ///    purpose and the panel that would carry the sentence is gone;
+    ///  - **the decision second**, so a tail that is not owed and a base that
     ///    cannot be named cost nothing and put no modal in front of anybody;
     ///  - **the confirmation second**, ahead of the switch and after the
     ///    decision — the same dirty-tree warning `switchBranch` and
@@ -1564,7 +1659,10 @@ public final class PullRequestModel: ObservableObject {
     /// A step's failure is *the step's* to report: the bracket running it
     /// already presents its message, and this model's one slot must not start
     /// saying a merge failed after `gh` said it landed. The one sentence
-    /// published from here is the refusal above, which no step ever ran to earn.
+    /// published from here is the refusal above, which no step ever ran to earn
+    /// — and it goes in under `.mergeTail` rather than `.merge` because the
+    /// sheet that started this merge is dismissed in the very next line of the
+    /// caller's turn, and its `dismissMerge()` clears `.merge`.
     @discardableResult
     public func runMergeTail(
         _ outcome: MergeOutcome,
@@ -1572,11 +1670,16 @@ public final class PullRequestModel: ObservableObject {
         confirm: @MainActor () -> Bool,
         run: @escaping MergeTailRunner
     ) -> Bool {
+        guard
+            let root = projectRoot(),
+            CanonicalPath.canonical(root) == CanonicalPath.canonical(outcome.root)
+        else { return false }
+
         switch Self.mergeTail(for: outcome, branches: branches) {
         case .notOwed:
             return false
         case .unresolved(let message):
-            setMessage(message, from: .merge)
+            setMessage(message, from: .mergeTail)
             return false
         case .switchThenPull(let ref):
             guard confirm() else { return false }

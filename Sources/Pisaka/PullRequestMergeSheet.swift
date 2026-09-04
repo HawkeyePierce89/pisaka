@@ -96,19 +96,24 @@ struct PullRequestMergeSheet: View {
         .onDisappear { model.dismissMerge() }
     }
 
-    /// What the sheet shows before `gh repo view` has answered — and after a read
-    /// that failed, where the message slot below carries the reason.
+    /// What the sheet shows before `gh repo view` has answered.
+    ///
+    /// Once there *is* a sentence it draws nothing at all: the message slot
+    /// below carries the reason in the failing read's own words, and every way
+    /// of reaching this state without a plan now leaves one — a failed
+    /// `repo view`, `gh` no longer being ready, and a row a refresh dropped are
+    /// three different sentences, and a fixed second line above them could only
+    /// agree with one.
+    @ViewBuilder
     private var reading: some View {
-        HStack(spacing: metrics.scaled(6)) {
-            if model.mergeMessage == nil {
+        if model.mergeMessage == nil {
+            HStack(spacing: metrics.scaled(6)) {
                 ProgressView().controlSize(.small)
                 Text("Reading this repository’s merge settings…")
-            } else {
-                Text("This repository’s merge settings could not be read.")
             }
+            .font(metrics.scaledFont(.callout))
+            .foregroundStyle(.secondary)
         }
-        .font(metrics.scaledFont(.callout))
-        .foregroundStyle(.secondary)
     }
 
     // MARK: - Fields

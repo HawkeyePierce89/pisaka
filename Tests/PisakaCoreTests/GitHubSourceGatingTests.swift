@@ -526,6 +526,49 @@ final class GitHubSourceGatingTests: XCTestCase {
         )
     }
 
+    /// The ninth operation's own command, pinned where the eighth's argument
+    /// vocabulary is.
+    ///
+    /// `--ff-only` **is** the contract: the pull runs inside the writer bracket,
+    /// on a branch the reader has not looked at yet, immediately after a branch
+    /// switch they did not ask for by hand. A plain `pull` would write a merge
+    /// commit there, and a `--rebase` would rewrite it — both compile, both ship
+    /// green, and both are discovered by the person whose worktree they landed
+    /// in. Nothing in `swift test` compiles this file, so the flag is asserted
+    /// statically, and against literal-preserving text for the `gh`
+    /// vocabulary's reason: the flag *is* a string literal.
+    func testTheTailsPullIsFastForwardOnly() throws {
+        let service = Self.strippingComments(
+            try source(of: Self.repositoryRoot.appendingPathComponent("Sources/Pisaka/GitCLIService.swift"))
+        )
+        XCTAssertEqual(
+            try occurrences(of: "\\[\"pull\", \"--ff-only\"\\]", in: service),
+            1,
+            "GitCLIService.pull composes exactly [\"pull\", \"--ff-only\"] — no remote, no refspec, and "
+                + "above all no rebase or merge fallback."
+        )
+        XCTAssertEqual(
+            try occurrences(of: "\"pull\"", in: service),
+            1,
+            "…and `pull` is spelled once in the whole file, so there is no second pulling path beside it."
+        )
+        for banned in ["--rebase", "--no-ff", "--autostash"] {
+            XCTAssertEqual(
+                try occurrences(of: banned, in: service),
+                0,
+                "GitCLIService must not name \(banned): the tail's pull is a fast-forward or a failure the "
+                    + "step reports, never a rewrite of a branch nobody has looked at yet."
+            )
+        }
+        XCTAssertEqual(
+            try occurrences(of: "GIT_TERMINAL_PROMPT", in: service),
+            3,
+            "…and it passes GIT_TERMINAL_PROMPT=0 like the other two commands here that routinely reach the "
+                + "network — push and commit — because a credential prompt would wedge the shared serial "
+                + "queue behind a child waiting on a terminal nobody can see."
+        )
+    }
+
     func testNoFileUnderTheFeatureNamesTheWriterGate() throws {
         let files = try featureFiles(under: "Sources/PisakaCore") + featureFiles(under: "Sources/Pisaka")
         for url in files {
@@ -747,6 +790,50 @@ final class GitHubSourceGatingTests: XCTestCase {
             [Self.waitFile],
             "The interval is the wait's own. A view naming it would be a surface running a clock, which is "
                 + "the thing the published `elapsed` exists to make unnecessary."
+        )
+    }
+
+    /// The wait's **four** cancellation triggers, two of which live in the app
+    /// layer and are therefore invisible to every other test in this target.
+    ///
+    /// Cancel and arming-over-arming are Core's and are asserted as behaviour in
+    /// `PullRequestMergeWaitTests`. The project switch and quit are the
+    /// coordinator's, and `Sources/Pisaka` is not compiled by `swift test`: with
+    /// either line deleted the whole suite stays green while a half-hour wait
+    /// survives a folder switch, polls project A's pull request from inside
+    /// project B, merges it, and then switches **B's** worktree to A's base
+    /// branch and pulls it. That is the load-bearing half of the argument for
+    /// granting the no-polling ban its second exception, so it is pinned here.
+    func testTheWaitIsCancelledByTheProjectSwitchAndByQuit() throws {
+        let coordinator = try code(ofFileNamed: "PullRequestCoordinator.swift", under: "Sources/Pisaka")
+        XCTAssertEqual(
+            try occurrences(of: "mergeWait\\.cancel\\(\\)", in: coordinator),
+            2,
+            "The coordinator cancels the armed wait in exactly two places — the root observer and "
+                + "terminateNow() — and a third would be a second answer to when a promise the app made is "
+                + "withdrawn."
+        )
+        for (site, spelling) in [
+            ("rootObserver\\s*=", "the project switch"),
+            ("func terminateNow", "quit"),
+        ] {
+            XCTAssertEqual(
+                try occurrences(of: site, in: coordinator),
+                1,
+                "\(spelling) is one site in the coordinator, and it is where the wait is cancelled."
+            )
+        }
+
+        var naming: Set<String> = []
+        for url in try featureFiles(under: "Sources/Pisaka") {
+            guard LSPSourceGatingTests.containsToken("mergeWait", in: try code(of: url)) else { continue }
+            naming.insert(url.lastPathComponent)
+        }
+        XCTAssertEqual(
+            naming,
+            ["PullRequestCoordinator.swift", "PullRequestMergeSheet.swift", "PullRequestsPanelView.swift"],
+            "The wait is reached from the coordinator (its two cancellations), the sheet (arming it) and the "
+                + "panel (its elapsed time and Cancel button) — and from nowhere else."
         )
     }
 

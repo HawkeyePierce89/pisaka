@@ -232,14 +232,30 @@ final class PullRequestMergeTests: XCTestCase {
         XCTAssertEqual(model.mergeMessage, GitError.gitUnavailable.errorDescription)
     }
 
-    func testPreparingTheSheetForARowThatIsNotListedPublishesNothingAndSendsNothing() async {
+    /// The sheet draws its spinner on "no plan **and** no message", so a guard
+    /// that returned silently here would be a modal reading "Reading this
+    /// repository's merge settings…" until it is cancelled — `.task` runs once,
+    /// so nothing retries and nothing ever says why.
+    func testPreparingTheSheetForARowThatIsNotListedSaysSoAndSendsNothing() async {
         let cli = ScriptedGitHubCLI()
         let model = await readyModel(cli, prepare: false)
 
         await model.prepareMerge(number: 999)
 
         XCTAssertNil(model.mergePlan)
-        XCTAssertNil(model.mergeMessage)
+        XCTAssertEqual(model.mergeMessage, PullRequestModel.mergeRowMissingMessage)
+        XCTAssertEqual(cli.count(for: GitHubCommands.repositoryView(root: root)), 0)
+    }
+
+    func testPreparingTheSheetWhileGhIsNotReadySaysSoAndSendsNothing() async {
+        let cli = ScriptedGitHubCLI()
+        let model = PullRequestModel(transport: cli, gitService: StubGit(), root: { self.root })
+
+        await model.prepareMerge(number: 54)
+
+        XCTAssertFalse(model.isReady)
+        XCTAssertNil(model.mergePlan)
+        XCTAssertEqual(model.mergeMessage, PullRequestModel.unavailableMessage)
         XCTAssertEqual(cli.count(for: GitHubCommands.repositoryView(root: root)), 0)
     }
 
@@ -301,6 +317,13 @@ final class PullRequestMergeTests: XCTestCase {
         let second = await model.merge(number: 54, method: .merge, subject: "A change (#54)", body: "")
         XCTAssertNil(second)
         XCTAssertEqual(cli.count(for: mergeArguments(method: .merge, subject: "A change (#54)")), 0)
+        // And it **says so**. The sheet's Merge button disables on this flag, but
+        // the wait's merge does not go through a button — Checkout and New Pull
+        // Request stay enabled while a wait is armed, so a tick going green
+        // during a `gh pr checkout` lands exactly here, and a silent refusal
+        // would end that wait with nothing merged and no sentence anywhere.
+        XCTAssertEqual(model.mergeMessage, PullRequestModel.mergeBusyMessage)
+        XCTAssertNotEqual(PullRequestModel.mergeBusyMessage, PullRequestModel.mergeBlockedMessage)
 
         // And a checkout and a create are refused on the same flag.
         XCTAssertFalse(model.checkout(54))
@@ -462,9 +485,9 @@ final class PullRequestMergeTests: XCTestCase {
             outcome,
             PullRequestModel.MergeOutcome(
                 number: 54,
-                headBranch: "feature",
                 baseBranch: "master",
-                isTailOwed: true
+                isTailOwed: true,
+                root: root
             )
         )
         // The merged row left the list through the ordinary refresh, which is
@@ -596,13 +619,13 @@ final class PullRequestMergeTests: XCTestCase {
         PullRequestModel(transport: ScriptedGitHubCLI(), gitService: StubGit(), root: { self.root })
     }
 
-    private static func outcome(base: String = "master", isTailOwed: Bool = true)
+    private func outcome(base: String = "master", isTailOwed: Bool = true)
         -> PullRequestModel.MergeOutcome {
         PullRequestModel.MergeOutcome(
             number: 54,
-            headBranch: "feature",
             baseBranch: base,
-            isTailOwed: isTailOwed
+            isTailOwed: isTailOwed,
+            root: root
         )
     }
 
@@ -617,11 +640,15 @@ final class PullRequestMergeTests: XCTestCase {
     }
 
     private static func remote(_ short: String) -> BranchRef {
+        remote(short, on: "origin")
+    }
+
+    private static func remote(_ short: String, on remoteName: String) -> BranchRef {
         BranchRef(
-            name: "refs/remotes/origin/\(short)",
+            name: "refs/remotes/\(remoteName)/\(short)",
             isRemote: true,
-            remoteName: "origin",
-            shortName: "origin/\(short)",
+            remoteName: remoteName,
+            shortName: "\(remoteName)/\(short)",
             isCurrent: false
         )
     }
@@ -631,7 +658,7 @@ final class PullRequestMergeTests: XCTestCase {
     func testALocalRefNamedAfterTheBaseIsTheBranchTheTailSwitchesTo() {
         let branches = [Self.local("master"), Self.remote("master")]
 
-        let tail = PullRequestModel.mergeTail(for: Self.outcome(), branches: branches)
+        let tail = PullRequestModel.mergeTail(for: outcome(), branches: branches)
 
         // The local ref wins even though the remote one is listed too: that is
         // git's own DWIM, and switching to `origin/master` when `master` exists
@@ -642,7 +669,7 @@ final class PullRequestMergeTests: XCTestCase {
     func testAnOriginRefIsUsedWhenNoLocalBranchOfThatNameIsListed() {
         let branches = [Self.local("feature"), Self.remote("master")]
 
-        let tail = PullRequestModel.mergeTail(for: Self.outcome(), branches: branches)
+        let tail = PullRequestModel.mergeTail(for: outcome(), branches: branches)
 
         // `checkoutRemote`'s DWIM creates the tracking branch from here.
         XCTAssertEqual(tail, .switchThenPull(Self.remote("master")))
@@ -651,7 +678,7 @@ final class PullRequestMergeTests: XCTestCase {
     func testABaseInNeitherHalfOfTheListIsTheTailsOneRefusal() {
         let branches = [Self.local("feature"), Self.remote("develop")]
 
-        let tail = PullRequestModel.mergeTail(for: Self.outcome(), branches: branches)
+        let tail = PullRequestModel.mergeTail(for: outcome(), branches: branches)
 
         XCTAssertEqual(tail, .unresolved(PullRequestModel.tailBranchMissingMessage(base: "master")))
     }
@@ -660,7 +687,7 @@ final class PullRequestMergeTests: XCTestCase {
         let branches = [Self.local("master")]
 
         let tail = PullRequestModel.mergeTail(
-            for: Self.outcome(isTailOwed: false),
+            for: outcome(isTailOwed: false),
             branches: branches
         )
 
@@ -670,7 +697,7 @@ final class PullRequestMergeTests: XCTestCase {
     func testTheBaseIsMatchedExactlyAndCaseSensitively() {
         let branches = [Self.local("Master"), Self.remote("MASTER")]
 
-        let tail = PullRequestModel.mergeTail(for: Self.outcome(), branches: branches)
+        let tail = PullRequestModel.mergeTail(for: outcome(), branches: branches)
 
         XCTAssertEqual(tail, .unresolved(PullRequestModel.tailBranchMissingMessage(base: "master")))
     }
@@ -682,7 +709,7 @@ final class PullRequestMergeTests: XCTestCase {
         let bracket = ScriptedBracket()
 
         let started = model.runMergeTail(
-            Self.outcome(),
+            outcome(),
             branches: [Self.local("master")],
             confirm: { true },
             run: bracket.run
@@ -705,7 +732,7 @@ final class PullRequestMergeTests: XCTestCase {
         let bracket = ScriptedBracket()
 
         model.runMergeTail(
-            Self.outcome(),
+            outcome(),
             branches: [Self.remote("master")],
             confirm: { true },
             run: bracket.run
@@ -725,7 +752,7 @@ final class PullRequestMergeTests: XCTestCase {
         var asks = 0
 
         let started = model.runMergeTail(
-            Self.outcome(),
+            outcome(),
             branches: [Self.local("master")],
             confirm: { asks += 1; return false },
             run: bracket.run
@@ -743,7 +770,7 @@ final class PullRequestMergeTests: XCTestCase {
         var asks = 0
 
         let started = model.runMergeTail(
-            Self.outcome(),
+            outcome(),
             branches: [Self.local("feature")],
             confirm: { asks += 1; return true },
             run: bracket.run
@@ -753,7 +780,13 @@ final class PullRequestMergeTests: XCTestCase {
         // No modal for a tail that was never going to run.
         XCTAssertEqual(asks, 0)
         XCTAssertTrue(bracket.steps.isEmpty)
-        XCTAssertEqual(model.mergeMessage, PullRequestModel.tailBranchMissingMessage(base: "master"))
+        // In the panel's slot, and **not** under the merge sheet's own source:
+        // the sheet that started this merge dismisses in the caller's very next
+        // line, and `dismissMerge()` clears `.merge`.
+        XCTAssertEqual(model.errorMessage, PullRequestModel.tailBranchMissingMessage(base: "master"))
+        XCTAssertNil(model.mergeMessage)
+        model.dismissMerge()
+        XCTAssertEqual(model.errorMessage, PullRequestModel.tailBranchMissingMessage(base: "master"))
     }
 
     func testATailThatIsNotOwedConfirmsNothingSaysNothingAndRunsNothing() {
@@ -762,7 +795,7 @@ final class PullRequestMergeTests: XCTestCase {
         var asks = 0
 
         let started = model.runMergeTail(
-            Self.outcome(isTailOwed: false),
+            outcome(isTailOwed: false),
             branches: [Self.local("master")],
             confirm: { asks += 1; return true },
             run: bracket.run
@@ -772,5 +805,152 @@ final class PullRequestMergeTests: XCTestCase {
         XCTAssertEqual(asks, 0)
         XCTAssertTrue(bracket.steps.isEmpty)
         XCTAssertNil(model.mergeMessage)
+    }
+
+    // MARK: - The branch read the tail is decided from
+
+    /// The merge re-reads the branch rather than trusting the sheet's reading —
+    /// and when *that* read fails it falls back to what the sheet said, which is
+    /// the state whose sentence the reader agreed to. It does not refuse: the
+    /// merge itself does not depend on what is checked out locally.
+    ///
+    /// This value alone decides ``GitHubMergePlan/isTailOwed``, i.e. whether the
+    /// app then runs a branch switch and a `pull --ff-only`, so a fallback that
+    /// answered anything else would either skip a tail that is owed or perform
+    /// two worktree operations nobody asked for.
+    func testAMergeWhoseBranchReadFailsFallsBackToTheSheetsOwnReading() async {
+        let cli = ScriptedGitHubCLI()
+        let git = StubGit()
+        // The sheet's own read succeeds and says `feature` — the merged head.
+        let model = await readyModel(cli, git: git)
+        XCTAssertEqual(model.mergePlan?.checkedOutBranch, "feature")
+        cli.serve(mergeArguments(), stdout: "")
+        cli.serve(GitHubCommands.openPullRequests(root: root), stdout: "[]")
+
+        // Only now does git stop answering.
+        git.branchError = GitError.gitUnavailable
+        let outcome = await model.merge(number: 54, method: .squash, subject: "A change (#54)", body: "")
+
+        XCTAssertEqual(outcome?.isTailOwed, true)
+        XCTAssertEqual(cli.count(for: mergeArguments()), 1)
+        // The failed read is not a refusal and says nothing: the merge landed.
+        XCTAssertNil(model.mergeMessage)
+    }
+
+    /// And with no earlier reading to fall back on, the tail is simply not owed
+    /// — never guessed at.
+    func testAMergeWithNoBranchReadingAtAllOwesNoTail() async {
+        let cli = ScriptedGitHubCLI()
+        let git = StubGit()
+        git.branchError = GitError.gitUnavailable
+        let model = await readyModel(cli, git: git)
+        XCTAssertEqual(model.mergePlan?.checkedOutBranch, "")
+        cli.serve(mergeArguments(), stdout: "")
+        cli.serve(GitHubCommands.openPullRequests(root: root), stdout: "[]")
+
+        let outcome = await model.merge(number: 54, method: .squash, subject: "A change (#54)", body: "")
+
+        XCTAssertEqual(outcome?.isTailOwed, false)
+    }
+
+    // MARK: - The tail and the repository it was decided in
+
+    /// A merge is a network round trip that can outlive the project it started
+    /// in: the folder switch cancels the wait and blanks the rows, but it cannot
+    /// un-send a sent command, so the outcome still arrives. Without the root
+    /// guard the tail resolves project A's base against project **B**'s branch
+    /// list — which almost always has a `master` — and switches and pulls a
+    /// worktree nobody asked about.
+    func testATailWhoseRepositoryHasSinceChangedRunsNothingAndSaysNothing() {
+        var current = root
+        let model = PullRequestModel(
+            transport: ScriptedGitHubCLI(),
+            gitService: StubGit(),
+            root: { current }
+        )
+        let bracket = ScriptedBracket()
+        var asks = 0
+        let merged = outcome()
+
+        current = URL(fileURLWithPath: "/tmp/pisaka-some-other-project")
+        let started = model.runMergeTail(
+            merged,
+            branches: [Self.local("master")],
+            confirm: { asks += 1; return true },
+            run: bracket.run
+        )
+
+        XCTAssertFalse(started)
+        XCTAssertEqual(asks, 0)
+        XCTAssertTrue(bracket.steps.isEmpty)
+        // Silently: the reader closed that project on purpose, and the panel
+        // that would carry the sentence went with it.
+        XCTAssertNil(model.errorMessage)
+    }
+
+    func testATailWhoseProjectHasClosedAltogetherRunsNothing() {
+        let model = PullRequestModel(
+            transport: ScriptedGitHubCLI(),
+            gitService: StubGit(),
+            root: { nil }
+        )
+        let bracket = ScriptedBracket()
+
+        let started = model.runMergeTail(
+            outcome(),
+            branches: [Self.local("master")],
+            confirm: { XCTFail("a closed project must not be asked about a checkout"); return true },
+            run: bracket.run
+        )
+
+        XCTAssertFalse(started)
+        XCTAssertTrue(bracket.steps.isEmpty)
+    }
+
+    // MARK: - The remote is matched by stripping, never by composing `origin/`
+
+    /// `gh` resolves the repository from whichever remote the working directory
+    /// has, so a checkout whose only remote is `upstream` merges perfectly well —
+    /// and must not then be told its own base branch is not in the repository.
+    func testARemoteNotNamedOriginIsStillTheBranchTheTailSwitchesTo() {
+        let branches = [Self.local("feature"), Self.remote("master", on: "upstream")]
+
+        let tail = PullRequestModel.mergeTail(for: outcome(), branches: branches)
+
+        XCTAssertEqual(tail, .switchThenPull(Self.remote("master", on: "upstream")))
+    }
+
+    /// Where several remotes carry the same branch, `origin` wins — that is the
+    /// one git's own DWIM picks — and it wins whatever order the list is in.
+    func testOriginWinsWhenSeveralRemotesCarryTheBase() {
+        let listed = [
+            Self.remote("master", on: "upstream"),
+            Self.remote("master", on: "origin"),
+            Self.remote("master", on: "fork"),
+        ]
+
+        XCTAssertEqual(
+            PullRequestModel.mergeTail(for: outcome(), branches: listed),
+            .switchThenPull(Self.remote("master", on: "origin"))
+        )
+        XCTAssertEqual(
+            PullRequestModel.mergeTail(for: outcome(), branches: listed.reversed()),
+            .switchThenPull(Self.remote("master", on: "origin"))
+        )
+    }
+
+    /// The branch half is what is compared, not the display name: a remote
+    /// called `master` carrying a branch called `develop` answers `develop`.
+    func testTheRemotesBranchHalfIsWhatIsMatchedAndNotItsShortName() {
+        let misleading = Self.remote("develop", on: "master")
+
+        XCTAssertEqual(
+            PullRequestModel.mergeTail(for: outcome(base: "master"), branches: [misleading]),
+            .unresolved(PullRequestModel.tailBranchMissingMessage(base: "master"))
+        )
+        XCTAssertEqual(
+            PullRequestModel.mergeTail(for: outcome(base: "develop"), branches: [misleading]),
+            .switchThenPull(misleading)
+        )
     }
 }

@@ -144,32 +144,23 @@ public final class PullRequestMergeWait: ObservableObject {
     /// What a wait was armed with: the row it is about, and the merge it will
     /// send when the row goes green.
     ///
-    /// The head is the one the *arm* was made against, and it is carried for the
-    /// surface's sake rather than for the command's: the merge is guarded by the
-    /// head **this tick** read (see ``PullRequestMergeWait``'s note on the head
-    /// guard), so the two are deliberately allowed to differ.
+    /// The number, and then exactly what the merge needs. It deliberately does
+    /// **not** carry the row's title or the head the arm was made against: the
+    /// panel draws its own row's title, and the merge is guarded by the head
+    /// **this tick** read (see ``PullRequestMergeWait``'s note on the head
+    /// guard), so a carried head would be a value with one reading and no
+    /// reader.
     public struct Armed: Equatable, Sendable {
         public let number: Int
-        public let title: String
         public let method: GitHubMergeMethod
         public let subject: String
         public let body: String
-        public let headRefOid: String
 
-        public init(
-            number: Int,
-            title: String,
-            method: GitHubMergeMethod,
-            subject: String,
-            body: String,
-            headRefOid: String
-        ) {
+        public init(number: Int, method: GitHubMergeMethod, subject: String, body: String) {
             self.number = number
-            self.title = title
             self.method = method
             self.subject = subject
             self.body = body
-            self.headRefOid = headRefOid
         }
     }
 
@@ -289,11 +280,9 @@ public final class PullRequestMergeWait: ObservableObject {
         let token = generation
         let armed = Armed(
             number: plan.pullRequest.number,
-            title: plan.pullRequest.title,
             method: method,
             subject: subject,
-            body: body,
-            headRefOid: plan.pullRequest.headRefOid
+            body: body
         )
         self.armed = armed
         elapsed = 0

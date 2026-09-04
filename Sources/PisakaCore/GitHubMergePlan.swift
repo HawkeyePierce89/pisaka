@@ -147,7 +147,11 @@ public struct GitHubMergePlan: Equatable, Sendable {
     /// whose head is some other branch moves nothing local.
     public let checkedOutBranch: String
 
-    public init(
+    /// Private, so ``plan(pullRequest:repository:checkedOutBranch:)`` is the one
+    /// way a plan is made: the trimming it does is not cosmetic —
+    /// ``isTailOwed`` is an exact comparison against a branch name, and a plan
+    /// built around this would decide the post-merge tail from an untrimmed one.
+    private init(
         pullRequest: GitHubPullRequest,
         repository: GitHubRepository,
         checkedOutBranch: String

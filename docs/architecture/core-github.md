@@ -461,12 +461,12 @@ really "nobody has looked" names the control that looks:
 
 **A failure is cleared by the read that caused it and by no other.** The one
 message slot records whose sentence it holds (`ErrorSource`: refresh, checks,
-create, checkout, checkoutBlocked), for `DatabaseViewerModel`'s reason — a refresh
+create, merge, mergeTail, checkout, checkoutBlocked), for `DatabaseViewerModel`'s reason — a refresh
 that succeeded says nothing about an expand that failed a moment earlier, and
 clearing that sentence would leave a row expanded over an empty checks list with
 no explanation.
 
-**Two of the five have an end, and it is not another read of their own.** The rule
+**Three of the seven have an end, and it is not another read of their own.** The rule
 above keeps a sentence until its own read runs again, which is right for a
 *result* — a command answered, and no later read changes what it said — and wrong
 for a *condition* that ends silently:
@@ -490,6 +490,20 @@ for a *condition* that ends silently:
   that failed and was then cancelled left `gh`'s refusal (or git's rejected push)
   in the panel's strip with nothing on the ready path able to clear it, since
   every later refresh asks for `refresh` and returns early.
+- **`merge`** is the second sheet's, drawn as `mergeMessage` for `create`'s
+  reason applied to the second sheet — it too stands over a live panel whose
+  list, checks and indicator keep refreshing behind it — and ended by
+  `dismissMerge()` on `PullRequestMergeSheet`'s `.onDisappear`, again scoped.
+
+**And `mergeTail` is its own source because of when it is published.** The tail's
+one refusal — the base branch is in neither half of the branch widget's list — is
+set *during* the caller's turn: `coordinator.merge` runs `runMergeTail(…)` before
+it answers `true`, and the sheet dismisses on that answer, so `dismissMerge()`
+would clear the sentence in the same turn it was written. Under `.merge` the one
+thing the tail can say was therefore unreadable on the path that produces it
+most. It records something that happened and stays true — the merge landed and no
+branch was switched to — so nothing withdraws it but a new merge sheet
+(`prepareMerge(number:)` clears it alongside its own) or a blank of everything.
 
 **Blanking the rows blanks the slot, whoever filled it.** The three moments the
 model clears everything a sentence could be about — availability going not-ready,
@@ -503,11 +517,14 @@ next step is `gh auth login`.
 **A surface reads only its own sentence.** The panel's strip draws the slot
 whole — it is the surface every read of the feature happens under — but the
 create sheet draws `createMessage`, which is the slot **only when
-`errorSource == .create`**. A sheet drawing the raw slot would show a background
+`errorSource == .create`** — and the merge sheet draws `mergeMessage` on the same
+terms. A sheet drawing the raw slot would show a background
 refresh's failure, or a checks read that failed under a row behind it, in red
 above its buttons on a sheet where nothing has been submitted; and
 `prepareCreate()` cannot clear that sentence, because clearing it is exactly what
-the four sources forbid.
+the sources forbid. The panel, which draws the slot whole, is therefore the one
+surface the tail's `mergeTail` sentence appears on — which is where it belongs,
+since by then the sheet that started the merge is gone.
 
 **A read that failed is not a read still running.** `checks[number] == nil` means
 "still reading" and `[]` means "GitHub reported no jobs" — a two-state split the
@@ -893,11 +910,25 @@ sentence must not start saying otherwise.
 `PullRequestModel.mergeTail(for:branches:)` resolves it from the branch widget's
 own list — the list the reader is looking at, refreshed by every operation that
 could change it — in git's own DWIM order: a **local** ref named `<base>` goes
-through `switchTo`; failing that an `origin/<base>` goes through `checkoutRemote`,
+through `switchTo`; failing that a *remote* ref whose branch half is `<base>` goes
+through `checkoutRemote`,
 whose DWIM already picks a same-named local or creates the tracking branch; and
 only when neither is listed is there `.unresolved`, the tail's one refusal, whose
 sentence says the merge landed first because that is the fact the reader most
-needs. `runMergeTail(…)` then orders it: the decision first (so a tail that is not
+needs. **The remote is matched by stripping, never by composing `origin/`**: the
+whole branch pipeline is remote-agnostic (`BranchRef` carries `remoteName`,
+`BranchSwitcherModel.defaultBranchName(forRemote:)` strips whatever it says) and
+`gh` resolves the repository from whichever remote the working directory has, so
+a checkout whose only remote is `upstream` merges perfectly well and must not
+then be told its own base branch is not in the repository; where several remotes
+carry the same branch, `origin` wins, because that is the one git's own DWIM
+picks. `runMergeTail(…)` then orders it: **the repository first of all** — a merge
+is a network round trip that can outlive the project it was started in, and the
+folder switch that cancels an armed wait cannot un-send a sent command, so the
+outcome carries the root it was decided in and a tail whose root has since moved
+runs nothing and says nothing (silently: the reader closed that project on
+purpose, and the panel that would carry a sentence went with it) — then the
+decision (so a tail that is not
 owed costs nothing and puts no modal in front of anybody), the same dirty-tree
 confirmation `switchBranch` and `checkoutRemote` ask second, and the pull **only
 on the switch's success** — a pull after a refused checkout would fast-forward the
@@ -1094,9 +1125,10 @@ for the transport and the write.
 
 The two numbers are named constants (`pollInterval` 30 s, `deadline` 30 min), and
 `deadlineMessage` names the minutes *out of* the constant rather than spelling
-"30" a second time. `armed` (number, title, method, subject, body, and the head
-the arm was made against — carried for the surface, deliberately not for the
-command), `elapsed` (published from `now` at the top of every tick, so **no view
+"30" a second time. `armed` (the number and exactly what the merge needs — method,
+subject, body; deliberately **not** the row's title, which the panel draws from
+its own row, and deliberately not the head the arm was made against, since each
+tick merges with the head *that tick* read), `elapsed` (published from `now` at the top of every tick, so **no view
 runs a clock**) and `ending` are the published state; `now`, `sleep` and
 `didMerge` are the three seams; `isArmed`, `isWaiting(on:)`, `elapsedLabel`
 (`m:ss`) and `acknowledgeEnding()` are what the surfaces ask.
@@ -1122,8 +1154,11 @@ good install of not existing for as long as the probes take), `pullRequests`,
 `currentBranchPullRequest`, `checks`, `expandedNumber`, `selectedNumber`,
 `createPlan`, `mergePlan`, `errorMessage`, `isLoading`, `isWriteInFlight`, plus
 the `lazy` `mergeWait` companion and `mergeIsAvailable` — the one term every row's
-Merge button disables on, which is `isWriteInFlight` plus "no wait is armed
-anywhere".
+Merge button disables on, which is `isReady` plus `isWriteInFlight` plus "no wait
+is armed anywhere". The first two are **also refused on** in `merge(…)`, so the
+rule holds even when a button forgot to disable; the wait term deliberately is
+not, and cannot be — the wait's own merge runs while the wait is armed — so that
+term is stated as a surface rule rather than assumed to be enforced twice.
 
 `refresh(branch:)` is the whole read path in the one order it ever runs:
 availability, the list, then the `--head` lookup (skipped on a detached HEAD
@@ -1164,14 +1199,26 @@ The merge half is a **fourth generation token** (bumped in `prepareMerge(_:)`, i
 `prepareMerge(number:)` reads `repo view` and the checked-out branch as the sheet
 opens: a failed `repo view` leaves `mergePlan` `nil` — hence Merge disabled and
 `gh`'s words in the slot, which is what the create sheet's failed read already
-does — while a failed *branch* read is deliberately weaker and not fatal, because
+does. **Its two guards publish too**, and that is load-bearing rather than tidy:
+the sheet draws its spinner on "no plan *and* no message" and its `.task` runs
+once, so a guard returning silently is a modal reading "Reading this repository's
+merge settings…" until it is cancelled, with no retry and no reason. A not-ready
+`gh` or absent root gets `unavailableMessage`, and a row a refresh dropped between
+the press and the read — the honest case, somebody else merged it — gets
+`mergeRowMissingMessage`, which is what `merge(…)` already says for the same two
+conditions. A failed *branch* read is deliberately weaker and not fatal, because
 the merge does not depend on what is checked out locally and a sheet must not
 refuse to merge a pull request because `git` could not name a branch.
 `dismissMerge()` clears only the merge's own sentence and deliberately **not** the
 plan, which the row's own controls keep reading after the sheet closes.
 
 `merge(number:method:subject:body:)` is the write, with six refusals in the order
-they are asked: the one-write flag, the gate (`mergeBlockedMessage`), a not-ready
+they are asked, **each of them with a sentence**: the one-write flag
+(`mergeBusyMessage` — its own constant rather than the gate's, since it names a
+different state and a different cure, and *not* a dead branch behind a disabled
+button, because the wait's merge does not go through a button at all and a silent
+refusal there would end a wait with nothing merged and nothing said), the gate
+(`mergeBlockedMessage`), a not-ready
 `gh` or absent root, the row no longer in hand (`mergeRowMissingMessage`), a plan
 that re-decides as not mergeable (the refusal's *own* sentence, so button, model
 and wait word one state one way), and a method the repository does not allow
@@ -1186,7 +1233,8 @@ acting on a reading newer than the list's.
 
 The tail's half is `MergeOutcome` (returned, never published — it is the answer to
 one merge, read once, and a published copy would sit there naming refs that no
-longer exist), `MergeTailStep` / `MergeTailRunner` / `MergeTail`,
+longer exist), carrying the number, the base, `isTailOwed` and **the root the
+merge was sent in**, `MergeTailStep` / `MergeTailRunner` / `MergeTail`,
 `mergeTail(for:branches:)` and `runMergeTail(_:branches:confirm:run:)` (G15). The
 tail's one refusal sentence, `tailBranchMissingMessage(base:)`, lives here rather
 than in the coordinator that runs the tail, for the reason every other sentence in
@@ -1334,8 +1382,10 @@ reader has just typed a description.
 picker (absent when the repository allows exactly one), the pre-filled subject and
 the optional body (both hidden for Rebase, which composes no commit), the three
 stated sentences — what will be merged, the tail or its absence, and GitHub's own
-branch deletion when it is on — the button's label and the button's enablement are
-all `GitHubMergePlan`'s. **The button is two buttons**: *Merge* when the plan
+branch deletion when it is on — and the button's label are
+all `GitHubMergePlan`'s; the button's *enablement* is the plan's own term **and**
+the model's `mergeIsAvailable`, which is this feature's one-write rule and the
+no-second-wait rule the sheet has no business restating. **The button is two buttons**: *Merge* when the plan
 allows it, *Merge when checks pass* when the plan's refusal is `isArmable`, which
 is the plan's `armsWait`; every other refusal disables it under that refusal's own
 sentence. It observes the wait as well as the model, since it is the one place a
@@ -1490,8 +1540,8 @@ would fail the moment somebody explained the rule.
   every other refusal is a state waiting cannot change.
 - **The tail is `--ff-only` and nothing else.** A base branch that cannot
   fast-forward is reported, never merged or rebased into; a base that is neither
-  a local ref nor an `origin/<base>` in the branch widget's list stops the tail
-  with its own sentence. The merge is still done — the tail moves only what is
+  a local ref nor a remote one carrying `<base>` in the branch widget's list stops
+  the tail with its own sentence. The merge is still done — the tail moves only what is
   local.
 - **The list is capped at 50 open pull requests**, and the checks list is
   whatever `pr checks` answers for one pull request. The header says so: at the

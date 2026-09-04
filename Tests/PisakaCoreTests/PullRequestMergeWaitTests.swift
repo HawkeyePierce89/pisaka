@@ -150,7 +150,9 @@ final class PullRequestMergeWaitTests: XCTestCase {
         _ cli: ScriptedGitHubCLI,
         clock: StubClock,
         sleeps: SleepLog,
-        list: String? = nil
+        list: String? = nil,
+        currentRoot: (@MainActor () -> URL?)? = nil,
+        isWriteBlocked: @escaping @MainActor () -> Bool = { false }
     ) async -> PullRequestModel {
         let root = root
         cli.serveReady()
@@ -163,7 +165,12 @@ final class PullRequestMergeWaitTests: XCTestCase {
         }
         cli.serve(GitHubCommands.repositoryView(root: root), stdout: Self.repositoryJSON)
 
-        let model = PullRequestModel(transport: cli, gitService: StubGit(), root: { root })
+        let model = PullRequestModel(
+            transport: cli,
+            gitService: StubGit(),
+            root: currentRoot ?? { root },
+            isWriteBlocked: isWriteBlocked
+        )
         await model.refresh(branch: "feature")
         await model.prepareMerge(number: 54)
         model.mergeWait.now = clock.read
@@ -287,7 +294,19 @@ final class PullRequestMergeWaitTests: XCTestCase {
         XCTAssertTrue(arm(model))
         await settle(model)
 
-        XCTAssertEqual(model.mergeWait.ending, .merged(merged))
+        // Against a literal built here, not against the value the code under
+        // test just handed to `didMerge` — that comparison holds for
+        // `.merged(nil)` and `nil` just as well, so on its own it could never
+        // fail.
+        XCTAssertEqual(
+            model.mergeWait.ending,
+            .merged(PullRequestModel.MergeOutcome(
+                number: 54,
+                baseBranch: "master",
+                isTailOwed: true,
+                root: root
+            ))
+        )
         XCTAssertNil(model.mergeWait.ending?.message)
         XCTAssertFalse(model.mergeWait.isArmed)
         XCTAssertEqual(cli.count(for: viewCommand), 2)
@@ -698,5 +717,155 @@ final class PullRequestMergeWaitTests: XCTestCase {
 
         XCTAssertEqual(model.mergeWait.ending, .cancelled)
         XCTAssertNil(model.mergeWait.ending?.message)
+    }
+
+    // MARK: - The token is checked after *every* suspension
+
+    /// A wait spends all but a moment of every 30 seconds inside the sleep, so
+    /// Cancel, a project switch and quit almost always land **there** rather
+    /// than in the read. The suite's other cancellation test holds the `pr view`
+    /// and so exercises the guard after the *read*; this one is the guard after
+    /// the sleep, and without it a cancelled wait issues another `pr view` and
+    /// republishes `elapsed` on a wait nothing is armed on.
+    func testCancellingDuringTheSleepStopsTheLoopBeforeTheNextRead() async {
+        let cli = ScriptedGitHubCLI()
+        let clock = StubClock()
+        let sleeps = SleepLog()
+        let model = await armedModel(cli, clock: clock, sleeps: sleeps)
+        cli.serve(viewCommand, Self.viewJSON())
+
+        model.mergeWait.sleep = { seconds in
+            sleeps.record(seconds)
+            clock.date.addTimeInterval(seconds)
+            // The window Cancel actually lands in.
+            model.mergeWait.cancel()
+        }
+
+        XCTAssertTrue(arm(model))
+        await settle(model)
+
+        XCTAssertEqual(model.mergeWait.ending, .cancelled)
+        XCTAssertFalse(model.mergeWait.isArmed)
+        // One read, and no second one after the wait was cancelled.
+        XCTAssertEqual(cli.count(for: viewCommand), 1)
+        XCTAssertEqual(sleeps.seconds, [PullRequestMergeWait.pollInterval])
+        XCTAssertEqual(cli.count(for: mergeArguments(oid: "abc123")), 0)
+    }
+
+    // MARK: - Ending two, reached from the top of the loop: the world is gone
+
+    /// `gh` stopped being ready, the project closed, or the rows — and with them
+    /// the repository the plan is decided against — were blanked. From inside the
+    /// wait that is indistinguishable from the row having left, and it stops with
+    /// the row's own sentence rather than returning silently.
+    func testAWaitWhoseProjectIsSwitchedAwayFromStopsAndSaysSo() async {
+        let cli = ScriptedGitHubCLI()
+        let clock = StubClock()
+        let sleeps = SleepLog()
+        var current: URL? = root
+        let model = await armedModel(
+            cli,
+            clock: clock,
+            sleeps: sleeps,
+            currentRoot: { current }
+        )
+        cli.serve(viewCommand, Self.viewJSON())
+
+        model.mergeWait.sleep = { seconds in
+            sleeps.record(seconds)
+            clock.date.addTimeInterval(seconds)
+            // The folder switch, as the model sees it: a new root, and the
+            // blank that goes with it.
+            current = URL(fileURLWithPath: "/tmp/pisaka-some-other-project")
+            _ = model.prepareForRefresh()
+        }
+
+        XCTAssertTrue(arm(model))
+        await settle(model)
+
+        XCTAssertEqual(model.mergeWait.ending, .stopped(PullRequestModel.mergeRowMissingMessage))
+        XCTAssertEqual(model.mergeWait.ending?.message, PullRequestModel.mergeRowMissingMessage)
+        XCTAssertFalse(model.mergeWait.isArmed)
+        // The second tick got as far as the guard and no further: one read, and
+        // above all no merge under a repository nobody opened.
+        XCTAssertEqual(cli.count(for: viewCommand), 1)
+        XCTAssertEqual(cli.count(for: mergeArguments(oid: "abc123")), 0)
+    }
+
+    // MARK: - The one ending published past a moved token
+
+    /// Cancel cannot un-send a `pr merge` already sent, so the merge is published
+    /// either way and the tail is owed off the back of it. What Cancel *does*
+    /// still buy is the disarm, which respects the token — asserted here as
+    /// "`didMerge` fired exactly once and the ending is the merge's".
+    func testCancellingWhileTheMergeIsInFlightStillPublishesTheMerge() async {
+        let cli = ScriptedGitHubCLI()
+        let clock = StubClock()
+        let sleeps = SleepLog()
+        let gate = Gate()
+        let model = await armedModel(cli, clock: clock, sleeps: sleeps)
+        cli.serve(viewCommand, Self.viewJSON(rollup: Self.passedRollup))
+        cli.serve(mergeArguments(oid: "abc123"), stdout: "Merged\n")
+        cli.serve(GitHubCommands.openPullRequests(root: root), stdout: "[]")
+        cli.hold(mergeArguments(oid: "abc123"), on: gate)
+
+        var merges = 0
+        model.mergeWait.didMerge = { _ in merges += 1 }
+        XCTAssertTrue(arm(model))
+        // Held before the cancel, because `cancel()` drops the model's own
+        // reference to the task — `settle(_:)` would otherwise return before the
+        // merge in flight had finished, and assert against a wait mid-write.
+        let running = model.mergeWait.runningTask
+        // The window: `pr merge` is in flight and the reader presses Cancel.
+        await gate.waitUntilReached()
+        model.mergeWait.cancel()
+        gate.release()
+        await running?.value
+
+        XCTAssertEqual(merges, 1)
+        XCTAssertEqual(cli.count(for: mergeArguments(oid: "abc123")), 1)
+        XCTAssertFalse(model.mergeWait.isArmed)
+        XCTAssertEqual(
+            model.mergeWait.ending,
+            .merged(PullRequestModel.MergeOutcome(
+                number: 54,
+                baseBranch: "master",
+                isTailOwed: true,
+                root: root
+            ))
+        )
+    }
+
+    // MARK: - The wait's merge asks the same gate the sheet's does
+
+    /// The one ending where a wait spends its whole promise and merges nothing.
+    /// It is `.merged(nil)` — the wait does not re-arm around a refusal it did
+    /// not make — and the *sentence* is the model's, which is why a silent
+    /// refusal there would leave this ending with nothing on screen at all.
+    func testAWaitWhoseMergeTheGateRefusesEndsWithTheModelsOwnSentence() async {
+        let cli = ScriptedGitHubCLI()
+        let clock = StubClock()
+        let sleeps = SleepLog()
+        var isBlocked = false
+        let model = await armedModel(
+            cli,
+            clock: clock,
+            sleeps: sleeps,
+            isWriteBlocked: { isBlocked }
+        )
+        cli.serve(viewCommand, Self.viewJSON(rollup: Self.passedRollup))
+        cli.serve(mergeArguments(oid: "abc123"), stdout: "Merged\n")
+
+        var merges = 0
+        model.mergeWait.didMerge = { _ in merges += 1 }
+        XCTAssertTrue(arm(model))
+        isBlocked = true
+        await settle(model)
+
+        XCTAssertEqual(model.mergeWait.ending, .merged(nil))
+        XCTAssertEqual(merges, 0)
+        XCTAssertEqual(cli.count(for: mergeArguments(oid: "abc123")), 0)
+        XCTAssertEqual(model.mergeMessage, PullRequestModel.mergeBlockedMessage)
+        XCTAssertFalse(model.mergeWait.isArmed)
     }
 }
