@@ -300,6 +300,57 @@ public struct GitHubMergePlan: Equatable, Sendable {
         !checkedOutBranch.isEmpty && pullRequest.headRefName == checkedOutBranch
     }
 
+    // MARK: - The button, decided here
+
+    /// What the sheet's primary button says when pressing it merges now.
+    public static let mergeButtonTitle = "Merge"
+
+    /// What it says when pressing it arms a wait instead.
+    ///
+    /// The label *is* the promise the wait then keeps, which is why it is stated
+    /// beside the rule that decides between the two rather than in the view: a
+    /// button reading "Merge" that quietly armed a half-hour wait, or one reading
+    /// "Merge when checks pass" that merged immediately, are the same bug written
+    /// two ways.
+    public static let armButtonTitle = "Merge when checks pass"
+
+    /// Whether pressing the button **arms a wait** rather than merging now.
+    ///
+    /// The plan's refusal being ``GitHubMergeRefusal/isArmable`` — checks still
+    /// running, and nothing else — plus the second term ``canMerge`` carries for
+    /// the same reason: a repository that allows no merge method has nothing to
+    /// send now and nothing to send in half an hour either, and
+    /// ``PullRequestMergeWait/arm(plan:method:subject:body:)`` refuses it
+    /// silently, which from a button that offered it would look like a press that
+    /// did nothing.
+    public var armsWait: Bool {
+        refusal?.isArmable == true && !allowedMethods.isEmpty
+    }
+
+    /// The button's label: ``mergeButtonTitle`` or ``armButtonTitle``.
+    public var buttonTitle: String {
+        armsWait ? Self.armButtonTitle : Self.mergeButtonTitle
+    }
+
+    /// Whether the button does anything at all in this state — merge now, or arm
+    /// a wait. Every other refusal disables it, under its own sentence.
+    public var buttonIsOffered: Bool { canMerge || armsWait }
+
+    /// The button's whole gate, including the two things only the open sheet
+    /// knows: which method is selected, and what has been typed into the subject.
+    ///
+    /// Here rather than in the view for `GitHubCreatePlan`'s reason: the method
+    /// must be one this repository allows — the same refusal
+    /// ``PullRequestModel/merge(number:method:subject:body:)`` makes, and the one
+    /// the wait's arming makes — and a commit-producing method needs a subject to
+    /// put in the commit, since `--subject ""` is a merge commit with no message.
+    /// A rebase needs neither field and is never held up by an empty one.
+    public func buttonIsEnabled(method: GitHubMergeMethod, subject: String) -> Bool {
+        guard buttonIsOffered, allowedMethods.contains(method) else { return false }
+        guard method.composesACommit else { return true }
+        return !subject.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     /// The line naming the tail — `nil` when the merge moves nothing local.
     ///
     /// Named on the sheet rather than announced afterwards because the tail is

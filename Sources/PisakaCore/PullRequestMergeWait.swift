@@ -236,6 +236,29 @@ public final class PullRequestMergeWait: ObservableObject {
     /// elapsed time and its Cancel button from.
     public func isWaiting(on number: Int) -> Bool { armed?.number == number }
 
+    /// How long the armed wait has been running, as the row prints it — `m:ss`.
+    ///
+    /// Formatted here rather than in the row for ``elapsed``'s own reason: the
+    /// number is read off ``now`` at each tick, and a view formatting it is one
+    /// step from a view that also *advances* it. It is a projection of published
+    /// state and nothing else, so it re-renders exactly when the wait says so.
+    public var elapsedLabel: String {
+        let seconds = max(0, Int(elapsed.rounded()))
+        return String(format: "%d:%02d", seconds / 60, seconds % 60)
+    }
+
+    /// Drop the last ending's sentence — the reader has read it.
+    ///
+    /// Needed because three of the four endings are things nobody was standing in
+    /// front of: a deadline reached and a stop the plan named both publish a
+    /// sentence into a panel that may not have been open when they landed, and
+    /// ``arm(plan:method:subject:body:)`` — the only other thing that clears
+    /// ``ending`` — may never be pressed again. Idempotent, and silent when there
+    /// is nothing to acknowledge.
+    public func acknowledgeEnding() {
+        ending = nil
+    }
+
     // MARK: - Arming
 
     /// Arm a wait from the state the sheet is showing. `true` when it was armed.

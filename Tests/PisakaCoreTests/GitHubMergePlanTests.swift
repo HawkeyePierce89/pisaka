@@ -339,4 +339,93 @@ final class GitHubMergePlanTests: XCTestCase {
     func testTheTailComparisonIsCaseSensitive() {
         XCTAssertFalse(plan(checkedOutBranch: "Feature").isTailOwed)
     }
+
+    // MARK: - The button, which the sheet only draws
+
+    /// The label rule, over the whole refusal table plus the enabled state: the
+    /// button reads *Merge when checks pass* exactly where a wait may be armed,
+    /// and *Merge* everywhere else. Asserted here rather than in a view for the
+    /// reason the sentences are: a label that disagreed with what the press does
+    /// is the one bug this feature cannot afford twice.
+    func testTheLabelSaysWhichOfTheTwoThingsThePressWillDo() {
+        XCTAssertEqual(plan().buttonTitle, GitHubMergePlan.mergeButtonTitle)
+        XCTAssertFalse(plan().armsWait)
+
+        for state in GitHubMergeStateStatus.allCases {
+            for summary in GitHubChecksSummary.allCases {
+                let subject = plan(pullRequest(summary: summary, mergeStateStatus: state))
+                let arms = subject.refusal?.isArmable == true
+                XCTAssertEqual(subject.armsWait, arms, "\(state), \(summary)")
+                XCTAssertEqual(
+                    subject.buttonTitle,
+                    arms ? GitHubMergePlan.armButtonTitle : GitHubMergePlan.mergeButtonTitle,
+                    "\(state), \(summary)"
+                )
+            }
+        }
+    }
+
+    func testTheTwoLabelsAreDistinctAndNamedOnce() {
+        XCTAssertEqual(GitHubMergePlan.mergeButtonTitle, "Merge")
+        XCTAssertEqual(GitHubMergePlan.armButtonTitle, "Merge when checks pass")
+    }
+
+    /// A press only ever does one of two things, so a state that offers neither
+    /// disables the button — under that refusal's own sentence, which the sheet
+    /// draws beside it.
+    func testTheButtonIsOfferedOnlyWhereItMergesOrArms() {
+        for state in GitHubMergeStateStatus.allCases {
+            for summary in GitHubChecksSummary.allCases {
+                let subject = plan(pullRequest(summary: summary, mergeStateStatus: state))
+                XCTAssertEqual(subject.buttonIsOffered, subject.canMerge || subject.armsWait, "\(state)")
+            }
+        }
+        XCTAssertFalse(plan(pullRequest(isDraft: true)).buttonIsOffered)
+        XCTAssertFalse(plan(pullRequest(mergeable: .conflicting)).buttonIsOffered)
+    }
+
+    /// A repository allowing no method arms nothing either: the wait would refuse
+    /// it silently half an hour later, which from a button that offered it looks
+    /// like a press that did nothing.
+    func testARepositoryAllowingNoMethodNeitherMergesNorArms() {
+        let subject = plan(
+            pullRequest(summary: .pending),
+            repository: repository(merge: false, squash: false, rebase: false)
+        )
+
+        XCTAssertEqual(subject.refusal, .checksRunning)
+        XCTAssertTrue(subject.refusal?.isArmable == true)
+        XCTAssertFalse(subject.armsWait)
+        XCTAssertFalse(subject.buttonIsOffered)
+    }
+
+    /// The button's whole gate, including the two things only the open sheet
+    /// knows. A method the repository disallows is the refusal the model makes
+    /// anyway, made before the press; an empty subject is a merge commit with no
+    /// message, and a rebase — which composes no commit — is never held up by one.
+    func testTheButtonsGateCoversTheMethodAndTheSubject() {
+        let subject = plan(repository: repository(merge: true, squash: true, rebase: true))
+
+        XCTAssertTrue(subject.buttonIsEnabled(method: .squash, subject: "A change (#7)"))
+        XCTAssertFalse(subject.buttonIsEnabled(method: .squash, subject: "   \n "))
+        XCTAssertTrue(subject.buttonIsEnabled(method: .rebase, subject: ""))
+
+        let squashOnly = plan(repository: repository(merge: false, squash: true, rebase: false))
+        XCTAssertFalse(squashOnly.buttonIsEnabled(method: .merge, subject: "A change (#7)"))
+        XCTAssertTrue(squashOnly.buttonIsEnabled(method: .squash, subject: "A change (#7)"))
+
+        let draft = plan(pullRequest(isDraft: true))
+        XCTAssertFalse(draft.buttonIsEnabled(method: .squash, subject: "A change (#7)"))
+    }
+
+    /// Arming has the same gate: the sheet's button reads *Merge when checks
+    /// pass* over a subject field the reader can still empty, and an armed wait
+    /// would then send `--subject ""` half an hour later.
+    func testAnArmingPressIsGatedByTheSameSubjectRule() {
+        let subject = plan(pullRequest(summary: .pending))
+
+        XCTAssertTrue(subject.armsWait)
+        XCTAssertFalse(subject.buttonIsEnabled(method: .squash, subject: ""))
+        XCTAssertTrue(subject.buttonIsEnabled(method: .squash, subject: "A change (#7)"))
+    }
 }

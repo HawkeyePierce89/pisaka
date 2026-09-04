@@ -428,15 +428,22 @@ final class PullRequestCoordinator: ObservableObject {
     /// sentence in the panel's slot, which is why nothing is asked here first:
     /// unlike the checkout, a merge puts no modal in front of anybody and has no
     /// answer only the scene can give.
+    ///
+    /// Answers whether the merge landed, which is the one thing the sheet needs
+    /// back: a merge that failed leaves the sheet standing open over the fields
+    /// the reader filled in, with the refusal's own sentence under them, exactly
+    /// as `create` does.
+    @discardableResult
     func merge(
         number: Int,
         method: GitHubMergeMethod,
         subject: String,
         body: String
-    ) async {
+    ) async -> Bool {
         let outcome = await model.merge(number: number, method: method, subject: subject, body: body)
-        guard let outcome else { return }
+        guard let outcome else { return false }
         runTail(outcome)
+        return true
     }
 
     /// The post-merge tail: switch to the base branch, then pull it — the app's

@@ -90,21 +90,27 @@ final class GitHubSourceGatingTests: XCTestCase {
     ]
 
     /// The app half: the transport, the shared locator, the coordinator and the
-    /// three surfaces.
+    /// four surfaces.
     private static let expectedAppFiles: Set<String> = [
         "ExecutableLocator.swift",
         "GitHubCLIProcessTransport.swift",
         "NewPullRequestSheet.swift",
         "PullRequestCoordinator.swift",
         "PullRequestIndicatorView.swift",
+        "PullRequestMergeSheet.swift",
         "PullRequestsPanelView.swift",
     ]
 
-    /// The three views, which are the surfaces the no-polling ban covers on the
+    /// The four views, which are the surfaces the no-polling ban covers on the
     /// app side.
+    ///
+    /// The merge sheet is one of them and is **not** the wait's exception: it
+    /// arms a wait, which is a press on a button whose label says so, and it
+    /// sleeps for nothing itself.
     private static let viewFiles: Set<String> = [
         "NewPullRequestSheet.swift",
         "PullRequestIndicatorView.swift",
+        "PullRequestMergeSheet.swift",
         "PullRequestsPanelView.swift",
     ]
 
@@ -633,7 +639,7 @@ final class GitHubSourceGatingTests: XCTestCase {
         XCTAssertEqual(
             Set(views.map(\.lastPathComponent)),
             Self.viewFiles,
-            "The three views must exist; if one was renamed, this rule is looking in the wrong place."
+            "The four views must exist; if one was renamed, this rule is looking in the wrong place."
         )
 
         for url in core + views where url.lastPathComponent != Self.waitFile {

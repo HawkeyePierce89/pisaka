@@ -344,24 +344,24 @@ visible where the reader is looking.
 - Modify: `Sources/Pisaka/PullRequestsPanelView.swift`,
   `Sources/Pisaka/PullRequestCoordinator.swift`
 
-- [ ] the sheet: the method picker (absent when the repository allows exactly one), the
+- [x] the sheet: the method picker (absent when the repository allows exactly one), the
       pre-filled subject, the optional body (both hidden for Rebase, which composes no
       commit), the stated lines — what will be merged, the tail or its absence, and the
       remote-branch-deletion note when GitHub has it on — and the one message slot
       scoped to the merge
-- [ ] the button reads **Merge** when the plan allows it and **Merge when checks pass**
+- [x] the button reads **Merge** when the plan allows it and **Merge when checks pass**
       when the plan's refusal is `isArmable`; every other refusal disables it under its
       sentence
-- [ ] the row gains Merge beside Checkout, disabled while any of this feature's writes is
+- [x] the row gains Merge beside Checkout, disabled while any of this feature's writes is
       in flight or another row's wait is armed; the armed row shows its waiting state
       (elapsed, Cancel) and survives the panel being hidden
-- [ ] the indicator needs no new action: its click already opens the panel with that row
+- [x] the indicator needs no new action: its click already opens the panel with that row
       expanded, which is where Merge lives
-- [ ] no view names a `gh` argument, runs a clock, or decides an enablement rule
-- [ ] write tests for this task: none are view tests by convention — instead assert the
+- [x] no view names a `gh` argument, runs a clock, or decides an enablement rule
+- [x] write tests for this task: none are view tests by convention — instead assert the
       plan-derived button label and the disable terms in `GitHubMergePlanTests` /
       `PullRequestMergeWaitTests` so the view has nothing left to decide
-- [ ] run `swift test` — must pass before Task 8
+- [x] run `swift test` — must pass before Task 8
 
 ### Task 8: The gating suites
 

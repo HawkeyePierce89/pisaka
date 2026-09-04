@@ -589,5 +589,114 @@ final class PullRequestMergeWaitTests: XCTestCase {
         // Three ticks: 0 s, 30 s, 60 s — read off the injected clock, so no view
         // has to run one of its own.
         XCTAssertEqual(model.mergeWait.elapsed, 2 * PullRequestMergeWait.pollInterval)
+        // …and the row prints that, rather than formatting a duration of its own.
+        XCTAssertEqual(model.mergeWait.elapsedLabel, "1:00")
+    }
+
+    // MARK: - What the surfaces read
+
+    /// The row's label, over the values a wait actually publishes. A view that
+    /// formatted this itself would be one step from a view that also advanced it.
+    func testTheElapsedLabelIsMinutesAndPaddedSeconds() async {
+        let cli = ScriptedGitHubCLI()
+        let clock = StubClock()
+        let sleeps = SleepLog()
+        let model = await armedModel(cli, clock: clock, sleeps: sleeps)
+        cli.serve(viewCommand, sequence: [
+            Self.viewJSON(),
+            Self.viewJSON(),
+            Self.viewJSON(),
+            Self.viewJSON(rollup: Self.failedRollup),
+        ])
+
+        XCTAssertEqual(model.mergeWait.elapsedLabel, "0:00")
+        XCTAssertTrue(arm(model))
+        await settle(model)
+
+        // Three sleeps of 30 s: 1:30.
+        XCTAssertEqual(model.mergeWait.elapsedLabel, "1:30")
+    }
+
+    /// The **one** disable term every row's Merge button reads, and both halves
+    /// of it: this feature's one-write rule, and one armed wait disabling every
+    /// row's Merge rather than only its own — the merge that wait will run is the
+    /// one-write rule spent in advance.
+    ///
+    /// Asserted here rather than in the panel, which by convention has no tests:
+    /// the term is Core's, so the view has nothing left to decide.
+    func testOneArmedWaitDisablesEveryRowsMerge() async {
+        let cli = ScriptedGitHubCLI()
+        let clock = StubClock()
+        let sleeps = SleepLog()
+        let model = await armedModel(cli, clock: clock, sleeps: sleeps)
+        let gate = Gate()
+        cli.serve(viewCommand, Self.viewJSON())
+        cli.hold(viewCommand, on: gate, forCall: 0)
+
+        XCTAssertTrue(model.mergeIsAvailable)
+
+        XCTAssertTrue(arm(model))
+        let task = model.mergeWait.runningTask
+        await gate.waitUntilReached()
+
+        XCTAssertFalse(model.mergeIsAvailable, "Every row's Merge, not merely the row being waited on.")
+        // …while nothing that is not a merge is touched by it.
+        XCTAssertFalse(model.isWriteInFlight)
+        XCTAssertFalse(model.checkoutIsBlocked())
+
+        model.mergeWait.cancel()
+        gate.release()
+        await task?.value
+
+        XCTAssertTrue(model.mergeIsAvailable, "Cancelling gives it back.")
+    }
+
+    /// The other half of the same term: a `gh` that is not ready has nothing to
+    /// merge, which is the state the panel is already drawing its not-ready
+    /// sentence for.
+    func testMergeIsNotOfferedBeforeGhIsKnownToBeReady() {
+        let model = PullRequestModel(transport: ScriptedGitHubCLI(), gitService: StubGit(), root: { self.root })
+
+        XCTAssertFalse(model.isReady)
+        XCTAssertFalse(model.mergeIsAvailable)
+    }
+
+    /// Two of the four endings land in a panel nobody was watching — a deadline
+    /// half an hour later, a stop some tick decided — so their sentence stays
+    /// until it is read, and there is one way to say it has been.
+    func testAnEndingsSentenceStaysUntilItIsAcknowledged() async {
+        let cli = ScriptedGitHubCLI()
+        let clock = StubClock()
+        let sleeps = SleepLog()
+        let model = await armedModel(cli, clock: clock, sleeps: sleeps)
+        cli.serve(viewCommand, Self.viewJSON(rollup: Self.failedRollup))
+
+        XCTAssertTrue(arm(model))
+        await settle(model)
+
+        XCTAssertEqual(model.mergeWait.ending?.message, GitHubMergeRefusal.checksFailed.message)
+        model.mergeWait.acknowledgeEnding()
+        XCTAssertNil(model.mergeWait.ending)
+        // Idempotent, and silent when there is nothing to acknowledge.
+        model.mergeWait.acknowledgeEnding()
+        XCTAssertNil(model.mergeWait.ending)
+    }
+
+    /// The two endings that speak for themselves say nothing: a merge has the
+    /// whole panel to show for itself, and a cancellation is something the reader
+    /// just did.
+    func testAMergeAndACancellationLeaveNoSentenceToDismiss() async {
+        let cli = ScriptedGitHubCLI()
+        let clock = StubClock()
+        let sleeps = SleepLog()
+        let model = await armedModel(cli, clock: clock, sleeps: sleeps)
+        cli.serve(viewCommand, Self.viewJSON())
+
+        XCTAssertTrue(arm(model))
+        model.mergeWait.cancel()
+        await settle(model)
+
+        XCTAssertEqual(model.mergeWait.ending, .cancelled)
+        XCTAssertNil(model.mergeWait.ending?.message)
     }
 }

@@ -400,6 +400,24 @@ public final class PullRequestModel: ObservableObject {
     /// matter.
     public private(set) lazy var mergeWait = PullRequestMergeWait(owner: self)
 
+    /// Whether the panel may offer **Merge** on a row at all.
+    ///
+    /// The one term every row's button disables on, so the panel decides nothing
+    /// and cannot disagree with the two rules it is made of: this feature
+    /// performs exactly one write at a time (``isWriteInFlight``, the same flag
+    /// Checkout and New Pull Request read), and **one armed wait disables every
+    /// row's Merge, not merely its own** — the merge that wait will run is the
+    /// one-write rule spent in advance, and a second row merged in the meantime
+    /// would raise the flag under a wait about to need it.
+    ///
+    /// Reads, Checkout and Create are deliberately untouched by the wait: none of
+    /// them is a merge. The row being waited on draws its elapsed time and its
+    /// Cancel button instead of a Merge button, which is
+    /// ``PullRequestMergeWait/isWaiting(on:)``'s question rather than this one.
+    public var mergeIsAvailable: Bool {
+        isReady && !isWriteInFlight && !mergeWait.isArmed
+    }
+
     /// The repository root as it is now, for the one companion that composes its
     /// own commands.
     ///
