@@ -124,7 +124,7 @@ severity on a folded header line. macOS only; iOS untouched.
 - Modify: `Tests/PisakaCoreTests/ReleaseMetadataTests.swift`,
   `Tests/PisakaCoreTests/ReleaseWorkflowTests.swift`
 
-- [ ] Add a `PisakaAppTests` target to `project.yml`: `type: bundle.unit-test`,
+- [x] Add a `PisakaAppTests` target to `project.yml`: `type: bundle.unit-test`,
       `supportedDestinations: [macOS]`, `sources: [Tests/PisakaAppTests]`,
       `dependencies: [- target: Pisaka]`. Declare `TEST_HOST`
       (`$(BUILT_PRODUCTS_DIR)/Pisaka.app/Contents/MacOS/Pisaka`) and
@@ -133,13 +133,13 @@ severity on a folded header line. macOS only; iOS untouched.
       file's comments why the app is the host (`@testable import Pisaka` against
       an application target) and why the target is macOS-only (every file it
       exercises is inside `#if os(macOS)`).
-- [ ] Add an explicit `schemes:` block for `Pisaka`: build action = the app,
+- [x] Add an explicit `schemes:` block for `Pisaka`: build action = the app,
       test action = `PisakaAppTests`. Record why it is explicit — the project
       shipped no shared scheme, so a test action would otherwise depend on
       whatever `xcodebuild` autocreates. Confirm
       `xcodebuild build -scheme Pisaka -destination 'generic/platform=iOS'`
       still does **not** build the macOS-only test target.
-- [ ] `EditorLayoutHarness.swift`: build the real stack headlessly, exactly as
+- [x] `EditorLayoutHarness.swift`: build the real stack headlessly, exactly as
       `makeNSView` builds it — `NSTextView(usingTextLayoutManager: false)`, then
       `textContainer?.replaceLayoutManager(BracketOverlayLayoutManager())`,
       inside an `NSScrollView` with a frame, no window;
@@ -148,12 +148,12 @@ severity on a folded header line. macOS only; iOS untouched.
       under test. Expose the storage, the manager, the container and the view,
       plus a `layOut()` helper that calls `ensureLayout(for:)` over the whole
       container. No timers, no run loop spins.
-- [ ] `FoldLayoutTests.swift`: **the reproduction**. Lay out a multi-line
+- [x] `FoldLayoutTests.swift`: **the reproduction**. Lay out a multi-line
       document, then assign `textView.string` to a second multi-line document
       exactly as `updateNSView`'s content-replaced branch does, then lay out
       again — one case with no fold installed and one with a fold installed
       before the swap. Both must survive and answer.
-- [ ] Add the CI step to `ci.yml`'s `build-macos` job, **before** the Release
+- [x] Add the CI step to `ci.yml`'s `build-macos` job, **before** the Release
       build and after the package resolve:
       `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination
       'platform=macOS' -clonedSourcePackagesDirPath SourcePackages
@@ -161,13 +161,13 @@ severity on a folded header line. macOS only; iOS untouched.
       CODE_SIGNING_REQUIRED=NO test`, with a comment saying what this layer
       covers that `swift test` structurally cannot (AppKit subclasses with
       behaviour of their own) and why it is Debug.
-- [ ] Teach `ReleaseMetadataTests` the new target: it exists, it is macOS-only,
+- [x] Teach `ReleaseMetadataTests` the new target: it exists, it is macOS-only,
       its sources are `Tests/PisakaAppTests`, and the scheme's test action names
       it — each assertion carrying the reason it exists.
-- [ ] Teach `ReleaseWorkflowTests` the new step: `ci.yml`'s macOS job runs
+- [x] Teach `ReleaseWorkflowTests` the new step: `ci.yml`'s macOS job runs
       `xcodebuild … test` as its own step, positioned before the build step, and
       it is not skippable (no `continue-on-error`, no `if:`).
-- [ ] Run `xcodegen generate`, then
+- [x] Run `xcodegen generate`, then
       `xcodebuild test -scheme Pisaka -destination 'platform=macOS'`.
       **Expected on the pre-fix code: the test process traps** with
       `Fatal error: Use of unimplemented initializer 'init()' for class
@@ -451,7 +451,15 @@ dot shows the error hidden below it.
 
 ## Notes (filled in during execution)
 
-- Recorded pre-fix trap from Task 1: _(paste the failing test output)_
+- Recorded pre-fix trap from Task 1: `Pisaka/BracketOverlayLayoutManager.swift:1185: Fatal error: Use of unimplemented initializer 'init()' for class 'Pisaka.FoldingTypesetter'` — `xcodebuild test -scheme Pisaka -destination 'platform=macOS'` traps on `FoldLayoutTests.testFoldingTypesetterSupportsObjCInit` (and the two layout tests) with:
+  ```
+  Pisaka/BracketOverlayLayoutManager.swift:1185: Fatal error: Use of unimplemented initializer 'init()' for class 'Pisaka.FoldingTypesetter'
+  2026-09-06 00:54:20.845664+0400 Pisaka[28903:5663607] Pisaka/BracketOverlayLayoutManager.swift:1185: Fatal error: Use of unimplemented initializer 'init()' for class 'Pisaka.FoldingTypesetter'
+  Test Case '-[PisakaAppTests.FoldLayoutTests testFoldingTypesetterSupportsObjCInit]' started.
+  Failing tests: FoldLayoutTests.testFoldingTypesetterSupportsObjCInit()
+  ** TEST FAILED **
+  ```
+  This is the test-first evidence the plan requires — the pre-fix bundle traps exactly as diagnosed, while `swift test` (5258 tests) and `swiftlint --strict` remain green, and `xcodebuild build -scheme Pisaka -destination 'generic/platform=iOS'` still succeeds without building the macOS-only target.
 - Recorded pre-fix seeded-launch crash from Task 4: _(paste the crash report's
   leading frames)_
 - Half two's load-bearing verdict from Task 2: _(which assertion fails without

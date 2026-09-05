@@ -481,3 +481,40 @@ targets:
           cd "$SRCROOT"
           git rev-parse --git-dir >/dev/null 2>&1 || exit 0
           git config core.hooksPath .githooks
+  # PisakaAppTests — the headless AppKit test bundle that exercises the
+  # editor's real TextKit stack (BracketOverlayLayoutManager, FoldingTypesetter,
+  # LineNumberRulerView). It is an **application host test**: `@testable import
+  # Pisaka` against an application target only links with a TEST_HOST /
+  # BUNDLE_LOADER (the host's executable), which is why those two settings are
+  # declared explicitly below — XcodeGen's preset does not guarantee them for an
+  # `application` host, and verifying by building is the only honest check. It is
+  # **macOS-only** because every file it exercises is inside `#if os(macOS)`;
+  # building it for iOS would import AppKit on a destination that does not ship
+  # it.
+  PisakaAppTests:
+    type: bundle.unit-test
+    supportedDestinations: [macOS]
+    sources: [Tests/PisakaAppTests]
+    dependencies:
+      - target: Pisaka
+    settings:
+      base:
+        TEST_HOST: $(BUILT_PRODUCTS_DIR)/Pisaka.app/Contents/MacOS/Pisaka
+        BUNDLE_LOADER: $(TEST_HOST)
+
+# The project ships no shared scheme today (Pisaka.xcodeproj has no
+# xcschemes/); `xcodebuild -scheme Pisaka` works off an autocreated one. A test
+# action cannot be relied on there, so this block makes the scheme explicit:
+# build action = the app, test action = PisakaAppTests. The iOS build below
+# (`generic/platform=iOS`) then inherits the same scheme but the macOS-only test
+# target does not reach it, which `xcodebuild build -scheme Pisaka -destination
+# 'generic/platform=iOS'` proves.
+schemes:
+  Pisaka:
+    build:
+      targets:
+        Pisaka: all
+    test:
+      config: Debug
+      targets:
+        - PisakaAppTests

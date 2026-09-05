@@ -2954,6 +2954,65 @@ final class ReleaseWorkflowTests: XCTestCase {
             """)
     }
 
+    /// The AppKit overlay is verified by a headless XCTest bundle that drives
+    /// the editor's real TextKit stack — the layer `swift test` structurally
+    /// cannot cover. It runs in the macOS job before the Release build so a
+    /// launch-time typesetter trap fails the job before it builds what it would
+    /// not launch, and it is not skippable for the same reason the smoke launch
+    /// is not.
+    func testCIAppKitOverlayIsTestedBeforeTheBuild() throws {
+        let script = try stepScript(named: Self.ciAppKitTestStepName, in: "ci.yml", because: """
+            It is the only gate that drives the editor's real TextKit stack headlessly — the layer \
+            swift test structurally cannot cover, and the one that sees the FoldingTypesetter trap.
+            """)
+        XCTAssertTrue(script.contains { $0.contains("xcodebuild") }, """
+            ci.yml's `\(Self.ciAppKitTestStepName)` step must run `xcodebuild`. It is the headless \
+            AppKit bundle — PisakaAppTests — that reproduces the TextKit re-entrancy crash swift test \
+            cannot see.
+            """)
+        XCTAssertTrue(script.contains { $0.contains("test") }, """
+            ci.yml's `\(Self.ciAppKitTestStepName)` step must run the test action. It is the headless \
+            AppKit bundle — PisakaAppTests — that reproduces the TextKit re-entrancy crash swift test \
+            cannot see.
+            """)
+        XCTAssertTrue(script.contains { $0.contains("-destination 'platform=macOS'") }, """
+            ci.yml's `\(Self.ciAppKitTestStepName)` step must target `platform=macOS`. The bundle is \
+            macOS-only (every file it exercises is inside #if os(macOS)); an iOS destination would \
+            not link it.
+            """)
+        XCTAssertTrue(script.contains { $0.contains("CODE_SIGNING_ALLOWED=NO") }, """
+            ci.yml's `\(Self.ciAppKitTestStepName)` step must pass CODE_SIGNING_ALLOWED=NO. CI builds \
+            unsigned and the test host is the unsigned app — the same flags the build steps use.
+            """)
+        // Positioned after resolve, before the Release build.
+        let raw = try text(atRepositoryPath: ".github/workflows/ci.yml").components(separatedBy: .newlines)
+        let appKit = try XCTUnwrap(raw.firstIndex(where: {
+            $0.trimmingCharacters(in: .whitespaces) == "- name: \(Self.ciAppKitTestStepName)"
+        }), "ci.yml has no `\(Self.ciAppKitTestStepName)` step")
+        let resolve = try XCTUnwrap(raw.firstIndex(where: {
+            $0.trimmingCharacters(in: .whitespaces).contains("resolvePackageDependencies")
+        }), "ci.yml has no package resolve step")
+        let build = try XCTUnwrap(raw.firstIndex(where: {
+            $0.trimmingCharacters(in: .whitespaces) == "- name: \(Self.ciMacBuildStepName)"
+        }), "ci.yml has no `\(Self.ciMacBuildStepName)` step")
+        XCTAssertGreaterThan(appKit, resolve, """
+            ci.yml's `\(Self.ciAppKitTestStepName)` step must run after the package resolve. The test \
+            target resolves the app's packages (Neon, tree-sitter) the same way the build does.
+            """)
+        XCTAssertLessThan(appKit, build, """
+            ci.yml's `\(Self.ciAppKitTestStepName)` step must run before \
+            `\(Self.ciMacBuildStepName)`. The crash it catches is a launch crash; building a Release \
+            product that will not survive layout is wasted work and the wrong order to fail in.
+            """)
+        let owningJob = raw[..<appKit].last(where: Self.isJobHeader)
+        XCTAssertEqual(owningJob?.trimmingCharacters(in: .whitespaces), "build-macos:", """
+            The AppKit test belongs to the `build-macos:` job, which is the one that builds the macOS \
+            app. It is currently under “\(owningJob ?? "no job at all")”.
+            """)
+    }
+
+    private static let ciAppKitTestStepName = "Test the AppKit overlay (PisakaAppTests)"
+
     /// The name of CI's macOS build step. A constant for the same reason
     /// `archiveStepName` is one: a renamed step must fail loudly rather than
     /// silently check nothing.
