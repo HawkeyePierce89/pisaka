@@ -399,19 +399,19 @@ None new. Foundation only in Core; AppKit only in the app half.
 - Create: `Sources/Pisaka/FoldController.swift`
 - Modify: `Sources/Pisaka/CodeEditorView.swift`,
   `Sources/Pisaka/EditorSearchController.swift`
-- [ ] `FoldController`, `@MainActor`, beside `BracketHighlightController` and
+- [x] `FoldController`, `@MainActor`, beside `BracketHighlightController` and
     `HoverController` and shaped like the first: it owns the debounced ask
     (400 ms, its own scheduler — correction 3), the monotonic generation token
     **captured synchronously before the hop**, the current candidate list, the
     live `FoldState`, the `FoldStateMemory`, and the invalidations it pushes to
     the layout manager and the ruler. It is a **reader**: it never raises the
     writer gate and is never gated by one.
-- [ ] Triggers: a text change (debounced), a tab switch and a tab open
+- [x] Triggers: a text change (debounced), a tab switch and a tab open
     (immediate), a language change, and an `.editorconfig` revision change (the
     widths move). Between an edit and the next answer the candidates in hand are
     **shifted** through `FoldShift`, so chevrons do not blink on every
     keystroke; a fresh answer goes through `FoldState.reconciled(with:)`.
-- [ ] `CodeEditorView.Coordinator` wiring, and only wiring:
+- [x] `CodeEditorView.Coordinator` wiring, and only wiring:
     - `textDidChange` → `folds.noteBufferChanged(...)`;
     - `bufferEdited(...)` → `folds.noteEdit(...)`, which shifts both the
       candidates and the state, beside the existing diagnostics shift and under
@@ -428,7 +428,7 @@ None new. Foundation only in Core; AppKit only in the app half.
     - the widths come from the existing `indentUnit(text:)` +
       `IndentLevelScanner.widths(...)` path, so `refreshIndentLevelWidths` gains
       a second consumer rather than a second opinion.
-- [ ] **The reveal funnel** (correction 1), stated exactly as the tree is:
+- [x] **The reveal funnel** (correction 1), stated exactly as the tree is:
     - New `Coordinator.revealRange(_ range: NSRange)` in `CodeEditorView.swift`:
       applies `FoldReveal.unfolding(...)`, pushes the new state to the layout
       manager and the ruler, then sets the selection and scrolls. This is the
@@ -457,14 +457,14 @@ None new. Foundation only in Core; AppKit only in the app half.
       this ticket). The two `reveal.reveal(` sites in
       `SourceViewerWindowController.swift` drive that window's own
       `EditorRevealState` and are excluded by name for the same reason.
-- [ ] The memory key: the canonical path for a url-backed file, the tab id for an
+- [x] The memory key: the canonical path for a url-backed file, the tab id for an
     unsaved buffer; recorded on switch-away and on close, restored on switch-in
     (clamped, then reconciled when the next candidates arrive), cleared
     wholesale on a folder switch. Nothing reaches
     `EditorSession`/`SessionController` — a relaunch starts unfolded.
-- [ ] Tests: none here (view layer). The decisions it wires are all covered by
+- [x] Tests: none here (view layer). The decisions it wires are all covered by
     Tasks 1–4; the wiring is pinned by Task 9.
-- [ ] Run `swift test` and `swiftlint --strict` — must pass before Task 8.
+- [x] Run `swift test` and `swiftlint --strict` — must pass before Task 8.
 
 ### Task 8: Fold and Unfold (App, macOS)
 

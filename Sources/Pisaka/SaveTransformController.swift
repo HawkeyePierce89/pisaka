@@ -48,6 +48,20 @@ protocol SaveTransformEditor: AnyObject {
     /// gutter and the underlines empty with no edit to re-publish them.
     func resetIncrementalReadersForSaveTransform()
 
+    /// Move the fold bounds through the same plan the selection endpoints and
+    /// the scroll anchor travel, so nothing about a save can move them apart.
+    ///
+    /// Deliberately **not** the incremental shift the editor's other readers take
+    /// on an ordinary edit: a save that trims trailing whitespace *inside* a
+    /// folded block intersects it, and the shift rule drops what it intersects —
+    /// which would spring every collapsed block open on an unattended autosave
+    /// tick. The reasoning lives on `FoldState.remapped(through:)`; the shift is
+    /// suppressed here by the buffer-swap guard the two calls above raise.
+    ///
+    /// Called once the rewrite has actually happened, so a refused
+    /// `shouldChangeText` moves nothing.
+    func remapFolds(through plan: SaveTransformPlan)
+
     /// Lower both guards. Called after `didChangeText()`, so every notification
     /// the rewrite fires is covered.
     func endSaveTransformRewrite()
@@ -597,6 +611,10 @@ final class SaveTransformController {
         textStorage.endEditing()
         textView.didChangeText()
         textView.breakUndoCoalescing()
+        // Before the selection is put back, because the caret rule the selection
+        // change runs through reads the folded state: moving the bounds first is
+        // what keeps a remapped caret from being measured against pre-save ones.
+        editor?.remapFolds(through: plan)
         textView.setSelectedRanges(
             selection.map { NSValue(range: $0) },
             affinity: .downstream,

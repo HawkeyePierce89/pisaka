@@ -52,6 +52,11 @@ final class EditorSearchController: EditorSearchActions {
     /// symmetry; the app outlives this controller either way.
     private weak var state: EditorSearchState?
 
+    /// The editor's reveal funnel, installed by the coordinator that owns this
+    /// controller (`attachSearch`). Every jump to a match goes through it — see
+    /// `select(_:)`.
+    var revealRange: ((NSRange) -> Void)?
+
     /// Every match of `appliedQuery` in the buffer as of the last run, ascending
     /// by location (`TextSearchEngine.matches`' own order, which the layout
     /// manager's binary search relies on).
@@ -118,6 +123,7 @@ final class EditorSearchController: EditorSearchActions {
         state?.unregister(actions: self)
         state = nil
         textView = nil
+        revealRange = nil
     }
 
     // MARK: - Running the search
@@ -215,14 +221,22 @@ final class EditorSearchController: EditorSearchActions {
         publish()
     }
 
-    /// Select a match and scroll it into view. The range is clamped so a match
-    /// list the buffer has since outgrown can never trap.
+    /// Select a match and scroll it into view, **through the editor's reveal
+    /// funnel**. The range is clamped so a match list the buffer has since
+    /// outgrown can never trap.
+    ///
+    /// The selection and the scroll are the coordinator's — `revealRange` —
+    /// because a match may sit inside a block the tab has folded, and jumping to
+    /// text with no on-screen position lands the reader nowhere. That funnel
+    /// unfolds what the range reaches before it selects, and it is the one place
+    /// in the editor where a jump-to-a-range is performed; this controller
+    /// therefore does no scrolling of its own at all. An unhooked controller (a
+    /// torn-down editor) simply selects nothing, which is the same graceful
+    /// nothing a missing text view already gave.
     private func select(_ match: SearchMatch) {
-        guard let textView else { return }
         let range = clamped(match.range)
         guard range.location != NSNotFound else { return }
-        textView.setSelectedRange(range)
-        textView.scrollRangeToVisible(range)
+        revealRange?(range)
     }
 
     // MARK: - Replace
@@ -252,6 +266,11 @@ final class EditorSearchController: EditorSearchActions {
         withProgrammaticEdit {
             textView.insertText(replacement, replacementRange: match.range)
         }
+        // A caret placement after an edit, not a jump: it names the offset the
+        // replacement just ended at, nothing is scrolled, and the edit itself has
+        // already dropped any fold that covered it (the shift rule drops what it
+        // touches). The reveal funnel is for jumps — `select(_:)`, one line below
+        // through `navigate(forward:)`.
         textView.setSelectedRange(
             NSRange(location: match.range.location + (replacement as NSString).length, length: 0)
         )
@@ -321,6 +340,9 @@ final class EditorSearchController: EditorSearchActions {
         }
         undoManager?.endUndoGrouping()
 
+        // A caret placement after an edit, exactly as in `replaceCurrent()`
+        // above, and not a jump: no scroll, and the edit dropped every fold it
+        // touched.
         textView.setSelectedRange(
             NSRange(location: spanStart + (lastEdit.replacement as NSString).length, length: 0)
         )
