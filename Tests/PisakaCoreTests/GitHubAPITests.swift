@@ -65,16 +65,30 @@ final class GitHubAPITests: XCTestCase {
 
         XCTAssertEqual(rows.count, 1)
         let row = try XCTUnwrap(rows.first)
-        XCTAssertEqual(row.number, 53)
-        XCTAssertEqual(row.id, 53, "identity is the number")
-        XCTAssertEqual(row.title, "Database viewer part 2b: SQL console (macOS)")
+        XCTAssertEqual(row.number, 54)
+        XCTAssertEqual(row.id, 54, "identity is the number")
+        XCTAssertEqual(row.title, "GitHub pull requests part 1: gh CLI panel, create, checkout, indicator (macOS)")
         XCTAssertEqual(row.authorLogin, "HawkeyePierce89")
-        XCTAssertEqual(row.headRefName, "database-viewer-part-2b-sql-console")
+        XCTAssertEqual(row.headRefName, "github-pull-requests-part-1-gh-cli-macos")
         XCTAssertEqual(row.baseRefName, "master")
         XCTAssertFalse(row.isDraft)
-        XCTAssertEqual(row.url, "https://github.com/HawkeyePierce89/pisaka/pull/53")
+        XCTAssertEqual(row.url, "https://github.com/HawkeyePierce89/pisaka/pull/54")
         XCTAssertEqual(row.state, "MERGED")
         XCTAssertEqual(row.summary, .success, "four completed successes")
+    }
+
+    /// The three fields a merge is decided from, read off the recorded row.
+    ///
+    /// `UNKNOWN`/`UNKNOWN` is not a gap in the capture: it is what GitHub answers
+    /// for a pull request that has **already been merged**, and it is carried as a
+    /// value rather than smoothed away — a closed row has no mergeability left to
+    /// report, and the plan reading it will refuse rather than offer a button.
+    func testTheRecordedRowCarriesTheThreeMergeFields() throws {
+        let rows = try GitHubAPI.pullRequests(fromListJSON: try fixture("pr-list-merged.json"))
+        let row = try XCTUnwrap(rows.first)
+        XCTAssertEqual(row.headRefOid, "999005649c31b9c493e8cefac074297a7d304b49")
+        XCTAssertEqual(row.mergeable, .unknown)
+        XCTAssertEqual(row.mergeStateStatus, .unknown)
     }
 
     /// `""` is the ordinary answer for a repository that requires no review, and
@@ -117,6 +131,51 @@ final class GitHubAPITests: XCTestCase {
         XCTAssertEqual(rows.first?.summary, .noChecks)
     }
 
+    // MARK: - `pr view`, round-trip
+
+    /// The wait's one read, parsed by the *same* decoder the list uses.
+    ///
+    /// `pr-view.json` and `pr-list-merged.json` hold the same pull request, read
+    /// two different ways, so this is the assertion that a row addressed by number
+    /// and a row taken out of a list are the same value under the same tables —
+    /// which is what "one schema, one set of tables" has to mean to be worth
+    /// stating.
+    func testTheViewParserReadsTheSameRowTheListParserDoes() throws {
+        let listed = try XCTUnwrap(
+            try GitHubAPI.pullRequests(fromListJSON: try fixture("pr-list-merged.json")).first
+        )
+        let viewed = try GitHubAPI.pullRequest(fromViewJSON: try fixture("pr-view.json"))
+        XCTAssertEqual(viewed, listed)
+    }
+
+    func testTheViewParserReadsTheRecordedSingleObject() throws {
+        let row = try GitHubAPI.pullRequest(fromViewJSON: try fixture("pr-view.json"))
+        XCTAssertEqual(row.number, 54)
+        XCTAssertEqual(row.headRefOid, "999005649c31b9c493e8cefac074297a7d304b49")
+        XCTAssertEqual(row.summary, .success)
+        XCTAssertEqual(row.state, "MERGED")
+    }
+
+    /// The key path names `pr view`, not `pr list[0]`: the string in the error is
+    /// the command somebody has to re-run to see the shape for themselves.
+    func testTheViewParserReportsAgainstItsOwnCommandRoot() {
+        assertSchemaError(.missingKey(keyPath: "pr view.author")) {
+            _ = try GitHubAPI.pullRequest(fromViewJSON: #"{"number":1,"title":"t"}"#)
+        }
+        assertSchemaError(.malformed(keyPath: "pr view")) {
+            _ = try GitHubAPI.pullRequest(fromViewJSON: "no pull requests found for branch\n")
+        }
+    }
+
+    /// An array is `pr list`'s shape, not this one's: `pr view <n>` answers with
+    /// one object or fails, and a parser that unwrapped an array here would be a
+    /// second reading of the same command.
+    func testTheViewParserRefusesAnArray() {
+        assertSchemaError(.malformed(keyPath: "pr view")) {
+            _ = try GitHubAPI.pullRequest(fromViewJSON: "[]")
+        }
+    }
+
     // MARK: - `pr list`, refusals
 
     func testUnknownReviewDecisionNamesItsKeyPath() {
@@ -155,6 +214,91 @@ final class GitHubAPITests: XCTestCase {
         let rollup = #"[{"__typename":"Prophecy","state":"SUCCESS"}]"#
         assertSchemaError(.unknownValue(keyPath: "pr list[0].statusCheckRollup[0].__typename", value: "Prophecy")) {
             _ = try GitHubAPI.pullRequests(fromListJSON: Self.listJSON(rollup: rollup))
+        }
+    }
+
+    /// An unknown mergeability is loud rather than read as "probably fine": the
+    /// optimistic reading is the one that offers a Merge button for a state nobody
+    /// has looked at.
+    func testUnknownMergeabilityNamesItsKeyPath() throws {
+        let json = try fixture("pr-list-unknown-mergeable.json")
+        assertSchemaError(.unknownValue(keyPath: "pr list[0].mergeable", value: "PERHAPS")) {
+            _ = try GitHubAPI.pullRequests(fromListJSON: json)
+        }
+    }
+
+    /// The fixture's value is a word GitHub declares nowhere, deliberately *not*
+    /// `DRAFT`: the table carries every member `MergeStateStatus` declares, the
+    /// deprecated one included, so `DRAFT` is a value that reads rather than one
+    /// that refuses (`testTheDeprecatedDraftMergeStateReadsAsADraftRefusal`).
+    func testUnknownMergeStateStatusNamesItsKeyPath() throws {
+        let json = try fixture("pr-list-unknown-merge-state.json")
+        assertSchemaError(
+            .unknownValue(keyPath: "pr list[0].mergeStateStatus", value: "PERHAPS_CLEAN")
+        ) {
+            _ = try GitHubAPI.pullRequests(fromListJSON: json)
+        }
+    }
+
+    /// `DRAFT` is deprecated in GitHub's own enum but never removed, and this
+    /// field rides on **every** row of `pr list` — so refusing the word would
+    /// discard the whole list (the panel, the indicator, Checkout and Create)
+    /// over a field that gates one button. It reads, and it reaches the draft
+    /// refusal rather than a second sentence.
+    func testTheDeprecatedDraftMergeStateReadsAsADraftRefusal() throws {
+        XCTAssertEqual(GitHubMergeStateStatus(rawValue: "DRAFT"), .draft)
+        let plan = GitHubMergePlan.plan(
+            pullRequest: GitHubPullRequest(
+                number: 7,
+                title: "A draft",
+                authorLogin: "octocat",
+                headRefName: "feature",
+                baseRefName: "main",
+                isDraft: false,
+                reviewDecision: .none,
+                url: "https://github.com/o/r/pull/7",
+                state: GitHubPullRequest.openState,
+                summary: .success,
+                headRefOid: "abc",
+                mergeable: .mergeable,
+                mergeStateStatus: .draft
+            ),
+            repository: GitHubRepository(
+                nameWithOwner: "o/r",
+                defaultBranch: "main",
+                mergeCommitAllowed: true,
+                squashMergeAllowed: true,
+                rebaseMergeAllowed: true,
+                viewerDefaultMergeMethod: .merge,
+                deleteBranchOnMerge: false
+            ),
+            checkedOutBranch: nil
+        )
+        XCTAssertEqual(plan.refusal, .draft)
+        XCTAssertFalse(plan.canMerge)
+    }
+
+    /// Every value of both tables, so the closed set is asserted rather than
+    /// merely exercised on the two the fixtures happen to carry.
+    func testBothMergeTablesReadEveryValueTheyName() throws {
+        for value in GitHubMergeability.allCases {
+            let json = Self.listJSON(mergeable: "\"\(value.rawValue)\"")
+            XCTAssertEqual(try GitHubAPI.pullRequests(fromListJSON: json).first?.mergeable, value)
+        }
+        for value in GitHubMergeStateStatus.allCases {
+            let json = Self.listJSON(mergeStateStatus: "\"\(value.rawValue)\"")
+            XCTAssertEqual(try GitHubAPI.pullRequests(fromListJSON: json).first?.mergeStateStatus, value)
+        }
+    }
+
+    func testAMissingHeadOidIsReportedByItsPath() {
+        let json = #"""
+        [{"number":1,"title":"t","author":{"login":"o"},"headRefName":"h","baseRefName":"b","isDraft":false,
+        "reviewDecision":"","url":"u","state":"OPEN","statusCheckRollup":[],"mergeable":"MERGEABLE",
+        "mergeStateStatus":"CLEAN"}]
+        """#
+        assertSchemaError(.missingKey(keyPath: "pr list[0].headRefOid")) {
+            _ = try GitHubAPI.pullRequests(fromListJSON: json)
         }
     }
 
@@ -293,6 +437,42 @@ final class GitHubAPITests: XCTestCase {
         XCTAssertEqual(repository.defaultBranch, "master")
     }
 
+    /// The merge policy half: which methods the sheet may offer, which one it
+    /// starts on, and whether GitHub deletes the head branch by itself.
+    func testRepositoryViewParsesTheRecordedMergePolicy() throws {
+        let repository = try GitHubAPI.repository(fromViewJSON: try fixture("repo-view.json"))
+        XCTAssertTrue(repository.mergeCommitAllowed)
+        XCTAssertTrue(repository.squashMergeAllowed)
+        XCTAssertTrue(repository.rebaseMergeAllowed)
+        XCTAssertEqual(repository.viewerDefaultMergeMethod, .squash)
+        XCTAssertFalse(repository.deleteBranchOnMerge)
+    }
+
+    func testEveryMergeMethodIsReadFromTheViewersDefault() throws {
+        for method in GitHubMergeMethod.allCases {
+            let json = Self.repositoryJSON(viewerDefaultMergeMethod: "\"\(method.rawValue)\"")
+            XCTAssertEqual(try GitHubAPI.repository(fromViewJSON: json).viewerDefaultMergeMethod, method)
+        }
+    }
+
+    func testAnUnknownDefaultMergeMethodNamesItsKeyPath() {
+        assertSchemaError(.unknownValue(keyPath: "repo view.viewerDefaultMergeMethod", value: "CHERRY_PICK")) {
+            _ = try GitHubAPI.repository(fromViewJSON: Self.repositoryJSON(
+                viewerDefaultMergeMethod: #""CHERRY_PICK""#
+            ))
+        }
+    }
+
+    /// A missing policy flag is refused rather than read as `false`: "this
+    /// repository disallows squashing" and "the field was not asked for" are
+    /// different facts, and the second one silently empties the sheet's picker.
+    func testAMissingMergePolicyFlagIsReportedByItsPath() {
+        let json = #"{"defaultBranchRef":{"name":"main"},"nameWithOwner":"o/r"}"#
+        assertSchemaError(.missingKey(keyPath: "repo view.mergeCommitAllowed")) {
+            _ = try GitHubAPI.repository(fromViewJSON: json)
+        }
+    }
+
     /// A repository with no commits has no default branch ref. The create sheet's
     /// whole base default comes from this answer, so an empty base is refused
     /// rather than passed to `pr create` as if it were a branch.
@@ -389,12 +569,25 @@ final class GitHubAPITests: XCTestCase {
     private static func listJSON(
         number: String = "1",
         reviewDecision: String = "\"\"",
-        rollup: String = "[]"
+        rollup: String = "[]",
+        mergeable: String = #""MERGEABLE""#,
+        mergeStateStatus: String = #""CLEAN""#
     ) -> String {
         """
         [{"number":\(number),"title":"t","author":{"login":"octocat"},"headRefName":"h","baseRefName":"b",\
         "isDraft":false,"reviewDecision":\(reviewDecision),"url":"https://example.com/pull/1","state":"OPEN",\
-        "statusCheckRollup":\(rollup)}]
+        "statusCheckRollup":\(rollup),"headRefOid":"abc123","mergeable":\(mergeable),\
+        "mergeStateStatus":\(mergeStateStatus)}]
+        """
+    }
+
+    /// One `repo view` answer with every required key present, so a test can bend
+    /// exactly one of them.
+    private static func repositoryJSON(viewerDefaultMergeMethod: String = #""SQUASH""#) -> String {
+        """
+        {"defaultBranchRef":{"name":"main"},"nameWithOwner":"octocat/example","mergeCommitAllowed":true,\
+        "squashMergeAllowed":true,"rebaseMergeAllowed":false,\
+        "viewerDefaultMergeMethod":\(viewerDefaultMergeMethod),"deleteBranchOnMerge":true}
         """
     }
 }

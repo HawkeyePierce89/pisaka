@@ -9,7 +9,7 @@ import Foundation
 /// revision a checkout/`createAndCheckout` start point needs); `shortName` is
 /// what the widget displays. `isRemote`/`remoteName` classify it, `isCurrent`
 /// marks the checked-out branch.
-public struct BranchRef: Equatable, Identifiable {
+public struct BranchRef: Equatable, Identifiable, Sendable {
     /// The full refname, e.g. `refs/heads/main` or `refs/remotes/origin/master`.
     public let name: String
     public let isRemote: Bool

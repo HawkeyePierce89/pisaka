@@ -37,6 +37,7 @@ public enum GitHubAPI {
     // to re-run to see the shape for themselves.
 
     private static let listRoot = "pr list"
+    private static let viewRoot = "pr view"
     private static let checksRoot = "pr checks"
     private static let repositoryRoot = "repo view"
 
@@ -54,26 +55,63 @@ public enum GitHubAPI {
     public static func pullRequests(fromListJSON output: String) throws -> [GitHubPullRequest] {
         let rows = try array(output, keyPath: listRoot)
         return try rows.enumerated().map { index, element in
-            let path = "\(listRoot)[\(index)]"
-            let row = try object(element, at: path)
-            let author = try object(try value(row, "author", at: path), at: "\(path).author")
-            return GitHubPullRequest(
-                number: try int(row, "number", at: path),
-                title: try string(row, "title", at: path),
-                authorLogin: try string(author, "login", at: "\(path).author"),
-                headRefName: try string(row, "headRefName", at: path),
-                baseRefName: try string(row, "baseRefName", at: path),
-                isDraft: try bool(row, "isDraft", at: path),
-                reviewDecision: try table(
-                    GitHubReviewDecision.self,
-                    try string(row, "reviewDecision", at: path),
-                    at: "\(path).reviewDecision"
-                ),
-                url: try string(row, "url", at: path),
-                state: try string(row, "state", at: path),
-                summary: GitHubChecksSummary.summarise(try rollup(row, at: path))
-            )
+            try pullRequest(element, at: "\(listRoot)[\(index)]")
         }
+    }
+
+    // MARK: - `pr view`
+
+    /// Parse `gh pr view <n> --json …`'s output — **the merge wait's one read**.
+    ///
+    /// One object where the list parser reads an array element, and otherwise the
+    /// *same decoder*: the field list is `pullRequestFields` either way, so a row
+    /// re-read by number is the same value, with the same tables applied to it, as
+    /// the row the Merge button was drawn from. One schema, one set of tables, and
+    /// nothing here that a second parser could disagree with.
+    ///
+    /// Unlike the list, an **empty answer is not a valid one**: addressing by
+    /// number either finds that pull request or fails, and `gh` reports the miss on
+    /// stderr with a non-zero status rather than printing `{}`.
+    public static func pullRequest(fromViewJSON output: String) throws -> GitHubPullRequest {
+        try pullRequest(try json(output, keyPath: viewRoot), at: viewRoot)
+    }
+
+    /// One pull request row, wherever it was read from.
+    ///
+    /// The single decoder behind both `pr list` and `pr view`; `path` is the key
+    /// path the row sits at, so a refusal names `pr list[2].mergeable` or
+    /// `pr view.mergeable` — the command somebody has to re-run — without either
+    /// caller re-stating the shape.
+    private static func pullRequest(_ element: Any, at path: String) throws -> GitHubPullRequest {
+        let row = try object(element, at: path)
+        let author = try object(try value(row, "author", at: path), at: "\(path).author")
+        return GitHubPullRequest(
+            number: try int(row, "number", at: path),
+            title: try string(row, "title", at: path),
+            authorLogin: try string(author, "login", at: "\(path).author"),
+            headRefName: try string(row, "headRefName", at: path),
+            baseRefName: try string(row, "baseRefName", at: path),
+            isDraft: try bool(row, "isDraft", at: path),
+            reviewDecision: try table(
+                GitHubReviewDecision.self,
+                try string(row, "reviewDecision", at: path),
+                at: "\(path).reviewDecision"
+            ),
+            url: try string(row, "url", at: path),
+            state: try string(row, "state", at: path),
+            summary: GitHubChecksSummary.summarise(try rollup(row, at: path)),
+            headRefOid: try string(row, "headRefOid", at: path),
+            mergeable: try table(
+                GitHubMergeability.self,
+                try string(row, "mergeable", at: path),
+                at: "\(path).mergeable"
+            ),
+            mergeStateStatus: try table(
+                GitHubMergeStateStatus.self,
+                try string(row, "mergeStateStatus", at: path),
+                at: "\(path).mergeStateStatus"
+            )
+        )
     }
 
     /// The `statusCheckRollup` of one row, in the shape each entry's `__typename`
@@ -138,7 +176,8 @@ public enum GitHubAPI {
 
     // MARK: - `repo view`
 
-    /// Parse `gh repo view --json defaultBranchRef,nameWithOwner`.
+    /// Parse `gh repo view --json …`: the create sheet's base default, the panel's
+    /// header, and the repository's merge policy.
     ///
     /// `defaultBranchRef: null` — a repository with no commits — is refused as a
     /// missing key rather than yielding an empty branch name: the sheet's whole
@@ -152,7 +191,16 @@ public enum GitHubAPI {
         let ref = try object(try value(root, "defaultBranchRef", at: repositoryRoot), at: refPath)
         return GitHubRepository(
             nameWithOwner: try string(root, "nameWithOwner", at: repositoryRoot),
-            defaultBranch: try string(ref, "name", at: refPath)
+            defaultBranch: try string(ref, "name", at: refPath),
+            mergeCommitAllowed: try bool(root, "mergeCommitAllowed", at: repositoryRoot),
+            squashMergeAllowed: try bool(root, "squashMergeAllowed", at: repositoryRoot),
+            rebaseMergeAllowed: try bool(root, "rebaseMergeAllowed", at: repositoryRoot),
+            viewerDefaultMergeMethod: try table(
+                GitHubMergeMethod.self,
+                try string(root, "viewerDefaultMergeMethod", at: repositoryRoot),
+                at: "\(repositoryRoot).viewerDefaultMergeMethod"
+            ),
+            deleteBranchOnMerge: try bool(root, "deleteBranchOnMerge", at: repositoryRoot)
         )
     }
 

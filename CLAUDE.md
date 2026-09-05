@@ -176,7 +176,7 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
 
 `docs/architecture/core-git.md` — git protocol, status & blame:
 - `GitError.swift` — typed `GitServicing` failures.
-- `GitServicing.swift` — the whole async git protocol, defaulted for partial stubs.
+- `GitServicing.swift` — the whole async git protocol, defaulted for partial stubs; `pull(root:)` is `--ff-only` and nothing else.
 - `ChangedFile.swift` — `FileStatus` + `ChangedFile` value types.
 - `GitStatusParser.swift` — `--porcelain=v2` parser.
 - `BlameLine.swift` — blame value type + `--porcelain` parser.
@@ -229,7 +229,7 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
 - `PisakaCore.swift` — package constants/version.
 
 `docs/architecture/core-local-history.md` — Local History (Core + app halves, macOS only):
-- `LocalHistorySnapshot.swift` — the event vocabulary (the tag is on-disk) + the revision row; newest-first ordering.
+- `LocalHistorySnapshot.swift` — the event vocabulary, ten cases incl. `pull` (the tag is on-disk) + the revision row; newest-first ordering.
 - `LocalHistoryLayout.swift` — pure path math over the store base + the snapshot-name codec (the name *is* the metadata).
 - `LocalHistoryPolicy.swift` — the skip precedence and the three retention rules; the four stated ceilings.
 - `LocalHistoryStore.swift` — the one `FileServicing` half: list/read/capture/prune, synchronous and `nonisolated`.
@@ -256,15 +256,17 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
 - `DatabaseConsoleModel.swift` — the console's flow: one generation token, its own message slot, the write's refusal order (the gate, then one write per tab), the post-commit order.
 - `DatabaseViewerModel.swift` — the tab's model: two generation tokens, a failure never blanks a good answer, every read bounded; the write consults the gate, captures the rows token and never blanks the page; owns the console, answers `isWriteInFlight` for both writers and `refreshAfterWrite()` after a console mutation.
 
-`docs/architecture/core-github.md` — GitHub pull requests through the user's own `gh` (macOS; a reader except for checkout), incl. decisions G1–G12:
+`docs/architecture/core-github.md` — GitHub pull requests through the user's own `gh` (macOS; a reader except for three writes), incl. decisions G1–G15:
 - `GitHubCLI.swift` — the one app/Core seam: the command (incl. `refreshesExecutableLocation`), the result (both streams + status, raw), the transport protocol, the three typed launch failures, the non-interactive environment (G1, G5).
-- `GitHubCommands.swift` — **the whole argument vocabulary** (G6): seven commands, eight factories, the three ordered `--json` field lists, the three deadlines; no `--repo`, no `--web`.
+- `GitHubCommands.swift` — **the whole argument vocabulary** (G6): nine subcommands, ten factories, the three ordered `--json` field lists, the three deadlines; no `--repo`, no `--web`, no `--admin`/`--auto`/`--delete-branch`.
 - `GitHubVersion.swift` — version parse/compare + the 2.50.0 minimum and its one reason (G4).
 - `GitHubAvailability.swift` — the probe value and the four states, each with its sentence and its exact next step (G8).
-- `GitHubPullRequest.swift` — the five closed vocabularies, the rollup item, the four-case summary, and the values the surfaces read.
-- `GitHubAPI.swift` — **the one schema file** (G2): the four parsers, the key-path-carrying schema error, the summary rule; the create-URL number is its one deliberate non-refusal.
+- `GitHubPullRequest.swift` — the eight closed vocabularies (incl. mergeability, merge state and method), the rollup item, the four-case summary, and the values the surfaces read.
+- `GitHubAPI.swift` — **the one schema file** (G2): the five parsers (the row read by number goes through the list's own decoder), the key-path-carrying schema error, the summary rule; the create-URL number is its one deliberate non-refusal.
 - `GitHubCreatePlan.swift` — the create sheet's pure half: the `repo view` base, the commit dialog's own two refusals, the three stated sentences (G11).
-- `PullRequestModel.swift` — the main-actor reader behind both surfaces: three generation tokens, a failure never blanks a good list, availability re-probed on every refresh and never more often, `pr checks` judged on stdout alone (G3), and the two writes — create (push first) and checkout (composed here, run by the app's bracket).
+- `GitHubMergePlan.swift` — the merge sheet's pure half, read by the button, the write and every tick of the wait: the enabled rule, the seven refusals with their sentences and their `isArmable`/`mayResolveByWaiting`, the methods, the button's label (G13).
+- `PullRequestMergeWait.swift` — *Merge when checks pass*: the no-polling ban's stated exception — two named bounds, one sleep seam, one token, four endings — re-reading the row and deciding through the plan (G14).
+- `PullRequestModel.swift` — the main-actor reader behind both surfaces: four generation tokens, a failure never blanks a good list, availability re-probed on every refresh and never more often, `pr checks` judged on stdout alone (G3), and the three writes — create (push first), merge (guarded by `--match-head-commit`, owning the post-merge tail's order) and checkout (both composed here, run by the app's bracket).
 
 ### `Pisaka` (app target, `Sources/Pisaka/`)
 
@@ -338,9 +340,10 @@ in `Sources/Pisaka/Platform/` bridges per-platform APIs. Untested by convention.
 `docs/architecture/core-github.md` — the Pull Requests app surfaces (same doc as the Core half):
 - `ExecutableLocator.swift` — the one definition of the discovery search (inherited `PATH` → well-known dirs → login shell), returning the path *and* the `PATH` that found it; one definition, two callers (G7).
 - `GitHubCLIProcessTransport.swift` — the one app file that runs `Process` for `gh`: the environment overlay, the per-command deadline (SIGTERM→SIGKILL), and the per-refresh location cache with its three re-locate triggers (G7).
-- `PullRequestCoordinator.swift` — owns the model and the transport, wired once from the scene; holds the feature's refresh triggers and is the one site through which a checkout reaches the writer bracket (G9, G12).
-- `PullRequestsPanelView.swift` — the sixth dock panel: the not-ready states with their next step, the rows, the expandable per-job checks, and the one `.onAppear` panel-shown trigger.
+- `PullRequestCoordinator.swift` — owns the model and the transport, wired once from the scene; holds the feature's refresh triggers and its three writer-bracket sites — the checkout, and the post-merge tail's switch and pull (G9, G12, G15).
+- `PullRequestsPanelView.swift` — the sixth dock panel: the not-ready states with their next step, the rows (Checkout, Merge, the armed wait's elapsed/Cancel), the dismissible wait-ending strip above the list, the expandable per-job checks, and the one `.onAppear` panel-shown trigger.
 - `NewPullRequestSheet.swift` — the create sheet: pre-filled title, base picker, Draft, and the three sentences naming everything Create will do.
+- `PullRequestMergeSheet.swift` — the merge sheet: method picker, pre-filled subject and optional body, the three stated sentences, and the button the plan labels (Merge, or Merge when checks pass).
 - `PullRequestIndicatorView.swift` — the bottom-bar `#N` + checks state beside the branch switcher; absent rather than empty, click opens the panel with that row expanded.
 
 `docs/architecture/app-window.md` — window chrome (macOS):
@@ -406,8 +409,10 @@ ci.yml's `lint` job, and the version-bump procedure.
   work discards its result instead of publishing over newer state.
 - **Disk-writer coordination**: every worktree-mutating operation (revert, merge
   apply, branch switch/create, project Replace All, commit, — the seventh, the
-  one that is not git's — a language server's project-wide **rename**, and the
-  eighth, `gh pr checkout`, which shares the branch operations' own bracket)
+  one that is not git's — a language server's project-wide **rename**, the
+  eighth, `gh pr checkout`, and the ninth, the post-merge tail's
+  `pull --ff-only` — the last two sharing the branch operations' own bracket,
+  which the tail's switch is a third caller of)
   raises `autosave.suspend()` + `localChanges.beginRevert()` synchronously before its
   first `await` (balanced by `defer`); the project-tree file ops, ⌘S, the
   run/test saves and the three branch-checkout entry points themselves
@@ -481,7 +486,7 @@ ci.yml's `lint` job, and the version-bump procedure.
   one Core file, every operation requires a login, and opening a problem never
   changes the project root (`core-leetcode.md`).
 - **Local History is a reader with a store of its own** (macOS only): it snapshots
-  every buffer the app writes and, under a label, every file the **eight** gated
+  every buffer the app writes and, under a label, every file the **nine** gated
   operations are about to overwrite, into
   `…/Application Support/Pisaka/LocalHistory` — outside the project, keyed by
   (root, project-relative path), the file *name* carrying timestamp/event/hash so
@@ -571,8 +576,8 @@ ci.yml's `lint` job, and the version-bump procedure.
   composes no SQL, names no
   gate, reaches the seam through one call site per member, and the scene knows
   nothing about it (`core-database-viewer.md`).
-- **Pull requests are a reader with one worktree write** (macOS only): the panel,
-  the create sheet and the bottom-bar indicator all speak to GitHub through the
+- **Pull requests are a reader with three writes, two of which move the worktree**
+  (macOS only): the panel, the two sheets and the bottom-bar indicator all speak to GitHub through the
   user's own `gh`, discovered at run time and required to be 2.50.0 or newer
   because that is where `pr checks --json` landed. Core composes every argument
   list (`GitHubCommands` is the only place a `gh` flag is spelled — the app layer
@@ -583,7 +588,18 @@ ci.yml's `lint` job, and the version-bump procedure.
   the one command judged on its stdout parsing and **never on its exit status**,
   because 8 means pending and 1 means a job failed and both print the JSON.
   Freshness is **event-driven — a branch change, the panel becoming visible, one
-  of the feature's own writes — and never a timer**, with availability re-probed
+  of the feature's own writes — and never a timer, with exactly one stated
+  exception**: `PullRequestMergeWait`, the armed *Merge when checks pass* wait,
+  which is bounded (30 s ticks, 30 min), visible (its elapsed time is published,
+  and no view runs a clock), cancelable (Cancel, a project switch, quit, arming
+  another) and armed only by an explicit press on a button the plan itself
+  labels. It re-reads **the row** by number and decides through `GitHubMergePlan`
+  — never `pr checks`, whose bucket table cannot see `mergeable` or
+  `mergeStateStatus`, so a wait deciding "green" from it would hand a merge to
+  the plan that refuses it: one rule, one table, the same value the button is
+  drawn from. The exception is pinned term by term (named constants, one sleep
+  seam, no `Timer`, no `asyncAfter`, no `checks`), not granted by file name. With
+  availability re-probed
   at the top of every refresh and at no other moment, three generation tokens
   ordering the three independently re-triggerable reads, and a failure that never
   blanks a good list — a rule about *one* repository, so the two exceptions are
@@ -603,12 +619,26 @@ ci.yml's `lint` job, and the version-bump procedure.
   re-reading the checked-out branch once the push returns and **refusing** when it
   is no longer the branch the sheet's sentence named, and by *consulting* the same
   gate the checkout asks so the plain `git push` a tracked branch resolves against
-  HEAD cannot publish a branch the plan never named — and
-  `gh pr checkout` is the app's **eighth gated operation**: the model composes the
-  command, asks an injected gate before anything is sent and hands the operation
-  to `PisakaApp.runBranchOperation(_:_:)` through `PullRequestCoordinator`, the
-  one site, so no file under the feature names `autosave` or `localChanges` at
-  all (`core-github.md`).
+  HEAD cannot publish a branch the plan never named; the **merge** is guarded by
+  `--match-head-commit` carrying the head of the row its plan was decided from
+  (so a push landing between the read and the merge is GitHub's refusal, in
+  GitHub's words), never carries `--admin`, `--auto` or `--delete-branch`, and is
+  decided by one rule three readers ask — the button, the write's own re-decision
+  from the row in hand, and every tick of the wait; and
+  `gh pr checkout` is the app's **eighth gated operation**, with the post-merge
+  tail's `pull --ff-only` the **ninth**: the model composes each command, asks an
+  injected gate before anything is sent and owns the tail's order (switch to the
+  base through the branch widget's own list, then pull, stopping at the first
+  failure and never reporting the merge as failed). **The tail asks that gate
+  again**, after its decision and ahead of the dirty-tree confirmation, because
+  the merge's own answer is spent before `gh pr merge` reaches the network and
+  the bracket the two steps ride raises the flag without reading it — which is
+  the very reason `switchBranch` and `checkoutRemote` refuse on it themselves.
+  Meanwhile
+  `PisakaApp.runBranchOperation(_:_:_:)` — which grew an optional completion
+  precisely because two bracketed operations cannot otherwise be ordered — is
+  reached through `PullRequestCoordinator` alone, its three sites, so no file
+  under the feature names `autosave` or `localChanges` at all (`core-github.md`).
 - **Zoom is three zones, one arithmetic, one pointer rule** (macOS only): `code`
   — which *is* `SettingsStore.fontSize`, never a second setting — `terminal` and
   `interface` each clamp/step/reset through one `ZoomScaleRule`, and every
@@ -741,11 +771,16 @@ inventory in that suite's doc comments and `core-database-viewer.md`),
 `GitHubSourceGatingTests` (the Pull Requests feature's cross-layer rules —
 `Process` for `gh` in one app file and never in Core, the app-side files
 macOS-gated and unnamed by the iOS layer, no `gh` argument spelled outside
-`GitHubCommands`, the checkout's one bracket site with no file under the feature
-naming the writer gate, the locator's one definition and two callers, where each
-refresh trigger lives and that the scene holds none, and the no-polling ban with
-`GitHubCLIProcessTransport.swift` as its one stated exception; inventory in that
-suite's doc comments and `core-github.md`) and `LintConfigurationTests`
+`GitHubCommands`, the feature's **three** bracket sites living in the coordinator
+alone (the checkout and the tail's two steps) with the scene handing the bracket
+over once and no file under the feature naming the writer gate, the tail's
+`pull --ff-only` pinned flag by flag in `GitCLIService.swift`, the locator's one
+definition and two callers, where each refresh trigger lives and that the scene
+holds none, the armed wait's four cancellations (two of them app-layer, hence
+invisible to every other test), and the no-polling ban with **two** stated
+exceptions — `GitHubCLIProcessTransport.swift` and `PullRequestMergeWait.swift`,
+the latter scoped term by term rather than granted by file name; inventory in
+that suite's doc comments and `core-github.md`) and `LintConfigurationTests`
 (both `.swiftlint.yml` files — the version pin, `mandatory_comma`, the root and
 child disabled-rule sets by set equality, every measured threshold ceiling,
 every in-file disable counted by path/rule — plus `.githooks/pre-commit`'s gate

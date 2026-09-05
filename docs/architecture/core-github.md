@@ -7,31 +7,40 @@ surfaces, and the macOS panel, sheet and bottom-bar indicator that draw what
 Core answered. Read the relevant entry before modifying that file, and update it
 when behavior changes.
 
-This is **part 1**: listing open pull requests, reading their checks, creating
-one, and checking one out. Merging — and everything it drags in (a pull, the
-local branch afterwards, waiting on checks) — review comments, approvals, issues,
+This is **parts 1 and 2**. Part 1 listed open pull requests, read their checks,
+created one and checked one out. Part 2 closes the loop: **merging** one from a
+sheet, the bounded **wait** that merges the moment checks pass, and the
+**post-merge tail** that switches to the base branch and pulls it when the merged
+head is the branch the reader is standing on. Review comments, approvals, issues,
 any iOS surface, any HTTP or token handling of this app's own, deleting branches
-and editing remotes are all deliberately out of scope, and the layer holds
-nothing half-built for them.
+(local or remote), editing remotes, merging past the repository's own rules
+(`--admin`) and GitHub's server-side auto-merge (`--auto`) are all deliberately
+out of scope, and the layer holds nothing half-built for them.
 
 ## The shape of the feature, in one paragraph
 
 A sixth bottom-dock panel lists this repository's open pull requests — number,
 title, author, `head → base`, a draft marker, the review decision and a checks
-summary — with **Checkout** and **Open in browser** per row, an expandable
-per-job checks list, and a **New Pull Request** sheet. Beside the branch switcher
+summary — with **Checkout**, **Merge** and **Open in browser** per row, an
+expandable per-job checks list, a **New Pull Request** sheet and a **Merge**
+sheet. Beside the branch switcher
 in the bottom bar, an indicator shows `#N` and the checks state for the branch
 that is checked out right now, and clicking it opens the panel with that row
 expanded. Everything GitHub says arrives through the user's own `gh` binary,
 discovered at run time: Core composes every argument list and parses every
 answer, the app layer only runs processes. The whole feature is a **reader**
-except for one thing — `gh pr checkout` rewrites the worktree, which makes it the
-app's **eighth gated operation**, and the only one reached through a coordinator
-rather than from the scene. There is **no polling**: freshness is event-driven,
-and the events are a branch change, the panel becoming visible, and one of the
-feature's own writes completing.
+except for three writes — creating a pull request, merging one, and
+`gh pr checkout`, which rewrites the worktree and is the app's **eighth gated
+operation**, the only one reached through a coordinator rather than from the
+scene. A merge whose head is the checked-out branch owes a **tail**: a switch to
+the base branch and a `--ff-only` pull, the app's **ninth** gated operation,
+riding that same bracket. Freshness is **event-driven** — a branch change, the
+panel becoming visible, one of the feature's own writes completing — and the one
+thing in it that repeats is `PullRequestMergeWait`, the armed, bounded, visible,
+cancelable *Merge when checks pass* wait, which is the ban's one stated exception
+and is scoped term by term rather than by name (G14).
 
-## Twelve decisions this feature was built on
+## Fifteen decisions this feature was built on
 
 ### G1 — The seam is one command in, one result out
 
@@ -452,12 +461,12 @@ really "nobody has looked" names the control that looks:
 
 **A failure is cleared by the read that caused it and by no other.** The one
 message slot records whose sentence it holds (`ErrorSource`: refresh, checks,
-create, checkout, checkoutBlocked), for `DatabaseViewerModel`'s reason — a refresh
+create, merge, mergeTail, checkout, checkoutBlocked), for `DatabaseViewerModel`'s reason — a refresh
 that succeeded says nothing about an expand that failed a moment earlier, and
 clearing that sentence would leave a row expanded over an empty checks list with
 no explanation.
 
-**Two of the five have an end, and it is not another read of their own.** The rule
+**Three of the seven have an end, and it is not another read of their own.** The rule
 above keeps a sentence until its own read runs again, which is right for a
 *result* — a command answered, and no later read changes what it said — and wrong
 for a *condition* that ends silently:
@@ -481,6 +490,20 @@ for a *condition* that ends silently:
   that failed and was then cancelled left `gh`'s refusal (or git's rejected push)
   in the panel's strip with nothing on the ready path able to clear it, since
   every later refresh asks for `refresh` and returns early.
+- **`merge`** is the second sheet's, drawn as `mergeMessage` for `create`'s
+  reason applied to the second sheet — it too stands over a live panel whose
+  list, checks and indicator keep refreshing behind it — and ended by
+  `dismissMerge()` on `PullRequestMergeSheet`'s `.onDisappear`, again scoped.
+
+**And `mergeTail` is its own source because of when it is published.** The tail's
+one refusal — the base branch is in neither half of the branch widget's list — is
+set *during* the caller's turn: `coordinator.merge` runs `runMergeTail(…)` before
+it answers `true`, and the sheet dismisses on that answer, so `dismissMerge()`
+would clear the sentence in the same turn it was written. Under `.merge` the one
+thing the tail can say was therefore unreadable on the path that produces it
+most. It records something that happened and stays true — the merge landed and no
+branch was switched to — so nothing withdraws it but a new merge sheet
+(`prepareMerge(number:)` clears it alongside its own) or a blank of everything.
 
 **Blanking the rows blanks the slot, whoever filled it.** The three moments the
 model clears everything a sentence could be about — availability going not-ready,
@@ -494,11 +517,14 @@ next step is `gh auth login`.
 **A surface reads only its own sentence.** The panel's strip draws the slot
 whole — it is the surface every read of the feature happens under — but the
 create sheet draws `createMessage`, which is the slot **only when
-`errorSource == .create`**. A sheet drawing the raw slot would show a background
+`errorSource == .create`** — and the merge sheet draws `mergeMessage` on the same
+terms. A sheet drawing the raw slot would show a background
 refresh's failure, or a checks read that failed under a row behind it, in red
 above its buttons on a sheet where nothing has been submitted; and
 `prepareCreate()` cannot clear that sentence, because clearing it is exactly what
-the four sources forbid.
+the sources forbid. The panel, which draws the slot whole, is therefore the one
+surface the tail's `mergeTail` sentence appears on — which is where it belongs,
+since by then the sheet that started the merge is gone.
 
 **A read that failed is not a read still running.** `checks[number] == nil` means
 "still reading" and `[]` means "GitHub reported no jobs" — a two-state split the
@@ -761,6 +787,278 @@ bracket **sites**, and the eighth *operation* rides the one that already served
 branch switch and checkout-remote. The alternation rule that suite enforces —
 gate, then capture, per site — is what makes that sharing safe.
 
+### G13 — The merge is one rule read by three readers, guarded by `--match-head-commit`
+
+`GitHubMergePlan` decides whether a pull request may be merged from here, and
+**three readers ask it**: the sheet's button (which is drawn from it, disabled by
+it, and labelled by it), `PullRequestModel.merge(…)` (which re-decides from the
+row the list holds *now*, so an open sheet cannot send a merge the panel would
+refuse), and **every tick of the wait**. Three readers, one table — a second
+enumeration in the view or in the wait would be free to word one state two ways,
+and a button reading "Merge" over a model that refuses is the bug this shape
+exists to make unwriteable.
+
+**The enabled rule is a conjunction of four facts**: not a draft, `mergeable ==
+MERGEABLE`, `mergeStateStatus` one of `CLEAN`/`HAS_HOOKS`/`UNSTABLE`, and the
+checks summary `success` or `noChecks`. Everything else is one of seven typed
+refusals, each carrying the sentence every reader shows: `draft`, `conflicts`,
+`checksRunning`, `checksFailed`, `mergeabilityUnknown`, `behind`, `blocked`.
+
+Two orderings inside that table are load-bearing:
+
+- **checks before blocked.** A repository with a required check answers `BLOCKED`
+  for the whole time that check is running, so reading the merge state first would
+  stop a wait on "GitHub's rules are blocking the merge" in exactly the state the
+  wait exists to sit through.
+- **a draft is one refusal reached two ways.** `isDraft` is the field made for the
+  question and is what a draft answers today; `DRAFT` is still a *declared* member
+  of GitHub's `mergeStateStatus` enum — deprecated in favour of `isDraft`, never
+  removed — so `GitHubMergeStateStatus` carries all eight and this refusal is
+  reached from either. The table is closed and this field rides on **every** row of
+  `pr list`, so refusing the deprecated word would take the whole list down — no
+  rows, no indicator, no Checkout, no Create — over a field that gates one button.
+  Carrying the declared member costs a line; omitting it bets the panel on a
+  deprecation notice.
+
+Each refusal answers **two questions of its own**, so nothing re-derives them:
+`isArmable` (may a wait be armed here — `checksRunning` and nothing else) and
+`mayResolveByWaiting` (may an armed wait *keep* waiting — `checksRunning` and
+`mergeabilityUnknown`, the two computing states). Unknown mergeability is
+deliberately in the second set and not the first: it clears in seconds, so it is a
+state a running wait sits through and never one a reader is offered a half-hour
+promise on.
+
+**The guard is `--match-head-commit`, always.** Every row is read with its
+`headRefOid` — which is why the field is asked for on *every* row rather than on
+the one being merged — and the merge carries the head of the row its plan was
+decided from. A push landing between that read and the merge is refused by
+*GitHub*, in GitHub's words, rather than merged silently. Three flags never
+appear: `--admin` (merging past the rules the enabled rule just checked),
+`--auto` (a server-side promise this app cannot show, cancel or account for — the
+wait is the visible answer to the same question) and `--delete-branch` (this layer
+deletes no branch; `deleteBranchOnMerge` is read only so the sheet can say what
+GitHub will do by itself).
+
+The write itself is the feature's **third**, under the same one-write rule (G10),
+and it asks **the gate** — not for its own sake, since `gh pr merge` writes no
+file, but for the tail's: a merge accepted while a revert or a branch switch is
+rewriting the worktree owes a switch and a pull the moment it lands, into a
+worktree already being rewritten by something else.
+
+### G14 — The wait is the no-polling ban's one stated exception, and it reads the row
+
+*Merge when checks pass* arms `PullRequestMergeWait`: it re-reads **one pull
+request row** every `pollInterval` (30 s) for at most `deadline` (30 min) and
+merges the moment `GitHubMergePlan` — the value the button was drawn from — says
+it may. `LeetCodeJudgeModel`'s shape (L18) applied to a second polled answer: a
+`@MainActor` companion owned by the model, an injectable `now` clock and an
+injectable `sleep` seam, and a generation token checked after **every**
+suspension, so the whole state machine including the deadline runs
+deterministically in `swift test` and adds no wall-clock time to it.
+
+**One rule, one table, and this is the feature's load-bearing decision.** A tick
+runs `gh pr view <n>` and parses it with the *same row decoder* the list uses; it
+never runs `pr checks`. That command answers about **jobs** and cannot see
+`mergeable` or `mergeStateStatus`, so checks can go green while GitHub still
+answers `BLOCKED`, `BEHIND` or `UNKNOWN` — and a wait deciding "green" from the
+jobs table would hand a merge to the plan that refuses it, in words about a state
+it never looked at.
+
+**`pr view <n>` rather than `pr list --head <branch> --limit 1`**, for two
+reasons: `--head` names a *branch*, and a branch name is not unique across
+repositories (a fork's head can be spelled exactly like another's, and `--limit 1`
+hands back whichever GitHub ordered first — an ordinary case turned into a stop
+with nothing useful to say); and `pr view` answers for a pull request that is **no
+longer open**, which is precisely the "somebody else merged it" ending the wait
+must recognise, where a `--state open` list would come back empty and be
+indistinguishable from a branch that never had one.
+
+**Exactly four endings**, and a wait may not stop without one, because it is a
+promise the app made on its own: `merged` (the plan said yes; the outcome is
+carried, `nil` when the model refused or `gh` failed, whose sentence is already in
+the message slot), `stopped(sentence)` (a failing check, a refusal
+`mayResolveByWaiting` says no later tick can leave, a row no longer open, a
+read that could not be made at all — in `gh`'s own words, now rather than in half
+an hour — or **the world the wait was armed in gone**, which is
+`PullRequestMergeWait.stateLostMessage` and not the sheet's
+`mergeRowMissingMessage` it would otherwise read like: that sentence ends "close
+this sheet", and this ending is drawn in the *panel's* ending strip, where a wait
+runs precisely because nobody is standing in front of a sheet), `deadline`, and
+`cancelled` (Cancel, a project switch, quit, or another wait armed over this
+one). The merge's ending is **the one published past a moved
+token**: it is a fact rather than a decision — the merge either landed or was
+refused — and a Cancel pressed while the write was in flight cannot un-send it.
+
+**A write of this app's own is slept through rather than ended on**, and it is
+the one thing a green tick may meet without becoming an ending. `merge(row:…)`
+refuses while this feature's one-write flag is up or the writer gate is held — a
+`gh pr checkout`, a New Pull Request, a revert, a branch switch — and answers
+`nil` for it, which is the same `nil` GitHub's own refusal answers with, so the
+wait cannot tell the two apart *after* the fact. Ending on it would publish
+`merged(nil)`, whose strip says nothing at all: the row's elapsed time and its
+Cancel button would simply vanish, and a half-hour promise the reader armed and
+walked away from would be spent because somebody pressed a button in the same
+panel a second later. So the tick asks **before** the write, through
+`PullRequestModel.mergeIsDeferred` — the two terms `merge(row:…)` refuses on,
+read as one — and where the answer is yes it takes its ordinary sleep and tries
+again. Both conditions are seconds long against a thirty-minute deadline; a gate
+that somehow stayed up for the whole of it ends as `deadline`, with a sentence,
+rather than as a merge of nothing — and with the **deferral's own** sentence, not
+the checks', because on that path the checks passed and saying they did not would
+be the one wrong statement in the ending table (see below). The **sheet's** Merge deliberately does not
+ask this: a press is a reader standing in front of the panel who is owed
+`mergeBusyMessage` or `mergeBlockedMessage`, not a button that quietly does
+nothing.
+
+**The head guard needs no rule of its own here either**: each tick merges with the
+head *that tick* read, so a push landing after it is GitHub's refusal, which stops
+the wait with GitHub's words on screen. A comparison against the arm's head would
+be a second, weaker guard against the same accident.
+
+**The deadline is two guards, and they answer different questions.** The one at
+the *bottom* of a tick is the deadline's **statement**: it is asked after the row
+has been read and found still-running, so the wait covers `[0, deadline]`
+inclusive and the sixty-first on-time read — the one landing on the half hour —
+is still made. Stating it at the top of the loop instead would make the last
+observation one whole interval early, and `deadlineMessage` ("Checks did not
+finish within 30 minutes") would then be said over a suite that finished at 29:50
+and was never looked at again: a false sentence, and a merge the reader asked for
+withheld on it. The one at the *top* of a tick is the deadline's **bound**: a
+sleep resumes no earlier than it was asked to and may resume arbitrarily later —
+a machine that suspended, a system under load — and a tick woken past the half
+hour must not read the row at all, because the read can reach a *merge*, and a
+merge landing hours after the wait was armed, with nobody in front of it, is the
+thing the bound exists to prevent. It fires on **strictly greater** than
+`deadline`, which is exactly what leaves the boundary read to the other guard.
+Both are measured against `now` rather than counted in ticks, so reads that slow
+down shorten the wait rather than doubling it.
+
+**The deadline ending names what the last tick was waiting on**, because three
+states reach it and only one of them is about the checks. `deadline` therefore
+carries a `PullRequestMergeWaitDeadlineCause` — a third closed vocabulary in this
+file — with one case and one sentence each: `checksRunning` (the case the wait was
+built for, `deadlineMessage`), `mergeabilityUnknown` (`mayResolveByWaiting` sleeps
+through it too, and it is reachable with a suite that went green on the very first
+tick — GitHub simply never finished computing whether the diff applies, so the
+sentence sends the reader to the pull request rather than to a check suite that is
+fine) and `deferred` (every tick's plan said yes and `mergeIsDeferred` was up for
+all of them, so nothing was ever sent and the checks are not what stopped it). The
+loop carries the cause forward from the tick that set it rather than re-deriving it
+at the deadline, where the row that produced it is long gone; it seeds as
+`checksRunning`, which neither guard can publish before a tick has run. A single
+sentence over all three would tell a reader whose checks passed half an hour ago
+that his checks did not finish — worse than the silence the whole table exists to
+prevent, because it is a wrong statement he would act on. All three name the
+minutes *out of* `deadline`, so none can drift from the constant or from each
+other.
+
+While a wait is armed, **every** row's Merge is disabled — the merge it will run
+is the one-write rule spent in advance — while reads, Checkout and Create stay
+available, because none of them is a merge. `isWriteInFlight` is raised only for
+the merge itself, when it actually runs.
+
+The exception to the no-polling ban is **scoped and pinned term by term** by
+`GitHubSourceGatingTests`, not granted by file name: the two bounds are named
+constants declared once, the wait between ticks is exactly one `Task.sleep` behind
+exactly one injectable seam, `Timer` and `asyncAfter` stay banned there, and
+`GitHubCommands.checks` may not appear in the file at all. An exception that were
+only a name would buy an unbounded, invisible, un-cancelable poll in the same file
+and read the same in a diff.
+
+### G15 — The post-merge tail is the ninth gated operation, and its order is Core's
+
+Merging the branch you are standing on leaves the worktree on a branch whose
+commits are now in the base — so the tail **switches to the base branch and pulls
+it `--ff-only`**. It runs only when `GitHubMergePlan.isTailOwed` (the merged head
+*is* the checked-out branch, compared exactly, because git's refs are), in order,
+**stopping at the first failure**, and it never reports the merge as failed: the
+pull request is merged from the moment `gh` answered, and this model's one
+sentence must not start saying otherwise.
+
+**What the tail is, is Core's; what each step does, is the app's.**
+`PullRequestModel.mergeTail(for:branches:)` resolves it from the branch widget's
+own list — the list the reader is looking at, refreshed by every operation that
+could change it — in git's own DWIM order: a **local** ref named `<base>` goes
+through `switchTo`; failing that a *remote* ref whose branch half is `<base>` goes
+through `checkoutRemote`,
+whose DWIM already picks a same-named local or creates the tracking branch; and
+only when neither is listed is there `.unresolved`, the tail's one refusal, whose
+sentence says the merge landed first because that is the fact the reader most
+needs. **An empty list is refused as *unread*, not as a missing branch**, and it
+is the one refusal that carries a different sentence
+(`tailBranchListUnknownMessage`): `BranchSwitcherModel` empties `branches` on
+every failed refresh and on a folder switch, and may not have answered yet, while
+a repository a merge just ran in has at least the ref it ran from — so routing
+that state into the sentence below would name a branch that plainly exists and
+call it absent, into a slot no refresh ever clears. The guard sits *after*
+`isTailOwed`, so a tail that owes nothing stays silent. **The remote is matched by stripping, never by composing `origin/`**: the
+whole branch pipeline is remote-agnostic (`BranchRef` carries `remoteName`,
+`BranchSwitcherModel.defaultBranchName(forRemote:)` strips whatever it says) and
+`gh` resolves the repository from whichever remote the working directory has, so
+a checkout whose only remote is `upstream` merges perfectly well and must not
+then be told its own base branch is not in the repository; where several remotes
+carry the same branch, `origin` wins, because that is the one git's own DWIM
+picks. `runMergeTail(…)` then orders it: **the repository first of all** — a merge
+is a network round trip that can outlive the project it was started in, and the
+folder switch that cancels an armed wait cannot un-send a sent command, so the
+outcome carries the root it was decided in and a tail whose root has since moved
+runs nothing and says nothing (silently: the reader closed that project on
+purpose, and the panel that would carry a sentence went with it). **That question
+is asked twice**, here and again between the two steps, because the switch is
+itself a bracketed operation and therefore suspends: a folder switch landing while
+git's checkout runs reopens the very window the first ask closed, and the pull —
+which takes the root it is handed and asks nobody — would fast-forward a branch in
+a repository this merge had nothing to do with. The switch needs no second ask:
+the coordinator pins the branch widget's refresh generation synchronously, in the
+turn the tail is decided in, so a folder switch reaching the widget first makes
+the checkout bail. Then the
+decision (so a tail that is not
+owed costs nothing and puts no modal in front of anybody), then **the writer gate**,
+then the same dirty-tree
+confirmation `switchBranch` and `checkoutRemote` ask, and the pull **only
+on the switch's success** — a pull after a refused checkout would fast-forward the
+branch the reader is still standing on with the base's commits.
+
+**The gate is asked twice, and the second time is the tail's own.** `merge(…)`
+asks it before anything is composed, but that answer is spent before `gh pr merge`
+reaches the network: by the time the tail is handed out, a round trip, a refresh
+and — on the wait's path — up to half an hour have gone by, any of which is room
+for a revert, a commit, a merge apply or a branch switch to start. The bracket the
+tail's two steps ride *raises* the flag without reading it (which is exactly why
+`switchBranch` and `checkoutRemote` refuse on it at their own entry points), so a
+tail that did not ask would be a second `git` rewriting a worktree the first one
+is still in. It is asked ahead of the confirmation, in the order every other
+checkout in the app asks in — a refusal is one alert, not a confirmation followed
+by one — and after the decision, so a tail that was never owed says nothing about
+a gate it did not need. The refusal has its own sentence,
+`PullRequestModel.tailBlockedMessage`, published under `.mergeTail` beside the
+unresolved base's: it opens by saying the merge landed, because
+`mergeBlockedMessage` refuses a merge that has *not* happened and this one reports
+one that has.
+
+The pull is `GitServicing.pull(root:)`, whose whole contract is `--ff-only` and
+nothing else: the only honest outcome after GitHub merged is "advance to what the
+remote already has", and a merge commit or a conflicted worktree would be this
+feature writing history nobody asked for, inside a writer bracket, on a branch
+nobody has looked at yet. It names no remote and no refspec (the upstream is
+git's own answer), throws `GitError.pullFailed(reason:)` with git's words, and is
+defaulted in the protocol extension to `throw .gitUnavailable` — iOS is left at
+that default, since the tail is macOS only.
+
+Both steps are **gated**, which makes the pull the app's **ninth** gated operation
+and the switch a second `.branch` caller. The bracket count stays at **seven**:
+`PullRequestCoordinator` holds all three of this feature's bracket call sites —
+`.pullRequest` for the checkout, `.branch` for the tail's switch, `.pull` for the
+tail's pull — and `PisakaApp.runBranchOperation(_:_:_:)` gained one thing for it,
+an **optional completion called on both paths**. That is not decoration: the
+bracket is fire-and-forget, and two bracketed operations cannot be ordered without
+it — the pull must not start until the switch has finished *and been judged*.
+Local History's vocabulary gained `case pull` ("Before Pull"), its own event
+rather than `branch`, because a file the tail overwrites was overwritten by *the
+remote's* work and "what did this look like before I took everyone else's
+changes?" is a different question from "what did this look like before I switched
+branches?".
+
 ## The Core half (`Sources/PisakaCore/`)
 
 ### `GitHubCLI.swift` — the seam
@@ -776,8 +1074,8 @@ deadline generous enough for the first would let the second hang a refresh.
 
 ### `GitHubCommands.swift` — the whole argument vocabulary
 
-Seven `gh` commands reached through eight factories — the current-branch lookup
-is `pr list` with `--head` rather than a command of its own:
+Nine `gh` subcommands reached through ten factories — `pr list` is reached twice
+(the current-branch lookup is `--head` rather than a command of its own):
 
 | factory | command | deadline |
 | --- | --- | --- |
@@ -785,19 +1083,38 @@ is `pr list` with `--head` rather than a command of its own:
 | `authStatus()` | `gh auth status` | network, 30 s |
 | `openPullRequests(root:)` | `pr list --state open --limit 50 --json …` | network |
 | `pullRequest(forHeadBranch:root:)` | `pr list --state open --head <b> --limit 1 --json …` | network |
+| `pullRequest(number:root:)` | `pr view <n> --json …` — **the wait's one read** (G14) | network |
 | `checks(pullRequest:root:)` | `pr checks <n> --json …` | network |
 | `createPullRequest(title:body:base:draft:root:)` | `pr create --title --body --base [--draft]` — **no `--head`**, deliberately (below) | git network, 120 s |
+| `mergePullRequest(number:method:headRefOid:subject:body:root:)` | `pr merge <n> --merge\|--squash\|--rebase --match-head-commit <oid> [--subject [--body]]` | git network |
 | `checkoutPullRequest(number:root:)` | `pr checkout <n>` | git network |
-| `repositoryView(root:)` | `repo view --json defaultBranchRef,nameWithOwner` | network |
+| `repositoryView(root:)` | `repo view --json defaultBranchRef,nameWithOwner,…` | network |
 
 The three `--json` field lists are **ordered constants** shared with the parsers
 (ordered, not sets: they go on a command line, and a suite asserting the command
-byte for byte needs one spelling to assert). `pullRequestFields` is the verified
-ten: `number,title,author,headRefName,baseRefName,isDraft,reviewDecision,url,state,statusCheckRollup`.
+byte for byte needs one spelling to assert). `pullRequestFields` is thirteen:
+part 1's ten plus `headRefOid`, `mergeable` and `mergeStateStatus` — asked for on
+**every** row, because the button that offers Merge is drawn from the same value
+the merge is decided from, and the merge is guarded by that row's head (G13).
 `checkFields` is `pr checks`' exact nine, in `gh`'s own order — asking for all
-nine costs nothing on the wire and keeps the parser reading one shape. The list
+nine costs nothing on the wire and keeps the parser reading one shape.
+`repositoryFields` is seven: the default branch and the name, plus the five merge
+policy values (`mergeCommitAllowed`, `squashMergeAllowed`, `rebaseMergeAllowed`,
+`viewerDefaultMergeMethod`, `deleteBranchOnMerge` — the last read but never acted
+on, so the sheet can say what GitHub will do on its own side). The list
 limit is 50, above `gh`'s default of 30; a repository with more open than that has
 a browser for the rest.
+
+`mergePullRequest` carries four decisions in its argument list rather than in a
+rule some view has to remember: exactly one method flag (`gh` refuses
+interactively when given none, which in a non-interactive process is a hang until
+the deadline), `--match-head-commit` always, `--subject`/`--body` only for the two
+commit-producing methods (a rebase composes no commit, and an empty body is
+*omitted* rather than sent empty — unlike `pr create`, `pr merge` composes
+GitHub's own default body when none is given), and the three flags that never
+appear (G13). `methodFlag(_:)` is the one place a merge method is spelled as a
+flag, and it lives here rather than on `GitHubMergeMethod` so the vocabulary rule
+reads every `gh` argument in one file.
 
 `GitHubSourceGatingTests` pins that **no `gh` argument is spelled anywhere in the
 app layer** — the rule that makes this file the vocabulary.
@@ -820,12 +1137,18 @@ with its four states, `isReady`, `message`, `nextStep` and
 
 ### `GitHubPullRequest.swift` — the vocabulary the surfaces read
 
-The five closed enums — `GitHubCheckStatus`, `GitHubCheckConclusion`,
+The eight closed enums — `GitHubCheckStatus`, `GitHubCheckConclusion`,
 `GitHubStatusContextState`, `GitHubCheckBucket`, `GitHubReviewDecision` (with
-`.none` for `gh`'s `""`, which is what a repository requiring no review answers)
-— plus `GitHubRollupItem` (the two `__typename`s kept apart), the four-case
-`GitHubChecksSummary`, and the value types `GitHubPullRequest`, `GitHubCheckRow`
-and `GitHubRepository`. Behaviour here is limited to the two questions the
+`.none` for `gh`'s `""`, which is what a repository requiring no review answers),
+and part 2's three: `GitHubMergeability` (`MERGEABLE`/`CONFLICTING`/`UNKNOWN`),
+`GitHubMergeStateStatus`
+(`DIRTY`/`UNKNOWN`/`BLOCKED`/`BEHIND`/`UNSTABLE`/`HAS_HOOKS`/`CLEAN`) and
+`GitHubMergeMethod` (`MERGE`/`SQUASH`/`REBASE`, with `composesACommit` — which is
+what decides whether `--subject`/`--body` are sent, and which fields the sheet
+shows) — plus `GitHubRollupItem` (the two `__typename`s kept apart), the four-case
+`GitHubChecksSummary`, and the value types `GitHubPullRequest` (carrying
+`headRefOid`, `mergeable` and `mergeStateStatus`), `GitHubCheckRow`
+and `GitHubRepository` (carrying the four merge-policy values). Behaviour here is limited to the two questions the
 summary rule asks — `isFinished` and `isPassing` — and the conservative direction
 of the second is stated on it: an unrecognised-but-finished state is not a pass.
 
@@ -836,10 +1159,16 @@ key.
 
 ### `GitHubAPI.swift` — the one schema file
 
-The four parsers, the key-path accessors (each takes the path it is reading under
+The five parsers, the key-path accessors (each takes the path it is reading under
 and reports it on failure, so the string in the error is the string somebody can
 paste after `--jq`), `GitHubSchemaError` with its three cases and their sentences,
-and the summary rule (G2).
+and the summary rule (G2). The three tables part 2 added refuse an unrecognised
+word the way every other one does, naming the key path that carried it.
+
+`pullRequest(fromViewJSON:)` is the fifth parser and deliberately **not** a fifth
+schema: it is the *same row decoder* `pullRequests(fromListJSON:)` runs, applied
+to one object instead of an array element, so the row the wait re-reads is the
+same shape read by the same code as the row the button was drawn from.
 
 `pullRequestNumber(fromCreateOutput:)` is the file's **one deliberate
 non-refusal**: `gh pr create` has no `--json`, its whole answer is the new pull
@@ -857,13 +1186,119 @@ The sheet's pure half (G11): `base`, `headBranch`, `push: PushPlan`,
 and `uncommittedChangesNote`. Pure and Foundation-only, the way `PushPlan` and
 `CommitGate` are.
 
+### `GitHubMergePlan.swift`
+
+The merge sheet's pure half, in `GitHubCreatePlan`'s shape and read by three
+readers (G13): `GitHubMergeRefusal` — the seven-case closed table, each case
+carrying its `message` and its own `isArmable` / `mayResolveByWaiting` — and
+`GitHubMergePlan` itself, which carries the row **whole** (the guard needs that
+row's `headRefOid`, and a plan and a head from two readings is the mismatch
+`--match-head-commit` exists to prevent), the repository, and the checked-out
+branch.
+
+What it answers: `refusal` (the ordered rule), `canMerge`, `allowedMethods` (the
+repository's three flags, in `GitHubMergeMethod`'s own declaration order),
+`defaultMethod` (the viewer's, falling back to the first allowed — GitHub answers
+`viewerDefaultMergeMethod` from a stored preference the repository can have
+disallowed since, and opening on a disallowed method sends a `pr merge` GitHub
+refuses), `showsMethodPicker` (one allowed method is not a choice),
+`defaultSubject` (`<title> (#N)`, GitHub's own default), the three sentences
+(`mergeSentence`, shown **whether or not** Merge is enabled — which is exactly
+when a reader is looking for what the sheet is about — `deleteBranchSentence`, and
+`tailSentence`), `isTailOwed`, and the button: `armsWait`, `buttonTitle`
+(`mergeButtonTitle` / `armButtonTitle`), `buttonIsOffered` and
+`buttonIsEnabled(method:subject:)` — the last carrying the two things only the
+open sheet knows, the selected method and what has been typed, so a
+commit-producing method with an empty subject cannot send `--subject ""`. Both of
+those terms are **re-asked where the write is**, not left to the button: the
+method by `PullRequestModel.merge(...)`'s `mergeMethodMissingMessage`, the subject
+by its `mergeSubjectMissingMessage` and by `PullRequestMergeWait.arm(...)`, all
+three reading one `hasSubject(_:)` on the plan — a rule enforced only by which
+button is greyed out is a rule the next caller of a `public` method walks past.
+
+`isTailOwed` is a **name compared to a name**, and that is the feature's one
+stated limit here: `headRefName` names a branch in whichever repository the pull
+request was opened from, so a *fork* pull request whose head is spelled like the
+local branch reads as owed when nothing local moved. It is the ambiguity
+`pr list --head` already carries for `currentBranchPullRequest`, reached through a
+second door, and it is left standing rather than closed with an
+`isCrossRepository` field for what it costs: the common shape — a contributor's
+fork `main` merged into `main` while standing on `main` — resolves to a switch to
+the branch already checked out and a `--ff-only` pull of the base just merged
+into, which is what the tail is *for*. The misfire that remains still passes both
+guards the tail keeps: the dirty-tree confirmation ahead of the switch, and a pull
+that is `--ff-only` and can therefore rewrite nothing.
+
+`canMerge` and `armsWait` both carry a second term, `!allowedMethods.isEmpty`:
+that is the way this is off *without* a sentence, exactly as the create plan's
+empty base is. A repository allowing none of the three methods has nothing to
+send now and nothing to send in half an hour either, GitHub does not permit that
+state, and inventing a sentence for it would explain a configuration nobody can
+make.
+
+### `PullRequestMergeWait.swift`
+
+The armed wait (G14): `PullRequestMergeWaitEnding` — the closed four-case table,
+with `message` `nil` for the two endings that speak for themselves — and the
+`@MainActor` model itself, owned by `PullRequestModel` and holding it **`weak`**
+for the transport and the write, bound strongly for the duration of each tick.
+`weak` and not `unowned`, because the wait genuinely outlives its owner: the
+running `Task` holds the *wait* for the whole of a tick, so a wait suspended in a
+sleep is still there after the scene's `@StateObject` has gone — which a closed
+window does and which neither cancellation covers, quit and a project switch both
+cancelling first. A `nil` owner is not a new state either; it is the one the
+`stateLostMessage` ending already exists for.
+
+The two numbers are named constants (`pollInterval` 30 s, `deadline` 30 min), and
+the three deadline sentences (`deadlineMessage`, `deadlineMergeabilityMessage`,
+`deadlineDeferredMessage`) name the minutes *out of* the constant rather than
+spelling "30" a fourth time. `armed` (the number and exactly what the merge needs — method,
+subject, body; deliberately **not** the row's title, which the panel draws from
+its own row, and deliberately not the head the arm was made against, since each
+tick merges with the head *that tick* read), `elapsed` (published from `now` at the top of every tick, so **no view
+runs a clock**) and `ending` are the published state; `now`, `sleep` and
+`didMerge` are the three seams; `isArmed`, `isWaiting(on:)`, `elapsedLabel`
+(`m:ss`) and `acknowledgeEnding()` are what the surfaces ask.
+`arm(plan:method:subject:body:)` refuses **without a sentence** in the two states
+the button offering it cannot be in (a refusal that is not `isArmable`, a method
+the repository disallows) and cancels whatever is armed before replacing it, so
+there is no path that leaves two loops polling one repository. `cancel()` is
+idempotent, silent when nothing is armed, and cancels the loop's task as well as
+moving the token — the token already guarantees nothing is published, but a real
+sleep would otherwise hold a task alive for up to 30 s past a project switch.
+That silence is why the *ending* is dropped somewhere else: an ending nobody
+acknowledged carries a sentence, and cancelling nothing leaves it standing, so
+`PullRequestModel.prepareForRefresh()` calls `acknowledgeEnding()` in its
+**folder-switch branch** — the one that blanks the rows — and nowhere else.
+Project A's "this pull request is no longer open" is then never drawn in the
+strip above project B's rows, while a refresh that keeps the rows keeps the
+sentence too, because it is still true and still unread.
+
+`run(_:token:)` is one read, one decision, one sleep, and `finish(_:token:)` is
+its single exit, bumping the token as it lands so anything still suspended
+resumes into a moved token and publishes nothing. The token is checked **before
+the first read as well**, because starting the loop's task is itself a
+suspension: `arm(plan:method:subject:body:)` returns with the loop merely
+enqueued, and a cancellation landing in that gap would otherwise be answered by a
+tick that composes and sends a `pr view` in whatever root is current *then* — the
+answer discarded by the check after the await, but the command already sent,
+which is exactly what the project switch's cancellation exists to prevent. The one thing published *past* a
+moved token is the merge's own ending, and the comment there says why: it is a
+fact, not a decision this wait is still entitled to make.
+
 ### `PullRequestModel.swift`
 
 The `@MainActor ObservableObject` behind both surfaces. Published: `availability`
 (optional — a panel opening on "not found" before it has looked would accuse a
 good install of not existing for as long as the probes take), `pullRequests`,
 `currentBranchPullRequest`, `checks`, `expandedNumber`, `selectedNumber`,
-`createPlan`, `errorMessage`, `isLoading`, `isWriteInFlight`.
+`createPlan`, `mergePlan`, `errorMessage`, `isLoading`, `isWriteInFlight`, plus
+the `lazy` `mergeWait` companion and `mergeIsAvailable` — the one term every row's
+Merge button disables on, which is `isReady` plus `isWriteInFlight` plus "no wait
+is armed anywhere". The first two are **also refused on** in `merge(…)`, so the
+rule holds even when a button forgot to disable; the wait term deliberately is
+not, and cannot be — the wait's own merge runs while the wait is armed — so that
+term is stated as a surface rule rather than assumed to be enforced twice.
 
 `refresh(branch:)` is the whole read path in the one order it ever runs:
 availability, the list, then the `--head` lookup (skipped on a detached HEAD
@@ -894,10 +1329,87 @@ landed, because a read is genuinely still in flight until then.
 
 `prepareCreate()` reads `repo view` and the commit context under the create
 token; `setCreateBase(_:)` re-plans synchronously (the repository state was
-already read; only the base changed). `create(...)` and `checkout(_:)` are the two
-writes (G10–G12). `checkout(_:)` is **synchronous** and deliberately so: it is
-called from a button, its answer is "was this accepted", and everything after the
-hand-out belongs to the bracket.
+already read; only the base changed). Both sheets **plan from a local and
+publish `repository` only on a read that succeeded**: that one value is shared —
+the merge plan is decided from it and `PullRequestMergeWait` re-reads it on every
+tick, treating `nil` as "the world this wait was armed in is gone" — so a base
+read that failed empties *this sheet's* base and nothing else. Blanking it there
+would end an armed wait with `stateLostMessage`, about a row that never
+left, merely because New Pull Request was opened beside it, and permanently so
+when that sheet's own `repo view` failed too. Only the two states that really are
+a different world blank it, and both are `clearRows()`'s: the project root
+changing, and `gh` going not-ready. `create(...)`, `merge(...)` and
+`checkout(_:)` are the three writes (G10–G13). `checkout(_:)` is **synchronous**
+and deliberately so: it is called from a button, its answer is "was this
+accepted", and everything after the hand-out belongs to the bracket.
+
+The merge half is a **fourth generation token** (bumped in `prepareMerge(_:)`, in
+`merge(...)` and in `clearRows()` beside the create's) and a fourth `ErrorSource`.
+`prepareMerge(number:)` reads `repo view` and the checked-out branch as the sheet
+opens: a failed `repo view` leaves `mergePlan` `nil` — hence Merge disabled and
+`gh`'s words in the slot, which is what the create sheet's failed read already
+does. **Its two guards publish too**, and that is load-bearing rather than tidy:
+the sheet draws its spinner on "no plan *and* no message" and its `.task` runs
+once, so a guard returning silently is a modal reading "Reading this repository's
+merge settings…" until it is cancelled, with no retry and no reason. A not-ready
+`gh` or absent root gets `unavailableMessage`, and a row a refresh dropped between
+the press and the read — the honest case, somebody else merged it — gets
+`mergeRowMissingMessage`, which is what `merge(…)` already says for the same two
+conditions. The **generation** guards are the one exception, and the sheet closes
+it rather than the model: a read dropped past a moved token is `clearRows()`
+blanking the panel behind the sheet, and the reason for *that* is already in the
+one slot under `.refresh` — a `.merge` sentence written over it would replace a
+specific reason with a general one. So `PullRequestMergeSheet` reads the state
+back instead (`readWasSuperseded`: no plan **and** no sentence, asked once, right
+after the `await`) and draws `unavailableMessage` itself, which is the same
+sentence the model's own readiness guard uses and costs the model nothing.
+A failed *branch* read is deliberately weaker and not fatal, because
+the merge does not depend on what is checked out locally and a sheet must not
+refuse to merge a pull request because `git` could not name a branch.
+`dismissMerge()` clears only the merge's own sentence and deliberately **not** the
+plan — nothing outside the sheet reads it (the row's Merge button is drawn from
+`mergeIsAvailable` and its waiting state from `isWaiting(on:)`), so clearing it
+would buy nothing and cost the closing sheet the fields it draws through its own
+dismissal; the next `prepareMerge(number:)` replaces it wholesale, and the write
+re-decides from the row the list holds now regardless.
+
+`merge(number:method:subject:body:)` is the write, with six refusals in the order
+they are asked, **each of them with a sentence**: the one-write flag
+(`mergeBusyMessage` — its own constant rather than the gate's, since it names a
+different state and a different cure, and *not* a dead branch behind a disabled
+button, because the wait's merge does not go through a button at all), the gate
+(`mergeBlockedMessage`), a not-ready
+`gh` or absent root, the row no longer in hand (`mergeRowMissingMessage`), a plan
+that re-decides as not mergeable (the refusal's *own* sentence, so button, model
+and wait word one state one way), and a method the repository does not allow
+(`mergeMethodMissingMessage` — unreachable from the picker, which is exactly why
+it is refused here too) and a blank subject for a commit-producing method
+(`mergeSubjectMissingMessage`, refused for that same reason). It raises and lowers
+`isWriteInFlight` on every exit
+path, and on success re-reads the list — the merged row leaves it, which is also
+how the bottom-bar indicator clears — where nothing below the merge may report a
+failure, since the pull request is merged from the moment `gh` answered. **That
+refresh asks about the branch as it is *then***: it takes the newest list token,
+so it supersedes the read the branch widget's own sink started if somebody
+switched branches during the round trip, and reusing the value the plan was
+decided from would publish `currentBranchPullRequest` for a branch nobody is on
+with no later trigger to correct it. So the branch is read once more and the token
+taken synchronously in that same turn — a switch landing after it then fires its
+own trigger, takes a newer token still, and wins. The
+`internal` `merge(row:…)` overload is the same method entered from the wait with
+**that tick's** row rather than the list's, which is the whole point of a wait
+acting on a reading newer than the list's.
+
+The tail's half is `MergeOutcome` (returned, never published — it is the answer to
+one merge, read once, and a published copy would sit there naming refs that no
+longer exist), carrying the number, the base, `isTailOwed` and **the root the
+merge was sent in**, `MergeTailStep` / `MergeTailRunner` / `MergeTail`,
+`mergeTail(for:branches:)` and `runMergeTail(_:branches:confirm:run:)` (G15). The
+tail's two refusal sentences — `tailBranchMissingMessage(base:)` for a base that
+is in neither half of a list that *was* read, and `tailBranchListUnknownMessage`
+for a list that was not — live here rather than in the coordinator that runs the
+tail, for the reason every other sentence in this file does: they are then
+testable without a view, and there is one wording of each.
 
 ## The app half (`Sources/Pisaka/`, all `#if os(macOS)`)
 
@@ -945,10 +1457,12 @@ timer there could only be a repeat.
 
 The `DatabaseViewerTabs` analogue: it owns the model and the transport, is wired
 once from the scene through
-`start(root:branchSwitcher:isWriteBlocked:runCheckout:confirmCheckout:didWrite:)` — idempotent,
+`start(root:branchSwitcher:isWriteBlocked:runBracket:confirmCheckout:didWrite:)` — idempotent,
 because `.onAppear` can fire again for a reopened window, and assigning a second
-branch observer cancels the first rather than leaving two sinks — and is the
-**one site** through which a checkout reaches the writer bracket. The model is
+branch observer cancels the first rather than leaving two sinks — and holds
+**every site** through which this feature reaches the writer bracket: three of
+them, one per gated operation it owns (`.pullRequest` for the checkout, `.branch`
+for the tail's switch, `.pull` for the tail's pull). The model is
 `lazy` because its four closures read back through `self`: the root, the gate and
 the bracket are answers the scene supplies after this object exists.
 
@@ -980,14 +1494,59 @@ the seven operations before this one all move the branch through
 `BranchSwitcherModel` itself and leave it already correct. `gh pr checkout` moves
 it from outside.
 
+`merge(number:method:subject:body:)` is the second write entry point and the one
+route from a surface to the tail; nothing is asked here first, unlike the
+checkout, because a merge puts no modal in front of anybody and has no answer only
+the scene can give. `runTail(_:)` hands the outcome, the widget's branch list and
+the dirty-tree confirmation to `PullRequestModel.runMergeTail(…)` — which owns the
+decision, the order and the stop-at-first-failure rule, so they are asserted in
+`swift test` rather than described here — and `runTailStep(_:_:)` is where each
+step goes inside the bracket under its own event, with the widget's refresh
+generation pinned **synchronously** in that turn (`switchBranch`'s rule: a folder
+switch landing in the gap makes the checkout bail rather than move the newly
+opened repository's worktree). Neither step's failure is published into the
+panel's slot: the merge landed, and this model's one sentence must not start
+saying otherwise.
+
+**A bail is not a failure with a sentence**, which is what the switch step's
+message is careful about. `switchTo` and `checkoutRemote` both answer `false`
+*without touching* `errorMessage` when the pinned generation moved under them or
+the widget has no root — their documented contract, and the whole point of
+pinning — so reading the slot on those paths would hand the bracket whatever
+*older* operation last failed and present it, in a modal, as this switch's
+reason (`prepareForRefresh` clears the slot only on a folder change, so a
+same-folder refresh landing in the gap leaves a stale sentence sitting there).
+The step therefore re-reads the two facts that distinguish the cases — the
+widget's generation against the one it pinned, and its root — and is **silent**
+when either says superseded, `""` being the bracket's own word for "there is
+nothing to say here". Only a step that actually ran git speaks. The same method wires `mergeWait.didMerge`, so the merge nobody
+was standing in front of reaches the identical tail.
+
+A **fourth** subscription-like duty landed here with the wait: `$root` cancels it
+on a project switch, and `terminateNow()` cancels it before signalling the
+transport. Both are the same reasoning as the rows being cleared, only sharper — a
+wait polls one pull request by number in whatever root is current when its tick
+composes the command, so half an hour of it under a repository nobody opened would
+end by merging project A's pull request from inside project B, then switching
+*B's* worktree to A's base branch. A tick waking after the terminate observer
+would do the same to a project the app has stopped having open.
+
 ### `PullRequestsPanelView.swift`
 
 `UsagesPanelView`'s shape — header, divider, scrolling rows — plus a **not-ready
 state with a next step**, printing `GitHubAvailability.message` and `.nextStep`
 verbatim. Rows carry the number, title, author, `head → base`, the draft marker,
-the review decision and the checks summary, with Checkout and Open in browser per
-row and an expandable per-job list whose entries link to their own runs. The one
-disable term is `isWriteInFlight`. The panel-shown trigger is the single
+the review decision and the checks summary, with Checkout, Merge and Open in
+browser per row and an expandable per-job list whose entries link to their own
+runs. There are exactly **two** disable terms, both Core's: `isWriteInFlight`
+(Checkout, New Pull Request, Refresh) and `mergeIsAvailable` (every row's Merge),
+neither re-derived from its parts here. The row a wait is armed on shows its
+elapsed time — published by the wait, never timed here — and a Cancel button **in
+place of** its Merge button, the two being exclusive by construction rather than
+by a disable; how the last wait ended, when it ended with something to say, is a
+dismissible strip of its own above the list, because two of the four endings land
+in a panel nobody was watching and must not overwrite the model's one message
+slot. The panel-shown trigger is the single
 `.onAppear` here. The panel root states **no** minimum height, which is
 `BottomPanelSourceGatingTests`' per-panel rule, pinned by set equality against the
 switch's case labels.
@@ -1000,6 +1559,25 @@ Draft checkbox, and above the buttons the three sentences naming everything
 Create will do. A failure leaves the sheet open with every field intact — the
 reader has just typed a description.
 
+### `PullRequestMergeSheet.swift`
+
+`NewPullRequestSheet`'s shape, and **nothing here decides anything**: the method
+picker (absent when the repository allows exactly one), the pre-filled subject and
+the optional body (both hidden for Rebase, which composes no commit), the three
+stated sentences — what will be merged, the tail or its absence, and GitHub's own
+branch deletion when it is on — and the button's label are
+all `GitHubMergePlan`'s; the button's *enablement* is the plan's own term **and**
+the model's `mergeIsAvailable`, which is this feature's one-write rule and the
+no-second-wait rule the sheet has no business restating. **The button is two buttons**: *Merge* when the plan
+allows it, *Merge when checks pass* when the plan's refusal is `isArmable`, which
+is the plan's `armsWait`; every other refusal disables it under that refusal's own
+sentence. It observes the wait as well as the model, since it is the one place a
+wait is armed and a sheet drawing its button from a wait it never hears from would
+be stale the moment one was. A failure leaves the sheet open with every field
+intact and `gh`'s own words under them (the create sheet's reason); a merge that
+landed closes it, and so does an arming, whose whole point is to stop anybody
+sitting in front of it.
+
 ### `PullRequestIndicatorView.swift`
 
 Beside the branch switcher: `#N` plus the checks state, for the branch checked out
@@ -1007,7 +1585,10 @@ right now. **Absent rather than empty** — nothing is drawn when the branch has
 open pull request, when `gh` is not ready, or on a detached HEAD, all three of
 which are `currentBranchPullRequest == nil`. Clicking opens the panel with that
 row expanded. It reads the same model the panel does: one `gh` answer, two
-surfaces, no second read. Chrome, sized through `\.interfaceMetrics`, declaring no
+surfaces, no second read. Part 2 gave it **no new
+action**: the click already lands on the row where Merge lives, and a second merge
+entry point in the bar would be a control offering a sheet beside a row that
+offers the same one. Chrome, sized through `\.interfaceMetrics`, declaring no
 zoom surface, like every other control in the bar.
 
 ### The two files that were only touched
@@ -1024,12 +1605,16 @@ that the row may not be there, and expanding a number nothing draws would spend 
 
 `PisakaApp.swift` gained one `@StateObject`, one
 `pullRequests.start(…)` block in the existing start-once section, one View-menu
-item, `pullRequests.terminateNow()` in the terminate observer, and
-`runBranchOperation`'s generalisation (G12) — twenty-three lines, which
-moved both measured lint ceilings (`file_length` 1838 → 1859 → 1861,
-`type_body_length` 1822 → 1843 → 1845; the reason is recorded beside the numbers
-in `.swiftlint.yml` and in
-`style-lint.md`). It names no refresh trigger and no `gh` argument.
+item, `pullRequests.terminateNow()` in the terminate observer,
+`runBranchOperation`'s generalisation (G12) and — for the tail — its **optional
+completion**, the parameter plus the two calls to it on the success and failure
+paths (G15). That is the whole of the scene's share in the ninth gated operation:
+the tail's order, its two steps and their events are the coordinator's, and the
+rule behind them is Core's. Those lines moved both measured lint ceilings, in the
+steps `.swiftlint.yml`'s comments and `style-lint.md` record: `file_length`
+1838 → 1859 → 1861 → 1862 → 1882 → **1885**, `type_body_length`
+1822 → 1843 → 1845 → 1846 → 1866 → **1869**. It names no refresh trigger and no
+`gh` argument.
 
 ## Tests
 
@@ -1037,9 +1622,23 @@ Core suites: `GitHubCommandsTests` (every argument list byte for byte, and
 `refreshesExecutableLocation` true for the version probe and false for every
 other factory, by set equality), `GitHubVersionTests`, `GitHubAvailabilityTests`,
 `GitHubAPITests`, `GitHubChecksSummaryTests`, `GitHubCreatePlanTests`,
-`PullRequestModelTests` and `PullRequestCheckoutTests`, plus the new cases in
-`BottomPanelTests`, `LocalHistorySnapshotTests`, `BottomPanelSourceGatingTests`
-and `LintConfigurationTests`.
+`GitHubMergePlanTests` (the enabled rule across every combination of its four
+inputs, each refusal's sentence, `isArmable`/`mayResolveByWaiting` per refusal,
+the method list, default and no-picker rule, and every sentence and button label),
+`PullRequestModelTests`, `PullRequestCheckoutTests`, `PullRequestMergeTests` (the
+argument list actually sent, each refusal, the one-write rule across all three
+writes, the message slot's source rules, and the tail's order, its
+stop-at-first-failure rule and its three switch cases) and
+`PullRequestMergeWaitTests` (the two constants, the sleep as a seam, each of the
+four endings, that no tick composes a `pr checks` command, a poll invalidated
+in flight by a moved token, and the plan-driven table tick by tick), plus the new
+cases in `BottomPanelTests`, `GitErrorTests`, `LocalHistorySnapshotTests`,
+`BottomPanelSourceGatingTests`, `LocalHistorySourceGatingTests` and
+`LintConfigurationTests`.
+
+**No wait test spends wall-clock time.** `now` and `sleep` are seams, so the
+deadline — sixty sleeps deep — is reached by handing the clock a later date, and
+the suite's cost for the whole state machine is the cost of the arithmetic.
 
 `Tests/PisakaCoreTests/Support/ScriptedGitHubCLI.swift` is the seam's fake:
 answers keyed by the argument list, a queue per key with a sticky last step, an
@@ -1056,10 +1655,15 @@ first call alone lets the fresh run finish while the stale one is still on the
 wire, so the stale run publishes **last** and the assertion has something to
 catch.
 
-`Tests/PisakaCoreTests/Fixtures/github/` holds real captures — recorded on
-2026-09-03 with `gh version 2.99.0` against this repository, with provenance in
-its own `README.md` — plus two hand-built ones (the mixed `__typename` rollup and
-an unknown conclusion). They are read through `#filePath` like every other fixture
+`Tests/PisakaCoreTests/Fixtures/github/` holds real captures — recorded with
+`gh version 2.99.0` against this repository, the three files the merge fields grew
+re-recorded verbatim when they did, with provenance in its own `README.md` —
+including the single-object `pr-view.json` the wait's parser reads, of **the same
+pull request** `pr-list-merged.json` holds, so the two together assert that a row
+read by number and a row read out of a list are one value under one set of tables.
+Beside them the hand-built ones: the mixed `__typename` rollup, an unknown
+conclusion, and an unknown `mergeable` / `mergeStateStatus` word each naming the
+key path that carried it. They are read through `#filePath` like every other fixture
 tree and are listed in the test target's `exclude:` in `Package.swift`. **No test
 in this repository ever runs `gh` or reaches the network**; `swift test` stays the
 offline, dependency-free gate it has always been, and the test target cannot link
@@ -1069,13 +1673,22 @@ offline, dependency-free gate it has always been, and the test target cannot lin
 `DatabaseViewerSourceGatingTests` shape, with the full inventory in its doc
 comment. It pins: `Process` for `gh` in exactly one app file and never in Core;
 every app-side file `#if os(macOS)`-gated, by set equality over the feature's file
-list; the iOS layer naming none of it; **no `gh` argument spelled in the app
-layer**; the checkout reaching the bracket through exactly one site and no file
-under the feature naming the gate; the locator's one definition and two callers;
-the refresh triggers living in the coordinator and the panel view only, with the
-scene naming none (it touches the coordinator exactly twice, to wire it and to
-tear it down); and the no-polling ban over the Core files and the three views,
-with `GitHubCLIProcessTransport.swift` as the one stated exception.
+list (the four views now, the merge sheet among them); the iOS layer naming none
+of it; **no `gh` argument spelled in the app layer** — part 2's vocabulary
+(`--merge`, `--squash`, `--rebase`, `--subject`, `--match-head-commit`, and the
+`pr merge` / `pr view` subcommands) banned there and required in
+`GitHubCommands.swift`, whose counts are **ten factories over nine subcommands**;
+the three bracket call sites living in the coordinator alone, with the scene
+handing the bracket over once and no file under the feature naming the gate; the
+locator's one definition and two callers; the refresh triggers living in the
+coordinator and the panel view only, with the scene naming none (it touches the
+coordinator exactly twice, to wire it and to tear it down); and the no-polling ban
+over the Core files and the four views, with **two** stated exceptions —
+`GitHubCLIProcessTransport.swift` (a per-command bound on a child process) and
+`PullRequestMergeWait.swift`, pinned term by term: the two bounds are named
+constants declared once, the sleep is exactly one injectable seam, `Timer` and
+`asyncAfter` stay banned, and `GitHubCommands.checks` may not appear in it at all
+(G14).
 
 It uses **two strippers, deliberately**. Most rules read
 `LSPSourceGatingTests.strippingCommentsAndStringLiterals`, this repository's usual
@@ -1095,8 +1708,24 @@ would fail the moment somebody explained the rule.
 - **`gh` is not shipped, discovered.** No `gh`, a `gh` older than 2.50.0, or one
   not signed in are three states the panel names with the command that fixes each
   — not failures it works around.
-- **No merge, no review.** Part 1 lists, reads checks, creates and checks out.
-  Everything else is a browser away, one explicit gesture from each row.
+- **No review, no approvals, no comments.** The feature lists, reads checks,
+  creates, checks out and merges. Everything else is a browser away, one explicit
+  gesture from each row.
+- **The merge is the ordinary one.** No `--admin` (merging past the repository
+  rules the enabled rule just checked), no `--auto` (GitHub's server-side
+  auto-merge — the armed wait is this app's visible, cancelable answer to the same
+  question, and it stops when the app does), and no branch deletion of any kind:
+  `deleteBranchOnMerge` is read only so the sheet can say what GitHub will do on
+  its own side.
+- **The wait is bounded and local.** 30 minutes at 30-second ticks, in this
+  process: quitting, switching project or arming another wait ends it, and
+  nothing survives the app run. It arms only from "checks are still running" —
+  every other refusal is a state waiting cannot change.
+- **The tail is `--ff-only` and nothing else.** A base branch that cannot
+  fast-forward is reported, never merged or rebased into; a base that is neither
+  a local ref nor a remote one carrying `<base>` in the branch widget's list stops
+  the tail with its own sentence. The merge is still done — the tail moves only what is
+  local.
 - **The list is capped at 50 open pull requests**, and the checks list is
   whatever `pr checks` answers for one pull request. The header says so: at the
   cap it reads `50+ open`, never `50 open`, because `pr list` asked for fifty rows

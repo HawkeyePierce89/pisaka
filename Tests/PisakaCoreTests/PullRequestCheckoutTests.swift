@@ -110,7 +110,8 @@ final class PullRequestCheckoutTests: XCTestCase {
     [{"number":54,"title":"A change","author":{"login":"someone"},
     "headRefName":"feature","baseRefName":"master","isDraft":false,
     "reviewDecision":"","url":"https://github.com/o/r/pull/54",
-    "state":"OPEN","statusCheckRollup":[]}]
+    "state":"OPEN","statusCheckRollup":[],
+    "headRefOid":"abc123","mergeable":"MERGEABLE","mergeStateStatus":"CLEAN"}]
     """
 
     // MARK: - The gate

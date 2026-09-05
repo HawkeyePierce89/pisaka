@@ -118,13 +118,20 @@ line_length:
 # re-read that runs the success tail when `gh pr checkout` failed *after* already
 # switching the worktree (a diverged branch refusing `--ff-only`, or the deadline
 # killing it mid-way), which the two single-`git checkout` callers never needed
-# because theirs fail atomically. The number tracks
+# because theirs fail atomically. And 1885 with the
+# post-merge tail, for three lines that are one fact: the bracket is
+# fire-and-forget, so a caller owed a *second* gated operation after the first
+# has no way to wait for it. One is the optional `completion` parameter and two
+# are the calls on the success and failure paths — which is the whole of the
+# scene's share in the ninth gated operation, the `--ff-only` pull; the tail's
+# order, its two steps and their events are the coordinator's, and the rule
+# behind them is Core's. The number tracks
 # the one file that approaches
 # it — measured, never rounded up for room — and is not a licence to grow the
 # others.
 file_length:
-  warning: 1882
-  error: 1882
+  warning: 1885
+  error: 1885
   ignore_comment_only_lines: true
 
 # Same reasoning as file_length, and one number behind it again: the viewer's
@@ -138,10 +145,13 @@ file_length:
 # struct body too, so this ceiling moves by exactly what `file_length` did — and
 # to 1845 with the review's two, which land inside it as well, to 1846 with
 # the branch-checkout gate's one — inside the struct body like all of them — and
-# to 1866 with the failure path's re-read, whose twenty lines are inside it too.
+# to 1866 with the failure path's re-read, whose twenty lines are inside it too,
+# and to 1869 with the post-merge tail's three: the bracket's completion
+# parameter and the two calls to it, all inside the struct body like every line
+# before them, so this ceiling moves by exactly what `file_length` did again.
 type_body_length:
-  warning: 1866
-  error: 1866
+  warning: 1869
+  error: 1869
 
 function_body_length:
   warning: 140

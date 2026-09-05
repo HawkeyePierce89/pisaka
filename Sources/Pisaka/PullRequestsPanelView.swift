@@ -19,9 +19,18 @@ import PisakaCore
 /// checks summaries, the per-job lists, the one message slot and the write flag
 /// are all `PullRequestModel`'s published state; the argument list of every
 /// command is `GitHubCommands`'. The only decisions here are which of those to
-/// draw and which control to disable, and the disable term is a single one:
-/// `isWriteInFlight`, read by New Pull Request, Checkout and refresh alike,
-/// because the feature performs exactly one write at a time.
+/// draw and which control to disable, and there are exactly **two** disable
+/// terms, both Core's: `isWriteInFlight`, read by New Pull Request, Checkout and
+/// refresh alike because the feature performs exactly one write at a time; and
+/// `mergeIsAvailable`, which is that flag plus "no wait is armed anywhere",
+/// read by every row's Merge button. Neither is re-derived from its parts here.
+///
+/// **The wait is drawn where the reader is looking.** The row a wait is armed on
+/// shows its elapsed time — published by the wait, never timed here — and the one
+/// control that stops it, in place of its Merge button; and how the last wait
+/// ended, when it ended with something to say, is a dismissible strip of its own
+/// above the list, because two of the four endings land in a panel nobody was
+/// watching and must not overwrite the model's one message slot.
 ///
 /// **The panel-shown refresh trigger lives here** (G9), as the one `.onAppear`
 /// below. It is not in the scene and cannot be: the selected bottom panel is
@@ -42,15 +51,37 @@ import PisakaCore
 /// inside it can only overflow (`BottomPanelSourceGatingTests` pins both rules).
 struct PullRequestsPanelView: View {
     @ObservedObject var model: PullRequestModel
+    /// The merge wait, observed beside the model rather than through it.
+    ///
+    /// It is a separate object precisely so this list is what re-renders when a
+    /// wait publishes its elapsed seconds every 30 s — the create sheet standing
+    /// open beside it is not — and a panel that only observed the model would
+    /// draw an armed row's elapsed time once and never again.
+    @ObservedObject var wait: PullRequestMergeWait
     /// Who owns the refresh triggers and the one checkout site. Held as a plain
     /// `let` rather than observed: nothing published on it is drawn here — the
     /// state this panel shows is the model's — and observing it as well would
     /// re-render the list for events that changed none of it.
     let coordinator: PullRequestCoordinator
 
+    init(model: PullRequestModel, coordinator: PullRequestCoordinator) {
+        self._model = ObservedObject(wrappedValue: model)
+        self._wait = ObservedObject(wrappedValue: model.mergeWait)
+        self.coordinator = coordinator
+    }
+
     /// Whether the New Pull Request sheet is up. Local because it is: the sheet
     /// is a presentation of this panel and nothing outside it can raise one.
     @State private var isCreating = false
+
+    /// Which row's Merge sheet is up, if any — local for the same reason.
+    ///
+    /// A number rather than a row: the sheet re-reads the row from the model, so
+    /// carrying one here would be a copy free to go stale behind a refresh.
+    @State private var merging: MergeTarget?
+
+    /// `.sheet(item:)` wants an identity, and the pull request number is one.
+    private struct MergeTarget: Identifiable { let id: Int }
 
     /// The interface zone's metrics, inherited from the window root.
     @Environment(\.interfaceMetrics) private var metrics
@@ -67,6 +98,9 @@ struct PullRequestsPanelView: View {
         .onAppear { coordinator.panelShown() }
         .sheet(isPresented: $isCreating) {
             NewPullRequestSheet(model: model, coordinator: coordinator)
+        }
+        .sheet(item: $merging) { target in
+            PullRequestMergeSheet(model: model, coordinator: coordinator, number: target.id)
         }
     }
 
@@ -133,6 +167,9 @@ struct PullRequestsPanelView: View {
             if let message = model.errorMessage {
                 messageStrip(message)
             }
+            if let ending = wait.ending?.message {
+                endingStrip(ending)
+            }
             if let availability = model.availability, !availability.isReady {
                 notReady(availability)
             } else if model.pullRequests.isEmpty {
@@ -161,6 +198,40 @@ struct PullRequestsPanelView: View {
         .padding(.vertical, metrics.scaled(4))
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color.orange.opacity(0.12))
+    }
+
+    /// How the last armed wait ended, when it ended with something to say.
+    ///
+    /// Its own strip rather than the model's one message slot, because it is not
+    /// a failure of anything the reader just did: two of the four endings land in
+    /// a panel nobody was looking at — a deadline half an hour later, a stop the
+    /// plan named on some tick — and they must not overwrite the sentence a
+    /// refresh or a write left in the slot. It is dismissible for the same
+    /// reason: nothing on the ready path clears a sentence about an event that is
+    /// over, and the only other thing that does is arming the next wait.
+    private func endingStrip(_ message: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: metrics.scaled(6)) {
+            Image(systemName: "clock.badge.exclamationmark")
+                .foregroundStyle(Color.orange)
+            Text(message)
+                .font(metrics.scaledFont(.caption))
+                .textSelection(.enabled)
+                .lineLimit(3)
+            Spacer(minLength: 0)
+            Button {
+                wait.acknowledgeEnding()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(metrics.scaledFont(.caption))
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(Color.secondary)
+            .accessibilityLabel("Dismiss this message")
+        }
+        .padding(.horizontal, metrics.scaled(10))
+        .padding(.vertical, metrics.scaled(4))
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.orange.opacity(0.08))
     }
 
     /// The three states in which there is nothing to list, each with the exact
@@ -228,8 +299,13 @@ struct PullRequestsPanelView: View {
                         checks: model.checks[pullRequest.number],
                         checksFailed: model.checksFailures.contains(pullRequest.number),
                         isWriteInFlight: model.isWriteInFlight,
+                        mergeIsAvailable: model.mergeIsAvailable,
+                        isWaiting: wait.isWaiting(on: pullRequest.number),
+                        waitElapsed: wait.elapsedLabel,
                         onToggle: { Task { await model.toggleExpansion(pullRequest.number) } },
-                        onCheckout: { coordinator.checkout(pullRequest.number) }
+                        onCheckout: { coordinator.checkout(pullRequest.number) },
+                        onMerge: { merging = MergeTarget(id: pullRequest.number) },
+                        onCancelWait: { wait.cancel() }
                     )
                 }
             }
@@ -266,8 +342,21 @@ private struct PullRequestRow: View {
     /// leave the row spinning for as long as it stays open.
     let checksFailed: Bool
     let isWriteInFlight: Bool
+    /// Whether Merge may be offered on this row at all — `PullRequestModel`'s one
+    /// term, which is this feature's one-write rule plus "no wait is armed
+    /// anywhere". Not re-derived here: a row that decided its own disable rule
+    /// would be free to offer a second merge under a wait about to need the flag.
+    let mergeIsAvailable: Bool
+    /// Whether *this* row is the one a wait is armed on, in which case it shows
+    /// the wait instead of a Merge button.
+    let isWaiting: Bool
+    /// How long that wait has been running, as the wait itself prints it. No
+    /// clock runs here; this is a projection of published state.
+    let waitElapsed: String
     let onToggle: () -> Void
     let onCheckout: () -> Void
+    let onMerge: () -> Void
+    let onCancelWait: () -> Void
 
     @State private var isHovering = false
 
@@ -335,6 +424,8 @@ private struct PullRequestRow: View {
                 .disabled(isWriteInFlight)
                 .help("Check this pull request's branch out into the working tree")
 
+            mergeControl
+
             Button {
                 openInBrowser(pullRequest.url)
             } label: {
@@ -351,6 +442,43 @@ private struct PullRequestRow: View {
         .contentShape(Rectangle())
         .onTapGesture(perform: onToggle)
         .onHover { isHovering = $0 }
+    }
+
+    /// The row's second action: Merge, or — while a wait is armed on this row —
+    /// what that wait is doing and the one control that stops it.
+    ///
+    /// The two are exclusive by construction rather than by a disable: a row
+    /// being waited on has already said what it will merge and when, and a Merge
+    /// button beside that sentence would offer to do it twice.
+    @ViewBuilder
+    private var mergeControl: some View {
+        if isWaiting {
+            HStack(spacing: metrics.scaled(4)) {
+                ProgressView().controlSize(.small)
+                Text(waitElapsed)
+                    .font(metrics.scaledFont(.caption))
+                    .monospacedDigit()
+                    .foregroundStyle(Color.secondary)
+                    .help("Waiting for this pull request's checks to pass")
+                Button("Cancel", action: onCancelWait)
+                    .font(metrics.scaledFont(.caption))
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Color.accentColor)
+                    // Not "nothing will be merged": `PullRequestMergeWait`
+                    // publishes the merged ending past a moved token on purpose,
+                    // because a Cancel pressed while `gh pr merge` is already in
+                    // flight cannot un-send it — and that merge still owes its
+                    // post-merge tail. The sentence says what the press does.
+                    .help("Stop waiting. A merge already sent will still finish.")
+            }
+        } else {
+            Button("Merge", action: onMerge)
+                .font(metrics.scaledFont(.caption))
+                .buttonStyle(.plain)
+                .foregroundStyle(Color.accentColor)
+                .disabled(!mergeIsAvailable)
+                .help("Merge this pull request on GitHub")
+        }
     }
 
     private var branchLabel: String {

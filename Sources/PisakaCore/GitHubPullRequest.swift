@@ -129,6 +129,88 @@ public enum GitHubReviewDecision: String, CaseIterable, Sendable {
     case reviewRequired = "REVIEW_REQUIRED"
 }
 
+// MARK: - The three merge tables
+
+/// A pull request's `mergeable`: GitHub's verdict on whether the merge would
+/// apply at all.
+///
+/// Three values and no more, and the third is a *state*, not a shrug: GitHub
+/// computes mergeability lazily, so `UNKNOWN` means the answer is being worked
+/// out and a later read will have it. That is why it is one of the two refusals
+/// a wait may sit on rather than one it stops at.
+public enum GitHubMergeability: String, CaseIterable, Sendable {
+    case mergeable = "MERGEABLE"
+    case conflicting = "CONFLICTING"
+    case unknown = "UNKNOWN"
+}
+
+/// A pull request's `mergeStateStatus`: *why* GitHub would or would not take the
+/// merge right now.
+///
+/// The second half of the pair, and the one that carries the repository's rules.
+/// `mergeable` answers "would the diff apply"; this answers "will GitHub let you",
+/// which is a different question — a pull request with no conflicts at all is
+/// `BLOCKED` while a required review is missing and `BEHIND` when the base has
+/// moved under a strict-status rule.
+///
+/// `HAS_HOOKS` and `UNSTABLE` are green here on purpose. `HAS_HOOKS` is a clean
+/// state in a repository with pre-receive hooks — GitHub says so — and `UNSTABLE`
+/// means non-required checks are failing or still running, which the checks
+/// summary is separately, and more precisely, consulted about. Both are allowed
+/// by ``GitHubMergePlan`` only *together with* a summary that is green.
+///
+/// **Eight values: every member GitHub's `MergeStateStatus` declares**, `DRAFT`
+/// included. That value is *deprecated* — in favour of `isDraft`, with a removal
+/// date long past — but deprecated is not removed, and the table is closed: a
+/// value it does not know throws, and this field travels on **every** row of
+/// `pr list`, so one draft pull request answering the word GitHub still declares
+/// would take the whole list down — no rows, no indicator, no Checkout, no
+/// Create — over a field that only gates one button. Carrying the declared
+/// member costs a line; omitting it bets the panel on a deprecation notice.
+///
+/// It changes no decision: ``GitHubMergePlan`` decides a draft from `isDraft`
+/// first, and this value reaches the same refusal rather than a second sentence.
+public enum GitHubMergeStateStatus: String, CaseIterable, Sendable {
+    /// The merge commit cannot be cleanly created.
+    case dirty = "DIRTY"
+    /// The state cannot be checked yet — the mergeability computation is still
+    /// running. The other of the two states a later read can leave.
+    case unknown = "UNKNOWN"
+    /// Merging is blocked by the repository's own rules.
+    case blocked = "BLOCKED"
+    /// The head ref is out of date with the base under a strict-status rule.
+    case behind = "BEHIND"
+    /// Mergeable with non-passing (but not required) checks.
+    case unstable = "UNSTABLE"
+    /// Mergeable, and the repository has pre-receive hooks.
+    case hasHooks = "HAS_HOOKS"
+    /// Merging is blocked because the pull request is a draft — GitHub's
+    /// deprecated spelling of what `isDraft` says in the field made for it.
+    case draft = "DRAFT"
+    /// Mergeable, with passing checks and no rule standing in the way.
+    case clean = "CLEAN"
+}
+
+/// The three ways GitHub can merge a pull request.
+///
+/// Also what `repo view`'s `viewerDefaultMergeMethod` answers with, which is why
+/// this table is read from two commands rather than composed from a picker's
+/// index. The **flag** each maps to is deliberately *not* here: it is spelled in
+/// `GitHubCommands`, the one file that spells a `gh` argument.
+public enum GitHubMergeMethod: String, CaseIterable, Sendable {
+    case merge = "MERGE"
+    case squash = "SQUASH"
+    case rebase = "REBASE"
+
+    /// Whether GitHub composes a commit for this method — and therefore whether a
+    /// subject and a body are values it has anywhere to put.
+    ///
+    /// A rebase replays the pull request's own commits onto the base and writes
+    /// nothing of its own, so the merge sheet hides both fields for it and the
+    /// command sends neither.
+    public var composesACommit: Bool { self != .rebase }
+}
+
 // MARK: - The rollup
 
 /// One entry of a pull request's `statusCheckRollup`, kept in the shape its
@@ -218,9 +300,34 @@ public struct GitHubPullRequest: Equatable, Sendable, Identifiable {
     /// list this app runs already carries `--state open`, so the value is a
     /// constant in practice and a sixth closed vocabulary would be five cases of
     /// ceremony guarding a filter that is on the command line.
+    ///
+    /// It is read exactly once, against ``openState``: `pr view <n>` — the merge
+    /// wait's one read — is addressed by number rather than filtered by state, so
+    /// it is the one command in this feature that can answer for a pull request
+    /// somebody else has just merged or closed.
     public let state: String
+
+    /// The one value of ``state`` this app ever compares against.
+    ///
+    /// A constant rather than a table, for the field's own reason: two callers
+    /// spelling `"OPEN"` by hand is the accident a table would be over-built to
+    /// prevent, and one of them is a wait whose ending depends on it.
+    public static let openState = "OPEN"
     /// The rollup, collapsed by ``GitHubChecksSummary/summarise(_:)``.
     public let summary: GitHubChecksSummary
+    /// The head branch's commit SHA **as this row was read**.
+    ///
+    /// Carried on every row rather than fetched for the row being merged, because
+    /// it is the guard on the merge: every `gh pr merge` this app runs passes it
+    /// as `--match-head-commit`, so a push that lands between the read the button
+    /// was drawn from and the merge itself is refused by GitHub rather than
+    /// merged. A wait re-reading the row every tick therefore merges against the
+    /// head *that tick* saw, with no head-tracking rule of its own.
+    public let headRefOid: String
+    /// GitHub's verdict on whether the merge would apply.
+    public let mergeable: GitHubMergeability
+    /// GitHub's answer to why it would or would not take the merge now.
+    public let mergeStateStatus: GitHubMergeStateStatus
 
     public var id: Int { number }
 
@@ -234,7 +341,10 @@ public struct GitHubPullRequest: Equatable, Sendable, Identifiable {
         reviewDecision: GitHubReviewDecision,
         url: String,
         state: String,
-        summary: GitHubChecksSummary
+        summary: GitHubChecksSummary,
+        headRefOid: String,
+        mergeable: GitHubMergeability,
+        mergeStateStatus: GitHubMergeStateStatus
     ) {
         self.number = number
         self.title = title
@@ -246,6 +356,9 @@ public struct GitHubPullRequest: Equatable, Sendable, Identifiable {
         self.url = url
         self.state = state
         self.summary = summary
+        self.headRefOid = headRefOid
+        self.mergeable = mergeable
+        self.mergeStateStatus = mergeStateStatus
     }
 }
 
@@ -306,9 +419,43 @@ public struct GitHubRepository: Equatable, Sendable {
     public let nameWithOwner: String
     /// The default branch's name (`master`).
     public let defaultBranch: String
+    /// Whether the repository allows an ordinary merge commit.
+    public let mergeCommitAllowed: Bool
+    /// Whether the repository allows squash-merging.
+    public let squashMergeAllowed: Bool
+    /// Whether the repository allows rebase-merging.
+    public let rebaseMergeAllowed: Bool
+    /// The method GitHub would start this viewer on, whatever the three flags
+    /// above say.
+    ///
+    /// Read rather than guessed: a repository can allow all three and still have
+    /// a preferred one, and the merge sheet opening on something other than what
+    /// GitHub itself would have chosen is a surprise nobody asked for. It is
+    /// nonetheless *checked* against the allowed set — GitHub has been known to
+    /// answer with a method the repository has since disallowed — which is
+    /// ``GitHubMergePlan``'s job, not this value's.
+    public let viewerDefaultMergeMethod: GitHubMergeMethod
+    /// Whether GitHub deletes the head branch by itself once the merge lands.
+    ///
+    /// Read only so the merge sheet can *say* so. Nothing here passes
+    /// `--delete-branch`: this layer deletes no branch, local or remote.
+    public let deleteBranchOnMerge: Bool
 
-    public init(nameWithOwner: String, defaultBranch: String) {
+    public init(
+        nameWithOwner: String,
+        defaultBranch: String,
+        mergeCommitAllowed: Bool,
+        squashMergeAllowed: Bool,
+        rebaseMergeAllowed: Bool,
+        viewerDefaultMergeMethod: GitHubMergeMethod,
+        deleteBranchOnMerge: Bool
+    ) {
         self.nameWithOwner = nameWithOwner
         self.defaultBranch = defaultBranch
+        self.mergeCommitAllowed = mergeCommitAllowed
+        self.squashMergeAllowed = squashMergeAllowed
+        self.rebaseMergeAllowed = rebaseMergeAllowed
+        self.viewerDefaultMergeMethod = viewerDefaultMergeMethod
+        self.deleteBranchOnMerge = deleteBranchOnMerge
     }
 }

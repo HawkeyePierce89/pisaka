@@ -7,54 +7,57 @@
       "name": "Anton Karmanov"
     },
     "baseRefName": "master",
-    "headRefName": "database-viewer-part-2b-sql-console",
+    "headRefName": "github-pull-requests-part-1-gh-cli-macos",
+    "headRefOid": "999005649c31b9c493e8cefac074297a7d304b49",
     "isDraft": false,
-    "number": 53,
+    "mergeStateStatus": "UNKNOWN",
+    "mergeable": "UNKNOWN",
+    "number": 54,
     "reviewDecision": "",
     "state": "MERGED",
     "statusCheckRollup": [
       {
         "__typename": "CheckRun",
-        "completedAt": "2026-09-02T19:19:34Z",
+        "completedAt": "2026-09-04T00:21:21Z",
         "conclusion": "SUCCESS",
-        "detailsUrl": "https://github.com/HawkeyePierce89/pisaka/actions/runs/33672316821/job/100388651757",
+        "detailsUrl": "https://github.com/HawkeyePierce89/pisaka/actions/runs/33821283264/job/100864301565",
         "name": "test",
-        "startedAt": "2026-09-02T19:16:36Z",
+        "startedAt": "2026-09-04T00:18:58Z",
         "status": "COMPLETED",
         "workflowName": "CI"
       },
       {
         "__typename": "CheckRun",
-        "completedAt": "2026-09-02T19:16:51Z",
+        "completedAt": "2026-09-04T00:19:18Z",
         "conclusion": "SUCCESS",
-        "detailsUrl": "https://github.com/HawkeyePierce89/pisaka/actions/runs/33672316821/job/100388651355",
+        "detailsUrl": "https://github.com/HawkeyePierce89/pisaka/actions/runs/33821283264/job/100864301367",
         "name": "lint",
-        "startedAt": "2026-09-02T19:16:37Z",
+        "startedAt": "2026-09-04T00:19:03Z",
         "status": "COMPLETED",
         "workflowName": "CI"
       },
       {
         "__typename": "CheckRun",
-        "completedAt": "2026-09-02T19:24:51Z",
+        "completedAt": "2026-09-04T00:26:01Z",
         "conclusion": "SUCCESS",
-        "detailsUrl": "https://github.com/HawkeyePierce89/pisaka/actions/runs/33672316821/job/100389653079",
+        "detailsUrl": "https://github.com/HawkeyePierce89/pisaka/actions/runs/33821283264/job/100864803249",
         "name": "build-macos",
-        "startedAt": "2026-09-02T19:19:39Z",
+        "startedAt": "2026-09-04T00:21:29Z",
         "status": "COMPLETED",
         "workflowName": "CI"
       },
       {
         "__typename": "CheckRun",
-        "completedAt": "2026-09-02T19:23:07Z",
+        "completedAt": "2026-09-04T00:24:23Z",
         "conclusion": "SUCCESS",
-        "detailsUrl": "https://github.com/HawkeyePierce89/pisaka/actions/runs/33672316821/job/100389653350",
+        "detailsUrl": "https://github.com/HawkeyePierce89/pisaka/actions/runs/33821283264/job/100864803234",
         "name": "build-ios",
-        "startedAt": "2026-09-02T19:19:38Z",
+        "startedAt": "2026-09-04T00:21:24Z",
         "status": "COMPLETED",
         "workflowName": "CI"
       }
     ],
-    "title": "Database viewer part 2b: SQL console (macOS)",
-    "url": "https://github.com/HawkeyePierce89/pisaka/pull/53"
+    "title": "GitHub pull requests part 1: gh CLI panel, create, checkout, indicator (macOS)",
+    "url": "https://github.com/HawkeyePierce89/pisaka/pull/54"
   }
 ]

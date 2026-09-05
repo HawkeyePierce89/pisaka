@@ -7,19 +7,19 @@
       "name": "The Octocat"
     },
     "baseRefName": "main",
-    "headRefName": "feature/unknown-conclusion",
+    "headRefName": "feature/unknown-mergeable",
     "headRefOid": "0a1b2c3d4e5f60718293a4b5c6d7e8f901234567",
     "isDraft": false,
     "mergeStateStatus": "CLEAN",
-    "mergeable": "MERGEABLE",
-    "number": 8,
+    "mergeable": "PERHAPS",
+    "number": 9,
     "reviewDecision": "",
     "state": "OPEN",
     "statusCheckRollup": [
       {
         "__typename": "CheckRun",
         "completedAt": "2026-09-02T19:19:34Z",
-        "conclusion": "TELEPORTED",
+        "conclusion": "SUCCESS",
         "detailsUrl": "https://github.com/octocat/example/actions/runs/1/job/1",
         "name": "test",
         "startedAt": "2026-09-02T19:16:36Z",
@@ -27,7 +27,7 @@
         "workflowName": "CI"
       }
     ],
-    "title": "A conclusion no table knows",
-    "url": "https://github.com/octocat/example/pull/8"
+    "title": "A mergeability no table knows",
+    "url": "https://github.com/octocat/example/pull/9"
   }
 ]

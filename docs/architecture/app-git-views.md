@@ -302,9 +302,19 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `GitFileMode.parse`/`.reconciled`, so an exec bit is inherited while a
     symlink↔regular typechange is not. `push(_:root:)` executes a `PushPlan` (`git
     push`, or `push --set-upstream <remote> <branch>`), a non-zero exit throwing
-    `GitError.pushFailed`. **`GIT_TERMINAL_PROMPT=0`** is passed by the two
+    `GitError.pushFailed`. `pull(root:)` — the post-merge tail's second step, the
+    app's **ninth** gated operation (`core-github.md`) — runs exactly
+    `["pull", "--ff-only"]`: no remote, no refspec, and above all no rebase or
+    merge fallback, because it runs inside the writer bracket on a branch the
+    reader has not looked at yet and immediately after a branch switch they did
+    not ask for by hand; a non-zero exit throws `GitError.pullFailed(reason:)`
+    carrying git's trimmed stderr, which is what the tail's step reports. The flag
+    is pinned statically by `GitHubSourceGatingTests`, since nothing in
+    `swift test` compiles this file. **`GIT_TERMINAL_PROMPT=0`** is passed by the
+    three
     calls that can be prompted at — push, because it is the one command that
-    routinely needs authentication, and `commit`, alongside its `GIT_INDEX_FILE`,
+    routinely needs authentication, `pull`, the other one here that reaches the
+    network, and `commit`, alongside its `GIT_INDEX_FILE`,
     because it executes the repository's own `pre-commit`/`commit-msg` hooks and
     signs when `commit.gpgsign` is on. Without it, anything that decides to prompt
     blocks on a question nothing can answer, and since every call shares the serial

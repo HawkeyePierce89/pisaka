@@ -19,9 +19,9 @@ import PisakaCore
 /// synchronously, snapshots the open tabs, captures Local History as its first
 /// `await` and resyncs the tabs afterwards. None of that is expressible in Core,
 /// and none of it may be re-implemented here: the scene hands over its own
-/// bracket (`PisakaApp.runBranchOperation(_:_:)`) as `runCheckout`, this file
-/// passes it straight into the model, and `GitHubSourceGatingTests` pins that it
-/// is the only route.
+/// bracket (`PisakaApp.runBranchOperation(_:_:_:)`) as `runBracket`, once, this
+/// file names the event at each of its three call sites, and
+/// `GitHubSourceGatingTests` pins that they are the only route.
 ///
 /// **The gate is asked, never taken.** The feature is a reader in every other
 /// respect — listing pull requests and reading checks neither suspends the disk
@@ -35,8 +35,31 @@ import PisakaCore
 /// held here: a refresh needs to know which branch to ask about, and after a
 /// checkout the branch has changed behind the widget's back — nothing else in
 /// the app would tell it.
+///
+/// **And it owns the post-merge tail's order.** A merge whose head is the
+/// checked-out branch owes two more gated operations — a switch to the base and
+/// a `--ff-only` pull, the app's **ninth** — and this file is where the bracket
+/// is named for all three: `.pullRequest` for the checkout, `.branch` for the
+/// tail's switch, `.pull` for the tail's pull. Which steps there are, in which
+/// order, and what stops them is `PullRequestModel.runMergeTail(…)`'s, so the
+/// rule is testable without a window; what each step *does* — the widget's two
+/// checkouts, `GitServicing.pull` — is this file's, because those are the app's
+/// own objects.
 @MainActor
 final class PullRequestCoordinator: ObservableObject {
+
+    /// The scene's writer bracket, as this file uses it: an event to label
+    /// Local History's pre-operation capture with, the operation, and a
+    /// completion called on both paths.
+    ///
+    /// The completion is not decoration: `PisakaApp.runBranchOperation` is
+    /// fire-and-forget, and the tail's pull must not start until the tail's
+    /// switch has finished and been judged.
+    typealias BracketRunner = @MainActor (
+        LocalHistoryEvent,
+        @escaping @MainActor () async -> String?,
+        @escaping @MainActor (String?) -> Void
+    ) -> Void
 
     /// The one model, built once and observed by all three surfaces.
     ///
@@ -67,8 +90,11 @@ final class PullRequestCoordinator: ObservableObject {
     /// The scene's writer bracket. The default runs nothing at all rather than
     /// running a checkout ungated: a coordinator the scene has not wired is a
     /// preview or a test, and an unbracketed worktree rewrite is the one thing
-    /// this file exists to prevent.
-    private var runBracket: (@escaping @MainActor () async -> String?) -> Void = { _ in }
+    /// this file exists to prevent. It answers its completion all the same, with
+    /// the empty string — a failure whose sentence is nowhere, which is the only
+    /// honest thing to say about an operation that never ran — so a tail handed
+    /// to an unwired coordinator stops at its first step instead of pulling.
+    private var runBracket: BracketRunner = { _, _, completion in completion("") }
 
     /// Whether the reader wants a checkout to go ahead over an uncommitted
     /// working tree — the same warning `switchBranch` and `checkoutRemote` ask,
@@ -147,17 +173,23 @@ final class PullRequestCoordinator: ObservableObject {
         root: @escaping @MainActor () -> URL?,
         branchSwitcher: BranchSwitcherModel,
         isWriteBlocked: @escaping @MainActor () -> Bool,
-        runCheckout: @escaping (@escaping @MainActor () async -> String?) -> Void,
+        runBracket: @escaping BracketRunner,
         confirmCheckout: @escaping @MainActor () -> Bool,
         didWrite: @escaping @MainActor () -> Void
     ) {
         self.projectRoot = root
         self.branchSwitcher = branchSwitcher
         self.isWriteBlocked = isWriteBlocked
-        self.runBracket = runCheckout
+        self.runBracket = runBracket
         self.confirmCheckout = confirmCheckout
         self.didWrite = didWrite
         self.isWired = true
+
+        // The merge a wait runs is the one merge nobody is standing in front of,
+        // so its outcome has nowhere to be returned to. The tail is owed for it
+        // exactly as it is for a merge run from the sheet — same decision, same
+        // two bracketed steps — so both arrive here through one method.
+        model.mergeWait.didMerge = { [weak self] outcome in self?.runTail(outcome) }
 
         // The branch-change trigger. `@Published` fires *before* the property is
         // written, so the branch this feature must ask about is the one the
@@ -199,10 +231,22 @@ final class PullRequestCoordinator: ObservableObject {
         // project whose branch never resolves (it, too, is detached) is read
         // when the panel is next shown or its refresh button pressed — with
         // nothing false on screen in the meantime.
+        //
+        // It is also where an armed merge wait is **cancelled**, and the reason
+        // is sharper than the clear's: a wait polls one pull request by number
+        // in whatever root is current when its tick composes the command, and
+        // half an hour of that under a repository nobody opened would end by
+        // merging project A's pull request from inside project B — then switching
+        // *B's* worktree to A's base branch. Cancelling is one of the wait's four
+        // endings and needs no second path: `cancel()` is idempotent and silent
+        // when nothing is armed.
         rootObserver = branchSwitcher.$root
             .removeDuplicates()
             .dropFirst()
-            .sink { [weak self] _ in self?.model.prepareForRefresh() }
+            .sink { [weak self] _ in
+                self?.model.mergeWait.cancel()
+                self?.model.prepareForRefresh()
+            }
     }
 
     /// Re-read availability, the list and the current branch's pull request.
@@ -328,6 +372,12 @@ final class PullRequestCoordinator: ObservableObject {
     /// is exactly the child slow enough to outlive a quit. Permanent as well as
     /// immediate, so nothing started after the observer can leave a second one.
     func terminateNow() {
+        // The armed wait first, and for a reason the transport cannot cover: it
+        // is not a `gh` in flight but a *sleep* between two of them, and a tick
+        // waking after the observer would compose a `pr merge` — and then a
+        // branch switch and a pull — against a project the app has stopped
+        // having open. One of the four endings, again.
+        model.mergeWait.cancel()
         (transport as? GitHubCLIProcessTransport)?.terminateNow()
     }
 
@@ -337,7 +387,9 @@ final class PullRequestCoordinator: ObservableObject {
     /// out; this is where the operation is put inside the bracket, and the only
     /// place in the app that happens.
     private func runCheckout(_ operation: @escaping @MainActor () async -> String?) {
-        runBracket { [weak self] in
+        // The first of this file's three bracket call sites, and the only one
+        // that labels its capture `.pullRequest`.
+        runBracket(.pullRequest, { [weak self] in
             let failure = await operation()
             // Only a checkout that *succeeded* is re-read here. A failed one is
             // not automatically a checkout that moved nothing — `gh pr checkout`
@@ -363,6 +415,103 @@ final class PullRequestCoordinator: ObservableObject {
                 self?.didWrite()
             }
             return failure
+        }, { _ in })
+    }
+
+    // MARK: - The merge, and the tail it owes
+
+    /// Merge pull request `number`, then run whatever tail it leaves behind.
+    ///
+    /// The sheet's Merge button, and the one place a merge run from a surface
+    /// reaches the tail. Every refusal is the model's — the one-write rule, the
+    /// gate, the plan re-decided from the row in hand — and each leaves its own
+    /// sentence in the panel's slot, which is why nothing is asked here first:
+    /// unlike the checkout, a merge puts no modal in front of anybody and has no
+    /// answer only the scene can give.
+    ///
+    /// Answers whether the merge landed, which is the one thing the sheet needs
+    /// back: a merge that failed leaves the sheet standing open over the fields
+    /// the reader filled in, with the refusal's own sentence under them, exactly
+    /// as `create` does.
+    @discardableResult
+    func merge(
+        number: Int,
+        method: GitHubMergeMethod,
+        subject: String,
+        body: String
+    ) async -> Bool {
+        let outcome = await model.merge(number: number, method: method, subject: subject, body: body)
+        guard let outcome else { return false }
+        runTail(outcome)
+        return true
+    }
+
+    /// The post-merge tail: switch to the base branch, then pull it — the app's
+    /// **ninth** gated operation riding the same bracket the other eight do.
+    ///
+    /// The decision, the order and the stop-at-first-failure rule are
+    /// `PullRequestModel.runMergeTail(…)`'s, which is why they are asserted in
+    /// `swift test` rather than described here. What this method supplies is the
+    /// three things Core cannot have: the branch widget's list, the dirty-tree
+    /// confirmation (a modal), and a runner that puts each step inside the
+    /// scene's bracket under the event that step deserves.
+    private func runTail(_ outcome: PullRequestModel.MergeOutcome) {
+        let branches = branchSwitcher?.branches ?? []
+        model.runMergeTail(
+            outcome,
+            branches: branches,
+            confirm: { [weak self] in self?.confirmCheckout() ?? false },
+            run: { [weak self] step, completion in self?.runTailStep(step, completion) ?? completion("") }
+        )
+    }
+
+    /// The tail's two bracket call sites — the second and third in this file.
+    ///
+    /// The refresh generation is pinned **synchronously**, in this turn, before
+    /// the bracket's own `Task` hop, which is `switchBranch`'s rule and its
+    /// reason: a folder switch landing in the gap makes the widget's checkout
+    /// bail rather than move the newly opened repository's worktree.
+    ///
+    /// Each step answers the bracket's own vocabulary: `nil` for success, and a
+    /// message for a failure — the widget's `errorMessage` for the switch, git's
+    /// own words for the pull. Neither is published into the pull request
+    /// panel's slot: the merge landed, and this model's one sentence must not
+    /// start saying otherwise.
+    private func runTailStep(
+        _ step: PullRequestModel.MergeTailStep,
+        _ completion: @escaping @MainActor (String?) -> Void
+    ) {
+        guard let branchSwitcher, let root = projectRoot() else { return completion("") }
+        let origin = branchSwitcher.currentRefreshGeneration
+        switch step {
+        case .switchToBase(let ref):
+            runBracket(.branch, {
+                let moved = ref.isRemote
+                    ? await branchSwitcher.checkoutRemote(ref, originGeneration: origin)
+                    : await branchSwitcher.switchTo(ref, originGeneration: origin)
+                guard !moved else { return nil }
+                // **A bail is not a failure with a sentence.** Both entry points
+                // answer `false` *without touching* `errorMessage` when the
+                // pinned generation moved under them or the widget has no root
+                // — their documented contract, and the whole point of pinning —
+                // so reading the slot on those paths would hand the bracket
+                // whatever older operation last failed and present it, in a
+                // modal, as this switch's reason. Only a step that actually ran
+                // git speaks; a superseded one is silent, and `""` is the
+                // bracket's own word for "there is nothing to say here".
+                let superseded = branchSwitcher.currentRefreshGeneration != origin
+                    || branchSwitcher.root == nil
+                return superseded ? "" : (branchSwitcher.errorMessage ?? "")
+            }, completion)
+        case .pullBase:
+            runBracket(.pull, { [gitService] in
+                do {
+                    try await gitService.pull(root: root)
+                    return nil
+                } catch {
+                    return error.localizedDescription
+                }
+            }, completion)
         }
     }
 }

@@ -64,6 +64,17 @@ public enum LocalHistoryEvent: String, CaseIterable, Equatable, Sendable {
     /// among the day's own switches.
     case pullRequest = "pullrequest"
 
+    /// Before a `pull --ff-only` fast-forwarded the checked-out branch — the
+    /// post-merge tail's second step.
+    ///
+    /// Its own event rather than `branch`, for the same reason `pullRequest` is:
+    /// a pull is not a branch change, and a file it overwrites was overwritten by
+    /// *the remote's* work, not by anything done on this machine. "What did this
+    /// file look like before I took everyone else's changes?" is the question
+    /// asked afterwards, and a row labelled "Before Branch Change" would answer a
+    /// different one.
+    case pull
+
     /// The on-disk token. Lowercase ASCII with no `-`, because `-` is the file
     /// name's field separator.
     public var tag: String { rawValue }
@@ -87,6 +98,7 @@ public enum LocalHistoryEvent: String, CaseIterable, Equatable, Sendable {
         case .restore: return "Before Restore"
         case .rename: return "Before Rename"
         case .pullRequest: return "Before Pull Request Checkout"
+        case .pull: return "Before Pull"
         }
     }
 }

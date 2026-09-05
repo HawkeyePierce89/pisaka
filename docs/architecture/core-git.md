@@ -7,7 +7,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `gitUnavailable`, `notARepository(stderr:)`, `revertFailed(reason:)`,
     `checkoutFailed(reason:)` (a refused branch checkout — carries the exact git
     message naming the conflicting files), `fetchFailed(reason:)` (a failed
-    `fetch`), `credentialsRequired(host:)` (the branch-switcher's iOS HTTPS
+    `fetch`), `pullFailed(reason:)` (a refused `pull --ff-only` — a base branch
+    that has diverged from its upstream, whose divergence git's own words name), `credentialsRequired(host:)` (the branch-switcher's iOS HTTPS
     path — no PAT stored for `host`), and the commit dialog's pair
     `commitFailed(reason:)` / `pushFailed(reason:)`. Those two are deliberately
     **not** one case: `reason` carries git's stderr verbatim (for the commonest
@@ -18,7 +19,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     create a second one. Its
     `errorDescription` switch carries the human text (the `notARepository` empty-
     stderr fallback to "This folder is not a git repository.", the trimmed stderr
-    otherwise, the `revertFailed`/`checkoutFailed`/`fetchFailed`/`commitFailed`/
+    otherwise, the `revertFailed`/`checkoutFailed`/`fetchFailed`/`pullFailed`/`commitFailed`/
     `pushFailed` reason, and
     `credentialsRequired` → "Add a Personal Access Token for <host> in Settings").
     Lives in Core (not the
@@ -121,6 +122,21 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `GIT_INDEX_FILE` and runs a **real `git commit`** against it (see
     `GitCLIService`), and `push(_:root:)` executes a `PushPlan`. The last two are
     defaulted to `throw GitError.gitUnavailable`.
+    One more mutating method backs the Pull Requests feature's post-merge tail,
+    defaulted the same way: `pull(root:)`, whose whole contract is
+    **`git pull --ff-only` and nothing else**. The `--ff-only` is not a default it
+    could be talked out of — its one caller has just switched to the base branch
+    of a pull request GitHub merged, so the only honest outcome is "advance to
+    what the remote already has", and a merge commit, a rebase or a conflicted
+    worktree would be that feature writing history nobody asked for, inside a
+    writer bracket, on a branch the user has not looked at yet. It names **no
+    remote and no refspec**: the checked-out branch's upstream is git's own
+    answer, and naming one here would let the call pull a branch the tail never
+    switched to. A non-zero exit throws `GitError.pullFailed(reason:)` with git's
+    trimmed stderr; `GitCLIService` runs it on the same serial queue under
+    `GIT_TERMINAL_PROMPT=0` as every other command, and **iOS is left at the
+    protocol default** — the tail is macOS only, and libgit2 gains nothing from a
+    fast-forward it has no caller for (`core-github.md`).
   - `ChangedFile.swift` — `FileStatus` (`modified, added, deleted, renamed,
     untracked, conflicted` — a color-free semantic enum like `FileIconColor`;
     `.conflicted` is a file left in a merge-conflict state, surfaced with a purple
