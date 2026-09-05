@@ -407,23 +407,23 @@ severity on a folded header line. macOS only; iOS untouched.
 
 ### Task 8: Verify acceptance criteria
 
-- [ ] `swift test` — green.
-- [ ] `swiftlint --strict` from the repository root — clean. Any measured ceiling
-      that moved does so **by the measured amount**, with its reason written into
-      `.swiftlint.yml` beside the others, per `style-lint.md`.
-- [ ] `xcodegen generate` — clean.
-- [ ] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination
-      'platform=macOS' build` — green.
-- [ ] `xcodebuild test -project Pisaka.xcodeproj -scheme Pisaka -destination
-      'platform=macOS'` — the whole new bundle green.
-- [ ] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination
-      'platform=iOS Simulator,name=iPhone 17 Pro' build` — green (iOS untouched;
-      this is the proof, and it also proves the macOS-only test target does not
-      reach the iOS build).
-- [ ] Run the seeded smoke-launch body locally against the built product: it
-      survives the deadline and leaves no crash report.
-- [ ] Confirm the Notes section at the bottom of this plan carries both recorded
-      runs — the pre-fix trap and the pre-fix seeded-launch crash report.
+- [x] `swift test` — green.
+- [x] `swiftlint --strict` from the repository root — clean. Any measured ceiling
+       that moved does so **by the measured amount**, with its reason written into
+       `.swiftlint.yml` beside the others, per `style-lint.md`.
+- [x] `xcodegen generate` — clean.
+- [x] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination
+       'platform=macOS' build` — green.
+- [x] `xcodebuild test -project Pisaka.xcodeproj -scheme Pisaka -destination
+       'platform=macOS'` — the whole new bundle green.
+- [x] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination
+       'platform=iOS Simulator,name=iPhone 17 Pro' build` — green (iOS untouched;
+       this is the proof, and it also proves the macOS-only test target does not
+       reach the iOS build).
+- [x] Run the seeded smoke-launch body locally against the built product: it
+       survives the deadline and leaves no crash report.
+- [x] Confirm the Notes section at the bottom of this plan carries both recorded
+       runs — the pre-fix trap and the pre-fix seeded-launch crash report.
 
 ## Post-Completion: the mandatory manual DEBUG pass part 1 owes
 
