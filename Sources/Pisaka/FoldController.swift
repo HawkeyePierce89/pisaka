@@ -35,7 +35,9 @@ import PisakaCore
 /// **A reader.** It never raises the writer gate and is never gated by one — it
 /// writes no file, registers no edit and touches the text storage not at all
 /// (hiding is glyph generation, see `BracketOverlayLayoutManager`). Nothing it
-/// holds is persisted: the memory dies with the app run.
+/// holds is persisted: the memory is never written to the session, and it lives
+/// exactly as long as the editor that owns this controller does — the viewport
+/// memory's lifetime, beside which it sits (see `FoldStateMemory`).
 @MainActor
 final class FoldController {
     /// What a question needs, read at the moment one is asked rather than
@@ -178,7 +180,14 @@ final class FoldController {
             changeInLength: delta
         )
         state = shifted
-        publish()
+        // The one publish that runs inside `didProcessEditingNotification`: the
+        // ruler's edit observer is what called this, and the layout manager has
+        // not been told about the edit yet. Back the pre-edit extent out of the
+        // storage's post-edit report — `Coordinator.bufferEdited`'s own
+        // arithmetic, for the reason `setFoldedRanges(_:clampingInvalidationTo:)`
+        // states.
+        let postEditLength = textView?.textStorage?.length ?? 0
+        publish(clampingInvalidationTo: max(0, postEditLength - delta))
     }
 
     // MARK: - Writing
@@ -359,8 +368,12 @@ final class FoldController {
     /// the hidden glyphs and the remembered state answer the same question and
     /// must never be one frame apart. Both views treat unchanged input as a
     /// no-op, so this is cheap to call unconditionally.
-    private func publish() {
-        overlayLayoutManager?.setFoldedRanges(state.hiddenRanges)
+    ///
+    /// `validExtent` is `nil` for every caller but ``noteEdit(previousLineStarts:newLineStarts:editedRange:changeInLength:)``,
+    /// the one that runs inside the storage's edit notification; see
+    /// `BracketOverlayLayoutManager.setFoldedRanges(_:clampingInvalidationTo:)`.
+    private func publish(clampingInvalidationTo validExtent: Int? = nil) {
+        overlayLayoutManager?.setFoldedRanges(state.hiddenRanges, clampingInvalidationTo: validExtent)
         ruler?.setFoldRegions(candidates, folded: state)
         recordCurrent()
     }

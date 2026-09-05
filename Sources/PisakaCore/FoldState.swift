@@ -319,8 +319,16 @@ public enum FoldReveal {
 /// meaningless once you left, while a fold is a statement about the file's
 /// structure that the user made on purpose. Closing a tab must not discard it.
 /// The store is cleared wholesale on a folder switch (a different project is a
-/// different set of files) and dies with the app run — nothing here is ever
-/// written to the session.
+/// different set of files) and is never written to the session — nothing here is
+/// persisted.
+///
+/// **It lives exactly as long as the editor that owns it**, which on macOS is
+/// the same lifetime ``EditorViewportMemory`` has: the app holds one of these
+/// per code editor, so dismantling that view — closing the *last* text tab, or
+/// selecting a database-viewer tab, both of which replace the editor with
+/// another surface — empties it along with everything else the view held. The
+/// divergence above is about `prune(keeping:)` alone, and it is what makes
+/// closing one tab of several, then reopening that file, find its folds again.
 public struct FoldStateMemory {
     private var states: [String: FoldState] = [:]
 

@@ -1944,12 +1944,29 @@ struct CodeEditorView: NSViewRepresentable {
         ///
         /// `false` means "not mine", and the click proceeds as an ordinary one.
         func unfoldPlaceholder(at point: NSPoint, in textView: NSTextView) -> Bool {
-            guard !folds.state.isEmpty, let layoutManager = overlayLayoutManager else { return false }
+            guard !folds.state.isEmpty,
+                  let layoutManager = overlayLayoutManager,
+                  let container = textView.textContainer
+            else { return false }
             let origin = textView.textContainerOrigin
             let containerPoint = NSPoint(x: point.x - origin.x, y: point.y - origin.y)
+            // Only a placeholder the user can *see* can be the one clicked, and
+            // asking the layout manager to measure one that is off screen costs
+            // glyph generation and layout all the way down to wherever it sits.
+            // So the loop is bounded by the visible range, exactly as
+            // `paintFoldPlaceholders` is bounded by the range it was asked to
+            // draw — without it, one block folded near the end of a large file
+            // would lay the whole file out on every single click.
+            let visibleGlyphs = layoutManager.glyphRange(
+                forBoundingRect: textView.visibleRect.offsetBy(dx: -origin.x, dy: -origin.y),
+                in: container
+            )
+            let visible = layoutManager.characterRange(forGlyphRange: visibleGlyphs, actualGlyphRange: nil)
+            let lastVisible = NSMaxRange(visible)
             // In `FoldRegion` order, so two folded regions sharing a header line
             // resolve to the longer one — the one whose placeholder is drawn.
-            for region in folds.state.regions {
+            for region in folds.state.regions
+            where region.hiddenRange.location >= visible.location && region.hiddenRange.location <= lastVisible {
                 guard let rect = layoutManager.placeholderRect(forFoldedRangeAt: region.hiddenRange.location),
                       rect.contains(containerPoint)
                 else { continue }

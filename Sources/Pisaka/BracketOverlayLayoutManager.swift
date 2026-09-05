@@ -433,11 +433,26 @@ final class BracketOverlayLayoutManager: NSLayoutManager {
     /// search backgrounds, the diagnostic underlines, the indentation tints —
     /// simply has no glyph to land on inside a hidden range, which is why not
     /// one of them needed a line of fold-aware code.
-    func setFoldedRanges(_ ranges: [NSRange]) {
+    ///
+    /// `length` is the coordinate space the **invalidation** is clamped to, and
+    /// it is a parameter for the reason spelled out on
+    /// `clearBackgrounds(storageLength:)`: the one caller that reaches here from
+    /// inside `didProcessEditingNotification` — an edit shifting the hidden set
+    /// through `FoldShift` — runs *before* the storage notifies its layout
+    /// managers, so `textStorage.length` already reports the post-edit length
+    /// while this manager is still in pre-edit coordinates. Invalidating a range
+    /// running past the extent it believes in is at best an invalidation the
+    /// storage's own notification immediately supersedes and at worst an
+    /// out-of-range raise on an ordinary keystroke; passing the pre-edit length
+    /// keeps the invalidation in the same space as the glyphs it invalidates,
+    /// and everything beyond it is text the storage's own notification covers.
+    /// `nil` ≡ this manager's current storage length, which is right for every
+    /// other caller.
+    func setFoldedRanges(_ ranges: [NSRange], clampingInvalidationTo length: Int? = nil) {
         guard ranges != folded.ranges else { return }
         let changed = changedBounds(from: folded.ranges, to: ranges)
         folded.replace(with: ranges)
-        let invalid = clamped(changed, to: storageLength)
+        let invalid = clamped(changed, to: length ?? storageLength)
         guard invalid.length > 0 else { return }
         invalidateGlyphs(forCharacterRange: invalid, changeInLength: 0, actualCharacterRange: nil)
         invalidateLayout(forCharacterRange: invalid, actualCharacterRange: nil)
@@ -543,12 +558,21 @@ final class BracketOverlayLayoutManager: NSLayoutManager {
     /// Nothing is cached — a zoom or a font change needs no bookkeeping at all,
     /// the next draw simply measures again.
     ///
-    /// `nil` when there is nothing to measure: no layout yet, an offset outside
-    /// the storage, or a degenerate fragment.
+    /// `nil` when there is nothing to measure: an offset outside the storage, or
+    /// a degenerate fragment.
+    ///
+    /// **`numberOfGlyphs` is deliberately not read here**, which is why the
+    /// bound is `offset < length` rather than `offset <= length`: `offset` names
+    /// the *first hidden character* of a non-empty range, so it always addresses
+    /// a character that exists and therefore a glyph that exists, and the
+    /// obvious `min(…, numberOfGlyphs - 1)` clamp would force glyph generation
+    /// for the **entire document** — the cost `allowsNonContiguousLayout` exists
+    /// to avoid, stated twice already (`HoverController.characterIndex(at:in:)`,
+    /// `CodeEditorView.Coordinator.captureViewport()`) — on every draw and every
+    /// click while anything at all is folded.
     func placeholderRect(forFoldedRangeAt offset: Int) -> NSRect? {
-        let length = storageLength
-        guard offset > 0, offset <= length, numberOfGlyphs > 0 else { return nil }
-        let glyphIndex = min(glyphIndexForCharacter(at: offset), numberOfGlyphs - 1)
+        guard offset > 0, offset < storageLength else { return nil }
+        let glyphIndex = glyphIndexForCharacter(at: offset)
         let fragment = lineFragmentRect(forGlyphAt: glyphIndex, effectiveRange: nil)
         guard fragment.height > 0 else { return nil }
         let font = editorFont

@@ -674,9 +674,11 @@ user sees it.
   indentation — which needs no server and works in every language, including plain
   text files with indented structure. Indentation blocks are measured with the same
   unit the editor types with, `.editorconfig` included.
-  Folds last **for as long as the app is running**: switch tabs and back, or close
-  a file and reopen it, and it is still folded. Quitting forgets everything —
-  nothing is written to the session — and so does switching to another folder.
+  Folds last **for as long as the editor is on screen**: switch tabs and back, or
+  close a file and reopen it, and it is still folded. Quitting forgets everything
+  — nothing is written to the session — and so do switching to another folder,
+  closing the *last* open tab, and selecting a database tab, since each of those
+  puts a different surface where the editor was.
   Editing the text a folded block hides opens it, since nobody knows where the
   block ends until the next scan; typing on the line *above* a folded block leaves
   it folded, and an autosave that trims trailing whitespace inside one does too.

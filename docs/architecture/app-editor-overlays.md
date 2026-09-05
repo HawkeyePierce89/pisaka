@@ -236,19 +236,31 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     hands over. It exists because the layout manager is `@MainActor` and the
     typesetter is not (TextKit asks its question straight out of the line-breaking
     loop), so the shared set lives in neither of them; every write happens on the
-    main thread from `setFoldedRanges(_:)`, every read happens during layout on that
+    main thread from `setFoldedRanges(_:clampingInvalidationTo:)`, every read happens during layout on that
     same thread, and nothing else holds a reference. Sortedness is the whole
     precondition of `hides(_:)`, which binary-searches rather than scans — glyph
     generation asks it once per character. Every character outside a folded range
     defers to `super`, so tabs, ordinary newlines and the container break are
     untouched.
-    `setFoldedRanges(_:)` stores the set and then invalidates **the union of the
+    `setFoldedRanges(_:clampingInvalidationTo:)` stores the set and then invalidates
+    **the union of the
     symmetric difference** of the old and the new one — the ranges that stopped
     being hidden plus the ones that started — never the whole file, so folding one
     block near the end of a large file does not re-generate every glyph above it;
     glyphs first, then layout, then display, in that order because each is decided
     by the half before it. Unchanged input is a **no-op**, since the coordinator
-    calls this on every view update. **The text storage is never touched**: no edit
+    calls this on every view update. The **extent the invalidation is clamped to**
+    is a parameter for `clearBackgrounds(storageLength:)`'s reason, and one caller
+    passes it: `FoldController.noteEdit` reaches here from inside
+    `didProcessEditingNotification`, which the storage posts *before* it notifies
+    its layout managers, so `textStorage.length` already reports the post-edit
+    length while this manager is still in pre-edit coordinates. A shifted hidden
+    range running to the end of the file would then be invalidated one delta past
+    the extent this manager believes in — at best superseded a moment later, at
+    worst an out-of-range raise on an ordinary keystroke. The pre-edit length keeps
+    the invalidation in the same space as the glyphs it invalidates; everything
+    beyond it is text the storage's own notification covers. `nil` ≡ this manager's
+    current storage length, which is right for every other caller. **The text storage is never touched**: no edit
     is registered, nothing lands in the undo manager and the SwiftUI binding never
     sees a change — which is also why not one existing overlay needed a line of
     fold-aware code. Neon's syntax colors, the matched pair, the search backgrounds,
@@ -267,8 +279,16 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     view (the zoom changes it and nothing here would be told) and the color is
     `secondaryLabelColor` — the placeholder is chrome standing in for text, not a
     token, and the platform color is appearance-aware, so light and dark need no
-    second table. Only ranges whose start the drawn glyphs reach are painted. The
-    whole feature is documented in `core-folding.md`.
+    second table. Only ranges whose start the drawn glyphs reach are painted.
+    **`numberOfGlyphs` is deliberately never read** in the measurement, which is why
+    its bound is `offset < storageLength` rather than a `min(…, numberOfGlyphs - 1)`
+    clamp: `offset` names the first hidden character of a non-empty range, so it
+    always addresses a character — and therefore a glyph — that exists, while that
+    clamp would force glyph generation for the **whole document** (the cost
+    `allowsNonContiguousLayout` exists to avoid, stated on `HoverController` and
+    `captureViewport`) on every draw and every click while anything at all is
+    folded. The hit-testing caller bounds itself to the visible range for the same
+    reason. The whole feature is documented in `core-folding.md`.
   - `BracketHighlightController.swift` — the macOS `@MainActor` owner of the
     bracket overlays: it holds the cached `[BracketToken]` for the current buffer
     behind a (`fileID`, text length, edit epoch) cache key with a ~100 ms debounce
@@ -602,9 +622,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     line's number is drawn or skipped by the folded set alone, so handing them over
     separately would let the ruler paint one frame in which a chevron points at a
     block the numbering does not believe in. It also builds the header-line →
-    candidate map in `FoldRegion`'s own `Comparable` order, so a shared header line
-    resolves to the same region `FoldState.folded(containing:)` measures the
-    placeholder from and the chevron and the `…` can never disagree.
+    candidate map in `FoldRegion`'s own `Comparable` order, so a header line with one
+    candidate — the only shape the fallback scanner ever offers, since it merges
+    the rest — has exactly one entry.
     **The numbering skips hidden lines and keeps counting.** A line whose
     *preceding separator* is hidden draws nothing at all: it has no row of its own
     (its glyphs are null and that separator advances nothing, so it shares the
@@ -624,9 +644,20 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     the diagnostic markers follow the numbers for free, because they are drawn from
     the same walk (`drawVisibleLine(_:…)`, lifted out of it so the skip reads as
     the one decision it is).
-    `mouseDown(with:)` resolves a click inside the chevron column to the line's
-    candidate and reports it through `onToggleFold` (weakly captured, like the other
-    two closures); everything else falls through to `super`, so the blame context
+    `mouseDown(with:)` resolves a click inside the chevron column to **the region the
+    chevron was drawn for** — `FoldState.folded(containing:)` first, the candidate map
+    only when that answers nothing — and reports it through `onToggleFold` (weakly
+    captured, like the other two closures). The order is load-bearing on a header line
+    carrying more than one candidate, which a server can report (a block and a nested
+    one opening on the same line) even though the scanner cannot: the chevron draws
+    collapsed as soon as *any* of them is folded, ⌘⌥← deliberately folds the
+    *innermost*, and the map holds the *longest* — so reading the map alone would fold
+    the outer block on a chevron that is showing "collapsed" instead of opening what is
+    folded. Asking what is folded first is the same question the draw asks, so the click
+    undoes exactly what the chevron reports. The extent guard is the buffer's length and
+    never `numberOfGlyphs`, which would force whole-document glyph generation on a gutter
+    click; `glyphIndex(for:in:)` generates what it needs to answer and no more.
+    Everything else falls through to `super`, so the blame context
     menu and every ruler behavior above it are untouched. Deciding *which* blocks are
     foldable and which are folded is `FoldRegionScanner`'s and `FoldState`'s
     (`core-folding.md`); all this view does is draw a chevron, skip a hidden line and

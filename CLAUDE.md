@@ -724,9 +724,10 @@ ci.yml's `lint` job, and the version-bump procedure.
   gated by none. Where the blocks are comes from a language server
   (`textDocument/foldingRange`, D38) or from the pure `FoldRegionScanner`, never
   from a **mixture** of the two, and the router treats it as its ordinary shape —
-  an empty server answer falls through to the scanner. What is folded lives for
-  the **app run** in a per-file memory keyed by canonical path (never `OpenFile.id`,
-  which is fresh per open) and is **never written to the session**; it is not
+  an empty server answer falls through to the scanner. What is folded lives in a
+  per-file memory keyed by canonical path (never `OpenFile.id`, which is fresh per
+  open) that the **editor view owns** — `EditorViewportMemory`'s lifetime exactly —
+  and is **never written to the session**; it is not
   pruned on close (a fold is a statement about the file, unlike a viewport) and is
   cleared wholesale on a folder switch. Its rules are applied **in one place each**:
   `FoldCaretRule` and `FoldReveal` in `CodeEditorView.swift` alone — every

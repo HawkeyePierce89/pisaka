@@ -16,8 +16,8 @@ the indentation tints, the on-save transform — keeps working on the full text
 and needed no fold-aware line. Where the blocks *are* comes from a language
 server (`textDocument/foldingRange`) when one serves the file and from a pure
 bracket-and-indentation scanner otherwise; **an answer is never a mixture** of
-the two. What is folded lives for the app run in a per-file memory and is never
-written to the session. macOS only: iOS has no gutter chevron, no layout-manager
+the two. What is folded lives in a per-file memory owned by the editor view — the
+viewport memory's lifetime — and is never written to the session. macOS only: iOS has no gutter chevron, no layout-manager
 subclass and no menu surface, and the seam method is defaulted so neither iOS
 surface grew a call site for a question it would throw away.
 
@@ -148,7 +148,12 @@ the second is where the text after the block resumes), and only what lies betwee
 them has no on-screen position at all. `folded(containing:)` answers in the
 header's sense — a region *is* at the line that stays visible for it — and when
 two folded regions share a header line the longer wins, because that is the one
-whose placeholder is drawn.
+whose placeholder is drawn. It is the **one** question the gutter asks about a
+header line: the chevron's direction is drawn from it and a chevron click is
+resolved through it, falling back to the candidate map only when nothing on that
+line is folded. Reading the map first would hand a click on a collapsed chevron
+the *longest candidate* while ⌘⌥← had folded the *innermost* — folding the outer
+block instead of opening what the chevron says is closed (`app-editor-overlays.md`).
 
 `hiddenRange(collapsingLineStartingAt:)` is the **layout's** question rather than
 the caret's, and the reason it is not `hides(offset:)` read a second way. A line
@@ -261,7 +266,13 @@ made on purpose. Closing a tab must not discard it. The store is cleared wholesa
 on a **folder switch** (a different project is a different set of files), one
 entry is dropped when that file's text was replaced out from under a background
 tab (the remembered folds describe a buffer that no longer exists), and the whole
-thing dies with the app run: **nothing here is ever written to the session.**
+store goes with the editor that owns it: **nothing here is ever written to the
+session.** That last part is `EditorViewportMemory`'s lifetime exactly — the app
+holds one memory per code editor — so dismantling that view empties it: closing
+the **last** text tab and selecting a **database-viewer tab** each put a different
+surface where the editor was. The divergence above is about `prune(keeping:)`
+alone, and it is what makes closing one tab of several, then reopening that file,
+find its folds again.
 `record` stores an *empty* state rather than removing the entry, so "I unfolded
 everything" survives a tab switch as itself.
 
@@ -581,6 +592,6 @@ What it pins, and why the compiler cannot:
   Part 2's work.
 - **`kind` is carried and never read.** Comment and import regions from a server
   are ordinary regions here; nothing folds all comments or all imports yet.
-- **Nothing is persisted.** Folds die with the app run by design; a relaunch, a
-  branch switch that rewrites the file, or any edit intersecting a folded block
-  opens it.
+- **Nothing is persisted.** Folds die with the editor view by design (see the
+  memory's own entry above); a relaunch, a branch switch that rewrites the file,
+  or any edit intersecting a folded block opens it.

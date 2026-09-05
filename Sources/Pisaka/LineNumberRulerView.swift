@@ -933,10 +933,14 @@ final class LineNumberRulerView: NSRulerView, ZoomSurfaceProviding {
         guard
             let textView,
             let layoutManager = textView.layoutManager,
-            let textContainer = textView.textContainer,
-            layoutManager.numberOfGlyphs > 0
+            let textContainer = textView.textContainer
         else { return false }
         let content = textView.string as NSString
+        // The extent is the *buffer's*, never `numberOfGlyphs`: reading that
+        // would force glyph generation for the whole document on a gutter click
+        // (see `HoverController.characterIndex(at:in:)`). A non-empty buffer
+        // always has a glyph by the time `glyphIndex(for:in:)` below returns —
+        // that call generates what it needs to answer, and no more.
         guard content.length > 0 else { return false }
         let relativePoint = convert(NSPoint.zero, from: textView)
         let textOrigin = textView.textContainerOrigin
@@ -945,7 +949,19 @@ final class LineNumberRulerView: NSRulerView, ZoomSurfaceProviding {
         let character = min(layoutManager.characterIndexForGlyph(at: glyph), content.length)
         let lineRange = content.lineRange(for: NSRange(location: character, length: 0))
         let line = lineNumber(forLineStart: lineRange.location) - 1
-        guard let region = foldCandidateByHeaderLine[line] else { return false }
+        // **The very region the chevron was drawn for.** A header line can carry
+        // more than one candidate — a server may report a block and a nested one
+        // opening on the same line — and the three answers about such a line
+        // would otherwise disagree: the chevron draws collapsed as soon as *any*
+        // of them is folded (`FoldState.folded(containing:)`, the same call
+        // `drawFoldChevron` makes), ⌘⌥← deliberately folds the *innermost*, and
+        // the candidate map holds the *longest*. Resolving the click through the
+        // map alone would therefore fold the outer block on a chevron that is
+        // showing "collapsed", instead of opening what is folded. Asking what is
+        // folded first makes the click undo exactly what the chevron reports.
+        guard let region = foldedState.folded(containing: line) ?? foldCandidateByHeaderLine[line] else {
+            return false
+        }
         handler(region)
         return true
     }

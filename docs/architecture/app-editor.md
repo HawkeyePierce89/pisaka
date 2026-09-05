@@ -881,7 +881,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     gesture. `unfoldPlaceholder(at:in:)` is the `…` click, tested against
     `placeholderRect(forFoldedRangeAt:)` — the box that was *drawn*, not arithmetic
     over the point — and `false` there means "not mine", so the click proceeds as an
-    ordinary one. `EditorTextView.mouseDown(with:)` asks it before anything else
+    ordinary one. It walks only the folded regions whose start the **visible**
+    character range reaches, `paintFoldPlaceholders`' own bound: measuring an
+    off-screen placeholder costs glyph generation and layout down to wherever it
+    sits, so an unbounded walk would lay a large file out on every click once one
+    block near its end was folded. `EditorTextView.mouseDown(with:)` asks it before anything else
     looks at the event, because `super.mouseDown` would otherwise run its tracking
     loop and place a caret inside text that has no position on screen; only a plain
     single click is claimed (a modified one is a selection gesture, a double click is
