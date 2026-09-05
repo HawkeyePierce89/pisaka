@@ -345,7 +345,7 @@ severity on a folded header line. macOS only; iOS untouched.
   `docs/architecture/core-folding.md`, `docs/FEATURES.md`
 - Modify: `Tests/PisakaAppTests/GutterFoldTests.swift`
 
-- [ ] The pure rule: per-line worst severities (the store's existing answer) plus
+- [x] The pure rule: per-line worst severities (the store's existing answer) plus
       the folded state plus the line-start table in, the same array with every
       **folded header line** raised to the worst severity among itself and every
       line it hides, out. "Worst" is `max(...)` over `DiagnosticSeverity`'s
@@ -353,23 +353,23 @@ severity on a folded header line. macOS only; iOS untouched.
       `DiagnosticStore.worstSeverityPerLine` uses, asked rather than restated.
       Nothing new is computed off the wire; hidden lines' own entries are left
       alone, since the gutter never draws them.
-- [ ] Unit-test: nested folds (the outer header shows the worst of everything
+- [x] Unit-test: nested folds (the outer header shows the worst of everything
       below it, the inner header still shows its own), ties, a fold hiding
       nothing diagnosed (unchanged), an unfolded document (unchanged),
       a diagnostic on the header line itself, and degenerate geometry — an empty
       or unanchored line table — answering the input unchanged rather than
       trapping.
-- [ ] Wire it in the gutter, which is the one place holding both inputs and is
+- [x] Wire it in the gutter, which is the one place holding both inputs and is
       already the file the gating suite allows to be *told* a `FoldState`: it
       asks the Core rule when either input is installed and draws the answer. It
       decides nothing and computes no severity of its own.
-- [ ] Extend `FoldingSourceGatingTests`: the new rule is named by exactly one app
+- [x] Extend `FoldingSourceGatingTests`: the new rule is named by exactly one app
       file, and the ruler still never mutates the state it was told.
-- [ ] Extend `GutterFoldTests`: a folded header hiding an error draws the error's
+- [x] Extend `GutterFoldTests`: a folded header hiding an error draws the error's
       dot; folding a block that hides nothing diagnosed changes no dot.
-- [ ] `core-folding.md` gains the rule; `docs/FEATURES.md` states the behaviour
+- [x] `core-folding.md` gains the rule; `docs/FEATURES.md` states the behaviour
       in one sentence.
-- [ ] Run all three gates — green before Task 7.
+- [x] Run all three gates — green before Task 7.
 
 ### Task 7: The fold memory key, and the documentation
 

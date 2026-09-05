@@ -414,6 +414,22 @@ final class FoldingSourceGatingTests: XCTestCase {
             "Which block a command acts on is Core's decision, asked in the one file that knows where the "
                 + "caret is."
         )
+        XCTAssertEqual(
+            try fileNames(naming: "FoldSeverityRule", under: "Sources/Pisaka"),
+            ["LineNumberRulerView.swift"],
+            "The folded-header severity rule is named by exactly one app file: the gutter, which is the one "
+                + "place holding both inputs and is already allowed to be told a FoldState. A second caller is "
+                + "a second place that decision could be taken differently."
+        )
+        XCTAssertEqual(
+            try occurrences(
+                of: "\\bfoldedState\\.(fold|unfold|toggle)\\(",
+                in: try code(ofFileNamed: "LineNumberRulerView.swift", under: "Sources/Pisaka")
+            ),
+            0,
+            "The gutter still never mutates what it was told, even after gaining the severity rule. It draws "
+                + "the answer; it does not take a second one."
+        )
 
         for url in try swiftFiles(under: "Sources/Pisaka") {
             let code = try self.code(of: url)

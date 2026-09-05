@@ -146,7 +146,13 @@ final class LineNumberRulerView: NSRulerView, ZoomSurfaceProviding {
     /// below refuses anything else rather than padding it into a lie — so the
     /// draw loop reads it by line number: the blame array's invariant,
     /// established at the setter instead of hoped for downstream.
-    private var diagnosticSeverities: [DiagnosticSeverity?] = []
+    internal var diagnosticSeverities: [DiagnosticSeverity?] = []
+
+    /// The last per-line severities handed to `setDiagnosticSeverities(_:)`,
+    /// before the folded-header rule is applied. The ruler stores both so a
+    /// fold change can re-derive the drawn dots without the coordinator
+    /// re-asking the store.
+    private var rawDiagnosticSeverities: [DiagnosticSeverity?] = []
 
     /// Horizontal gap between the marker column and whatever sits beside it.
     /// Smaller than `annotationGap` on purpose: this column is always present,
@@ -387,10 +393,28 @@ final class LineNumberRulerView: NSRulerView, ZoomSurfaceProviding {
     /// depend on its contents (see ``diagnosticColumnWidth``), so only a redraw
     /// is needed. An unchanged array is a no-op — this runs on every
     /// diagnostics-model mutation and every keystroke-driven repaint.
+    /// Install the per-line worst severities for the displayed document and
+    /// redraw. The array arrives exactly ``lineCount`` long — the caller passes
+    /// this ruler's own count and line starts to the store's query, which
+    /// returns precisely that many entries; anything else would be a caller
+    /// bug, and is refused rather than padded into a lie (the draw loop bounds
+    /// -checks its index regardless). The folded-header rule is applied here
+    /// rather than in the coordinator, because this is the one place holding
+    /// both inputs and the gutter is already the file the gating suite allows
+    /// to be *told* a ``FoldState``: it asks the Core rule when either input
+    /// is installed and draws the answer. It decides nothing and computes no
+    /// severity of its own.
     func setDiagnosticSeverities(_ severities: [DiagnosticSeverity?]) {
         guard severities.count == lineStartOffsets.count else { return }
-        guard severities != diagnosticSeverities else { return }
-        diagnosticSeverities = severities
+        guard severities != rawDiagnosticSeverities else { return }
+        rawDiagnosticSeverities = severities
+        let resolved = FoldSeverityRule.resolved(
+            severities,
+            folded: foldedState,
+            lineStarts: lineStartOffsets
+        )
+        guard resolved != diagnosticSeverities else { return }
+        diagnosticSeverities = resolved
         needsDisplay = true
     }
 
@@ -417,6 +441,16 @@ final class LineNumberRulerView: NSRulerView, ZoomSurfaceProviding {
             byHeader[region.headerLine] = region
         }
         foldCandidateByHeaderLine = byHeader
+        if rawDiagnosticSeverities.count == lineStartOffsets.count {
+            let resolved = FoldSeverityRule.resolved(
+                rawDiagnosticSeverities,
+                folded: foldedState,
+                lineStarts: lineStartOffsets
+            )
+            if resolved != diagnosticSeverities {
+                diagnosticSeverities = resolved
+            }
+        }
         needsDisplay = true
     }
 

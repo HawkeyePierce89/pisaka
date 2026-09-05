@@ -211,6 +211,66 @@ final class GutterFoldTests: XCTestCase {
         XCTAssertEqual(NSMaxRange(second), expectedEnd)
     }
 
+    // MARK: - Folded-header severity
+
+    func testFoldedHeaderHidingErrorDrawsErrorsDot() {
+        let lines = (1...10).map { "line \($0)" }
+        let text = lines.joined(separator: "\n")
+        let content = text as NSString
+        let lineStarts = LineStartIndex.offsets(in: content)
+        let hidden = NSRange(
+            location: NSMaxRange(content.lineRange(for: NSRange(location: lineStarts[1], length: 0))) - 1,
+            length: (NSMaxRange(content.lineRange(for: NSRange(location: lineStarts[4], length: 0))) - 1)
+                - (NSMaxRange(content.lineRange(for: NSRange(location: lineStarts[1], length: 0))) - 1)
+        )
+        guard let region = FoldRegion(hiddenRange: hidden, headerLine: 1) else {
+            XCTFail("region")
+            return
+        }
+        let state = FoldState(regions: [region])
+        let harness = makeRulerHarness(text: text)
+        // Per-line severities: header line 1 nil, hidden lines 2..4: error on line 3
+        var perLine: [DiagnosticSeverity?] = Array(repeating: nil, count: lineStarts.count)
+        perLine[3] = .error
+        harness.ruler.setDiagnosticSeverities(perLine)
+        // Before folding, header is nil
+        XCTAssertNil(harness.ruler.diagnosticSeverities[1])
+        harness.ruler.setFoldRegions([region], folded: state)
+        // After folding, header should show error
+        XCTAssertEqual(harness.ruler.diagnosticSeverities[1], .error)
+        // Hidden lines left as they were (but not drawn)
+        XCTAssertEqual(harness.ruler.diagnosticSeverities[3], .error)
+    }
+
+    func testFoldingBlockHidingNothingDiagnosedChangesNoDot() {
+        let lines = (1...10).map { "line \($0)" }
+        let text = lines.joined(separator: "\n")
+        let content = text as NSString
+        let lineStarts = LineStartIndex.offsets(in: content)
+        let hidden = NSRange(
+            location: NSMaxRange(content.lineRange(for: NSRange(location: lineStarts[1], length: 0))) - 1,
+            length: (NSMaxRange(content.lineRange(for: NSRange(location: lineStarts[4], length: 0))) - 1)
+                - (NSMaxRange(content.lineRange(for: NSRange(location: lineStarts[1], length: 0))) - 1)
+        )
+        guard let region = FoldRegion(hiddenRange: hidden, headerLine: 1) else {
+            XCTFail("region")
+            return
+        }
+        let state = FoldState(regions: [region])
+        let harness = makeRulerHarness(text: text)
+        var perLine: [DiagnosticSeverity?] = Array(repeating: nil, count: lineStarts.count)
+        perLine[0] = .warning
+        perLine[7] = .error
+        harness.ruler.setDiagnosticSeverities(perLine)
+        let before = harness.ruler.diagnosticSeverities
+        harness.ruler.setFoldRegions([region], folded: state)
+        let after = harness.ruler.diagnosticSeverities
+        XCTAssertEqual(before, after, "fold hiding nothing diagnosed should not change any dot")
+        XCTAssertEqual(after[0], .warning)
+        XCTAssertEqual(after[7], .error)
+        XCTAssertNil(after[1])
+    }
+
     // MARK: - Helpers
 
     private struct RulerHarness {

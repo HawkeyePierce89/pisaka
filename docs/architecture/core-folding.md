@@ -371,6 +371,12 @@ bigger region to fold instead — the answer is "no", not a different block. A
 zero-length selection has no end to reach past and never refuses. *Unfold* has no
 refusal of its own: opening a block can never hide anything.
 
+### `FoldSeverityRule.swift` — the worst severity on a folded header
+
+Pure and Foundation-only: the per-line worst severities the store already answers (`DiagnosticStore.worstSeverityPerLine`, `max` over `DiagnosticSeverity`'s seriousness order) plus the folded state plus the line-start table in, the same array with every **folded header line** raised to the worst severity among itself and every line its hidden range collapses, out. "Worst" is `max(...)` over that `Comparable` order — the same expression the store uses, asked rather than restated. Nothing new is computed off the wire; hidden lines' own entries are left alone, since the gutter never draws them. For nested folds the outer header shows the worst of everything below it while the inner header still shows its own — each header is raised from the store's answer independently, which is also why a fold hiding nothing diagnosed changes nothing. An empty or unanchored line table (first entry not `0`), a count mismatch, or a header outside the table answers the input unchanged rather than trapping — the same honest degradation the store's own query uses.
+
+The app half is one call site: `LineNumberRulerView`, which is the one place holding both inputs and is already the file the gating suite allows to be *told* a `FoldState`. It asks the Core rule when either input is installed and draws the answer; it decides nothing and computes no severity of its own.
+
 ### `FoldShift.swift` — one edit, applied to both lists
 
 `DiagnosticShift` applied to fold regions, line for line and on purpose: the two

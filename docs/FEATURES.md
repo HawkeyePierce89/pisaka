@@ -660,9 +660,9 @@ user sees it.
    part of what you selected). **Fold All** (Cmd+Option+Shift+Left) folds every
    block and **Unfold All** (Cmd+Option+Shift+Right) unfolds every one; both beep
    when there is nothing to do, and Fold All hides nested blocks as one merged
-   range rather than as overlapping ones. Gutter numbers skip the hidden lines and keep
+   range rather than as overlapping ones.   Gutter numbers skip the hidden lines and keep
    counting, so `12` is followed by `27`, and the blame column and the diagnostic
-   dots follow the numbers.
+   dots follow the numbers — a folded header shows the worst diagnostic severity among the lines it hides.
   **Nothing is edited.** Folding hides text on screen only: the file on disk and
   the buffer are untouched, the tab does not become dirty, nothing lands in the
   undo history, and selecting across a collapsed block selects — and copies — the
