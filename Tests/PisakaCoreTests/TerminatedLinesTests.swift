@@ -378,4 +378,76 @@ final class TerminatedLinesTests: XCTestCase {
             }
         }
     }
+
+    // MARK: - The bounded primitive
+
+    /// The whole-text form *is* the bounded one over the full range, so the two
+    /// can never disagree about where a line ends. Fuzzed over the same
+    /// separator alphabet the projection fuzz uses.
+    func testBoundedRangesOverTheFullRangeMatchTheWholeTextForm() {
+        let alphabet = [
+            "a", "b", " ", "\t", "\n", "\r", "\r\n",
+            "\u{0085}", "\u{2028}", "\u{2029}", "🙂",
+        ]
+        var rng = LCG(state: 0x5eed_1234_5678_9abc)
+        for _ in 0..<400 {
+            var text = ""
+            for _ in 0..<rng.next(20) {
+                text += alphabet[rng.next(alphabet.count)]
+            }
+            let ns = text as NSString
+            XCTAssertEqual(
+                TerminatedLines.ranges(in: ns, range: NSRange(location: 0, length: ns.length)),
+                TerminatedLines.ranges(text),
+                String(reflecting: text)
+            )
+        }
+    }
+
+    /// A range that starts and ends mid-line answers those lines *whole* —
+    /// never a fragment — which is what lets a caller reason about a drawn
+    /// region without knowing where it cut.
+    func testBoundedRangesExpandAMidLineRangeToWholeLines() {
+        let text = "alpha\nbravo\ncharlie\n" as NSString
+        // From inside "alpha" to inside "bravo".
+        let ranges = TerminatedLines.ranges(in: text, range: NSRange(location: 2, length: 6))
+        XCTAssertEqual(ranges.map { text.substring(with: $0.content) }, ["alpha", "bravo"])
+        XCTAssertEqual(ranges.map { text.substring(with: $0.terminator) }, ["\n", "\n"])
+    }
+
+    /// Only the lines the range touches are visited — the point of bounding it.
+    func testBoundedRangesVisitOnlyTheLinesTheRangeTouches() {
+        let text = "one\ntwo\nthree\nfour\n" as NSString
+        let ranges = TerminatedLines.ranges(in: text, range: NSRange(location: 4, length: 1))
+        XCTAssertEqual(ranges.map { text.substring(with: $0.content) }, ["two"])
+    }
+
+    /// A zero-length range still names the line it sits in.
+    func testBoundedRangesOfACaretAnswerItsLine() {
+        let text = "one\ntwo\n" as NSString
+        let ranges = TerminatedLines.ranges(in: text, range: NSRange(location: 5, length: 0))
+        XCTAssertEqual(ranges.map { text.substring(with: $0.content) }, ["two"])
+    }
+
+    /// Out-of-bounds and negative requests are clamped, not trapped.
+    func testBoundedRangesClampAnOutOfBoundsRequest() {
+        let text = "one\ntwo" as NSString
+        XCTAssertEqual(
+            TerminatedLines.ranges(in: text, range: NSRange(location: 0, length: 999)),
+            TerminatedLines.ranges("one\ntwo")
+        )
+        // Clamped to a caret at the end of the text, which names the last line.
+        XCTAssertEqual(
+            TerminatedLines.ranges(in: text, range: NSRange(location: 99, length: 5)).map { text.substring(with: $0.content) },
+            ["two"]
+        )
+        XCTAssertEqual(
+            TerminatedLines.ranges(in: text, range: NSRange(location: -4, length: 2)).map { text.substring(with: $0.content) },
+            ["one"]
+        )
+    }
+
+    func testBoundedRangesOfAnEmptyTextAreEmpty() {
+        XCTAssertEqual(TerminatedLines.ranges(in: "" as NSString, range: NSRange(location: 0, length: 0)), [])
+    }
 }

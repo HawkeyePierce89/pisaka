@@ -130,21 +130,21 @@ per tab.
 - Create: `Tests/PisakaCoreTests/IndentLevelScannerTests.swift`
 - Modify: `Tests/PisakaCoreTests/TerminatedLinesTests.swift`
 
-- [ ] add the bounded line primitive to `TerminatedLines` and reduce the
+- [x] add the bounded line primitive to `TerminatedLines` and reduce the
       whole-text form to it, with its doc comment stating the expansion
-- [ ] write the engine: the run/level value type, the width derivation reading
+- [x] write the engine: the run/level value type, the width derivation reading
       `IndentUnitRule.defaultSpaceWidth`, and the levelled walk
-- [ ] test the engine for spaces only, tabs only, tabs and spaces mixed with
+- [x] test the engine for spaces only, tabs only, tabs and spaces mixed with
       tab-stop arithmetic, a partial trailing unit, an empty line, a
       whitespace-only line, every separator in the editor's set including CRLF
       as one terminator, a range starting mid-indent, a range ending mid-indent,
       a range spanning several lines, and zero/negative widths yielding no runs
-- [ ] test the width derivation: tab unit with and without a stated `tab_width`
+- [x] test the width derivation: tab unit with and without a stated `tab_width`
       (the unstated case asserted against `IndentUnitRule.defaultSpaceWidth`,
       not against a literal), space unit with and without one
-- [ ] test the bounded line primitive against the whole-text form (same answer
+- [x] test the bounded line primitive against the whole-text form (same answer
       over the full range; whole lines for a mid-line range)
-- [ ] run `swift test` — must pass before Task 2
+- [x] run `swift test` — must pass before Task 2
 
 ### Task 2: The preference and the configuration revision, in Core
 

@@ -70,9 +70,14 @@ public struct TerminatedLineRange: Equatable {
 /// is structural; `TerminatedLinesTests` additionally fuzzes the two against each
 /// other as a lock against a second implementation coming back.
 ///
-/// The same reasoning one level down makes `ranges(_:)` — the split as offsets,
-/// which the save transform edits through — the primitive here, with `split(_:)`
-/// projecting it. There is exactly one traversal that decides where a line ends.
+/// The same reasoning one level down makes the split *as offsets* — which the
+/// save transform edits through — the primitive here, with `split(_:)`
+/// projecting it. One level down again, the offsets themselves are answered by
+/// the **bounded** `ranges(in:range:)`, of which the whole-text `ranges(_:)` is
+/// the full-range call: a consumer that only cares about the lines it is
+/// drawing must not pay for a traversal of the file, and paying for one in a
+/// second implementation of "where does a line end" would be worse still. There
+/// is exactly one traversal that decides where a line ends.
 ///
 /// The separator set is `NSString`'s own `.byLines` set — LF, CR, the CRLF pair
 /// as *one* separator, NEL (U+0085), LS (U+2028) and PS (U+2029) — which is the
@@ -106,10 +111,34 @@ public enum TerminatedLines {
     /// overlaps to reason about.
     public static func ranges(_ text: String) -> [TerminatedLineRange] {
         let ns = text as NSString
-        guard ns.length > 0 else { return [] }
+        return ranges(in: ns, range: NSRange(location: 0, length: ns.length))
+    }
+
+    /// The same split, bounded: the lines that `range` intersects, as ranges
+    /// into `text`.
+    ///
+    /// **The range is expanded to whole lines before anything is enumerated**,
+    /// through `NSString.lineRange(for:)` — a range that starts or ends
+    /// mid-line answers that line whole, never a fragment of it. A caller
+    /// asking about a *drawn* region therefore gets lines it can reason about
+    /// without knowing where it cut; nothing is clipped on the way out either.
+    /// `range` is clamped to the text first, so an out-of-bounds or negative
+    /// request is answered rather than trapping.
+    ///
+    /// This is *the* primitive: `ranges(_:)` is this function over the full
+    /// range, so there stays exactly one traversal that decides where a line
+    /// ends. Bounding it is what keeps a redraw off a whole-file scan — the
+    /// enumeration only ever visits the expanded span.
+    public static func ranges(in text: NSString, range: NSRange) -> [TerminatedLineRange] {
+        let length = text.length
+        guard length > 0 else { return [] }
+        let start = min(max(0, range.location), length)
+        let end = min(max(start, range.location + max(0, range.length)), length)
+        let expanded = text.lineRange(for: NSRange(location: start, length: end - start))
+        guard expanded.length > 0 else { return [] }
         var ranges: [TerminatedLineRange] = []
-        ns.enumerateSubstrings(
-            in: NSRange(location: 0, length: ns.length),
+        text.enumerateSubstrings(
+            in: expanded,
             options: [.byLines]
         ) { _, substringRange, enclosingRange, _ in
             // The enclosing range covers the line *and* its separator; the part of
