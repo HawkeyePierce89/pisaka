@@ -321,8 +321,8 @@ disagree. No iOS surface is added.
 
 - Modify: `Sources/Pisaka/SettingsView.swift`
 
-- [ ] add the toggle beside the completion toggle, bound straight to the store
-- [ ] run `swift test` — must pass before Task 7
+- [x] add the toggle beside the completion toggle, bound straight to the store
+- [x] run `swift test` — must pass before Task 7
 
 ### Task 7: Verify acceptance criteria
 
