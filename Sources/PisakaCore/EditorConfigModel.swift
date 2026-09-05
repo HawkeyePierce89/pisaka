@@ -26,7 +26,9 @@ import Foundation
 /// deciding which cached files a given `.editorconfig` edit could have affected
 /// means re-walking each of their hierarchies, which is the very work the filter
 /// would be saving. Wholesale, the next keystroke in the front tab pays for one
-/// re-resolution and nothing else does.
+/// re-resolution and nothing else does. Both go through one `invalidate()`,
+/// which also bumps `revision` — the integer a reader caching something derived
+/// from an answer compares to notice that its own copy is stale.
 @MainActor
 public final class EditorConfigModel {
 
@@ -35,6 +37,25 @@ public final class EditorConfigModel {
     /// the containment test both go through it.
     public private(set) var projectRoot: URL?
     private var cache: [URL: EditorConfigProperties] = [:]
+
+    /// How many times every cached answer has been thrown away.
+    ///
+    /// A monotonic counter, bumped by both wholesale invalidations and by
+    /// nothing else, so a reader that caches something *derived* from an answer
+    /// — the editor's indentation widths are the one such reader today — can
+    /// tell in a single integer comparison that what it is holding predates the
+    /// invalidation, without re-asking for the answer to compare it against.
+    ///
+    /// It counts invalidations, not changes: a `noteProjectFilesChanged()` for a
+    /// file that has nothing to do with `.editorconfig` bumps it too, and the
+    /// reader then recomputes an identical answer. That is the cheap direction
+    /// of the trade — the expensive one would be missing a change — and it is
+    /// the same wholesale reasoning the cache itself is built on.
+    ///
+    /// The model stays a plain class and stays unobserved: this is a value to be
+    /// *asked* for on a path that already runs, never a publisher anything
+    /// subscribes to.
+    public private(set) var revision: Int = 0
 
     public init(fileService: FileServicing, projectRoot: URL? = nil) {
         self.fileService = fileService
@@ -70,7 +91,7 @@ public final class EditorConfigModel {
     public func noteProjectRoot(_ root: URL?) {
         guard !isSameRoot(root, projectRoot) else { return }
         projectRoot = root
-        cache.removeAll()
+        invalidate()
     }
 
     /// Something under the project changed on disk: drop every resolved answer.
@@ -80,7 +101,18 @@ public final class EditorConfigModel {
     /// that editing a `.editorconfig` takes effect on the next keystroke without
     /// reopening the project.
     public func noteProjectFilesChanged() {
+        invalidate()
+    }
+
+    /// Throw every resolved answer away and record that it happened.
+    ///
+    /// The one place the cache is cleared, so the revision cannot be bumped
+    /// without the clear or the clear performed without the bump — the two are
+    /// one act, and a second invalidation point added later gets both by
+    /// calling this rather than by remembering to.
+    private func invalidate() {
         cache.removeAll()
+        revision += 1
     }
 
     /// Whether two roots name the same folder, asked canonically so a

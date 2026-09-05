@@ -4,7 +4,9 @@ import Foundation
 /// scales (the shared editor font size — which *is* the code zone, there is no
 /// second setting — the terminal font size and the interface scale), and
 /// whether the editor offers completions at all
-/// (`completionEnabled`). A plain Foundation-only `ObservableObject` (the `WorkspaceModel`
+/// (`completionEnabled`) and whether it tints leading whitespace by
+/// indentation level (`indentLevelHighlightingEnabled`).
+/// A plain Foundation-only `ObservableObject` (the `WorkspaceModel`
 /// precedent) so it stays testable and free of any SwiftUI/AppKit dependency —
 /// the Preferences UI and the act of applying each setting are thin view-layer
 /// wiring on top.
@@ -34,6 +36,15 @@ public final class SettingsStore: ObservableObject {
         /// Preferences checkbox and the iOS Settings row all read and write this
         /// one property, so they cannot disagree.
         public static let completionEnabled = "settings.completionEnabled"
+        /// Whether the editor paints its leading whitespace by indentation level.
+        ///
+        /// A stable key like the rest, and **one** flag rather than one per
+        /// platform for `completionEnabled`'s reason: it is a preference about
+        /// the editor, not about a presentation of it, so a defaults domain
+        /// shared between the two platforms must not answer it twice. Only macOS
+        /// draws anything for it today; iOS reads the same key and shows no
+        /// surface, which is an absent surface rather than a second preference.
+        public static let indentLevelHighlightingEnabled = "settings.indentLevelHighlightingEnabled"
         /// Per-server provisioning consent (D15), as one dictionary of
         /// server id → `LSPServerConsent.rawValue`.
         ///
@@ -172,6 +183,21 @@ public final class SettingsStore: ObservableObject {
         didSet { defaults.set(completionEnabled, forKey: Keys.completionEnabled) }
     }
 
+    /// Whether the editor tints each line's leading whitespace by indentation
+    /// level. Default on.
+    ///
+    /// Off costs the feature nothing but the flag: no width is computed, no
+    /// block is drawn, and every other thing the editor paints — the syntax
+    /// colours, the matched pair, the search matches, the selection — is
+    /// byte-for-byte what it was, because the painting is a pass *under* all of
+    /// them rather than a styling of the text. That is what makes the switch
+    /// instant in both directions and free while it is off.
+    @Published public var indentLevelHighlightingEnabled: Bool {
+        didSet {
+            defaults.set(indentLevelHighlightingEnabled, forKey: Keys.indentLevelHighlightingEnabled)
+        }
+    }
+
     /// What the user has answered about each downloadable language server
     /// (D15), keyed by `LSPDownloadableServer.id`. An id with no entry is
     /// `unasked` — which is why `.unasked` is never *stored*: absence already
@@ -273,6 +299,12 @@ public final class SettingsStore: ObservableObject {
         // older build, a hand-edited domain) fails the cast and falls back to on
         // rather than disabling a feature nobody asked to disable.
         let storedCompletion = (defaults.object(forKey: Keys.completionEnabled) as? Bool) ?? true
+        // The same read, for the same two reasons: `bool(forKey:)` cannot tell an
+        // absent key from a stored `false`, and it coerces a wrong-typed value
+        // instead of refusing it — either way switching off, for every user who
+        // never asked, a feature that ships on.
+        let storedIndentLevels =
+            (defaults.object(forKey: Keys.indentLevelHighlightingEnabled) as? Bool) ?? true
         // Read entry by entry rather than as a whole `[String: String]` cast: a
         // single value of the wrong type — or a raw value this app version does
         // not know — must cost that one server its answer and nothing else. A
@@ -304,6 +336,7 @@ public final class SettingsStore: ObservableObject {
         self.terminalFontSize = storedTerminalFont
         self.interfaceScale = storedInterfaceScale
         self.completionEnabled = storedCompletion
+        self.indentLevelHighlightingEnabled = storedIndentLevels
         self.lspServerConsent = storedConsent
         self.leetCodeFolderPath = storedFolderIsBlank ? nil : storedFolder
         self.leetCodeFolderBookmark = (storedBookmark?.isEmpty ?? true) ? nil : storedBookmark

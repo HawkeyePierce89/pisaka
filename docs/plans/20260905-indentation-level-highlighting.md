@@ -170,16 +170,16 @@ nothing else about it changes.
 - Modify: `Tests/PisakaCoreTests/SettingsStoreTests.swift`,
   `Tests/PisakaCoreTests/EditorConfigModelTests.swift`
 
-- [ ] add the preference (key, published property, load with the absent-key
+- [x] add the preference (key, published property, load with the absent-key
       rule)
-- [ ] add the revision counter to the configuration model's two invalidation
+- [x] add the revision counter to the configuration model's two invalidation
       points
-- [ ] test the default on a fresh store, an absent key reading as on, a
+- [x] test the default on a fresh store, an absent key reading as on, a
       wrong-typed stored value reading as on, and the round trip across a fresh
       store
-- [ ] test that both invalidations bump the revision and that a same-root
+- [x] test that both invalidations bump the revision and that a same-root
       re-assignment does not
-- [ ] run `swift test` — must pass before Task 3
+- [x] run `swift test` — must pass before Task 3
 
 ### Task 3: The palette, its translucency, and the brand-name housekeeping
 
