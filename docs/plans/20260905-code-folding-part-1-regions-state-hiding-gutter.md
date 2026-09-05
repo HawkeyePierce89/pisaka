@@ -371,26 +371,26 @@ None new. Foundation only in Core; AppKit only in the app half.
 **Files:**
 
 - Modify: `Sources/Pisaka/LineNumberRulerView.swift`
-- [ ] A chevron column left of the line numbers, sized from the ruler font so it
+- [x] A chevron column left of the line numbers, sized from the ruler font so it
     scales with the interface zoom like the existing columns. `chevron.down` in
     `secondaryLabelColor` on every candidate's header line, `chevron.right` in
     `labelColor` on a folded one, nothing on other lines. The column's width is
     added to `updateThickness()` beside `annotationColumnWidth` and
     `diagnosticColumnWidth`.
-- [ ] `setFoldRegions(_:folded:)` — the ruler is *told* both sets and decides
+- [x] `setFoldRegions(_:folded:)` — the ruler is *told* both sets and decides
     nothing about them; a changed set invalidates the ruler only.
-- [ ] `drawHashMarksAndLabels(in:)`: the walk keeps incrementing `lineNumber` per
+- [x] `drawHashMarksAndLabels(in:)`: the walk keeps incrementing `lineNumber` per
     line as it does today, but **skips drawing** every line whose start falls
     strictly inside a hidden range — so `12` is followed by `27`, the numbers
     stay honest and never overlap. The blame column and the diagnostic markers
     draw inside the same skipped branch and therefore follow with no code of
     their own.
-- [ ] `mouseDown(with:)`: a click inside the chevron column resolves the line from
+- [x] `mouseDown(with:)`: a click inside the chevron column resolves the line from
     the layout manager's fragment geometry, finds the candidate with that header
     line, and calls `onToggleFold?(region)`. A click anywhere else falls through
     to `super`, so the existing blame context menu is untouched.
-- [ ] Tests: none here (view layer). Pinned by Task 9, verified by the manual pass.
-- [ ] Run `swift test` and `swiftlint --strict` — must pass before Task 7.
+- [x] Tests: none here (view layer). Pinned by Task 9, verified by the manual pass.
+- [x] Run `swift test` and `swiftlint --strict` — must pass before Task 7.
 
 ### Task 7: The controller, the wiring and the reveal funnel (App, macOS)
 

@@ -26,8 +26,21 @@ import PisakaCore
 /// `rulerFont`, so it scales with the code zoom exactly like the numbers it
 /// sits beside (`zoomSurfaceKind == .code` covers the whole gutter).
 ///
+/// It also hosts the **fold chevron column**, between the diagnostic markers
+/// and the numbers: `chevron.down` on the header line of every fold candidate,
+/// `chevron.right` on a folded one, nothing on any other line. Its width is
+/// constant for a given font size, for the marker column's reason — candidates
+/// arrive on their own schedule (a debounce, or a language server) and must not
+/// slide the gutter under the pointer when they do. The same walk **skips**
+/// every line whose start falls strictly inside a folded range, so `12` is
+/// followed by `27` rather than by a number drawn over the header's row; the
+/// blame labels and the severity dots sit inside that skipped branch and follow
+/// with no code of their own.
+///
 /// This is a pure view concern (no domain logic — the parsing lives in
-/// `BlameParser` and the edit-driven shift in `BlameShift`), so it lives in the
+/// `BlameParser` and the edit-driven shift in `BlameShift`, and which blocks are
+/// foldable and which are folded are `FoldRegionScanner`'s and `FoldState`'s
+/// answers, told to this view rather than derived by it), so it lives in the
 /// `Pisaka` executable target rather than `PisakaCore`.
 ///
 /// It declares itself a **code** zoom surface. The ruler is a sibling of the text
@@ -140,6 +153,36 @@ final class LineNumberRulerView: NSRulerView, ZoomSurfaceProviding {
     /// so every point of it is paid by every document, even a plain-text one no
     /// server will ever diagnose.
     private let diagnosticGap: CGFloat = 6
+
+    /// The fold candidates for the displayed document and the folded set among
+    /// them, both installed wholesale by ``setFoldRegions(_:folded:)``.
+    ///
+    /// The ruler is **told** both and decides neither: which blocks are
+    /// foldable is the scanner's (or a language server's) answer, and which of
+    /// them are folded is `FoldState`'s. All this view does with them is draw a
+    /// chevron, skip a hidden line, and name the region a click landed on.
+    private var foldRegions: [FoldRegion] = []
+    private var foldedState = FoldState()
+
+    /// The outermost candidate per header line, indexed once per install so the
+    /// draw loop and the click both answer in O(1) instead of scanning the
+    /// candidate list per visible line.
+    ///
+    /// "Outermost" is not a rule of this view's: the index is built in
+    /// `FoldRegion`'s own `Comparable` order (header line, then the longer
+    /// region first), so the entry for a header line is the very one
+    /// `FoldState.folded(containing:)` picks when it measures the placeholder —
+    /// the chevron and the `…` can therefore never disagree about which block a
+    /// header line stands for.
+    private var foldCandidateByHeaderLine: [Int: FoldRegion] = [:]
+
+    /// Invoked when a chevron is clicked, carrying the candidate whose header
+    /// line was hit. The owner captures itself **weakly** when installing this,
+    /// for the same retain-cycle reason as `onToggleAnnotate` above.
+    var onToggleFold: ((FoldRegion) -> Void)?
+
+    /// Horizontal gap between the chevron column and the numbers beside it.
+    private let chevronGap: CGFloat = 4
 
     /// Parses ``BlameLine/date``'s raw ISO-8601 string. One formatter, reused —
     /// a label is built once per *commit*, not per line, but the memo is rebuilt
@@ -351,6 +394,32 @@ final class LineNumberRulerView: NSRulerView, ZoomSurfaceProviding {
         needsDisplay = true
     }
 
+    /// Install the fold candidates and the folded set for the displayed
+    /// document and redraw.
+    ///
+    /// Both sets arrive together because the gutter draws one column out of the
+    /// two — a candidate is a `chevron.down`, a folded candidate a
+    /// `chevron.right` — and because a line's number is drawn or skipped by the
+    /// folded set alone. Handing them over separately would let the ruler paint
+    /// one frame in which a chevron points at a block the numbering does not
+    /// agree is hidden.
+    ///
+    /// Thickness is deliberately *not* touched: the chevron column's width
+    /// depends on the font and on nothing else (see ``chevronColumnWidth``), so
+    /// only a redraw is needed. Unchanged input is a no-op — the controller
+    /// calls this on every view update.
+    func setFoldRegions(_ regions: [FoldRegion], folded: FoldState) {
+        guard regions != foldRegions || folded != foldedState else { return }
+        foldRegions = regions
+        foldedState = folded
+        var byHeader: [Int: FoldRegion] = [:]
+        for region in regions.sorted() where byHeader[region.headerLine] == nil {
+            byHeader[region.headerLine] = region
+        }
+        foldCandidateByHeaderLine = byHeader
+        needsDisplay = true
+    }
+
     /// Build the `hash → label` memo for the distinct commits in `lines`.
     ///
     /// The label is `"<author> <short date>"`. Uncommitted lines are skipped: they
@@ -450,6 +519,7 @@ final class LineNumberRulerView: NSRulerView, ZoomSurfaceProviding {
         let thickness = ceil(width)
             + annotationColumnWidth(font: font)
             + diagnosticColumnWidth
+            + chevronColumnWidth
             + horizontalPadding * 2
         if ruleThickness != thickness {
             ruleThickness = thickness
@@ -481,6 +551,34 @@ final class LineNumberRulerView: NSRulerView, ZoomSurfaceProviding {
     /// an absolute pixel size.
     private var diagnosticMarkerSide: CGFloat {
         ceil(rulerFont.pointSize * 0.5)
+    }
+
+    /// Side of the chevron cell, derived from the ruler font rather than fixed
+    /// in points so it tracks the code zoom exactly like the numbers and the
+    /// severity dots beside it.
+    private var chevronSide: CGFloat {
+        ceil(rulerFont.pointSize * 0.8)
+    }
+
+    /// The chevron column's contribution to the gutter: one cell plus its gap.
+    ///
+    /// **Constant for a given font size**, like ``diagnosticColumnWidth`` and
+    /// for the same trade: candidates are computed after a debounce and can
+    /// arrive from a language server seconds after a file opens, so a width that
+    /// appeared with the first candidate would slide the whole editor sideways
+    /// on every open, every tab switch and every re-scan. The blame column can
+    /// stay conditional because *the user* turns it on.
+    private var chevronColumnWidth: CGFloat {
+        chevronSide + chevronGap
+    }
+
+    /// Left edge of the chevron cell. The column hangs off the numbers' left
+    /// edge the way the marker column hangs off its own: right-aligned numbers
+    /// end at `ruleThickness - horizontalPadding` and their band is
+    /// `numberBandWidth` wide, so the cell starts one column width before it —
+    /// the gap sitting between the chevron and the numbers.
+    private var chevronColumnMinX: CGFloat {
+        ruleThickness - horizontalPadding - numberBandWidth - chevronColumnWidth
     }
 
     /// Width of the annotation column at `font` — the widest memoized label plus
@@ -589,6 +687,18 @@ final class LineNumberRulerView: NSRulerView, ZoomSurfaceProviding {
         let end = charRange.location + charRange.length
         while index < content.length && index < end {
             let lineRange = content.lineRange(for: NSRange(location: index, length: 0))
+            // A line whose start falls strictly inside a folded range has no row
+            // of its own — its glyphs are null and its separator advances
+            // nothing, so it shares the header's line fragment. Drawing it would
+            // stack a second number, a second blame label and a second severity
+            // dot on the header's row. The counter still advances, so the
+            // numbering stays the buffer's: `12` is followed by `27`, which is
+            // the honest answer about what the next visible line is.
+            guard !foldedState.hides(offset: lineRange.location) else {
+                lineNumber += 1
+                index = NSMaxRange(lineRange)
+                continue
+            }
             let firstGlyph = layoutManager.glyphIndexForCharacter(at: lineRange.location)
             var effectiveRange = NSRange(location: 0, length: 0)
             let fragmentRect = layoutManager.lineFragmentRect(
@@ -596,6 +706,12 @@ final class LineNumberRulerView: NSRulerView, ZoomSurfaceProviding {
                 effectiveRange: &effectiveRange
             )
 
+            drawFoldChevron(
+                forLine: lineNumber,
+                fragmentRect: fragmentRect,
+                textOrigin: textOrigin,
+                relativePoint: relativePoint
+            )
             drawLineNumber(
                 lineNumber,
                 fragmentRect: fragmentRect,
@@ -708,14 +824,102 @@ final class LineNumberRulerView: NSRulerView, ZoomSurfaceProviding {
               let severity = diagnosticSeverities[index]
         else { return }
         let side = diagnosticMarkerSide
-        // The column hangs off the numbers' left edge: right-aligned numbers
-        // end at `ruleThickness - padding`, their band is `numberBandWidth`
-        // wide, and the gap separates the two columns.
-        let x = ruleThickness - horizontalPadding - numberBandWidth - diagnosticGap - side
+        // The column hangs off the chevron column's left edge, which in turn
+        // hangs off the numbers': right-aligned numbers end at
+        // `ruleThickness - padding`, their band is `numberBandWidth` wide, the
+        // chevrons take one column of their own, and the gap separates this
+        // column from them.
+        let x = chevronColumnMinX - diagnosticGap - side
         let y = relativePoint.y + textOrigin.y + fragmentRect.minY
             + (fragmentRect.height - side) / 2
         SyntaxTheme.shared.nsDiagnosticColor(for: severity).setFill()
         NSBezierPath(ovalIn: NSRect(x: x, y: y, width: side, height: side)).fill()
+    }
+
+    /// Draw one line's chevron, centered in the chevron column beside its line
+    /// fragment: `chevron.down` in `secondaryLabelColor` for a candidate that is
+    /// open, `chevron.right` in `labelColor` for one that is folded — the folded
+    /// one louder because it is the only sign left in the gutter that a block is
+    /// hidden. A line that heads no candidate draws nothing; the column is
+    /// blank, not absent.
+    ///
+    /// The image is configured at draw time, the way the completion panel's
+    /// badges are and for the same reason the fold placeholder is measured at
+    /// draw time: nothing is cached, so a zoom, a font change and a light/dark
+    /// switch each need no bookkeeping at all.
+    private func drawFoldChevron(
+        forLine number: Int,
+        fragmentRect: NSRect,
+        textOrigin: NSPoint,
+        relativePoint: NSPoint
+    ) {
+        let line = number - 1
+        guard foldCandidateByHeaderLine[line] != nil else { return }
+        let isFolded = foldedState.folded(containing: line) != nil
+        let symbolName = isFolded ? "chevron.right" : "chevron.down"
+        let color = isFolded ? NSColor.labelColor : NSColor.secondaryLabelColor
+        guard let image = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil) else { return }
+        let side = chevronSide
+        let configuration = NSImage.SymbolConfiguration(pointSize: side, weight: .regular)
+            .applying(.init(paletteColors: [color]))
+        let configured = image.withSymbolConfiguration(configuration) ?? image
+        // A chevron is not square, so the configured image is centered inside
+        // the square cell rather than stretched to fill it.
+        let drawn = configured.size
+        let cellY = relativePoint.y + textOrigin.y + fragmentRect.minY
+            + (fragmentRect.height - side) / 2
+        configured.draw(in: NSRect(
+            x: chevronColumnMinX + (side - drawn.width) / 2,
+            y: cellY + (side - drawn.height) / 2,
+            width: drawn.width,
+            height: drawn.height
+        ))
+    }
+
+    // MARK: - Clicks
+
+    /// A click inside the chevron column toggles that line's candidate;
+    /// everything else falls through to `super`, so the blame context menu and
+    /// every ruler behavior above are untouched.
+    override func mouseDown(with event: NSEvent) {
+        if toggleFoldIfChevronClicked(event) { return }
+        super.mouseDown(with: event)
+    }
+
+    /// Resolve a click in the chevron column to a candidate and report it.
+    ///
+    /// The line comes from the layout manager's fragment geometry rather than
+    /// from arithmetic over the point: the ruler's y is the fragment's y shifted
+    /// by the clip view's scroll and the text container's origin — the very
+    /// mapping the draw loop uses in reverse — so asking the layout manager
+    /// which glyph sits at that height answers with the same line the chevron
+    /// was drawn beside, whatever wrapping or folding did to the rows above.
+    ///
+    /// `false` means "not mine": a click outside the column, on a line heading
+    /// no candidate, or before anything is laid out.
+    private func toggleFoldIfChevronClicked(_ event: NSEvent) -> Bool {
+        guard let handler = onToggleFold, !foldCandidateByHeaderLine.isEmpty else { return false }
+        let point = convert(event.locationInWindow, from: nil)
+        let minX = chevronColumnMinX
+        guard point.x >= minX, point.x < minX + chevronColumnWidth else { return false }
+        guard
+            let textView,
+            let layoutManager = textView.layoutManager,
+            let textContainer = textView.textContainer,
+            layoutManager.numberOfGlyphs > 0
+        else { return false }
+        let content = textView.string as NSString
+        guard content.length > 0 else { return false }
+        let relativePoint = convert(NSPoint.zero, from: textView)
+        let textOrigin = textView.textContainerOrigin
+        let containerPoint = NSPoint(x: 0, y: point.y - relativePoint.y - textOrigin.y)
+        let glyph = layoutManager.glyphIndex(for: containerPoint, in: textContainer)
+        let character = min(layoutManager.characterIndexForGlyph(at: glyph), content.length)
+        let lineRange = content.lineRange(for: NSRange(location: character, length: 0))
+        let line = lineNumber(forLineStart: lineRange.location) - 1
+        guard let region = foldCandidateByHeaderLine[line] else { return false }
+        handler(region)
+        return true
     }
 
     // MARK: - Context menu
