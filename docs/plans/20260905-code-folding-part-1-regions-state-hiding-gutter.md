@@ -127,7 +127,7 @@ None new. Foundation only in Core; AppKit only in the app half.
 - Create: `Sources/PisakaCore/FoldRegion.swift`
 - Create: `Sources/PisakaCore/FoldRegionScanner.swift`
 - Create: `Tests/PisakaCoreTests/FoldRegionScannerTests.swift`
-- [ ] `FoldRegion`: the UTF-16 `hiddenRange` (from the end of the first line's
+- [x] `FoldRegion`: the UTF-16 `hiddenRange` (from the end of the first line's
     *content* to the end of the last line's *content*, so the header stays
     visible in full and the block's last line joins it), `headerLine` (the
     0-based line index for the gutter), and `kind: FoldRegionKind?` with the
@@ -136,7 +136,7 @@ None new. Foundation only in Core; AppKit only in the app half.
     first. A region with an empty hidden range is not representable — the
     initializer refuses it, so "a chevron exists" and "there is something to
     hide" are one fact.
-- [ ] `FoldRegionScanner.scan(text:widths:)`, pure and Foundation-only:
+- [x] `FoldRegionScanner.scan(text:widths:)`, pure and Foundation-only:
     - bracket candidates from `BracketDepthScanner.scan(text:)` — every matched
       pair (`isUnmatched == false`) whose opener and closer sit on different
       lines;
@@ -151,16 +151,16 @@ None new. Foundation only in Core; AppKit only in the app half.
     - no comment and no import regions (out of scope);
     - lines come from `TerminatedLines`, so LF/CR/CRLF/NEL/LS/PS are handled by
       use rather than by a second table.
-- [ ] The scan is one pass over the bracket tokens plus one levelled pass, both
+- [x] The scan is one pass over the bracket tokens plus one levelled pass, both
     already chunked/bounded by their engines; it stays cheap enough for the main
     actor after a debounce, exactly as the rainbow scan is.
-- [ ] Tests: nested brackets; a single-line pair yielding nothing; an unmatched
+- [x] Tests: nested brackets; a single-line pair yielding nothing; an unmatched
     opener; crossed brackets; indentation blocks in a tab-indented and a
     space-indented file; blank lines inside and after a block; the two-line
     minimum on both sources; the merge rule (bracket wins) proven by a case
     where the two disagree about the end; each of the six line separators; an
     empty text; a text of one line.
-- [ ] Run `swift test` — must pass before Task 2.
+- [x] Run `swift test` — must pass before Task 2.
 
 ### Task 2: Fold state, its two maintenance rules, the caret and reveal rules (Core)
 
