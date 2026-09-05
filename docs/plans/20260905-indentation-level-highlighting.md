@@ -251,10 +251,10 @@ area when any of the three changes, so a change repaints without a reload.
 
 - Modify: `Sources/Pisaka/BracketOverlayLayoutManager.swift`
 
-- [ ] add the painting state and its setter, invalidating on a change
-- [ ] override the background pass: blocks first, then `super`; document the
+- [x] add the painting state and its setter, invalidating on a change
+- [x] override the background pass: blocks first, then `super`; document the
       ordering and why temporary attributes stay out of it
-- [ ] run `swift test` — must pass before Task 5
+- [x] run `swift test` — must pass before Task 5
 
 ### Task 5: The widths and the flag reaching the editor
 
