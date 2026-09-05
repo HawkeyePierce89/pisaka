@@ -211,14 +211,14 @@ what it must stay distinguishable from, why — without naming any product.
 - Modify: `Sources/Pisaka/SyntaxTheme.swift`,
   `Sources/Pisaka/Platform/PlatformColor.swift`
 
-- [ ] add the alpha-carrying dynamic colour form to the shim
-- [ ] add the level palette and its cycling accessor (plus the `NSColor`
+- [x] add the alpha-carrying dynamic colour form to the shim
+- [x] add the level palette and its cycling accessor (plus the `NSColor`
       spelling the layout manager calls, beside the existing ones)
-- [ ] rewrite the bracket-palette, matched-pair-background and token-table doc
+- [x] rewrite the bracket-palette, matched-pair-background and token-table doc
       comments without any product name
-- [ ] grep the whole file for any remaining product name and confirm none is
+- [x] grep the whole file for any remaining product name and confirm none is
       left
-- [ ] run `swift test` — must pass before Task 4
+- [x] run `swift test` — must pass before Task 4
 
 ### Task 4: Painting, in the editor's layout manager
 

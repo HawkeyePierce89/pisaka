@@ -35,12 +35,25 @@ extension PlatformColor {
     /// Builds a dynamic color that resolves to `light` or `dark` (each a
     /// `0xRRGGBB` literal) depending on the effective appearance at draw time, so a
     /// single table entry stays legible in both light and dark mode without a
-    /// user-configurable theme. macOS resolves via the `NSColor(name:)` appearance
-    /// closure (the original syntax-theme implementation, preserved byte-for-byte);
-    /// iOS via `UIColor(dynamicProvider:)` keyed on `userInterfaceStyle`.
+    /// user-configurable theme. Opaque: the alpha-carrying form below is the
+    /// primitive, and this is it at `alpha: 1`.
     static func dynamic(light: UInt32, dark: UInt32) -> PlatformColor {
-        let lightColor = PlatformColor(rgb: light)
-        let darkColor = PlatformColor(rgb: dark)
+        dynamic(light: light, dark: dark, alpha: 1)
+    }
+
+    /// The translucent form: the same appearance-aware resolution, with `alpha`
+    /// applied to each *per-appearance variant* rather than to the dynamic color
+    /// itself. That is the whole point of the second constructor — a dynamic color
+    /// has no single component to read, so asking the finished color for a
+    /// translucent copy resolves it against whatever appearance happens to be
+    /// current and freezes it there; applying the alpha to the two concrete sRGB
+    /// colors *before* the closure keeps the result dynamic. macOS resolves via the
+    /// `NSColor(name:)` appearance closure (the original syntax-theme
+    /// implementation, preserved byte-for-byte); iOS via `UIColor(dynamicProvider:)`
+    /// keyed on `userInterfaceStyle`.
+    static func dynamic(light: UInt32, dark: UInt32, alpha: CGFloat) -> PlatformColor {
+        let lightColor = PlatformColor(rgb: light).withAlphaComponent(alpha)
+        let darkColor = PlatformColor(rgb: dark).withAlphaComponent(alpha)
         #if os(macOS)
         return NSColor(name: nil) { appearance in
             let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
