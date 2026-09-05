@@ -326,18 +326,18 @@ disagree. No iOS surface is added.
 
 ### Task 7: Verify acceptance criteria
 
-- [ ] `swift test` green
-- [ ] `swiftlint --strict` from the repository root clean; if a measured ceiling
-      has to move, move it by the measured amount, record the reason in
-      `.swiftlint.yml`'s comment and pin it in `LintConfigurationTests`
-- [ ] `xcodegen generate` succeeds
-- [ ] macOS build green (`xcodebuild -project Pisaka.xcodeproj -scheme Pisaka
+- [x] `swift test` green
+- [x] `swiftlint --strict` from the repository root clean (0 violations in 500
+      files; no measured ceiling had to move, so nothing was recorded in
+      `.swiftlint.yml` or `LintConfigurationTests`)
+- [x] `xcodegen generate` succeeds
+- [x] macOS build green (`xcodebuild -project Pisaka.xcodeproj -scheme Pisaka
       -destination 'platform=macOS' build`)
-- [ ] iOS Simulator build green (`-destination 'platform=iOS
+- [x] iOS Simulator build green (`-destination 'platform=iOS
       Simulator,name=iPhone 17 Pro'`)
-- [ ] confirm `PisakaApp.swift` is unchanged and `ContentView.swift` grew by
+- [x] confirm `PisakaApp.swift` is unchanged and `ContentView.swift` grew by
       exactly the one line that passes the flag
-- [ ] confirm no product or brand name appears in the diff
+- [x] confirm no product or brand name appears in the diff
 
 ### Task 8: Update documentation
 
