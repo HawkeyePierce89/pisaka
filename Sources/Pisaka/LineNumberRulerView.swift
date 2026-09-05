@@ -392,18 +392,12 @@ final class LineNumberRulerView: NSRulerView, ZoomSurfaceProviding {
     /// Thickness is deliberately *not* touched: the column's width does not
     /// depend on its contents (see ``diagnosticColumnWidth``), so only a redraw
     /// is needed. An unchanged array is a no-op — this runs on every
-    /// diagnostics-model mutation and every keystroke-driven repaint.
-    /// Install the per-line worst severities for the displayed document and
-    /// redraw. The array arrives exactly ``lineCount`` long — the caller passes
-    /// this ruler's own count and line starts to the store's query, which
-    /// returns precisely that many entries; anything else would be a caller
-    /// bug, and is refused rather than padded into a lie (the draw loop bounds
-    /// -checks its index regardless). The folded-header rule is applied here
-    /// rather than in the coordinator, because this is the one place holding
-    /// both inputs and the gutter is already the file the gating suite allows
-    /// to be *told* a ``FoldState``: it asks the Core rule when either input
-    /// is installed and draws the answer. It decides nothing and computes no
-    /// severity of its own.
+    /// diagnostics-model mutation and every keystroke-driven repaint. The
+    /// folded-header rule is applied here rather than in the coordinator,
+    /// because this is the one place holding both inputs and the gutter is
+    /// already the file the gating suite allows to be *told* a ``FoldState``: it
+    /// asks the Core rule when either input is installed and draws the answer.
+    /// It decides nothing and computes no severity of its own.
     func setDiagnosticSeverities(_ severities: [DiagnosticSeverity?]) {
         guard severities.count == lineStartOffsets.count else { return }
         guard severities != rawDiagnosticSeverities else { return }
