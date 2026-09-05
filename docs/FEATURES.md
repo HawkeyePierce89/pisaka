@@ -243,6 +243,24 @@ user sees it.
   inside a string literal or a comment is highlighted like any other (a
   tree-sitter-aware version is a follow-up). macOS only for now — no iOS variant
   and no settings to turn it off or change the number of colors yet.
+- Indentation-level highlighting: the leading whitespace of every line is
+  tinted one indentation unit at a time, in a translucent color that cycles with
+  the unit's level, so nesting reads at a glance and a mis-nested line stands
+  out without reading the code. What counts as one level is the same answer
+  Enter and Tab use — `.editorconfig`'s `indent_style`/`indent_size`/`tab_width`
+  first, the file's own content second — so a file under `indent_size = 2` gets
+  two-space blocks and a tab-indented file with no configuration gets exactly one
+  block per tab. A tab that crosses several levels at once is still drawn as one
+  block; whitespace left over past the last whole unit is drawn shorter, at the
+  next level; an empty line shows nothing, and a whitespace-only line is tinted
+  by its own width. The tints are painted *underneath* everything else, so the
+  text, the selection, the matched-pair background and both search-match
+  highlights all stay visible on top, the syntax colors are identical either way,
+  and nothing about the document changes — undo never contains a "highlighting
+  edit". Both light and dark appearances are covered, and the blocks follow the
+  code font as you zoom. On by default; Preferences > General > "Highlight
+  indentation levels" turns it off for every open tab at once, and off it draws
+  and computes nothing. macOS only — see the known limitations.
 - Duplicate line or selection (Cmd+D): with no selection the
   caret's line is copied below it and the caret moves into the copy at the same
   column; with a selection the selected text is copied right after itself and the
@@ -1309,6 +1327,10 @@ and iPhone. The feature scope landed so far:
   menu, pull to refresh, and a tap to open — which dismisses the sheet and leaves
   you in the solution file.
 - The embedded terminal is macOS-only (SwiftTerm) and not present on iOS.
+- Indentation-level highlighting is macOS-only: the iOS editor paints nothing.
+  The preference itself is shared — one flag, not one per platform — so turning
+  it off on the Mac is remembered everywhere; iOS simply shows no switch for it
+  and no blocks, which is an absent surface rather than a second setting.
 - The database viewer is macOS-only. Opening a `.sqlite` or `.db` file on iOS
   behaves exactly as it did before the viewer existed: the file is read as text,
   fails to decode, and the open reports that — an honest failure rather than a

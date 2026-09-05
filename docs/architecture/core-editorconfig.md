@@ -353,9 +353,30 @@ never rewritten, and there is no whole-project normalization command.
     filtering by path: deciding which cached files a given `.editorconfig` edit
     could have affected means re-walking each of their hierarchies, which is the
     very work the filter would be saving — wholesale, the next keystroke in the
-    front tab pays for one re-resolution and nothing else does. Unit-tested in
+    front tab pays for one re-resolution and nothing else does. Both invalidations
+    go through **one private `invalidate()`**, which clears the cache and bumps
+    `revision` — a monotonic public counter of how many times every cached answer
+    has been thrown away. The two are one act by construction, so the revision
+    cannot be bumped without the clear or the clear performed without the bump,
+    and a third invalidation point added later gets both by calling `invalidate()`
+    rather than by remembering to. **Who reads it**: a consumer that caches
+    something *derived* from an answer, and today there is exactly one — the macOS
+    editor's indentation-level widths, which are derived off
+    `IndentUnitRule.unit(config:inferred:)` and must not be re-derived on every
+    re-render (their content half walks the whole buffer). Comparing one integer
+    against the last one seen tells it that what it holds predates an
+    invalidation, without re-asking for the answer to compare against. It counts
+    *invalidations, not changes*: a `noteProjectFilesChanged()` for a file that has
+    nothing to do with `.editorconfig` bumps it too and the reader then recomputes
+    an identical answer — the cheap direction of the same wholesale trade the cache
+    itself is built on, the expensive one being a missed change. The model stays a
+    plain class and stays **unobserved**: `revision` is a value to be *asked* for on
+    a path that already runs, never a publisher anything subscribes to, which is why
+    its reader compares it on the editor's debounced text path as well as on the
+    update path (`app-editor-overlays.md`). Unit-tested in
     `EditorConfigModelTests`, including the cache hit asserted against
-    `StubFileTree`'s read log.
+    `StubFileTree`'s read log, that both invalidations bump the revision, and that
+    a same-root re-assignment does not.
   - `IndentUnitRule.swift` — which string is one indentation level, what the Tab
     key inserts, and the multi-insertion-point arithmetic; pure and
     Foundation-only, like every other engine here. `TabInsertionPlan` carries

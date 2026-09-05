@@ -341,29 +341,29 @@ disagree. No iOS surface is added.
 
 ### Task 8: Update documentation
 
-- [ ] `docs/architecture/core-editor.md` — **only** the new engine's entry: the
+- [x] `docs/architecture/core-editor.md` — **only** the new engine's entry: the
       two widths, the run rule, the tab-stop arithmetic, the trailing partial
       unit, the unclipped answer, the degenerate-width refusal, and that the
       fallback width is read from `IndentUnitRule.defaultSpaceWidth`
-- [ ] `docs/architecture/core-diff-merge.md` — update the `TerminatedLines`
+- [x] `docs/architecture/core-diff-merge.md` — update the `TerminatedLines`
       entry (which lives there, not in `core-editor.md`) for the bounded
       primitive and why it is *the* primitive the whole-text form projects from
-- [ ] `docs/architecture/app-editor-overlays.md` — the painting rule and its
+- [x] `docs/architecture/app-editor-overlays.md` — the painting rule and its
       ordering (blocks first, then `super`; temporary attributes never involved;
       geometry at draw time; the widths arrive from the coordinator), in both
       the layout-manager and the bracket-controller entries, **including** the
       stated freshness dependency: the configuration model is not observed, the
       update path fires only through the workspace tree revision, and the
       revision is therefore also compared in the scan-applied hook
-- [ ] `docs/architecture/core-services.md` — the new preference in the
+- [x] `docs/architecture/core-services.md` — the new preference in the
       `SettingsStore` entry, with the absent-key rule
-- [ ] `docs/architecture/core-editorconfig.md` — the configuration model's
+- [x] `docs/architecture/core-editorconfig.md` — the configuration model's
       revision and who reads it
-- [ ] `docs/architecture/app-ios.md` — the shim's alpha-carrying colour form
-- [ ] `docs/FEATURES.md` — a paragraph in the macOS section, and a line in the
+- [x] `docs/architecture/app-ios.md` — the shim's alpha-carrying colour form
+- [x] `docs/FEATURES.md` — a paragraph in the macOS section, and a line in the
       known limitations that iOS has no painting
-- [ ] `README.md` — a mention in the feature list
-- [ ] `CLAUDE.md` — one index line for the new Core file under the
+- [x] `README.md` — a mention in the feature list
+- [x] `CLAUDE.md` — one index line for the new Core file under the
       editor-engines doc
 
 ## Post-Completion (manual, on a running build)

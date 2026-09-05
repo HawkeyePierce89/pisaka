@@ -93,6 +93,7 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
 - `AutoPairEngine.swift` — auto-close/wrap/type-over/pair-delete decisions.
 - `BracketMatchEngine.swift` — caret↔bracket-pair matching.
 - `BracketDepthScanner.swift` — rainbow-bracket depth scan.
+- `IndentLevelScanner.swift` — leading whitespace → levelled runs; the two column widths, derived from `IndentUnitRule`'s unit.
 - `TextSearch.swift` — the find/replace engine shared by ⌘F and Find in Files.
 - `EditorViewport.swift` — per-tab caret + scroll anchor (a character offset) and the per-file memory.
 

@@ -164,6 +164,49 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     edge — and a fragment under no cached run draws nothing (the attribute came
     from someone else, or the cache moved on; both self-correct on the next
     push).
+    The one thing this class draws that is **not** a temporary attribute is the
+    **indentation-level painting**: a tint behind each unit of a line's leading
+    whitespace, cycled by that unit's level. `setIndentLevelPainting(enabled:widths:)`
+    hands over the whole of its state — the flag plus the two column widths
+    (`IndentLevelWidths`) — from `CodeEditorView.Coordinator`; **this class derives
+    neither width and reads no setting**, so the block Enter appends and the block
+    painted under it cannot come from two different rules. A change to any of the
+    three invalidates the *visible* area (the text view's visible rect mapped back
+    through the container, so the invalidation is the size of the viewport rather
+    than of the file), which is what makes toggling the preference, switching into a
+    tab with a different unit, or an `.editorconfig` edit repaint without a reload;
+    unchanged state is a deliberate no-op, since the setter is called on every view
+    update and an unconditional invalidation would redraw the viewport on every
+    keystroke. Off, a degenerate width (zero or less, which is also how an
+    uncomputed width arrives) or an absent text storage draws nothing and leaves
+    the pass byte-for-byte what it was.
+    **The ordering is blocks first, then `super`**, in an override of
+    `drawBackground(forGlyphRange:at:)`: `super` is what paints the `.backgroundColor`
+    temporary attributes — the caret's matched pair and both search-match
+    backgrounds — and the selection is drawn after this pass entirely, so painting
+    the blocks *before* `super` puts every one of those on top of the tint, which is
+    the only arrangement in which a search match landing on indentation stays
+    visible. **Why temporary attributes stay out of it**: the obvious alternative, a
+    `.backgroundColor` over each run, would make this class a second writer of the
+    one key `paintBackgrounds` is documented as the sole writer of, and the two
+    would collide over exactly the characters that matter — a search match sitting
+    on whitespace would either lose its highlight or erase the tint depending on who
+    wrote last. Drawing is not an attribute, so the two mechanisms never meet, and
+    Neon's syntax styling is untouched for the same reason: this path writes no
+    attribute at all. **Geometry is read at draw time and never cached**: the drawn
+    glyph range becomes a character range, `IndentLevelScanner.runs(in:range:widths:)`
+    answers the runs of the lines it intersects (so a draw never walks the whole
+    file, and the buffer is read through the storage's `mutableString` handle rather
+    than by bridging `string`, so a draw copies no text), each run's x extent is this
+    layout manager's own bounding rect for it and its y extent the enclosing
+    line-fragment rect — taking the height from the fragment is what makes
+    consecutive lines at one level read as a single unbroken column, and it is why a
+    font-size change needs no bookkeeping at all. The engine answers whole lines
+    **unclipped**, so a run starting above the viewport is simply drawn where it is
+    and clipped by the context. The level → color resolution is
+    `SyntaxTheme.nsIndentLevelColor(forLevel:)` — the honest level in, `level % N`
+    over a translucent four-hue palette out, the same "semantics in Core, color in
+    the view" split the rainbow palette follows.
   - `BracketHighlightController.swift` — the macOS `@MainActor` owner of the
     bracket overlays: it holds the cached `[BracketToken]` for the current buffer
     behind a (`fileID`, text length, edit epoch) cache key with a ~100 ms debounce
@@ -229,6 +272,29 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     (`textView.layoutManager as? BracketOverlayLayoutManager`) for the same reason
     the gutter and Neon do, and a text view without it simply has the overlays
     disabled rather than crashing.
+    One hook hangs off the applied scan: `onScanApplied`, called every time a scan
+    has actually been applied — after the debounce on an ordinary edit, and
+    synchronously on the immediate path a tab switch takes. It exists so the
+    editor's *second* per-edit computation, the indentation-level widths (whose
+    content half is `IndentEngine.inferIndentUnit(text:)`, a walk of the whole
+    buffer), rides this class's one debounce and one generation token instead of
+    growing a second pair of its own; a scan a newer request superseded never
+    reaches `applyScan`, so the hook never fires for a buffer that is no longer on
+    screen. Nothing here reads what the hook does — the coordinator sets it, weakly
+    captured per `CodeEditorView`'s retain-cycle rule.
+    **The freshness dependency the hook also covers, stated because it is
+    indirect.** The coordinator recomputes the widths when the buffer changed *or*
+    when `EditorConfigModel.revision` moved. That model is a plain class the editor
+    does **not** observe: an on-disk `.editorconfig` edit reaches `updateNSView`
+    only because the same FSEvents turn that calls `noteProjectFilesChanged()` also
+    bumps `WorkspaceModel.treeRevision`, whose `@Published` change re-renders the
+    content view. Because that path is indirect and could go quiet, the revision is
+    compared **in the scan-applied hook as well** — one integer against the last one
+    seen, on a path that already runs on every debounced edit and every tab switch —
+    so a stale width never outlives the next edit or tab switch even when no
+    re-render arrives. While the preference is off the recompute is skipped
+    entirely and the cache cleared, so switching it back on finds nothing cached and
+    computes once, on the turn the toggle flipped.
   - `BlameController.swift` — the macOS `@MainActor` owner of the gutter's git-blame
     annotation column (inside `#if os(macOS)`, modeled on
     `BracketHighlightController`): a **weak** ruler reference, its own

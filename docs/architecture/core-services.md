@@ -281,6 +281,29 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     the same provider, is entirely unaffected. `SettingsStoreTests` covers the
     default on a fresh store, the round trip across a rebuilt store, a
     wrong-typed stored value falling back to on, and the key string.
+    The indentation-level painting adds the editor's **second** such flag,
+    `indentLevelHighlightingEnabled` (`Keys.indentLevelHighlightingEnabled =
+    "settings.indentLevelHighlightingEnabled"`, stable like the rest), default
+    **on**, and it follows `completionEnabled` term for term rather than
+    inventing a discipline of its own. It is read in `init` as
+    `(defaults.object(forKey:) as? Bool) ?? true` for exactly the two stated
+    reasons — `bool(forKey:)` cannot tell an absent key from a stored `false`,
+    and it coerces a wrong-typed value instead of refusing it, either way
+    switching off, for every user who never asked, a feature that ships on — and
+    written back through `didSet` like its neighbours. It is likewise **one**
+    flag rather than one per platform: it is a preference about the editor, not
+    about a presentation of it, so a defaults domain shared between the two
+    platforms must not answer it twice. Only macOS draws anything for it today
+    and iOS shows no surface at all, which is an *absent surface*, not a second
+    preference. Off costs the feature nothing but the flag: no width is derived
+    (the derivation's content half walks the buffer) and no block is drawn, while
+    the syntax colours, the matched pair, the search matches and the selection are
+    byte-for-byte what they were — because the painting is a pass *under* all of
+    them rather than a styling of the text, which is what makes the switch instant
+    in both directions and free while it is off (`app-editor-overlays.md`).
+    `SettingsStoreTests` covers the default on a fresh store, an absent key
+    reading as on, a wrong-typed stored value reading as on, the round trip
+    across a rebuilt store, and the key string.
     The macOS zoom feature adds **two more persisted values and a zone-keyed
     API** (the whole layer's entry is `core-zoom.md`). `terminalFontSize`
     (`Keys.terminalFontSize = "settings.terminalFontSize"`, default 13) and

@@ -133,9 +133,27 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     range) — the primitive, with `split(_:)` projecting it: the save transform
     *edits* lines and would otherwise re-derive offsets by measuring the
     substrings it was handed, which is a second definition of what a line is by
-    another name. There is exactly one traversal that decides where a line ends,
-    and `TerminatedLinesTests` fuzzes this projection too. Its consumer's
-    reasoning is in `core-editorconfig.md` (`SaveTransform`).
+    another name. And **one level down again**: the offsets themselves are
+    answered by the *bounded* `ranges(in:range:) -> [TerminatedLineRange]`, of
+    which the whole-text `ranges(_:)` is simply the full-range call — so
+    `ranges(in:range:)` is *the* primitive the other two project from, and there
+    is still exactly one traversal that decides where a line ends. Bounding it is
+    what makes it the primitive rather than a convenience: a consumer that only
+    cares about the lines it is *drawing* (`IndentLevelScanner`, painting the
+    editor's indentation levels on every redraw) must not pay for a traversal of
+    the whole file, and paying for one in a second implementation of "where does
+    a line end" would be worse still. The bounded form **expands `range` to whole
+    lines before anything is enumerated**, through `NSString.lineRange(for:)`, so
+    a range starting or ending mid-line answers those lines whole rather than a
+    fragment of one, and nothing is clipped on the way out either — a caller
+    asking about a drawn region gets lines it can reason about without knowing
+    where it cut. `range` is clamped to the text first, so an out-of-bounds or
+    negative request is *answered* rather than trapping, and only the expanded
+    span is ever enumerated. `TerminatedLinesTests` fuzzes the `split(_:)`
+    projection and pins the bounded form against the whole-text one (same answer
+    over the full range; whole lines for a mid-line range). Its consumers'
+    reasoning is in `core-editorconfig.md` (`SaveTransform`) and
+    `core-editor.md` (`IndentLevelScanner`).
   - `ChangeTree.swift` — pure directory-tree grouping for the by-folder mode of
     the Local Changes view. `ChangeNode` (a uniform node: `name`, repo-relative
     `path` as identity, absolute `url` = `root` + `path` for the view's
