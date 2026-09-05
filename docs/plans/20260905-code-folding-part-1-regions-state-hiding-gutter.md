@@ -601,18 +601,18 @@ None new. Foundation only in Core; AppKit only in the app half.
 
 ### Task 11: Verify acceptance criteria
 
-- [ ] `swift test` — full suite green.
-- [ ] `swiftlint --strict` from the repository root — clean. Any measured lint
+- [x] `swift test` — full suite green.
+- [x] `swiftlint --strict` from the repository root — clean. Any measured lint
     ceiling that moves (`file_length` / `type_body_length` for
     `CodeEditorView.swift`, `BracketOverlayLayoutManager.swift`,
     `LineNumberRulerView.swift`, `PisakaApp.swift`) moves **by the measured
     amount only**, with its reason appended to the existing comment chain in
     `.swiftlint.yml`, and `LintConfigurationTests` updated to match per
     `style-lint.md`.
-- [ ] `xcodegen generate`.
-- [ ] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination
+- [x] `xcodegen generate`.
+- [x] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination
     'platform=macOS' build` — green.
-- [ ] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination
+- [x] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination
     'platform=iOS Simulator,name=iPhone 17 Pro' build` — green (iOS is
     untouched; this is the proof).
 
