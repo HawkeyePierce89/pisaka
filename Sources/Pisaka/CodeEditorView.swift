@@ -757,7 +757,14 @@ struct CodeEditorView: NSViewRepresentable {
             // re-seeds for the incoming file with no second explicit scan. (Two
             // files that share both content and height need no re-seed: identical
             // content yields identical line numbers, so the cache is already right.)
+            //
+            // The fold caret rule is suppressed across the assignment for the
+            // reason `isInstallingReplacementText` records: the selection change it
+            // posts synchronously arrives while the fold state still describes the
+            // buffer being replaced.
+            context.coordinator.isInstallingReplacementText = true
             textView.string = text
+            context.coordinator.isInstallingReplacementText = false
 
             // A wholesale swap of the *same* file's buffer invalidates that
             // file's undo stack: assigning `string` registers no undo action of
@@ -1612,8 +1619,11 @@ struct CodeEditorView: NSViewRepresentable {
             // there to draw it beside. Applied first, so everything below reads
             // the selection the user will actually see. The guard is the
             // re-entrancy one the rule's own `setSelectedRange` needs, exactly as
-            // the change interceptors guard their programmatic edits.
-            if !isApplyingFoldCaret {
+            // the change interceptors guard their programmatic edits — and the
+            // second is the buffer swap's, whose synchronous clamp would otherwise
+            // be measured against the outgoing file's hidden ranges
+            // (`isInstallingReplacementText`).
+            if !isApplyingFoldCaret, !isInstallingReplacementText {
                 applyFoldCaretRule(previous: previousFoldSelection)
             }
             previousFoldSelection = textView.selectedRange()
@@ -2163,6 +2173,26 @@ struct CodeEditorView: NSViewRepresentable {
         /// document's set; a genuine replacement has nothing left to shift).
         /// Set and cleared synchronously inside the content-replaced branch.
         var isSwappingBuffer = false
+
+        /// Up across `updateNSView`'s `textView.string = text` assignment alone.
+        ///
+        /// That assignment clamps the selection to the new length and posts
+        /// `textViewDidChangeSelection` **synchronously**, while `folds.state`
+        /// still describes the buffer being replaced — `syncFolds` does not run
+        /// until later in the same update. Without this the caret rule would be
+        /// applied against another file's hidden ranges and park the caret on one
+        /// of their boundaries; on a tab switch `restoreViewport` overwrites that
+        /// again, but a replacement of the *displayed* file (a revert, a reload, a
+        /// Replace All, a merge apply) restores no viewport and the wrong caret
+        /// sticks. The fold dimension's counterpart of `beginBlameBufferSwap()`
+        /// and `beginDiagnosticsBufferSwap(clearing:)`, which are told about the
+        /// same swap for the same reason.
+        ///
+        /// Deliberately **not** `isSwappingBuffer`, which a save transform raises
+        /// too: that rewrite puts the remapped selection back *before* it lowers
+        /// its guards, and it moves the fold bounds through the same plan first
+        /// precisely so the caret rule can read them there.
+        var isInstallingReplacementText = false
 
         /// The store observation (one for the coordinator's lifetime). The model
         /// is mutated from several directions — accepted pushes, teardown clears,

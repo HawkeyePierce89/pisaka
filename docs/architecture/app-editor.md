@@ -899,6 +899,22 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     the caret is actually inside hidden text, so asking once per landed answer is
     cheaper than teaching the controller where the caret is. A re-entrancy flag keeps the corrective selection from
     being re-inspected as a user move, in `isApplyingProgrammaticEdit`'s shape.
+    **A second flag keeps the rule off the buffer swap**: assigning
+    `textView.string` clamps the selection to the new length and posts the change
+    notification *synchronously*, while `folds.state` still describes the buffer
+    being replaced — `syncFolds` does not run until later in the same update — so
+    `isInstallingReplacementText` is raised across that one assignment, the fold
+    dimension's counterpart of the blame and diagnostics swap calls beside it.
+    Without it the rule parks the caret on an outgoing file's fold boundary; a tab
+    switch hides that behind `restoreViewport`, but a replacement of the
+    *displayed* file (a revert, a reload, a Replace All, a merge apply) restores no
+    viewport and the wrong caret sticks. It is deliberately **not**
+    `isSwappingBuffer`, which a save transform raises too: that rewrite puts the
+    remapped selection back *before* it lowers its guards, and moves the fold
+    bounds through the same plan first precisely so the rule can read them there.
+    Whatever the swap's clamp leaves behind is corrected by the answer that
+    follows — `didGrowHiddenText` asks the rule again once the incoming file's own
+    state has landed.
     **A direction is only ever read off a keyboard move**, which is what
     `forgetFoldSelectionDirection()` enforces: the previous caret is dropped back to
     `NSNotFound` at the three sites where the next selection change carries no

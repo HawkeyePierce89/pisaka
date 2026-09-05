@@ -289,6 +289,12 @@ final class FoldController {
         // case — and leave the gutter drawing chevrons for a buffer that has just
         // been replaced.
         publish()
+        // ...and `publish()` records the shown file's state under its key, which
+        // for the file just dropped is the entry removed above, re-inserted empty.
+        // The store distinguishes the two — absent is "never opened", empty is
+        // "unfolded everything" — so the removal is re-asserted rather than left
+        // to the read side's `?? FoldState()` to make the difference invisible.
+        memory.forget(droppedKey)
     }
 
     /// Move one *remembered* file's folds through a save's transform — the

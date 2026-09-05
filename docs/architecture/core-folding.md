@@ -514,7 +514,12 @@ whose no-change guard would otherwise skip the push whenever nothing was folded.
 `forget(key:)` publishes unconditionally for the same reason: the common case for
 a buffer replaced out from under a tab is that nothing was folded in it, and
 skipping the push there leaves the gutter drawing chevrons for text that no longer
-exists. `remapRemembered(key:through:)` is `remap(through:)`'s off-screen half and
+exists — and it re-asserts the removal **after** that push, because `publish()`
+records the shown file's state under its key and would otherwise put the entry
+just dropped straight back as an empty one. The store distinguishes the two
+(absent is "never opened", empty is "unfolded everything"), so the difference is
+kept rather than left to the read side's `?? FoldState()` to hide.
+`remapRemembered(key:through:)` is `remap(through:)`'s off-screen half and
 publishes **nothing**, because nothing on screen changed: a save that caught a tab
 no editor is showing has no live state and no candidate list to move — that file's
 whole fold answer is its memory entry, asked again from scratch when it is next
