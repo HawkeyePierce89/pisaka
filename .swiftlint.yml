@@ -125,13 +125,17 @@ line_length:
 # are the calls on the success and failure paths — which is the whole of the
 # scene's share in the ninth gated operation, the `--ff-only` pull; the tail's
 # order, its two steps and their events are the coordinator's, and the rule
-# behind them is Core's. The number tracks
+# behind them is Core's. And 1886 with code folding, for the **one** line the
+# whole feature costs this file: `FoldCommands()` in the `.commands` builder.
+# Everything else about folding — the two menu items, their shortcuts, the
+# first-responder route and the beep — lives in `FoldCommands.swift`, which is
+# why one line is the entire share and not the opening of a budget. The number tracks
 # the one file that approaches
 # it — measured, never rounded up for room — and is not a licence to grow the
 # others.
 file_length:
-  warning: 1885
-  error: 1885
+  warning: 1886
+  error: 1886
   ignore_comment_only_lines: true
 
 # Same reasoning as file_length, and one number behind it again: the viewer's
@@ -148,10 +152,12 @@ file_length:
 # to 1866 with the failure path's re-read, whose twenty lines are inside it too,
 # and to 1869 with the post-merge tail's three: the bracket's completion
 # parameter and the two calls to it, all inside the struct body like every line
-# before them, so this ceiling moves by exactly what `file_length` did again.
+# before them, so this ceiling moves by exactly what `file_length` did again —
+# and to 1870 with code folding's single `FoldCommands()`, which lands inside the
+# struct body too, so it moves by exactly what `file_length` did once more.
 type_body_length:
-  warning: 1869
-  error: 1869
+  warning: 1870
+  error: 1870
 
 function_body_length:
   warning: 140

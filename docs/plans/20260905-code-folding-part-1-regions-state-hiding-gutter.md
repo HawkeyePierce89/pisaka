@@ -473,31 +473,31 @@ None new. Foundation only in Core; AppKit only in the app half.
 - Create: `Sources/Pisaka/FoldCommands.swift`
 - Modify: `Sources/Pisaka/CodeEditorView.swift` (`EditorTextView` entry points and
   the placeholder click), `Sources/Pisaka/PisakaApp.swift` (one line)
-- [ ] `FoldCommands: Commands` in its own file, added to `PisakaApp`'s
+- [x] `FoldCommands: Commands` in its own file, added to `PisakaApp`'s
     `.commands { }` by **one line**, in the Edit group beside Toggle Comment.
     *Fold* ⌘⌥←, *Unfold* ⌘⌥→ — verified against every existing
     `keyboardShortcut` in the app (the pair is unused: the app's ⌘⌥ shortcuts are
     ⌘⌥F alone) and against the text view's own key handling; if the verification
     finds a clash at implementation time, the plan's shortcut moves and the
     change is recorded in `README.md` and `docs/FEATURES.md`.
-- [ ] The action reaches the active tab's editor coordinator through the same
+- [x] The action reaches the active tab's editor coordinator through the same
     first-responder route ⌘D and Toggle Comment already use
     (`NSApp.keyWindow?.firstResponder as? EditorTextView`), beeping through
     `PlatformFeedback.warning()` when anything else holds focus.
-- [ ] Semantics: *Fold* acts on the innermost **candidate** region containing the
+- [x] Semantics: *Fold* acts on the innermost **candidate** region containing the
     caret line, *Unfold* on the innermost **folded** one — both resolved by a
     pure `FoldState`/candidate query from Task 2, not by the view. *Fold* refuses
     (beeps) when a multi-line selection extends beyond the region. After *Fold*
     the caret sits at the start of the header line, by the caret rule rather than
     by a second rule here.
-- [ ] `EditorTextView.mouseDown(with:)`: a click whose point falls in the layout
+- [x] `EditorTextView.mouseDown(with:)`: a click whose point falls in the layout
     manager's `placeholderRect` for a folded range unfolds that region and places
     the caret at its start, before `super.mouseDown` sees it. The pointer over
     the placeholder does not change, as specified.
-- [ ] Tests: the command's *decisions* (innermost candidate, innermost folded, the
+- [x] Tests: the command's *decisions* (innermost candidate, innermost folded, the
     refusal, the resulting caret) are Core queries and are tested in
     `FoldStateTests`; the routing is view-layer and pinned by Task 9.
-- [ ] Run `swift test` and `swiftlint --strict` — must pass before Task 9.
+- [x] Run `swift test` and `swiftlint --strict` — must pass before Task 9.
 
 ### Task 9: `FoldingSourceGatingTests`
 

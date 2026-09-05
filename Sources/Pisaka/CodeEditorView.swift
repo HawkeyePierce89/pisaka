@@ -314,6 +314,20 @@ struct CodeEditorView: NSViewRepresentable {
             coordinator?.pointerExitedEditor()
         }
 
+        // ⌘⌥← / ⌘⌥→ → the coordinator's fold and unfold, and a click on a `…`
+        // placeholder → the block behind it. All three answer `false` when there
+        // was nothing to do, which is what the menu commands beep on; captured
+        // weakly for the same retain-cycle reason as the closures above.
+        textView.onFold = { [weak coordinator = context.coordinator] in
+            coordinator?.foldAtCaret() ?? false
+        }
+        textView.onUnfold = { [weak coordinator = context.coordinator] in
+            coordinator?.unfoldAtCaret() ?? false
+        }
+        textView.onPlaceholderClick = { [weak coordinator = context.coordinator] tv, point in
+            coordinator?.unfoldPlaceholder(at: point, in: tv) ?? false
+        }
+
         // `CodeScrollView`, not `NSScrollView`: the text view below is
         // content-sized, so the pane's empty region belongs to no conforming view
         // and a zoom aimed there would grow the chrome instead of the code.
@@ -1874,6 +1888,78 @@ struct CodeEditorView: NSViewRepresentable {
             applyFoldCaretRule(previous: NSRange(location: NSNotFound, length: 0))
         }
 
+        /// The Edit menu's *Fold* (⌘⌥←): collapse the innermost candidate block
+        /// the caret is in, and leave the caret on the line that stays visible.
+        ///
+        /// `false` — "nothing folded" — is the command's beep: the caret is in no
+        /// collapsible block, or the selection reaches past the one it is in.
+        /// **Which** block, and whether the selection refuses it, is
+        /// `FoldCommandRule`'s answer; the line table is the gutter's own, so the
+        /// command and the chevrons can never disagree about which line the caret
+        /// is on.
+        func foldAtCaret() -> Bool {
+            guard let textView, let ruler = lineNumberRuler else { return false }
+            let lineStarts = ruler.lineStarts
+            guard let region = FoldCommandRule.regionToFold(
+                selection: textView.selectedRange(),
+                lineStarts: lineStarts,
+                in: folds.candidates
+            ) else { return false }
+            folds.fold(region)
+            // The caret goes to the start of the header line — the one line the
+            // block it just collapsed still shows. No second rule decides that:
+            // the selection this posts runs through `FoldCaretRule` like every
+            // other, which leaves a visible caret exactly where it is and moves
+            // one an *outer* fold happens to hide.
+            guard region.headerLine >= 0, region.headerLine < lineStarts.count else { return true }
+            textView.setSelectedRange(NSRange(location: lineStarts[region.headerLine], length: 0))
+            return true
+        }
+
+        /// The Edit menu's *Unfold* (⌘⌥→): open the innermost folded block the
+        /// caret is in, or answer `false` so the command beeps.
+        ///
+        /// No refusal of its own — opening a block hides nothing — and no caret
+        /// move either: the caret is already on a visible line, and the text that
+        /// appears below it is what the user asked for.
+        func unfoldAtCaret() -> Bool {
+            guard let textView, let ruler = lineNumberRuler else { return false }
+            guard let region = FoldCommandRule.regionToUnfold(
+                selection: textView.selectedRange(),
+                lineStarts: ruler.lineStarts,
+                in: folds.state
+            ) else { return false }
+            folds.unfold(region)
+            return true
+        }
+
+        /// A click landed on a `…`: open the block behind it and put the caret at
+        /// its start.
+        ///
+        /// The rect is the layout manager's own (`placeholderRect(forFoldedRangeAt:)`)
+        /// rather than arithmetic over the point, for the reason the gutter's
+        /// chevron click states: the box the click is tested against is the box
+        /// that was drawn. `point` is in the text view's coordinates, so the
+        /// container origin is taken off before it is compared.
+        ///
+        /// `false` means "not mine", and the click proceeds as an ordinary one.
+        func unfoldPlaceholder(at point: NSPoint, in textView: NSTextView) -> Bool {
+            guard !folds.state.isEmpty, let layoutManager = overlayLayoutManager else { return false }
+            let origin = textView.textContainerOrigin
+            let containerPoint = NSPoint(x: point.x - origin.x, y: point.y - origin.y)
+            // In `FoldRegion` order, so two folded regions sharing a header line
+            // resolve to the longer one — the one whose placeholder is drawn.
+            for region in folds.state.regions {
+                guard let rect = layoutManager.placeholderRect(forFoldedRangeAt: region.hiddenRange.location),
+                      rect.contains(containerPoint)
+                else { continue }
+                folds.unfold(region)
+                textView.setSelectedRange(NSRange(location: region.hiddenRange.location, length: 0))
+                return true
+            }
+            return false
+        }
+
         /// Up while the caret rule is putting the caret back, so the selection
         /// notification that move posts is not re-inspected as a user move
         /// (`isApplyingProgrammaticEdit`'s shape, for the selection path).
@@ -3328,6 +3414,21 @@ final class EditorTextView: NSTextView, ZoomSurfaceProviding {
     /// `toggleComment(in:)`; `nil` until then.
     var onToggleComment: ((NSTextView) -> Void)?
 
+    /// Collapses the innermost collapsible block the caret is in (⌘⌥←), and
+    /// reports whether there was one. Set by `CodeEditorView.makeNSView` to the
+    /// coordinator's `foldAtCaret()`; `nil` until then.
+    var onFold: (() -> Bool)?
+
+    /// Opens the innermost folded block the caret is in (⌘⌥→), and reports
+    /// whether there was one. Set by `CodeEditorView.makeNSView` to the
+    /// coordinator's `unfoldAtCaret()`; `nil` until then.
+    var onUnfold: (() -> Bool)?
+
+    /// Opens the block behind the `…` a click landed on, and reports whether the
+    /// click was on one. Set by `CodeEditorView.makeNSView` to the coordinator's
+    /// `unfoldPlaceholder(at:in:)`; `nil` until then.
+    var onPlaceholderClick: ((NSTextView, NSPoint) -> Bool)?
+
     /// Recomputes the completion candidates immediately and opens the popup over
     /// them. Set by `CodeEditorView.makeNSView` to the coordinator's
     /// `requestCompletions()`; `nil` until then.
@@ -3571,6 +3672,23 @@ final class EditorTextView: NSTextView, ZoomSurfaceProviding {
         onToggleComment?(self)
     }
 
+    /// *Fold* from the caret — the Edit menu's ⌘⌥← entry point, reached exactly
+    /// as `toggleCommentAtSelection()` is: through this view as the key window's
+    /// first responder, carrying no state of its own.
+    ///
+    /// The answer travels back so the menu command has one thing to beep on: an
+    /// editor that folded nothing and a focus that is not an editor at all are
+    /// the same "nothing happened" to the person who pressed the key.
+    func foldAtCaret() -> Bool {
+        onFold?() ?? false
+    }
+
+    /// *Unfold* from the caret — ⌘⌥→, reached and answered exactly as
+    /// `foldAtCaret()` is.
+    func unfoldAtCaret() -> Bool {
+        onUnfold?() ?? false
+    }
+
     /// A Command-held click navigates to the clicked identifier's declaration;
     /// every other click keeps the stock behavior.
     ///
@@ -3592,7 +3710,24 @@ final class EditorTextView: NSTextView, ZoomSurfaceProviding {
     /// (whitespace, punctuation, a keyword — `goToDefinition` just beeps) is
     /// swallowed whole, leaving the click with no effect at all, and a ⌘-click in
     /// an editor that is not yet focused would jump without ever focusing it.
+    ///
+    /// **A click on a `…` opens the block behind it**, and is taken before
+    /// anything else looks at the event: `super.mouseDown` would otherwise run
+    /// its tracking loop and place a caret inside text that has no position on
+    /// screen. Only a plain single click — a modified one is a selection gesture,
+    /// and a double click is the stock word selection.
+    ///
+    /// The pointer over the placeholder is deliberately left as the I-beam: the
+    /// `…` stands in for text, and a text view whose cursor changed over part of
+    /// its own line would read as chrome.
     override func mouseDown(with event: NSEvent) {
+        if event.clickCount == 1,
+           event.modifierFlags.isDisjoint(with: [.command, .shift, .option, .control]),
+           onPlaceholderClick?(self, convert(event.locationInWindow, from: nil)) == true {
+            if window?.firstResponder !== self { window?.makeFirstResponder(self) }
+            return
+        }
+
         guard
             event.modifierFlags.intersection([.command, .shift, .option, .control]) == [.command],
             event.clickCount == 1,

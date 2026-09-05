@@ -197,13 +197,32 @@ final class FoldController {
     }
 
     /// Fold `region` if it is open, unfold it if it is folded — the chevron's
-    /// gesture and, through the commands, ⌘⌥←/⌘⌥→'s.
+    /// gesture.
     ///
-    /// The only place a `FoldState` mutation is spelled in the app layer; every
-    /// other writer hands over a whole value.
+    /// One of the three places a `FoldState` mutation is spelled in the app
+    /// layer, and this file is the only one that spells any of them: every other
+    /// writer hands over a whole value.
     func toggleFold(_ region: FoldRegion) {
         var updated = state
         updated.toggle(region)
+        apply(updated)
+    }
+
+    /// Collapse `region` — ⌘⌥←'s write, and the reason it is not `toggleFold`:
+    /// *Fold* on an already-folded block must leave it folded rather than spring
+    /// it open, which is what a toggle would do the moment the command is held
+    /// down or pressed twice.
+    func fold(_ region: FoldRegion) {
+        var updated = state
+        updated.fold(region)
+        apply(updated)
+    }
+
+    /// Open `region` — ⌘⌥→'s write and the placeholder click's, for the mirror
+    /// of the reason above.
+    func unfold(_ region: FoldRegion) {
+        var updated = state
+        updated.unfold(region)
         apply(updated)
     }
 

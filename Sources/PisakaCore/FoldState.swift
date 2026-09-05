@@ -316,3 +316,83 @@ public struct FoldStateMemory {
         states.removeAll()
     }
 }
+
+/// Which block *Fold* collapses and which one *Unfold* opens.
+///
+/// Both commands ask the same shape of question — "the innermost region the
+/// caret is in" — of two different sets: *Fold* of the **candidates** (every
+/// block that could be collapsed) and *Unfold* of the **folded** ones. Keeping
+/// that one containment test here, rather than once per command in the view, is
+/// what stops the keyboard and the gutter from disagreeing about which block the
+/// caret is in.
+///
+/// **Containment is the block's whole extent, header line included.** A region
+/// names one line (its header) and one span (what it hides, starting at the end
+/// of that header's content), so a caret is inside it when it sits on the header
+/// line *or* strictly past the hidden range's start and no further than its end
+/// — the last of those being the end of the block's final line, which is still
+/// the block. A caret on the line after the block is outside it.
+///
+/// **Innermost is the last in ``FoldRegion``'s own order.** That order is header
+/// line ascending, then the longer region first, so within a nested chain — and
+/// only a nested chain can contain one caret — the innermost region sorts last.
+/// One ordering key, never a second notion of "smaller".
+///
+/// Pure, like every other decision here: the view resolves nothing, applies the
+/// answer, and beeps when there is none.
+public enum FoldCommandRule {
+    /// The candidate *Fold* collapses, or `nil` when there is none to collapse
+    /// and the command beeps.
+    ///
+    /// **The refusal**: a selection whose end reaches past the block is a
+    /// statement about more text than the block holds, and collapsing the block
+    /// would hide part of what the user has selected while leaving the rest on
+    /// screen. Nothing here guesses at a bigger region to fold instead — the
+    /// caret is the command's input, and a selection that disagrees with it is
+    /// answered with "no", not with a different block.
+    ///
+    /// A zero-length selection — the ordinary caret — never refuses: it has no
+    /// end to reach past.
+    public static func regionToFold(
+        selection: NSRange,
+        lineStarts: [Int],
+        in candidates: [FoldRegion]
+    ) -> FoldRegion? {
+        guard let region = innermost(candidates, containing: selection, lineStarts: lineStarts) else { return nil }
+        guard selection.length == 0 || NSMaxRange(selection) <= NSMaxRange(region.hiddenRange) else { return nil }
+        return region
+    }
+
+    /// The folded region *Unfold* opens, or `nil` when the caret is in no folded
+    /// block and the command beeps.
+    ///
+    /// No refusal of its own: opening a block can never hide anything, so a
+    /// selection reaching past it is no reason to say no.
+    public static func regionToUnfold(
+        selection: NSRange,
+        lineStarts: [Int],
+        in state: FoldState
+    ) -> FoldRegion? {
+        innermost(state.regions, containing: selection, lineStarts: lineStarts)
+    }
+
+    /// The innermost of `regions` containing `selection`'s **start**, or `nil`.
+    ///
+    /// The start rather than the whole selection, because that is where the
+    /// caret is and both commands are about the caret; what the other end
+    /// reaches is the refusal's question, not this one's. A selection naming no
+    /// position at all is in no region.
+    private static func innermost(
+        _ regions: [FoldRegion],
+        containing selection: NSRange,
+        lineStarts: [Int]
+    ) -> FoldRegion? {
+        guard selection.location != NSNotFound, selection.location >= 0, !regions.isEmpty else { return nil }
+        let offset = selection.location
+        let line = LSPPositionMap.lineIndex(containing: offset, lineStarts: lineStarts)
+        return regions.filter { region in
+            region.headerLine == line
+                || (offset > region.hiddenRange.location && offset <= NSMaxRange(region.hiddenRange))
+        }.sorted().last
+    }
+}

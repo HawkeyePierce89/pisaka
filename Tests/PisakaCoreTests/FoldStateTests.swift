@@ -342,4 +342,190 @@ final class FoldStateTests: XCTestCase {
         // Nothing here is told the file closed; reopening finds its folds.
         XCTAssertEqual(memory.state(for: "/closed.swift", clampedToLength: 100)?.regions, [block])
     }
+
+    // MARK: - The two commands' decisions
+
+    /// The fixture both commands are asked about — a function with a nested
+    /// `if`, hand-counted so the offsets below mean what they say:
+    ///
+    /// ```
+    /// 0  func a() {     0…9,   separator 10
+    /// 1    if b {      11…18,  separator 19
+    /// 2      c()       20…26,  separator 27
+    /// 3    }           28…30,  separator 31
+    /// 4  }             32
+    /// ```
+    private var commandLineStarts: [Int] { [0, 11, 20, 28, 32] }
+    /// The whole function: from the end of line 0's content to the end of line 4's.
+    private var outerBlock: FoldRegion { region(10, 23, header: 0) }
+    /// The nested `if`: from the end of line 1's content to the end of line 3's.
+    private var innerBlock: FoldRegion { region(19, 12, header: 1) }
+
+    func testFoldTakesTheInnermostCandidateTheCaretIsIn() {
+        let candidates = [outerBlock, innerBlock]
+
+        // Inside the nested block: the inner one, not the function around it.
+        XCTAssertEqual(
+            FoldCommandRule.regionToFold(
+                selection: NSRange(location: 22, length: 0),
+                lineStarts: commandLineStarts,
+                in: candidates
+            ),
+            innerBlock
+        )
+
+        // On the outer header line, which the inner block does not reach.
+        XCTAssertEqual(
+            FoldCommandRule.regionToFold(
+                selection: NSRange(location: 3, length: 0),
+                lineStarts: commandLineStarts,
+                in: candidates
+            ),
+            outerBlock
+        )
+
+        // On the inner header line: the inner block is *at* it.
+        XCTAssertEqual(
+            FoldCommandRule.regionToFold(
+                selection: NSRange(location: 13, length: 0),
+                lineStarts: commandLineStarts,
+                in: candidates
+            ),
+            innerBlock
+        )
+
+        // The block's last line is still the block; the inner one ended above it.
+        XCTAssertEqual(
+            FoldCommandRule.regionToFold(
+                selection: NSRange(location: 32, length: 0),
+                lineStarts: commandLineStarts,
+                in: candidates
+            ),
+            outerBlock
+        )
+    }
+
+    func testFoldAnswersNothingWhenTheCaretIsInNoCandidate() {
+        XCTAssertNil(
+            FoldCommandRule.regionToFold(
+                selection: NSRange(location: 5, length: 0),
+                lineStarts: commandLineStarts,
+                in: []
+            ),
+            "no candidates, nothing to fold"
+        )
+        XCTAssertNil(
+            FoldCommandRule.regionToFold(
+                selection: NSRange(location: 22, length: 0),
+                lineStarts: commandLineStarts,
+                in: [region(40, 6, header: 5)]
+            ),
+            "a block the caret is nowhere near"
+        )
+        XCTAssertNil(
+            FoldCommandRule.regionToFold(
+                selection: NSRange(location: NSNotFound, length: 0),
+                lineStarts: commandLineStarts,
+                in: [outerBlock]
+            ),
+            "a selection naming no position is in no region"
+        )
+    }
+
+    /// The refusal: a selection reaching past the block would leave half of what
+    /// the user selected on screen and hide the rest.
+    func testFoldRefusesASelectionThatExtendsBeyondTheRegion() {
+        let candidates = [outerBlock, innerBlock]
+
+        XCTAssertNil(
+            FoldCommandRule.regionToFold(
+                selection: NSRange(location: 13, length: 20),
+                lineStarts: commandLineStarts,
+                in: candidates
+            ),
+            "the selection ends past the inner block's last line"
+        )
+
+        // The same caret, selecting inside the block, is not a refusal — and
+        // neither is the plain caret.
+        XCTAssertEqual(
+            FoldCommandRule.regionToFold(
+                selection: NSRange(location: 13, length: 5),
+                lineStarts: commandLineStarts,
+                in: candidates
+            ),
+            innerBlock
+        )
+        XCTAssertEqual(
+            FoldCommandRule.regionToFold(
+                selection: NSRange(location: 13, length: 0),
+                lineStarts: commandLineStarts,
+                in: candidates
+            ),
+            innerBlock
+        )
+    }
+
+    func testUnfoldTakesTheInnermostFoldedRegionTheCaretIsIn() {
+        var state = FoldState(regions: [outerBlock, innerBlock])
+
+        // The caret sits on the outer header line, the one line both folds leave
+        // visible: the outer block is what opens.
+        XCTAssertEqual(
+            FoldCommandRule.regionToUnfold(
+                selection: NSRange(location: 0, length: 0),
+                lineStarts: commandLineStarts,
+                in: state
+            ),
+            outerBlock
+        )
+
+        // With the outer one open the inner header line is reachable, and the
+        // inner block is what the caret is now in.
+        state.unfold(outerBlock)
+        XCTAssertEqual(
+            FoldCommandRule.regionToUnfold(
+                selection: NSRange(location: 13, length: 0),
+                lineStarts: commandLineStarts,
+                in: state
+            ),
+            innerBlock
+        )
+
+        // Nothing folded, nothing to open — the command beeps.
+        state.unfold(innerBlock)
+        XCTAssertNil(
+            FoldCommandRule.regionToUnfold(
+                selection: NSRange(location: 13, length: 0),
+                lineStarts: commandLineStarts,
+                in: state
+            )
+        )
+    }
+
+    /// Unfold has no refusal of its own: opening a block can never hide anything.
+    func testUnfoldAcceptsASelectionThatExtendsBeyondTheRegion() {
+        XCTAssertEqual(
+            FoldCommandRule.regionToUnfold(
+                selection: NSRange(location: 13, length: 20),
+                lineStarts: commandLineStarts,
+                in: FoldState(regions: [innerBlock])
+            ),
+            innerBlock
+        )
+    }
+
+    /// Where the caret lands after *Fold*: the start of the header line, which
+    /// the region it just folded can never hide — so the caret rule, the one
+    /// rule that moves a caret here, returns it untouched.
+    func testTheHeaderLinesStartSurvivesFoldingThatRegion() {
+        let none = NSRange(location: NSNotFound, length: 0)
+        for block in [outerBlock, innerBlock] {
+            let caret = NSRange(location: commandLineStarts[block.headerLine], length: 0)
+            XCTAssertEqual(
+                FoldCaretRule.caret(for: caret, previous: none, in: FoldState(regions: [block])),
+                caret
+            )
+        }
+    }
 }
