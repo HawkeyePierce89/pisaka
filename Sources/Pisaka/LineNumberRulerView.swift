@@ -937,6 +937,15 @@ final class LineNumberRulerView: NSRulerView, ZoomSurfaceProviding {
         // Either set can answer, for `drawFoldChevron`'s reason: a restored fold
         // is drawn from the folded set before any candidate has arrived, and a
         // chevron that is drawn must be clickable.
+        // The text view's placeholder click's gate, verbatim and for its reason:
+        // a modified click is a selection gesture and a double click is the
+        // stock ruler behavior, so both must fall through to `super` rather than
+        // be swallowed. Without the click-count half, macOS's second `mouseDown`
+        // would fold and immediately unfold — a double click on a chevron would
+        // look like nothing happened at all.
+        guard event.clickCount == 1,
+              event.modifierFlags.isDisjoint(with: [.command, .shift, .option, .control])
+        else { return false }
         guard let handler = onToggleFold,
               !foldCandidateByHeaderLine.isEmpty || !foldedState.isEmpty
         else { return false }

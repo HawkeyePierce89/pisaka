@@ -1784,6 +1784,13 @@ struct CodeEditorView: NSViewRepresentable {
                     widths: self.indentLevelWidths(text: textView.string as NSString)
                 )
             }
+            // An answer that grew a fold hid text without a gesture behind it, so
+            // the caret may now sit where it cannot be drawn. Asked with no
+            // previous selection for `toggleFold`'s reason: nothing moved the
+            // caret, the text under it stopped having a position.
+            folds.didGrowHiddenText = { [weak self] in
+                self?.applyFoldCaretRule(previous: NSRange(location: NSNotFound, length: 0))
+            }
         }
 
         /// The key this file's folds are remembered under: the canonical path of

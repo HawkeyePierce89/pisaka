@@ -235,6 +235,16 @@ placeholder. A selection **with length** is returned untouched: selecting across
 collapsed block includes the hidden text, which is what makes copying it yield the
 whole block — the behaviour "the buffer is never modified" promises.
 
+**Every path that can hide text asks the rule**, and one of them has no gesture
+behind it: a freshly landed answer is re-anchored by `reconciled(with:)`, which
+takes the *candidate's* bounds and can therefore report the same block one line
+longer, growing the hidden range over a caret that never moved. The controller
+publishes to two views and posts no selection, so it reports the change instead —
+`FoldController.didGrowHiddenText`, wired in `attachFolding` to the one method
+that applies the rule (`app-editor.md`). The report is any change rather than a
+measured growth, and it carries no direction, for the fold gesture's reason:
+nothing moved the caret, the text under it stopped having a position.
+
 #### `FoldReveal` — what a jump opens
 
 `unfolding(_:in:)` returns the state with **every** folded region the range

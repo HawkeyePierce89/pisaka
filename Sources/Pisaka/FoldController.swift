@@ -59,6 +59,18 @@ final class FoldController {
     /// coordinator; nothing here knows where the values come from.
     var source: (() -> Source?)?
 
+    /// Called when a freshly landed answer left *more* text hidden than before
+    /// — the one write path that can grow a fold without a gesture behind it.
+    ///
+    /// ``FoldState/reconciled(with:)`` re-anchors a folded region by header line
+    /// and takes the candidate's bounds, so an answer that reports the same
+    /// block one line longer grows the hidden range over a caret that never
+    /// moved. Every other hiding path arranges for the caret rule to be asked
+    /// (a toggle asks it outright, a command and a reveal set the selection);
+    /// this one publishes to two views and nothing else, so it says so here and
+    /// the coordinator — the one file that may name `FoldCaretRule` — decides.
+    var didGrowHiddenText: (() -> Void)?
+
     /// The text view whose buffer is being folded, and the gutter drawing the
     /// chevrons. Held weakly: the view hierarchy owns both, exactly as the
     /// `Coordinator` and `BracketHighlightController` hold them.
@@ -357,9 +369,16 @@ final class FoldController {
     /// line shorter keeps its fold over the right text, and one it no longer
     /// reports springs open.
     private func applyCandidates(_ regions: [FoldRegion]) {
+        let previous = state
         candidates = regions
         state = state.reconciled(with: regions)
         publish()
+        // Reported on any change rather than on a measured growth: the rule is a
+        // no-op unless the caret actually sits strictly inside hidden text, so
+        // asking it once per landed answer is cheaper than deciding here whether
+        // it needs asking — and deciding here would mean this class knowing where
+        // the caret is, which is the coordinator's business.
+        if state != previous { didGrowHiddenText?() }
     }
 
     /// Hand both halves to the two views that draw them and record the result.

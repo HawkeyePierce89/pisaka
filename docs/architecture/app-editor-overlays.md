@@ -663,8 +663,13 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     the diagnostic markers follow the numbers for free, because they are drawn from
     the same walk (`drawVisibleLine(_:…)`, lifted out of it so the skip reads as
     the one decision it is).
-    `mouseDown(with:)` resolves a click inside the chevron column to **the region the
-    chevron was drawn for** — `FoldState.folded(containing:)` first, the candidate map
+    `mouseDown(with:)` takes the text view's placeholder-click gate first —
+    `clickCount == 1` and no modifier — so a modified click stays a selection
+    gesture and a double click stays the stock ruler behavior, both falling through
+    to `super`. The click-count half is what keeps a double click from folding on
+    the first `mouseDown` and unfolding on the second, which reads as the chevron
+    doing nothing at all. Past that it resolves a click inside the chevron column
+    to **the region the chevron was drawn for** — `FoldState.folded(containing:)` first, the candidate map
     only when that answers nothing — and reports it through `onToggleFold` (weakly
     captured, like the other two closures). The order is load-bearing on a header line
     carrying more than one candidate, which a server can report (a block and a nested

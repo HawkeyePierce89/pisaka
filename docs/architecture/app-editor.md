@@ -866,9 +866,19 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     spelling, two callers.
     **The caret hook**: `applyFoldCaretRule(previous:)` is the one place
     `FoldCaretRule` is applied — from `textViewDidChangeSelection` (carrying the
-    previous selection, which is the *direction* the rule reads) and from the fold
+    previous selection, which is the *direction* the rule reads), from the fold
     gesture (carrying `NSNotFound`, since nothing moved and the caret should land
-    beside the placeholder). A re-entrancy flag keeps the corrective selection from
+    beside the placeholder) and from `FoldController.didGrowHiddenText`, the
+    controller's report that a freshly landed answer changed what is hidden
+    without a gesture behind it. That third caller closes the one hiding path that
+    posts no selection: `FoldState.reconciled(with:)` re-anchors a folded region by
+    header line and takes the *candidate's* bounds, so an answer reporting the same
+    block one line longer grows the hidden range over a caret that never moved —
+    every other hiding path either asks the rule outright or sets the selection.
+    It is asked with `NSNotFound` for the fold gesture's reason, and the controller
+    reports any change rather than a measured growth: the rule is a no-op unless
+    the caret is actually inside hidden text, so asking once per landed answer is
+    cheaper than teaching the controller where the caret is. A re-entrancy flag keeps the corrective selection from
     being re-inspected as a user move, in `isApplyingProgrammaticEdit`'s shape.
     **A direction is only ever read off a keyboard move**, which is what
     `forgetFoldSelectionDirection()` enforces: the previous caret is dropped back to
