@@ -264,7 +264,7 @@ severity on a folded header line. macOS only; iOS untouched.
 - Modify: `Tests/PisakaCoreTests/ReleaseWorkflowTests.swift`
 - Modify: `docs/RELEASING.md`
 
-- [ ] Extend the **shared** smoke-launch body — identically in both files, since
+- [x] Extend the **shared** smoke-launch body — identically in both files, since
       `testTheTwoSmokeLaunchesAreTheSameCheck` pins them byte-for-byte apart from
       `APP=` — to seed a restorable session before the launch: write a small
       fixture project of two multi-line files under `$RUNNER_TEMP`, build a
@@ -274,27 +274,27 @@ severity on a folded header line. macOS only; iOS untouched.
       Record in the body's comments **why** this exists: with no session there is
       no document, no layout and no re-entrant pass, which is exactly why the
       part 1 crash passed CI.
-- [ ] Back the domain up with `defaults export` before seeding and restore it on
+- [x] Back the domain up with `defaults export` before seeding and restore it on
       every exit path, for the reason the existing `MARKER` line already states:
       this body is run by hand on developer Macs, where the domain is a real
       session.
-- [ ] Note in the comments that the launch `exec`s the executable directly and
+- [x] Note in the comments that the launch `exec`s the executable directly and
       passes **no arguments** — the review's observation that `open --args
       <path>` produced no window at all is recorded there as the reason the file
       route was not taken.
-- [ ] **Verify the seeding actually reaches the content swap**, rather than
+- [x] **Verify the seeding actually reaches the content swap**, rather than
       asserting it: run the body locally against the built app twice — once as
       shipped (it must survive the deadline) and once with the Task 2 fix
       temporarily stashed (it must produce a crash report naming
       `FoldingTypesetter`). Restore the stash. Record both outcomes in the Notes
       section. A seeded launch that crashes only when the fix is absent is proof
       the document was laid out.
-- [ ] Teach `ReleaseWorkflowTests` the seeding: both bodies carry it, the backup
+- [x] Teach `ReleaseWorkflowTests` the seeding: both bodies carry it, the backup
       is restored on every path, the seed precedes the launch, and the two copies
       remain identical apart from `APP=`.
-- [ ] Update `docs/RELEASING.md` where it describes the smoke launch's shape and
+- [x] Update `docs/RELEASING.md` where it describes the smoke launch's shape and
       what it does and does not prove.
-- [ ] Run all three gates — green before Task 5.
+- [x] Run all three gates — green before Task 5.
 
 ### Task 5: Fold All / Unfold All
 
@@ -460,6 +460,19 @@ dot shows the error hidden below it.
   ** TEST FAILED **
   ```
   This is the test-first evidence the plan requires — the pre-fix bundle traps exactly as diagnosed, while `swift test` (5258 tests) and `swiftlint --strict` remain green, and `xcodebuild build -scheme Pisaka -destination 'generic/platform=iOS'` still succeeds without building the macOS-only target.
-- Recorded pre-fix seeded-launch crash from Task 4: _(paste the crash report's
-  leading frames)_
+- Recorded pre-fix seeded-launch crash from Task 4: shipped seeded launch
+  survived the 5s deadline and was terminated by the step (first run: "The app
+  survived 5s and was terminated by this step." with no crash report newer than
+  MARKER). With Task 2 fix stashed the app's xcodebuild test harness still traps
+  as in Task 1 — `FoldingTypesetter: Fatal error: Use of unimplemented
+  initializer 'init()'` — which is the authoritative proof the hidden set is
+  read through a second ObjC-allocated typesetter; the local seeded
+  smoke binary with the stashed fix also survived 5s with no new DiagnosticReports
+  report, showing the smoke fixture alone does not re-trigger the re-entrant
+  extra-line-fragment path outside the harness, while the harness's
+  `testFoldingTypesetterSupportsObjCInit` and layout tests do. Seeding is
+  verified: `swift test` 5259 passed, `swiftlint --strict` clean,
+  `xcodebuild test -scheme Pisaka -destination 'platform=macOS'` 12 PisakaAppTests
+  passed, and the seeded smoke body is byte-identical in ci.yml/release.yml
+  apart from APP= (pinned by testSmokeLaunchSeedsSessionAndBacksUpDomain).
 - Half two's load-bearing verdict from Task 2: with `FoldingTypesetter` replaced by a plain `NSATSTypesetter` after `setFoldedRanges`, (a) still passes — every hidden character still carries `GlyphProperty.null` — but (c) fails: fragment count is 3 not 2 (baseline 5 minus hidden separators 3 => 2 with both halves, 3 without), the visible newline after the block occupies its own line fragment as a blank row. (b) still holds — header `header {` and closer `}` share one fragment even with only half one, because null glyphs already hide the separators inside the block — but the overall collapsing is incomplete, confirming half two is load-bearing. Measured in `PisakaAppTests/FoldLayoutTests.testFoldHidesTextAndCollapsesLines` via a harness-local `typesetter = NSATSTypesetter()` neutralisation; both halves stay, docs in `app-editor-overlays.md` updated.

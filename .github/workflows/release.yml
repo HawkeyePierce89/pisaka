@@ -829,11 +829,63 @@ jobs:
           # run left behind — or, on a developer Mac running this script by
           # hand, one from an earlier month.
           MARKER="${RUNNER_TEMP:-/tmp}/smoke-launch.marker"
+          # The launch execs the executable directly and passes no arguments
+          # — `open --args <path>` was tried and produced no window at all,
+          # so the file route was not taken. The document is reached through
+          # session restore instead.
           # Deliberately names no build flag: this body is byte-identical in
           # ci.yml and release.yml apart from `APP=`, and the two produce their
           # product in different ways — a `-derivedDataPath` build in ci.yml, an
           # archive in release.yml — so a message naming either one misdirects
           # the reader of the other, during a tagged release in the latter case.
+          # Back up the defaults domain before seeding so a hand-run on a
+          # developer Mac does not clobber the real session. Restored on every
+          # exit path via trap, for the reason the MARKER comment above states:
+          # this body is run by hand on developer Macs, where the domain is a
+          # real session.
+          BACKUP="${RUNNER_TEMP:-/tmp}/pisaka-smoke-defaults.plist"
+          defaults export ws.karmanov.pisaka "$BACKUP" 2>/dev/null || true
+          restore_defaults() {
+            if [ -f "$BACKUP" ]; then
+              defaults import ws.karmanov.pisaka "$BACKUP" 2>/dev/null || true
+            else
+              defaults delete ws.karmanov.pisaka 2>/dev/null || true
+            fi
+            rm -f "$BACKUP"
+          }
+          trap restore_defaults EXIT
+          # Seed a restorable session so the launch lays out a real document.
+          # With no session there is no document, no layout and no re-entrant
+          # pass, which is exactly why the part 1 crash passed CI.
+          # The session lives in UserDefaults under session.projects (a
+          # PropertyListEncoder-encoded SessionCatalog), domain ws.karmanov.pisaka.
+          # That is the seam the smoke launch seeds.
+          FIXTURE="${RUNNER_TEMP:-/tmp}/pisaka-smoke-fixture"
+          rm -rf "$FIXTURE"
+          mkdir -p "$FIXTURE"
+          for NAME in Alpha.swift Beta.swift; do
+            seq 1 60 | sed 's/.*/let x& = &/' > "$FIXTURE/$NAME"
+          done
+          HEX="$(FIXTURE="$FIXTURE" python3 <<'PY'
+          import plistlib, binascii, os
+          fixture = os.environ["FIXTURE"]
+          catalog = {
+              "entries": [
+                  {
+                      "folderPath": fixture,
+                      "tabs": [
+                          {"path": f"{fixture}/Alpha.swift"},
+                          {"path": f"{fixture}/Beta.swift"},
+                      ],
+                      "selectedIndex": 0,
+                  }
+              ]
+          }
+          data = plistlib.dumps(catalog, fmt=plistlib.FMT_BINARY)
+          print(binascii.hexlify(data).decode())
+          PY
+          )"
+          defaults write ws.karmanov.pisaka session.projects -data "$HEX"
           if ! test -x "$EXECUTABLE"; then
             echo "::error::No executable at ${EXECUTABLE}. The step that produced the bundle reported success, so either the product moved or it is not what this step thinks it is — check that path against the step above that wrote it. See docs/RELEASING.md."
             exit 1

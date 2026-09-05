@@ -3548,6 +3548,76 @@ final class ReleaseWorkflowTests: XCTestCase {
             """)
     }
 
+    /// The smoke launch must seed a restorable session before it launches,
+    /// and back the domain up so a hand-run does not clobber the real one.
+    ///
+    /// With no session there is no document, no layout and no re-entrant
+    /// pass — which is exactly why the part 1 crash passed CI. The session
+    /// lives in UserDefaults under session.projects (a PropertyListEncoder-
+    /// encoded SessionCatalog), domain ws.karmanov.pisaka. The backup is
+    /// restored on every exit path via trap, for the reason the MARKER
+    /// comment states: this body is run by hand on developer Macs where the
+    /// domain is a real session. The file route (`open --args`) was tried
+    /// and produced no window, so the launch execs the executable directly
+    /// with no arguments and reaches the document through restore.
+    func testSmokeLaunchSeedsSessionAndBacksUpDomain() throws {
+        for (workflow, step) in [
+            ("ci.yml", Self.ciSmokeLaunchStepName),
+            ("release.yml", Self.releaseSmokeLaunchStepName),
+        ] as [(String, String)] {
+            let script = try stepScript(named: step, in: workflow, because: """
+                It is one of the two copies of the launch smoke test that must seed a document \
+                so the re-entrant layout pass is exercised.
+                """)
+            XCTAssertTrue(script.contains { $0.contains("defaults export ws.karmanov.pisaka") }, """
+                \(workflow)'s `\(step)` step must back up the defaults domain with \
+                `defaults export ws.karmanov.pisaka` before seeding. Without it a hand-run on a \
+                developer Mac clobbers the real session — the reason MARKER exists as well.
+                """)
+            XCTAssertTrue(script.contains { $0.contains("defaults import ws.karmanov.pisaka") }, """
+                \(workflow)'s `\(step)` step must restore the domain with \
+                `defaults import ws.karmanov.pisaka`. The backup is meaningless without a restore.
+                """)
+            XCTAssertTrue(script.contains { $0.contains("trap restore_defaults EXIT") }, """
+                \(workflow)'s `\(step)` step must `trap restore_defaults EXIT` so the domain is \
+                restored on every exit path, not just the success one.
+                """)
+            XCTAssertTrue(script.contains { $0.contains("pisaka-smoke-fixture") }, """
+                \(workflow)'s `\(step)` step must create a fixture project under \
+                pisaka-smoke-fixture with two multi-line files. Without it there is no document \
+                to lay out.
+                """)
+            XCTAssertTrue(script.contains { $0.contains("session.projects") && $0.contains("defaults write") }, """
+                \(workflow)'s `\(step)` step must seed UserDefaults with \
+                `defaults write ws.karmanov.pisaka session.projects -data`. That is the seam \
+                the smoke launch seeds — a PropertyListEncoder-encoded SessionCatalog.
+                """)
+            // Seed must precede the launch, otherwise the launch sees no document.
+            let seedIndex = try XCTUnwrap(script.firstIndex(where: {
+                $0.contains("session.projects") && $0.contains("defaults write")
+            }), """
+                \(workflow)'s `\(step)` step has no `defaults write … session.projects` line to order.
+                """)
+            let launchIndex = try XCTUnwrap(script.firstIndex(where: { $0.contains("\"$EXECUTABLE\"") && $0.hasSuffix("&") }), """
+                \(workflow)'s `\(step)` step has no background launch line to order against.
+                """)
+            XCTAssertLessThan(seedIndex, launchIndex, """
+                \(workflow)'s `\(step)` step must seed the session *before* launching the app. \
+                After it, the app has already started with no document and no re-entrant layout pass.
+                """)
+            // The launch must exec the binary directly with no arguments; `open --args`
+            // was tried and produced no window. Asserted as the absence of `open --args`.
+            XCTAssertFalse(script.contains { $0.contains("open --args") }, """
+                \(workflow)'s `\(step)` step must not use `open --args`. That route was tried and \
+                produced no window; the launch execs the executable directly and passes no arguments.
+                """)
+            XCTAssertTrue(script.contains { $0.contains("\"$EXECUTABLE\" > \"$LOG\" 2>&1 &") }, """
+                \(workflow)'s `\(step)` step must exec the executable directly (`"$EXECUTABLE" > "$LOG" 2>&1 &`) \
+                and pass no arguments. The document is reached through session restore, not a file argument.
+                """)
+        }
+    }
+
     // MARK: - The cross-file invariants
 
     /// The half of the feed contract that lives in the workflow.

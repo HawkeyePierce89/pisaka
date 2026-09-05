@@ -690,8 +690,20 @@ The workflow then, in order:
     job until its own budget expired — reported as a cancelled build, saying
     nothing about the app. The
     assertion is that the process *lives*, nothing more — windows appearing, the
-    updater polling github.com, its first-launch permission prompt and session
-    restore finding no session are all inert to it.
+    updater polling github.com, its first-launch permission prompt and the
+    restored document are all inert to it. With no session there is no document,
+    no layout and no re-entrant pass, which is exactly why the part 1 crash
+    passed CI: so the step first backs up the domain (`defaults export
+    ws.karmanov.pisaka`) and seeds a restorable session — a `SessionCatalog`
+    under `session.projects` (a `PropertyListEncoder`-encoded blob in domain
+    `ws.karmanov.pisaka`) naming a fixture folder of two multi-line files under
+    `$RUNNER_TEMP`, converted to binary and installed with
+    `defaults write ws.karmanov.pisaka session.projects -data <hex>` — restored
+    on every exit path via `trap` so a hand-run on a developer Mac does not
+    clobber the real session. It `exec`s the executable directly and passes no
+    arguments — `open --args <path>` was tried and produced no window at all, so
+    the file route was not taken and the document is reached through restore
+    instead.
 
     It sits **after the re-sign and before the submission**, and both halves of
     that matter. After, so what it launches is what ships — hardened runtime,
