@@ -30,6 +30,16 @@ import PisakaCore
 ///
 /// The cached runs are the visible range's only (the owner recomputes on scroll),
 /// so the per-write intersection stays small.
+///
+/// **Folding is the one thing here that is not an overlay.** A folded block is
+/// hidden rather than painted, and hiding is two halves that live in this file
+/// together: the glyph pass (`setGlyphs(…)`, which stores
+/// `NSLayoutManager.GlyphProperty.null` for every hidden character) and
+/// `FoldingTypesetter` (which answers `.zeroAdvancementAction` for the
+/// separators inside a folded range, so the break they would cause does not
+/// happen). Both read one `FoldedRanges`. The text storage is never touched —
+/// no edit is registered, no undo entry exists for a fold, and every engine
+/// working on UTF-16 offsets keeps working on the full text.
 @MainActor
 final class BracketOverlayLayoutManager: NSLayoutManager {
     /// One colored bracket: a length-1 character range and the color to paint it.
@@ -97,6 +107,33 @@ final class BracketOverlayLayoutManager: NSLayoutManager {
     /// given both, so the block Enter appends and the block painted under it
     /// cannot come from two different rules.
     private var indentLevelWidths = IndentLevelWidths(unitWidth: 0, tabWidth: 0)
+
+    /// The one folded set both halves of hiding read: the glyph pass in
+    /// `setGlyphs(_:properties:characterIndexes:font:forGlyphRange:)` below and
+    /// the `FoldingTypesetter` installed on this manager. It is a small object
+    /// rather than a stored array precisely so there is **one** set: the
+    /// typesetter is asked its question outside this class's isolation, and a
+    /// second copy pushed to it would be a second thing to keep in step.
+    ///
+    /// Sorted ascending and non-overlapping, which is what `FoldState` hands
+    /// over and what makes the membership test a binary search.
+    private let folded = FoldedRanges()
+
+    /// The typesetter half of hiding, installed once and kept for this
+    /// manager's life. Line breaking is the **typesetter's** decision in
+    /// TextKit 1 — the paragraph structure comes from the characters in the
+    /// string, not from glyph properties — so a `.null` glyph on a separator
+    /// hides the separator without removing the break it causes. This is the
+    /// only place that break can be suppressed.
+    override init() {
+        super.init()
+        typesetter = FoldingTypesetter(folded: folded)
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        typesetter = FoldingTypesetter(folded: folded)
+    }
 
     // MARK: - Interception
 
@@ -370,6 +407,186 @@ final class BracketOverlayLayoutManager: NSLayoutManager {
         invalidateDisplay(forCharacterRange: clampedRange)
     }
 
+    // MARK: - Folding
+
+    /// The `…` drawn where a folded block's hidden text would have been. One
+    /// character, so the outline around it is measured rather than guessed.
+    private static let placeholderText = "…"
+
+    /// Replace the hidden set, then invalidate exactly what changed.
+    ///
+    /// **What is invalidated is the union of the symmetric difference** of the
+    /// old and the new set — the ranges that stopped being hidden plus the ones
+    /// that started — never the whole file: folding one block near the end of a
+    /// large file must not re-generate every glyph above it. Glyphs first
+    /// (their properties are what half one decides), then layout (the line
+    /// breaking half two decides), then the display.
+    ///
+    /// **Unchanged input is a no-op.** The coordinator calls this on every view
+    /// update, so an unconditional invalidation would re-lay out the viewport on
+    /// every keystroke.
+    ///
+    /// The text storage is never touched here or anywhere else in this class's
+    /// folding half: no edit is registered, so nothing lands in the per-file
+    /// undo manager and the SwiftUI binding never sees a change. Every overlay
+    /// this class already draws — Neon's syntax colors, the matched pair, the
+    /// search backgrounds, the diagnostic underlines, the indentation tints —
+    /// simply has no glyph to land on inside a hidden range, which is why not
+    /// one of them needed a line of fold-aware code.
+    func setFoldedRanges(_ ranges: [NSRange]) {
+        guard ranges != folded.ranges else { return }
+        let changed = changedBounds(from: folded.ranges, to: ranges)
+        folded.replace(with: ranges)
+        let invalid = clamped(changed, to: storageLength)
+        guard invalid.length > 0 else { return }
+        invalidateGlyphs(forCharacterRange: invalid, changeInLength: 0, actualCharacterRange: nil)
+        invalidateLayout(forCharacterRange: invalid, actualCharacterRange: nil)
+        invalidateDisplay(forCharacterRange: invalid)
+    }
+
+    /// The bounding range of every range present in exactly one of the two
+    /// sets. Both arrive sorted and non-overlapping, so the walk is linear.
+    private func changedBounds(from old: [NSRange], to new: [NSRange]) -> NSRange {
+        let oldOnly = old.filter { !new.contains($0) }
+        let newOnly = new.filter { !old.contains($0) }
+        var bounds: NSRange?
+        for range in oldOnly + newOnly {
+            bounds = bounds.map { union($0, range) } ?? range
+        }
+        return bounds ?? NSRange(location: 0, length: 0)
+    }
+
+    /// **Half one of hiding**: every character of every folded range — its line
+    /// separators included — is stored with `NSLayoutManager.GlyphProperty.null`,
+    /// so nothing inside the range is drawn and nothing inside it advances.
+    ///
+    /// The incoming buffer is `const`, so the properties are copied, the copy is
+    /// edited and `super` is handed the copy; the glyphs and the character
+    /// indexes travel through untouched, which is what keeps every UTF-16 offset
+    /// meaning the same thing folded and unfolded.
+    ///
+    /// Nothing is copied at all when there is no fold, or when no character in
+    /// this batch is hidden — glyph generation runs on every edit, and this
+    /// override must cost a file with no folds nothing.
+    override func setGlyphs(
+        _ glyphs: UnsafePointer<CGGlyph>,
+        properties props: UnsafePointer<NSLayoutManager.GlyphProperty>,
+        characterIndexes charIndexes: UnsafePointer<Int>,
+        font aFont: NSFont,
+        forGlyphRange glyphRange: NSRange
+    ) {
+        guard !folded.ranges.isEmpty, glyphRange.length > 0 else {
+            super.setGlyphs(
+                glyphs,
+                properties: props,
+                characterIndexes: charIndexes,
+                font: aFont,
+                forGlyphRange: glyphRange
+            )
+            return
+        }
+        var edited = Array(UnsafeBufferPointer(start: props, count: glyphRange.length))
+        var hidAny = false
+        for index in 0..<glyphRange.length where folded.hides(charIndexes[index]) {
+            edited[index] = NSLayoutManager.GlyphProperty.null
+            hidAny = true
+        }
+        guard hidAny else {
+            super.setGlyphs(
+                glyphs,
+                properties: props,
+                characterIndexes: charIndexes,
+                font: aFont,
+                forGlyphRange: glyphRange
+            )
+            return
+        }
+        edited.withUnsafeBufferPointer { buffer in
+            guard let base = buffer.baseAddress else { return }
+            super.setGlyphs(
+                glyphs,
+                properties: base,
+                characterIndexes: charIndexes,
+                font: aFont,
+                forGlyphRange: glyphRange
+            )
+        }
+    }
+
+    /// Where the placeholder for the folded range starting at `offset` sits, in
+    /// this manager's container coordinates (a drawing caller adds the origin it
+    /// was handed; a hit-testing caller adds the text view's
+    /// `textContainerOrigin`).
+    ///
+    /// **The rect is this manager's own**, which is why the text view asks
+    /// rather than computes: the x is where the first hidden glyph was laid out,
+    /// and because that glyph advances nothing it is exactly the end of the
+    /// header line's visible content; the y and the height are the enclosing
+    /// line fragment's, so the box lines up with the row whatever the font does.
+    /// Nothing is cached — a zoom or a font change needs no bookkeeping at all,
+    /// the next draw simply measures again.
+    ///
+    /// `nil` when there is nothing to measure: no layout yet, an offset outside
+    /// the storage, or a degenerate fragment.
+    func placeholderRect(forFoldedRangeAt offset: Int) -> NSRect? {
+        let length = storageLength
+        guard offset > 0, offset <= length, numberOfGlyphs > 0 else { return nil }
+        let glyphIndex = min(glyphIndexForCharacter(at: offset), numberOfGlyphs - 1)
+        let fragment = lineFragmentRect(forGlyphAt: glyphIndex, effectiveRange: nil)
+        guard fragment.height > 0 else { return nil }
+        let font = editorFont
+        let size = Self.placeholderText.size(withAttributes: [.font: font])
+        let inset = (font.pointSize * 0.3).rounded()
+        let gap = (font.pointSize * 0.25).rounded()
+        let width = size.width + inset * 2
+        let height = min(fragment.height, size.height + 2)
+        let point = location(forGlyphAt: glyphIndex)
+        return NSRect(
+            x: fragment.minX + point.x + gap,
+            y: fragment.minY + ((fragment.height - height) / 2).rounded(),
+            width: width,
+            height: height
+        )
+    }
+
+    /// Draw the `…` of every folded range whose header line the drawn glyphs
+    /// reach.
+    ///
+    /// Geometry is read here, at draw time, by the same technique the
+    /// indentation tints use — see `placeholderRect(forFoldedRangeAt:)` for why
+    /// nothing is stored. The color is the platform's secondary label rather
+    /// than a syntax color: the placeholder is chrome standing in for text, not
+    /// a token, and the secondary label is appearance-aware, so light and dark
+    /// need no second table.
+    private func paintFoldPlaceholders(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {
+        guard !folded.ranges.isEmpty, glyphsToShow.length > 0 else { return }
+        let charRange = characterRange(forGlyphRange: glyphsToShow, actualGlyphRange: nil)
+        let end = NSMaxRange(charRange)
+        let font = editorFont
+        let color = NSColor.secondaryLabelColor
+        let text = NSAttributedString(
+            string: Self.placeholderText,
+            attributes: [.font: font, .foregroundColor: color]
+        )
+        let size = text.size()
+        for range in folded.ranges where range.location >= charRange.location && range.location <= end {
+            guard var rect = placeholderRect(forFoldedRangeAt: range.location) else { continue }
+            rect.origin.x += origin.x
+            rect.origin.y += origin.y
+            let outline = NSBezierPath(roundedRect: rect.insetBy(dx: 0.5, dy: 0.5), xRadius: 3, yRadius: 3)
+            outline.lineWidth = 1
+            color.withAlphaComponent(0.5).setStroke()
+            outline.stroke()
+            text.draw(at: NSPoint(x: rect.midX - size.width / 2, y: rect.midY - size.height / 2))
+        }
+    }
+
+    /// The font the editor is drawn in, read from the text view rather than
+    /// stored: the zoom changes it and nothing here would be told.
+    private var editorFont: NSFont {
+        textContainers.first?.textView?.font ?? NSFont.monospacedSystemFont(ofSize: NSFont.systemFontSize, weight: .regular)
+    }
+
     // MARK: - Indentation levels
 
     /// Hand over the indentation-level painting state: whether to paint at all,
@@ -412,6 +629,7 @@ final class BracketOverlayLayoutManager: NSLayoutManager {
     override func drawBackground(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {
         paintIndentLevels(forGlyphRange: glyphsToShow, at: origin)
         super.drawBackground(forGlyphRange: glyphsToShow, at: origin)
+        paintFoldPlaceholders(forGlyphRange: glyphsToShow, at: origin)
     }
 
     /// Paint the level blocks of every line the drawn glyphs intersect.
@@ -847,6 +1065,76 @@ final class BracketOverlayLayoutManager: NSLayoutManager {
         isApplyingOverlays = true
         defer { isApplyingOverlays = false }
         body()
+    }
+}
+
+/// The hidden set, as one object two isolations share.
+///
+/// `BracketOverlayLayoutManager` is `@MainActor` and `FoldingTypesetter` is not
+/// — TextKit asks the typesetter its question straight out of the line-breaking
+/// loop — so the set both halves of hiding read lives here rather than in
+/// either of them. Every write happens on the main thread, from
+/// `setFoldedRanges(_:)`, and every read happens during layout on that same
+/// thread; nothing else has a reference.
+///
+/// The ranges are the ones `FoldState.hiddenRanges` hands over: **sorted
+/// ascending and non-overlapping**. That is the whole precondition of
+/// `hides(_:)`, which binary-searches rather than scans — glyph generation asks
+/// it once per character.
+final class FoldedRanges {
+    private(set) var ranges: [NSRange] = []
+
+    func replace(with ranges: [NSRange]) {
+        self.ranges = ranges
+    }
+
+    /// Is this UTF-16 offset inside a folded range?
+    func hides(_ offset: Int) -> Bool {
+        var low = 0
+        var high = ranges.count - 1
+        while low <= high {
+            let mid = (low + high) / 2
+            let range = ranges[mid]
+            if offset < range.location {
+                high = mid - 1
+            } else if offset >= NSMaxRange(range) {
+                low = mid + 1
+            } else {
+                return true
+            }
+        }
+        return false
+    }
+}
+
+/// **Half two of hiding**: the line breaking.
+///
+/// A `.null` glyph is not drawn and advances nothing, but in TextKit 1 the
+/// paragraph structure comes from the *characters in the string* — the
+/// typesetter asks what to do about each control character it meets, and a
+/// separator it is not told about still breaks the line. So a folded block
+/// would hide its text and keep its blank rows. Answering
+/// `.zeroAdvancementAction` for every separator **inside** a folded range is
+/// what actually makes the header line and the block's last line meet on one
+/// visual line.
+///
+/// Every character outside a folded range defers to `super`, so tabs, ordinary
+/// newlines and the container break behave exactly as they did before folding
+/// existed.
+///
+/// It lives in this file, beside the glyph half, because the two are one
+/// mechanism: they read the same set and neither is correct alone.
+final class FoldingTypesetter: NSATSTypesetter {
+    private let folded: FoldedRanges
+
+    init(folded: FoldedRanges) {
+        self.folded = folded
+        super.init()
+    }
+
+    override func actionForControlCharacter(at charIndex: Int) -> NSTypesetterControlCharacterAction {
+        if folded.hides(charIndex) { return .zeroAdvancementAction }
+        return super.actionForControlCharacter(at: charIndex)
     }
 }
 

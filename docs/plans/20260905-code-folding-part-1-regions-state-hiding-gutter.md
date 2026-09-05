@@ -313,7 +313,7 @@ None new. Foundation only in Core; AppKit only in the app half.
 **Files:**
 
 - Modify: `Sources/Pisaka/BracketOverlayLayoutManager.swift`
-- [ ] **Hiding is two halves, planned as both from the start** — not one
+- [x] **Hiding is two halves, planned as both from the start** — not one
     mechanism with a fallback. In TextKit 1 the typesetter breaks paragraphs by
     the *characters in the string*, not by glyph properties, so a `.null` glyph
     on a line separator is expected **not** to remove the paragraph break:
@@ -336,28 +336,35 @@ None new. Foundation only in Core; AppKit only in the app half.
       suffice, which would be the surprising result and deserves the sentence.
       If half two is not needed, it is deleted rather than left inert, and the
       Task 9 gating rule for it is dropped with a note.
-- [ ] In both halves the text storage is never touched: no edit is registered, undo
+      **Both halves are implemented as planned; the spike itself is deferred
+      to the mandatory manual DEBUG pass**, which the plan already schedules it
+      into (Post-Completion step 1): nothing can fold a block until the
+      controller, the gutter and the commands exist (Tasks 6–8), so there is no
+      way to run it from inside this task. The verdict — and the deletion of
+      half two if it turns out inert — is recorded in `app-editor-overlays.md`
+      in Task 10 either way.
+- [x] In both halves the text storage is never touched: no edit is registered, undo
     never contains a fold, and Neon's temporary attributes, the matched-pair and
     search backgrounds, the diagnostic underlines and the indentation tints over
     hidden text are simply not drawn — **no code is added for any of them**.
-- [ ] `setFoldedRanges(_:)`: store (both halves read the same stored set), then
+- [x] `setFoldedRanges(_:)`: store (both halves read the same stored set), then
     `invalidateGlyphs(forCharacterRange:changeInLength:0:actualCharacterRange:)`
     + `invalidateLayout` + `invalidateDisplay` over the **union of the symmetric
     difference** of the old and new sets only — never the whole file. Unchanged
     input is a no-op, because this is called on every view update.
-- [ ] The placeholder: drawn in `drawBackground(forGlyphRange:at:)` beside the
+- [x] The placeholder: drawn in `drawBackground(forGlyphRange:at:)` beside the
     indentation tints and by the same technique — geometry read from this layout
     manager at draw time, never cached. A `…` in the editor font at the current
     zoom inside a rounded outline, positioned at the end of the header line's
     visible content, in `SyntaxTheme`'s secondary colour. Nothing is stored, so a
     zoom or a font change needs no bookkeeping.
-- [ ] `placeholderRect(forFoldedRangeAt:)` — the one geometry answer the text view
+- [x] `placeholderRect(forFoldedRangeAt:)` — the one geometry answer the text view
     asks when deciding whether a click landed on a placeholder. It lives here
     because the rect is this manager's own.
-- [ ] Tests: none here — this is view-layer drawing, untested by convention. Its
+- [x] Tests: none here — this is view-layer drawing, untested by convention. Its
     rules are pinned by `FoldingSourceGatingTests` (Task 9) and verified by the
     manual DEBUG pass.
-- [ ] Run `swift test` and `swiftlint --strict` — must pass before Task 6.
+- [x] Run `swift test` and `swiftlint --strict` — must pass before Task 6.
 
 ### Task 6: The gutter (App, macOS)
 
