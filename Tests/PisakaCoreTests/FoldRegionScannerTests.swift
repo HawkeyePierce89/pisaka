@@ -159,12 +159,37 @@ final class FoldRegionScannerTests: XCTestCase {
         XCTAssertEqual(scan(text), [region(0, 3, in: text)])
     }
 
-    /// The widths really drive the levels: at a unit of eight, four spaces are
-    /// still one level deeper, and at a unit of two the two-space step counts.
-    func testTheWidthsDriveTheLevels() {
+    /// Any deeper column opens a block, whatever the unit happens to be: two
+    /// spaces are deeper than none at a unit of two and at a unit of eight
+    /// alike.
+    func testAnyDeeperColumnOpensABlock() {
         let text = "a\n  b\nc\n"
         XCTAssertEqual(scan(text, unit: 2, tab: 2), [region(0, 1, in: text)])
         XCTAssertEqual(scan(text, unit: 8, tab: 8), [region(0, 1, in: text)])
+    }
+
+    /// Nesting is read as a **column**, never as a level quantized by the unit:
+    /// a two-space file keeps both of its blocks at a unit of four, where a
+    /// level would have put the header and its child in the same bucket and lost
+    /// the inner one. The unit belongs to what Enter appends; how deeply a file
+    /// is nested is a fact about the file.
+    func testNestingFinerThanTheUnitIsStillNested() {
+        let text = "def a:\n  def b:\n    c\nd\n"
+        let expected = [region(0, 2, in: text), region(1, 2, in: text)]
+        XCTAssertEqual(scan(text, unit: 4, tab: 4), expected)
+        XCTAssertEqual(scan(text, unit: 2, tab: 2), expected)
+        XCTAssertEqual(scan(text, unit: 8, tab: 8), expected)
+    }
+
+    /// The tab stop is the one width the nesting does read: a tab and the spaces
+    /// it expands to sit at the same column and so do not nest, while spaces
+    /// past that stop do.
+    func testTheTabStopDecidesWhereATabLands() {
+        let text = "a\n\tb\n    c\n      d\ne\n"
+        XCTAssertEqual(
+            scan(text, unit: 4, tab: 4),
+            [region(0, 3, in: text), region(2, 3, in: text)]
+        )
     }
 
     /// Widths that cannot describe an indentation answer the bracket half alone

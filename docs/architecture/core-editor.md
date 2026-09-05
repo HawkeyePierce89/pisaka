@@ -474,8 +474,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     because they travel on `FoldRegionRequest` across the code-intelligence seam
     and are read off the main actor there. **The derivation now has two
     consumers**: the indentation painting and the fold scanner's indentation half,
-    which measures a block with exactly the unit the editor types with rather than
-    deriving one of its own (`core-folding.md`). `enum IndentLevelScanner` answers both halves.
+    which measures a block with exactly the widths the editor types with rather
+    than deriving any of its own (`core-folding.md`). `enum IndentLevelScanner`
+    answers both halves.
     **The widths are derived, never invented.** `widths(unit:statedTabWidth:)`
     takes the unit string `IndentUnitRule.unit(config:inferred:)` already
     answered plus the configuration's `tab_width` (`nil` when unstated): a
@@ -522,9 +523,22 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     column to the next such tab stop twice overflows `Int`, and this walk runs
     inside `drawBackground`, so a trap there is the app. Clamping rather than
     rejecting keeps a merely-large width behaving like a large width, exactly as
-    the rule does for a space unit's string. Unit-tested in
+    the rule does for a space unit's string. **The same walk answers a second
+    question**, `indentation(of:in:tabWidth:)`: the **column** one line's content
+    starts at, plus where its leading whitespace ended. That is what the fold
+    scanner asks, and it is deliberately not a level — a level is
+    `column / unitWidth`, so two lines a unit apart in column share one and a
+    consumer comparing depth would read a child as its parent's equal
+    (`core-folding.md` states what that costs). It takes the tab stop and no unit,
+    because how deeply a file is nested is a fact about the file rather than about
+    the width Enter appends; it clamps that stop exactly as the levelled walk does,
+    for the same overflow reason; and a stop of zero or less consumes nothing.
+    Blankness is read off it rather than by a second pass, since a line whose
+    whitespace reaches the end of its content had nothing else on it. Unit-tested in
     `IndentLevelScannerTests` (the degenerate widths at both ends, the absurd one
-    reached the way the app reaches it — through `widths(unit:statedTabWidth:)`);
+    reached the way the app reaches it — through `widths(unit:statedTabWidth:)`,
+    and the column's own four cases: unquantized columns, the tab stop, the
+    whitespace end incl. a whitespace-only line, and both degenerate stops);
     the view half is `BracketOverlayLayoutManager` (`app-editor-overlays.md`).
   - `TextSearch.swift` — pure, testable text search/replace over an `NSString` in
     UTF-16 offsets (Foundation only — the `DuplicateEngine`/`AutoPairEngine`

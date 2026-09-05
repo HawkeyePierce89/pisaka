@@ -90,13 +90,22 @@ projects, most files.
   numbers come from a binary search over the line table, so the half stays
   `O(b log n)` rather than walking the lines once per bracket.
 - *Indentation.* A line followed by lines indented deeper, ending at the first
-  line back at the header's level or shallower. Levels come from
-  `IndentLevelScanner` driven by the `IndentLevelWidths` the caller was handed —
-  the same widths the indentation painting uses and, one step back, the same unit
-  `IndentUnitRule` already answered for Enter. **Nothing here re-derives an
-  indentation unit.** Widths that cannot describe an indentation (either of them
-  zero or less) answer the bracket half alone — `IndentLevelScanner`'s own rule,
-  applied by asking it rather than by restating it.
+  line back at the header's **column** or shallower. The column comes from
+  `IndentLevelScanner.indentation(of:in:tabWidth:)` — the same walk the
+  indentation painting is built on, read for depth rather than for levels, so the
+  tab stop and the two indentation characters are stated once for both. **Nothing
+  here re-derives an indentation unit**, and nothing here *quantizes* by one:
+  a level is `column / unitWidth`, so at a unit of four a two-space header and its
+  four-space child would share level 1 and the child would close the header's
+  block instead of nesting inside it — losing every nested fold in a file indented
+  more finely than the unit the editor settled on (an `.editorconfig` stating
+  `indent_size = 4` over a two-space file is the everyday case). How deeply a file
+  is nested is a fact about the file; the unit belongs to what Enter appends. Of
+  the two widths only the **tab stop** is therefore read by the nesting;
+  `unitWidth` still says whether the widths describe an indentation at all, and
+  widths that cannot (either of them zero or less) answer the bracket half alone —
+  `IndentLevelScanner`'s own rule, applied by asking it rather than by restating
+  it.
 
 **The rules it owns.** Both sources require **two or more lines** (a block that
 hides nothing is not a block, which `FoldRegion`'s initializer states one level
@@ -111,20 +120,21 @@ ends while indentation only guesses; between two of the same source the longer
 wins, which is `FoldRegion`'s ordering key again. No comment and no import
 regions: naming a block needs a grammar and this engine has none.
 
-**Cost.** One pass over the bracket tokens plus one levelled pass — both already
-chunked or bounded by the engines that produce them — plus a linear merge. The
-blankness of a line is read off the levelled runs rather than by a second
-character walk (`IndentLevelScanner` stops at the first character that is neither
-space nor tab, so a line whose runs reach the end of its content had nothing else
-on it), and the runs come back ascending, so one cursor walks them alongside the
-lines instead of asking per line. That is the same order of work the rainbow
-bracket scan already does on every debounce, which is what makes it cheap enough
-to run right after one.
+**Cost.** One pass over the bracket tokens plus one walk of each line's *leading
+whitespace* — both already chunked or bounded by the engines that produce them —
+plus a linear merge. The blankness of a line is read off that same walk rather
+than by a second character pass (`IndentLevelScanner` stops at the first character
+that is neither space nor tab, so a line whose whitespace reaches the end of its
+content had nothing else on it), and no intermediate run array is built at all.
+That is the same order of work the rainbow bracket scan already does on every
+debounce, which is what makes it cheap enough to run right after one.
 
 `FoldRegionScannerTests` covers nested brackets, a single-line pair yielding
 nothing, an unmatched bracket, the indentation block with interior blank lines
 and trailing ones, the bracket-wins merge, degenerate widths, CRLF/CR/NEL text
-and an empty buffer.
+and an empty buffer — plus the two the column rule owns: a nesting *finer* than
+the unit answering both of its blocks at every unit, and a tab and the spaces
+filling the same stop not nesting.
 
 ### `FoldState.swift` — what is folded, and five rules about it
 

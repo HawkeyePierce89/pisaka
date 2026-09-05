@@ -19,11 +19,14 @@ import Foundation
 ///   orphaned brackets, which is a decision this engine must not take a second
 ///   opinion on.
 /// - *Indentation.* A line followed by lines indented deeper, ending at the first
-///   line back at the header's level or shallower. Levels come from
-///   `IndentLevelScanner`, driven by the `IndentLevelWidths` the caller was
-///   handed — the same widths the indentation painting uses and, one step back,
-///   the same unit `IndentUnitRule` already answered for Enter. Nothing here
-///   re-derives an indentation unit.
+///   line back at the header's **column** or shallower. The column comes from
+///   `IndentLevelScanner.indentation(of:in:tabWidth:)` — the same walk the
+///   indentation painting is built on, asked for the depth rather than for the
+///   levels, so the tab stop and the two indentation characters are stated once
+///   for both. Nothing here re-derives an indentation unit; nothing here
+///   *quantizes* by one either, because two lines a unit apart in column would
+///   then share a level and the deeper one would close the shallower's block
+///   instead of nesting inside it.
 ///
 /// **The rules it owns.**
 ///
@@ -56,6 +59,9 @@ public enum FoldRegionScanner {
     /// configuration at all. Widths that cannot describe an indentation (either
     /// of them zero or less) answer the bracket half alone, never a trap and
     /// never a loop — `IndentLevelScanner`'s own rule, applied here by asking it.
+    /// Of the two it is the **tab stop** that the nesting reads: `unitWidth`
+    /// still says whether the widths describe an indentation at all, but how
+    /// deep a line sits is a column, and a column needs no unit.
     public static func scan(text: NSString, widths: IndentLevelWidths) -> [FoldRegion] {
         let length = text.length
         guard length > 0 else { return [] }
@@ -145,8 +151,8 @@ public enum FoldRegionScanner {
 
     /// A header line followed by deeper lines, per the rules above.
     ///
-    /// One pass with a stack of open headers: a line at level `L` closes every
-    /// header at level `L` or deeper, and each of those ends at the last
+    /// One pass with a stack of open headers: a line at column `C` closes every
+    /// header at column `C` or deeper, and each of those ends at the last
     /// **non-blank** line seen before it — which is both the "shallower line ends
     /// the block" rule and the trailing-blank trim, in one place rather than two.
     private static func indentationCandidates(
@@ -158,7 +164,7 @@ public enum FoldRegionScanner {
         let measured = measure(lines: lines, in: text, widths: widths)
 
         var candidates: [Candidate] = []
-        var stack: [(line: Int, level: Int)] = []
+        var stack: [(line: Int, column: Int)] = []
         var lastContentLine = -1
 
         func close(_ header: Int) {
@@ -169,12 +175,12 @@ public enum FoldRegionScanner {
         }
 
         for index in 0..<lines.count where !measured[index].isBlank {
-            let level = measured[index].level
-            while let top = stack.last, top.level >= level {
+            let column = measured[index].column
+            while let top = stack.last, top.column >= column {
                 stack.removeLast()
                 close(top.line)
             }
-            stack.append((line: index, level: level))
+            stack.append((line: index, column: column))
             lastContentLine = index
         }
         while let top = stack.popLast() {
@@ -185,46 +191,50 @@ public enum FoldRegionScanner {
 
     /// What the indentation half needs to know about one line.
     private struct MeasuredLine {
-        /// One past the level of the line's last indentation block — 0 for a
-        /// line that starts in column zero. It is a step function of the column
-        /// the content starts at, which is all the comparisons below need.
-        let level: Int
-        /// Empty, or nothing but the whitespace the levelled runs already
-        /// covered. Such a line neither opens a block nor ends one.
+        /// The column the line's content starts at — 0 for a line that starts
+        /// in column zero, the tab stop applied for a tab.
+        ///
+        /// The **column**, deliberately, and not `IndentLevelRun`'s level: a
+        /// level is `column / unitWidth`, so at a unit of four a two-space line
+        /// and a four-space line share level 1 and the deeper of the two would
+        /// close the shallower's block instead of opening one inside it. That
+        /// costs every nested fold in a file indented more finely than the unit
+        /// the editor happens to have settled on — an `.editorconfig` stating
+        /// `indent_size = 4` over a two-space file, say. How deeply a file is
+        /// nested is a fact about the file; the unit belongs to what Enter
+        /// appends.
+        let column: Int
+        /// Empty, or nothing but leading whitespace. Such a line neither opens a
+        /// block nor ends one.
         let isBlank: Bool
     }
 
-    /// Both facts for every line, from **one** levelled pass over the whole
-    /// text: the runs come back ascending, so a single cursor walks them
-    /// alongside the lines instead of asking the scanner once per line.
+    /// Both facts for every line, from `IndentLevelScanner`'s own walk over each
+    /// line's leading whitespace — asked rather than restated, so the tab stop,
+    /// the two indentation characters and the overflow clamp are stated in one
+    /// place for the tints and for folding alike.
     ///
-    /// Blankness is read off the same runs rather than by a second character
-    /// walk: `IndentLevelScanner` stops at the first character that is neither a
-    /// space nor a tab, so a line whose runs reach the end of its content had
+    /// Blankness is read off that same walk rather than by a second character
+    /// pass: the walk stops at the first character that is neither a space nor a
+    /// tab, so a line whose whitespace reaches the end of its content had
     /// nothing else on it.
     private static func measure(
         lines: [TerminatedLineRange],
         in text: NSString,
         widths: IndentLevelWidths
     ) -> [MeasuredLine] {
-        let runs = IndentLevelScanner.runs(
-            in: text,
-            range: NSRange(location: 0, length: text.length),
-            widths: widths
-        )
         var measured: [MeasuredLine] = []
         measured.reserveCapacity(lines.count)
-        var cursor = 0
         for line in lines {
-            let contentEnd = NSMaxRange(line.content)
-            var level = 0
-            var whitespaceEnd = line.content.location
-            while cursor < runs.count, runs[cursor].range.location < contentEnd {
-                level = runs[cursor].level + 1
-                whitespaceEnd = NSMaxRange(runs[cursor].range)
-                cursor += 1
-            }
-            measured.append(MeasuredLine(level: level, isBlank: whitespaceEnd == contentEnd))
+            let indent = IndentLevelScanner.indentation(
+                of: line.content,
+                in: text,
+                tabWidth: widths.tabWidth
+            )
+            measured.append(MeasuredLine(
+                column: indent.column,
+                isBlank: indent.whitespaceEnd == NSMaxRange(line.content)
+            ))
         }
         return measured
     }
