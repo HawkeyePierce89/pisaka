@@ -172,45 +172,45 @@ None new. Foundation only in Core; AppKit only in the app half.
   already exists)
 - Create: `Tests/PisakaCoreTests/FoldStateTests.swift`,
   `Tests/PisakaCoreTests/FoldShiftTests.swift`
-- [ ] `FoldState`: the folded hidden ranges, kept sorted and non-overlapping.
+- [x] `FoldState`: the folded hidden ranges, kept sorted and non-overlapping.
     `fold(_:)`, `unfold(_:)`, `toggle(_:)` by region; `isFolded(_:)`;
     `hides(offset:)`; `folded(containing line:)`. Nested regions may both be
     folded — the outer's hidden range subsumes the inner's, which is the case
     the sort-and-merge normalization handles once rather than at each reader.
-- [ ] `FoldShift.updated(_:previousLineStarts:newLineStarts:editedRange:changeInLength:)`,
+- [x] `FoldShift.updated(_:previousLineStarts:newLineStarts:editedRange:changeInLength:)`,
     modelled line for line on `DiagnosticShift`: before → unchanged, after →
     shifted by the delta, intersecting → **dropped** (i.e. that block unfolds).
     Same half-open comparisons, same overflow guards, same "any inconsistent
     input answers `[]`" fallback, and the same documented list of what is
     deliberately *not* checked.
-- [ ] `FoldState.reconciled(with candidates:)`: a folded range survives only if a
+- [x] `FoldState.reconciled(with candidates:)`: a folded range survives only if a
     candidate with the same `headerLine` exists, and takes that candidate's
     bounds; otherwise it unfolds. A server that recomputed a region one line
     shorter therefore leaves no phantom fold.
-- [ ] `FoldState.clamped(toLength:)` — `EditorViewport.clamped`'s rule applied to
+- [x] `FoldState.clamped(toLength:)` — `EditorViewport.clamped`'s rule applied to
     ranges: anything that cannot fit is dropped, never truncated into a lie.
-- [ ] `FoldState.remapped(through plan: SaveTransformPlan)` — fold bounds moved by
+- [x] `FoldState.remapped(through plan: SaveTransformPlan)` — fold bounds moved by
     `remappedRange(_:)`, the **same** remap that already moves the caret, each
     selection endpoint and the scroll anchor. Deliberately not the shift rule:
     an autosave that trims trailing whitespace inside a folded block must leave
     it folded.
-- [ ] `FoldCaretRule.caret(for proposed:previous:in state:)` — pure. A single
+- [x] `FoldCaretRule.caret(for proposed:previous:in state:)` — pure. A single
     caret (zero-length selection) may never rest strictly inside a hidden range:
     moving forward lands at the range's end, moving backward at its start, and a
     request with no direction (a click) lands at its start. A selection with
     length is returned untouched, so selecting across a whole folded block is
     allowed and includes the hidden text.
-- [ ] `FoldReveal.unfolding(_ range: NSRange, in state:)` — the state with every
+- [x] `FoldReveal.unfolding(_ range: NSRange, in state:)` — the state with every
     folded region intersecting `range` unfolded, nested regions included
     (unfolding an inner one that an outer still hides is not enough, so the rule
     unfolds every intersecting range in one pass).
-- [ ] `FoldStateMemory`: `[String: FoldState]` with `record(_:for:)`,
+- [x] `FoldStateMemory`: `[String: FoldState]` with `record(_:for:)`,
     `state(for:clampedToLength:)`, `forget(_:)` and `removeAll()`. Keyed by the
     string the app supplies (canonical path, or the tab id for an unsaved buffer
     — correction 2). **No `prune(keeping:)`**: the folds of a closed file must
     survive its reopening in the same run, and the doc comment says so beside
     `EditorViewportMemory`'s opposite choice.
-- [ ] Tests: fold/unfold/toggle incl. nested; shift before, after, intersecting
+- [x] Tests: fold/unfold/toggle incl. nested; shift before, after, intersecting
     and at both half-open edges; a zero-length insertion at a boundary; the
     overflow fallbacks; reconciliation (survives, moves, unfolds); the memory
     clamp against a shortened buffer; the save-transform remap moving a fold
@@ -218,7 +218,7 @@ None new. Foundation only in Core; AppKit only in the app half.
     newline; the caret rule forward, backward, click and spanning selection; the
     reveal rule on two nested regions and on a range touching only the header
     line.
-- [ ] Run `swift test` — must pass before Task 3.
+- [x] Run `swift test` — must pass before Task 3.
 
 ### Task 3: `textDocument/foldingRange` on the wire (Core, LSP)
 
