@@ -512,6 +512,120 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
         return NSRange(location: min(max(offset, 0), source.length), length: 0)
     }
 
+    // MARK: - Folding
+
+    /// Every collapsible block the server says the document has.
+    ///
+    /// `hover(for:)` step for step — the empty-buffer guard, the language off the
+    /// file name, `prepare` so the live buffer reaches the server before the
+    /// question, the capability read after `prepare` because `prepare` is what
+    /// produces it, `stillHolds` before the answer is read — with two rules of its
+    /// own, both about *numbers a server sent*.
+    ///
+    /// **D2's guard, in this question's terms.** There is no offset here to be
+    /// inconsistent with, so what an empty text means is simply that nothing can
+    /// fold: an empty document has no second line, and both answers to it are the
+    /// same empty list. Asking a server for it would be a round trip whose only
+    /// possible answer is the one already in hand.
+    ///
+    /// **A range this buffer cannot hold is dropped, never trapped on.** A line
+    /// past the end of the document, or an end before its start, is a server
+    /// miscounting one block — which must cost that block a chevron and cost the
+    /// file nothing else, exactly as `LSPFoldingRangeResponse` drops one
+    /// unreadable element and keeps its siblings.
+    ///
+    /// **The two optional characters are read as the specification defines them**,
+    /// and their defaults are the hidden range this editor wants anyway: no
+    /// `startCharacter` means "from the end of `startLine`'s content", no
+    /// `endCharacter` means "to the end of `endLine`'s content". So a
+    /// line-oriented server and a character-precise one are the same code path,
+    /// and neither is second-guessed — `lineFoldingOnly: false` is what the
+    /// handshake told them.
+    ///
+    /// The header line is counted with the **editor's** line table, not with
+    /// LSP's: it is the number the gutter draws a chevron on. The two disagree
+    /// only in a file delimited by NEL/LS/PS (D1), where every offset here is
+    /// still exact because the bounds were mapped through `LSPPositionMap` first.
+    public func foldRegions(for request: FoldRegionRequest) async -> [FoldRegion] {
+        guard !request.text.isEmpty else { return [] }
+        guard let fileURL = request.fileURL,
+              let language = SyntaxLanguage(forFileName: fileURL.lastPathComponent),
+              let prepared = await workspace.prepare(
+                  url: fileURL,
+                  language: language,
+                  text: request.text
+              ),
+              await prepared.session.capabilities?.supportsFoldingRange == true
+        else { return [] }
+
+        guard let response = try? await prepared.session.foldingRange(
+            LSPFoldingRangeParams(uri: prepared.uri)
+        ) else { return [] }
+        // The same staleness gate every mapped answer takes: a fold is a *range in
+        // a buffer*, and a list computed against a document some other request
+        // talked the server out of underneath this one would hide text that has
+        // moved.
+        guard await workspace.stillHolds(prepared) else { return [] }
+
+        let source = request.text as NSString
+        // Two tables, one pass each, both built once for the whole answer: the
+        // protocol's, for the bounds the server named, and the editor's, for the
+        // line the chevron lands on.
+        let lspLineStarts = LSPPositionMap.lineStarts(in: source)
+        let editorLineStarts = LineStartIndex.offsets(in: source)
+        let regions = response.ranges.compactMap { range -> FoldRegion? in
+            guard range.startLine >= 0,
+                  range.endLine >= range.startLine,
+                  range.endLine < lspLineStarts.count else { return nil }
+            let start = boundary(
+                line: range.startLine,
+                character: range.startCharacter,
+                in: source,
+                lineStarts: lspLineStarts
+            )
+            let end = boundary(
+                line: range.endLine,
+                character: range.endCharacter,
+                in: source,
+                lineStarts: lspLineStarts
+            )
+            guard end > start else { return nil }
+            return FoldRegion(
+                hiddenRange: NSRange(location: start, length: end - start),
+                headerLine: LSPPositionMap.lineIndex(
+                    containing: start,
+                    lineStarts: editorLineStarts
+                ),
+                kind: range.kind
+            )
+        }
+        return regions.sorted()
+    }
+
+    /// One end of a folding range as a buffer offset: the character the server
+    /// named, or the end of that line's content when it named none.
+    ///
+    /// The absent case is the specification's own default ("the length of the
+    /// line"), read through the one function that already knows where a line's
+    /// content stops — which is not `lineStarts[line + 1] - 1`, because a CRLF is
+    /// one separator of two code units and a bound between its halves is a range
+    /// the editor cannot hide.
+    private func boundary(
+        line: Int,
+        character: Int?,
+        in source: NSString,
+        lineStarts: [Int]
+    ) -> Int {
+        guard let character else {
+            return LSPPositionMap.lineContentEnd(ofLine: line, in: source, lineStarts: lineStarts)
+        }
+        return LSPPositionMap.offset(
+            for: LSPPosition(line: line, character: character),
+            in: source,
+            lineStarts: lineStarts
+        )
+    }
+
     // MARK: - Completions
 
     /// What the server offers at the caret.

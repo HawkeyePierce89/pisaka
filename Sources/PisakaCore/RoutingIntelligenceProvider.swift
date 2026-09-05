@@ -79,6 +79,12 @@ public protocol LSPIntelligenceSource: CodeIntelligenceProviding, Sendable {
 /// (decision 1) — so what this layer owes there is an honest empty answer, and the
 /// rule "an empty answer is not an answer" deliberately does not apply to it.
 ///
+/// **Folding is the ordinary shape again**, and it is worth saying because the
+/// three questions above are not: `foldRegions(for:)` has a real second answer of
+/// its own — the pure `FoldRegionScanner`, over the text already in the request —
+/// so every rule in this file applies to it unaltered, "an empty answer is not an
+/// answer" included.
+///
 /// Not `@MainActor`: like both providers it composes, the request methods are
 /// `nonisolated async`, so the deadline race, the ranking and the index read all
 /// stay off the main thread.
@@ -129,6 +135,13 @@ public final class RoutingIntelligenceProvider: CodeIntelligenceProviding {
         /// command that simply refuses. See that budget's note for why a
         /// workspace rename is also the heavier request.
         public var rename: TimeInterval
+        /// `textDocument/foldingRange`, matching `LSPSession.Budgets.foldingRange`
+        /// — completion's number, for completion's reason read one step further.
+        /// Nobody asks for a fold list: it is computed behind a typing pause, and
+        /// the next keystroke makes an answer stale rather than merely late. It is
+        /// also the cheapest expiry in this table, because the pure scanner
+        /// answers the same question over the text already in hand.
+        public var foldingRange: TimeInterval
 
         public init(
             definition: TimeInterval = 3,
@@ -136,7 +149,8 @@ public final class RoutingIntelligenceProvider: CodeIntelligenceProviding {
             resolve: TimeInterval = 1.5,
             hover: TimeInterval = 1.5,
             references: TimeInterval = 3,
-            rename: TimeInterval = 20
+            rename: TimeInterval = 20,
+            foldingRange: TimeInterval = 1.5
         ) {
             self.definition = definition
             self.completion = completion
@@ -144,6 +158,7 @@ public final class RoutingIntelligenceProvider: CodeIntelligenceProviding {
             self.hover = hover
             self.references = references
             self.rename = rename
+            self.foldingRange = foldingRange
         }
 
         /// D7's numbers.
@@ -286,6 +301,46 @@ public final class RoutingIntelligenceProvider: CodeIntelligenceProviding {
         return await withBudget(budgets.rename, { [lsp] in
             await lsp.renameEdits(for: request)
         }) ?? nil
+    }
+
+    /// The server's blocks, or the scanner's.
+    ///
+    /// **Back to the ordinary shape**, after three questions that are not: the
+    /// language first (an unserved one costs a function call), the same
+    /// whole-attempt budget, and the fallback for every other outcome — a
+    /// timeout, a server with no folding capability, a server that answered
+    /// nothing. The pure scanner is a real second answer here, unlike hover's
+    /// missing one, and it is a *provider's* to give rather than a model's,
+    /// unlike usages': it costs one pass over the text already in the request and
+    /// walks no project.
+    ///
+    /// **An empty server answer falls through**, this file's own rule and never
+    /// more clearly right than here: a served file with braces in it always folds
+    /// somewhere, so a server offering nothing has failed to answer rather than
+    /// answered "nowhere". The cost of being wrong about that is a chevron on a
+    /// block the server would not have named, which is what every unserved
+    /// language already gets.
+    ///
+    /// **The answer is never a mixture.** One source or the other, whole — two
+    /// lists merged would put a scanner's bracket region and a server's semantic
+    /// one on the same header line, and `FoldState` reconciles folds *by header
+    /// line*, so a list that disagrees with itself is a fold that survives one
+    /// refresh and not the next.
+    ///
+    /// The language comes off the request rather than off the file name, as
+    /// completion's does: the editor resolved it once, and a `nil` there already
+    /// means "this buffer has no language" — the one state no server can be asked
+    /// about, and the one the scanner answers perfectly well.
+    public func foldRegions(for request: FoldRegionRequest) async -> [FoldRegion] {
+        if let language = request.language,
+           await lsp.canServe(language),
+           let answer = await withBudget(budgets.foldingRange, { [lsp] in
+               await lsp.foldRegions(for: request)
+           }),
+           !answer.isEmpty {
+            return answer
+        }
+        return await fallback.foldRegions(for: request)
     }
 
     /// Whether the rename command should offer itself at all for `language`

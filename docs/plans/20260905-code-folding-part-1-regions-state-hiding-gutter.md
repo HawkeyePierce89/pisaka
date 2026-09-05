@@ -269,18 +269,18 @@ None new. Foundation only in Core; AppKit only in the app half.
 - Create: `Tests/PisakaCoreTests/FoldRoutingTests.swift`
 - Modify: the existing `RoutingIntelligenceProviderTests`,
   `LSPIntelligenceProviderTests`
-- [ ] `FoldRegionRequest`: `fileURL: URL?`, `text: String`,
+- [x] `FoldRegionRequest`: `fileURL: URL?`, `text: String`,
     `language: SyntaxLanguage?`, and `indentWidths: IndentLevelWidths`. The
     widths are carried rather than derived because the fallback scanner needs
     **the same unit `IndentUnitRule` already answered for Enter**, and no
     provider can see an `.editorconfig`; the app computes them through the one
     path the indentation tints already use, so there is no second unit rule
     anywhere.
-- [ ] `CodeIntelligenceProviding.foldRegions(for:) async -> [FoldRegion]`,
+- [x] `CodeIntelligenceProviding.foldRegions(for:) async -> [FoldRegion]`,
     defaulted to `[]` in the protocol extension beside `hover` and `references`,
     with the reason stated: both iOS surfaces have no folding and must not grow
     a call site.
-- [ ] `LSPIntelligenceProvider.foldRegions(for:)`: D2's empty-buffer guard, the
+- [x] `LSPIntelligenceProvider.foldRegions(for:)`: D2's empty-buffer guard, the
     language off the file name, `prepare` so the live buffer reaches the server,
     `supportsFoldingRange` before asking, `LSPPositionMap` on the way back,
     `stillHolds` before the answer is read. A range whose lines fall outside the
@@ -289,24 +289,24 @@ None new. Foundation only in Core; AppKit only in the app half.
     content; with no `startCharacter`, from the end of `startLine`'s content —
     which is exactly the hidden range this editor needs, and is why the
     character fields are optional in the first place.
-- [ ] `SymbolIntelligenceProvider.foldRegions(for:)`: `FoldRegionScanner.scan` and
+- [x] `SymbolIntelligenceProvider.foldRegions(for:)`: `FoldRegionScanner.scan` and
     nothing else. It reads no index — the scanner needs none — and the doc
     comment says so, because "the index-backed provider" is the seam's name for
     it rather than a description of this one method.
-- [ ] `RoutingIntelligenceProvider.foldRegions(for:)`: `canServe` first (an
+- [x] `RoutingIntelligenceProvider.foldRegions(for:)`: `canServe` first (an
     unserved language costs a function call), then the same `withBudget` race,
     then the fallback — and an **empty server answer falls through**, the file's
     existing "an empty answer is not an answer" rule. The answer is therefore
     never a mixture of the two sources, and the router walks nothing.
     `Budgets.foldingRange = 1.5`, matching the session's.
-- [ ] Tests: an unserved language answering the fallback's output **byte for byte**
+- [x] Tests: an unserved language answering the fallback's output **byte for byte**
     (the equality assertion the existing suite makes for definitions); a served
     language answering the server's; a deadline expiry falling through; an empty
     server answer falling through; a non-empty server answer never mixed with
     scanner candidates; the out-of-range and end-before-start drops; the
     generation race staged with `Gate` so the stale answer publishes first and
     the assertion holds with or without the token.
-- [ ] Run `swift test` — must pass before Task 5.
+- [x] Run `swift test` — must pass before Task 5.
 
 ### Task 5: Hiding, the typesetter and the placeholder (App, macOS)
 

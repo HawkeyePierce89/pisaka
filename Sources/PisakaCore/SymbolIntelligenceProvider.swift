@@ -106,6 +106,24 @@ public final class SymbolIntelligenceProvider: CodeIntelligenceProviding {
         )
     }
 
+    /// The pure scanner's blocks, and nothing else.
+    ///
+    /// **The one method here that reads no index**, which is worth a line because
+    /// "the index-backed provider" is this type's name in the seam rather than a
+    /// description of every answer it gives. There is nothing in a declaration
+    /// index that says where a block *ends* — a `symbols.scm` capture names a
+    /// declaration's name node — so the fallback answer to "what folds here" comes
+    /// from brackets and indentation, computed over the text the request already
+    /// carries. No main-actor hop either, for the same reason: there is no
+    /// snapshot to take.
+    ///
+    /// The widths come off the request rather than out of an inference here, so
+    /// the block is measured with the same unit Enter appends
+    /// (`FoldRegionRequest.indentWidths`).
+    public func foldRegions(for request: FoldRegionRequest) async -> [FoldRegion] {
+        FoldRegionScanner.scan(text: request.text as NSString, widths: request.indentWidths)
+    }
+
     /// Both reads in one main-actor hop — see the type's note on why the read is
     /// isolated and the ranking is not. One hop rather than two so a request
     /// cannot straddle a chunk publication and pair one walk's index with the

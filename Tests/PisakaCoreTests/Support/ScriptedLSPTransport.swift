@@ -114,14 +114,15 @@ final class ScriptedLSPTransport: LSPTransport, @unchecked Sendable {
     }
 
     /// The stock `initialize` answer: a server that does definitions, hovers,
-    /// references, renames, completions with `.` as a trigger, and
-    /// `completionItem/resolve`.
+    /// references, renames, folding ranges, completions with `.` as a trigger,
+    /// and `completionItem/resolve`.
     static func initializeResult(
         positionEncoding: String? = "utf-16",
         definition: Bool = true,
         hover: Bool = true,
         references: Bool = true,
         rename: Bool = true,
+        foldingRange: Bool = true,
         completion: Bool = true,
         resolvesCompletionItems: Bool = true
     ) -> JSONValue {
@@ -140,6 +141,9 @@ final class ScriptedLSPTransport: LSPTransport, @unchecked Sendable {
         }
         if rename {
             capabilities["renameProvider"] = .bool(true)
+        }
+        if foldingRange {
+            capabilities["foldingRangeProvider"] = .bool(true)
         }
         if completion {
             capabilities["completionProvider"] = .object([

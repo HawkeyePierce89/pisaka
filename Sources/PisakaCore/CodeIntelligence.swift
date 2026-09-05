@@ -77,6 +77,22 @@ public protocol CodeIntelligenceProviding: AnyObject {
     /// than the command being unavailable, so no server means no rename — hover's
     /// rule (D25), applied to the one command in this seam that writes.
     func renameEdits(for request: RenameRequest) async -> RenameAnswer?
+    /// Every collapsible block in the buffer `request` carries, in
+    /// `FoldRegion`'s ordering.
+    ///
+    /// The one question in this seam that is about a **document** rather than a
+    /// position, and the one whose fallback answer is as good as the server's for
+    /// most files: brackets and indentation say where a block is without knowing
+    /// what it means. So unlike `hover` and `rename` this never ends here — but
+    /// unlike `references` the second answer is a provider's own
+    /// (`FoldRegionScanner`), not a model's, because it costs one pass over the
+    /// text already in hand and walks nothing.
+    ///
+    /// Defaulted to `[]` for `hover`'s reason read one way further: folding is
+    /// macOS-only, so both iOS surfaces have no chevron, no placeholder and no
+    /// command to hang this on, and a default keeps them from growing a call site
+    /// for a question they would throw away.
+    func foldRegions(for request: FoldRegionRequest) async -> [FoldRegion]
 }
 
 public extension CodeIntelligenceProviding {
@@ -84,6 +100,7 @@ public extension CodeIntelligenceProviding {
     func hover(for request: HoverRequest) async -> HoverAnswer? { nil }
     func references(for request: UsagesRequest) async -> [UsageResult] { [] }
     func renameEdits(for request: RenameRequest) async -> RenameAnswer? { nil }
+    func foldRegions(for request: FoldRegionRequest) async -> [FoldRegion] { [] }
 }
 
 // MARK: - Go to definition
@@ -585,5 +602,60 @@ public struct RenameAnswer: Equatable, Sendable {
     public init(newName: String, edit: LSPWorkspaceEdit) {
         self.newName = newName
         self.edit = edit
+    }
+}
+
+// MARK: - Folding
+
+/// "Where are this file's collapsible blocks?" — what the fold controller asks
+/// after a typing pause, on a tab switch and on a tab open.
+///
+/// **A question about a document, not a position**, which is what makes it the
+/// odd one in this file: there is no caret in it, no identifier, and no offset.
+/// Both answers are computed for the whole buffer at once, and the editor holds
+/// the whole list — a chevron per header line is a property of the file, not of
+/// wherever the user happens to be standing.
+///
+/// `fileURL` is `nil` for a url-less buffer, which is unanswerable by a server
+/// (it is only ever asked about a document it has) and perfectly answerable by
+/// the scanner — which is the routing this request exists to allow.
+public struct FoldRegionRequest: Equatable, Sendable {
+    /// The file the blocks are in, or `nil` for a url-less buffer.
+    public let fileURL: URL?
+    /// The buffer's *live* text (D2: document sync is request-driven, so the text
+    /// travels with the question). It is also the text the fallback scans, so
+    /// this is the coordinate space both answers are computed in.
+    public let text: String
+    /// The buffer's language, resolved by the editor exactly as a
+    /// `CompletionRequest`'s is — `nil` meaning "this buffer has no language",
+    /// which is the one state no server can be asked about.
+    public let language: SyntaxLanguage?
+    /// The indentation unit and tab stop the fallback scanner measures levels
+    /// with.
+    ///
+    /// **Carried rather than derived, because there is exactly one unit rule and
+    /// it is not a provider's.** The width Enter appends comes from
+    /// `IndentUnitRule` — `.editorconfig` first, inference second — and no
+    /// provider can see an `.editorconfig`: they hold a text and a URL, not the
+    /// walk. So the app computes the widths through the one path the indentation
+    /// tints already use and hands them over, and the scanner measures a block
+    /// with the same unit the editor types with. A provider that derived its own
+    /// would be a second opinion about indentation, which is the thing this
+    /// codebase does not have.
+    ///
+    /// Ignored by the LSP provider, which asks a server that has its own idea of
+    /// where a block ends and needs no help measuring one.
+    public let indentWidths: IndentLevelWidths
+
+    public init(
+        fileURL: URL?,
+        text: String,
+        language: SyntaxLanguage?,
+        indentWidths: IndentLevelWidths
+    ) {
+        self.fileURL = fileURL
+        self.text = text
+        self.language = language
+        self.indentWidths = indentWidths
     }
 }

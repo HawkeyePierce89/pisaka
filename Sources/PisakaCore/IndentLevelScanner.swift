@@ -27,7 +27,11 @@ public struct IndentLevelRun: Equatable {
 ///
 /// Both are answered by `IndentLevelScanner.widths(unit:statedTabWidth:)` from
 /// what the editor has *already* decided, so no consumer re-derives either.
-public struct IndentLevelWidths: Equatable {
+///
+/// `Sendable` because the third consumer is not a view: a `FoldRegionRequest`
+/// carries these across the code-intelligence seam, where the answer is computed
+/// off the main actor.
+public struct IndentLevelWidths: Equatable, Hashable, Sendable {
     /// Columns per indentation level.
     public let unitWidth: Int
     /// The tab stop: a tab advances the column to the next multiple of this.

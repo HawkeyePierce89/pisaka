@@ -135,7 +135,13 @@ public enum LSPPositionMap {
 
     /// The end of a line's *content*: the offset of its separator, or the end of
     /// the buffer for the last line.
-    private static func lineContentEnd(
+    ///
+    /// Internal — not `private` — for `lineIndex(containing:lineStarts:)`' reason:
+    /// a second caller needs exactly this answer, and two copies of it would be
+    /// two chances to stop between the halves of a CRLF. That caller is the
+    /// folding path, where a `FoldingRange` with no `startCharacter`/`endCharacter`
+    /// means "the length of the line" by specification.
+    static func lineContentEnd(
         ofLine line: Int,
         in content: NSString,
         lineStarts: [Int]
