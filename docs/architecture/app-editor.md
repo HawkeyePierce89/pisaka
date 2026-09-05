@@ -835,6 +835,74 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     because each must paint whatever the incoming file's store entry now holds:
     all-`nil` when a replacement just cleared it, the retained set after a plain
     switch back to a diagnosed background file.
+    **The folding wiring is wiring and nothing else** (the feature is documented in
+    `core-folding.md`). `attachFolding(textView:ruler:)` binds the controller to
+    both views and installs its `source` closure — provider, file URL, language and
+    the indentation widths, all *read* at the moment a question is asked rather than
+    captured, for `HoverController.Source`'s reason. `syncFolds(text:immediate:)` is
+    the one trigger funnel: `immediate` on a tab switch, a tab open or a retarget
+    (which also restores the incoming file's remembered folds), debounced on an
+    ordinary edit. `syncFoldInputs(alreadyAsked:)` re-asks when the buffer's
+    language or the `.editorconfig` revision moved and does nothing at all
+    otherwise, since it runs on every SwiftUI update; the revision is compared here
+    rather than ridden on the indentation painting's cache, because that cache
+    exists only while the preference is on and folding does not ask the user's
+    permission to know where a block ends. The edit path hands
+    `FoldController.noteEdit` the same previous/new line-start tables, edited range
+    and length delta the diagnostics shift already gets, so nothing re-derives
+    geometry the coordinator holds. `recordFolds()` on the switch away,
+    `forgetFolds(url:fileID:)` beside `forgetViewport(for:)` on the same
+    text-replaced signal, `forgetAllFolds()` on a folder switch, and
+    `folds.reset()` in teardown.
+    **The memory key is `Coordinator.foldMemoryKey(url:fileID:)`**: the canonical
+    path of a url-backed file (`standardizedFileURL` then
+    `resolvingSymlinksInPath()`, `SourceViewerWindowController`'s spelling), the tab
+    id's `uuidString` otherwise. Deliberately **not `OpenFile.id`**, which is a
+    fresh `UUID` per open — closing and reopening a file would lose its folds, which
+    is exactly what the memory exists to keep for the run. It is a `static` method
+    as well as a property because it has to be asked about the *incoming* file at
+    one moment: `updateNSView`'s content-replaced branch runs before `syncBlame`
+    re-records the URL, so the property still names the outgoing one there. One
+    spelling, two callers.
+    **The caret hook**: `applyFoldCaretRule(previous:)` is the one place
+    `FoldCaretRule` is applied — from `textViewDidChangeSelection` (carrying the
+    previous selection, which is the *direction* the rule reads) and from the fold
+    gesture (carrying `NSNotFound`, since nothing moved and the caret should land
+    beside the placeholder). A re-entrancy flag keeps the corrective selection from
+    being re-inspected as a user move, in `isApplyingProgrammaticEdit`'s shape.
+    **The two commands and the two clicks.** `foldAtCaret()` / `unfoldAtCaret()`
+    answer `FoldCommands`' menu items and return `false` for it to beep on; which
+    block each acts on is `FoldCommandRule`'s decision, asked with **the gutter's own
+    line table**, so the command and the chevrons can never disagree about which line
+    the caret is on. *Fold* then puts the caret at the start of the header line — the
+    one line the collapsed block still shows — through an ordinary
+    `setSelectedRange`, so that move runs through the caret rule like every other
+    rather than through a second rule. `toggleFold(_:)` is the gutter chevron's
+    gesture. `unfoldPlaceholder(at:in:)` is the `…` click, tested against
+    `placeholderRect(forFoldedRangeAt:)` — the box that was *drawn*, not arithmetic
+    over the point — and `false` there means "not mine", so the click proceeds as an
+    ordinary one. `EditorTextView.mouseDown(with:)` asks it before anything else
+    looks at the event, because `super.mouseDown` would otherwise run its tracking
+    loop and place a caret inside text that has no position on screen; only a plain
+    single click is claimed (a modified one is a selection gesture, a double click is
+    the stock word selection), and the pointer is deliberately left as the I-beam
+    over the placeholder, since the `…` stands in for text.
+    **The reveal funnel is `revealRange(_:)`**, and it is the one method in the
+    editor that jumps to a range: it applies `FoldReveal.unfolding(_:in:)` first,
+    then selects, then scrolls. Its callers are exactly two files —
+    `applyReveal` in this one (where every `EditorRevealState` request from the
+    scene lands: Find in Files, Go to Definition inside the project, the Problems
+    rows, the Usages rows and the symbol jump) and `EditorSearchController.select(_:)`
+    through the `revealRange` hook `attachSearch` installs, which is why the find
+    bar no longer selects or scrolls for itself. This file holds exactly **two**
+    `scrollRangeToVisible` calls: the funnel's own and the Tab plan's caret scroll
+    after a raw-storage edit, and the second is named as **not a reveal** — it
+    re-shows a caret the selection path just produced and the caret rule has already
+    sanitized, on a line that is visible by construction. Three further text views in
+    the app scroll and are excluded because they hold no fold state at all:
+    `SourceViewerContent` (the read-only out-of-project viewer), `MergeView`'s result
+    pane and the iOS coordinator. `FoldReveal` and `FoldCaretRule` are each named in
+    this file alone, and `FoldingSourceGatingTests` pins all of it by set equality.
   - `LSPDocumentSyncController.swift` (macOS) — the diagnostics channel's push
     sync (D30), and the reason a server ever re-diagnoses anything after its first
     look: D2's flush is request-driven, diagnostics are pushed unasked, so every
@@ -1485,6 +1553,56 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     at a deallocated target and silently does nothing when chosen. Wrapping the
     modal call (it tracks modally and returns only once the menu is gone) is what
     keeps the target alive for exactly as long as it can be messaged.
+  - `FoldController.swift` (macOS) — the editor's fold owner: it asks the
+    intelligence seam where the shown file's collapsible blocks are, holds the
+    answer and what is folded of it, and pushes both halves at the two views that
+    draw them — the layout manager (which hides the text) and the gutter (which
+    draws the chevrons and skips the hidden lines). Every *decision* it wires is
+    pure and lives in Core (`core-folding.md`); this class owns only the
+    scheduling, the AppKit references and the invalidations, so it is thin
+    view-layer code, untested like the rest of `Sources/Pisaka` and pinned by
+    `FoldingSourceGatingTests`.
+    **Shaped like `BracketHighlightController`**: a cancellable debounce task plus a
+    monotonic generation token captured *synchronously* before the hop, so an answer
+    a tab switch or a further edit superseded discards itself instead of drawing the
+    previous file's chevrons — and the memory key is compared too, so an answer
+    cannot land on a file it was not asked about even if the counter happened to
+    agree. The debounce is **400 ms and its own**, not a chain onto
+    `LSPDocumentSyncController`: document sync for this question is request-driven
+    (D2 — the live buffer travels with the request through `LSPWorkspace.prepare`),
+    so there is nothing to wait for and one fewer coupling to maintain.
+    **Between two answers the candidates are shifted, never re-asked**: one edit runs
+    both the candidate list and the folded state through `FoldShift`, so a chevron
+    stays beside the block it names while the user types above it instead of blinking
+    out on every keystroke; a fresh answer replaces the candidates wholesale and is
+    reconciled with the folded state by header line. Every write funnels through
+    `apply(_:)`, whose one `publish()` tells the layout manager, the ruler and the
+    memory together — three call sites would let the chevrons, the hidden glyphs and
+    the remembered state fall one frame apart, and both views treat unchanged input
+    as a no-op so it is cheap to call unconditionally. `fold(_:)`/`unfold(_:)` exist
+    beside `toggleFold(_:)` because *Fold* on an already-folded block must leave it
+    folded rather than spring it open, which a toggle would do the moment the command
+    is held down. `remap(through:)` moves the bounds through a save's plan (never
+    `FoldShift` — see `core-editorconfig.md`). The layout manager is resolved
+    dynamically for `BracketHighlightController`'s reason: `replaceLayoutManager` can
+    swap it under the text view, and a stale reference would hide text in a manager
+    nothing draws from. **A reader**: it takes no writer gate, is gated by none,
+    writes no file, registers no edit and never touches the text storage — and
+    nothing it holds is persisted, the fold memory dying with the app run.
+  - `FoldCommands.swift` (macOS) — the Edit menu's *Fold* (⌘⌥←) and *Unfold*
+    (⌘⌥→), in a `CommandGroup(after: .pasteboard)` beside Toggle Comment. **The
+    whole menu surface of folding is this file**, and `PisakaApp` names the type
+    exactly once. The items carry no state: like ⌘D and Toggle Comment they reach
+    whatever editor holds the focus through the **first responder**
+    (`NSApp.keyWindow?.firstResponder as? EditorTextView`, plus `isEditable` and
+    `!hasMarkedText()` — a read-only viewer is not this command's editor, and a
+    keystroke arriving mid-composition belongs to the input method), which is the
+    only honest answer with several windows open or the terminal focused. **One
+    beep, two reasons**: a focus that is not an editor and an editor answering
+    `false` (no collapsible block at the caret, no folded block at the caret, or a
+    selection reaching past the block) are the same event to the person pressing the
+    key — nothing happened. Which block a press acts on is `FoldCommandRule`'s
+    decision and is made in Core.
   - `EditorSearchState.swift` — the find/replace bar's observable state (macOS):
     `isVisible`, `isReplaceExpanded`, `pattern`, `template`, the three toggles
     (`caseSensitive`/`wholeWord`/`isRegex`), the published-back `matchCount`/

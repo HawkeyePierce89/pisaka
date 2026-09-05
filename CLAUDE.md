@@ -127,7 +127,7 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
 - `TextualUsageScanner.swift` — the pure whole-word scan; boundaries delegated to `IdentifierScanner`.
 - `FindUsagesModel.swift` — the usages panel's model: the server first, the project walk second (never a provider fallback), two generation tokens.
 
-`docs/architecture/core-lsp.md` — the LSP client (sourcekit-lsp, gopls, rust-analyzer), incl. decisions D1–D10 + D17–D37:
+`docs/architecture/core-lsp.md` — the LSP client (sourcekit-lsp, gopls, rust-analyzer), incl. decisions D1–D10 + D17–D38:
 - `LSPMessage.swift` — JSON-RPC envelopes; `null` vs. absent.
 - `LSPFraming.swift` — `Content-Length` framing; a framing error is terminal.
 - `LSPProtocolTypes.swift` — decode leniently, encode exactly; the closed capability tree.
@@ -236,6 +236,14 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
 - `LocalHistoryStore.swift` — the one `FileServicing` half: list/read/capture/prune, synchronous and `nonisolated`.
 - `LocalHistoryModel.swift` — the capture side: the serial write chain, the three save sites, the awaited pre-operation capture, the store sweep.
 - `LocalHistoryBrowserModel.swift` — the window's reader companion (one generation token) + `LocalHistoryRestore`, the restore plan, and `LocalHistoryCurrentText`, the buffer-or-deferred-disk seam; the plan is re-asked when the window becomes key.
+
+`docs/architecture/core-folding.md` — code folding (macOS; Core + app halves):
+- `FoldRegion.swift` — the hidden range's two endpoints (the header line stays whole) + the one ordering key; the closed `FoldRegionKind`, read as absence when a server names another.
+- `FoldRegionScanner.swift` — the fallback answer: brackets (re-paired from `BracketDepthScanner`) + indentation (`IndentLevelScanner`, the carried widths); the two-line minimum, the blank-line rules, the bracket-wins merge.
+- `FoldState.swift` — what is folded (regions + merged coverage); the three maintenance rules (reconcile by header line, clamp, remap through a save's plan) + `FoldCaretRule`, `FoldReveal`, `FoldStateMemory` (no `prune`) and `FoldCommandRule`.
+- `FoldShift.swift` — `DiagnosticShift`'s rule applied to fold regions; what the edit touches unfolds, inconsistent input is `[]`.
+- `FoldController.swift` (app, macOS) — the 400 ms debounce, the generation token, the one publish; shift between answers, reconcile on one.
+- `FoldCommands.swift` (app, macOS) — *Fold* (⌘⌥←) / *Unfold* (⌘⌥→); the first responder, the one beep.
 
 `docs/architecture/core-zoom.md` — the three macOS zoom zones (Core + app halves):
 - `ZoomZone.swift` — zone/surface vocabulary; the deepest-candidate pointer rule.
@@ -369,6 +377,7 @@ in `Sources/Pisaka/Platform/` bridges per-platform APIs. Untested by convention.
 - `LSPDocumentSyncController.swift` — the 400 ms push sync (D30); revision pinned before the hop.
 - `EditorSearchState.swift` / `EditorSearchController.swift` / `SearchBarView.swift` — find/replace bar state, execution, UI.
 - `EditorRevealState.swift` — one-shot reveal request.
+- `FoldController.swift` / `FoldCommands.swift` — the fold owner and the two menu items (`core-folding.md`); the reveal funnel is `CodeEditorView.Coordinator.revealRange(_:)`.
 - `CompletionPanel.swift` — custom borderless completion panel, pointer-reachable.
 - `CompletionController.swift` — debounced candidate precompute for the completion panel; applies LSP auto-import edits.
 - `HoverController.swift` — the pointer's dwell, one generation token, the whole dismissal set.
@@ -381,10 +390,10 @@ in `Sources/Pisaka/Platform/` bridges per-platform APIs. Untested by convention.
 - `ProjectSearchView.swift` / `ProjectSearchWindowController.swift` — Find in Files window (single window).
 
 `docs/architecture/app-editor-overlays.md` — editor overlays (macOS):
-- `BracketOverlayLayoutManager.swift` — temporary-attribute overlay merge.
+- `BracketOverlayLayoutManager.swift` — temporary-attribute overlay merge; both halves of fold hiding (`.null` glyphs + `FoldingTypesetter`) + the `…` placeholder.
 - `BracketHighlightController.swift` — debounced bracket scan.
 - `BlameController.swift` — blame-column owner (one-in-flight rule).
-- `LineNumberRulerView.swift` — gutter numbers + blame column + diagnostic severity markers.
+- `LineNumberRulerView.swift` — gutter numbers + blame column + diagnostic severity markers + the fold chevron column and the hidden-line skip.
 - `MinimapTokenizer.swift` / `MinimapView.swift` — minimap parse + drawing.
 - `SyntaxLanguageConfiguration.swift` / `SyntaxTheme.swift` — grammar registry; color tables.
 
@@ -703,6 +712,27 @@ ci.yml's `lint` job, and the version-bump procedure.
   falls back to `WorkspaceModel.replaceText(_:for:)` — dropping that tab's undo
   stack and viewport — for a buffer no editor holds; iOS's one save does the same
   three steps inline (`core-editorconfig.md`).
+- **Folding is a reader that modifies no buffer** (macOS only): collapsing a
+  block hides it by **layout alone** — `GlyphProperty.null` for every hidden
+  character plus a typesetter answering `.zeroAdvancementAction` for the
+  separators inside the range, both halves in `BracketOverlayLayoutManager.swift`
+  and reading one set — so no edit is registered, no undo entry exists for a fold,
+  and every engine working on UTF-16 offsets keeps working on the full text (not
+  one existing overlay needed a fold-aware line). It takes no writer gate and is
+  gated by none. Where the blocks are comes from a language server
+  (`textDocument/foldingRange`, D38) or from the pure `FoldRegionScanner`, never
+  from a **mixture** of the two, and the router treats it as its ordinary shape —
+  an empty server answer falls through to the scanner. What is folded lives for
+  the **app run** in a per-file memory keyed by canonical path (never `OpenFile.id`,
+  which is fresh per open) and is **never written to the session**; it is not
+  pruned on close (a fold is a statement about the file, unlike a viewport) and is
+  cleared wholesale on a folder switch. Its rules are applied **in one place each**:
+  `FoldCaretRule` and `FoldReveal` in `CodeEditorView.swift` alone — every
+  jump-to-a-range in the editor goes through one coordinator method,
+  `revealRange(_:)`, which unfolds before it scrolls — `FoldShift` for what an edit
+  does (what it touches unfolds) and `SaveTransformPlan.remappedRange` for what a
+  save does (never the shift, or an autosave trimming inside a folded block would
+  spring it open). `FoldingSourceGatingTests` pins all of it (`core-folding.md`).
 - **Open-tab resync** after an operation rewrites the worktree: buffers are
   snapshotted before the hop; a clean, unchanged tab gets `reloadFromDisk`, an
   edited one `reconcileSavedBaseline` + beep, a deleted file force-closes
@@ -783,7 +813,17 @@ holds none, the armed wait's four cancellations (two of them app-layer, hence
 invisible to every other test), and the no-polling ban with **two** stated
 exceptions — `GitHubCLIProcessTransport.swift` and `PullRequestMergeWait.swift`,
 the latter scoped term by term rather than granted by file name; inventory in
-that suite's doc comments and `core-github.md`) and `LintConfigurationTests`
+that suite's doc comments and `core-github.md`), `FoldingSourceGatingTests`
+(code folding's cross-layer rules — hiding's two halves in one file, the fold
+commands in one file with the scene naming them once, **the reveal funnel by set
+equality** (its two caller files, `FoldReveal` in one, the four text views that
+scroll with their three named exclusions, and the two counted in-file sites — the
+editor's own two, one of which is named as *not* a reveal, and the search
+controller's zero), the caret rule in one file with three named non-callers, no
+view re-deriving what `FoldState` decides, the app-side files macOS-gated and
+unnamed by the iOS layer, and the reader rule — neither `autosave` nor
+`localChanges` named anywhere in the feature; inventory in that suite's doc
+comments and `core-folding.md`) and `LintConfigurationTests`
 (both `.swiftlint.yml` files — the version pin, `mandatory_comma`, the root and
 child disabled-rule sets by set equality, every measured threshold ceiling,
 every in-file disable counted by path/rule — plus `.githooks/pre-commit`'s gate

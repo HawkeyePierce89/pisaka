@@ -215,6 +215,60 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `SyntaxTheme.nsIndentLevelColor(forLevel:)` — the honest level in, `level % N`
     over a translucent four-hue palette out, the same "semantics in Core, color in
     the view" split the rainbow palette follows.
+    **Folding is the one thing in this file that is not an overlay**, and it is
+    two halves that live here together because they must agree about exactly which
+    characters are hidden. *Half one* is the glyph pass: `setGlyphs(…)` stores
+    `NSLayoutManager.GlyphProperty.null` for every character of every folded range,
+    line separators included, so nothing inside it is drawn and nothing inside it
+    advances. The incoming buffer is `const`, so the properties are copied, the copy
+    edited and `super` handed the copy — the glyphs and the character indexes travel
+    through untouched, which is what keeps every UTF-16 offset meaning the same thing
+    folded and unfolded. Nothing is copied at all when there is no fold or when no
+    character in the batch is hidden: glyph generation runs on every edit and this
+    override must cost a file with no folds nothing. *Half two* is
+    `FoldingTypesetter`, an `NSATSTypesetter` subclass answering
+    `.zeroAdvancementAction` for every separator **inside** a folded range. **The
+    spike's recorded outcome is that half two is load-bearing**: in TextKit 1 a
+    `.null` glyph on a separator still *ends its line*, because line breaking reads
+    the characters, so the glyph pass alone draws a folded block as a run of empty
+    rows rather than as nothing at all. Both halves read one `FoldedRanges` — a small
+    reference box holding the sorted, non-overlapping set `FoldState.hiddenRanges`
+    hands over. It exists because the layout manager is `@MainActor` and the
+    typesetter is not (TextKit asks its question straight out of the line-breaking
+    loop), so the shared set lives in neither of them; every write happens on the
+    main thread from `setFoldedRanges(_:)`, every read happens during layout on that
+    same thread, and nothing else holds a reference. Sortedness is the whole
+    precondition of `hides(_:)`, which binary-searches rather than scans — glyph
+    generation asks it once per character. Every character outside a folded range
+    defers to `super`, so tabs, ordinary newlines and the container break are
+    untouched.
+    `setFoldedRanges(_:)` stores the set and then invalidates **the union of the
+    symmetric difference** of the old and the new one — the ranges that stopped
+    being hidden plus the ones that started — never the whole file, so folding one
+    block near the end of a large file does not re-generate every glyph above it;
+    glyphs first, then layout, then display, in that order because each is decided
+    by the half before it. Unchanged input is a **no-op**, since the coordinator
+    calls this on every view update. **The text storage is never touched**: no edit
+    is registered, nothing lands in the undo manager and the SwiftUI binding never
+    sees a change — which is also why not one existing overlay needed a line of
+    fold-aware code. Neon's syntax colors, the matched pair, the search backgrounds,
+    the diagnostic underlines and the indentation tints simply have no glyph to land
+    on inside a hidden range.
+    **The placeholder** is the `…` drawn where the hidden text would have been,
+    painted in `drawBackground(forGlyphRange:at:)` beside the indentation tints and
+    measured by `placeholderRect(forFoldedRangeAt:)` — the one geometry answer the
+    text view asks for rather than computes, because the rect is this manager's own:
+    the x is where the first hidden glyph was laid out (and because that glyph
+    advances nothing, that is exactly the end of the header line's visible content),
+    while the y and the height come from the enclosing line fragment, so the box
+    lines up with the row whatever the font does. Nothing is cached, for the
+    indentation tints' reason: a zoom, a font change or an appearance switch needs no
+    bookkeeping, the next draw simply measures again. The font is read off the text
+    view (the zoom changes it and nothing here would be told) and the color is
+    `secondaryLabelColor` — the placeholder is chrome standing in for text, not a
+    token, and the platform color is appearance-aware, so light and dark need no
+    second table. Only ranges whose start the drawn glyphs reach are painted. The
+    whole feature is documented in `core-folding.md`.
   - `BracketHighlightController.swift` — the macOS `@MainActor` owner of the
     bracket overlays: it holds the cached `[BracketToken]` for the current buffer
     behind a (`fileID`, text length, edit epoch) cache key with a ~100 ms debounce
@@ -532,6 +586,41 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     delta, exactly `DiagnosticShift.updated`'s inputs, so the diagnostics channel
     never re-derives geometry this class already computed — captured **weakly**
     per the file's retain-cycle rule alongside `onToggleAnnotate`.
+    **The fold chevron column** sits between the diagnostic markers and the
+    numbers: `chevron.down` on the header line of every fold candidate,
+    `chevron.right` on a folded one (louder — `labelColor` against the open one's
+    `secondaryLabelColor` — because it is the only sign left in the gutter that a
+    block is hidden), and nothing on any other line, the column being blank rather
+    than absent. Its width is derived from `rulerFont` and from nothing else, so it
+    scales with code zoom like the numbers and the severity dots and needs no
+    thickness recomputation when the fold sets change; the image is configured at
+    draw time, so a zoom, a font change and a light/dark switch each need no
+    bookkeeping at all, and a chevron (which is not square) is centered inside its
+    square cell rather than stretched. **The ruler is *told* both sets and decides
+    neither**: `setFoldRegions(_:folded:)` takes the candidates and the `FoldState`
+    together — together, because a chevron's *direction* is decided by the two and a
+    line's number is drawn or skipped by the folded set alone, so handing them over
+    separately would let the ruler paint one frame in which a chevron points at a
+    block the numbering does not believe in. It also builds the header-line →
+    candidate map in `FoldRegion`'s own `Comparable` order, so a shared header line
+    resolves to the same region `FoldState.folded(containing:)` measures the
+    placeholder from and the chevron and the `…` can never disagree.
+    **The numbering skips hidden lines and keeps counting.** The
+    `drawHashMarksAndLabels(in:)` walk still increments `lineNumber` per line, but a
+    line whose start falls strictly inside a folded range draws nothing at all: it
+    has no row of its own (its glyphs are null and its separator advances nothing,
+    so it shares the header's fragment), and drawing it would stack a second number,
+    a second blame label and a second severity dot on the header's row. The counter
+    still advances, so `12` is followed by `27` — the honest answer about what the
+    next *visible* line is — and the blame column and the diagnostic markers follow
+    the numbers for free, because they are drawn from the same walk.
+    `mouseDown(with:)` resolves a click inside the chevron column to the line's
+    candidate and reports it through `onToggleFold` (weakly captured, like the other
+    two closures); everything else falls through to `super`, so the blame context
+    menu and every ruler behavior above it are untouched. Deciding *which* blocks are
+    foldable and which are folded is `FoldRegionScanner`'s and `FoldState`'s
+    (`core-folding.md`); all this view does is draw a chevron, skip a hidden line and
+    name the region a click landed on.
   - `MinimapTokenizer.swift` — produces a `MinimapModel` (from `PisakaCore`) by
     parsing the *whole* text with SwiftTreeSitter into a per-UTF-16-unit
     `[SyntaxTokenKind]` (mapping each highlight capture through

@@ -555,6 +555,24 @@ never rewritten, and there is no whole-project normalization command.
     array — a bare caret gives its location, a selection gives both endpoints,
     every range of a column selection counts — leaving the view layer with nothing
     but the unwrap of AppKit's `[NSValue]`.
+    **Fold bounds are the fourth thing this remap moves**, beside the caret, the
+    selection endpoints and the scroll anchor: `FoldState.remapped(through:)` runs
+    every folded region's hidden range through `remappedRange` and carries its
+    header line unchanged (none of the three transforms changes how many separators
+    precede a line — `end_of_line` rewrites them in place, trimming deletes only
+    whitespace within a line, and the final newline is appended at the very end of
+    the buffer). It is deliberately **not** `FoldShift`, the incremental rule the
+    editor applies to an ordinary keystroke, and that difference is the point: the
+    shift rule *drops* a region the edit intersects, and a save that trims trailing
+    whitespace **inside** a folded block intersects it — so shifting there would
+    spring every collapsed block open on an unattended autosave tick. A save
+    rewrites what it was asked to rewrite and moves what it moved; it restructures
+    nothing, so remapping is exactly right. On macOS the funnel calls
+    `remapFolds(through:)` after `didChangeText()` and **before** the selection is
+    put back, because the caret rule the selection change runs through reads the
+    folded state: moving the bounds first is what keeps a remapped caret from being
+    measured against pre-save ones. Folding itself is documented in
+    `core-folding.md`.
     **Idempotence** falls out of the three rules and is asserted rather than
     assumed: the plan for an already-transformed text is empty, so a second save
     of an untouched buffer writes the same bytes and moves nothing.

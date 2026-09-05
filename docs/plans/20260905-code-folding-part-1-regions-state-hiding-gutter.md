@@ -557,7 +557,7 @@ None new. Foundation only in Core; AppKit only in the app half.
 - Modify: `docs/architecture/core-lsp.md`, `core-intelligence.md`,
   `core-editorconfig.md`, `app-editor.md`, `app-editor-overlays.md`, `CLAUDE.md`,
   `docs/FEATURES.md`, `README.md`
-- [ ] `core-folding.md`: a full entry per new file (`FoldRegion`,
+- [x] `core-folding.md`: a full entry per new file (`FoldRegion`,
     `FoldRegionScanner`, `FoldState`, `FoldShift`, `FoldStateMemory`, the caret
     rule, the reveal rule, `FoldController`, `FoldCommands`), and every decision
     above written out — the hidden range's two endpoints and why the header stays
@@ -571,33 +571,33 @@ None new. Foundation only in Core; AppKit only in the app half.
     hiding — the `.null` glyphs and the typesetter's
     `.zeroAdvancementAction` — with the spike's recorded outcome, and the list of
     overlays that need no code because nothing is drawn over hidden text.
-- [ ] `core-lsp.md`: **D38** — `textDocument/foldingRange` as the seventh
+- [x] `core-lsp.md`: **D38** — `textDocument/foldingRange` as the seventh
     question, the closed decode table, the open `kind` field read as absence, the
     drops, the budget and its reason, and the capability node.
-- [ ] `core-intelligence.md`: the seam's sixth method with its default, the index
+- [x] `core-intelligence.md`: the seam's sixth method with its default, the index
     provider's scanner-backed answer, the router's rule, and why the request
     carries the indent widths.
-- [ ] `core-editorconfig.md`: fold bounds as the fourth thing
+- [x] `core-editorconfig.md`: fold bounds as the fourth thing
     `SaveTransformPlan.remappedRange` moves, beside the caret, the selection
     endpoints and the scroll anchor — and why an autosave must not unfold.
-- [ ] `app-editor-overlays.md`: the two halves of hiding and which one the spike
+- [x] `app-editor-overlays.md`: the two halves of hiding and which one the spike
     proved load-bearing, the placeholder, the gutter's chevron column and the
     numbering skip.
-- [ ] `app-editor.md`: `FoldController` and the `CodeEditorView` wiring, including
+- [x] `app-editor.md`: `FoldController` and the `CodeEditorView` wiring, including
     the reveal funnel with its exact caller set, its one named in-file non-reveal
     site and its three excluded text views.
-- [ ] `CLAUDE.md`: the index lines for the new files under a new
+- [x] `CLAUDE.md`: the index lines for the new files under a new
     `docs/architecture/core-folding.md` heading, the app-side index lines, the
     `FoldingSourceGatingTests` entry in the Tests section, and **one**
     cross-cutting invariants paragraph — folding is a reader that modifies no
     buffer, hides by layout alone, keeps its state for the app run and never in
     the session, and applies its three rules (caret, reveal, shift) in one place
     each. Keep the file well under its size target; no per-file essays.
-- [ ] `docs/FEATURES.md`: the macOS section entry, plus two known-limitations lines
+- [x] `docs/FEATURES.md`: the macOS section entry, plus two known-limitations lines
     — no folding on iOS, and the minimap showing all lines regardless of folds
     (part 2).
-- [ ] `README.md`: the feature line and the two shortcuts.
-- [ ] Run `swift test` — the documentation suites must stay green.
+- [x] `README.md`: the feature line and the two shortcuts.
+- [x] Run `swift test` — the documentation suites must stay green.
 
 ### Task 11: Verify acceptance criteria
 

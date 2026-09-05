@@ -647,6 +647,37 @@ user sees it.
   it touches any of them, so each one can be restored individually
   (Cmd+Shift+H). There is no preview of what will change and no way to opt one file
   out — the rename is applied as the server described it.
+- **Code folding (macOS).** Collapse a block behind its first line and expand it
+  again. A chevron appears in the gutter beside every line that starts a
+  collapsible block; click it to fold, click it again to unfold. A folded block
+  shows its first line — closing bracket and all pulled up onto the same row —
+  with a small `…` between them; click the `…` to open it. **Fold** (Cmd+Opt+←)
+  and **Unfold** (Cmd+Opt+→) in the Edit menu do the same thing to the innermost
+  block the caret is in, and beep when there is none (Fold also beeps when the
+  selection reaches past the block it would collapse — collapsing it would hide
+  part of what you selected). Gutter numbers skip the hidden lines and keep
+  counting, so `12` is followed by `27`, and the blame column and the diagnostic
+  dots follow the numbers.
+  **Nothing is edited.** Folding hides text on screen only: the file on disk and
+  the buffer are untouched, the tab does not become dirty, nothing lands in the
+  undo history, and selecting across a collapsed block selects — and copies — the
+  whole block, hidden lines included. Find, Find in Files, Replace All, Go to
+  Definition, the Problems and Usages rows and the find bar's Next/Previous all
+  still reach hidden text: a jump into a folded block **opens it first**, then
+  scrolls. Arrowing forward into a folded block steps past it and arrowing
+  backward stops before it, so the caret never lands somewhere the editor cannot
+  draw it.
+  Where the blocks are comes from the language server when one is running for that
+  file (so comment and import blocks fold too), and otherwise from brackets and
+  indentation — which needs no server and works in every language, including plain
+  text files with indented structure. Indentation blocks are measured with the same
+  unit the editor types with, `.editorconfig` included.
+  Folds last **for as long as the app is running**: switch tabs and back, or close
+  a file and reopen it, and it is still folded. Quitting forgets everything —
+  nothing is written to the session — and so does switching to another folder.
+  Editing the text a folded block hides opens it, since nobody knows where the
+  block ends until the next scan; typing on the line *above* a folded block leaves
+  it folded, and an autosave that trims trailing whitespace inside one does too.
 - A minimap to the right of the editor: a scaled-down,
   syntax-colored overview of the file with a draggable viewport rectangle.
   Click or drag the rectangle to scroll the editor, or scroll the mouse wheel
@@ -1353,6 +1384,12 @@ and iPhone. The feature scope landed so far:
   `README.md`). The update signing key is a single EdDSA
   pair — if it is ever lost, installed copies will reject every future update
   and can only be moved forward by downloading a new build by hand.
+- Code folding is **macOS-only**. There is no folding on iPhone or iPad: no
+  gutter chevron, no placeholder and no Fold/Unfold commands.
+- The **minimap shows every line regardless of folds**. It is drawn from the text
+  rather than from the laid-out lines, so a collapsed block still takes up its
+  full height there and the viewport rectangle does not line up with the folded
+  editor beside it.
 - Local History is macOS-only, and it only ever sees **the app's own writes**.
   Edits made by another application, a `git` command you run yourself (in the
   embedded terminal or anywhere else), or any other change made outside Pisaka's
