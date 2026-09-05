@@ -581,10 +581,11 @@ no file, registers no edit and does not touch the text storage at all.
 
 ### `FoldCommands.swift` — the whole menu surface
 
-*Fold* (⌘⌥←) and *Unfold* (⌘⌥→) in a `CommandGroup(after: .pasteboard)`, beside
-Toggle Comment — the group they belong to is "things done to the code in front of
-you", not "things done to the file". `PisakaApp` names `FoldCommands` exactly
-once, and this is the only file where a fold command is spelled.
+*Fold* (⌘⌥←) and *Unfold* (⌘⌥→) plus *Fold All* (⌘⌥⇧←) and *Unfold All*
+(⌘⌥⇧→) in a `CommandGroup(after: .pasteboard)`, beside Toggle Comment — the group
+they belong to is "things done to the code in front of you", not "things done to
+the file". `PisakaApp` names `FoldCommands` exactly once, and this is the only
+file where a fold command is spelled.
 
 The items carry no state and are wired to nothing: like ⌘D and Toggle Comment they
 reach whatever editor holds the focus through the **first responder**
@@ -600,7 +601,16 @@ selection reaching past the block — beeps exactly as a focus that is not an ed
 does. To the person pressing the key those are the same event: nothing happened.
 The shortcut pair was verified free against every `keyboardShortcut` in the app
 (⌘⌥F, Find in Files, is the only other ⌘⌥ one) and against the text view's own key
-handling, which claims no arrow key with ⌘⌥ held.
+handling, which claims no arrow key with ⌘⌥ held. The three-modifier pair was
+verified free the same way — the only arrow shortcuts declared are the two above,
+and the existing gating regex `\[\.command, \.option\]` does not match a
+three-modifier list. *Fold All* hands a whole value through `FoldController.apply(_:)`
+(`FoldState(foldingAll: candidates)`, normalising and merging exactly as
+`FoldState(regions:)` does, so nested candidates collapse to one `hiddenRange`)
+and then asks `FoldCaretRule` once with no direction (`NSNotFound`), the same way
+`toggleFold` does; the caret never lands inside the text just hidden, so there is
+no second rule. *Unfold All* hands `FoldState()` the same way and needs no caret
+move — nothing is hidden afterwards.
 
 ### Hiding, the placeholder and the gutter
 

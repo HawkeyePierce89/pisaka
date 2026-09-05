@@ -721,4 +721,46 @@ final class FoldStateTests: XCTestCase {
             )
         }
     }
+
+    // MARK: - Fold All / Unfold All
+
+    func testFoldingAllNestedCandidatesCollapseToOneHiddenSet() {
+        let outer = region(10, 20, header: 0)
+        let inner = region(14, 6, header: 1)
+        let all = FoldState(foldingAll: [inner, outer])
+        XCTAssertEqual(all.regions, [outer, inner].sorted(), "normalised exactly as init(regions:)")
+        XCTAssertEqual(all.hiddenRanges, [NSRange(location: 10, length: 20)], "nested candidates collapse")
+        XCTAssertEqual(all, FoldState(regions: [outer, inner]), "foldingAll is the same as regions initialiser")
+    }
+
+    func testFoldingAllWithEmptyCandidatesIsEmpty() {
+        let empty = FoldState(foldingAll: [])
+        XCTAssertTrue(empty.isEmpty)
+        XCTAssertEqual(empty.hiddenRanges, [])
+        XCTAssertEqual(empty, FoldState())
+    }
+
+    func testFoldingAllIsIdempotentWhenAlreadyFullyFolded() {
+        let outer = region(10, 20, header: 0)
+        let inner = region(14, 6, header: 1)
+        let candidates = [outer, inner]
+        let first = FoldState(foldingAll: candidates)
+        let second = FoldState(foldingAll: first.regions)
+        XCTAssertEqual(first, second)
+        // Applying foldingAll again to the same candidates leaves the state unchanged.
+        XCTAssertEqual(FoldState(foldingAll: candidates), first)
+    }
+
+    func testFoldAllThenUnfoldAllIsEmpty() {
+        let outer = region(10, 20, header: 0)
+        let inner = region(14, 6, header: 1)
+        let folded = FoldState(foldingAll: [outer, inner])
+        XCTAssertFalse(folded.isEmpty)
+        let unfolded = FoldState()
+        XCTAssertTrue(unfolded.isEmpty)
+        XCTAssertEqual(unfolded.hiddenRanges, [])
+        // The round trip returns to the empty state.
+        XCTAssertEqual(FoldState(), unfolded)
+        XCTAssertNotEqual(folded, unfolded)
+    }
 }

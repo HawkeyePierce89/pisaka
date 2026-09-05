@@ -2,7 +2,8 @@
 import AppKit
 import SwiftUI
 
-/// The Edit menu's *Fold* (⌘⌥←) and *Unfold* (⌘⌥→).
+/// The Edit menu's *Fold* (⌘⌥←) and *Unfold* (⌘⌥→), plus *Fold All*
+/// (⌘⌥⇧←) and *Unfold All* (⌘⌥⇧→).
 ///
 /// **The whole menu surface of code folding lives here**, and `PisakaApp` names
 /// this type exactly once — a rule `FoldingSourceGatingTests` pins, so a second
@@ -27,6 +28,9 @@ import SwiftUI
 /// The shortcut pair was verified free against every `keyboardShortcut` in the
 /// app (⌘⌥F, Find in Files, is the only other ⌘⌥ one) and against the text
 /// view's own key handling, which claims no arrow key with ⌘⌥ held.
+/// The three-modifier pair was verified free the same way — the only arrow
+/// shortcuts declared are the two above, and the existing gating regex
+/// `\[\.command, \.option\]` does not match a three-modifier list.
 struct FoldCommands: Commands {
     var body: some Commands {
         // `after: .pasteboard` puts both items in the Edit menu beside Toggle
@@ -39,6 +43,12 @@ struct FoldCommands: Commands {
 
             Button("Unfold") { unfold() }
                 .keyboardShortcut(.rightArrow, modifiers: [.command, .option])
+
+            Button("Fold All") { foldAll() }
+                .keyboardShortcut(.leftArrow, modifiers: [.command, .option, .shift])
+
+            Button("Unfold All") { unfoldAll() }
+                .keyboardShortcut(.rightArrow, modifiers: [.command, .option, .shift])
         }
     }
 
@@ -50,6 +60,16 @@ struct FoldCommands: Commands {
     /// Open the innermost folded block the focused editor's caret is in.
     private func unfold() {
         if focusedEditor()?.unfoldAtCaret() != true { PlatformFeedback.warning() }
+    }
+
+    /// Fold every candidate block.
+    private func foldAll() {
+        if focusedEditor()?.foldAll() != true { PlatformFeedback.warning() }
+    }
+
+    /// Unfold every folded block.
+    private func unfoldAll() {
+        if focusedEditor()?.unfoldAll() != true { PlatformFeedback.warning() }
     }
 
     /// The editor the keystroke belongs to, or `nil` when something else holds

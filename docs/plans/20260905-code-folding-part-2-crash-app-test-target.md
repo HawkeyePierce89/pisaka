@@ -307,32 +307,32 @@ severity on a folded header line. macOS only; iOS untouched.
   `Tests/PisakaCoreTests/FoldingSourceGatingTests.swift`
 - Modify: `README.md`, `docs/FEATURES.md`, `docs/architecture/core-folding.md`
 
-- [ ] Core gains the two pure forms: "fold every candidate" and "empty",
+- [x] Core gains the two pure forms: "fold every candidate" and "empty",
       normalising and merging coverage exactly as the existing initialiser does,
       so nested candidates collapse to one hidden set. Unit-test both: nested
       candidates, an empty candidate list, a state that was already fully folded,
       and that the round trip fold-all → unfold-all is the empty state.
-- [ ] `FoldController` gains two members that hand a **whole value** through
+- [x] `FoldController` gains two members that hand a **whole value** through
       `apply(_:)` — the gating suite's count of three region-level mutations
       (toggle, fold, unfold) must stay three.
-- [ ] `CodeEditorView`: `foldAll()` / `unfoldAll()` on the coordinator and the
+- [x] `CodeEditorView`: `foldAll()` / `unfoldAll()` on the coordinator and the
       matching entry points on the text view, mirroring `foldAtCaret()` /
       `unfoldAtCaret()` including the weakly-captured closures. After Fold All
       the caret is placed by asking `FoldCaretRule` **once, with no direction**
       (a `previous` whose location is `NSNotFound`), the same way `toggleFold`
       asks it. `CodeEditorView` must not start naming `FoldState` — the gating
       suite pins the two files that may.
-- [ ] `FoldCommands` gains *Fold All* (⌘⌥⇧←) and *Unfold All* (⌘⌥⇧→) in the same
+- [x] `FoldCommands` gains *Fold All* (⌘⌥⇧←) and *Unfold All* (⌘⌥⇧→) in the same
       command group, through the same first-responder route, beeping the same
       way. `PisakaApp.swift` still names `FoldCommands` exactly once and grows by
       nothing.
-- [ ] Extend `FoldingSourceGatingTests`: the two new chords are spelled in
+- [x] Extend `FoldingSourceGatingTests`: the two new chords are spelled in
       `FoldCommands.swift` alone, the two new entry points are declared by the
       text view and called by the commands and by nobody else, and the
       three-mutation count is unchanged.
-- [ ] `README.md` and `docs/FEATURES.md` list both shortcuts beside the existing
+- [x] `README.md` and `docs/FEATURES.md` list both shortcuts beside the existing
       pair; `core-folding.md` gains the two commands and the caret rule they ask.
-- [ ] Run all three gates — green before Task 6.
+- [x] Run all three gates — green before Task 6.
 
 ### Task 6: The worst severity on a folded header
 

@@ -653,13 +653,16 @@ user sees it.
   shows its first line and nothing else: everything after it — the closing bracket
   and all — is pulled up behind a small `…` at the end of that line, and the lines
   that follow the block move up to meet it. Click the `…` to open it.
-  **Fold** (Cmd+Option+Left)
-  and **Unfold** (Cmd+Option+Right) in the Edit menu do the same thing to the innermost
-  block the caret is in, and beep when there is none (Fold also beeps when the
-  selection reaches past the block it would collapse — collapsing it would hide
-  part of what you selected). Gutter numbers skip the hidden lines and keep
-  counting, so `12` is followed by `27`, and the blame column and the diagnostic
-  dots follow the numbers.
+   **Fold** (Cmd+Option+Left)
+   and **Unfold** (Cmd+Option+Right) in the Edit menu do the same thing to the innermost
+   block the caret is in, and beep when there is none (Fold also beeps when the
+   selection reaches past the block it would collapse — collapsing it would hide
+   part of what you selected). **Fold All** (Cmd+Option+Shift+Left) folds every
+   block and **Unfold All** (Cmd+Option+Shift+Right) unfolds every one; both beep
+   when there is nothing to do, and Fold All hides nested blocks as one merged
+   range rather than as overlapping ones. Gutter numbers skip the hidden lines and keep
+   counting, so `12` is followed by `27`, and the blame column and the diagnostic
+   dots follow the numbers.
   **Nothing is edited.** Folding hides text on screen only: the file on disk and
   the buffer are untouched, the tab does not become dirty, nothing lands in the
   undo history, and selecting across a collapsed block selects — and copies — the
