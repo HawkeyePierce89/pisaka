@@ -668,6 +668,15 @@ struct CodeEditorView: NSViewRepresentable {
             externalTextRevision,
             for: fileID
         )
+        // The same question asked of the fold dimension's own record, which a save
+        // transform that reached this file off screen has already advanced: that
+        // rewrite replaced the buffer — so the undo stack and the viewport go —
+        // but it moved the remembered folds through its plan rather than
+        // restructuring the file, so they stay (`noteExternalFoldRevision`).
+        let foldsExternallyReplaced = context.coordinator.noteExternalFoldRevision(
+            externalTextRevision,
+            for: fileID
+        )
 
         // Drop the per-file state of files that are no longer open so closed tabs
         // don't retain their undo history (and text snapshots) — or their
@@ -779,14 +788,22 @@ struct CodeEditorView: NSViewRepresentable {
                 // state a first visit gets.
                 if externallyReplaced {
                     context.coordinator.forgetViewport(for: fileID)
-                    // The remembered *folds* go stale on exactly the same signal
-                    // and for exactly the same reason: a Replace All, a
-                    // post-revert `reloadFromDisk`, a Local History restore or a
-                    // rename retarget rewrote this file, so the recorded regions
-                    // name text it no longer has. The URL is the view's — the
-                    // incoming file's — because the coordinator's still names the
-                    // outgoing one until `syncBlame` below re-records it.
-                    context.coordinator.forgetFolds(url: fileURL, fileID: fileID)
+                    // The remembered *folds* go stale on almost the same signal
+                    // and for the same reason: a Replace All, a post-revert
+                    // `reloadFromDisk`, a Local History restore or a rename
+                    // retarget rewrote this file, so the recorded regions name
+                    // text it no longer has. The one exception is a save
+                    // transform that caught this tab off screen: it replaced the
+                    // buffer, but it *moved* the folds through its own plan on the
+                    // way (`Coordinator.remapRememberedFolds`) — an autosave
+                    // trimming whitespace must not open a fold, here any more than
+                    // in the shown buffer — which is the whole difference between
+                    // the two tokens. The URL is the view's — the incoming file's
+                    // — because the coordinator's still names the outgoing one
+                    // until `syncBlame` below re-records it.
+                    if foldsExternallyReplaced {
+                        context.coordinator.forgetFolds(url: fileURL, fileID: fileID)
+                    }
                 }
             }
         }
@@ -1875,6 +1892,50 @@ struct CodeEditorView: NSViewRepresentable {
         func forgetFolds(url: URL?, fileID: UUID) {
             guard let key = Coordinator.foldMemoryKey(url: url, fileID: fileID) else { return }
             folds.forget(key: key)
+        }
+
+        /// `SaveTransformEditor`: drop the *shown* buffer's folds — a Local
+        /// History restore put another revision in it, so the regions describe
+        /// text it no longer holds. The same instruction `updateNSView` gives for
+        /// a buffer replaced off screen, on the one replacement that happens
+        /// through the live view instead.
+        func forgetDisplayedFolds() {
+            guard let key = foldMemoryKey else { return }
+            folds.forget(key: key)
+        }
+
+        /// `SaveTransformEditor`: a save transform rewrote a buffer this editor is
+        /// not showing, so its folds are a memory entry rather than the live
+        /// state — move that entry through the plan and record the replacement it
+        /// travelled.
+        ///
+        /// Three things have to hold, and each rules out a case where keeping the
+        /// folds would be wrong:
+        ///
+        /// - the file is **not** the one on screen. A rewrite reaching the model
+        ///   path for the displayed tab is `prepare`'s divergence window (the view
+        ///   has not yet caught up with a model-side rewrite), where the live
+        ///   state was not remapped and the buffer is about to be replaced under
+        ///   it — that tab's folds must still be dropped.
+        /// - the fold token this coordinator holds for the file is the one the
+        ///   rewrite started from. A Replace All, a revert or a merge apply that
+        ///   reached the tab while it sat off screen already moved the file's
+        ///   token without moving the folds, and those folds describe text that no
+        ///   longer exists no matter what a later save does to it.
+        /// - the file has a memory key at all.
+        func remapRememberedFolds(
+            through plan: SaveTransformPlan,
+            for id: UUID,
+            url: URL?,
+            movingFrom previousRevision: Int,
+            to revision: Int
+        ) {
+            guard fileID != id,
+                  foldTextRevisions[id] == previousRevision,
+                  let key = Coordinator.foldMemoryKey(url: url, fileID: id)
+            else { return }
+            folds.remapRemembered(key: key, through: plan)
+            foldTextRevisions[id] = revision
         }
 
         /// Drop every remembered fold, on a folder switch.
@@ -3084,6 +3145,7 @@ struct CodeEditorView: NSViewRepresentable {
         func prunePerFileState(keeping openFileIDs: Set<UUID>) {
             undoManagers = undoManagers.filter { openFileIDs.contains($0.key) }
             externalTextRevisions = externalTextRevisions.filter { openFileIDs.contains($0.key) }
+            foldTextRevisions = foldTextRevisions.filter { openFileIDs.contains($0.key) }
             viewports.prune(keeping: openFileIDs)
         }
 
@@ -3254,6 +3316,34 @@ struct CodeEditorView: NSViewRepresentable {
         func noteExternalTextRevision(_ revision: Int, for fileID: UUID) -> Bool {
             defer { externalTextRevisions[fileID] = revision }
             guard let previous = externalTextRevisions[fileID] else { return false }
+            return previous != revision
+        }
+
+        /// The same token, tracked a second time for the **folds** alone — the one
+        /// dimension of a replaced buffer that a save transform can carry across
+        /// the replacement it caused.
+        ///
+        /// The two copies agree everywhere except at one moment:
+        /// `remapRememberedFolds` advances this one when it moves a background
+        /// tab's remembered folds through a save's plan, so the switch back reads
+        /// "the buffer was replaced, the folds were not" and keeps them — while
+        /// the undo stack and the viewport, which name ranges in text that rewrite
+        /// moved, are dropped exactly as they are for every other off-screen
+        /// replacement.
+        ///
+        /// Stated as a second dictionary rather than as a flag beside the first
+        /// because it answers a different question about the same file, and the
+        /// answers legitimately differ; a flag would have to be cleared by
+        /// whichever replacement came next, which is precisely the event nothing
+        /// here observes.
+        private var foldTextRevisions: [UUID: Int] = [:]
+
+        /// Record `revision` for `fileID`'s folds and report whether it changed
+        /// since this coordinator last displayed that file — `false` for a first
+        /// showing, exactly as the text token answers.
+        func noteExternalFoldRevision(_ revision: Int, for fileID: UUID) -> Bool {
+            defer { foldTextRevisions[fileID] = revision }
+            guard let previous = foldTextRevisions[fileID] else { return false }
             return previous != revision
         }
 

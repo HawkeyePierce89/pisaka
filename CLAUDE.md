@@ -735,7 +735,11 @@ ci.yml's `lint` job, and the version-bump procedure.
   `revealRange(_:)`, which unfolds before it scrolls — `FoldShift` for what an edit
   does (what it touches unfolds) and `SaveTransformPlan.remappedRange` for what a
   save does (never the shift, or an autosave trimming inside a folded block would
-  spring it open). `FoldingSourceGatingTests` pins all of it (`core-folding.md`).
+  spring it open) — including a save that catches a tab **off screen**, whose
+  remembered folds take the same remap rather than being dropped with that tab's
+  undo stack and viewport. The one buffer rewrite that *does* drop them through the
+  live view is a Local History **restore**: it substitutes another revision, so
+  there is nothing for a fold to travel through. `FoldingSourceGatingTests` pins all of it (`core-folding.md`).
 - **Open-tab resync** after an operation rewrites the worktree: buffers are
   snapshotted before the hop; a clean, unchanged tab gets `reloadFromDisk`, an
   edited one `reconcileSavedBaseline` + beep, a deleted file force-closes

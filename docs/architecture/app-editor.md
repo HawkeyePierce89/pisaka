@@ -851,9 +851,28 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `FoldController.noteEdit` the same previous/new line-start tables, edited range
     and length delta the diagnostics shift already gets, so nothing re-derives
     geometry the coordinator holds. `recordFolds()` on the switch away,
-    `forgetFolds(url:fileID:)` beside `forgetViewport(for:)` on the same
+    `forgetFolds(url:fileID:)` beside `forgetViewport(for:)` on the
     text-replaced signal, `forgetAllFolds()` on a folder switch, and
     `folds.reset()` in teardown.
+    **The fold half of that signal is tracked separately**, and by exactly one
+    event: `noteExternalFoldRevision(_:for:)` keeps a second copy of the
+    text-replacement token per file, and `remapRememberedFolds(…)` — the
+    `SaveTransformEditor` member the off-screen save path calls — advances it when
+    it moves a background tab's remembered folds through the save's plan. So a tab
+    an autosave rewrote behind the editor loses its undo stack and its viewport
+    (both name ranges in text that rewrite moved) and *keeps* its folds, while a
+    Replace All, a revert or a merge apply still drops all three. Three things
+    must hold before the token moves — the file is not the one on screen (a
+    model-path rewrite of the *displayed* tab is `prepare`'s divergence window,
+    where the live state was not remapped), the token this coordinator holds is
+    the one the rewrite started *from* (a replacement that reached the tab
+    earlier moved the token without moving the folds), and the file has a memory
+    key — which is why the pair of revisions travels across the seam rather than a
+    flag: the event that would have to clear a flag is precisely the one nothing
+    here observes. `forgetDisplayedFolds()` is the same protocol's other new
+    member and the one drop that happens through the live view: a Local History
+    restore substitutes another revision, whose whole-buffer plan would otherwise
+    remap every fold bound to the offset it already had.
     **The memory key is `Coordinator.foldMemoryKey(url:fileID:)`**: the canonical
     path of a url-backed file (`standardizedFileURL` then
     `resolvingSymlinksInPath()`, `SourceViewerWindowController`'s spelling), the tab

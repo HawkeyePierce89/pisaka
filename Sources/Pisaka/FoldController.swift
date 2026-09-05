@@ -291,6 +291,23 @@ final class FoldController {
         publish()
     }
 
+    /// Move one *remembered* file's folds through a save's transform — the
+    /// off-screen half of `remap(through:)`.
+    ///
+    /// A save that catches a tab no editor is showing rewrites it through the
+    /// model, so there is no live state to move and no candidate list either:
+    /// that file's whole fold answer is the memory entry, and it is asked again
+    /// from scratch when the tab is next shown. Nothing is published, because
+    /// nothing on screen changed.
+    ///
+    /// The decision — that a save moves fold bounds rather than dropping them —
+    /// is `FoldStateMemory.remap(_:through:)`'s, the same one
+    /// `FoldState.remapped(through:)` makes for the shown buffer.
+    func remapRemembered(key: String, through plan: SaveTransformPlan) {
+        guard !plan.isEmpty else { return }
+        memory.remap(key, through: plan)
+    }
+
     /// Drop every remembered fold, on a folder switch: a different project is a
     /// different set of files.
     ///

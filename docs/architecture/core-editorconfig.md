@@ -571,8 +571,12 @@ never rewritten, and there is no whole-project normalization command.
     `remapFolds(through:)` after `didChangeText()` and **before** the selection is
     put back, because the caret rule the selection change runs through reads the
     folded state: moving the bounds first is what keeps a remapped caret from being
-    measured against pre-save ones. Folding itself is documented in
-    `core-folding.md`.
+    measured against pre-save ones. A save that catches a tab **no editor is
+    showing** moves that file's *remembered* folds by the same rule
+    (`remapRememberedFolds(…)` → `FoldStateMemory.remap(_:through:)`), because the
+    autosave tick the paragraph above is about does not stop being one when the tab
+    is off screen; it is the same rewrite and it must not open a fold either.
+    Folding itself is documented in `core-folding.md`.
     **Idempotence** falls out of the three rules and is asserted rather than
     assumed: the plan for an already-transformed text is empty, so a second save
     of an untouched buffer writes the same bytes and moves nothing.
@@ -867,7 +871,7 @@ Thin by convention: the views wire keys to the rules and decide nothing.
     `applyRestore(_:to:)` is Local History's restore (`core-local-history.md`) and
     `applyRename(_:to:)` is the buffer half of the seventh gated worktree operation
     (`core-lsp.md`'s `RenameEditPlan` entry); both route through one private
-    `applyExternalRewrite(_:to:in:current:)`, because the *choice* between the
+    `applyExternalRewrite(_:to:in:current:folds:)`, because the *choice* between the
     live-text-view path (one undoable step) and `WorkspaceModel.replaceText` (undo
     stack lost) is the decision, and two spellings of it is how the off-screen half
     would stop telling its readers. Both live here rather than in the history window
@@ -891,7 +895,17 @@ Thin by convention: the views wire keys to the rules and decide nothing.
     revision is one undoable step with one change notification, exactly as a save
     transform is — and it gets the position remap for free, which for a
     whole-buffer replacement clamps the caret, every selection endpoint and the
-    scroll anchor into the new text instead of leaving an offset past its end. It
+    scroll anchor into the new text instead of leaving an offset past its end.
+    **The folds are the one thing that remap does not get**, and the shared bracket
+    takes that as a parameter each caller states (`FoldDisposition`): clamping a
+    *position* into the new text is a reasonable answer, while clamping a fold's
+    two ends leaves it hiding whatever the restored revision happens to have at the
+    offsets the previous one had, on line numbers the restored text never agreed
+    to. A restore therefore drops them (`forgetDisplayedFolds()`, the live-view
+    spelling of what a buffer replaced off screen already gets), and the fresh
+    answer the change notification triggers puts the chevrons where the restored
+    text actually has blocks; a save and a rename, which move the text they were
+    computed against, remap as before. It
     is **not a save**: it computes no plan from an `.editorconfig`, reads no
     properties, writes no disk and leaves the tab dirty for the ordinary save
     funnel to settle. Two consequences follow from that. `owedTrims` is

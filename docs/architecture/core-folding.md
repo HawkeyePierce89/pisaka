@@ -201,7 +201,7 @@ hidden line at a time (see the ruler, below).
 
 `FoldStateTests` covers fold/unfold/toggle including nested regions, the strict
 `hides`, the coverage merge, reconciliation by header line, clamping, and the
-memory's record/restore/forget/removeAll.
+memory's record/restore/forget/remap/removeAll.
 
 #### The save rule versus the shift rule
 
@@ -261,7 +261,7 @@ is already visible.
 #### `FoldStateMemory` — the per-file, per-run store
 
 `[String: FoldState]` with `record(_:for:)`, `state(for:clampedToLength:)`,
-`forget(_:)` and `removeAll()`.
+`forget(_:)`, `remap(_:through:)` and `removeAll()`.
 
 **The key is a `String`, not `OpenFile.id`.** `id` is a fresh `UUID` per
 `OpenFile`, so closing and reopening a file — which must keep its folds within a
@@ -275,7 +275,9 @@ once you left, while a fold is a statement about the file's structure the user
 made on purpose. Closing a tab must not discard it. The store is cleared wholesale
 on a **folder switch** (a different project is a different set of files), one
 entry is dropped when that file's text was replaced out from under a background
-tab (the remembered folds describe a buffer that no longer exists), and the whole
+tab (the remembered folds describe a buffer that no longer exists), one entry is
+**moved** when the thing that replaced it was a save (`remap(_:through:)`, below),
+and the whole
 store goes with the editor that owns it: **nothing here is ever written to the
 session.** That last part is `EditorViewportMemory`'s lifetime exactly — the app
 holds one memory per code editor — so dismantling that view empties it: closing
@@ -285,6 +287,19 @@ alone, and it is what makes closing one tab of several, then reopening that file
 find its folds again.
 `record` stores an *empty* state rather than removing the entry, so "I unfolded
 everything" survives a tab switch as itself.
+
+**`remap(_:through:)` is the save rule reaching a file nobody is looking at.** A
+save that catches a tab no editor is showing rewrites it through
+`WorkspaceModel.replaceText(_:for:)` (`core-editorconfig.md`), which is the same
+replacement signal a Replace All, a revert or a merge apply raises — and those
+*do* invalidate what was folded. A save does not: it moves text without
+restructuring it, so that file's entry takes the plan's remap exactly as the shown
+buffer's live state does. Without it an unattended autosave trimming whitespace
+would open every fold in the background tab it caught, which is the one outcome
+choosing the plan's remap over `FoldShift` exists to prevent — the same rule, on
+the same reasoning, applied to the half of the answer that is not on screen. A key
+the store has never been told about is left **absent** rather than gaining an empty
+entry, which would claim "unfolded everything" for a file nobody has opened.
 
 #### `FoldCommandRule` — which block a command acts on
 
@@ -485,7 +500,11 @@ whose no-change guard would otherwise skip the push whenever nothing was folded.
 `forget(key:)` publishes unconditionally for the same reason: the common case for
 a buffer replaced out from under a tab is that nothing was folded in it, and
 skipping the push there leaves the gutter drawing chevrons for text that no longer
-exists. `forgetAll()` drops the **key** with the entries, because the coordinator
+exists. `remapRemembered(key:through:)` is `remap(through:)`'s off-screen half and
+publishes **nothing**, because nothing on screen changed: a save that caught a tab
+no editor is showing has no live state and no candidate list to move — that file's
+whole fold answer is its memory entry, asked again from scratch when it is next
+shown. `forgetAll()` drops the **key** with the entries, because the coordinator
 clears the memory before it records the outgoing tab and before the incoming
 buffer is announced — leaving the key behind would let either `recordCurrent()`
 write the previous project's file straight back into the store just emptied, which

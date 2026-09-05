@@ -354,6 +354,26 @@ public struct FoldStateMemory {
         states.removeValue(forKey: key)
     }
 
+    /// Move `key`'s entry through one save's transform — the off-screen half of
+    /// ``FoldState/remapped(through:)``.
+    ///
+    /// A save that reaches a tab no editor is showing rewrites it through the
+    /// model, which is the same replacement signal a Replace All or a revert
+    /// raises, and those *do* invalidate what was folded. A save does not: it
+    /// moves text without restructuring it, so the folds this file remembers
+    /// travel through the plan exactly as the shown buffer's do rather than being
+    /// dropped — otherwise an unattended autosave would open every fold in a
+    /// background tab, which is the very thing choosing the plan's remap over
+    /// ``FoldShift`` exists to prevent.
+    ///
+    /// Nothing recorded for `key` is nothing to move: a file this store has never
+    /// been told about is left absent rather than gaining an empty entry, which
+    /// would claim "unfolded everything" for a file nobody has opened.
+    public mutating func remap(_ key: String, through plan: SaveTransformPlan) {
+        guard let state = states[key] else { return }
+        states[key] = state.remapped(through: plan)
+    }
+
     /// Drop everything, on a folder switch.
     public mutating func removeAll() {
         states.removeAll()

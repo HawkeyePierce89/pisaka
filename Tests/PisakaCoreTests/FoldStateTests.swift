@@ -426,6 +426,53 @@ final class FoldStateTests: XCTestCase {
         XCTAssertNil(memory.state(for: "/b.swift", clampedToLength: 100))
     }
 
+    /// A save that catches a tab no editor is showing rewrites it behind the
+    /// editor, which is the same replacement signal a Replace All raises — and
+    /// those *do* invalidate what was folded. A save does not, so the remembered
+    /// folds take the plan's remap here exactly as a shown buffer's do; otherwise
+    /// an unattended autosave would open every fold in a background tab.
+    func testMemoryRemapsOneFilesFoldsThroughASavesPlan() {
+        let text = "func f() {\n    a   \n}\n"
+        let plan = SaveTransform.plan(
+            text: text,
+            config: EditorConfigProperties(["trim_trailing_whitespace": "true"])
+        )
+        XCTAssertEqual(plan.text, "func f() {\n    a\n}\n", "the fixture must actually trim")
+
+        var memory = FoldStateMemory()
+        // From the end of "func f() {" to the end of "}".
+        let block = region(10, 11, header: 0)
+        let untouched = FoldState(regions: [block])
+        memory.record(untouched, for: "/saved.swift")
+        memory.record(untouched, for: "/other.swift")
+
+        memory.remap("/saved.swift", through: plan)
+
+        XCTAssertEqual(
+            memory.state(for: "/saved.swift", clampedToLength: (plan.text as NSString).length)?.regions.first?
+                .hiddenRange,
+            NSRange(location: 10, length: 8),
+            "the trimmed run is taken out of the hidden range rather than springing the fold open"
+        )
+        XCTAssertEqual(
+            memory.state(for: "/saved.swift", clampedToLength: (plan.text as NSString).length)?.regions.first?
+                .headerLine,
+            0,
+            "no line count changed"
+        )
+        XCTAssertEqual(
+            memory.state(for: "/other.swift", clampedToLength: 100),
+            untouched,
+            "one save moves one file's entry"
+        )
+
+        memory.remap("/never-opened.swift", through: plan)
+        XCTAssertNil(
+            memory.state(for: "/never-opened.swift", clampedToLength: 100),
+            "a file this store was never told about stays absent rather than gaining an empty entry"
+        )
+    }
+
     /// The deliberate divergence from `EditorViewportMemory`: there is nothing
     /// to prune with, because a closed file's folds must survive its reopening
     /// in the same run.
