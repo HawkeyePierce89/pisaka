@@ -419,10 +419,11 @@ jobs:
       # decides whether the shipped app can update at all — and a Debug archive
       # would still embed Sparkle.framework (the package dependency links
       # unconditionally), so every check below would pass while the release
-      # shipped with "Check for Updates…" permanently disabled. Nothing else
-      # pins it: the scheme is auto-created by xcodebuild (Pisaka.xcodeproj is
-      # generated and gitignored, and project.yml declares no `schemes:`), so
-      # "archive uses Release" would otherwise rest on an implicit Xcode default.
+      # shipped with "Check for Updates…" permanently disabled. The generated
+      # scheme's Archive action defaults to Release, but the explicit flag is
+      # the auditable pin: Pisaka.xcodeproj is generated and gitignored, so
+      # "archive uses Release" would otherwise rest on the scheme default
+      # alone.
       - name: Archive (macOS, Developer ID signed, hardened runtime)
         run: >
           xcodebuild -project Pisaka.xcodeproj -scheme Pisaka

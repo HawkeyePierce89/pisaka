@@ -514,10 +514,11 @@ The workflow then, in order:
 
     `-configuration Release` is spelled out rather than left to Xcode's default
     because the *entire* updater is behind `#if !DEBUG`: the configuration is
-    what decides whether the shipped app can update at all. Nothing else pins it
-    — `Pisaka.xcodeproj` is generated and gitignored and `project.yml` declares
-    no `schemes:`, so the scheme is auto-created — and a Debug archive would
-    still embed `Sparkle.framework` (the package dependency links
+    what decides whether the shipped app can update at all. The generated
+    scheme's Archive action defaults to Release, but the explicit flag is
+    the auditable pin — `Pisaka.xcodeproj` is generated and gitignored, so
+    "archive uses Release" would otherwise rest on the scheme default
+    alone — and a Debug archive would still embed `Sparkle.framework` (the package dependency links
     unconditionally), so every verification below would pass while the release
     shipped with "Check for Updates…" permanently disabled.
   - **Re-sign Sparkle's nested helpers**, between the archive and the

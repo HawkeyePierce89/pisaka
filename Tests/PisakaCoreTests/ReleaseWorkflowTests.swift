@@ -969,10 +969,11 @@ final class ReleaseWorkflowTests: XCTestCase {
 
     /// The configuration is what decides whether the shipped app can update at
     /// all: the entire updater is behind `#if !DEBUG` in `SoftwareUpdater.swift`.
-    /// Nothing else pins it — `Pisaka.xcodeproj` is generated and gitignored and
-    /// `project.yml` declares no `schemes:`, so the scheme is auto-created and
-    /// "archive uses Release" would rest on an implicit Xcode default. A Debug
-    /// archive still embeds `Sparkle.framework` (the package dependency links
+    /// The generated scheme's Archive action defaults to Release, but the explicit
+    /// flag is the auditable pin — `Pisaka.xcodeproj` is generated and gitignored
+    /// and `project.yml`'s `schemes:` declares only build and test actions, so
+    /// "archive uses Release" would otherwise rest on the scheme default alone.
+    /// A Debug archive still embeds `Sparkle.framework` (the package dependency links
     /// unconditionally), so every other check in this workflow would pass while
     /// the release shipped with "Check for Updates…" permanently disabled.
     ///
