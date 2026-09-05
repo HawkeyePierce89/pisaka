@@ -130,6 +130,16 @@ final class BracketOverlayLayoutManager: NSLayoutManager {
     /// over and what makes the membership test a binary search.
     nonisolated let foldedRanges = FoldedRanges()
 
+    /// The range the last ``setFoldedRanges(_:clampingInvalidationTo:)`` call
+    /// invalidated, or `nil` when that call was a no-op (unchanged set) or its
+    /// changed bounds were empty. This is the seam that makes the boundedness
+    /// assertable: it records exactly what was handed to
+    /// `invalidateGlyphs`/`invalidateLayout`/`invalidateDisplay` and decides
+    /// nothing — a caller that needed no invalidation leaves `nil` rather than
+    /// an empty range, so "no invalidation" and "invalidate zero characters"
+    /// stay distinct.
+    internal private(set) var lastFoldInvalidation: NSRange?
+
     /// The typesetter half of hiding, installed once and kept for this
     /// manager's life. Line breaking is the **typesetter's** decision in
     /// TextKit 1 — the paragraph structure comes from the characters in the
@@ -460,11 +470,18 @@ final class BracketOverlayLayoutManager: NSLayoutManager {
     /// `nil` ≡ this manager's current storage length, which is right for every
     /// other caller.
     func setFoldedRanges(_ ranges: [NSRange], clampingInvalidationTo length: Int? = nil) {
-        guard ranges != foldedRanges.ranges else { return }
+        guard ranges != foldedRanges.ranges else {
+            lastFoldInvalidation = nil
+            return
+        }
         let changed = changedBounds(from: foldedRanges.ranges, to: ranges)
         foldedRanges.replace(with: ranges)
         let invalid = clamped(changed, to: length ?? storageLength)
-        guard invalid.length > 0 else { return }
+        guard invalid.length > 0 else {
+            lastFoldInvalidation = nil
+            return
+        }
+        lastFoldInvalidation = invalid
         invalidateGlyphs(forCharacterRange: invalid, changeInLength: 0, actualCharacterRange: nil)
         invalidateLayout(forCharacterRange: invalid, actualCharacterRange: nil)
         invalidateDisplay(forCharacterRange: invalid)

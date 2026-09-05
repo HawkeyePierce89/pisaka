@@ -260,14 +260,21 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     generation asks it once per character. Every character outside a folded range
     defers to `super`, so tabs, ordinary newlines and the container break are
     untouched.
-    `setFoldedRanges(_:clampingInvalidationTo:)` stores the set and then invalidates
-    **the union of the
-    symmetric difference** of the old and the new one — the ranges that stopped
-    being hidden plus the ones that started — never the whole file, so folding one
-    block near the end of a large file does not re-generate every glyph above it;
-    glyphs first, then layout, then display, in that order because each is decided
-    by the half before it. Unchanged input is a **no-op**, since the coordinator
-    calls this on every view update. The **extent the invalidation is clamped to**
+     `setFoldedRanges(_:clampingInvalidationTo:)` stores the set and then invalidates
+     **the union of the
+     symmetric difference** of the old and the new one — the ranges that stopped
+     being hidden plus the ones that started — never the whole file, so folding one
+     block near the end of a large file does not re-generate every glyph above it;
+     glyphs first, then layout, then display, in that order because each is decided
+     by the half before it. Unchanged input is a **no-op**, since the coordinator
+     calls this on every view update. The **boundedness is made assertable by an
+     `internal private(set) var lastFoldInvalidation: NSRange?` seam**: it records
+     exactly the range handed to `invalidateGlyphs`/`invalidateLayout`/`invalidateDisplay`
+     (or `nil` when the call was a no-op or its bounding range was empty) and decides
+     nothing — a caller that needed no invalidation leaves `nil` rather than an empty
+     range, so "no invalidation" and "invalidate zero characters" stay distinct.
+     `GutterFoldTests` asserts that folding a block near the end leaves the prefix
+     untouched and that an unchanged set invalidates nothing through this seam. The **extent the invalidation is clamped to**
     is a parameter for `clearBackgrounds(storageLength:)`'s reason, and one caller
     passes it: `FoldController.noteEdit` reaches here from inside
     `didProcessEditingNotification`, which the storage posts *before* it notifies
@@ -650,16 +657,23 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     candidate map in `FoldRegion`'s own `Comparable` order, so a header line with one
     candidate — the only shape the fallback scanner ever offers, since it merges
     the rest — has exactly one entry.
-    **The numbering skips hidden lines and keeps counting.** A line whose
-    *preceding separator* is hidden draws nothing at all: it has no row of its own
-    (its glyphs are null and that separator advances nothing, so it shares the
-    header's fragment), and drawing it would stack a second number, a second blame
-    label and a second severity dot on the header's row. The question is
-    `FoldState.hiddenRange(collapsingLineStartingAt:)` and deliberately not
-    `hides(offset:)` — see `core-folding.md` for why the two are different
-    questions even though no producer currently makes the range that separates
-    them.
-    The **whole collapsed run is skipped in one step**, not a line at a time:
+     **The numbering skips hidden lines and keeps counting.** A line whose
+     *preceding separator* is hidden draws nothing at all: it has no row of its own
+     (its glyphs are null and that separator advances nothing, so it shares the
+     header's fragment), and drawing it would stack a second number, a second blame
+     label and a second severity dot on the header's row. The question is
+     `FoldState.hiddenRange(collapsingLineStartingAt:)` and deliberately not
+     `hides(offset:)` — see `core-folding.md` for why the two are different
+     questions even though no producer currently makes the range that separates
+     them.
+     The decision is **lifted into an `internal` seam** so the skip is assertable
+     without pixels: `gutterRows(forCharRange:)` answers the rows the gutter *will*
+     draw for a character range — the 1-based number and the `lineRange` of each —
+     with `drawHashMarksAndLabels(in:)` consuming what it answers and deciding
+     nothing of its own; the drawing code below it is unchanged.
+     `GutterFoldTests` asserts that a folded set makes `12` followed by `27` in
+     one step and that with nothing folded every line is reported.
+     The **whole collapsed run is skipped in one step**, not a line at a time:
     hidden characters keep their glyphs, so `glyphRange(forBoundingRect:)` hands
     back a character range spanning every folded line, and stepping through them
     would make each redraw — every scroll tick, every keystroke — cost the folded

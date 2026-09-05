@@ -237,24 +237,24 @@ severity on a folded header line. macOS only; iOS untouched.
 - Create: `Tests/PisakaAppTests/GutterFoldTests.swift`
 - Modify: `docs/architecture/app-editor-overlays.md`
 
-- [ ] Lift the collapsed-run skip out of `drawHashMarksAndLabels(in:)` into an
+- [x] Lift the collapsed-run skip out of `drawHashMarksAndLabels(in:)` into an
       `internal` seam that answers the rows the gutter *will* draw for a
       character range — the 1-based number and the line range of each — with the
       draw loop consuming it. The decision stops being visible only as pixels;
       the drawing code below it is unchanged.
-- [ ] Add a small internal record on `BracketOverlayLayoutManager` of the range
+- [x] Add a small internal record on `BracketOverlayLayoutManager` of the range
       the last `setFoldedRanges(_:clampingInvalidationTo:)` invalidated,
       documented as the seam that makes the boundedness assertable. It records;
       it decides nothing.
-- [ ] `GutterFoldTests.swift`: told a folded set, the ruler's row seam skips the
+- [x] `GutterFoldTests.swift`: told a folded set, the ruler's row seam skips the
       collapsed run in one step and the numbering stays the buffer's (`12` then
       `27`); with nothing folded it reports every line. And: replacing the folded
       set invalidates the **union of the symmetric difference** only — folding a
       block near the end of a long document leaves the range above it
       untouched — while an unchanged set is a no-op that invalidates nothing.
-- [ ] Update the ruler's and the manager's entries in `app-editor-overlays.md`
+- [x] Update the ruler's and the manager's entries in `app-editor-overlays.md`
       with the two seams and why they exist.
-- [ ] Run all three gates — green before Task 4.
+- [x] Run all three gates — green before Task 4.
 
 ### Task 4: Both smoke launches render a document
 
