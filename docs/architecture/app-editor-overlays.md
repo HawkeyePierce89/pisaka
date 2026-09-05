@@ -215,6 +215,92 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `SyntaxTheme.nsIndentLevelColor(forLevel:)` — the honest level in, `level % N`
     over a translucent four-hue palette out, the same "semantics in Core, color in
     the view" split the rainbow palette follows.
+    **Folding is the one thing in this file that is not an overlay**, and it is
+    two halves that live here together because they must agree about exactly which
+    characters are hidden. *Half one* is the glyph pass: `setGlyphs(…)` **adds**
+    `NSLayoutManager.GlyphProperty.null` to every character of every folded range,
+    line separators included, so nothing inside it is drawn and nothing inside it
+    advances. **Added, never assigned over**: `GlyphProperty` is an option set, and
+    `.controlCharacter` — the bit on exactly the separators half two must be asked
+    about — is carried in on the incoming properties. Overwriting it is what would
+    make half two unreachable, so half one preserves it. The incoming buffer is `const`, so the properties are copied, the copy
+    edited and `super` handed the copy — the glyphs and the character indexes travel
+    through untouched, which is what keeps every UTF-16 offset meaning the same thing
+    folded and unfolded. Nothing is copied at all when there is no fold or when no
+    character in the batch is hidden: glyph generation runs on every edit and this
+    override must cost a file with no folds nothing. *Half two* is
+    `FoldingTypesetter`, an `NSATSTypesetter` subclass answering
+    `.zeroAdvancementAction` for every separator **inside** a folded range. **Half two
+    is there because in TextKit 1 line breaking is the typesetter's decision, read
+    off the characters rather than off the glyph properties**: a `.null` glyph on a
+    separator still *ends its line*, so the glyph pass alone would draw a folded
+    block as a run of empty rows rather than as nothing at all. **That is the
+    reasoning, not a measurement** — the Task 5 spike could not run inside the task
+    that wrote this file (nothing could fold anything until the controller, the
+    gutter and the commands existed), and it is still owed as the first item of the
+    plan's mandatory manual DEBUG pass. What that pass still has to settle is
+    whether half two is load-bearing at all; whether it is *reachable* is no longer
+    open, and that is what the `insert` above buys — an assignment there would have
+    stripped the `.controlCharacter` bit `actionForControlCharacter(at:)` is
+    consulted on, silencing half two by construction. If the pass shows half two
+    inert it is deleted, along with its gating rule, per the plan. Both halves read one `FoldedRanges` — a small
+    reference box holding the sorted, non-overlapping set `FoldState.hiddenRanges`
+    hands over. It exists because the layout manager is `@MainActor` and the
+    typesetter is not (TextKit asks its question straight out of the line-breaking
+    loop), so the shared set lives in neither of them; every write happens on the
+    main thread from `setFoldedRanges(_:clampingInvalidationTo:)`, every read happens during layout on that
+    same thread, and nothing else holds a reference. Sortedness is the whole
+    precondition of `hides(_:)`, which binary-searches rather than scans — glyph
+    generation asks it once per character. Every character outside a folded range
+    defers to `super`, so tabs, ordinary newlines and the container break are
+    untouched.
+    `setFoldedRanges(_:clampingInvalidationTo:)` stores the set and then invalidates
+    **the union of the
+    symmetric difference** of the old and the new one — the ranges that stopped
+    being hidden plus the ones that started — never the whole file, so folding one
+    block near the end of a large file does not re-generate every glyph above it;
+    glyphs first, then layout, then display, in that order because each is decided
+    by the half before it. Unchanged input is a **no-op**, since the coordinator
+    calls this on every view update. The **extent the invalidation is clamped to**
+    is a parameter for `clearBackgrounds(storageLength:)`'s reason, and one caller
+    passes it: `FoldController.noteEdit` reaches here from inside
+    `didProcessEditingNotification`, which the storage posts *before* it notifies
+    its layout managers, so `textStorage.length` already reports the post-edit
+    length while this manager is still in pre-edit coordinates. A shifted hidden
+    range running to the end of the file would then be invalidated one delta past
+    the extent this manager believes in — at best superseded a moment later, at
+    worst an out-of-range raise on an ordinary keystroke. The pre-edit length keeps
+    the invalidation in the same space as the glyphs it invalidates; everything
+    beyond it is text the storage's own notification covers. `nil` ≡ this manager's
+    current storage length, which is right for every other caller. **The text storage is never touched**: no edit
+    is registered, nothing lands in the undo manager and the SwiftUI binding never
+    sees a change — which is also why not one existing overlay needed a line of
+    fold-aware code. Neon's syntax colors, the matched pair, the search backgrounds,
+    the diagnostic underlines and the indentation tints simply have no glyph to land
+    on inside a hidden range.
+    **The placeholder** is the `…` drawn where the hidden text would have been,
+    painted in `drawBackground(forGlyphRange:at:)` beside the indentation tints and
+    measured by `placeholderRect(forFoldedRangeAt:)` — the one geometry answer the
+    text view asks for rather than computes, because the rect is this manager's own:
+    the x is where the first hidden glyph was laid out (and because that glyph
+    advances nothing, that is exactly the end of the header line's visible content),
+    while the y and the height come from the enclosing line fragment, so the box
+    lines up with the row whatever the font does. Nothing is cached, for the
+    indentation tints' reason: a zoom, a font change or an appearance switch needs no
+    bookkeeping, the next draw simply measures again. The font is read off the text
+    view (the zoom changes it and nothing here would be told) and the color is
+    `secondaryLabelColor` — the placeholder is chrome standing in for text, not a
+    token, and the platform color is appearance-aware, so light and dark need no
+    second table. Only ranges whose start the drawn glyphs reach are painted.
+    **`numberOfGlyphs` is deliberately never read** in the measurement, which is why
+    its bound is `offset < storageLength` rather than a `min(…, numberOfGlyphs - 1)`
+    clamp: `offset` names the first hidden character of a non-empty range, so it
+    always addresses a character — and therefore a glyph — that exists, while that
+    clamp would force glyph generation for the **whole document** (the cost
+    `allowsNonContiguousLayout` exists to avoid, stated on `HoverController` and
+    `captureViewport`) on every draw and every click while anything at all is
+    folded. The hit-testing caller bounds itself to the visible range for the same
+    reason. The whole feature is documented in `core-folding.md`.
   - `BracketHighlightController.swift` — the macOS `@MainActor` owner of the
     bracket overlays: it holds the cached `[BracketToken]` for the current buffer
     behind a (`fileID`, text length, edit epoch) cache key with a ~100 ms debounce
@@ -532,6 +618,74 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     delta, exactly `DiagnosticShift.updated`'s inputs, so the diagnostics channel
     never re-derives geometry this class already computed — captured **weakly**
     per the file's retain-cycle rule alongside `onToggleAnnotate`.
+    **The fold chevron column** sits between the diagnostic markers and the
+    numbers: `chevron.down` on the header line of every fold candidate,
+    `chevron.right` on a folded one (louder — `labelColor` against the open one's
+    `secondaryLabelColor` — because it is the only sign left in the gutter that a
+    block is hidden), and nothing on any other line, the column being blank rather
+    than absent. **Either set can put a chevron on a line**, not the candidate map
+    alone: a tab switch restores the incoming file's folded state and publishes it
+    with an empty candidate list, which the answer only fills a provider round trip
+    later, so drawing from the candidates alone would leave a restored fold's text
+    hidden with an empty gutter beside it — for up to the folding budget on a
+    served file — which is the one thing this column exists not to do. The click
+    guard reads both for the same reason: a chevron that is drawn must be
+    clickable. Its width is derived from `rulerFont` and from nothing else, so it
+    scales with code zoom like the numbers and the severity dots and needs no
+    thickness recomputation when the fold sets change; the image is configured at
+    draw time, so a zoom, a font change and a light/dark switch each need no
+    bookkeeping at all, and a chevron (which is not square) is centered inside its
+    square cell rather than stretched. **The ruler is *told* both sets and decides
+    neither**: `setFoldRegions(_:folded:)` takes the candidates and the `FoldState`
+    together — together, because a chevron's *direction* is decided by the two and a
+    line's number is drawn or skipped by the folded set alone, so handing them over
+    separately would let the ruler paint one frame in which a chevron points at a
+    block the numbering does not believe in. It also builds the header-line →
+    candidate map in `FoldRegion`'s own `Comparable` order, so a header line with one
+    candidate — the only shape the fallback scanner ever offers, since it merges
+    the rest — has exactly one entry.
+    **The numbering skips hidden lines and keeps counting.** A line whose
+    *preceding separator* is hidden draws nothing at all: it has no row of its own
+    (its glyphs are null and that separator advances nothing, so it shares the
+    header's fragment), and drawing it would stack a second number, a second blame
+    label and a second severity dot on the header's row. The question is
+    `FoldState.hiddenRange(collapsingLineStartingAt:)` and deliberately not
+    `hides(offset:)` — see `core-folding.md` for why the two are different
+    questions even though no producer currently makes the range that separates
+    them.
+    The **whole collapsed run is skipped in one step**, not a line at a time:
+    hidden characters keep their glyphs, so `glyphRange(forBoundingRect:)` hands
+    back a character range spanning every folded line, and stepping through them
+    would make each redraw — every scroll tick, every keystroke — cost the folded
+    block rather than the visible page. The resumed line's number is re-read from
+    the cached line starts (O(log n)), so `12` is still followed by `27` — the
+    honest answer about what the next *visible* line is — and the blame column and
+    the diagnostic markers follow the numbers for free, because they are drawn from
+    the same walk (`drawVisibleLine(_:…)`, lifted out of it so the skip reads as
+    the one decision it is).
+    `mouseDown(with:)` takes the text view's placeholder-click gate first —
+    `clickCount == 1` and no modifier — so a modified click stays a selection
+    gesture and a double click stays the stock ruler behavior, both falling through
+    to `super`. The click-count half is what keeps a double click from folding on
+    the first `mouseDown` and unfolding on the second, which reads as the chevron
+    doing nothing at all. Past that it resolves a click inside the chevron column
+    to **the region the chevron was drawn for** — `FoldState.folded(containing:)` first, the candidate map
+    only when that answers nothing — and reports it through `onToggleFold` (weakly
+    captured, like the other two closures). The order is load-bearing on a header line
+    carrying more than one candidate, which a server can report (a block and a nested
+    one opening on the same line) even though the scanner cannot: the chevron draws
+    collapsed as soon as *any* of them is folded, ⌘⌥← deliberately folds the
+    *innermost*, and the map holds the *longest* — so reading the map alone would fold
+    the outer block on a chevron that is showing "collapsed" instead of opening what is
+    folded. Asking what is folded first is the same question the draw asks, so the click
+    undoes exactly what the chevron reports. The extent guard is the buffer's length and
+    never `numberOfGlyphs`, which would force whole-document glyph generation on a gutter
+    click; `glyphIndex(for:in:)` generates what it needs to answer and no more.
+    Everything else falls through to `super`, so the blame context
+    menu and every ruler behavior above it are untouched. Deciding *which* blocks are
+    foldable and which are folded is `FoldRegionScanner`'s and `FoldState`'s
+    (`core-folding.md`); all this view does is draw a chevron, skip a hidden line and
+    name the region a click landed on.
   - `MinimapTokenizer.swift` — produces a `MinimapModel` (from `PisakaCore`) by
     parsing the *whole* text with SwiftTreeSitter into a per-UTF-16-unit
     `[SyntaxTokenKind]` (mapping each highlight capture through

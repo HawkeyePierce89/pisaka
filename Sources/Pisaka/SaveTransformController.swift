@@ -48,6 +48,63 @@ protocol SaveTransformEditor: AnyObject {
     /// gutter and the underlines empty with no edit to re-publish them.
     func resetIncrementalReadersForSaveTransform()
 
+    /// Move the fold bounds through the same plan the selection endpoints and
+    /// the scroll anchor travel, so nothing about a save can move them apart.
+    ///
+    /// Deliberately **not** the incremental shift the editor's other readers take
+    /// on an ordinary edit: a save that trims trailing whitespace *inside* a
+    /// folded block intersects it, and the shift rule drops what it intersects —
+    /// which would spring every collapsed block open on an unattended autosave
+    /// tick. The reasoning lives on `FoldState.remapped(through:)`; the shift is
+    /// suppressed here by the buffer-swap guard the two calls above raise.
+    ///
+    /// Called once the rewrite has actually happened, so a refused
+    /// `shouldChangeText` moves nothing.
+    func remapFolds(through plan: SaveTransformPlan)
+
+    /// Drop the shown buffer's folds, the way a buffer replaced out from under a
+    /// background tab has them dropped.
+    ///
+    /// The counterpart of `remapFolds(through:)`, for the one rewrite through
+    /// this bracket that is **not** a transform of the text in hand: a Local
+    /// History restore replaces the whole buffer with another revision, so its
+    /// plan is one replacement spanning the file and remapping through it would
+    /// clamp every fold bound to the offset it already had — folds hiding
+    /// whatever the restored revision happens to have at those offsets, on line
+    /// numbers the restored text never agreed to. The regions describe a buffer
+    /// that no longer exists, which is exactly the case the memory's `forget` is
+    /// for; the fresh answer that follows the change notification puts the
+    /// chevrons back where the restored text actually has blocks.
+    func forgetDisplayedFolds()
+
+    /// A buffer rewritten **behind** the editor — the through-the-model path —
+    /// whose folds are remembered rather than live: move that memory entry
+    /// through the same plan, and record that this replacement is one the folds
+    /// survived.
+    ///
+    /// Without it the off-screen half of a save transform would *open* every fold
+    /// in the tab it caught: the model rewrite bumps the file's text-replacement
+    /// token, and the editor drops a replaced tab's folds along with its undo
+    /// stack and its viewport when it is next shown. That is right for a Replace
+    /// All, a revert or a merge apply — they restructure the file — and wrong for
+    /// a save, which is why the shown buffer's folds are remapped rather than
+    /// shifted in the first place.
+    ///
+    /// `previousRevision` and `revision` are the file's
+    /// `WorkspaceModel.textReplacementRevision(for:)` either side of the rewrite,
+    /// and the editor advances its own record **only** when the first is the
+    /// value it was already holding. A Replace All that reached this tab while it
+    /// sat off screen moved that token without moving the folds, and those folds
+    /// must still be dropped; pairing the two ends of the step is what tells the
+    /// two cases apart without the editor having to have watched either.
+    func remapRememberedFolds(
+        through plan: SaveTransformPlan,
+        for id: UUID,
+        url: URL?,
+        movingFrom previousRevision: Int,
+        to revision: Int
+    )
+
     /// Lower both guards. Called after `didChangeText()`, so every notification
     /// the rewrite fires is covered.
     func endSaveTransformRewrite()
@@ -332,7 +389,7 @@ final class SaveTransformController {
             ],
             text: text
         )
-        applyExternalRewrite(plan, to: id, in: model, current: current)
+        applyExternalRewrite(plan, to: id, in: model, current: current, folds: .forgotten)
     }
 
     // MARK: - Rename
@@ -373,10 +430,22 @@ final class SaveTransformController {
         guard let model, let current = model.text(for: id) else { return }
         let currentString = current as NSString
         guard !plan.replacements.isEmpty, !currentString.isEqual(to: plan.text) else { return }
-        applyExternalRewrite(plan, to: id, in: model, current: current)
+        applyExternalRewrite(plan, to: id, in: model, current: current, folds: .remapped)
     }
 
     // MARK: - Internals
+
+    /// What a rewrite through the live view does to that buffer's folds.
+    ///
+    /// Every caller of the bracket below states it, because the answer is a
+    /// property of the *rewrite* rather than of the bracket: a save and a rename
+    /// move the text they were computed against, so the fold bounds travel with
+    /// the caret and the scroll anchor; a Local History restore substitutes
+    /// another revision, so there is nothing for them to travel through.
+    private enum FoldDisposition {
+        case remapped
+        case forgotten
+    }
 
     /// The two application paths, shared by the restore and the rename: the live
     /// text view when it is showing this buffer and agrees with the model, and
@@ -391,12 +460,19 @@ final class SaveTransformController {
         _ plan: SaveTransformPlan,
         to id: UUID,
         in model: WorkspaceModel,
-        current: String
+        current: String,
+        folds: FoldDisposition
     ) {
         let displayed = liveTextView(for: id)
         let live = (displayed?.string as NSString?)?.isEqual(to: current) == true ? displayed : nil
-        if let live, apply(plan, in: live) { return }
+        if let live, apply(plan, in: live, folds: folds) { return }
         model.replaceText(plan.text, for: id)
+        // No remembered-fold remap on this path, for either caller: an off-screen
+        // buffer's folds are dropped by the replacement, which is the right answer
+        // for a restore (another revision entirely) and the conservative one for a
+        // rename (the plan is this file's, but the memory entry was recorded
+        // against whatever the tab last showed). Only a save claims its rewrite is
+        // one folds travel through, and it claims it in `prepare`.
         if let url = model.openFiles.first(where: { $0.id == id })?.url {
             onBufferReplaced?(id, url)
         }
@@ -467,7 +543,7 @@ final class SaveTransformController {
         // a buffer that already satisfies its configuration.
         guard !plan.isEmpty else { return }
         if let live {
-            if apply(plan, in: live) { return }
+            if apply(plan, in: live, folds: .remapped) { return }
             // A rewrite the view could not make — mid-composition, or a delegate that
             // declined the change — applied nothing, so the untransformed bytes are
             // about to be written and everything this plan was going to do is still
@@ -497,7 +573,25 @@ final class SaveTransformController {
                 return
             }
         }
+        // Read either side of the rewrite, and handed over as a pair: the folds
+        // this tab remembers travel through the plan exactly as a shown buffer's
+        // do, and the editor keeps them only if the token it was holding is the
+        // one this step started from (`remapRememberedFolds`). Without it the
+        // model rewrite would look like a Replace All to the switch back, and an
+        // unattended autosave would open every fold in a background tab — the one
+        // outcome choosing the plan's remap over `FoldShift` exists to prevent.
+        // The undo stack and the remembered viewport are *not* saved this way:
+        // those name ranges in text this rewrite moved, which is the stated cost
+        // of the off-screen path and unchanged by it.
+        let previousRevision = model.textReplacementRevision(for: id)
         model.replaceText(plan.text, for: id)
+        editor?.remapRememberedFolds(
+            through: plan,
+            for: id,
+            url: model.openFiles.first(where: { $0.id == id })?.url,
+            movingFrom: previousRevision,
+            to: model.textReplacementRevision(for: id)
+        )
         // The rewrite fired no change notification, so the readers that track this
         // buffer are told the way every other off-screen rewrite tells them.
         // See `onBufferReplaced`.
@@ -532,7 +626,11 @@ final class SaveTransformController {
     /// Answers whether the rewrite actually happened: a composition in progress
     /// and a refused `shouldChangeText` both leave the buffer untouched, and the
     /// caller has bookkeeping that must not record a save that did not occur.
-    private func apply(_ plan: SaveTransformPlan, in textView: NSTextView) -> Bool {
+    private func apply(
+        _ plan: SaveTransformPlan,
+        in textView: NSTextView,
+        folds: FoldDisposition
+    ) -> Bool {
         // Never mid-composition. This path mutates `textStorage` directly rather
         // than going through `insertText(_:replacementRange:)`, which is exactly
         // the bookkeeping a marked range depends on: moving characters out from
@@ -597,6 +695,13 @@ final class SaveTransformController {
         textStorage.endEditing()
         textView.didChangeText()
         textView.breakUndoCoalescing()
+        // Before the selection is put back, because the caret rule the selection
+        // change runs through reads the folded state: moving the bounds first is
+        // what keeps a remapped caret from being measured against pre-save ones.
+        switch folds {
+        case .remapped: editor?.remapFolds(through: plan)
+        case .forgotten: editor?.forgetDisplayedFolds()
+        }
         textView.setSelectedRanges(
             selection.map { NSValue(range: $0) },
             affinity: .downstream,

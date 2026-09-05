@@ -27,7 +27,11 @@ public struct IndentLevelRun: Equatable {
 ///
 /// Both are answered by `IndentLevelScanner.widths(unit:statedTabWidth:)` from
 /// what the editor has *already* decided, so no consumer re-derives either.
-public struct IndentLevelWidths: Equatable {
+///
+/// `Sendable` because the third consumer is not a view: a `FoldRegionRequest`
+/// carries these across the code-intelligence seam, where the answer is computed
+/// off the main actor.
+public struct IndentLevelWidths: Equatable, Hashable, Sendable {
     /// Columns per indentation level.
     public let unitWidth: Int
     /// The tab stop: a tab advances the column to the next multiple of this.
@@ -79,6 +83,12 @@ public struct IndentLevelWidths: Equatable {
 ///   painter clips by drawing.
 /// - A `unitWidth` or `tabWidth` of zero or less answers no runs — never a
 ///   trap, never a loop.
+/// - The same walk answers a second question, `indentation(of:in:tabWidth:)`:
+///   the **column** one line's content starts at. That is what a consumer
+///   comparing two lines' depth must ask — a level is quantized by `unitWidth`,
+///   so two lines a unit apart in column can share one — and it needs no unit at
+///   all, because how deeply a file is nested is a fact about the file rather
+///   than about the width Enter appends.
 public enum IndentLevelScanner {
 
     private static let space = unichar(UInt8(ascii: " "))
@@ -132,7 +142,55 @@ public enum IndentLevelScanner {
         return runs
     }
 
+    /// How deep one line is indented: the **column** its content starts at, and
+    /// the offset where its leading whitespace ended.
+    ///
+    /// The same walk `runs(in:range:widths:)` performs, read for a different
+    /// question, and the one place a consumer asks "is this line indented deeper
+    /// than that one?" — a column answers that honestly where a *level* cannot,
+    /// because a level quantizes by `unitWidth` and two lines a unit apart in
+    /// column can share one. Only the tab stop is needed, so no unit is taken:
+    /// nesting in a file is a fact about the file, not about the width Enter
+    /// happens to append.
+    ///
+    /// `tabWidth` is clamped to `IndentUnitRule.maximumSpaceWidth` exactly as the
+    /// levelled walk clamps it, for the same overflow reason, and a `tabWidth` of
+    /// zero or less answers the content's own start with no whitespace consumed
+    /// — never a trap, never a loop.
+    ///
+    /// `content` is a `TerminatedLineRange.content` — the line without its
+    /// terminator — so a whitespace-only line answers a `whitespaceEnd` equal to
+    /// the range's end, which is how a caller reads blankness off this walk
+    /// rather than by a second one.
+    public static func indentation(
+        of content: NSRange,
+        in text: NSString,
+        tabWidth: Int
+    ) -> (column: Int, whitespaceEnd: Int) {
+        guard tabWidth > 0 else { return (0, content.location) }
+        let tabStop = min(tabWidth, IndentUnitRule.maximumSpaceWidth)
+        let end = NSMaxRange(content)
+        var column = 0
+        var index = content.location
+        while index < end {
+            let character = text.character(at: index)
+            guard character == space || character == tab else { break }
+            column = advanced(column: column, past: character, tabWidth: tabStop)
+            index += 1
+        }
+        return (column, index)
+    }
+
     // MARK: - The walk
+
+    /// How far one indentation character advances the column: a space by one, a
+    /// tab to the next multiple of `tabWidth`. The **one** statement of that
+    /// arithmetic, read by the levelled walk below and by
+    /// ``indentation(of:in:tabWidth:)`` above it, so the two can never disagree
+    /// about where a tab lands.
+    private static func advanced(column: Int, past character: unichar, tabWidth: Int) -> Int {
+        character == tab ? (column / tabWidth + 1) * tabWidth : column + 1
+    }
 
     /// Walks one line's content and appends its levelled runs.
     ///
@@ -166,7 +224,7 @@ public enum IndentLevelScanner {
                 runStart = index
                 runLevel = level
             }
-            column = character == tab ? (column / tabWidth + 1) * tabWidth : column + 1
+            column = advanced(column: column, past: character, tabWidth: tabWidth)
             index += 1
         }
         // Whatever whitespace the line's content interrupted is the last,

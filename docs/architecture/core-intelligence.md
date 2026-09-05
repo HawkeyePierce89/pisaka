@@ -867,10 +867,45 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     already right; outside it, the answer stops being about anything. The content
     arrives **uncapped**, because truncation is a display fact and only the
     renderer knows the cap applies to it.
+    `foldRegions(for:)` is the **sixth method** on the seam (after definitions,
+    completions, `resolveEdits`, `hover`, `references` and `renameEdits`), and the
+    only one that asks about a **document** rather than a position: `FoldRegionRequest`
+    carries a file URL, the live `text`, the `language` and the indentation widths,
+    and there is no caret, no identifier and no offset in it — a chevron per header
+    line is a property of the file, not of wherever the user happens to be standing,
+    and the editor holds the whole list. It is defaulted to `[]` on `hover`'s
+    principle read one way further: folding ships on macOS only, so both iOS
+    surfaces have no chevron, no placeholder and no command to hang an answer on,
+    and a default keeps them from growing a call site for something they would throw
+    away. Unlike `hover` and `renameEdits`, though, the default is **not** where this
+    question ends — the index provider answers it for real, with one call to
+    `FoldRegionScanner.scan(text:widths:)` over the text already in the request:
+    brackets and indentation say where a block is without knowing what it means, so
+    the fallback is as good as a server's answer for most files and costs one pass
+    and no walk (which is what makes it a *provider's* second answer rather than a
+    model's, unlike `references` — see `RoutingIntelligenceProvider`'s entry and
+    D36). The router therefore treats folding as its **ordinary** shape: `canServe`
+    first, the LSP attempt inside `withBudget`, and an expired *or empty* answer
+    falling through to the scanner — "an empty answer is not an answer" applies here
+    unaltered. **The widths are carried on the request rather than derived by a
+    provider**, and that is the reason the request has a fourth field at all: there
+    is exactly one indentation-unit rule in this editor (`IndentUnitRule` —
+    `.editorconfig` first, inference second) and no provider can see an
+    `.editorconfig`, since providers hold a text and a URL, not the walk. So the app
+    computes the widths through the one path the indentation tints already use and
+    hands them over, and the scanner measures a block with the same unit the editor
+    types with; the LSP provider ignores them, having asked a server with its own
+    idea of where a block ends. The whole feature — the region value, the state, the
+    three maintenance rules, the two views — is documented in `core-folding.md`, and
+    the wire half is D38 in `core-lsp.md`.
   - `CompletionPopup.swift` — three pure value types and one builder for the editor's custom completion popup: `CompletionPopupSelection` (tracks the count and selected index, clamping at both ends, with row 0 preselected), `CompletionRowSource` (symbol, keyword, or word), `CompletionBadge` (SF Symbol name + color), and the `CompletionRow.rows(for:language:)` builder. This file only models the presentation and maps existing sources to badges; it ranks nothing and filters nothing, preserving the provider's order exactly.
   - `SymbolIntelligenceProvider.swift` — the index-backed
     `CodeIntelligenceProviding` implementation and the home of **every ranking
-    rule**, all of it `static` and pure over an index value, with the instance
+    rule** — with one stated exception, `foldRegions(for:)`, which reads no index
+    at all: it answers from `FoldRegionScanner` over the request's own text and
+    the widths the request carries, so it takes no `@MainActor` hop either (there
+    is nothing to snapshot). It is the fallback half of the fold seam and is
+    documented in `core-folding.md`. The rest, all of it `static` and pure over an index value, with the instance
     methods a thin async shell — so each tie-break is pinned by a test that builds
     three symbols instead of a project. The index is read through a **closure
     rather than stored**: the model publishes a fresh snapshot after every chunk,

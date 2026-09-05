@@ -224,6 +224,57 @@ final class IndentLevelScannerTests: XCTestCase {
         )
     }
 
+    // MARK: - The column
+
+    private func indentation(_ text: String, tab: Int = 4) -> (column: Int, whitespaceEnd: Int) {
+        let ns = text as NSString
+        let line = TerminatedLines.ranges(ns as String)[0]
+        return IndentLevelScanner.indentation(of: line.content, in: ns, tabWidth: tab)
+    }
+
+    /// The column is the honest one, not a level: three spaces answer three at a
+    /// unit of four, where the levelled walk answers one block.
+    func testTheColumnIsNotQuantizedByAnyUnit() {
+        XCTAssertEqual(indentation("   a").column, 3)
+        XCTAssertEqual(indentation("  a").column, 2)
+        XCTAssertEqual(indentation("        a").column, 8)
+        XCTAssertEqual(indentation("a").column, 0)
+    }
+
+    /// A tab lands on the next stop, so a tab and the spaces filling the same
+    /// stop answer the same column — the one width the measurement reads.
+    func testATabLandsOnTheNextStop() {
+        XCTAssertEqual(indentation("\ta", tab: 4).column, 4)
+        XCTAssertEqual(indentation("    a", tab: 4).column, 4)
+        XCTAssertEqual(indentation("\t\ta", tab: 4).column, 8)
+        XCTAssertEqual(indentation(" \ta", tab: 4).column, 4)
+        XCTAssertEqual(indentation("\ta", tab: 8).column, 8)
+    }
+
+    /// The walk stops at the first character that is neither a space nor a tab,
+    /// so `whitespaceEnd` is where the content begins — and a line that is
+    /// nothing but whitespace answers its own end, which is how a caller reads
+    /// blankness off this walk rather than by a second one.
+    func testWhitespaceEndIsWhereTheContentBegins() {
+        XCTAssertEqual(indentation("   a\nb\n").whitespaceEnd, 3)
+        XCTAssertEqual(indentation("a\nb\n").whitespaceEnd, 0)
+        XCTAssertEqual(indentation("   \nb\n").whitespaceEnd, 3)
+        XCTAssertEqual(indentation("a b\n").whitespaceEnd, 0)
+    }
+
+    /// The same two degenerate ends the levelled walk states: a tab stop of zero
+    /// or less consumes nothing, and an absurd one is clamped rather than
+    /// overflowing the column arithmetic.
+    func testDegenerateAndAbsurdTabStops() {
+        XCTAssertEqual(indentation("\t\ta", tab: 0).column, 0)
+        XCTAssertEqual(indentation("\t\ta", tab: 0).whitespaceEnd, 0)
+        XCTAssertEqual(indentation("\t\ta", tab: -8).column, 0)
+        XCTAssertEqual(
+            indentation("\t\ta", tab: Int.max).column,
+            indentation("\t\ta", tab: IndentUnitRule.maximumSpaceWidth).column
+        )
+    }
+
     // MARK: - The width derivation
 
     func testTabUnitWithAStatedTabWidth() {

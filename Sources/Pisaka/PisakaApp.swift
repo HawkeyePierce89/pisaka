@@ -1331,6 +1331,12 @@ struct PisakaApp: App {
                     .disabled(model.selectedID == nil)
             }
 
+            // Fold (⌘⌥←) and Unfold (⌘⌥→), in the same Edit group as the item
+            // above. Both live entirely in `FoldCommands.swift` — they carry no
+            // state and reach the focused editor through the first responder, so
+            // there is nothing for this scene to hand them.
+            FoldCommands()
+
             CommandMenu("View") {
                 // The three zoom items. Each resolves the zone from the pointer
                 // **at invocation time**, exactly as a scroll or a pinch does — a

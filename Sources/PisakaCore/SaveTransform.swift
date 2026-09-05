@@ -90,6 +90,13 @@ public struct SaveTransformPlan: Equatable {
     /// A range remapped through its two ends, which is the only definition that
     /// stays correct when an edit falls *inside* the selection (both ends move
     /// by different amounts) as well as when one lands on an end.
+    ///
+    /// **Fold bounds join the caret, the selection endpoints and the scroll
+    /// anchor here** (`FoldState.remapped(through:)`), and deliberately do not
+    /// go through `FoldShift`'s three-way rule: a save that trims trailing
+    /// whitespace *inside* a folded block intersects it, and dropping the fold
+    /// there would spring every collapsed block open on an unattended autosave
+    /// tick. A save moves text; it does not restructure it.
     public func remappedRange(_ range: NSRange) -> NSRange {
         guard range.location != NSNotFound, range.location >= 0 else { return range }
         let location = remappedOffset(range.location)

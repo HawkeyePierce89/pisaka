@@ -246,6 +246,22 @@ final class RoutingIntelligenceProviderTests: XCTestCase {
         )
     }
 
+    /// A fold question about the same buffer. The source has one brace block in
+    /// it, so the scanner has something to find and "equal by both being empty" is
+    /// not a way to pass.
+    private func foldRequest() -> FoldRegionRequest {
+        FoldRegionRequest(
+            fileURL: mainFile,
+            text: """
+                func greet() {
+                    print(greeter)
+                }
+                """,
+            language: .swift,
+            indentWidths: IndentLevelWidths(unitWidth: 4, tabWidth: 4)
+        )
+    }
+
     /// The server's answer to `textDocument/definition`: line 0 of
     /// `Sources/Core/Greeter.swift`, i.e. somewhere the index has never heard of.
     private func serverDefinitionReply() -> JSONValue {
@@ -814,9 +830,14 @@ final class RoutingIntelligenceProviderTests: XCTestCase {
     // MARK: - No server for the language
 
     /// The promise phase 2a must not break: for a language nothing serves, the
-    /// router *is* the tree-sitter provider. Asserted by equality on both request
-    /// kinds rather than by reading the answers, because equality is the only form
-    /// of the claim that cannot drift.
+    /// router *is* the tree-sitter provider. Asserted by equality on every request
+    /// kind that has a second answer rather than by reading them, because equality
+    /// is the only form of the claim that cannot drift.
+    ///
+    /// Folding joins the two originals here rather than being pinned only in
+    /// `FoldRoutingTests`: this is the test that states the promise, and a
+    /// question added to the seam without being added to it would be a question
+    /// nothing holds to it.
     func testWithNoServerRegisteredTheOutputEqualsTheBareIndexProvidersOutput() async {
         let index = makeIndex()
         let router = makeRouter(index: index, registry: .empty)
@@ -826,11 +847,15 @@ final class RoutingIntelligenceProviderTests: XCTestCase {
         let bareDefinitions = await bare.definitions(for: definitionRequest())
         let routedCompletions = await router.completions(for: completionRequest())
         let bareCompletions = await bare.completions(for: completionRequest())
+        let routedFolds = await router.foldRegions(for: foldRequest())
+        let bareFolds = await bare.foldRegions(for: foldRequest())
 
         XCTAssertEqual(routedDefinitions, bareDefinitions)
         XCTAssertEqual(routedCompletions, bareCompletions)
+        XCTAssertEqual(routedFolds, bareFolds)
         XCTAssertFalse(routedDefinitions.isEmpty)
         XCTAssertFalse(routedCompletions.isEmpty)
+        XCTAssertFalse(routedFolds.isEmpty)
         // Not merely equal by luck: the LSP stack was never entered.
         XCTAssertEqual(harness.launches, 0)
         XCTAssertTrue(transport.sentMethods.isEmpty)

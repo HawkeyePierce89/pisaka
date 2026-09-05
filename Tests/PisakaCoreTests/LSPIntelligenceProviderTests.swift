@@ -112,8 +112,11 @@ final class LSPIntelligenceProviderTests: XCTestCase {
         let transport = ScriptedLSPTransport()
         private(set) var launches = 0
 
-        init() {
-            transport.script(LSPMethod.initialize, .reply(ScriptedLSPTransport.initializeResult()))
+        init(foldingRange: Bool = true) {
+            transport.script(
+                LSPMethod.initialize,
+                .reply(ScriptedLSPTransport.initializeResult(foldingRange: foldingRange))
+            )
             transport.script(LSPMethod.shutdown, .reply(.null))
         }
 
@@ -131,6 +134,7 @@ final class LSPIntelligenceProviderTests: XCTestCase {
         resolve: 1,
         hover: 1,
         references: 1,
+        foldingRange: 1,
         shutdown: 1
     )
 
@@ -502,6 +506,324 @@ final class LSPIntelligenceProviderTests: XCTestCase {
         XCTAssertEqual((mainSource as NSString).substring(with: candidate.range), "greeter")
         XCTAssertEqual(candidate.line, 4)
         XCTAssertEqual(candidate.relativePath, "Sources/App/main.swift")
+    }
+
+    // MARK: - Folding
+
+    private func foldRequest(text: String? = nil, fileURL: URL? = nil) -> FoldRegionRequest {
+        FoldRegionRequest(
+            fileURL: fileURL ?? mainFile,
+            text: text ?? mainSource,
+            language: .swift,
+            indentWidths: IndentLevelWidths(unitWidth: 4, tabWidth: 4)
+        )
+    }
+
+    private func foldingRangeJSON(
+        startLine: Int,
+        startCharacter: Int? = nil,
+        endLine: Int,
+        endCharacter: Int? = nil,
+        kind: String? = nil
+    ) -> JSONValue {
+        var object: [String: JSONValue] = [
+            "startLine": .int(startLine),
+            "endLine": .int(endLine),
+        ]
+        if let startCharacter { object["startCharacter"] = .int(startCharacter) }
+        if let endCharacter { object["endCharacter"] = .int(endCharacter) }
+        if let kind { object["kind"] = .string(kind) }
+        return .object(object)
+    }
+
+    /// The specification's own defaults for the two optional characters, which are
+    /// the hidden range this editor wants anyway: from the end of the start line's
+    /// content to the end of the end line's. The header line stays visible in
+    /// full, and the block's last line joins it behind the placeholder.
+    func testAFoldingRangeWithNoCharactersHidesFromOneLineEndToTheOther() async throws {
+        transport.script(LSPMethod.foldingRange, .reply(.array([
+            foldingRangeJSON(startLine: 0, endLine: 1, kind: "imports"),
+        ])))
+        let provider = makeProvider()
+
+        let regions = await provider.foldRegions(for: foldRequest())
+
+        let region = try XCTUnwrap(regions.first)
+        XCTAssertEqual(regions.count, 1)
+        let source = mainSource as NSString
+        XCTAssertEqual(
+            region.hiddenRange,
+            NSRange(
+                location: NSMaxRange(source.range(of: "import Core")),
+                length: "\nimport Foundation".utf16.count
+            )
+        )
+        XCTAssertEqual(region.headerLine, 0)
+        XCTAssertEqual(region.kind, .imports)
+    }
+
+    /// **The end is raised to the end line's content end**, whatever character the
+    /// server named there — the mirror of the start's floor, and the sharper of
+    /// the two. The placeholder reserves no layout width, so text a server leaves
+    /// visible after the hidden run lands at exactly the x the `…` is stroked at
+    /// and swallows the click meant for it. `endCharacter: 0` on the closer's line
+    /// is what gopls sends under `lineFoldingOnly: false`, so this is the ordinary
+    /// answer rather than a malformed one.
+    func testTheServersEndCharacterIsRaisedToThatLinesContentEnd() async throws {
+        transport.script(LSPMethod.foldingRange, .reply(.array([
+            foldingRangeJSON(startLine: 0, endLine: 1, endCharacter: 6),
+        ])))
+        let provider = makeProvider()
+
+        let regions = await provider.foldRegions(for: foldRequest())
+
+        let region = try XCTUnwrap(regions.first)
+        let source = mainSource as NSString
+        XCTAssertEqual(
+            region.hiddenRange,
+            NSRange(
+                location: NSMaxRange(source.range(of: "import Core")),
+                length: "\nimport Foundation".utf16.count
+            ),
+            "the block's last line joins the header's row, closer and all"
+        )
+        XCTAssertEqual(region.headerLine, 0)
+        // Nothing named it, and an unnamed block is still a block.
+        XCTAssertNil(region.kind)
+    }
+
+    /// The shape the raise exists for, stated as the thing that must not happen:
+    /// nothing of the end line is left visible on the header's row. A server
+    /// ending at column 0 of the closer's line would otherwise leave the `}`
+    /// laid out under the placeholder.
+    func testAnEndAtColumnZeroStillHidesTheCloser() async throws {
+        let source = "func f() {\n    body\n}\ntail\n"
+        transport.script(LSPMethod.foldingRange, .reply(.array([
+            foldingRangeJSON(startLine: 0, startCharacter: 10, endLine: 2, endCharacter: 0),
+        ])))
+        let provider = makeProvider()
+
+        let regions = await provider.foldRegions(for: foldRequest(text: source))
+
+        let region = try XCTUnwrap(regions.first)
+        XCTAssertEqual((source as NSString).substring(with: region.hiddenRange), "\n    body\n}")
+        XCTAssertEqual(region.headerLine, 0)
+    }
+
+    /// **The start bound is floored at the header line's content end.** A server
+    /// naming the start of the folded node — column 0 of an import group's first
+    /// `use`, the `//` of a comment run, the `{` of a block — would otherwise
+    /// hide the header's own text and leave a numbered row showing nothing but
+    /// the placeholder, breaking ``FoldRegion``'s contract and, with it,
+    /// `FoldCaretRule` (a caret clicked into that text would be ejected) and
+    /// `FoldReveal` (a range that is already visible would spring the block
+    /// open). This is the one place a server is second-guessed.
+    func testAStartCharacterInsideTheHeaderLineIsFlooredAtItsContentEnd() async throws {
+        transport.script(LSPMethod.foldingRange, .reply(.array([
+            foldingRangeJSON(startLine: 0, startCharacter: 0, endLine: 1, kind: "imports"),
+        ])))
+        let provider = makeProvider()
+
+        let regions = await provider.foldRegions(for: foldRequest())
+
+        let region = try XCTUnwrap(regions.first)
+        let source = mainSource as NSString
+        XCTAssertEqual(
+            region.hiddenRange,
+            NSRange(
+                location: NSMaxRange(source.range(of: "import Core")),
+                length: "\nimport Foundation".utf16.count
+            ),
+            "the header line stays visible in full"
+        )
+        XCTAssertEqual(region.headerLine, 0)
+        XCTAssertEqual(region.kind, .imports)
+    }
+
+    /// Neither clamp can resurrect a region the buffer cannot hold: a server that
+    /// names a start and an end on the *same* line leaves both bounds on that
+    /// line's content end, so there is nothing to hide and the block is dropped
+    /// rather than widened to the line below.
+    func testAFoldFlooredToNothingIsDropped() async throws {
+        transport.script(LSPMethod.foldingRange, .reply(.array([
+            foldingRangeJSON(startLine: 0, startCharacter: 0, endLine: 0, endCharacter: 6),
+        ])))
+        let provider = makeProvider()
+
+        let regions = await provider.foldRegions(for: foldRequest())
+
+        XCTAssertTrue(regions.isEmpty)
+    }
+
+    /// **D1 read in both directions at once.** The bounds are measured in the
+    /// protocol's line table (LF/CR/CRLF only) and the header line in the
+    /// editor's (which also breaks on NEL/LS/PS), because the two answer
+    /// different questions: what the server named, and which row the chevron
+    /// lands on. A buffer carrying a line separator LSP does not know about is
+    /// the only place the two tables disagree — and `FoldState.reconciled(with:)`
+    /// anchors every fold by header line, so one table used for both would
+    /// silently mis-anchor or drop folds on every refresh.
+    func testTheHeaderLineIsTheEditorsWhileTheBoundsAreTheProtocols() async throws {
+        // A U+2028 LINE SEPARATOR inside what LSP reads as its line 0: the editor
+        // counts three lines before `let a`, the protocol counts one.
+        let source = "// one\u{2028}// two\nlet a = [\n    1,\n]\n"
+        transport.script(LSPMethod.foldingRange, .reply(.array([
+            // The protocol's line 1 is `let a = [`; its line 3 is `]`.
+            foldingRangeJSON(startLine: 1, endLine: 3),
+        ])))
+        let provider = makeProvider()
+
+        let regions = await provider.foldRegions(for: foldRequest(text: source))
+
+        let region = try XCTUnwrap(regions.first)
+        let nsSource = source as NSString
+        XCTAssertEqual(
+            region.hiddenRange,
+            NSRange(
+                location: NSMaxRange(nsSource.range(of: "let a = [")),
+                length: "\n    1,\n]".utf16.count
+            ),
+            "the bounds are the protocol's lines"
+        )
+        XCTAssertEqual(
+            region.headerLine,
+            2,
+            "but the chevron lands on the editor's line 2, which the LS separator created"
+        )
+    }
+
+    /// **A range this buffer cannot hold is dropped, and its siblings survive** —
+    /// the rule `LSPFoldingRangeResponse` applies to an unreadable element,
+    /// applied one layer up to a readable element whose numbers are wrong. A line
+    /// past the end and an end before its start are the two shapes a server
+    /// actually miscounts into.
+    func testARangeOutsideTheBufferOrInvertedIsDroppedWhileItsSiblingsSurvive() async throws {
+        transport.script(LSPMethod.foldingRange, .reply(.array([
+            foldingRangeJSON(startLine: 0, endLine: 99),
+            foldingRangeJSON(startLine: 3, endLine: 1),
+            foldingRangeJSON(startLine: -1, endLine: 2),
+            foldingRangeJSON(startLine: 3, endLine: 4),
+        ])))
+        let provider = makeProvider()
+
+        let regions = await provider.foldRegions(for: foldRequest())
+
+        let region = try XCTUnwrap(regions.first)
+        XCTAssertEqual(regions.count, 1, "only the fourth range is one this buffer can hold")
+        XCTAssertEqual(region.headerLine, 3)
+    }
+
+    /// A range whose two ends land on the same offset hides nothing, and a region
+    /// that hides nothing is not representable — so it is dropped rather than
+    /// drawn as a chevron with nothing behind it.
+    func testARangeThatWouldHideNothingIsDropped() async {
+        transport.script(LSPMethod.foldingRange, .reply(.array([
+            foldingRangeJSON(startLine: 2, startCharacter: 0, endLine: 2, endCharacter: 0),
+        ])))
+        let provider = makeProvider()
+
+        let regions = await provider.foldRegions(for: foldRequest())
+
+        XCTAssertTrue(regions.isEmpty)
+    }
+
+    /// An answer made entirely of unusable ranges is an empty answer, which the
+    /// router reads as "the server failed to answer" and sends to the scanner.
+    func testAnAnswerOfOnlyUnusableRangesIsEmpty() async {
+        transport.script(LSPMethod.foldingRange, .reply(.array([
+            foldingRangeJSON(startLine: 40, endLine: 41),
+        ])))
+        let provider = makeProvider()
+
+        let regions = await provider.foldRegions(for: foldRequest())
+
+        XCTAssertTrue(regions.isEmpty)
+        XCTAssertEqual(transport.requests(for: LSPMethod.foldingRange).count, 1)
+    }
+
+    /// The answer is sorted into `FoldRegion`'s own order — header lines
+    /// ascending, the longer region first — whatever order the server sent it in,
+    /// because every consumer of the list reads it as ordered.
+    func testTheAnswerIsInFoldRegionsOrderWhateverOrderTheServerSentItIn() async {
+        transport.script(LSPMethod.foldingRange, .reply(.array([
+            foldingRangeJSON(startLine: 3, endLine: 4),
+            foldingRangeJSON(startLine: 0, endLine: 1),
+            foldingRangeJSON(startLine: 0, endLine: 4),
+        ])))
+        let provider = makeProvider()
+
+        let regions = await provider.foldRegions(for: foldRequest())
+
+        XCTAssertEqual(regions.map(\.headerLine), [0, 0, 3])
+        XCTAssertEqual(regions, regions.sorted())
+        XCTAssertGreaterThan(
+            regions[0].hiddenRange.length,
+            regions[1].hiddenRange.length,
+            "the longer region on a shared header line comes first"
+        )
+    }
+
+    /// A server that does not advertise `foldingRangeProvider` is not asked — the
+    /// capability gate hover's path states, on a question that also fires behind
+    /// every typing pause.
+    func testAServerWithoutTheFoldingCapabilityIsNotAsked() async {
+        harness = Harness(foldingRange: false)
+        transport.script(LSPMethod.foldingRange, .reply(.array([
+            foldingRangeJSON(startLine: 0, endLine: 1),
+        ])))
+        let provider = makeProvider()
+
+        let regions = await provider.foldRegions(for: foldRequest())
+
+        XCTAssertTrue(regions.isEmpty)
+        XCTAssertTrue(transport.requests(for: LSPMethod.foldingRange).isEmpty)
+    }
+
+    /// An empty buffer folds nowhere, and the round trip that could only confirm
+    /// that is not made — this question's reading of D2's guard, which has no
+    /// offset to be inconsistent with.
+    func testAnEmptyBufferIsNotAskedAbout() async {
+        transport.script(LSPMethod.foldingRange, .reply(.array([
+            foldingRangeJSON(startLine: 0, endLine: 1),
+        ])))
+        let provider = makeProvider()
+
+        let regions = await provider.foldRegions(for: foldRequest(text: ""))
+
+        XCTAssertTrue(regions.isEmpty)
+        XCTAssertTrue(transport.requests(for: LSPMethod.foldingRange).isEmpty)
+    }
+
+    /// **The staleness gate on the folding path.** A fold is a *range in a
+    /// buffer*, and a list computed for the folder the user has just left would
+    /// hide text this one does not have.
+    ///
+    /// Staged through the transport's write hook rather than a delay: the request
+    /// is held inside `send`, so the switch provably lands while the question is
+    /// outstanding and the reply cannot arrive before it.
+    func testFoldRegionsAreDroppedWhenTheFolderChangedWhileTheQuestionWasOutstanding() async throws {
+        transport.script(LSPMethod.foldingRange, .reply(.array([
+            foldingRangeJSON(startLine: 0, endLine: 1),
+        ])))
+        let provider = makeProvider()
+        let workspace = try XCTUnwrap(lastWorkspace)
+        let gate = Gate()
+        transport.onSend { method in
+            guard method == LSPMethod.foldingRange else { return }
+            gate.wait()
+        }
+
+        let asking = Task { await provider.foldRegions(for: self.foldRequest()) }
+        await gate.waitUntilReached()
+
+        workspace.prepareForFolderChange(root: otherRoot)
+        gate.release()
+
+        let regions = await asking.value
+        XCTAssertTrue(
+            regions.isEmpty,
+            "folds for a folder the user has left would hide text this buffer does not have"
+        )
     }
 
     // MARK: - Hover

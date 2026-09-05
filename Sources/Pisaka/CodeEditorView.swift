@@ -314,6 +314,20 @@ struct CodeEditorView: NSViewRepresentable {
             coordinator?.pointerExitedEditor()
         }
 
+        // ⌘⌥← / ⌘⌥→ → the coordinator's fold and unfold, and a click on a `…`
+        // placeholder → the block behind it. All three answer `false` when there
+        // was nothing to do, which is what the menu commands beep on; captured
+        // weakly for the same retain-cycle reason as the closures above.
+        textView.onFold = { [weak coordinator = context.coordinator] in
+            coordinator?.foldAtCaret() ?? false
+        }
+        textView.onUnfold = { [weak coordinator = context.coordinator] in
+            coordinator?.unfoldAtCaret() ?? false
+        }
+        textView.onPlaceholderClick = { [weak coordinator = context.coordinator] tv, point in
+            coordinator?.unfoldPlaceholder(at: point, in: tv) ?? false
+        }
+
         // `CodeScrollView`, not `NSScrollView`: the text view below is
         // content-sized, so the pane's empty region belongs to no conforming view
         // and a zoom aimed there would grow the chrome instead of the code.
@@ -359,43 +373,7 @@ struct CodeEditorView: NSViewRepresentable {
         textView.isAutomaticSpellingCorrectionEnabled = false
         textView.string = text
 
-        // Attach a line-number gutter on the left. Built after the buffer is
-        // populated and does an initial full scan in its `init`: the `string`
-        // assignment above did post a text-storage edit notification, but the
-        // ruler did not exist yet to observe it, so it seeds its own line count
-        // here. From now on the ruler observes the text view (scroll/resize/edit)
-        // to keep numbers in sync; it draws right-aligned numbers in the editor's
-        // monospaced font following the system appearance.
-        let ruler = LineNumberRulerView(scrollView: scrollView, textView: textView)
-        scrollView.verticalRulerView = ruler
-        scrollView.hasVerticalRuler = true
-        scrollView.rulersVisible = true
-        // The ruler maintains a synchronous document line count; the minimap
-        // geometry scales from it (not the async minimap model) so wheel scrolling
-        // works for plain/unsupported files and isn't briefly wrong on tab switch.
-        context.coordinator.lineNumberRuler = ruler
-        // Wire the gutter's git-blame column. The coordinator is captured
-        // *weakly* for the same retain-cycle reason as `onDuplicate`/
-        // `onCancelSearch` above: the ruler is owned by the scroll view, which the
-        // coordinator (through Neon's highlighter) is reachable from, so a strong
-        // capture here would keep the whole editor alive past teardown.
-        context.coordinator.attachBlame(ruler: ruler)
-        ruler.onToggleAnnotate = { [weak coordinator = context.coordinator] in
-            coordinator?.toggleBlame()
-        }
-        // The diagnostics shift consumes the ruler's pre/post line-start tables.
-        // Captured *weakly* for the same retain-cycle reason as `onToggleAnnotate`
-        // above: the ruler is owned by the scroll view, which the coordinator is
-        // reachable from (through Neon's highlighter), so a strong capture here
-        // would keep the whole editor alive past teardown.
-        ruler.onEdit = { [weak coordinator = context.coordinator] previous, new, edited, delta in
-            coordinator?.bufferEdited(
-                previousLineStarts: previous,
-                newLineStarts: new,
-                editedRange: edited,
-                changeInLength: delta
-            )
-        }
+        let ruler = makeRuler(scrollView: scrollView, textView: textView, coordinator: context.coordinator)
 
         let minimap = MinimapView()
         let container = EditorContainerView(scrollView: scrollView, minimap: minimap)
@@ -438,6 +416,11 @@ struct CodeEditorView: NSViewRepresentable {
         // scans once in its own `init`).
         context.coordinator.attachBracketHighlighting(textView: textView)
         context.coordinator.updateBrackets(text: text, fileID: fileID, immediate: true)
+        // Wire code folding: the controller holds the text view and the gutter
+        // weakly, and the first question is asked at the bottom of this method —
+        // after the index controller and the configuration model are bound, since
+        // the source closure reads both.
+        context.coordinator.attachFolding(textView: textView, ruler: ruler)
         // Wire the find/replace bar: bind the controller to this text view and
         // register it as the state's executor, then run whatever the bar already
         // holds (it is window-scoped, so it may have been left open on the
@@ -504,10 +487,72 @@ struct CodeEditorView: NSViewRepresentable {
             language: language,
             immediate: true
         )
+        // Ask where this file's blocks are, at once: the tab the user is looking
+        // at must have its chevrons before they reach for one. Deliberately after
+        // the index controller and the configuration model are bound — the fold
+        // source reads the provider through the first and the indentation widths
+        // through the second.
+        context.coordinator.syncFolds(text: text, immediate: true)
+        context.coordinator.syncFoldInputs(alreadyAsked: true)
         // Seed the underlines from whatever the store already holds (a fresh
         // sync has nothing yet, so this is usually a no-op).
         context.coordinator.refreshDiagnosticOverlays()
         return container
+    }
+
+    /// Build the line-number gutter and wire the three things it reports back:
+    /// the blame column's menu item, a chevron click, and the pre/post line-start
+    /// tables every incremental reader shifts across an edit.
+    ///
+    /// Split out of `makeNSView` so that method stays inside the style limit; the
+    /// ordering it depended on is preserved by where it is called from — after
+    /// the buffer is populated, before the minimap and the overlays are wired.
+    private func makeRuler(
+        scrollView: NSScrollView,
+        textView: NSTextView,
+        coordinator: Coordinator
+    ) -> LineNumberRulerView {
+        // Built after the buffer is populated (the caller's ordering) and does an
+        // initial full scan in its `init`: the `string` assignment there did post
+        // a text-storage edit notification, but the ruler did not exist yet to
+        // observe it, so it seeds its own line count here. From now on the ruler
+        // observes the text view (scroll/resize/edit) to keep numbers in sync; it
+        // draws right-aligned numbers in the editor's monospaced font following
+        // the system appearance.
+        let ruler = LineNumberRulerView(scrollView: scrollView, textView: textView)
+        scrollView.verticalRulerView = ruler
+        scrollView.hasVerticalRuler = true
+        scrollView.rulersVisible = true
+        // The ruler maintains a synchronous document line count; the minimap
+        // geometry scales from it (not the async minimap model) so wheel scrolling
+        // works for plain/unsupported files and isn't briefly wrong on tab switch.
+        coordinator.lineNumberRuler = ruler
+        // Wire the gutter's git-blame column. The coordinator is captured
+        // *weakly* for the same retain-cycle reason as `onDuplicate`/
+        // `onCancelSearch` in `makeNSView`: the ruler is owned by the scroll view,
+        // which the coordinator (through Neon's highlighter) is reachable from, so
+        // a strong capture here would keep the whole editor alive past teardown.
+        coordinator.attachBlame(ruler: ruler)
+        ruler.onToggleAnnotate = { [weak coordinator] in
+            coordinator?.toggleBlame()
+        }
+        // A click on a gutter chevron folds or unfolds that candidate. Captured
+        // *weakly* for `onToggleAnnotate`'s retain-cycle reason.
+        ruler.onToggleFold = { [weak coordinator] region in
+            coordinator?.toggleFold(region)
+        }
+        // The diagnostics shift and the fold shift both consume the ruler's
+        // pre/post line-start tables. Captured *weakly* for `onToggleAnnotate`'s
+        // reason.
+        ruler.onEdit = { [weak coordinator] previous, new, edited, delta in
+            coordinator?.bufferEdited(
+                previousLineStarts: previous,
+                newLineStarts: new,
+                editedRange: edited,
+                changeInLength: delta
+            )
+        }
+        return ruler
     }
 
     func updateNSView(_ container: EditorContainerView, context: Context) {
@@ -580,6 +625,13 @@ struct CodeEditorView: NSViewRepresentable {
         //   above fires for them.
         let retargetedBuffer = context.coordinator.fileURL != fileURL
             || context.coordinator.syncedProjectRoot != projectRoot
+        // A folder switch is a different set of files, so the folds remembered
+        // for the previous project's are dropped wholesale — the one place the
+        // per-run fold memory is cleared, and the reason it needs no prune on
+        // tab close (a fold is a statement about a file, not about a tab).
+        if context.coordinator.syncedProjectRoot != projectRoot {
+            context.coordinator.forgetAllFolds()
+        }
         context.coordinator.syncedProjectRoot = projectRoot
 
         // Remember where the *outgoing* tab was sitting. Ordering is load-bearing
@@ -596,6 +648,12 @@ struct CodeEditorView: NSViewRepresentable {
         //   top. Recording afterwards would leave that entry alive for the run.
         if switchedFile, let previousFileID {
             context.coordinator.recordViewport(for: previousFileID)
+            // ...and what was folded in it, for the same reason and at the same
+            // moment: one fold controller serves every tab, so this is the last
+            // point at which the outgoing file's state is still the live one.
+            // Unlike the viewport, this survives the prune below — closing a tab
+            // must not discard a fold the user made on purpose.
+            context.coordinator.recordFolds()
         }
 
         // Did this file's buffer get replaced from outside the editor since this
@@ -607,6 +665,15 @@ struct CodeEditorView: NSViewRepresentable {
         // shown for the first time has no recorded value and so is never treated
         // as replaced (there is no stack to drop yet).
         let externallyReplaced = context.coordinator.noteExternalTextRevision(
+            externalTextRevision,
+            for: fileID
+        )
+        // The same question asked of the fold dimension's own record, which a save
+        // transform that reached this file off screen has already advanced: that
+        // rewrite replaced the buffer — so the undo stack and the viewport go —
+        // but it moved the remembered folds through its plan rather than
+        // restructuring the file, so they stay (`noteExternalFoldRevision`).
+        let foldsExternallyReplaced = context.coordinator.noteExternalFoldRevision(
             externalTextRevision,
             for: fileID
         )
@@ -690,7 +757,14 @@ struct CodeEditorView: NSViewRepresentable {
             // re-seeds for the incoming file with no second explicit scan. (Two
             // files that share both content and height need no re-seed: identical
             // content yields identical line numbers, so the cache is already right.)
+            //
+            // The fold caret rule is suppressed across the assignment for the
+            // reason `isInstallingReplacementText` records: the selection change it
+            // posts synchronously arrives while the fold state still describes the
+            // buffer being replaced.
+            context.coordinator.isInstallingReplacementText = true
             textView.string = text
+            context.coordinator.isInstallingReplacementText = false
 
             // A wholesale swap of the *same* file's buffer invalidates that
             // file's undo stack: assigning `string` registers no undo action of
@@ -721,6 +795,22 @@ struct CodeEditorView: NSViewRepresentable {
                 // state a first visit gets.
                 if externallyReplaced {
                     context.coordinator.forgetViewport(for: fileID)
+                    // The remembered *folds* go stale on almost the same signal
+                    // and for the same reason: a Replace All, a post-revert
+                    // `reloadFromDisk`, a Local History restore or a rename
+                    // retarget rewrote this file, so the recorded regions name
+                    // text it no longer has. The one exception is a save
+                    // transform that caught this tab off screen: it replaced the
+                    // buffer, but it *moved* the folds through its own plan on the
+                    // way (`Coordinator.remapRememberedFolds`) — an autosave
+                    // trimming whitespace must not open a fold, here any more than
+                    // in the shown buffer — which is the whole difference between
+                    // the two tokens. The URL is the view's — the incoming file's
+                    // — because the coordinator's still names the outgoing one
+                    // until `syncBlame` below re-records it.
+                    if foldsExternallyReplaced {
+                        context.coordinator.forgetFolds(url: fileURL, fileID: fileID)
+                    }
                 }
             }
         }
@@ -831,7 +921,20 @@ struct CodeEditorView: NSViewRepresentable {
             // one). Deliberately after `syncBlame` above, so the coordinator's
             // URL already names the incoming file.
             context.coordinator.refreshDiagnosticOverlays()
+            // Restore what was folded in the incoming file and ask for its
+            // chevrons at once — waiting out the debounce would leave the
+            // previous file's on screen. After `syncBlame` for its reason: the
+            // memory is keyed by the file, which the coordinator's URL now names.
+            context.coordinator.syncFolds(text: textView.string, immediate: true)
         }
+        // A language change or an `.editorconfig` edit moves where the blocks
+        // are. Unconditional and cheap: the coordinator re-asks only when one of
+        // the two actually moved, and the branch above has already asked for a
+        // switch (which this then records as the new baseline rather than
+        // re-asking for).
+        context.coordinator.syncFoldInputs(
+            alreadyAsked: switchedFile || contentReplaced || retargetedBuffer
+        )
 
         // Put the incoming tab back where it was last left. Deliberately last, and
         // only on a tab switch:
@@ -910,6 +1013,12 @@ struct CodeEditorView: NSViewRepresentable {
         /// `BracketMatchEngine` pair, painted through
         /// `BracketOverlayLayoutManager`.
         private let bracketHighlight = BracketHighlightController()
+
+        /// Code folding's owner: the debounced ask for this file's collapsible
+        /// blocks, the folded state over them, and the per-run memory of both.
+        /// Owned strongly here (it holds the text view and the gutter weakly, so
+        /// there is no cycle), like the search and completion controllers.
+        private let folds = FoldController()
 
         /// The find/replace bar's execution side: runs `TextSearchEngine` against
         /// the live buffer, paints the matches through the same overlay layout
@@ -1029,6 +1138,11 @@ struct CodeEditorView: NSViewRepresentable {
             // Keep this file's symbols in step with what is being typed, behind the
             // controller's 400 ms debounce (a re-parse per keystroke would be felt).
             reindexSymbols(text: contents, language: language, immediate: false)
+            // Ask again where this file's blocks are, behind the fold
+            // controller's own debounce of the same length. The candidates in
+            // hand were already shifted across the edit (`bufferEdited`), so the
+            // chevrons stay put in the meantime instead of blinking.
+            syncFolds(text: contents, immediate: false)
             // Offer completions for the word being typed, behind the completion
             // controller's own (shorter) debounce. Its gates — a bare caret, no
             // marked text, and either two typed characters or a member position
@@ -1501,6 +1615,18 @@ struct CodeEditorView: NSViewRepresentable {
         /// to, or clear the previous highlight. No rescan — the buffer is unchanged.
         func textViewDidChangeSelection(_ notification: Notification) {
             guard let textView = notification.object as? NSTextView else { return }
+            // A caret may not rest strictly inside hidden text: there is no glyph
+            // there to draw it beside. Applied first, so everything below reads
+            // the selection the user will actually see. The guard is the
+            // re-entrancy one the rule's own `setSelectedRange` needs, exactly as
+            // the change interceptors guard their programmatic edits — and the
+            // second is the buffer swap's, whose synchronous clamp would otherwise
+            // be measured against the outgoing file's hidden ranges
+            // (`isInstallingReplacementText`).
+            if !isApplyingFoldCaret, !isInstallingReplacementText {
+                applyFoldCaretRule(previous: previousFoldSelection)
+            }
+            previousFoldSelection = textView.selectedRange()
             bracketHighlight.updateSelection(textView.selectedRange())
             // A selection change is the user working in the text rather than
             // reading an annotation of it — and a click, a drag-select or an
@@ -1636,19 +1762,371 @@ struct CodeEditorView: NSViewRepresentable {
                 layoutManager.setIndentLevelPainting(enabled: true, widths: applied)
                 return
             }
-            let config = editorConfigProperties()
-            // The same answer Enter and Tab are given — asked through
-            // `indentUnit(text:)` so this cannot become a second opinion about
-            // what one level is — turned into the painter's two column widths by
-            // Core alone.
-            let widths = IndentLevelScanner.widths(
-                unit: indentUnit(text: textView.string as NSString),
-                statedTabWidth: config.tabWidth
-            )
+            let widths = indentLevelWidths(text: textView.string as NSString)
             appliedIndentWidths = widths
             appliedIndentConfigRevision = revision
             appliedIndentFileURL = fileURL
             layoutManager.setIndentLevelPainting(enabled: true, widths: widths)
+        }
+
+        /// The two column widths one indentation level is worth in this buffer.
+        ///
+        /// **One derivation, two consumers.** The indentation-level painting was
+        /// the first; the fold scanner is the second, and it measures a block
+        /// with exactly the unit the editor types with rather than deriving one
+        /// of its own. The answer Enter and Tab are given is asked through
+        /// `indentUnit(text:)` — `.editorconfig` first, the content inference
+        /// second — and turned into columns by Core alone, so nothing here is a
+        /// second opinion about what a level is.
+        ///
+        /// Uncached on purpose: the painting path keeps its own cache (see
+        /// `refreshIndentLevelWidths`) because it runs on every SwiftUI update,
+        /// while the fold ask reaches this once per settled burst of typing —
+        /// the same order of work as the bracket rescan it rides behind.
+        private func indentLevelWidths(text nsText: NSString) -> IndentLevelWidths {
+            IndentLevelScanner.widths(
+                unit: indentUnit(text: nsText),
+                statedTabWidth: editorConfigProperties().tabWidth
+            )
+        }
+
+        // MARK: - Folding
+
+        /// Bind the fold controller to the text view and the gutter, and give it
+        /// the four inputs a question needs (`makeNSView`).
+        ///
+        /// The source closure re-reads all four *at the moment a question is
+        /// asked* — `attachHover`'s shape and for its reason: a folder switch
+        /// swaps the provider and the root under a live editor, and a closure
+        /// that captured either would ask yesterday's question. Captured weakly,
+        /// so a torn-down editor answers "nothing to ask".
+        func attachFolding(textView: NSTextView, ruler: LineNumberRulerView) {
+            folds.attach(textView: textView, ruler: ruler)
+            folds.source = { [weak self] in
+                guard let self, let symbolIndex = self.symbolIndex, let textView = self.textView else { return nil }
+                return FoldController.Source(
+                    provider: symbolIndex.provider,
+                    fileURL: self.fileURL,
+                    language: self.language,
+                    widths: self.indentLevelWidths(text: textView.string as NSString)
+                )
+            }
+            // An answer that grew a fold hid text without a gesture behind it, so
+            // the caret may now sit where it cannot be drawn. Asked with no
+            // previous selection for `toggleFold`'s reason: nothing moved the
+            // caret, the text under it stopped having a position.
+            folds.didGrowHiddenText = { [weak self] in
+                self?.applyFoldCaretRule(previous: NSRange(location: NSNotFound, length: 0))
+            }
+        }
+
+        /// The key this file's folds are remembered under: the canonical path of
+        /// a url-backed file, the tab id of an unsaved buffer.
+        ///
+        /// **Not `OpenFile.id`**, which is a fresh `UUID` per open: closing and
+        /// reopening a file would then lose its folds, which is exactly what the
+        /// memory exists to keep for the length of the run. The canonical
+        /// spelling is `SourceViewerWindowController`'s — `standardizedFileURL`
+        /// then `resolvingSymlinksInPath()`, the app-layer form of the same
+        /// identity comparison the workspace makes.
+        private var foldMemoryKey: String? {
+            Coordinator.foldMemoryKey(url: fileURL, fileID: fileID)
+        }
+
+        /// The same key for a file this coordinator is not currently showing —
+        /// which is the case at the one moment it has to be asked about the
+        /// *incoming* file: `updateNSView`'s content-replaced branch runs before
+        /// `syncBlame` re-records the URL, so the property above still names the
+        /// outgoing one there. One spelling, two callers.
+        static func foldMemoryKey(url: URL?, fileID: UUID?) -> String? {
+            if let url { return url.standardizedFileURL.resolvingSymlinksInPath().path }
+            return fileID?.uuidString
+        }
+
+        /// Reconcile the folds with the displayed file: a switch/open/retarget
+        /// restores what was folded in it and asks at once, an ordinary edit asks
+        /// behind the controller's own 400 ms debounce, and a language or
+        /// `.editorconfig` change asks again because both move where blocks are.
+        func syncFolds(text: String, immediate: Bool) {
+            if immediate {
+                folds.noteBufferOpened(key: foldMemoryKey, text: text)
+            } else {
+                folds.noteBufferChanged(text: text)
+            }
+        }
+
+        /// The two inputs a fold answer depends on that are neither the text nor
+        /// the file: the buffer's language, and the `.editorconfig` revision the
+        /// indentation widths are derived under. `nil` until the first sync,
+        /// which is a seed rather than a change.
+        private var appliedFoldInputs: (language: SyntaxLanguage?, revision: Int?)?
+
+        /// Re-ask when either of those moved, and do nothing at all when neither
+        /// did — this runs on every SwiftUI update.
+        ///
+        /// Both change *where blocks are*: a language change swaps which server
+        /// (if any) answers, and an `.editorconfig` edit moves the widths the
+        /// fallback scanner measures indentation blocks with. Neither disturbs
+        /// what is folded: the answer that lands is reconciled with the folded
+        /// state by header line, exactly as every other answer is.
+        ///
+        /// The revision is compared here rather than ridden on the indentation
+        /// painting's cache because that cache exists only while the preference
+        /// is on, and folding does not ask the user's permission to know where a
+        /// block ends.
+        ///
+        /// `alreadyAsked` is the tab switch (and the editor's construction),
+        /// where the language moves *and* an immediate ask has just run: the new
+        /// values are recorded as the baseline and no second question is asked.
+        func syncFoldInputs(alreadyAsked: Bool) {
+            let inputs = (language: language, revision: editorConfig?.revision)
+            let changed = appliedFoldInputs.map {
+                $0.language != inputs.language || $0.revision != inputs.revision
+            } ?? true
+            appliedFoldInputs = inputs
+            guard changed, !alreadyAsked, let textView else { return }
+            folds.noteConfigurationChanged(text: textView.string)
+        }
+
+        /// Remember where the *outgoing* tab's folds were, beside
+        /// `recordViewport(for:)` and for the same reason: one controller serves
+        /// every tab, so the switch is the last moment the outgoing state is
+        /// still the live one.
+        func recordFolds() {
+            folds.recordCurrent()
+        }
+
+        /// Drop this file's remembered folds — its text was replaced out from
+        /// under it, so they describe a buffer that no longer exists. Beside
+        /// `forgetViewport(for:)` and on exactly the same signal.
+        func forgetFolds(url: URL?, fileID: UUID) {
+            guard let key = Coordinator.foldMemoryKey(url: url, fileID: fileID) else { return }
+            folds.forget(key: key)
+        }
+
+        /// `SaveTransformEditor`: drop the *shown* buffer's folds — a Local
+        /// History restore put another revision in it, so the regions describe
+        /// text it no longer holds. The same instruction `updateNSView` gives for
+        /// a buffer replaced off screen, on the one replacement that happens
+        /// through the live view instead.
+        func forgetDisplayedFolds() {
+            guard let key = foldMemoryKey else { return }
+            folds.forget(key: key)
+        }
+
+        /// `SaveTransformEditor`: a save transform rewrote a buffer this editor is
+        /// not showing, so its folds are a memory entry rather than the live
+        /// state — move that entry through the plan and record the replacement it
+        /// travelled.
+        ///
+        /// Three things have to hold, and each rules out a case where keeping the
+        /// folds would be wrong:
+        ///
+        /// - the file is **not** the one on screen. A rewrite reaching the model
+        ///   path for the displayed tab is `prepare`'s divergence window (the view
+        ///   has not yet caught up with a model-side rewrite), where the live
+        ///   state was not remapped and the buffer is about to be replaced under
+        ///   it — that tab's folds must still be dropped.
+        /// - the fold token this coordinator holds for the file is the one the
+        ///   rewrite started from. A Replace All, a revert or a merge apply that
+        ///   reached the tab while it sat off screen already moved the file's
+        ///   token without moving the folds, and those folds describe text that no
+        ///   longer exists no matter what a later save does to it.
+        /// - the file has a memory key at all.
+        func remapRememberedFolds(
+            through plan: SaveTransformPlan,
+            for id: UUID,
+            url: URL?,
+            movingFrom previousRevision: Int,
+            to revision: Int
+        ) {
+            guard fileID != id,
+                  foldTextRevisions[id] == previousRevision,
+                  let key = Coordinator.foldMemoryKey(url: url, fileID: id)
+            else { return }
+            folds.remapRemembered(key: key, through: plan)
+            foldTextRevisions[id] = revision
+        }
+
+        /// Drop every remembered fold, on a folder switch.
+        func forgetAllFolds() {
+            folds.forgetAll()
+        }
+
+        /// The chevron in the gutter was clicked: fold or unfold that candidate,
+        /// then put the caret somewhere it can be drawn.
+        ///
+        /// The decision is `FoldState`'s (`toggle`) and the caret's is
+        /// `FoldCaretRule`'s; this only sequences the two.
+        func toggleFold(_ region: FoldRegion) {
+            folds.toggleFold(region)
+            // A fold gesture carries no direction — the caret did not move, the
+            // text under it stopped having a position — so the rule is asked
+            // with no previous selection and lands it beside the placeholder.
+            applyFoldCaretRule(previous: NSRange(location: NSNotFound, length: 0))
+        }
+
+        /// The Edit menu's *Fold* (⌘⌥←): collapse the innermost candidate block
+        /// the caret is in, and leave the caret on the line that stays visible.
+        ///
+        /// `false` — "nothing folded" — is the command's beep: the caret is in no
+        /// collapsible block, or the selection reaches past the one it is in.
+        /// **Which** block, and whether the selection refuses it, is
+        /// `FoldCommandRule`'s answer; the line table is the gutter's own, so the
+        /// command and the chevrons can never disagree about which line the caret
+        /// is on.
+        func foldAtCaret() -> Bool {
+            guard let textView, let ruler = lineNumberRuler else { return false }
+            let lineStarts = ruler.lineStarts
+            guard let region = FoldCommandRule.regionToFold(
+                selection: textView.selectedRange(),
+                lineStarts: lineStarts,
+                in: folds.candidates
+            ) else { return false }
+            folds.fold(region)
+            // The caret goes to the start of the header line — the one line the
+            // block it just collapsed still shows. No second rule decides that:
+            // the selection this posts runs through `FoldCaretRule` like every
+            // other, which leaves a visible caret exactly where it is and moves
+            // one an *outer* fold happens to hide.
+            guard region.headerLine >= 0, region.headerLine < lineStarts.count else {
+                // The line table cannot name that header — the candidate list and
+                // the gutter's table are built on their own schedules, so they can
+                // disagree for a moment. The block is folded either way, and a
+                // caret the fold just swallowed still has to be moved somewhere it
+                // can be drawn: ask the rule outright, exactly as `toggleFold`
+                // does, since no selection is posted on this path to carry it.
+                applyFoldCaretRule(previous: NSRange(location: NSNotFound, length: 0))
+                return true
+            }
+            textView.setSelectedRange(NSRange(location: lineStarts[region.headerLine], length: 0))
+            return true
+        }
+
+        /// The Edit menu's *Unfold* (⌘⌥→): open the innermost folded block the
+        /// caret is in, or answer `false` so the command beeps.
+        ///
+        /// No refusal of its own — opening a block hides nothing — and no caret
+        /// move either: the caret is already on a visible line, and the text that
+        /// appears below it is what the user asked for.
+        func unfoldAtCaret() -> Bool {
+            guard let textView, let ruler = lineNumberRuler else { return false }
+            guard let region = FoldCommandRule.regionToUnfold(
+                selection: textView.selectedRange(),
+                lineStarts: ruler.lineStarts,
+                in: folds.state
+            ) else { return false }
+            folds.unfold(region)
+            return true
+        }
+
+        /// A click landed on a `…`: open the block behind it and put the caret at
+        /// its start.
+        ///
+        /// The rect is the layout manager's own (`placeholderRect(forFoldedRangeAt:)`)
+        /// rather than arithmetic over the point, for the reason the gutter's
+        /// chevron click states: the box the click is tested against is the box
+        /// that was drawn. `point` is in the text view's coordinates, so the
+        /// container origin is taken off before it is compared.
+        ///
+        /// `false` means "not mine", and the click proceeds as an ordinary one.
+        func unfoldPlaceholder(at point: NSPoint, in textView: NSTextView) -> Bool {
+            // Every plain single click reaches here, placeholder or not, which
+            // makes it the one place the view tells the coordinator that the
+            // selection about to change carries no direction.
+            forgetFoldSelectionDirection()
+            guard !folds.state.isEmpty,
+                  let layoutManager = overlayLayoutManager,
+                  let container = textView.textContainer
+            else { return false }
+            let origin = textView.textContainerOrigin
+            let containerPoint = NSPoint(x: point.x - origin.x, y: point.y - origin.y)
+            // Only a placeholder the user can *see* can be the one clicked, and
+            // asking the layout manager to measure one that is off screen costs
+            // glyph generation and layout all the way down to wherever it sits.
+            // So the loop is bounded by the visible range, exactly as
+            // `paintFoldPlaceholders` is bounded by the range it was asked to
+            // draw — without it, one block folded near the end of a large file
+            // would lay the whole file out on every single click.
+            let visibleGlyphs = layoutManager.glyphRange(
+                forBoundingRect: textView.visibleRect.offsetBy(dx: -origin.x, dy: -origin.y),
+                in: container
+            )
+            let visible = layoutManager.characterRange(forGlyphRange: visibleGlyphs, actualGlyphRange: nil)
+            let lastVisible = NSMaxRange(visible)
+            // In `FoldRegion` order, so two folded regions sharing a header line
+            // resolve to the longer one — the one whose placeholder is drawn.
+            for region in folds.state.regions
+            where region.hiddenRange.location >= visible.location && region.hiddenRange.location <= lastVisible {
+                guard let rect = layoutManager.placeholderRect(forFoldedRangeAt: region.hiddenRange.location),
+                      rect.contains(containerPoint)
+                else { continue }
+                folds.unfold(region)
+                textView.setSelectedRange(NSRange(location: region.hiddenRange.location, length: 0))
+                return true
+            }
+            return false
+        }
+
+        /// Up while the caret rule is putting the caret back, so the selection
+        /// notification that move posts is not re-inspected as a user move
+        /// (`isApplyingProgrammaticEdit`'s shape, for the selection path).
+        private var isApplyingFoldCaret = false
+
+        /// Where the caret was before the selection change being handled, which
+        /// is the *direction* `FoldCaretRule` reads: forward past a folded block,
+        /// backward before it. `NSNotFound` until the first move — a click and a
+        /// programmatic selection carry no direction either, and land beside the
+        /// placeholder.
+        private var previousFoldSelection = NSRange(location: NSNotFound, length: 0)
+
+        /// Forget the caret the next selection change would have read a
+        /// direction from, so `FoldCaretRule` sees the "no direction" request
+        /// its contract describes.
+        ///
+        /// Called from the three places a selection moves for a reason that is
+        /// *not* a keyboard move away from the previous caret: a plain click
+        /// (`unfoldPlaceholder(at:in:)` is reached by every one of them), a tab
+        /// restore (`restoreViewport(for:)`) and a reveal
+        /// (`revealRange(_:)`). Without it the stale caret — a different tab's,
+        /// even — reads as a direction, and a click into hidden text lands past
+        /// the whole block instead of beside the placeholder it hit.
+        private func forgetFoldSelectionDirection() {
+            previousFoldSelection = NSRange(location: NSNotFound, length: 0)
+        }
+
+        /// Put the caret where it can actually be drawn, if the selection change
+        /// just landed it strictly inside hidden text.
+        ///
+        /// **The one place `FoldCaretRule` is applied.** A selection with length
+        /// is returned untouched by the rule itself, so selecting across a
+        /// collapsed block still copies the whole block.
+        private func applyFoldCaretRule(previous: NSRange) {
+            guard let textView, !folds.state.isEmpty else { return }
+            let proposed = textView.selectedRange()
+            let sanitized = FoldCaretRule.caret(for: proposed, previous: previous, in: folds.state)
+            guard sanitized != proposed else { return }
+            isApplyingFoldCaret = true
+            defer { isApplyingFoldCaret = false }
+            textView.setSelectedRange(sanitized)
+        }
+
+        /// **The reveal funnel**: select `range` and scroll it into view, after
+        /// unfolding every folded block it reaches.
+        ///
+        /// Every jump-to-a-range in the editor goes through here — a find-bar
+        /// match, a Find in Files row, Go to Definition, a Problems row, a Usages
+        /// row — because revealing text that has no on-screen position lands the
+        /// reader somewhere arbitrary. Its two callers are `applyReveal` in this
+        /// file and `EditorSearchController.select(_:)` through the hook
+        /// `attachSearch` installs; the rule it applies is `FoldReveal`'s, and
+        /// this is the one file that names it.
+        func revealRange(_ range: NSRange) {
+            guard let textView else { return }
+            folds.apply(FoldReveal.unfolding(range, in: folds.state))
+            forgetFoldSelectionDirection()
+            textView.setSelectedRange(range)
+            textView.scrollRangeToVisible(range)
         }
 
         /// The overlay layout manager currently installed, resolved dynamically
@@ -1704,6 +2182,26 @@ struct CodeEditorView: NSViewRepresentable {
         /// document's set; a genuine replacement has nothing left to shift).
         /// Set and cleared synchronously inside the content-replaced branch.
         var isSwappingBuffer = false
+
+        /// Up across `updateNSView`'s `textView.string = text` assignment alone.
+        ///
+        /// That assignment clamps the selection to the new length and posts
+        /// `textViewDidChangeSelection` **synchronously**, while `folds.state`
+        /// still describes the buffer being replaced — `syncFolds` does not run
+        /// until later in the same update. Without this the caret rule would be
+        /// applied against another file's hidden ranges and park the caret on one
+        /// of their boundaries; on a tab switch `restoreViewport` overwrites that
+        /// again, but a replacement of the *displayed* file (a revert, a reload, a
+        /// Replace All, a merge apply) restores no viewport and the wrong caret
+        /// sticks. The fold dimension's counterpart of `beginBlameBufferSwap()`
+        /// and `beginDiagnosticsBufferSwap(clearing:)`, which are told about the
+        /// same swap for the same reason.
+        ///
+        /// Deliberately **not** `isSwappingBuffer`, which a save transform raises
+        /// too: that rewrite puts the remapped selection back *before* it lowers
+        /// its guards, and it moves the fold bounds through the same plan first
+        /// precisely so the caret rule can read them there.
+        var isInstallingReplacementText = false
 
         /// The store observation (one for the coordinator's lifetime). The model
         /// is mutated from several directions — accepted pushes, teardown clears,
@@ -1825,6 +2323,16 @@ struct CodeEditorView: NSViewRepresentable {
             // replacement the store entry is already gone, so there is nothing
             // to do either way.
             guard !isSwappingBuffer else { return }
+            // The fold regions and the folded state travel across the edit by the
+            // same three-way rule, on the same two line-start tables the ruler
+            // maintained anyway — beside the diagnostics shift and under the same
+            // suppression, because a buffer swap has nothing to shift either.
+            folds.noteEdit(
+                previousLineStarts: previousLineStarts,
+                newLineStarts: newLineStarts,
+                editedRange: editedRange,
+                changeInLength: delta
+            )
             if let url = fileURL {
                 diagnosticsModel?.noteEdit(
                     url: url,
@@ -1920,6 +2428,14 @@ struct CodeEditorView: NSViewRepresentable {
             beginDiagnosticsBufferSwap(clearing: fileURL)
         }
 
+        /// `SaveTransformEditor`: move the fold bounds through the plan, exactly
+        /// as the selection endpoints and the scroll anchor are moved. The shift
+        /// rule is deliberately not asked here — see the protocol's note and
+        /// `FoldState.remapped(through:)`.
+        func remapFolds(through plan: SaveTransformPlan) {
+            folds.remap(through: plan)
+        }
+
         /// `SaveTransformEditor`: lower both guards, after `didChangeText()` — so
         /// every notification the rewrite fires was covered by them.
         func endSaveTransformRewrite() {
@@ -1933,6 +2449,15 @@ struct CodeEditorView: NSViewRepresentable {
         /// bar's executor (`makeNSView`).
         func attachSearch(textView: NSTextView, state: EditorSearchState) {
             searchController.attach(textView: textView)
+            // The bar's one jump — next/previous match and the step the replace
+            // takes after it — lands in the editor's reveal funnel rather than
+            // selecting and scrolling itself, so a match inside a folded block
+            // opens it first. Captured weakly: the coordinator owns the
+            // controller, so a strong capture would be the retain cycle this
+            // file's rule forbids.
+            searchController.revealRange = { [weak self] range in
+                self?.revealRange(range)
+            }
             searchBarState = state
             searchController.bind(state: state)
         }
@@ -1977,8 +2502,8 @@ struct CodeEditorView: NSViewRepresentable {
             let target = pendingRevealRange(request, fileID: fileID)
             appliedRevealToken = request.token
             guard let target else { return }
-            DispatchQueue.main.async { [weak textView] in
-                guard let textView else { return }
+            DispatchQueue.main.async { [weak self, weak textView] in
+                guard let self, let textView else { return }
                 // Re-clamped against the buffer as it is *now*: the hop is a whole
                 // main-loop turn, and nothing promises the text did not shrink in
                 // between.
@@ -1988,8 +2513,10 @@ struct CodeEditorView: NSViewRepresentable {
                     location: target.location,
                     length: min(target.length, length - target.location)
                 )
-                textView.setSelectedRange(range)
-                textView.scrollRangeToVisible(range)
+                // Through the funnel, never by hand: an activation may name a
+                // range inside a block this tab has folded, and scrolling to text
+                // with no on-screen position lands the reader nowhere.
+                self.revealRange(range)
             }
         }
 
@@ -2208,6 +2735,13 @@ struct CodeEditorView: NSViewRepresentable {
             // literal tab — the same key, one property apart — jumps back to it.
             // The *first* caret, which is what `selectedRange()` reports for a
             // multi-range selection and therefore what the native key scrolls to.
+            //
+            // **The one scroll in this file that is not the reveal funnel**, and
+            // named rather than routed. It re-shows a caret `setSelectedRanges`
+            // above has just produced, which the fold caret rule has already
+            // sanitized through `textViewDidChangeSelection` — so it can never
+            // target hidden text, and asking `revealRange` here would put the
+            // reveal rule a question whose answer is always "nothing to unfold".
             if let caret = plan.carets.first { textView.scrollRangeToVisible(caret) }
             return true
         }
@@ -2612,6 +3146,11 @@ struct CodeEditorView: NSViewRepresentable {
             // per-tab annotate state wholesale (see `BlameController.enabledFileIDs`
             // on why nothing prunes it before this point).
             blame.reset()
+            // Supersedes an in-flight fold answer and empties both halves of the
+            // hiding, so a torn-down tab cannot leave a closed file's text hidden
+            // in the view that replaces it. The memory is dropped with the
+            // controller — it lives for the app run, not beyond this editor.
+            folds.reset()
             // Ends the store observation and cancels a queued repaint, so a
             // torn-down tab can neither repaint squiggles for a closed file nor
             // keep the app's diagnostics model alive through the subscription.
@@ -2645,6 +3184,7 @@ struct CodeEditorView: NSViewRepresentable {
         func prunePerFileState(keeping openFileIDs: Set<UUID>) {
             undoManagers = undoManagers.filter { openFileIDs.contains($0.key) }
             externalTextRevisions = externalTextRevisions.filter { openFileIDs.contains($0.key) }
+            foldTextRevisions = foldTextRevisions.filter { openFileIDs.contains($0.key) }
             viewports.prune(keeping: openFileIDs)
         }
 
@@ -2736,6 +3276,10 @@ struct CodeEditorView: NSViewRepresentable {
         func restoreViewport(for fileID: UUID) {
             guard let textView else { return }
             let length = textView.textStorage?.length ?? 0
+            // The remembered caret has nothing to do with wherever the caret sat
+            // in the tab being left, so no direction may be read across the
+            // switch.
+            forgetFoldSelectionDirection()
             guard let viewport = viewports.viewport(for: fileID, clampedToLength: length) else {
                 textView.setSelectedRange(NSRange(location: 0, length: 0))
                 scrollEditor(to: 0)
@@ -2811,6 +3355,34 @@ struct CodeEditorView: NSViewRepresentable {
         func noteExternalTextRevision(_ revision: Int, for fileID: UUID) -> Bool {
             defer { externalTextRevisions[fileID] = revision }
             guard let previous = externalTextRevisions[fileID] else { return false }
+            return previous != revision
+        }
+
+        /// The same token, tracked a second time for the **folds** alone — the one
+        /// dimension of a replaced buffer that a save transform can carry across
+        /// the replacement it caused.
+        ///
+        /// The two copies agree everywhere except at one moment:
+        /// `remapRememberedFolds` advances this one when it moves a background
+        /// tab's remembered folds through a save's plan, so the switch back reads
+        /// "the buffer was replaced, the folds were not" and keeps them — while
+        /// the undo stack and the viewport, which name ranges in text that rewrite
+        /// moved, are dropped exactly as they are for every other off-screen
+        /// replacement.
+        ///
+        /// Stated as a second dictionary rather than as a flag beside the first
+        /// because it answers a different question about the same file, and the
+        /// answers legitimately differ; a flag would have to be cleared by
+        /// whichever replacement came next, which is precisely the event nothing
+        /// here observes.
+        private var foldTextRevisions: [UUID: Int] = [:]
+
+        /// Record `revision` for `fileID`'s folds and report whether it changed
+        /// since this coordinator last displayed that file — `false` for a first
+        /// showing, exactly as the text token answers.
+        func noteExternalFoldRevision(_ revision: Int, for fileID: UUID) -> Bool {
+            defer { foldTextRevisions[fileID] = revision }
+            guard let previous = foldTextRevisions[fileID] else { return false }
             return previous != revision
         }
 
@@ -3018,6 +3590,21 @@ final class EditorTextView: NSTextView, ZoomSurfaceProviding {
     /// `CodeEditorView.makeNSView` to the coordinator's
     /// `toggleComment(in:)`; `nil` until then.
     var onToggleComment: ((NSTextView) -> Void)?
+
+    /// Collapses the innermost collapsible block the caret is in (⌘⌥←), and
+    /// reports whether there was one. Set by `CodeEditorView.makeNSView` to the
+    /// coordinator's `foldAtCaret()`; `nil` until then.
+    var onFold: (() -> Bool)?
+
+    /// Opens the innermost folded block the caret is in (⌘⌥→), and reports
+    /// whether there was one. Set by `CodeEditorView.makeNSView` to the
+    /// coordinator's `unfoldAtCaret()`; `nil` until then.
+    var onUnfold: (() -> Bool)?
+
+    /// Opens the block behind the `…` a click landed on, and reports whether the
+    /// click was on one. Set by `CodeEditorView.makeNSView` to the coordinator's
+    /// `unfoldPlaceholder(at:in:)`; `nil` until then.
+    var onPlaceholderClick: ((NSTextView, NSPoint) -> Bool)?
 
     /// Recomputes the completion candidates immediately and opens the popup over
     /// them. Set by `CodeEditorView.makeNSView` to the coordinator's
@@ -3262,6 +3849,23 @@ final class EditorTextView: NSTextView, ZoomSurfaceProviding {
         onToggleComment?(self)
     }
 
+    /// *Fold* from the caret — the Edit menu's ⌘⌥← entry point, reached exactly
+    /// as `toggleCommentAtSelection()` is: through this view as the key window's
+    /// first responder, carrying no state of its own.
+    ///
+    /// The answer travels back so the menu command has one thing to beep on: an
+    /// editor that folded nothing and a focus that is not an editor at all are
+    /// the same "nothing happened" to the person who pressed the key.
+    func foldAtCaret() -> Bool {
+        onFold?() ?? false
+    }
+
+    /// *Unfold* from the caret — ⌘⌥→, reached and answered exactly as
+    /// `foldAtCaret()` is.
+    func unfoldAtCaret() -> Bool {
+        onUnfold?() ?? false
+    }
+
     /// A Command-held click navigates to the clicked identifier's declaration;
     /// every other click keeps the stock behavior.
     ///
@@ -3283,7 +3887,24 @@ final class EditorTextView: NSTextView, ZoomSurfaceProviding {
     /// (whitespace, punctuation, a keyword — `goToDefinition` just beeps) is
     /// swallowed whole, leaving the click with no effect at all, and a ⌘-click in
     /// an editor that is not yet focused would jump without ever focusing it.
+    ///
+    /// **A click on a `…` opens the block behind it**, and is taken before
+    /// anything else looks at the event: `super.mouseDown` would otherwise run
+    /// its tracking loop and place a caret inside text that has no position on
+    /// screen. Only a plain single click — a modified one is a selection gesture,
+    /// and a double click is the stock word selection.
+    ///
+    /// The pointer over the placeholder is deliberately left as the I-beam: the
+    /// `…` stands in for text, and a text view whose cursor changed over part of
+    /// its own line would read as chrome.
     override func mouseDown(with event: NSEvent) {
+        if event.clickCount == 1,
+           event.modifierFlags.isDisjoint(with: [.command, .shift, .option, .control]),
+           onPlaceholderClick?(self, convert(event.locationInWindow, from: nil)) == true {
+            if window?.firstResponder !== self { window?.makeFirstResponder(self) }
+            return
+        }
+
         guard
             event.modifierFlags.intersection([.command, .shift, .option, .control]) == [.command],
             event.clickCount == 1,

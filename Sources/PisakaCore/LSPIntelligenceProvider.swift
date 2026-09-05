@@ -512,6 +512,126 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
         return NSRange(location: min(max(offset, 0), source.length), length: 0)
     }
 
+    // MARK: - Folding
+
+    /// Every collapsible block the server says the document has.
+    ///
+    /// `hover(for:)` step for step — the empty-buffer guard, the language off the
+    /// file name, `prepare` so the live buffer reaches the server before the
+    /// question, the capability read after `prepare` because `prepare` is what
+    /// produces it, `stillHolds` before the answer is read — with two rules of its
+    /// own, both about *numbers a server sent*.
+    ///
+    /// **D2's guard, in this question's terms.** There is no offset here to be
+    /// inconsistent with, so what an empty text means is simply that nothing can
+    /// fold: an empty document has no second line, and both answers to it are the
+    /// same empty list. Asking a server for it would be a round trip whose only
+    /// possible answer is the one already in hand.
+    ///
+    /// **A range this buffer cannot hold is dropped, never trapped on.** A line
+    /// past the end of the document, or an end before its start, is a server
+    /// miscounting one block — which must cost that block a chevron and cost the
+    /// file nothing else, exactly as `LSPFoldingRangeResponse` drops one
+    /// unreadable element and keeps its siblings.
+    ///
+    /// **Both bounds are the named line's content end**, which is the one place a
+    /// server is second-guessed, because that *is* ``FoldRegion``'s contract —
+    /// the header line stays visible in full, the block's last line joins it
+    /// behind the placeholder — and the contract is load-bearing for the whole
+    /// feature rather than a preference.
+    ///
+    /// - The **start** is floored there. A server that names the start of the
+    ///   folded *node* (column 0 of the first `use` of an import group, the `//`
+    ///   of a comment run, the `{` of a block) would otherwise hide the header's
+    ///   own text, leaving a numbered row showing nothing but `…`; and
+    ///   `FoldCaretRule` would then eject a caret clicked into that text while
+    ///   `FoldReveal` would spring the block open for a range that is already
+    ///   visible.
+    /// - The **end** is raised there for the mirror reason, and it is the sharper
+    ///   of the two: the `…` is *drawn over* the header's row without reserving
+    ///   any layout width for itself (a hidden glyph advances nothing), so
+    ///   anything a server leaves visible after the hidden run is laid out at
+    ///   exactly the x the placeholder is stroked at. `endLine: <the closer's
+    ///   line>, endCharacter: 0` is not a hypothetical shape — it is what gopls
+    ///   sends under the `lineFoldingOnly: false` this handshake asks for — and
+    ///   taking it at its word paints the `…` on top of the `}` and hands
+    ///   `unfoldPlaceholder(at:in:)` the click meant for it. Raising the end is
+    ///   what makes "the closing `}` joins the header's row" true rather than
+    ///   merely overlapping it.
+    ///
+    /// **The two optional characters are still decoded** — the specification
+    /// defines them and ``LSPFoldingRange`` reads what it is sent — but they
+    /// cannot move a bound this editor can draw. That is not a second rule kept
+    /// in step with `LSPPositionMap` by hand: `offset(for:)` already clamps a
+    /// character to its own line's content end, so the floor and the ceiling both
+    /// land there whatever the server sent, and a line-oriented server and a
+    /// character-precise one stay one code path with one arithmetic.
+    ///
+    /// The header line is counted with the **editor's** line table, not with
+    /// LSP's: it is the number the gutter draws a chevron on. The two disagree
+    /// only in a file delimited by NEL/LS/PS (D1), where every offset here is
+    /// still exact because the bounds were mapped through `LSPPositionMap` first.
+    public func foldRegions(for request: FoldRegionRequest) async -> [FoldRegion] {
+        guard !request.text.isEmpty else { return [] }
+        guard let fileURL = request.fileURL,
+              let language = SyntaxLanguage(forFileName: fileURL.lastPathComponent),
+              let prepared = await workspace.prepare(
+                  url: fileURL,
+                  language: language,
+                  text: request.text
+              ),
+              await prepared.session.capabilities?.supportsFoldingRange == true
+        else { return [] }
+
+        guard let response = try? await prepared.session.foldingRange(
+            LSPFoldingRangeParams(uri: prepared.uri)
+        ) else { return [] }
+        // The same staleness gate every mapped answer takes: a fold is a *range in
+        // a buffer*, and a list computed against a document some other request
+        // talked the server out of underneath this one would hide text that has
+        // moved.
+        guard await workspace.stillHolds(prepared) else { return [] }
+
+        let source = request.text as NSString
+        // Two tables, one pass each, both built once for the whole answer: the
+        // protocol's, for the bounds the server named, and the editor's, for the
+        // line the chevron lands on.
+        let lspLineStarts = LSPPositionMap.lineStarts(in: source)
+        let editorLineStarts = LineStartIndex.offsets(in: source)
+        let regions = response.ranges.compactMap { range -> FoldRegion? in
+            guard range.startLine >= 0,
+                  range.endLine >= range.startLine,
+                  range.endLine < lspLineStarts.count else { return nil }
+            // Not the server's word at either end: see the note above. This is
+            // the floor and the ceiling at once, because both clamps land on the
+            // same offset — the line's content end, which is also what an absent
+            // character means.
+            let start = LSPPositionMap.lineContentEnd(
+                ofLine: range.startLine,
+                in: source,
+                lineStarts: lspLineStarts
+            )
+            let end = LSPPositionMap.lineContentEnd(
+                ofLine: range.endLine,
+                in: source,
+                lineStarts: lspLineStarts
+            )
+            // A block that hides nothing is not a block: a range naming one line
+            // at both ends leaves the two bounds equal and is dropped here rather
+            // than drawn as a chevron with nothing behind it.
+            guard end > start else { return nil }
+            return FoldRegion(
+                hiddenRange: NSRange(location: start, length: end - start),
+                headerLine: LSPPositionMap.lineIndex(
+                    containing: start,
+                    lineStarts: editorLineStarts
+                ),
+                kind: range.kind
+            )
+        }
+        return regions.sorted()
+    }
+
     // MARK: - Completions
 
     /// What the server offers at the caret.

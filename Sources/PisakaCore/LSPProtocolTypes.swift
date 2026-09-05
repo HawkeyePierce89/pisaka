@@ -61,6 +61,7 @@ public enum LSPMethod {
     public static let rename = "textDocument/rename"
     public static let completion = "textDocument/completion"
     public static let resolveCompletionItem = "completionItem/resolve"
+    public static let foldingRange = "textDocument/foldingRange"
 
     // Server-initiated, answered by `LSPSession` (task 3).
     public static let registerCapability = "client/registerCapability"
@@ -1124,6 +1125,107 @@ public struct LSPWorkspaceEdit: Equatable, Hashable, Sendable, Decodable {
     public var isEmpty: Bool { documents.allSatisfy(\.edits.isEmpty) }
 }
 
+// MARK: - Folding ranges
+
+/// `textDocument/foldingRange`'s params: a document and nothing else.
+///
+/// The one request in this file that names no position. Folding is a property of
+/// the whole document — the editor asks once per typing pause and gets every
+/// collapsible block back — so there is nothing to point at.
+public struct LSPFoldingRangeParams: Equatable, Hashable, Sendable, Codable {
+    public var textDocument: LSPTextDocumentIdentifier
+
+    public init(textDocument: LSPTextDocumentIdentifier) { self.textDocument = textDocument }
+    public init(uri: String) { self.init(textDocument: LSPTextDocumentIdentifier(uri: uri)) }
+}
+
+/// One `FoldingRange`, decoded leniently.
+///
+/// The two line numbers are the only required members. Both characters are
+/// optional because the spec types them so, and their absence *means* something
+/// this editor wants: no `startCharacter` is "from the end of `startLine`", no
+/// `endCharacter` is "to the end of `endLine`" — which is the hidden range the
+/// fold engine needs anyway. Turning the four numbers into one UTF-16 range is
+/// `LSPIntelligenceProvider`'s job, through `LSPPositionMap`; nothing is
+/// interpreted here.
+///
+/// `kind` is read through the **closed** `FoldRegionKind` table, and a string
+/// that table does not name decodes as **absent rather than as a refusal**: the
+/// specification says `FoldingRangeKind` is open and a server may invent one, so
+/// a region carrying a word we do not know is still a perfectly good region.
+/// Nothing in this editor branches on the kind at all yet — it is carried
+/// because dropping a fact the wire already stated would have to be undone
+/// later.
+public struct LSPFoldingRange: Equatable, Hashable, Sendable, Decodable {
+    public var startLine: Int
+    public var startCharacter: Int?
+    public var endLine: Int
+    public var endCharacter: Int?
+    /// The block's own word for itself, when it is one of the three this editor
+    /// names. `nil` for absent, unreadable and unrecognised alike.
+    public var kind: FoldRegionKind?
+
+    public init(
+        startLine: Int,
+        startCharacter: Int? = nil,
+        endLine: Int,
+        endCharacter: Int? = nil,
+        kind: FoldRegionKind? = nil
+    ) {
+        self.startLine = startLine
+        self.startCharacter = startCharacter
+        self.endLine = endLine
+        self.endCharacter = endCharacter
+        self.kind = kind
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case startLine, startCharacter, endLine, endCharacter, kind
+    }
+
+    public init(from decoder: Swift.Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        startLine = try container.decode(Int.self, forKey: .startLine)
+        endLine = try container.decode(Int.self, forKey: .endLine)
+        startCharacter = try? container.decodeIfPresent(Int.self, forKey: .startCharacter)
+        endCharacter = try? container.decodeIfPresent(Int.self, forKey: .endCharacter)
+        let word = try? container.decodeIfPresent(String.self, forKey: .kind)
+        kind = word.flatMap(FoldRegionKind.init(rawValue:))
+    }
+}
+
+/// The whole `textDocument/foldingRange` result: `FoldingRange[]` or `null`.
+///
+/// The same three rules `LSPReferencesResponse` states, for the same reasons:
+/// `null` and an absent `result` are one empty answer, one unreadable element is
+/// dropped while its siblings survive (a server that miscounts one block must
+/// not cost the file every other fold), and a top level that is neither `null`
+/// nor an array still throws — "this file folds nowhere" and "we could not read
+/// the answer" are different facts, and only the second one should send the
+/// editor back to its own scanner.
+public struct LSPFoldingRangeResponse: Equatable, Hashable, Sendable, Decodable {
+    public var ranges: [LSPFoldingRange]
+
+    public init(ranges: [LSPFoldingRange]) { self.ranges = ranges }
+
+    public init(from decoder: Swift.Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if container.decodeNil() {
+            ranges = []
+            return
+        }
+        guard let entries = try? container.decode([JSONValue].self) else {
+            throw DecodingError.dataCorruptedError(
+                in: container,
+                debugDescription: "Not a FoldingRange[] or null"
+            )
+        }
+        ranges = entries.compactMap { try? $0.decoded(as: LSPFoldingRange.self) }
+    }
+
+    public var isEmpty: Bool { ranges.isEmpty }
+}
+
 // MARK: - Handshake
 
 /// `$/cancelRequest`'s params — the one notification that carries a request id.
@@ -1223,6 +1325,23 @@ public struct LSPClientCapabilities: Equatable, Hashable, Sendable, Encodable {
 
         var kinds = completion.nestedContainer(keyedBy: StringKey.self, forKey: "completionItemKind")
         try kinds.encode(LSPCompletionItemKind.specified.map(\.rawValue), forKey: "valueSet")
+
+        // Folding. `lineFoldingOnly: false` is the load-bearing flag: this editor
+        // hides a UTF-16 range, not a set of whole lines, so a server that would
+        // otherwise round every block out to line granularity is told it need
+        // not. `collapsedText: false` for the mirror-image reason — the
+        // placeholder is always `…`, so a server-supplied one would be a string
+        // received and thrown away. The kind value set is the closed
+        // `FoldRegionKind` table spelled on the wire; a server may still answer
+        // with a kind outside it, which decodes as absent rather than as a
+        // refusal.
+        var folding = textDocument.nestedContainer(keyedBy: StringKey.self, forKey: "foldingRange")
+        try folding.encode(false, forKey: "dynamicRegistration")
+        try folding.encode(false, forKey: "lineFoldingOnly")
+        var foldingKinds = folding.nestedContainer(keyedBy: StringKey.self, forKey: "foldingRangeKind")
+        try foldingKinds.encode(FoldRegionKind.allCases.map(\.rawValue), forKey: "valueSet")
+        var foldingCapabilities = folding.nestedContainer(keyedBy: StringKey.self, forKey: "foldingRange")
+        try foldingCapabilities.encode(false, forKey: "collapsedText")
 
         var diagnostics = textDocument.nestedContainer(keyedBy: StringKey.self, forKey: "publishDiagnostics")
         try diagnostics.encode(false, forKey: "relatedInformation")
@@ -1379,6 +1498,11 @@ public struct LSPServerCapabilities: Equatable, Hashable, Sendable, Decodable {
     /// Whether `completionItem/resolve` is worth sending at all (D4's prefetch).
     public var resolvesCompletionItems: Bool
     public var completionTriggerCharacters: [String]
+    /// Whether `textDocument/foldingRange` is worth asking at all. Unlike hover
+    /// and rename this one *has* a second answer — the pure scanner — so a
+    /// server that does not advertise it costs the file nothing but the round
+    /// trip that is now never sent.
+    public var supportsFoldingRange: Bool
 
     public init(
         positionEncoding: String? = nil,
@@ -1388,7 +1512,8 @@ public struct LSPServerCapabilities: Equatable, Hashable, Sendable, Decodable {
         supportsRename: Bool = false,
         supportsCompletion: Bool = false,
         resolvesCompletionItems: Bool = false,
-        completionTriggerCharacters: [String] = []
+        completionTriggerCharacters: [String] = [],
+        supportsFoldingRange: Bool = false
     ) {
         self.positionEncoding = positionEncoding
         self.supportsDefinition = supportsDefinition
@@ -1398,11 +1523,12 @@ public struct LSPServerCapabilities: Equatable, Hashable, Sendable, Decodable {
         self.supportsCompletion = supportsCompletion
         self.resolvesCompletionItems = resolvesCompletionItems
         self.completionTriggerCharacters = completionTriggerCharacters
+        self.supportsFoldingRange = supportsFoldingRange
     }
 
     private enum CodingKeys: String, CodingKey {
         case positionEncoding, definitionProvider, hoverProvider, completionProvider
-        case referencesProvider, renameProvider
+        case referencesProvider, renameProvider, foldingRangeProvider
     }
 
     public init(from decoder: Swift.Decoder) throws {
@@ -1427,6 +1553,12 @@ public struct LSPServerCapabilities: Equatable, Hashable, Sendable, Decodable {
 
         let rename = try container.decodeIfPresent(JSONValue.self, forKey: .renameProvider)
         supportsRename = LSPServerCapabilities.isEnabled(rename)
+
+        // `foldingRangeProvider` is `boolean | FoldingRangeOptions |
+        // FoldingRangeRegistrationOptions` — three spellings, one question, read
+        // through the same collapse as every provider above it.
+        let folding = try container.decodeIfPresent(JSONValue.self, forKey: .foldingRangeProvider)
+        supportsFoldingRange = LSPServerCapabilities.isEnabled(folding)
 
         let completion = try container.decodeIfPresent(JSONValue.self, forKey: .completionProvider)
         supportsCompletion = LSPServerCapabilities.isEnabled(completion)
