@@ -291,8 +291,20 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     doesn't stack on the inserted unit) and `IndentReplacement` (`range` of the
     current line's leading whitespace + `replacement` indentation) — and three
     static functions. `inferIndentUnit(text:)` returns a single tab if any line
-    indents with a tab, else the smallest run of leading spaces observed, falling
-    back to four spaces for an empty or unindented file. It is the **fallback
+    indents with a tab, else the smallest run of leading spaces observed
+    **of two or more**, falling back to four spaces for an empty or unindented
+    file — and for one whose only leading-space runs are single spaces. Two
+    kinds of run are skipped, for one reason: they are not indentation, and
+    counting either destroys the answer. A **whitespace-only line**'s run is
+    trailing whitespace (a stray `"  \n"` in a four-space file would otherwise
+    infer two). A **one-space run** is comment alignment: no language indents
+    one space per level, but the continuation line of a C-family block comment
+    (the ` * ` form) starts with exactly one, so an ordinary four-space file
+    carrying a single `/** … */` would otherwise infer a one-space unit — which
+    makes Enter append one space after `{` and makes the indentation-level
+    painting cycle its whole four-hue palette *inside* one level. A genuinely
+    one-space file therefore falls back to four, the same answer a file with no
+    indentation at all already gives. It is the **fallback
     half** of the unit, not the whole answer: since `.editorconfig` support
     landed, the views ask `IndentUnitRule.unit(config:inferred:)` for the `unit`
     they pass in — a config's `indent_style` decides tabs vs. spaces and its

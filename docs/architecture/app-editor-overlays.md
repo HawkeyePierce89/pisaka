@@ -171,10 +171,18 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     (`IndentLevelWidths`) — from `CodeEditorView.Coordinator`; **this class derives
     neither width and reads no setting**, so the block Enter appends and the block
     painted under it cannot come from two different rules. A change to any of the
-    three invalidates the *visible* area (the text view's visible rect mapped back
-    through the container, so the invalidation is the size of the viewport rather
-    than of the file), which is what makes toggling the preference, switching into a
+    three invalidates the *visible* area — `textView.setNeedsDisplay(visibleRect)`,
+    so the invalidation is the size of the viewport rather than of the file — which
+    is what makes toggling the preference, switching into a
     tab with a different unit, or an `.editorconfig` edit repaint without a reload;
+    the blocks are **drawn, not stored**, so there is nothing to clear and no
+    character range to compute, and asking the *view* is what keeps the coordinate
+    space honest: `glyphRange(forBoundingRect:in:)` takes a **text-container** rect,
+    so handing it the view's own `visibleRect` would be the wrong space twice over
+    (offset by `textContainerOrigin`, and cut to the horizontally scrolled x-slice —
+    which is precisely where a scrolled-right viewport keeps its leading
+    whitespace). `BracketHighlightController.visibleCharacterRange` corrects both
+    because it needs the range itself; this one does not;
     unchanged state is a deliberate no-op, since the setter is called on every view
     update and an unconditional invalidation would redraw the viewport on every
     keystroke. Off, a degenerate width (zero or less, which is also how an

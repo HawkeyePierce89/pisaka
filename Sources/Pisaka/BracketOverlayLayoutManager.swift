@@ -463,15 +463,23 @@ final class BracketOverlayLayoutManager: NSLayoutManager {
 
     /// Invalidate what is on screen, so the next draw repaints it.
     ///
-    /// The level blocks are drawn, not stored, so there is nothing to clear —
-    /// only a redraw to ask for. The visible rect is the text view's, mapped
-    /// back to the character range through the container, which keeps the
-    /// invalidation the size of the viewport rather than the size of the file.
+    /// The level blocks are **drawn, not stored**, so there is nothing to clear
+    /// and nothing to recompute — only a redraw to ask for. Asking the *view*
+    /// for it, rather than mapping the visible rect back to a character range
+    /// through `glyphRange(forBoundingRect:in:)`, is deliberate: that method
+    /// takes a rect in **text-container** coordinates, so the view's own
+    /// `visibleRect` is the wrong space twice over — it is offset by
+    /// `textContainerOrigin`, and its `x` is the horizontally scrolled slice, so
+    /// a scrolled-right viewport would resolve to a glyph range that excludes
+    /// the very leading whitespace these blocks cover.
+    /// `BracketHighlightController.visibleCharacterRange` corrects both because
+    /// it needs the range itself; here there is no range to need, and the
+    /// viewport rect in the view's own coordinates is exactly what
+    /// `setNeedsDisplay(_:)` wants. The invalidation stays the size of the
+    /// viewport rather than the size of the file either way.
     private func invalidateVisibleDisplay() {
         guard let container = textContainers.first, let view = container.textView else { return }
-        let visibleGlyphs = glyphRange(forBoundingRect: view.visibleRect, in: container)
-        guard visibleGlyphs.length > 0 else { return }
-        invalidateDisplay(forCharacterRange: characterRange(forGlyphRange: visibleGlyphs, actualGlyphRange: nil))
+        view.setNeedsDisplay(view.visibleRect)
     }
 
     // MARK: - Painting

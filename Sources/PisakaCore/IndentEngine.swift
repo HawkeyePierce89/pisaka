@@ -58,8 +58,10 @@ public enum IndentEngine {
 
     /// Detect the file's indentation unit: a single tab when the file indents
     /// with tabs, otherwise the smallest run of leading spaces observed across
-    /// all lines. Falls back to four spaces for an empty file or one with no
-    /// indented line, so a fresh/flat file still indents sensibly.
+    /// all lines — **counting only runs of two or more**. Falls back to four
+    /// spaces for an empty file, one with no indented line, and one whose only
+    /// leading-space runs are single spaces, so a fresh/flat file still indents
+    /// sensibly.
     public static func inferIndentUnit(text: NSString) -> String {
         let fallback = "    "
         guard text.length > 0 else { return fallback }
@@ -95,7 +97,17 @@ public enum IndentEngine {
             // editor splits lines on.
             if i >= text.length || isLineSeparator(text.character(at: i)) { continue }
             if sawTab { sawTabIndent = true }
-            if spaces > 0 {
+            // Skip a run of exactly one space for the same reason a whitespace-only
+            // line is skipped: it is not indentation, and counting it destroys the
+            // answer. No language is indented one space per level, but the
+            // continuation line of a C-family block comment (` * text`) starts with
+            // exactly one — so an ordinary four-space file carrying a single
+            // `/** … */` would otherwise infer a one-space unit, which makes Enter
+            // append one space after `{` and makes the indentation-level painting
+            // cycle its whole palette inside a single level. A genuinely one-space
+            // file therefore falls back to four, which is what a file with no
+            // indentation at all already answers.
+            if spaces > 1 {
                 if let current = smallestSpaceIndent {
                     smallestSpaceIndent = min(current, spaces)
                 } else {

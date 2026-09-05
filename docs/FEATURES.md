@@ -1330,9 +1330,11 @@ and iPhone. The feature scope landed so far:
   you in the solution file.
 - The embedded terminal is macOS-only (SwiftTerm) and not present on iOS.
 - Indentation-level highlighting is macOS-only: the iOS editor paints nothing.
-  The preference itself is shared — one flag, not one per platform — so turning
-  it off on the Mac is remembered everywhere; iOS simply shows no switch for it
-  and no blocks, which is an absent surface rather than a second setting.
+  The preference itself is one key, not one per platform — iOS reads the same
+  one — but each install has its own defaults domain and nothing here syncs
+  between devices, so turning it off on the Mac is remembered on that Mac. iOS
+  simply shows no switch for it and no blocks, which is an absent surface rather
+  than a second setting.
 - The database viewer is macOS-only. Opening a `.sqlite` or `.db` file on iOS
   behaves exactly as it did before the viewer existed: the file is read as text,
   fails to decode, and the open reports that — an honest failure rather than a
