@@ -504,10 +504,10 @@ None new. Foundation only in Core; AppKit only in the app half.
 **Files:**
 
 - Create: `Tests/PisakaCoreTests/FoldingSourceGatingTests.swift`
-- [ ] Matching **comment- and literal-stripped** text throughout, read through
+- [x] Matching **comment- and literal-stripped** text throughout, read through
     `#filePath` with Foundation only, following `DatabaseViewerSourceGatingTests`'
     shape and carrying its whole inventory in doc comments.
-- [ ] **Hiding lives in one file, both halves.** `NSGlyphProperty.null` / the
+- [x] **Hiding lives in one file, both halves.** `NSGlyphProperty.null` / the
     glyph-generation override **and** the `NSATSTypesetter` subclass with its
     `actionForControlCharacter(at:)` appear in
     `BracketOverlayLayoutManager.swift` and in **no other file** under
@@ -515,9 +515,9 @@ None new. Foundation only in Core; AppKit only in the app half.
     deleted, this rule keeps its glyph half and the typesetter half is removed
     with the reason recorded in the suite's doc comment and in
     `app-editor-overlays.md`.)
-- [ ] The fold commands appear in `FoldCommands.swift` alone; `PisakaApp.swift`
+- [x] The fold commands appear in `FoldCommands.swift` alone; `PisakaApp.swift`
     names the type exactly once.
-- [ ] **The reveal funnel, by set equality.** Three sets, each asserted by equality
+- [x] **The reveal funnel, by set equality.** Three sets, each asserted by equality
     and each carrying its reason in the doc comment:
     - the files calling `Coordinator.revealRange(` is exactly
       `{CodeEditorView.swift, EditorSearchController.swift}`;
@@ -533,21 +533,21 @@ None new. Foundation only in Core; AppKit only in the app half.
       SourceViewerWindowController.swift}` — the first landing in the editor's
       funnel through `applyReveal`, the second driving the viewer window's own
       `EditorRevealState` and excluded by name.
-- [ ] **The caret rule, by set equality too.** `FoldCaretRule` is named in exactly
+- [x] **The caret rule, by set equality too.** `FoldCaretRule` is named in exactly
     one file, `CodeEditorView.swift`; `MergeView.swift`,
     `SourceViewerContent.swift` and `Sources/Pisaka/iOS/CodeEditorCoordinator_iOS.swift`
     are the named non-callers, each with its reason (three text views that hold
     no fold state).
-- [ ] No view file decides anything the state decides: `FoldState`'s mutating
+- [x] No view file decides anything the state decides: `FoldState`'s mutating
     members are named only by `FoldController.swift`; no file under
     `Sources/Pisaka` spells the two-line minimum, the merge rule or the shift's
     three-way test.
-- [ ] The app-side fold files are macOS-gated (`#if os(macOS)`), and no file under
+- [x] The app-side fold files are macOS-gated (`#if os(macOS)`), and no file under
     `Sources/Pisaka/iOS/` names any of them.
-- [ ] The fold layer names no writer gate: neither `autosave` nor `localChanges`
+- [x] The fold layer names no writer gate: neither `autosave` nor `localChanges`
     appears in `FoldController.swift` or `FoldCommands.swift` — a reader, like
     the index.
-- [ ] Run `swift test` — must pass before Task 10.
+- [x] Run `swift test` — must pass before Task 10.
 
 ### Task 10: Documentation
 
