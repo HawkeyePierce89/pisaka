@@ -149,9 +149,19 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     asking about a drawn region gets lines it can reason about without knowing
     where it cut. `range` is clamped to the text first, so an out-of-bounds or
     negative request is *answered* rather than trapping, and only the expanded
-    span is ever enumerated. `TerminatedLinesTests` fuzzes the `split(_:)`
-    projection and pins the bounded form against the whole-text one (same answer
-    over the full range; whole lines for a mid-line range). Its consumers'
+    span is ever enumerated. The clamp bounds the **length against what is left**
+    before adding it to the location, never after: `NSRange(location: NSNotFound,
+    length: 1)` — the conventional "not found" shape, and a plausible thing to
+    hand a public primitive — overflows `Int` if the two are summed first, which
+    would be a trap exactly where this promises an answer.
+    `TerminatedLinesTests` fuzzes the `split(_:)` projection; the bounded form is
+    pinned on its own terms rather than against `ranges(_:)`, which *is* this call
+    over the full range and so could only agree with itself — the full-range fuzz
+    asserts the ranges **tile the text** (abutting, gapless, concatenating back to
+    the input) and a second fuzz asserts the **bounding itself**: a random
+    sub-range answers exactly the lines of the full split its line-expanded span
+    covers, no more (the point — a redraw does not walk the file) and no fewer.
+    `NSNotFound` and `Int.max` lengths are pinned by name. Its consumers'
     reasoning is in `core-editorconfig.md` (`SaveTransform`) and
     `core-editor.md` (`IndentLevelScanner`).
   - `ChangeTree.swift` — pure directory-tree grouping for the by-folder mode of

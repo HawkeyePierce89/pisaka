@@ -497,8 +497,18 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     is what keeps "which level is this" out of the viewport's hands. A
     `unitWidth` or `tabWidth` of zero or less answers **no runs** — never a trap,
     never a loop — which is also the shape a disabled feature and an uncomputed
-    width arrive in. Unit-tested in `IndentLevelScannerTests`; the view half is
-    `BracketOverlayLayoutManager` (`app-editor-overlays.md`).
+    width arrive in. **The other end of that range is clamped, and for the same
+    reason `IndentUnitRule` clamps its own**: both widths are capped at
+    `IndentUnitRule.maximumSpaceWidth`, read from the rule rather than restated,
+    because an `.editorconfig` is project data and `tab_width =
+    5000000000000000000` is a value this walk can really be handed — advancing the
+    column to the next such tab stop twice overflows `Int`, and this walk runs
+    inside `drawBackground`, so a trap there is the app. Clamping rather than
+    rejecting keeps a merely-large width behaving like a large width, exactly as
+    the rule does for a space unit's string. Unit-tested in
+    `IndentLevelScannerTests` (the degenerate widths at both ends, the absurd one
+    reached the way the app reaches it — through `widths(unit:statedTabWidth:)`);
+    the view half is `BracketOverlayLayoutManager` (`app-editor-overlays.md`).
   - `TextSearch.swift` — pure, testable text search/replace over an `NSString` in
     UTF-16 offsets (Foundation only — the `DuplicateEngine`/`AutoPairEngine`
     split: the view owns selection, scrolling and colors, every decision lives

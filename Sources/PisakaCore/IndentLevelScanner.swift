@@ -65,6 +65,14 @@ public struct IndentLevelWidths: Equatable {
 /// - A line with no leading whitespace, and an empty line, yield nothing; a
 ///   whitespace-only line is levelled like an indent of its own width, because
 ///   its content range holds only whitespace and the same walk answers it.
+/// - Both widths are clamped to `IndentUnitRule.maximumSpaceWidth` — the same
+///   ceiling, read from the same place, that the rule already applies to a
+///   space unit's own string. An `.editorconfig` is project data, so
+///   `tab_width = 5000000000000000000` is a value this walk really can be
+///   handed; advancing the column to the next such tab stop twice overflows
+///   `Int` and traps, and a trap inside `drawBackground` is the app. Clamping
+///   rather than rejecting keeps a merely-large width behaving like a large
+///   width, exactly as the rule's own clamp does.
 /// - Runs are **never clipped to the requested range**: a range starting or
 ///   ending mid-indent still answers those lines' whole, correctly levelled
 ///   runs (`TerminatedLines.ranges(in:range:)` expands to whole lines). A
@@ -110,20 +118,16 @@ public enum IndentLevelScanner {
         range: NSRange,
         widths: IndentLevelWidths
     ) -> [IndentLevelRun] {
-        runs(in: text, range: range, unitWidth: widths.unitWidth, tabWidth: widths.tabWidth)
-    }
-
-    /// The same answer from the two widths spelled out.
-    public static func runs(
-        in text: NSString,
-        range: NSRange,
-        unitWidth: Int,
-        tabWidth: Int
-    ) -> [IndentLevelRun] {
+        let unitWidth = widths.unitWidth
+        let tabWidth = widths.tabWidth
         guard unitWidth > 0, tabWidth > 0 else { return [] }
+        // The upper clamp is what keeps the column arithmetic below inside `Int`
+        // for any width a project's `.editorconfig` can state.
+        let unit = min(unitWidth, IndentUnitRule.maximumSpaceWidth)
+        let tab = min(tabWidth, IndentUnitRule.maximumSpaceWidth)
         var runs: [IndentLevelRun] = []
         for line in TerminatedLines.ranges(in: text, range: range) {
-            appendRuns(of: line.content, in: text, unitWidth: unitWidth, tabWidth: tabWidth, to: &runs)
+            appendRuns(of: line.content, in: text, unitWidth: unit, tabWidth: tab, to: &runs)
         }
         return runs
     }

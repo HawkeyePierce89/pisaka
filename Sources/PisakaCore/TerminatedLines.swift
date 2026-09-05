@@ -133,7 +133,12 @@ public enum TerminatedLines {
         let length = text.length
         guard length > 0 else { return [] }
         let start = min(max(0, range.location), length)
-        let end = min(max(start, range.location + max(0, range.length)), length)
+        // The length is clamped against what is *left* before it is added, never
+        // after: `NSRange(location: NSNotFound, length: 1)` — the conventional
+        // "not found" shape, and a plausible thing to hand a public primitive —
+        // overflows `Int` when the two are summed first, which is a trap where
+        // this promises an answer.
+        let end = start + min(max(0, range.length), length - start)
         let expanded = text.lineRange(for: NSRange(location: start, length: end - start))
         guard expanded.length > 0 else { return [] }
         var ranges: [TerminatedLineRange] = []

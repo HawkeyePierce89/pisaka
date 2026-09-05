@@ -1068,16 +1068,18 @@ user sees it.
   terminal), and to the interface otherwise. Everything persists across launches;
   the code zone and the Preferences font-size row stay in sync in both
   directions, because they are one value.
-- Preferences (Cmd+,): a Settings window with five persisted options — tab
+- Preferences (Cmd+,): a Settings window with six persisted options — tab
   orientation (a vertical column beside the editor, or a horizontal strip above
   it), theme (follow the system, or force light/dark), a shared editor font
-  size used by the editor, diff, and merge views, a terminal font size, and
+  size used by the editor, diff, and merge views, a terminal font size,
   whether the editor offers
-  completions as you type (the same switch as the bottom bar's lightbulb). The
+  completions as you type (the same switch as the bottom bar's lightbulb), and
+  whether it tints each line's leading whitespace by indentation level (on by
+  default; this one has no second surface). The
   two font sizes are also adjustable on the fly by zooming over a code view or
   over the terminal (see Zoom above); the interface scale has no row of its own
   and is set by zooming over the chrome.
-  All five settings persist across launches. The Settings window's other tabs are **Language
+  All six settings persist across launches. The Settings window's other tabs are **Language
   Servers** (what may be downloaded, and what is installed), **LeetCode** (the
   account, the solutions folder, and the language new solution files are seeded
   in) and **Acknowledgements**, which lists every third-party dependency the app

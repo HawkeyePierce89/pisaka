@@ -547,13 +547,6 @@ struct CodeEditorView: NSViewRepresentable {
         // below rather than after it.
         context.coordinator.setCompletionEnabled(completionEnabled)
 
-        // Re-apply the indentation-level preference. Unconditional for the same
-        // reason, and cheap: the coordinator re-derives the widths only when the
-        // preference has just been switched on or the configuration model's
-        // revision moved — never on an ordinary keystroke-driven update, whose
-        // content half rides the debounced text path instead.
-        context.coordinator.setIndentLevelHighlighting(enabled: indentLevelHighlightingEnabled)
-
         // Keep the popover's two font inputs current. Cheap and unconditional:
         // the controller only stores them, and they are read when the *next*
         // answer is drawn.
@@ -796,6 +789,20 @@ struct CodeEditorView: NSViewRepresentable {
         context.coordinator.symbolIndex = symbolIndex
         context.coordinator.editorConfig = editorConfig
         context.coordinator.lspSync = lspSync
+        // Re-apply the indentation-level preference. Unconditional, and cheap: the
+        // coordinator re-derives the widths only when the preference has just been
+        // switched on, the configuration model's revision moved, or the shown file
+        // changed — never on an ordinary keystroke-driven update, whose content
+        // half rides the debounced text path instead.
+        //
+        // Deliberately here rather than beside the completion preference above,
+        // for `refreshDiagnosticOverlays`' reason and the configuration model's:
+        // the derivation resolves `.editorconfig` against `syncBlame`'s recorded
+        // URL through the model bound on the line above, so it has to run after
+        // both. The bracket rescan a tab switch forces has already recomputed once
+        // by now, against the outgoing file — the widths cache carries the URL it
+        // used, so this call is what corrects it, inside the same update.
+        context.coordinator.setIndentLevelHighlighting(enabled: indentLevelHighlightingEnabled)
         // Keep the diagnostics binding current (an identity-checked no-op when
         // unchanged, like `updateHighlighter`'s language comparison).
         context.coordinator.attachDiagnostics(model: diagnostics)
@@ -1541,8 +1548,9 @@ struct CodeEditorView: NSViewRepresentable {
         /// manager is *told*.
         private var indentLevelsEnabled = false
 
-        /// The widths last handed to the layout manager, and the configuration
-        /// revision they were derived under.
+        /// The widths last handed to the layout manager, and the two inputs they
+        /// were derived under: the configuration revision, and the file the
+        /// configuration was resolved *for*.
         ///
         /// The cache is what keeps the derivation off the SwiftUI update path:
         /// its content half is `IndentEngine.inferIndentUnit(text:)`, a walk of
@@ -1550,8 +1558,16 @@ struct CodeEditorView: NSViewRepresentable {
         /// nothing has been computed yet — the state a freshly built editor and a
         /// just-switched-on preference are both in, and the one that forces the
         /// next sync to compute.
+        ///
+        /// The URL is part of the key because `.editorconfig` answers *per file*:
+        /// a tab switch, and a rename that moves a file into a different section
+        /// (`foo.txt` → `foo.py`), both change the applicable properties while the
+        /// revision stands still. Without it the widths derived for the outgoing
+        /// file would be re-asserted forever — nothing else in the key moves for a
+        /// buffer that is only looked at.
         private var appliedIndentWidths: IndentLevelWidths?
         private var appliedIndentConfigRevision: Int?
+        private var appliedIndentFileURL: URL?
 
         /// Apply the preference, from `makeNSView` and every `updateNSView`.
         ///
@@ -1564,6 +1580,7 @@ struct CodeEditorView: NSViewRepresentable {
             guard enabled else {
                 appliedIndentWidths = nil
                 appliedIndentConfigRevision = nil
+                appliedIndentFileURL = nil
                 overlayLayoutManager?.setIndentLevelPainting(
                     enabled: false,
                     widths: IndentLevelWidths(unitWidth: 0, tabWidth: 0)
@@ -1596,19 +1613,27 @@ struct CodeEditorView: NSViewRepresentable {
         /// debounced edit and every tab switch. A stale width therefore never
         /// outlives the next edit or tab switch even when no re-render arrives.
         ///
+        /// **The shown file is compared too**, and it is the input the other two
+        /// cannot stand in for. `fileURL` is recorded by `syncBlame`, which
+        /// `updateNSView` calls *after* the bracket rescan a tab switch forces —
+        /// so the recompute this feature rides on a tab switch resolves
+        /// `.editorconfig` against the file being *left*. Keeping the URL in the
+        /// key is what lets the re-apply that follows (`syncBlame` has run by
+        /// then) notice and derive again; without it the outgoing file's unit
+        /// would be cached and re-asserted for as long as the incoming buffer is
+        /// only read.
+        ///
         /// When nothing moved the widths are simply re-asserted, which the layout
         /// manager answers as a no-op; the buffer is not walked again.
         private func refreshIndentLevelWidths(textChanged: Bool) {
             guard indentLevelsEnabled else { return }
             guard let textView, let layoutManager = overlayLayoutManager else { return }
             let revision = editorConfig?.revision
-            let isStale = appliedIndentWidths == nil
-                || revision != appliedIndentConfigRevision
-                || textChanged
-            guard isStale else {
-                if let widths = appliedIndentWidths {
-                    layoutManager.setIndentLevelPainting(enabled: true, widths: widths)
-                }
+            if let applied = appliedIndentWidths,
+               !textChanged,
+               revision == appliedIndentConfigRevision,
+               fileURL == appliedIndentFileURL {
+                layoutManager.setIndentLevelPainting(enabled: true, widths: applied)
                 return
             }
             let config = editorConfigProperties()
@@ -1622,6 +1647,7 @@ struct CodeEditorView: NSViewRepresentable {
             )
             appliedIndentWidths = widths
             appliedIndentConfigRevision = revision
+            appliedIndentFileURL = fileURL
             layoutManager.setIndentLevelPainting(enabled: true, widths: widths)
         }
 

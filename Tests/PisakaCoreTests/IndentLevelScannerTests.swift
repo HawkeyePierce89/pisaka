@@ -15,8 +15,7 @@ final class IndentLevelScannerTests: XCTestCase {
         return IndentLevelScanner.runs(
             in: ns,
             range: range ?? NSRange(location: 0, length: ns.length),
-            unitWidth: unit,
-            tabWidth: tab
+            widths: IndentLevelWidths(unitWidth: unit, tabWidth: tab)
         )
     }
 
@@ -199,6 +198,30 @@ final class IndentLevelScannerTests: XCTestCase {
         XCTAssertEqual(runs("        a", unit: -1, tab: 4), [])
         XCTAssertEqual(runs("\t\ta", unit: 4, tab: -8), [])
         XCTAssertEqual(runs("\t\ta", unit: 0, tab: 0), [])
+    }
+
+    /// The other end of the range, which an `.editorconfig` really can state:
+    /// advancing the column to the next tab stop twice at a width near `Int.max`
+    /// overflows and traps — inside a draw, so it is the app. Both widths are
+    /// clamped to the rule's own ceiling, so the answer is the one that ceiling
+    /// gives rather than a crash.
+    func testAbsurdWidthsAreClampedRatherThanTrapping() {
+        let clamped = IndentUnitRule.maximumSpaceWidth
+        XCTAssertEqual(
+            runs("\t\ta", unit: Int.max, tab: Int.max),
+            runs("\t\ta", unit: clamped, tab: clamped)
+        )
+        XCTAssertEqual(
+            runs("        a", unit: 5_000_000_000_000_000_000, tab: 4),
+            runs("        a", unit: clamped, tab: 4)
+        )
+        // Reached the same way the app reaches it: a project's own `tab_width`.
+        let widths = IndentLevelScanner.widths(unit: "\t", statedTabWidth: Int.max)
+        let text = "\t\t\ta" as NSString
+        XCTAssertEqual(
+            IndentLevelScanner.runs(in: text, range: NSRange(location: 0, length: text.length), widths: widths),
+            [run(0, 1, 0), run(1, 1, 1), run(2, 1, 2)]
+        )
     }
 
     // MARK: - The width derivation
