@@ -334,22 +334,51 @@ public enum FoldReveal {
 /// another surface — empties it along with everything else the view held. The
 /// divergence above is about `prune(keeping:)` alone, and it is what makes
 /// closing one tab of several, then reopening that file, find its folds again.
+///
+/// **Every entry carries the length of the buffer it was recorded against, and a
+/// restore refuses when the incoming buffer is a different length.** That is the
+/// one thing this store can check about text it does not hold, and it is needed
+/// because the signal that invalidates folds elsewhere — `WorkspaceModel`'s
+/// text-replacement token — exists only for *open* files: a file folded, closed,
+/// rewritten on disk (a branch switch, an external editor) and reopened arrives
+/// with a fresh `OpenFile.id` and no recorded token, so nothing else would ever
+/// say that its regions describe text that is gone. Restoring them there is not
+/// merely a stale range: ``FoldState/reconciled(with:)`` re-anchors by header
+/// line, so the fold would latch onto whatever block now opens on that line and
+/// stay collapsed over code nobody folded. A length is a coarse fingerprint and
+/// deliberately so — it is O(1), and this is read on every publish — but it is
+/// strictly stronger than ``FoldState/clamped(toLength:)``, which only asks
+/// whether the regions still *fit*.
 public struct FoldStateMemory {
-    private var states: [String: FoldState] = [:]
+    /// One file's entry: what was folded, and how long the buffer it was
+    /// measured against was.
+    private struct Entry {
+        var state: FoldState
+        var textLength: Int
+    }
+
+    private var states: [String: Entry] = [:]
 
     public init() {}
 
-    /// Remember what is folded in `key`. An empty state is stored rather than
-    /// removed, so "unfolded everything" survives a tab switch as itself.
-    public mutating func record(_ state: FoldState, for key: String) {
-        states[key] = state
+    /// Remember what is folded in `key`, in a buffer of `textLength` UTF-16
+    /// units. An empty state is stored rather than removed, so "unfolded
+    /// everything" survives a tab switch as itself.
+    public mutating func record(_ state: FoldState, for key: String, textLength: Int) {
+        states[key] = Entry(state: state, textLength: textLength)
     }
 
-    /// What was folded in `key`, made safe for a buffer of `length` UTF-16
-    /// units, or `nil` when nothing was recorded — a file being shown for the
-    /// first time, which the view layer opens unfolded.
-    public func state(for key: String, clampedToLength length: Int) -> FoldState? {
-        states[key]?.clamped(toLength: length)
+    /// What was folded in `key`, or `nil` when there is no usable answer — a
+    /// file being shown for the first time, or one whose buffer is no longer the
+    /// length it was folded in, both of which the view layer opens unfolded.
+    ///
+    /// The surviving state is still clamped: the two guards answer different
+    /// questions — the length gate asks whether this is the same text at all,
+    /// the clamp whether each region fits — and only the second of them is
+    /// meaningful once a save's remap has moved the entry.
+    public func state(for key: String, inBufferOfLength length: Int) -> FoldState? {
+        guard let entry = states[key], entry.textLength == length else { return nil }
+        return entry.state.clamped(toLength: length)
     }
 
     /// Drop `key`'s entry — used when the file's text was replaced out from
@@ -374,9 +403,18 @@ public struct FoldStateMemory {
     /// Nothing recorded for `key` is nothing to move: a file this store has never
     /// been told about is left absent rather than gaining an empty entry, which
     /// would claim "unfolded everything" for a file nobody has opened.
+    ///
+    /// The recorded length travels with the regions, taken from the plan's own
+    /// resulting text: a save that trims whitespace or appends a final newline
+    /// changes how long the buffer is, and an entry left claiming the pre-save
+    /// length would be refused by the length gate on the next open — dropping
+    /// precisely the folds this method exists to carry across.
     public mutating func remap(_ key: String, through plan: SaveTransformPlan) {
-        guard let state = states[key] else { return }
-        states[key] = state.remapped(through: plan)
+        guard let entry = states[key] else { return }
+        states[key] = Entry(
+            state: entry.state.remapped(through: plan),
+            textLength: (plan.text as NSString).length
+        )
     }
 
     /// Drop everything, on a folder switch.

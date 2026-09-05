@@ -96,6 +96,19 @@ final class FoldController {
     /// recorded and nothing is asked.
     private var key: String?
 
+    /// How long the buffer `state` was measured against is, in UTF-16 units —
+    /// the fingerprint `FoldStateMemory` stores beside every entry so a file
+    /// rewritten while its tab was *closed* comes back unfolded instead of
+    /// collapsed over code nobody folded (see `FoldStateMemory`).
+    ///
+    /// Held here rather than read off the text storage at record time, because
+    /// the one moment the outgoing file's state is written — `noteBufferOpened`'s
+    /// `recordCurrent()` — runs *after* the view's buffer has already been
+    /// swapped to the incoming file, so the storage would measure the wrong text.
+    /// Every path that moves the buffer updates it: the four announcements, the
+    /// edit notification and a save's remap.
+    private var textLength = 0
+
     /// The in-flight debounce/ask task; cancelled when a newer request lands.
     private var pendingTask: Task<Void, Never>?
 
@@ -133,6 +146,7 @@ final class FoldController {
     /// debounce. The candidates in hand were already shifted by ``noteEdit``, so
     /// nothing blinks in the meantime.
     func noteBufferChanged(text: String) {
+        textLength = (text as NSString).length
         ask(text: text, immediate: false)
     }
 
@@ -145,13 +159,18 @@ final class FoldController {
     /// against the real candidates when the answer lands — the two halves of
     /// making a remembered fold safe, in the order the information arrives.
     func noteBufferOpened(key newKey: String?, text: String) {
+        let length = (text as NSString).length
         if newKey != key {
+            // Before `textLength` moves: this writes the *outgoing* file's entry,
+            // and the length it belongs to is the one still held.
             recordCurrent()
             key = newKey
-            let length = (text as NSString).length
-            state = newKey.flatMap { memory.state(for: $0, clampedToLength: length) } ?? FoldState()
+            textLength = length
+            state = newKey.flatMap { memory.state(for: $0, inBufferOfLength: length) } ?? FoldState()
             candidates = []
             publish()
+        } else {
+            textLength = length
         }
         ask(text: text, immediate: true)
     }
@@ -160,6 +179,7 @@ final class FoldController {
     /// language, or the `.editorconfig` revision the indentation widths come
     /// from. Ask again at once: both are rare, and both change where blocks are.
     func noteConfigurationChanged(text: String) {
+        textLength = (text as NSString).length
         ask(text: text, immediate: true)
     }
 
@@ -176,6 +196,12 @@ final class FoldController {
         editedRange: NSRange,
         changeInLength delta: Int
     ) {
+        // The storage's length here is post-edit, which is what the state below
+        // is about to be measured against. Recorded before the early return: a
+        // buffer with nothing folded still moved, and the entry `publish()`
+        // writes for it must not claim the pre-edit length.
+        let postEditLength = textView?.textStorage?.length ?? 0
+        textLength = postEditLength
         guard !candidates.isEmpty || !state.isEmpty else { return }
         candidates = FoldShift.updated(
             candidates,
@@ -198,7 +224,6 @@ final class FoldController {
         // storage's post-edit report — `Coordinator.bufferEdited`'s own
         // arithmetic, for the reason `setFoldedRanges(_:clampingInvalidationTo:)`
         // states.
-        let postEditLength = textView?.textStorage?.length ?? 0
         publish(clampingInvalidationTo: max(0, postEditLength - delta))
     }
 
@@ -255,6 +280,10 @@ final class FoldController {
     /// rule would spring every collapsed block open on an unattended autosave
     /// tick. The reasoning lives on `FoldState.remapped(through:)`.
     func remap(through plan: SaveTransformPlan) {
+        // Ahead of the guard, for `noteEdit`'s reason: the edit shift is
+        // suppressed for a save rewrite, so this is the only path that hears
+        // about the length a save changed — even when there is nothing to move.
+        textLength = (plan.text as NSString).length
         guard !plan.isEmpty, !state.isEmpty || !candidates.isEmpty else { return }
         // The candidates move too, and for a sharper reason than the folded state:
         // the edit shift is suppressed for a save rewrite (`isSwappingBuffer`), so
@@ -273,7 +302,7 @@ final class FoldController {
     /// coordinator knows about and this class does not.
     func recordCurrent() {
         guard let key else { return }
-        memory.record(state, for: key)
+        memory.record(state, for: key, textLength: textLength)
     }
 
     /// Drop one file's remembered folds — its text was replaced out from under
@@ -327,6 +356,7 @@ final class FoldController {
     func forgetAll() {
         memory.removeAll()
         key = nil
+        textLength = 0
     }
 
     /// Teardown: cancel a pending ask, supersede one in flight, and empty both
@@ -337,6 +367,7 @@ final class FoldController {
         pendingTask = nil
         generation += 1
         key = nil
+        textLength = 0
         candidates = []
         state = FoldState()
         publish()

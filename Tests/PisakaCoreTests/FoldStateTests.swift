@@ -405,25 +405,68 @@ final class FoldStateTests: XCTestCase {
         let far = region(40, 6, header: 5)
         var memory = FoldStateMemory()
 
-        XCTAssertNil(memory.state(for: "/a.swift", clampedToLength: 100))
+        XCTAssertNil(memory.state(for: "/a.swift", inBufferOfLength: 100))
 
-        memory.record(FoldState(regions: [block, far]), for: "/a.swift")
-        XCTAssertEqual(memory.state(for: "/a.swift", clampedToLength: 100)?.regions, [block, far])
+        memory.record(FoldState(regions: [block, far]), for: "/a.swift", textLength: 100)
+        XCTAssertEqual(memory.state(for: "/a.swift", inBufferOfLength: 100)?.regions, [block, far])
+
+        memory.record(FoldState(), for: "/b.swift", textLength: 100)
         XCTAssertEqual(
-            memory.state(for: "/a.swift", clampedToLength: 30)?.regions,
-            [block],
-            "a shortened buffer drops what no longer fits"
+            memory.state(for: "/b.swift", inBufferOfLength: 100),
+            FoldState(),
+            "unfolded is a recorded answer"
         )
 
-        memory.record(FoldState(), for: "/b.swift")
-        XCTAssertEqual(memory.state(for: "/b.swift", clampedToLength: 100), FoldState(), "unfolded is a recorded answer")
-
         memory.forget("/a.swift")
-        XCTAssertNil(memory.state(for: "/a.swift", clampedToLength: 100))
-        XCTAssertNotNil(memory.state(for: "/b.swift", clampedToLength: 100))
+        XCTAssertNil(memory.state(for: "/a.swift", inBufferOfLength: 100))
+        XCTAssertNotNil(memory.state(for: "/b.swift", inBufferOfLength: 100))
 
         memory.removeAll()
-        XCTAssertNil(memory.state(for: "/b.swift", clampedToLength: 100))
+        XCTAssertNil(memory.state(for: "/b.swift", inBufferOfLength: 100))
+    }
+
+    /// The one thing this store can check about text it does not hold. The
+    /// signal that invalidates folds everywhere else — the workspace's
+    /// text-replacement token — exists only for *open* files, so a file folded,
+    /// closed, rewritten on disk and reopened would otherwise come back with its
+    /// regions restored over text that is gone; and because
+    /// `reconciled(with:)` re-anchors by header line, that fold would then latch
+    /// onto whatever block now opens on that line rather than springing open.
+    func testMemoryRefusesAnEntryRecordedAgainstADifferentLength() {
+        var memory = FoldStateMemory()
+        let block = region(10, 8, header: 0)
+        memory.record(FoldState(regions: [block]), for: "/a.swift", textLength: 100)
+
+        XCTAssertEqual(memory.state(for: "/a.swift", inBufferOfLength: 100)?.regions, [block])
+        XCTAssertNil(
+            memory.state(for: "/a.swift", inBufferOfLength: 140),
+            "a buffer the file grew into is not the buffer these regions were measured in"
+        )
+        XCTAssertNil(
+            memory.state(for: "/a.swift", inBufferOfLength: 99),
+            "nor is one it shrank into, even by a single unit the regions would still fit in"
+        )
+
+        // Re-recording under the new length is what makes it usable again — the
+        // entry is about one buffer, not about one path forever.
+        memory.record(FoldState(regions: [block]), for: "/a.swift", textLength: 140)
+        XCTAssertEqual(memory.state(for: "/a.swift", inBufferOfLength: 140)?.regions, [block])
+    }
+
+    /// The length gate and the clamp answer different questions, and both are
+    /// asked: the first whether this is the same text at all, the second whether
+    /// each region still fits (which a save's remap can leave it not doing).
+    func testMemoryStillClampsWhatSurvivesTheLengthGate() {
+        var memory = FoldStateMemory()
+        let block = region(10, 8, header: 0)
+        let far = region(40, 6, header: 5)
+        // Recorded for a buffer of 30 units, which the second region overruns.
+        memory.record(FoldState(regions: [block, far]), for: "/a.swift", textLength: 30)
+        XCTAssertEqual(
+            memory.state(for: "/a.swift", inBufferOfLength: 30)?.regions,
+            [block],
+            "what does not fit is dropped rather than truncated"
+        )
     }
 
     /// A save that catches a tab no editor is showing rewrites it behind the
@@ -443,32 +486,39 @@ final class FoldStateTests: XCTestCase {
         // From the end of "func f() {" to the end of "}".
         let block = region(10, 11, header: 0)
         let untouched = FoldState(regions: [block])
-        memory.record(untouched, for: "/saved.swift")
-        memory.record(untouched, for: "/other.swift")
+        let originalLength = (text as NSString).length
+        memory.record(untouched, for: "/saved.swift", textLength: originalLength)
+        memory.record(untouched, for: "/other.swift", textLength: originalLength)
 
         memory.remap("/saved.swift", through: plan)
 
+        let savedLength = (plan.text as NSString).length
+        XCTAssertNotEqual(savedLength, originalLength, "the fixture must actually change the buffer's length")
         XCTAssertEqual(
-            memory.state(for: "/saved.swift", clampedToLength: (plan.text as NSString).length)?.regions.first?
+            memory.state(for: "/saved.swift", inBufferOfLength: savedLength)?.regions.first?
                 .hiddenRange,
             NSRange(location: 10, length: 8),
             "the trimmed run is taken out of the hidden range rather than springing the fold open"
         )
         XCTAssertEqual(
-            memory.state(for: "/saved.swift", clampedToLength: (plan.text as NSString).length)?.regions.first?
+            memory.state(for: "/saved.swift", inBufferOfLength: savedLength)?.regions.first?
                 .headerLine,
             0,
             "no line count changed"
         )
+        XCTAssertNil(
+            memory.state(for: "/saved.swift", inBufferOfLength: originalLength),
+            "the recorded length travelled with the regions: the pre-save buffer is no longer this entry's"
+        )
         XCTAssertEqual(
-            memory.state(for: "/other.swift", clampedToLength: 100),
+            memory.state(for: "/other.swift", inBufferOfLength: originalLength),
             untouched,
             "one save moves one file's entry"
         )
 
         memory.remap("/never-opened.swift", through: plan)
         XCTAssertNil(
-            memory.state(for: "/never-opened.swift", clampedToLength: 100),
+            memory.state(for: "/never-opened.swift", inBufferOfLength: savedLength),
             "a file this store was never told about stays absent rather than gaining an empty entry"
         )
     }
@@ -479,9 +529,11 @@ final class FoldStateTests: XCTestCase {
     func testTheMemoryKeepsAClosedFilesFolds() {
         var memory = FoldStateMemory()
         let block = region(10, 8, header: 0)
-        memory.record(FoldState(regions: [block]), for: "/closed.swift")
-        // Nothing here is told the file closed; reopening finds its folds.
-        XCTAssertEqual(memory.state(for: "/closed.swift", clampedToLength: 100)?.regions, [block])
+        memory.record(FoldState(regions: [block]), for: "/closed.swift", textLength: 100)
+        // Nothing here is told the file closed; reopening the same text finds
+        // its folds. (Reopening text of a *different* length does not — see
+        // `testMemoryRefusesAnEntryRecordedAgainstADifferentLength`.)
+        XCTAssertEqual(memory.state(for: "/closed.swift", inBufferOfLength: 100)?.regions, [block])
     }
 
     // MARK: - The two commands' decisions

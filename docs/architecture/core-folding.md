@@ -263,8 +263,9 @@ is already visible.
 
 #### `FoldStateMemory` — the per-file, per-run store
 
-`[String: FoldState]` with `record(_:for:)`, `state(for:clampedToLength:)`,
-`forget(_:)`, `remap(_:through:)` and `removeAll()`.
+`[String: (FoldState, textLength)]` with `record(_:for:textLength:)`,
+`state(for:inBufferOfLength:)`, `forget(_:)`, `remap(_:through:)` and
+`removeAll()`.
 
 **The key is a `String`, not `OpenFile.id`.** `id` is a fresh `UUID` per
 `OpenFile`, so closing and reopening a file — which must keep its folds within a
@@ -290,6 +291,38 @@ alone, and it is what makes closing one tab of several, then reopening that file
 find its folds again.
 `record` stores an *empty* state rather than removing the entry, so "I unfolded
 everything" survives a tab switch as itself.
+
+**Every entry carries the length of the buffer it was recorded against, and a
+restore refuses when the incoming buffer is a different length.** That is the one
+thing this store can check about text it does not hold, and it closes the gap the
+paragraph above opens: the signal that invalidates folds everywhere else — the
+workspace's text-replacement token, compared per `OpenFile.id` in
+`Coordinator.noteExternalFoldRevision` — exists only for **open** files. A file
+folded, closed, rewritten on disk (a branch switch, an external editor) and then
+reopened arrives with a fresh `id` and no recorded token, so nothing else would
+ever say that its regions describe text that is gone. Restoring them there is not
+merely a stale range: `reconciled(with:)` re-anchors by header line, so on the
+next answer the fold would latch onto whatever block now opens on that line and
+stay collapsed over code nobody folded. A length is a coarse fingerprint and
+deliberately so — it is O(1), and `recordCurrent()` runs on **every** publish, so
+a hash of the buffer is not affordable here — but it is strictly stronger than
+`clamped(toLength:)`, which only asks whether the regions still *fit*. Both are
+asked, because they answer different questions: the gate whether this is the same
+text at all, the clamp whether each region fits the buffer in hand.
+
+The length travels with the regions through `remap(_:through:)`, taken from the
+plan's own resulting text — a save that trims whitespace or appends a final
+newline changes how long the buffer is, and an entry left claiming the pre-save
+length would be refused on the next open, dropping precisely the folds that
+method exists to carry. On the app side `FoldController` holds the shown buffer's
+length in a field of its own rather than reading the text storage at record time:
+the one moment the *outgoing* file's entry is written — `noteBufferOpened`'s
+`recordCurrent()` — runs after the view's buffer has already been swapped to the
+incoming file, so the storage would measure the wrong text. Every path that moves
+the buffer updates that field: the three announcements, the edit notification
+(ahead of its early return, since a buffer with nothing folded still moved) and a
+save's `remap(through:)` (ahead of its guard, since the edit shift is suppressed
+for a save rewrite and this is the only path that hears about it).
 
 **`remap(_:through:)` is the save rule reaching a file nobody is looking at.** A
 save that catches a tab no editor is showing rewrites it through

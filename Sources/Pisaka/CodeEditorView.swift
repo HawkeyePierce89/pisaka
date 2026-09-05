@@ -1989,7 +1989,16 @@ struct CodeEditorView: NSViewRepresentable {
             // the selection this posts runs through `FoldCaretRule` like every
             // other, which leaves a visible caret exactly where it is and moves
             // one an *outer* fold happens to hide.
-            guard region.headerLine >= 0, region.headerLine < lineStarts.count else { return true }
+            guard region.headerLine >= 0, region.headerLine < lineStarts.count else {
+                // The line table cannot name that header — the candidate list and
+                // the gutter's table are built on their own schedules, so they can
+                // disagree for a moment. The block is folded either way, and a
+                // caret the fold just swallowed still has to be moved somewhere it
+                // can be drawn: ask the rule outright, exactly as `toggleFold`
+                // does, since no selection is posted on this path to carry it.
+                applyFoldCaretRule(previous: NSRange(location: NSNotFound, length: 0))
+                return true
+            }
             textView.setSelectedRange(NSRange(location: lineStarts[region.headerLine], length: 0))
             return true
         }
