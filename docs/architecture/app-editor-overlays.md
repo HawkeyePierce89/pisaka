@@ -313,7 +313,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `allowsNonContiguousLayout` exists to avoid, stated on `HoverController` and
     `captureViewport`) on every draw and every click while anything at all is
     folded. The hit-testing caller bounds itself to the visible range for the same
-    reason. The whole feature is documented in `core-folding.md`.
+     reason. The whole feature is documented in `core-folding.md`; the fold
+     memory's canonical-path key reuses the app-layer
+     `standardizedFileURL.resolvingSymlinksInPath().path` spelling whose
+     `CanonicalPath` exception is recorded there and in `CLAUDE.md` Paths.
   - `BracketHighlightController.swift` — the macOS `@MainActor` owner of the
     bracket overlays: it holds the cached `[BracketToken]` for the current buffer
     behind a (`fileID`, text length, edit epoch) cache key with a ~100 ms debounce

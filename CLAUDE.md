@@ -52,7 +52,11 @@ The app target is built through the XcodeGen-generated Xcode project, *not*
 
 The project keeps all logic in `PisakaCore` so it is testable without a UI; the
 platform view layers (`Sources/Pisaka/`, AppKit/SwiftUI on macOS and
-UIKit/SwiftUI on iOS) are thin and untested.
+UIKit/SwiftUI on iOS) are thin: SwiftUI glue is untested by convention, but
+AppKit subclasses with behaviour of their own — the layout manager, the
+typesetter, the ruler — are tested headlessly in the app-layer bundle
+(`Tests/PisakaAppTests`, `xcodebuild test -scheme Pisaka -destination
+'platform=macOS'`; `swift test` remains the Foundation-only Core gate).
 
 **Per-file design docs live in `docs/architecture/`.** Every file's detailed
 contract — invariants, edge cases, and the reasoning behind non-obvious
@@ -281,7 +285,10 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
 
 Thin SwiftUI/AppKit (macOS, all under `#if os(macOS)`) and SwiftUI/UIKit (iOS,
 `Sources/Pisaka/iOS/`) layers observing the Core models; a platform-shim layer
-in `Sources/Pisaka/Platform/` bridges per-platform APIs. Untested by convention.
+in `Sources/Pisaka/Platform/` bridges per-platform APIs. SwiftUI glue is
+untested by convention; AppKit subclasses with behaviour of their own — the
+layout manager, the typesetter, the ruler — are tested headlessly in
+`Tests/PisakaAppTests`.
 
 `docs/architecture/app-ios.md` — platform shims & the whole iOS layer:
 - `Platform/PlatformColor.swift` / `PlatformFeedback.swift` / `PlatformAlert.swift` / `PlatformRoute.swift` — per-platform API shims.
@@ -745,20 +752,31 @@ ci.yml's `lint` job, and the version-bump procedure.
   edited one `reconcileSavedBaseline` + beep, a deleted file force-closes
   (except after a commit, which never deletes worktree files).
 - **Pure engine + thin glue**: every decision lives in Core and is unit-tested;
-  views only wire triggers to engines and are untested.
+  SwiftUI glue only wires triggers to engines and is untested.
 - **Paths**: store as the user spelled them, match canonically
   (`CanonicalPath`); the FSEvents watcher alone uses `realpath(3)` and
   `LSPInstallLayout` alone is purely lexical — the three must not be unified
-  (documented on all).
+  (documented on all). The fold memory key is the one stated exception:
+  `CanonicalPath` is `internal` to Core and the app layer already spells
+  `standardizedFileURL.resolvingSymlinksInPath().path` inline at five sites,
+  of which that key is one; the spelling is Core's `canonical(_:)` verbatim and
+  making it `public` to route all five through it is a cross-cutting change
+  deliberately not bundled here (see `CodeEditorView.Coordinator.foldMemoryKey`
+  and `core-folding.md`).
 - **Line separators**: the editor splits on LF/CR/CRLF/NEL/LS/PS everywhere via
   `LineStartIndex`/`TerminatedLines`; git speaks LF only — `BlameAlignment`
   bridges — and regex `^`/`$` follow ICU's superset (known limit).
 
 ## Tests
 
-Unit tests live in `Tests/PisakaCoreTests/` and cover `PisakaCore` only (the UI
-layer is intentionally thin). Test the logic in `WorkspaceModel`/`FileService`,
-not the SwiftUI views.
+Unit tests live in `Tests/PisakaCoreTests/` and cover `PisakaCore` only.
+`Tests/PisakaAppTests/` is the second bundle — headless XCTest (not UI
+automation) covering the macOS AppKit overlays that `swift test` is blind to:
+`BracketOverlayLayoutManager`/`FoldingTypesetter`, `LineNumberRulerView`,
+and the layout seams. It exists because the folding launch-time trap
+(`FoldingTypesetter.init()` re-entered through Objective-C) passed every Core
+gate; `swift test` remains the Foundation-only gate — `Package.swift` ignores
+`Tests/PisakaAppTests/` silently (no `path:`).
 
 A second class of suites in the same target verifies **repository files** rather
 than Core code — read through `#filePath` with Foundation only, so they run in
@@ -909,6 +927,7 @@ targets and a generated build phase both wire this clone's hooks
 
 ```sh
 swift test            # run the PisakaCore test suite (all platforms)
+xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' test  # app-layer AppKit bundle
 
 # The app target is built through the XcodeGen project, not `swift build`/`run`:
 xcodegen generate     # regenerate Pisaka.xcodeproj from project.yml

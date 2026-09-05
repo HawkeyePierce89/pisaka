@@ -1835,6 +1835,13 @@ struct CodeEditorView: NSViewRepresentable {
         /// spelling is `SourceViewerWindowController`'s — `standardizedFileURL`
         /// then `resolvingSymlinksInPath()`, the app-layer form of the same
         /// identity comparison the workspace makes.
+        ///
+        /// `CanonicalPath` is `internal` to Core, and the app layer already spells
+        /// this transform inline at five sites (this key, `SourceViewerWindowController`,
+        /// `PisakaApp` ×2, `RootView_iOS`), of which this is one. The spelling is
+        /// Core's `canonical(_:)` verbatim; making it `public` and routing all five
+        /// through it is a cross-cutting change with its own verification and is
+        /// deliberately not bundled here (`core-folding.md`, `CLAUDE.md` Paths).
         private var foldMemoryKey: String? {
             Coordinator.foldMemoryKey(url: fileURL, fileID: fileID)
         }

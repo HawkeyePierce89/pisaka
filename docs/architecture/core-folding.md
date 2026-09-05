@@ -28,6 +28,32 @@ the caret may rest (`FoldCaretRule`), what a jump opens (`FoldReveal`), which
 block a command acts on (`FoldCommandRule`) — while the app layer owns only the
 scheduling, the AppKit references, the drawing and the invalidations.
 
+### The launch-time crash, and the `init()` rule it buys
+
+Part 1 shipped with a trap that no Core gate could see. `FoldingTypesetter`
+declared only `init(folded:)`; Swift therefore emitted an unimplemented
+`init()` stub. TextKit re-enters layout (`_setExtraLineFragmentRect` →
+`invalidateDisplay` → `_ensureLayoutForVisibleRect`) while the manager's
+typesetter is busy and allocates a **second** instance of that class through
+Objective-C `init` — straight into the trap (`Fatal error: Use of
+unimplemented initializer 'init()'`), which is the `EXC_BREAKPOINT` in the
+report. Any document long enough to produce an extra line fragment on
+`textView.string = text` is enough; session restore and tab switch each do that,
+so the crash needed no fold at all and passed CI where no document was laid out.
+The fix is that `FoldingTypesetter` has a working `override init()` and **no
+state of its own**: it reads the hidden set from the manager it is laying out
+(`layoutManager as? BracketOverlayLayoutManager`), which TextKit sets for the
+duration of a pass; with no manager, or a manager of another class, it defers to
+`super` for every character. Both halves of hiding stay in
+`BracketOverlayLayoutManager.swift` and read one `FoldedRanges` — the rule is
+**a typesetter subclass installed on a layout manager must have a working
+`init()`** (`app-editor-overlays.md`, `BracketOverlayLayoutManager.swift`).
+`PisakaAppTests/FoldLayoutTests` reproduces it headlessly on the real TextKit 1
+stack and measures the halves (glyph `.null` plus `.zeroAdvancementAction`) —
+see that doc. `FoldState(foldingAll:)` / `FoldState()` and the two
+`⌘⌥⇧←`/`⌘⌥⇧→` commands, plus `FoldSeverityRule` (worst severity on a folded
+header), arrived in the same ticket; each has its own entry below.
+
 ## Core
 
 ### `FoldRegion.swift` — what a foldable block *is*
@@ -281,7 +307,14 @@ is already visible.
 `OpenFile`, so closing and reopening a file — which must keep its folds within a
 run — would produce a new id and lose them. The app supplies the canonical path
 for a url-backed file and the tab id's `uuidString` for an unsaved buffer, so the
-key is the *file*, not the tab.
+key is the *file*, not the tab. The path is spelled
+`url.standardizedFileURL.resolvingSymlinksInPath().path` — Core's
+`CanonicalPath.canonical(_:)` verbatim — and `CanonicalPath` is `internal` to
+Core while the app layer already spells that transform inline at five sites
+(`CodeEditorView.Coordinator.foldMemoryKey`, `SourceViewerWindowController`,
+`PisakaApp` ×2, `RootView_iOS`), of which this is one. Making it `public` and
+routing all five through it is a cross-cutting change with its own verification
+and is deliberately not bundled here (`CLAUDE.md` Paths).
 
 **There is deliberately no `prune(keeping:)`**, which is the one divergence from
 `EditorViewportMemory`: a viewport is where you were reading and is meaningless

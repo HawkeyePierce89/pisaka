@@ -379,7 +379,7 @@ severity on a folded header line. macOS only; iOS untouched.
   `docs/architecture/core-folding.md`,
   `docs/architecture/app-editor-overlays.md`
 
-- [ ] Record the path exception rather than opening a refactor: `CanonicalPath`
+- [x] Record the path exception rather than opening a refactor: `CanonicalPath`
       is `internal` to Core, and the app layer already spells
       `standardizedFileURL.resolvingSymlinksInPath().path` inline at five sites,
       of which the fold key is one. State that in the fold key's own doc comment
@@ -387,12 +387,12 @@ severity on a folded header line. macOS only; iOS untouched.
       names — with the reason (the transform is Core's `canonical(_:)` verbatim;
       making it `public` and routing all five through it is a cross-cutting
       change with its own verification and is deliberately not bundled here).
-- [ ] Rewrite `CLAUDE.md`'s "the view layer is untested by convention" sentence
+- [x] Rewrite `CLAUDE.md`'s "the view layer is untested by convention" sentence
       wherever it appears (the Architecture preamble and the `Pisaka` target
       section) to say what is now true: **thin SwiftUI glue is untested; AppKit
       subclasses with behaviour of their own — the layout manager, the
       typesetter, the ruler — are tested headlessly in the app-layer bundle.**
-- [ ] Add a short section to `CLAUDE.md`'s **Tests** describing the new bundle:
+- [x] Add a short section to `CLAUDE.md`'s **Tests** describing the new bundle:
       what layer it covers, why it exists (a launch-time trap in a TextKit
       subclass that every existing gate was blind to), that it is headless XCTest
       and not UI automation, and that `swift test` remains the Foundation-only
@@ -400,10 +400,10 @@ severity on a folded header line. macOS only; iOS untouched.
       `Package.swift`, which SwiftPM ignores silently. Add the command to
       **Commands**. Keep both entries short — the file must stay well under its
       budget.
-- [ ] `core-folding.md`: the crash, its cause, the shape of the fix and the rule
+- [x] `core-folding.md`: the crash, its cause, the shape of the fix and the rule
       it buys; Fold All / Unfold All; the severity rule; the memory key's
       exception.
-- [ ] Run `swift test`, `swiftlint --strict` and the macOS test run.
+- [x] Run `swift test`, `swiftlint --strict` and the macOS test run.
 
 ### Task 8: Verify acceptance criteria
 
