@@ -185,25 +185,25 @@ severity on a folded header line. macOS only; iOS untouched.
 - Modify: `Tests/PisakaAppTests/FoldLayoutTests.swift`
 - Modify: `docs/architecture/app-editor-overlays.md`
 
-- [ ] Make every instance TextKit can create equivalent: give
+- [x] Make every instance TextKit can create equivalent: give
       `FoldingTypesetter` a working `override init()` and **no state of its
       own**. It reads the hidden set from the manager it is laying out —
       `layoutManager as? BracketOverlayLayoutManager` — which TextKit sets for
       the duration of a pass; a typesetter with no manager, or a manager of
       another class, defers to `super` for every character.
-- [ ] Expose the box for exactly that read: `nonisolated let foldedRanges` on
+- [x] Expose the box for exactly that read: `nonisolated let foldedRanges` on
       `BracketOverlayLayoutManager` (the class is main-actor isolated through
       `NSLayoutManager`, the typesetter is asked its question off that
       isolation), and mark `FoldedRanges` `@unchecked Sendable` with the
       main-thread-only argument its doc comment already makes. Both halves of
       hiding stay in this one file, which `FoldingSourceGatingTests` pins.
-- [ ] Update the class's own doc comment to state the crash and the rule it
+- [x] Update the class's own doc comment to state the crash and the rule it
       buys: **a typesetter subclass installed on a layout manager must have a
       working `init()`**, because TextKit allocates a second instance through
       Objective-C when layout re-enters itself, and a Swift subclass that
       declares only a custom designated initializer has an `init()` that traps.
-- [ ] The reproduction from Task 1 now passes, both cases.
-- [ ] **The measurement the docs owe.** Add the hiding assertions against the
+- [x] The reproduction from Task 1 now passes, both cases.
+- [x] **The measurement the docs owe.** Add the hiding assertions against the
       real stack: fold a bracket block, `ensureLayout`, then assert (a) every
       hidden character carries `GlyphProperty.null`, (b) the header line and the
       block's last line share **one** line fragment, (c) the document's line
@@ -213,19 +213,19 @@ severity on a folded header line. macOS only; iOS untouched.
       half neutralised (a harness-local manager subclass, or a temporary local
       edit reverted before the task ends) and record which of (b)/(c) fail
       without it.
-- [ ] **A second typesetter instance sees the set**: with a fold installed,
+- [x] **A second typesetter instance sees the set**: with a fold installed,
       swap the document as `updateNSView` does, lay out again, and assert the
       fold is still hidden — the case the fix exists for.
-- [ ] **Placeholder geometry**: `placeholderRect(forFoldedRangeAt:)` answers a
+- [x] **Placeholder geometry**: `placeholderRect(forFoldedRangeAt:)` answers a
       rect on the header line's row for a folded range's start, and `nil` for an
       offset outside the storage.
-- [ ] Rewrite the `app-editor-overlays.md` paragraph that says "**That is the
+- [x] Rewrite the `app-editor-overlays.md` paragraph that says "**That is the
       reasoning, not a measurement** … still owed": state what was measured,
       where the measurement lives, and the verdict on half two. If half two
       proves inert, delete it and its gating rule per the part 1 plan and say
       so; if it is load-bearing, say exactly which assertion fails without it.
       That paragraph must not survive this task unchanged.
-- [ ] Run `swift test`, `swiftlint --strict`, and the new macOS test run — all
+- [x] Run `swift test`, `swiftlint --strict`, and the new macOS test run — all
       green before Task 3.
 
 ### Task 3: The gutter's skip and the bounded invalidation, as seams
@@ -462,5 +462,4 @@ dot shows the error hidden below it.
   This is the test-first evidence the plan requires — the pre-fix bundle traps exactly as diagnosed, while `swift test` (5258 tests) and `swiftlint --strict` remain green, and `xcodebuild build -scheme Pisaka -destination 'generic/platform=iOS'` still succeeds without building the macOS-only target.
 - Recorded pre-fix seeded-launch crash from Task 4: _(paste the crash report's
   leading frames)_
-- Half two's load-bearing verdict from Task 2: _(which assertion fails without
-  the typesetter)_
+- Half two's load-bearing verdict from Task 2: with `FoldingTypesetter` replaced by a plain `NSATSTypesetter` after `setFoldedRanges`, (a) still passes — every hidden character still carries `GlyphProperty.null` — but (c) fails: fragment count is 3 not 2 (baseline 5 minus hidden separators 3 => 2 with both halves, 3 without), the visible newline after the block occupies its own line fragment as a blank row. (b) still holds — header `header {` and closer `}` share one fragment even with only half one, because null glyphs already hide the separators inside the block — but the overall collapsing is incomplete, confirming half two is load-bearing. Measured in `PisakaAppTests/FoldLayoutTests.testFoldHidesTextAndCollapsesLines` via a harness-local `typesetter = NSATSTypesetter()` neutralisation; both halves stay, docs in `app-editor-overlays.md` updated.

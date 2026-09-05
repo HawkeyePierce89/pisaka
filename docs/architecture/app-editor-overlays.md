@@ -228,22 +228,28 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     through untouched, which is what keeps every UTF-16 offset meaning the same thing
     folded and unfolded. Nothing is copied at all when there is no fold or when no
     character in the batch is hidden: glyph generation runs on every edit and this
-    override must cost a file with no folds nothing. *Half two* is
+    override must cost a file with no folds nothing.     *Half two* is
     `FoldingTypesetter`, an `NSATSTypesetter` subclass answering
     `.zeroAdvancementAction` for every separator **inside** a folded range. **Half two
     is there because in TextKit 1 line breaking is the typesetter's decision, read
     off the characters rather than off the glyph properties**: a `.null` glyph on a
     separator still *ends its line*, so the glyph pass alone would draw a folded
-    block as a run of empty rows rather than as nothing at all. **That is the
-    reasoning, not a measurement** — the Task 5 spike could not run inside the task
-    that wrote this file (nothing could fold anything until the controller, the
-    gutter and the commands existed), and it is still owed as the first item of the
-    plan's mandatory manual DEBUG pass. What that pass still has to settle is
-    whether half two is load-bearing at all; whether it is *reachable* is no longer
-    open, and that is what the `insert` above buys — an assignment there would have
-    stripped the `.controlCharacter` bit `actionForControlCharacter(at:)` is
-    consulted on, silencing half two by construction. If the pass shows half two
-    inert it is deleted, along with its gating rule, per the plan. Both halves read one `FoldedRanges` — a small
+    block as a run of empty rows rather than as nothing at all. **Measured in
+    `PisakaAppTests/FoldLayoutTests.testFoldHidesTextAndCollapsesLines` against the
+    real TextKit 1 stack (headless `NSTextView` + `BracketOverlayLayoutManager`
+    via `EditorLayoutHarness`)**: folding the bracket block
+    `header {\n    body1\n    body2\n}\nfooter` (hidden `"\n    body1\n    body2\n"`,
+    3 separators) asserts (a) every hidden character carries
+    `GlyphProperty.null`, (b) header `header {` and closer `}` share one line
+    fragment, (c) fragment count drops from 5 to 2 (baseline minus hidden-separator
+    count), and (d) unfolding restores 5. With the typesetter half neutralised
+    (a harness-local replacement of the manager's `typesetter` with a plain
+    `NSATSTypesetter` after `setFoldedRanges`), (a) still passes but (c) fails —
+    fragments are 3 not 2, the visible newline after the block occupies its own
+    fragment as a blank row — confirming half two is load-bearing. The `insert`
+    preserving `.controlCharacter` is what keeps it reachable: an assignment would
+    strip that bit and silence half two by construction. Both halves stay, and
+    `FoldingSourceGatingTests` pins them in this one file. Both halves read one `FoldedRanges` — a small
     reference box holding the sorted, non-overlapping set `FoldState.hiddenRanges`
     hands over. It exists because the layout manager is `@MainActor` and the
     typesetter is not (TextKit asks its question straight out of the line-breaking
