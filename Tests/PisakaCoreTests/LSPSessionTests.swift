@@ -528,6 +528,100 @@ final class LSPSessionTests: XCTestCase {
         XCTAssertEqual(pending, 0)
     }
 
+    /// The fold list is asked for by nobody: it is computed behind a typing
+    /// pause, and the next keystroke makes the answer stale rather than merely
+    /// late. So it spends completion's span, not a definition's — asserted the
+    /// same way round as the two above, with every other budget wide enough that
+    /// spending one of them instead would overrun.
+    func testFoldingRangeSpendsItsOwnBudgetWithoutDisturbingOtherRequests() async throws {
+        let transport = makeTransport()
+        transport.script(LSPMethod.foldingRange, .drop)
+        transport.script(LSPMethod.definition, .reply(definitionResult))
+        let session = try await start(
+            transport,
+            budgets: LSPSession.Budgets(
+                handshake: 2,
+                definition: 30,
+                completion: 30,
+                resolve: 30,
+                hover: 30,
+                references: 30,
+                rename: 30,
+                foldingRange: 0.05
+            )
+        )
+
+        let started = Date()
+        do {
+            _ = try await session.foldingRange(LSPFoldingRangeParams(uri: documentURI))
+            XCTFail("A dropped foldingRange must not hang forever")
+        } catch {
+            XCTAssertEqual(error as? LSPSessionError, .timedOut(method: LSPMethod.foldingRange))
+        }
+        XCTAssertLessThan(
+            Date().timeIntervalSince(started), 4,
+            "foldingRange spent a budget other than its own"
+        )
+
+        // A wedged fold list costs one question, and the ⌘-click behind it still
+        // works — the same rule hover states, and the reason the fold controller
+        // never has to know a server is stuck.
+        XCTAssertEqual(transport.notifications(for: LSPMethod.cancelRequest).count, 1)
+        let definitions = try await session.definition(definitionParams)
+        XCTAssertEqual(definitions.targets.count, 1)
+        let pending = await session.pendingRequestCount
+        XCTAssertEqual(pending, 0)
+    }
+
+    /// The default is completion's number rather than a definition's, stated as
+    /// a relation so a later change to one of them cannot quietly re-couple the
+    /// two.
+    func testTheDefaultFoldingRangeBudgetIsTheTypingPausesRatherThanADeliberateActs() {
+        let standard = LSPSession.Budgets.standard
+        XCTAssertEqual(standard.foldingRange, standard.completion)
+        XCTAssertLessThan(standard.foldingRange, standard.definition)
+    }
+
+    /// The whole exchange, end to end: the request carries the document and
+    /// nothing else, and the answer arrives as typed ranges.
+    func testAFoldingRangeAnswerDecodesThroughTheSession() async throws {
+        let transport = makeTransport()
+        transport.script(
+            LSPMethod.foldingRange,
+            .reply(.array([
+                .object([
+                    "startLine": .int(4),
+                    "startCharacter": .int(18),
+                    "endLine": .int(9),
+                    "endCharacter": .int(1),
+                    "kind": .string("region"),
+                ]),
+                .object(["startLine": .int(0), "endLine": .int(2), "kind": .string("imports")]),
+            ]))
+        )
+        let session = try await start(transport)
+
+        let response = try await session.foldingRange(LSPFoldingRangeParams(uri: documentURI))
+        XCTAssertEqual(response.ranges.count, 2)
+        XCTAssertEqual(response.ranges.first?.startCharacter, 18)
+        XCTAssertEqual(response.ranges.first?.kind, .region)
+        XCTAssertEqual(response.ranges.last?.kind, .imports)
+
+        let sent = transport.requests(for: LSPMethod.foldingRange)
+        XCTAssertEqual(sent.count, 1)
+        XCTAssertEqual(sent.first?.params?["textDocument"]?["uri"]?.stringValue, documentURI)
+        XCTAssertNil(sent.first?.params?["position"])
+    }
+
+    func testANullFoldingRangeResultIsAnEmptyAnswerRatherThanAFailure() async throws {
+        let transport = makeTransport()
+        transport.script(LSPMethod.foldingRange, .reply(.null))
+        let session = try await start(transport)
+
+        let response = try await session.foldingRange(LSPFoldingRangeParams(uri: documentURI))
+        XCTAssertTrue(response.isEmpty)
+    }
+
     /// The default table gives rename materially more room than `references`,
     /// which is the whole point of splitting them: a number that merely differed
     /// by rounding would be two numbers to keep in step and no more.

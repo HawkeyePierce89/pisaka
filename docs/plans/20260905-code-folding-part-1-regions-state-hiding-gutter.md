@@ -229,35 +229,35 @@ None new. Foundation only in Core; AppKit only in the app half.
 - Create: `Tests/PisakaCoreTests/FoldRegionDecodeTests.swift`
 - Modify: `Tests/PisakaCoreTests/LSPProtocolTypesTests.swift`,
   `LSPSessionTests.swift` (whatever the existing suites are named)
-- [ ] `LSPMethod.foldingRange = "textDocument/foldingRange"`.
-- [ ] `LSPFoldingRangeParams` (a `textDocument` identifier and nothing else).
-- [ ] `LSPFoldingRange`, decoded by a closed table: `startLine`, `endLine`,
+- [x] `LSPMethod.foldingRange = "textDocument/foldingRange"`.
+- [x] `LSPFoldingRangeParams` (a `textDocument` identifier and nothing else).
+- [x] `LSPFoldingRange`, decoded by a closed table: `startLine`, `endLine`,
     optional `startCharacter`, `endCharacter`, optional `kind`. A `kind` string
     the table does not know decodes as **absent**, not as a refusal — the
     specification leaves that field open. `LSPFoldingRangeResponse` folds `null`
     and an absent `result` into the same empty answer, drops one unreadable
     element while its siblings survive (the `publishDiagnostics` rule), and
     still throws on a top level that is neither `null` nor an array.
-- [ ] `LSPClientCapabilities`: add the `textDocument.foldingRange` node —
+- [x] `LSPClientCapabilities`: add the `textDocument.foldingRange` node —
     `dynamicRegistration: false`, `lineFoldingOnly: false` (this editor folds to
     a character offset, so it accepts character-precise ranges),
     `foldingRangeKind.valueSet: ["comment", "imports", "region"]`, and
     `foldingRange.collapsedText: false` (no server-supplied placeholder text;
     the placeholder is always `…`). Closed and hand-written like the rest.
-- [ ] `LSPServerCapabilities.supportsFoldingRange`, read through the existing
+- [x] `LSPServerCapabilities.supportsFoldingRange`, read through the existing
     `isEnabled` collapse of `boolean | Options`.
-- [ ] `LSPSession.Budgets.foldingRange` and the typed exchange `foldingRange(_:)`.
+- [x] `LSPSession.Budgets.foldingRange` and the typed exchange `foldingRange(_:)`.
     Budget: **1.5 s**, completion's number rather than a definition's three, and
     the doc comment states why — nobody asked for it, it fires after a typing
     pause, and an answer arriving after the next keystroke is not late but
     unwanted.
-- [ ] Tests: the full shape; the two optional characters absent and present; an
+- [x] Tests: the full shape; the two optional characters absent and present; an
     unknown `kind`; `null`; a missing `result`; one malformed element among good
     ones; a non-array top level throwing; the capability tree's JSON asserted by
     key (the existing capability test's shape); the server capability read from
     `true`, from `{}` and from absence; the budget wired, through
     `ScriptedLSPTransport`.
-- [ ] Run `swift test` — must pass before Task 4.
+- [x] Run `swift test` — must pass before Task 4.
 
 ### Task 4: One question, one answer — the seam and the routing (Core)
 

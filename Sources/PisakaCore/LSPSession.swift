@@ -102,6 +102,15 @@ public actor LSPSession {
         /// succeeded is the one failure this layer cannot make invisible, so the
         /// span is the one a person waiting on a dialog will tolerate.
         public var rename: TimeInterval
+        /// `textDocument/foldingRange` — completion's number rather than a
+        /// definition's three, and for completion's reason read one step
+        /// further. Nobody asks for a fold list: it is computed behind a typing
+        /// pause the way completion's candidates are, and the next keystroke
+        /// makes the answer stale rather than merely late. So an answer that
+        /// outlives the pause is not slow, it is unwanted — and the question is
+        /// the cheapest in the file to lose, because the pure scanner answers it
+        /// too.
+        public var foldingRange: TimeInterval
         /// How long a polite `shutdown` may take before we stop being polite.
         /// Short on purpose: the process is being killed either way, and this is
         /// only the difference between a clean exit and a SIGTERM.
@@ -115,6 +124,7 @@ public actor LSPSession {
             hover: TimeInterval = 1.5,
             references: TimeInterval = 3,
             rename: TimeInterval = 20,
+            foldingRange: TimeInterval = 1.5,
             shutdown: TimeInterval = 2
         ) {
             self.handshake = handshake
@@ -124,6 +134,7 @@ public actor LSPSession {
             self.hover = hover
             self.references = references
             self.rename = rename
+            self.foldingRange = foldingRange
             self.shutdown = shutdown
         }
 
@@ -463,6 +474,23 @@ public actor LSPSession {
             timeout: budgets.rename
         )
         return try decode(result, as: LSPWorkspaceEdit.self, method: LSPMethod.rename)
+    }
+
+    /// Every collapsible block in the document.
+    ///
+    /// The one exchange here that names no position — folding is a property of
+    /// the whole file. Whether the server advertised `foldingRangeProvider` is
+    /// the caller's check, exactly as it is for `hover` and `references`: a
+    /// session answers what it is asked.
+    public func foldingRange(
+        _ params: LSPFoldingRangeParams
+    ) async throws -> LSPFoldingRangeResponse {
+        let result = try await request(
+            LSPMethod.foldingRange,
+            params: try JSONValue(encoding: params),
+            timeout: budgets.foldingRange
+        )
+        return try decode(result, as: LSPFoldingRangeResponse.self, method: LSPMethod.foldingRange)
     }
 
     public func completion(

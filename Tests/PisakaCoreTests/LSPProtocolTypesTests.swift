@@ -237,8 +237,11 @@ final class LSPProtocolTypesTests: XCTestCase {
     /// server not to answer a rename with a create/rename/delete entry —
     /// `LSPWorkspaceEdit` drops one and applies the textual half, which for a
     /// module rename is every reference renamed and the file still under its old
-    /// name. None of those fail a build or throw — they just make the feature
-    /// quietly worse — so the exact promise is pinned here.
+    /// name; and `foldingRange.lineFoldingOnly: false` is what lets a server
+    /// answer with the character-precise ranges this editor hides — declaring
+    /// `true` would round every block out to whole lines and put the placeholder
+    /// on a line of its own. None of those fail a build or throw — they just make
+    /// the feature quietly worse — so the exact promise is pinned here.
     func testClientCapabilitiesAdvertiseExactlyThisPhasesSurface() throws {
         XCTAssertEqual(
             try json(LSPClientCapabilities()),
@@ -258,6 +261,10 @@ final class LSPProtocolTypesTests: XCTestCase {
             "contextSupport":true,\
             "dynamicRegistration":false},\
             "definition":{"dynamicRegistration":false,"linkSupport":true},\
+            "foldingRange":{"dynamicRegistration":false,\
+            "foldingRange":{"collapsedText":false},\
+            "foldingRangeKind":{"valueSet":["comment","imports","region"]},\
+            "lineFoldingOnly":false},\
             "hover":{"contentFormat":["markdown","plaintext"],"dynamicRegistration":false},\
             "publishDiagnostics":{"relatedInformation":false,"versionSupport":true},\
             "references":{"dynamicRegistration":false},\
