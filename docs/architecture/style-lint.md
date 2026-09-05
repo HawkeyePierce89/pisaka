@@ -77,7 +77,14 @@ with a state shape of its own went into `DatabaseViewerTabs.swift`, so
 `PisakaApp` paid four lines of wiring plus the tab-kind skips its own text-shaped
 passes needed, and not four hundred (`core-database-viewer.md`).
 
-The most recent bump is the Pull Requests feature (`file_length`
+The most recent bump is code folding, and it is a single line: `file_length`
+… → 1885 → **1886**, `type_body_length` … → 1869 → **1870**, for the
+`FoldCommands()` the `.commands` builder gained inside the `PisakaApp` struct
+body. Everything else the feature needed — the two menu items, their shortcuts,
+the first-responder route and the one beep — lives in `FoldCommands.swift`
+(`core-folding.md`).
+
+The bump before it is the Pull Requests feature (`file_length`
 1838 → 1859 → 1861 → 1862 → 1882 → **1885**, `type_body_length`
 1822 → 1843 → 1845 → 1846 → 1866 → **1869**;
 the second step is the review's, for the checkout's dirty-tree confirmation and

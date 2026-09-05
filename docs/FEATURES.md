@@ -650,9 +650,11 @@ user sees it.
 - **Code folding (macOS).** Collapse a block behind its first line and expand it
   again. A chevron appears in the gutter beside every line that starts a
   collapsible block; click it to fold, click it again to unfold. A folded block
-  shows its first line — closing bracket and all pulled up onto the same row —
-  with a small `…` between them; click the `…` to open it. **Fold** (Cmd+Opt+←)
-  and **Unfold** (Cmd+Opt+→) in the Edit menu do the same thing to the innermost
+  shows its first line and nothing else: everything after it — the closing bracket
+  and all — is pulled up behind a small `…` at the end of that line, and the lines
+  that follow the block move up to meet it. Click the `…` to open it.
+  **Fold** (Cmd+Option+Left)
+  and **Unfold** (Cmd+Option+Right) in the Edit menu do the same thing to the innermost
   block the caret is in, and beep when there is none (Fold also beeps when the
   selection reaches past the block it would collapse — collapsing it would hide
   part of what you selected). Gutter numbers skip the hidden lines and keep

@@ -298,7 +298,17 @@ document, together with the limits they carry.
     `RenameEditPlan` deliberately does not compare — it verifies the bytes instead —
     so it buys nothing), `failureHandling: "abort"` (what `apply` does: it stops at
     the first write that throws and the writes before it stay written) and
-    **`resourceOperations: []`**, the load-bearing one. A create/rename/delete entry
+    **`resourceOperations: []`**, the load-bearing one. D38 adds the ninth and last
+    node, `textDocument.foldingRange`, under that same rule and closed like the
+    rest: `lineFoldingOnly: false` (this editor hides a character range, not a run
+    of whole lines, so a character-precise server is taken at its word),
+    `collapsedText: false` (the placeholder is always `…`; a server-supplied one
+    would be a second vocabulary to render) and a `foldingRangeKind.valueSet`
+    naming exactly the three `FoldRegionKind` cases — the closed table a kind
+    outside it is read as *absent* against. The wire types are
+    `LSPFoldingRangeParams`/`LSPFoldingRange`/`LSPFoldingRangeResponse`, decoded
+    leniently element by element (an unreadable entry is dropped, a non-array
+    top level throws) exactly as every other list response is. A create/rename/delete entry
     is not something this editor performs: `LSPWorkspaceEdit` drops it and applies
     the textual half, which for a module rename would leave every reference renamed
     and the file still under its old name. Declaring the empty set is what tells a
@@ -544,7 +554,13 @@ document, together with the limits they carry.
     reason `supportsHover` is. **Nothing is written here**: a rename request is a
     *read* like every other exchange in this actor, and what to do with the answer —
     verify it, then apply it or abort — belongs to the layer that holds the writer
-    bracket. A request that outlives its
+    bracket.
+    `foldingRange` 1.5 s is the eighth budget, and it takes **completion's number
+    for hover's reason** (D38): nobody asked for a chevron either — the question
+    fires behind every typing pause — so an answer that arrives after the buffer
+    has moved on is unwanted rather than late. `foldingRange(_:)` is the exchange,
+    in `hover(_:)`'s exact shape, and `supportsFoldingRange` is the provider's
+    check for the same reason the other three are. A request that outlives its
     budget fails **alone**: nothing else in the table is touched, because one slow
     answer is not evidence the server is broken, and the server is sent
     `$/cancelRequest` since we will not read the reply.
@@ -1935,6 +1951,12 @@ document, together with the limits they carry.
     in these two tables bounds a race whose loser has something behind it, and this
     is the one that does not, so timing out a rename that would have succeeded is
     the single failure the layer cannot make invisible.
+    `foldRegions(for:)` (D38) is not a fourth exemption — it is the ordinary shape
+    read back: `canServe`-gated, raced on a `foldRegions` budget of its own, and an
+    **empty server answer falls through to the scanner**, which is exactly what
+    "an empty answer is not an answer" already says. That is also what keeps the
+    two sources from ever mixing: the router returns one list or the other, never
+    a union of them.
     `canRename(_:)` is **forwarded** rather than left reachable on the wrapped
     source, because the app holds *this* object: the seam's whole point is that
     nothing above it names the LSP layer, and a command reaching past the router for

@@ -605,15 +605,25 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     candidate map in `FoldRegion`'s own `Comparable` order, so a shared header line
     resolves to the same region `FoldState.folded(containing:)` measures the
     placeholder from and the chevron and the `…` can never disagree.
-    **The numbering skips hidden lines and keeps counting.** The
-    `drawHashMarksAndLabels(in:)` walk still increments `lineNumber` per line, but a
-    line whose start falls strictly inside a folded range draws nothing at all: it
-    has no row of its own (its glyphs are null and its separator advances nothing,
-    so it shares the header's fragment), and drawing it would stack a second number,
-    a second blame label and a second severity dot on the header's row. The counter
-    still advances, so `12` is followed by `27` — the honest answer about what the
-    next *visible* line is — and the blame column and the diagnostic markers follow
-    the numbers for free, because they are drawn from the same walk.
+    **The numbering skips hidden lines and keeps counting.** A line whose
+    *preceding separator* is hidden draws nothing at all: it has no row of its own
+    (its glyphs are null and that separator advances nothing, so it shares the
+    header's fragment), and drawing it would stack a second number, a second blame
+    label and a second severity dot on the header's row. The question is
+    `FoldState.hiddenRange(collapsingLineStartingAt:)` and deliberately not
+    `hides(offset:)` — see `core-folding.md` for why the two differ at a range that
+    ends exactly on a line start, which is the shape a server naming
+    `endCharacter: 0` produces.
+    The **whole collapsed run is skipped in one step**, not a line at a time:
+    hidden characters keep their glyphs, so `glyphRange(forBoundingRect:)` hands
+    back a character range spanning every folded line, and stepping through them
+    would make each redraw — every scroll tick, every keystroke — cost the folded
+    block rather than the visible page. The resumed line's number is re-read from
+    the cached line starts (O(log n)), so `12` is still followed by `27` — the
+    honest answer about what the next *visible* line is — and the blame column and
+    the diagnostic markers follow the numbers for free, because they are drawn from
+    the same walk (`drawVisibleLine(_:…)`, lifted out of it so the skip reads as
+    the one decision it is).
     `mouseDown(with:)` resolves a click inside the chevron column to the line's
     candidate and reports it through `onToggleFold` (weakly captured, like the other
     two closures); everything else falls through to `super`, so the blame context

@@ -901,7 +901,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
   - `CompletionPopup.swift` — three pure value types and one builder for the editor's custom completion popup: `CompletionPopupSelection` (tracks the count and selected index, clamping at both ends, with row 0 preselected), `CompletionRowSource` (symbol, keyword, or word), `CompletionBadge` (SF Symbol name + color), and the `CompletionRow.rows(for:language:)` builder. This file only models the presentation and maps existing sources to badges; it ranks nothing and filters nothing, preserving the provider's order exactly.
   - `SymbolIntelligenceProvider.swift` — the index-backed
     `CodeIntelligenceProviding` implementation and the home of **every ranking
-    rule**, all of it `static` and pure over an index value, with the instance
+    rule** — with one stated exception, `foldRegions(for:)`, which reads no index
+    at all: it answers from `FoldRegionScanner` over the request's own text and
+    the widths the request carries, so it takes no `@MainActor` hop either (there
+    is nothing to snapshot). It is the fallback half of the fold seam and is
+    documented in `core-folding.md`. The rest, all of it `static` and pure over an index value, with the instance
     methods a thin async shell — so each tie-break is pinned by a test that builds
     three symbols instead of a project. The index is read through a **closure
     rather than stored**: the model publishes a fresh snapshot after every chunk,

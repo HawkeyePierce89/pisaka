@@ -604,6 +604,50 @@ final class LineNumberRulerView: NSRulerView, ZoomSurfaceProviding {
         return width
     }
 
+    /// One visible line's gutter row: the chevron, the number, the blame label
+    /// and the diagnostic dot, all measured from the fragment the line's first
+    /// glyph is laid out in.
+    ///
+    /// Lifted out of the walk above so the collapsed-run skip reads as the one
+    /// decision it is; nothing here knows about folding.
+    private func drawVisibleLine(
+        _ lineNumber: Int,
+        lineRange: NSRange,
+        layoutManager: NSLayoutManager,
+        textOrigin: NSPoint,
+        relativePoint: NSPoint,
+        attributes: [NSAttributedString.Key: Any]
+    ) {
+        let firstGlyph = layoutManager.glyphIndexForCharacter(at: lineRange.location)
+        let fragmentRect = layoutManager.lineFragmentRect(forGlyphAt: firstGlyph, effectiveRange: nil)
+        drawFoldChevron(
+            forLine: lineNumber,
+            fragmentRect: fragmentRect,
+            textOrigin: textOrigin,
+            relativePoint: relativePoint
+        )
+        drawLineNumber(
+            lineNumber,
+            fragmentRect: fragmentRect,
+            textOrigin: textOrigin,
+            relativePoint: relativePoint,
+            attributes: attributes
+        )
+        drawAnnotation(
+            forLine: lineNumber,
+            fragmentRect: fragmentRect,
+            textOrigin: textOrigin,
+            relativePoint: relativePoint,
+            attributes: attributes
+        )
+        drawDiagnosticMarker(
+            forLine: lineNumber,
+            fragmentRect: fragmentRect,
+            textOrigin: textOrigin,
+            relativePoint: relativePoint
+        )
+    }
+
     /// Rebuild `lineStartOffsets` from the current text via the shared
     /// `LineStartIndex`, so the line count and gutter width agree with the
     /// `lineRange` math in `drawHashMarksAndLabels` (and with the minimap) for
@@ -687,52 +731,36 @@ final class LineNumberRulerView: NSRulerView, ZoomSurfaceProviding {
         let end = charRange.location + charRange.length
         while index < content.length && index < end {
             let lineRange = content.lineRange(for: NSRange(location: index, length: 0))
-            // A line whose start falls strictly inside a folded range has no row
-            // of its own — its glyphs are null and its separator advances
-            // nothing, so it shares the header's line fragment. Drawing it would
-            // stack a second number, a second blame label and a second severity
-            // dot on the header's row. The counter still advances, so the
-            // numbering stays the buffer's: `12` is followed by `27`, which is
-            // the honest answer about what the next visible line is.
-            guard !foldedState.hides(offset: lineRange.location) else {
-                lineNumber += 1
-                index = NSMaxRange(lineRange)
+            // A line whose preceding separator is hidden has no row of its own —
+            // its glyphs are null and that separator advances nothing, so it
+            // shares the header's line fragment. Drawing it would stack a second
+            // number, a second blame label and a second severity dot on the
+            // header's row.
+            //
+            // The **whole** collapsed run is skipped in one step rather than a
+            // line at a time: the hidden characters keep their glyphs, so the
+            // visible bounding rect's character range spans every folded line and
+            // stepping through them would make each redraw cost the folded block
+            // rather than the visible page. The line number is re-read from the
+            // cached starts (O(log n)), so the numbering stays the buffer's: `12`
+            // is followed by `27`, which is the honest answer about what the next
+            // visible line is.
+            if let collapsed = foldedState.hiddenRange(collapsingLineStartingAt: lineRange.location) {
+                let lastCollapsed = content.lineRange(
+                    for: NSRange(location: min(NSMaxRange(collapsed), content.length), length: 0)
+                )
+                index = NSMaxRange(lastCollapsed)
+                lineNumber = self.lineNumber(forLineStart: index)
                 continue
             }
-            let firstGlyph = layoutManager.glyphIndexForCharacter(at: lineRange.location)
-            var effectiveRange = NSRange(location: 0, length: 0)
-            let fragmentRect = layoutManager.lineFragmentRect(
-                forGlyphAt: firstGlyph,
-                effectiveRange: &effectiveRange
-            )
-
-            drawFoldChevron(
-                forLine: lineNumber,
-                fragmentRect: fragmentRect,
-                textOrigin: textOrigin,
-                relativePoint: relativePoint
-            )
-            drawLineNumber(
+            drawVisibleLine(
                 lineNumber,
-                fragmentRect: fragmentRect,
+                lineRange: lineRange,
+                layoutManager: layoutManager,
                 textOrigin: textOrigin,
                 relativePoint: relativePoint,
                 attributes: attributes
             )
-            drawAnnotation(
-                forLine: lineNumber,
-                fragmentRect: fragmentRect,
-                textOrigin: textOrigin,
-                relativePoint: relativePoint,
-                attributes: attributes
-            )
-            drawDiagnosticMarker(
-                forLine: lineNumber,
-                fragmentRect: fragmentRect,
-                textOrigin: textOrigin,
-                relativePoint: relativePoint
-            )
-
             lineNumber += 1
             index = NSMaxRange(lineRange)
         }

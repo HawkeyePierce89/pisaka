@@ -97,6 +97,44 @@ final class FoldStateTests: XCTestCase {
         XCTAssertFalse(state.hides(offset: 16))
     }
 
+    /// **The layout's question, not the caret's.** A line has no row of its own
+    /// when the separator that would have broken it is hidden, which is the code
+    /// unit *before* its start and is inclusive of the hidden range's own start —
+    /// where the header's separator sits.
+    func testTheCollapsingRangeIsTheOneCoveringTheSeparatorBeforeTheLine() {
+        // "ab\ncd\nef\ngh", hiding from the end of line 0 through the end of
+        // line 2: offsets 2..<8.
+        let state = FoldState(regions: [region(2, 6, header: 0)])
+
+        XCTAssertNil(state.hiddenRange(collapsingLineStartingAt: 0), "line 0 is the header")
+        XCTAssertEqual(
+            state.hiddenRange(collapsingLineStartingAt: 3),
+            NSRange(location: 2, length: 6),
+            "line 1's separator is the hidden range's own first unit"
+        )
+        XCTAssertEqual(state.hiddenRange(collapsingLineStartingAt: 6), NSRange(location: 2, length: 6))
+        XCTAssertNil(state.hiddenRange(collapsingLineStartingAt: 9), "the line after the block breaks again")
+    }
+
+    /// The case `hides(offset:)` cannot answer: a hidden range ending exactly at
+    /// a line start — the shape a server naming `endCharacter: 0` produces. That
+    /// line is already laid out on the header's row, and answering "visible" for
+    /// it stacks a second gutter number on the header's.
+    func testALineStartingWhereAHiddenRangeEndsIsStillCollapsed() {
+        let state = FoldState(regions: [region(2, 4, header: 0)])
+        XCTAssertFalse(state.hides(offset: 6), "the caret may rest there")
+        XCTAssertEqual(
+            state.hiddenRange(collapsingLineStartingAt: 6),
+            NSRange(location: 2, length: 4),
+            "but the line starting there has no row of its own"
+        )
+    }
+
+    func testNothingCollapsesTheFirstLineOrAnEmptyState() {
+        XCTAssertNil(FoldState().hiddenRange(collapsingLineStartingAt: 5))
+        XCTAssertNil(FoldState(regions: [region(2, 6, header: 0)]).hiddenRange(collapsingLineStartingAt: 0))
+    }
+
     func testFoldedContainingLineAnswersTheLongerRegionOnThatHeader() {
         let long = region(10, 20, header: 3)
         let short = region(10, 6, header: 3)
@@ -125,11 +163,43 @@ final class FoldStateTests: XCTestCase {
         XCTAssertFalse(reconciled.isFolded(gone), "a fold whose header no candidate names unfolds")
     }
 
-    func testReconciliationTakesTheLongerCandidateAndDedupesTwoFoldsOnOneHeader() {
+    /// One candidate on the header line is the fallback scanner's guarantee, and
+    /// then every fold on that line re-anchors to it — two folds collapse into
+    /// one, because there is only one block left to be folded.
+    func testReconciliationCollapsesTwoFoldsOntoTheOneCandidateTheirHeaderHas() {
         let state = FoldState(regions: [region(10, 20, header: 2), region(10, 6, header: 2)])
         let candidate = region(12, 30, header: 2)
-        let reconciled = state.reconciled(with: [region(12, 9, header: 2), candidate])
+        let reconciled = state.reconciled(with: [candidate])
         XCTAssertEqual(reconciled.regions, [candidate])
+    }
+
+    /// **A nested fold is not promoted to its outer sibling.** A server may report
+    /// a block and a nested one opening on the same line, and ⌘⌥← collapses the
+    /// innermost of them; re-anchoring by header line alone would take the longest
+    /// candidate on the next answer and silently grow the fold over code the user
+    /// never collapsed. Each fold takes the candidate closest to its own length.
+    func testReconciliationKeepsAnInnerFoldInnerWhenAHeaderCarriesTwoCandidates() {
+        let outer = region(12, 30, header: 2)
+        let inner = region(12, 9, header: 2)
+        let state = FoldState(regions: [region(10, 6, header: 2)])
+
+        let reconciled = state.reconciled(with: [inner, outer])
+
+        XCTAssertEqual(reconciled.regions, [inner], "the short fold re-anchors to the short candidate")
+        XCTAssertEqual(
+            FoldState(regions: [region(10, 26, header: 2)]).reconciled(with: [inner, outer]).regions,
+            [outer],
+            "and the long one to the long candidate"
+        )
+    }
+
+    /// Ties keep `FoldRegion`'s own order, so nothing about a header line with a
+    /// single candidate changed: the longest still wins when the distances agree.
+    func testReconciliationBreaksATieByTheOrderingKey() {
+        let longer = region(10, 12, header: 0)
+        let shorter = region(10, 8, header: 0)
+        let state = FoldState(regions: [region(10, 10, header: 0)])
+        XCTAssertEqual(state.reconciled(with: [shorter, longer]).regions, [longer])
     }
 
     func testReconcilingAnEmptyStateAnswersItself() {
@@ -195,6 +265,30 @@ final class FoldStateTests: XCTestCase {
         let state = FoldState(regions: [region(1, 2, header: 0)])
         XCTAssertTrue(plan.isEmpty)
         XCTAssertEqual(state.remapped(through: plan), state)
+        XCTAssertEqual(FoldRegion.remapped(state.regions, through: plan), state.regions)
+    }
+
+    /// **The candidate list takes the same remap the folded state does.** A save
+    /// moves offsets under a list the next answer will not replace for another
+    /// debounce, and a chevron clicked in that window would fold bounds measured
+    /// against the pre-save text.
+    func testTheCandidateListIsRemappedByTheSameRuleAndDropsWhatEmpties() {
+        let text = "func f() {\n    a   \n}\nlet b = 1   \n"
+        let plan = SaveTransform.plan(
+            text: text,
+            config: EditorConfigProperties(["trim_trailing_whitespace": "true"])
+        )
+        XCTAssertEqual(plan.text, "func f() {\n    a\n}\nlet b = 1\n")
+
+        // The block, and a candidate covering only the three spaces the trim
+        // deletes — which remaps to nothing and is dropped rather than kept empty.
+        let block = region(10, 11, header: 0)
+        let doomed = region(16, 3, header: 1)
+
+        let remapped = FoldRegion.remapped([block, doomed], through: plan)
+
+        XCTAssertEqual(remapped.map(\.hiddenRange), [NSRange(location: 10, length: 8)])
+        XCTAssertEqual(remapped.map(\.headerLine), [0], "header lines are carried unchanged")
     }
 
     // MARK: - The caret rule

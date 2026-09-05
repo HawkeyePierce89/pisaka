@@ -234,15 +234,22 @@ final class FoldController {
     /// rule would spring every collapsed block open on an unattended autosave
     /// tick. The reasoning lives on `FoldState.remapped(through:)`.
     func remap(through plan: SaveTransformPlan) {
-        guard !state.isEmpty else { return }
-        apply(state.remapped(through: plan))
+        guard !plan.isEmpty, !state.isEmpty || !candidates.isEmpty else { return }
+        // The candidates move too, and for a sharper reason than the folded state:
+        // the edit shift is suppressed for a save rewrite (`isSwappingBuffer`), so
+        // nothing else would move them until the next answer lands a debounce
+        // later — and a chevron clicked in that window would fold a range measured
+        // against the pre-save text.
+        candidates = FoldRegion.remapped(candidates, through: plan)
+        state = state.remapped(through: plan)
+        publish()
     }
 
     // MARK: - Memory
 
     /// Record the shown file's folds under its key. Called by the funnel above
-    /// and, explicitly, on the switch away from a tab and on its close — the two
-    /// moments the coordinator knows about and this class does not.
+    /// and, explicitly, on the switch away from a tab — the moment the
+    /// coordinator knows about and this class does not.
     func recordCurrent() {
         guard let key else { return }
         memory.record(state, for: key)
@@ -255,13 +262,27 @@ final class FoldController {
         memory.forget(droppedKey)
         guard droppedKey == key else { return }
         candidates = []
-        apply(FoldState())
+        state = FoldState()
+        // Published unconditionally rather than through `apply(_:)`, whose
+        // no-change guard would skip it whenever nothing was folded — the common
+        // case — and leave the gutter drawing chevrons for a buffer that has just
+        // been replaced.
+        publish()
     }
 
     /// Drop every remembered fold, on a folder switch: a different project is a
     /// different set of files.
+    ///
+    /// The key goes with the entries. The coordinator clears the memory *before*
+    /// it records the outgoing tab and before the incoming buffer is announced,
+    /// so leaving the key behind would let either of those `recordCurrent()` calls
+    /// write the previous project's file straight back into the store that was
+    /// just emptied — "cleared wholesale" in the doc and one stale entry per
+    /// switch in fact. A `nil` key makes both a no-op, and the announcement that
+    /// follows installs the incoming file's (empty) state.
     func forgetAll() {
         memory.removeAll()
+        key = nil
     }
 
     /// Teardown: cancel a pending ask, supersede one in flight, and empty both
@@ -293,14 +314,6 @@ final class FoldController {
         let token = generation
         pendingTask?.cancel()
         pendingTask = nil
-        guard let source = source?() else { return }
-        let request = FoldRegionRequest(
-            fileURL: source.fileURL,
-            text: text,
-            language: source.language,
-            indentWidths: source.widths
-        )
-        let provider = source.provider
         let askedKey = key
         let interval = debounceInterval
         pendingTask = Task { [weak self] in
@@ -309,7 +322,20 @@ final class FoldController {
                 if Task.isCancelled { return }
             }
             guard let self, token == self.generation else { return }
-            let regions = await provider.foldRegions(for: request)
+            // Read **after** the debounce, not before it. Deriving the widths is a
+            // full-buffer pass (`IndentEngine.inferIndentUnit`) over one more
+            // whole-buffer `textView.string` copy, and doing it up front would
+            // charge every keystroke for a question the debounce exists to ask
+            // once. Nothing is lost by waiting: a newer ask would have bumped the
+            // token above, so the buffer these inputs describe is still `text`.
+            guard let source = self.source?() else { return }
+            let request = FoldRegionRequest(
+                fileURL: source.fileURL,
+                text: text,
+                language: source.language,
+                indentWidths: source.widths
+            )
+            let regions = await source.provider.foldRegions(for: request)
             guard token == self.generation, askedKey == self.key else { return }
             self.pendingTask = nil
             self.applyCandidates(regions)

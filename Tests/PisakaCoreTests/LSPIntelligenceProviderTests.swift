@@ -583,6 +583,43 @@ final class LSPIntelligenceProviderTests: XCTestCase {
         XCTAssertNil(region.kind)
     }
 
+    /// **D1 read in both directions at once.** The bounds are measured in the
+    /// protocol's line table (LF/CR/CRLF only) and the header line in the
+    /// editor's (which also breaks on NEL/LS/PS), because the two answer
+    /// different questions: what the server named, and which row the chevron
+    /// lands on. A buffer carrying a line separator LSP does not know about is
+    /// the only place the two tables disagree — and `FoldState.reconciled(with:)`
+    /// anchors every fold by header line, so one table used for both would
+    /// silently mis-anchor or drop folds on every refresh.
+    func testTheHeaderLineIsTheEditorsWhileTheBoundsAreTheProtocols() async throws {
+        // A U+2028 LINE SEPARATOR inside what LSP reads as its line 0: the editor
+        // counts three lines before `let a`, the protocol counts one.
+        let source = "// one\u{2028}// two\nlet a = [\n    1,\n]\n"
+        transport.script(LSPMethod.foldingRange, .reply(.array([
+            // The protocol's line 1 is `let a = [`; its line 3 is `]`.
+            foldingRangeJSON(startLine: 1, endLine: 3),
+        ])))
+        let provider = makeProvider()
+
+        let regions = await provider.foldRegions(for: foldRequest(text: source))
+
+        let region = try XCTUnwrap(regions.first)
+        let nsSource = source as NSString
+        XCTAssertEqual(
+            region.hiddenRange,
+            NSRange(
+                location: NSMaxRange(nsSource.range(of: "let a = [")),
+                length: "\n    1,\n]".utf16.count
+            ),
+            "the bounds are the protocol's lines"
+        )
+        XCTAssertEqual(
+            region.headerLine,
+            2,
+            "but the chevron lands on the editor's line 2, which the LS separator created"
+        )
+    }
+
     /// **A range this buffer cannot hold is dropped, and its siblings survive** —
     /// the rule `LSPFoldingRangeResponse` applies to an unreadable element,
     /// applied one layer up to a readable element whose numbers are wrong. A line

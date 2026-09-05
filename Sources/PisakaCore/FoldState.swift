@@ -92,6 +92,33 @@ public struct FoldState: Equatable, Sendable {
         return false
     }
 
+    /// The hidden range that pulls the line starting at `lineStart` up onto the
+    /// row above it, or `nil` when that line has a row of its own.
+    ///
+    /// **This is the layout's question, not the caret's**, which is why it is not
+    /// ``hides(offset:)``. A line loses its own row exactly when the separator
+    /// that would have broken it is hidden — the typesetter zero-advances every
+    /// separator *inside* a hidden range, its first unit included — so the test is
+    /// on the code unit immediately before the line's start, and it is
+    /// **inclusive** of the range's own start, where the header's separator sits.
+    /// Asking `hides(offset: lineStart)` instead is right only while every hidden
+    /// range ends mid-line: a server that names `endCharacter: 0` ends one exactly
+    /// at a line start, and that line — already laid out on the header's row —
+    /// would be answered "visible" and drawn a second number on top of the
+    /// header's.
+    ///
+    /// The range is returned rather than a `Bool` so a caller walking lines can
+    /// skip the whole collapsed run at once instead of one hidden line at a time.
+    public func hiddenRange(collapsingLineStartingAt lineStart: Int) -> NSRange? {
+        guard lineStart > 0 else { return nil }
+        let separator = lineStart - 1
+        for range in hiddenRanges {
+            if separator < range.location { return nil }
+            if separator < NSMaxRange(range) { return range }
+        }
+        return nil
+    }
+
     /// The folded region whose header is `line` — what the gutter asks to draw a
     /// collapsed chevron, and what the placeholder is measured from.
     ///
@@ -120,13 +147,27 @@ public struct FoldState: Equatable, Sendable {
     /// chevron on. Bounds move whenever the block's last line does; the header
     /// only moves when the text above it does, and ``FoldShift`` has already
     /// renumbered it by then.
+    ///
+    /// **When a header line carries more than one candidate the closest in length
+    /// wins.** The fallback scanner merges them and never offers two, but a server
+    /// may report a block and a nested one opening on the same line
+    /// (`list.forEach(function (x) {`), and ⌘⌥← deliberately collapses the
+    /// *innermost* of those. Re-anchoring to the longest candidate would silently
+    /// grow that fold to the outer block on the next answer — hiding code nobody
+    /// asked to collapse. Ties keep ``FoldRegion``'s own order, so a header line
+    /// with one candidate behaves exactly as it always did.
     public func reconciled(with candidates: [FoldRegion]) -> FoldState {
         guard !regions.isEmpty else { return self }
-        var byHeader: [Int: FoldRegion] = [:]
-        for candidate in candidates.sorted() where byHeader[candidate.headerLine] == nil {
-            byHeader[candidate.headerLine] = candidate
+        var byHeader: [Int: [FoldRegion]] = [:]
+        for candidate in candidates.sorted() {
+            byHeader[candidate.headerLine, default: []].append(candidate)
         }
-        return FoldState(regions: regions.compactMap { byHeader[$0.headerLine] })
+        return FoldState(regions: regions.compactMap { region in
+            byHeader[region.headerLine]?.min {
+                abs($0.hiddenRange.length - region.hiddenRange.length)
+                    < abs($1.hiddenRange.length - region.hiddenRange.length)
+            }
+        })
     }
 
     /// This state made safe for a buffer of `length` UTF-16 units.
@@ -161,13 +202,7 @@ public struct FoldState: Equatable, Sendable {
     /// hidden range is not representable.
     public func remapped(through plan: SaveTransformPlan) -> FoldState {
         guard !plan.isEmpty, !regions.isEmpty else { return self }
-        return FoldState(regions: regions.compactMap { region in
-            FoldRegion(
-                hiddenRange: plan.remappedRange(region.hiddenRange),
-                headerLine: region.headerLine,
-                kind: region.kind
-            )
-        })
+        return FoldState(regions: FoldRegion.remapped(regions, through: plan))
     }
 
     // MARK: - Normalization

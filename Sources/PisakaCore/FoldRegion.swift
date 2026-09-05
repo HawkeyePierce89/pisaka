@@ -62,4 +62,28 @@ public struct FoldRegion: Equatable, Hashable, Comparable, Sendable {
         if lhs.hiddenRange.length != rhs.hiddenRange.length { return lhs.hiddenRange.length > rhs.hiddenRange.length }
         return lhs.hiddenRange.location < rhs.hiddenRange.location
     }
+
+    /// Every region in `regions` moved through one save's transform, dropping any
+    /// whose remapped range comes out empty.
+    ///
+    /// **Both lists a fold owner holds go through this**: the folded state
+    /// (``FoldState/remapped(through:)``) *and* the candidates a chevron is drawn
+    /// from. The candidates are not optional bookkeeping — a save can move offsets
+    /// under a list the next answer will not replace for another debounce, and a
+    /// chevron clicked in that window would fold bounds computed against the
+    /// pre-save text.
+    ///
+    /// Header lines are carried unchanged, for the reason stated on
+    /// ``FoldState/remapped(through:)``: none of the three save transforms changes
+    /// how many separators precede a given line.
+    public static func remapped(_ regions: [FoldRegion], through plan: SaveTransformPlan) -> [FoldRegion] {
+        guard !plan.isEmpty else { return regions }
+        return regions.compactMap { region in
+            FoldRegion(
+                hiddenRange: plan.remappedRange(region.hiddenRange),
+                headerLine: region.headerLine,
+                kind: region.kind
+            )
+        }
+    }
 }

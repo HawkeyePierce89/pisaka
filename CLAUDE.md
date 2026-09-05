@@ -679,7 +679,9 @@ ci.yml's `lint` job, and the version-bump procedure.
   when a config says `indent_style = space` outright, so the inference alone can
   never change what a keystroke does. The macOS indentation-level painting is a
   **third consumer** of that same unit, never a second opinion about it
-  (`core-editor.md`). A **reader**, like the index: it takes no
+  (`core-editor.md`), and the fold scanner's indentation blocks are a **fourth**,
+  measured from widths the app derives through that same rule and hands over on
+  `FoldRegionRequest` (`core-folding.md`). A **reader**, like the index: it takes no
   writer gate, is not gated by one and **adds no write of its own**, and the walk
   stops at the project root on both platforms because iOS cannot read above the
   granted folder. **Six properties are acted on**, the rest parsed and carried.

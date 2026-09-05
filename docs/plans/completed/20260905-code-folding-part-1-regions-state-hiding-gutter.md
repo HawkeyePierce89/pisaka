@@ -620,10 +620,15 @@ None new. Foundation only in Core; AppKit only in the app half.
 
 Run the app from a DEBUG build and confirm, by eye, what no test can see:
 
-1. **The collapsed line's geometry.** Fold a multi-line brace block: the header
-   line and the closing bracket sit on one visual line with the `…` between them,
-   with no leftover blank row and no clipped glyph. This is also where the Task 5
-   spike's verdict is confirmed on real text rather than on one sample.
+1. **The collapsed line's geometry.** Fold a multi-line brace block: everything
+   after the header line — the closing bracket included — collapses behind the `…`
+   at the end of that line, with no leftover blank row and no clipped glyph, and
+   the next unfolded line sits directly below. (The hidden range runs to the end of
+   the block's *last line's content*, so the closer is behind the placeholder
+   rather than beside it; `docs/FEATURES.md` says the same. Corrected on review —
+   the original wording here described a rendering the region model never had.)
+   This is also where the Task 5 spike's verdict is confirmed on real text rather
+   than on one sample.
 2. **The placeholder at two zoom levels.** ⌘+ and ⌘−: the `…` and its outline
    scale with the editor font and stay aligned to the header line's baseline.
 3. **Caret behaviour at both boundaries.** Arrow forward into a folded block lands

@@ -1665,9 +1665,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     resize with no re-scan (wired into the coordinator's `clipViewBoundsChanged`
     /`syncableFrameChanged` beside `bracketHighlight.refreshVisible()`), which is
     what paints newly revealed matches. It also
-    navigates (`setSelectedRange` + `scrollRangeToVisible`, taking the selection's
-    *end* going forward and its *start* going back so ⌘G steps off the current match
-    in both directions), and applies the two replace commands. `replaceCurrent`
+    navigates — resolving which match ⌘G means (the selection's *end* going forward
+    and its *start* going back, so it steps off the current match in both
+    directions) and handing that range to the coordinator's `revealRange` funnel,
+    which unfolds what the range reaches, selects and scrolls. The controller
+    itself neither selects nor scrolls any more, and an unhooked one navigates to
+    nothing; the two `setSelectedRange` calls left in the replace commands are
+    caret placements after an edit, not jumps (`core-folding.md`) —
+    and applies the two replace commands. `replaceCurrent`
     re-runs first (results may pre-date an edit, and replacing a stale range would
     overwrite text the user never matched), then does one
     `insertText(_:replacementRange:)` under `isApplyingEdit` — one ordinary undo

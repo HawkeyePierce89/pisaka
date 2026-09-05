@@ -470,7 +470,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     view's, the `BracketDepthScanner` split exactly). Two `Equatable` value
     types: `IndentLevelRun` (`range`, always non-empty UTF-16, + a zero-based
     `level`) and `IndentLevelWidths` (`unitWidth`, the columns one level spans,
-    + `tabWidth`, the tab stop). `enum IndentLevelScanner` answers both halves.
+    + `tabWidth`, the tab stop) — the widths additionally `Hashable, Sendable`,
+    because they travel on `FoldRegionRequest` across the code-intelligence seam
+    and are read off the main actor there. **The derivation now has two
+    consumers**: the indentation painting and the fold scanner's indentation half,
+    which measures a block with exactly the unit the editor types with rather than
+    deriving one of its own (`core-folding.md`). `enum IndentLevelScanner` answers both halves.
     **The widths are derived, never invented.** `widths(unit:statedTabWidth:)`
     takes the unit string `IndentUnitRule.unit(config:inferred:)` already
     answered plus the configuration's `tab_width` (`nil` when unstated): a

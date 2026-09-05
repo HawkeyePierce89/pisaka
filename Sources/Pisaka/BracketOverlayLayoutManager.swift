@@ -445,14 +445,31 @@ final class BracketOverlayLayoutManager: NSLayoutManager {
     }
 
     /// The bounding range of every range present in exactly one of the two
-    /// sets. Both arrive sorted and non-overlapping, so the walk is linear.
+    /// sets. Both arrive sorted and non-overlapping (`FoldState.hiddenRanges`),
+    /// so this is one merge walk with two cursors — no membership scan and no
+    /// intermediate arrays.
     private func changedBounds(from old: [NSRange], to new: [NSRange]) -> NSRange {
-        let oldOnly = old.filter { !new.contains($0) }
-        let newOnly = new.filter { !old.contains($0) }
         var bounds: NSRange?
-        for range in oldOnly + newOnly {
-            bounds = bounds.map { union($0, range) } ?? range
+        var oldIndex = 0
+        var newIndex = 0
+        func widen(_ range: NSRange) { bounds = bounds.map { union($0, range) } ?? range }
+        while oldIndex < old.count && newIndex < new.count {
+            let left = old[oldIndex]
+            let right = new[newIndex]
+            if left == right {
+                oldIndex += 1
+                newIndex += 1
+            } else if left.location < right.location
+                || (left.location == right.location && left.length < right.length) {
+                widen(left)
+                oldIndex += 1
+            } else {
+                widen(right)
+                newIndex += 1
+            }
         }
+        for index in oldIndex..<old.count { widen(old[index]) }
+        for index in newIndex..<new.count { widen(new[index]) }
         return bounds ?? NSRange(location: 0, length: 0)
     }
 

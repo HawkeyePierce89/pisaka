@@ -150,6 +150,20 @@ header's sense — a region *is* at the line that stays visible for it — and w
 two folded regions share a header line the longer wins, because that is the one
 whose placeholder is drawn.
 
+`hiddenRange(collapsingLineStartingAt:)` is the **layout's** question rather than
+the caret's, and the reason it is not `hides(offset:)` read a second way. A line
+loses its own row exactly when the separator that would have broken it is hidden —
+the typesetter zero-advances every separator *inside* a hidden range, its first
+unit included — so the test is on the code unit immediately before the line's
+start and is **inclusive** of the range's own start, where the header's separator
+sits. Asking `hides(offset: lineStart)` instead is right only while every hidden
+range ends mid-line, which is the fallback scanner's shape but not a server's: one
+naming `endCharacter: 0` ends a range exactly at a line start, and that line —
+already laid out on the header's row — would be called visible and drawn a second
+gutter number on top of the header's. The covering range is returned rather than a
+`Bool` so the gutter can skip a whole collapsed run in one step instead of one
+hidden line at a time (see the ruler, below).
+
 **The three maintenance rules**, each in one place:
 
 - `reconciled(with candidates:)` — a folded region survives only if a candidate
@@ -160,12 +174,25 @@ whose placeholder is drawn.
   line is the anchor because it is the one thing the two sources agree on — the
   line the user pressed the chevron on. Bounds move whenever the block's last line
   does; the header only moves when the text above it does, and `FoldShift` has
-  renumbered it by then.
+  renumbered it by then. **When a header line carries more than one candidate the
+  closest in length wins.** The fallback scanner merges them and never offers two,
+  but a server may report a block and a nested one opening on the same line
+  (`list.forEach(function (x) {`) and ⌘⌥← deliberately collapses the *innermost*
+  of those; re-anchoring to the longest would silently grow that fold to the outer
+  block on the very next answer, hiding code nobody asked to collapse. Ties keep
+  `FoldRegion`'s own order, so a header line with a single candidate behaves
+  exactly as it always did.
 - `clamped(toLength:)` — `EditorViewport.clamped(toLength:)`'s rule applied to
   ranges: a region that cannot fit is **dropped, never truncated**. A truncated
   fold would hide a span nobody computed — half a block, ending mid-line — which
   is a lie the layout would then draw. Dropping it merely shows the code.
-- `remapped(through plan:)` — see the save rule below.
+- `remapped(through plan:)` — see the save rule below. Its per-region half is
+  `FoldRegion.remapped(_:through:)`, because **both** lists a fold owner holds go
+  through it: the folded state *and* the candidate list a chevron is drawn from.
+  The candidates are not bookkeeping — the edit shift is suppressed for a save
+  rewrite, so nothing else would move them until the next answer lands a debounce
+  later, and a chevron clicked in that window would fold bounds measured against
+  the pre-save text.
 
 `FoldStateTests` covers fold/unfold/toggle including nested regions, the strict
 `hides`, the coverage merge, reconciliation by header line, clamping, and the
@@ -390,7 +417,12 @@ Same length, same triggers, one fewer coupling.
 `Source` is `HoverController.Source`'s shape and for its reason — a folder switch
 swaps the provider and the root under a live editor, so the four inputs (provider,
 file URL, language, widths) are *read* at the moment a question is asked rather
-than captured in a closure.
+than captured in a closure. **Read behind the debounce, not in front of it**:
+deriving the widths is a full-buffer pass (`IndentEngine.inferIndentUnit`) over one
+more whole-buffer `textView.string` copy, and doing it before the sleep would
+charge every keystroke for the question the debounce exists to ask once. Nothing
+is lost by waiting — a newer ask would have bumped the token first, so the buffer
+those inputs describe is still the text the question carries.
 
 **Triggers.** A text change asks behind the debounce; a tab switch, a tab open or
 a retarget records the outgoing file's folds, restores the incoming one's
@@ -413,7 +445,18 @@ question and must never be one frame apart; both views treat unchanged input as 
 no-op, so it is cheap to call unconditionally). `fold(_:)` and `unfold(_:)` exist
 beside `toggleFold(_:)` because *Fold* on an already-folded block must leave it
 folded rather than spring it open, which a toggle would do the moment the command
-is held down. `remap(through:)` is the save path. The layout manager is resolved
+is held down. `remap(through:)` is the save path, and it moves the **candidates**
+alongside the state and publishes unconditionally rather than through `apply(_:)`,
+whose no-change guard would otherwise skip the push whenever nothing was folded.
+`forget(key:)` publishes unconditionally for the same reason: the common case for
+a buffer replaced out from under a tab is that nothing was folded in it, and
+skipping the push there leaves the gutter drawing chevrons for text that no longer
+exists. `forgetAll()` drops the **key** with the entries, because the coordinator
+clears the memory before it records the outgoing tab and before the incoming
+buffer is announced — leaving the key behind would let either `recordCurrent()`
+write the previous project's file straight back into the store just emptied, which
+is "cleared wholesale" in the doc and one stale entry per switch in fact.
+The layout manager is resolved
 **dynamically** (`textView?.layoutManager as? BracketOverlayLayoutManager`) for
 `BracketHighlightController`'s reason: `replaceLayoutManager` can swap it under the
 text view, and a stale reference would hide text in a manager nothing draws from.
