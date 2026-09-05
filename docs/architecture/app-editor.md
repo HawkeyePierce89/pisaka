@@ -870,6 +870,16 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     gesture (carrying `NSNotFound`, since nothing moved and the caret should land
     beside the placeholder). A re-entrancy flag keeps the corrective selection from
     being re-inspected as a user move, in `isApplyingProgrammaticEdit`'s shape.
+    **A direction is only ever read off a keyboard move**, which is what
+    `forgetFoldSelectionDirection()` enforces: the previous caret is dropped back to
+    `NSNotFound` at the three sites where the next selection change carries no
+    direction at all — a plain click (`unfoldPlaceholder(at:in:)`, which every one
+    of them reaches, placeholder or not), a tab restore (`restoreViewport(for:)`)
+    and a reveal (`revealRange(_:)`). Without it the rule reads a *stale* caret as
+    a direction — another tab's, after a switch — and a click landing in hidden text
+    below it moves past the whole block instead of beside the placeholder it hit,
+    which is the third case of the rule's own contract going unhonoured by its only
+    real caller.
     **The two commands and the two clicks.** `foldAtCaret()` / `unfoldAtCaret()`
     answer `FoldCommands`' menu items and return `false` for it to beep on; which
     block each acts on is `FoldCommandRule`'s decision, asked with **the gutter's own

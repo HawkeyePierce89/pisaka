@@ -489,8 +489,11 @@ final class BracketOverlayLayoutManager: NSLayoutManager {
     }
 
     /// **Half one of hiding**: every character of every folded range — its line
-    /// separators included — is stored with `NSLayoutManager.GlyphProperty.null`,
-    /// so nothing inside the range is drawn and nothing inside it advances.
+    /// separators included — gains `NSLayoutManager.GlyphProperty.null`, so
+    /// nothing inside the range is drawn and nothing inside it advances. The
+    /// property is *added*, never assigned over: the incoming set carries
+    /// `.controlCharacter` on exactly the separators half two must be asked
+    /// about, and dropping that bit would silence half two.
     ///
     /// The incoming buffer is `const`, so the properties are copied, the copy is
     /// edited and `super` is handed the copy; the glyphs and the character
@@ -520,7 +523,14 @@ final class BracketOverlayLayoutManager: NSLayoutManager {
         var edited = Array(UnsafeBufferPointer(start: props, count: glyphRange.length))
         var hidAny = false
         for index in 0..<glyphRange.length where folded.hides(charIndexes[index]) {
-            edited[index] = NSLayoutManager.GlyphProperty.null
+            // `insert`, not assignment: `GlyphProperty` is an option set, and
+            // `.controlCharacter` is the bit that makes the typesetter ask
+            // `actionForControlCharacter(at:)` about a separator at all.
+            // Overwriting it would leave half two — the only thing that stops a
+            // hidden separator from still breaking the line — never consulted,
+            // and a folded block would render as a run of empty rows instead of
+            // collapsing behind the `…`.
+            edited[index].insert(NSLayoutManager.GlyphProperty.null)
             hidAny = true
         }
         guard hidAny else {

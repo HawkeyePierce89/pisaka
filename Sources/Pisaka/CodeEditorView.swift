@@ -1944,6 +1944,10 @@ struct CodeEditorView: NSViewRepresentable {
         ///
         /// `false` means "not mine", and the click proceeds as an ordinary one.
         func unfoldPlaceholder(at point: NSPoint, in textView: NSTextView) -> Bool {
+            // Every plain single click reaches here, placeholder or not, which
+            // makes it the one place the view tells the coordinator that the
+            // selection about to change carries no direction.
+            forgetFoldSelectionDirection()
             guard !folds.state.isEmpty,
                   let layoutManager = overlayLayoutManager,
                   let container = textView.textContainer
@@ -1989,6 +1993,21 @@ struct CodeEditorView: NSViewRepresentable {
         /// placeholder.
         private var previousFoldSelection = NSRange(location: NSNotFound, length: 0)
 
+        /// Forget the caret the next selection change would have read a
+        /// direction from, so `FoldCaretRule` sees the "no direction" request
+        /// its contract describes.
+        ///
+        /// Called from the three places a selection moves for a reason that is
+        /// *not* a keyboard move away from the previous caret: a plain click
+        /// (`unfoldPlaceholder(at:in:)` is reached by every one of them), a tab
+        /// restore (`restoreViewport(for:)`) and a reveal
+        /// (`revealRange(_:)`). Without it the stale caret — a different tab's,
+        /// even — reads as a direction, and a click into hidden text lands past
+        /// the whole block instead of beside the placeholder it hit.
+        private func forgetFoldSelectionDirection() {
+            previousFoldSelection = NSRange(location: NSNotFound, length: 0)
+        }
+
         /// Put the caret where it can actually be drawn, if the selection change
         /// just landed it strictly inside hidden text.
         ///
@@ -2018,6 +2037,7 @@ struct CodeEditorView: NSViewRepresentable {
         func revealRange(_ range: NSRange) {
             guard let textView else { return }
             folds.apply(FoldReveal.unfolding(range, in: folds.state))
+            forgetFoldSelectionDirection()
             textView.setSelectedRange(range)
             textView.scrollRangeToVisible(range)
         }
@@ -3148,6 +3168,10 @@ struct CodeEditorView: NSViewRepresentable {
         func restoreViewport(for fileID: UUID) {
             guard let textView else { return }
             let length = textView.textStorage?.length ?? 0
+            // The remembered caret has nothing to do with wherever the caret sat
+            // in the tab being left, so no direction may be read across the
+            // switch.
+            forgetFoldSelectionDirection()
             guard let viewport = viewports.viewport(for: fileID, clampedToLength: length) else {
                 textView.setSelectedRange(NSRange(location: 0, length: 0))
                 scrollEditor(to: 0)

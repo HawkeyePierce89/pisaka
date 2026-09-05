@@ -217,10 +217,13 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     the view" split the rainbow palette follows.
     **Folding is the one thing in this file that is not an overlay**, and it is
     two halves that live here together because they must agree about exactly which
-    characters are hidden. *Half one* is the glyph pass: `setGlyphs(…)` stores
-    `NSLayoutManager.GlyphProperty.null` for every character of every folded range,
+    characters are hidden. *Half one* is the glyph pass: `setGlyphs(…)` **adds**
+    `NSLayoutManager.GlyphProperty.null` to every character of every folded range,
     line separators included, so nothing inside it is drawn and nothing inside it
-    advances. The incoming buffer is `const`, so the properties are copied, the copy
+    advances. **Added, never assigned over**: `GlyphProperty` is an option set, and
+    `.controlCharacter` — the bit on exactly the separators half two must be asked
+    about — is carried in on the incoming properties. Overwriting it is what would
+    make half two unreachable, so half one preserves it. The incoming buffer is `const`, so the properties are copied, the copy
     edited and `super` handed the copy — the glyphs and the character indexes travel
     through untouched, which is what keeps every UTF-16 offset meaning the same thing
     folded and unfolded. Nothing is copied at all when there is no fold or when no
@@ -235,12 +238,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     reasoning, not a measurement** — the Task 5 spike could not run inside the task
     that wrote this file (nothing could fold anything until the controller, the
     gutter and the commands existed), and it is still owed as the first item of the
-    plan's mandatory manual DEBUG pass. Until it runs, two things are unverified on
-    real text: whether half two is load-bearing at all, and whether it is even
-    reached — `actionForControlCharacter(at:)` is consulted for glyphs carrying
-    `.controlCharacter`, and half one has just rewritten those separators to
-    `.null`. If the pass shows half two inert it is deleted, along with its gating
-    rule, per the plan. Both halves read one `FoldedRanges` — a small
+    plan's mandatory manual DEBUG pass. What that pass still has to settle is
+    whether half two is load-bearing at all; whether it is *reachable* is no longer
+    open, and that is what the `insert` above buys — an assignment there would have
+    stripped the `.controlCharacter` bit `actionForControlCharacter(at:)` is
+    consulted on, silencing half two by construction. If the pass shows half two
+    inert it is deleted, along with its gating rule, per the plan. Both halves read one `FoldedRanges` — a small
     reference box holding the sorted, non-overlapping set `FoldState.hiddenRanges`
     hands over. It exists because the layout manager is `@MainActor` and the
     typesetter is not (TextKit asks its question straight out of the line-breaking
