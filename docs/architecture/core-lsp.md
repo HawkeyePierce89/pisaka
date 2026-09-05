@@ -300,11 +300,13 @@ document, together with the limits they carry.
     the first write that throws and the writes before it stay written) and
     **`resourceOperations: []`**, the load-bearing one. D38 adds the ninth and last
     node, `textDocument.foldingRange`, under that same rule and closed like the
-    rest: `lineFoldingOnly: false` (this editor hides a character range, not a run
-    of whole lines, so a character-precise server is taken at its word about
-    the *end* — its **start** is floored at the header line's content end, the
-    one place a server is second-guessed, because `FoldRegion`'s "the header
-    line stays visible in full" is load-bearing rather than a preference),
+    rest: `lineFoldingOnly: false` (which is what makes a server name the
+    *closer's* line as the range's end — the line `FoldRegion`'s contract wants
+    hidden — rather than the line above it; both **characters** it sends are then
+    clamped to their own line's content end, the start floored and the end
+    raised, which is the one place a server is second-guessed, because
+    `FoldRegion`'s "the header line stays visible in full, the last line joins it
+    behind the placeholder" is load-bearing rather than a preference),
     `collapsedText: false` (the placeholder is always `…`; a server-supplied one
     would be a second vocabulary to render) and a `foldingRangeKind.valueSet`
     naming exactly the three `FoldRegionKind` cases — the closed table a kind
@@ -3178,17 +3180,22 @@ text already in the request and walks nothing. The whole feature is documented i
 optional because the specification types them so, and **their absence means
 exactly what this editor wants**: no `startCharacter` is "from the end of
 `startLine`'s content", no `endCharacter` is "to the end of `endLine`'s content",
-which is the hidden range the fold engine needs anyway — so a line-oriented
-server and a character-precise one are one code path. The provider then
-floors the start at `startLine`'s content end: `FoldRegion` promises the
-header line stays visible in full, and a server naming the start of the
-folded *node* (column 0 of an import group's first item, the `//` of a
-comment run, the `{` of a block) would otherwise hide the header's own text
-— leaving a numbered row showing nothing but the placeholder, a caret
-clicked into that text ejected by `FoldCaretRule`, and `FoldReveal`
-springing the block open for a range that is already visible. It costs a
-line-oriented answer nothing, and costs a character-precise one nothing at
-the end bound, which is where that precision buys something. `kind` is read
+which is the hidden range the fold engine needs anyway. The provider holds a
+server that *does* send them to the same two offsets — the start floored at
+`startLine`'s content end, the end raised to `endLine`'s — so a line-oriented
+server and a character-precise one are one code path with one arithmetic.
+`FoldRegion` promises the header line stays visible in full and the last line
+joins it behind the placeholder, and both halves are load-bearing: a start naming
+the folded *node* (column 0 of an import group's first item, the `//` of a
+comment run, the `{` of a block) would hide the header's own text — leaving a
+numbered row showing nothing but the placeholder, a caret clicked into that text
+ejected by `FoldCaretRule`, and `FoldReveal` springing the block open for a range
+that is already visible — while an end left where a server put it would leave the
+rest of that line laid out on the header's row *underneath* the placeholder,
+which reserves no width of its own, and stealing its click. Neither clamp needs
+to be kept in step with `LSPPositionMap` by hand: `offset(for:)` already clamps a
+character to its own line's content end, so both land there whatever the server
+sent. `kind` is read
 through the closed `FoldRegionKind` table
 (`comment`/`imports`/`region`), and a string that table does not name decodes as
 **absent rather than as a refusal**, because `FoldingRangeKind` is explicitly open

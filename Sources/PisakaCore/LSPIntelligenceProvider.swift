@@ -534,26 +534,38 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
     /// file nothing else, exactly as `LSPFoldingRangeResponse` drops one
     /// unreadable element and keeps its siblings.
     ///
-    /// **The two optional characters are read as the specification defines them**,
-    /// and their defaults are the hidden range this editor wants anyway: no
-    /// `startCharacter` means "from the end of `startLine`'s content", no
-    /// `endCharacter` means "to the end of `endLine`'s content". So a
-    /// line-oriented server and a character-precise one are the same code path
-    /// — `lineFoldingOnly: false` is what the handshake told them, and the end
-    /// bound is where that precision buys something: a closing `}` joins the
-    /// header's row instead of taking one of its own.
+    /// **Both bounds are the named line's content end**, which is the one place a
+    /// server is second-guessed, because that *is* ``FoldRegion``'s contract —
+    /// the header line stays visible in full, the block's last line joins it
+    /// behind the placeholder — and the contract is load-bearing for the whole
+    /// feature rather than a preference.
     ///
-    /// **The start bound is nonetheless floored at the header line's content
-    /// end**, which is the one place a server *is* second-guessed, because
-    /// ``FoldRegion``'s contract — the header line stays visible in full — is
-    /// load-bearing for the whole feature rather than a preference. A server
-    /// that names the start of the folded *node* (column 0 of the first `use`
-    /// of an import group, the `//` of a comment run, the `{` of a block) would
-    /// otherwise hide the header's own text, leaving a numbered row showing
-    /// nothing but `…`; and `FoldCaretRule` would then eject a caret clicked
-    /// into that text while `FoldReveal` would spring the block open for a
-    /// range that is already visible. Flooring costs nothing a line-oriented
-    /// server sends and nothing a character-precise one sends about the end.
+    /// - The **start** is floored there. A server that names the start of the
+    ///   folded *node* (column 0 of the first `use` of an import group, the `//`
+    ///   of a comment run, the `{` of a block) would otherwise hide the header's
+    ///   own text, leaving a numbered row showing nothing but `…`; and
+    ///   `FoldCaretRule` would then eject a caret clicked into that text while
+    ///   `FoldReveal` would spring the block open for a range that is already
+    ///   visible.
+    /// - The **end** is raised there for the mirror reason, and it is the sharper
+    ///   of the two: the `…` is *drawn over* the header's row without reserving
+    ///   any layout width for itself (a hidden glyph advances nothing), so
+    ///   anything a server leaves visible after the hidden run is laid out at
+    ///   exactly the x the placeholder is stroked at. `endLine: <the closer's
+    ///   line>, endCharacter: 0` is not a hypothetical shape — it is what gopls
+    ///   sends under the `lineFoldingOnly: false` this handshake asks for — and
+    ///   taking it at its word paints the `…` on top of the `}` and hands
+    ///   `unfoldPlaceholder(at:in:)` the click meant for it. Raising the end is
+    ///   what makes "the closing `}` joins the header's row" true rather than
+    ///   merely overlapping it.
+    ///
+    /// **The two optional characters are still decoded** — the specification
+    /// defines them and ``LSPFoldingRange`` reads what it is sent — but they
+    /// cannot move a bound this editor can draw. That is not a second rule kept
+    /// in step with `LSPPositionMap` by hand: `offset(for:)` already clamps a
+    /// character to its own line's content end, so the floor and the ceiling both
+    /// land there whatever the server sent, and a line-oriented server and a
+    /// character-precise one stay one code path with one arithmetic.
     ///
     /// The header line is counted with the **editor's** line table, not with
     /// LSP's: it is the number the gutter draws a chevron on. The two disagree
@@ -590,28 +602,23 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
             guard range.startLine >= 0,
                   range.endLine >= range.startLine,
                   range.endLine < lspLineStarts.count else { return nil }
-            // The floor, not the server's word: see the note above. `boundary`
-            // with no character *is* this value, so a line-oriented answer is
-            // unchanged and only a start naming text on the header line moves.
-            let start = max(
-                boundary(
-                    line: range.startLine,
-                    character: range.startCharacter,
-                    in: source,
-                    lineStarts: lspLineStarts
-                ),
-                LSPPositionMap.lineContentEnd(
-                    ofLine: range.startLine,
-                    in: source,
-                    lineStarts: lspLineStarts
-                )
-            )
-            let end = boundary(
-                line: range.endLine,
-                character: range.endCharacter,
+            // Not the server's word at either end: see the note above. This is
+            // the floor and the ceiling at once, because both clamps land on the
+            // same offset — the line's content end, which is also what an absent
+            // character means.
+            let start = LSPPositionMap.lineContentEnd(
+                ofLine: range.startLine,
                 in: source,
                 lineStarts: lspLineStarts
             )
+            let end = LSPPositionMap.lineContentEnd(
+                ofLine: range.endLine,
+                in: source,
+                lineStarts: lspLineStarts
+            )
+            // A block that hides nothing is not a block: a range naming one line
+            // at both ends leaves the two bounds equal and is dropped here rather
+            // than drawn as a chevron with nothing behind it.
             guard end > start else { return nil }
             return FoldRegion(
                 hiddenRange: NSRange(location: start, length: end - start),
@@ -623,30 +630,6 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
             )
         }
         return regions.sorted()
-    }
-
-    /// One end of a folding range as a buffer offset: the character the server
-    /// named, or the end of that line's content when it named none.
-    ///
-    /// The absent case is the specification's own default ("the length of the
-    /// line"), read through the one function that already knows where a line's
-    /// content stops — which is not `lineStarts[line + 1] - 1`, because a CRLF is
-    /// one separator of two code units and a bound between its halves is a range
-    /// the editor cannot hide.
-    private func boundary(
-        line: Int,
-        character: Int?,
-        in source: NSString,
-        lineStarts: [Int]
-    ) -> Int {
-        guard let character else {
-            return LSPPositionMap.lineContentEnd(ofLine: line, in: source, lineStarts: lineStarts)
-        }
-        return LSPPositionMap.offset(
-            for: LSPPosition(line: line, character: character),
-            in: source,
-            lineStarts: lineStarts
-        )
     }
 
     // MARK: - Completions

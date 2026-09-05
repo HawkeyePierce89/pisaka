@@ -101,11 +101,16 @@ public struct FoldState: Equatable, Sendable {
     /// separator *inside* a hidden range, its first unit included — so the test is
     /// on the code unit immediately before the line's start, and it is
     /// **inclusive** of the range's own start, where the header's separator sits.
-    /// Asking `hides(offset: lineStart)` instead is right only while every hidden
-    /// range ends mid-line: a server that names `endCharacter: 0` ends one exactly
-    /// at a line start, and that line — already laid out on the header's row —
-    /// would be answered "visible" and drawn a second number on top of the
-    /// header's.
+    /// The two answers diverge at exactly one shape — a hidden range ending *on*
+    /// a line start, where `hides(offset: lineStart)` says "visible" about a line
+    /// already laid out on the header's row and the gutter draws a second number
+    /// on top of the header's. No producer makes that shape today: the scanner
+    /// ends a region at its last line's content end by construction, and
+    /// `LSPIntelligenceProvider.foldRegions(for:)` raises a server's end to the
+    /// same place for the placeholder's sake. This still asks the layout's own
+    /// question rather than borrowing the caret's, because the two are different
+    /// questions and their agreeing is a property of today's producers rather
+    /// than of the state.
     ///
     /// The range is returned rather than a `Bool` so a caller walking lines can
     /// skip the whole collapsed run at once instead of one hidden line at a time.

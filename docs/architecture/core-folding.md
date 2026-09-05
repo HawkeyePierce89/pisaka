@@ -161,13 +161,16 @@ loses its own row exactly when the separator that would have broken it is hidden
 the typesetter zero-advances every separator *inside* a hidden range, its first
 unit included — so the test is on the code unit immediately before the line's
 start and is **inclusive** of the range's own start, where the header's separator
-sits. Asking `hides(offset: lineStart)` instead is right only while every hidden
-range ends mid-line, which is the fallback scanner's shape but not a server's: one
-naming `endCharacter: 0` ends a range exactly at a line start, and that line —
-already laid out on the header's row — would be called visible and drawn a second
-gutter number on top of the header's. The covering range is returned rather than a
-`Bool` so the gutter can skip a whole collapsed run in one step instead of one
-hidden line at a time (see the ruler, below).
+sits. The two answers diverge at exactly one shape — a hidden range ending *on* a
+line start, where `hides(offset:)` would call a line already laid out on the
+header's row visible and the gutter would draw a second number on top of the
+header's. Neither producer makes that shape: the scanner ends a region at its last
+line's content end by construction, and the LSP provider raises a server's end to
+the same place (see the seam contract, above). The layout's question is asked
+anyway, because the two *are* different questions and their agreeing is a property
+of today's producers rather than of the state. The covering range is returned
+rather than a `Bool` so the gutter can skip a whole collapsed run in one step
+instead of one hidden line at a time (see the ruler, below).
 
 **The three maintenance rules**, each in one place:
 
@@ -410,17 +413,28 @@ default is `hover`'s reason read one way further: folding is macOS-only, so
 neither iOS surface has anything to hang an answer on.
 
 The two providers answer the same contract, and the LSP one is held to it
-rather than trusted with it: the handshake says `lineFoldingOnly: false`, so a
-server's `endCharacter` is used verbatim — that is what the flag buys, a closing
-token joining the header's row — but its `startCharacter` is **floored at the
-header line's content end**. A server naming the start of the folded *node*
-(column 0 of an import group's first item, the `//` of a comment run, the `{` of
-a block) would otherwise hide the header line's own text, and "the header line
-stays visible in full" is not a preference here: it is what makes a chevron point
-at something readable, what keeps `FoldCaretRule` from ejecting a caret clicked
-into that text, and what makes `FoldReveal`'s "a range that only touches the
-header's text unfolds nothing" true. The scanner gets the same range by
-construction; the floor is what makes the server's answer say it too.
+rather than trusted with it: **both bounds it sends are clamped to the named
+line's content end**, the start floored and the end raised. A server naming the
+start of the folded *node* (column 0 of an import group's first item, the `//` of
+a comment run, the `{` of a block) would otherwise hide the header line's own
+text, and "the header line stays visible in full" is not a preference here: it is
+what makes a chevron point at something readable, what keeps `FoldCaretRule` from
+ejecting a caret clicked into that text, and what makes `FoldReveal`'s "a range
+that only touches the header's text unfolds nothing" true. The end is raised for
+the mirror reason, and it is the sharper of the two: the placeholder is *drawn
+over* the header's row and reserves no layout width for itself (a hidden glyph
+advances nothing), so anything a server leaves visible after the hidden run is
+laid out at exactly the x the `…` is stroked at, and `unfoldPlaceholder(at:in:)`
+takes the click meant for it. `endLine: <the closer's line>, endCharacter: 0` is
+the ordinary shape rather than a malformed one — it is what gopls sends under the
+`lineFoldingOnly: false` this handshake asks for — so raising the end is what
+makes "the closing token joins the header's row" true instead of merely
+overlapping it. `lineFoldingOnly: false` still earns its keep: it is what makes a
+server name the *closer's* line as the end at all, which is the line the contract
+wants hidden. The scanner gets the same range by construction; the two clamps are
+what make the server's answer say it too, and they cost nothing to keep in step
+with `LSPPositionMap` — `offset(for:)` already clamps a character to its own
+line's content end, so neither character can move a bound either way.
 
 The full seam contract, and where this sits among the six questions, is in
 `core-intelligence.md`; the wire half, the capability node and the budget are

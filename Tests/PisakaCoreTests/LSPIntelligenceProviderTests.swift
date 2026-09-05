@@ -562,10 +562,14 @@ final class LSPIntelligenceProviderTests: XCTestCase {
         XCTAssertEqual(region.kind, .imports)
     }
 
-    /// A character-precise server is taken at its word at the **end** — that is
-    /// what `lineFoldingOnly: false` buys, and the closing token joins the
-    /// header's row instead of taking one of its own.
-    func testTheServersEndCharacterIsUsedWhereItSendsIt() async throws {
+    /// **The end is raised to the end line's content end**, whatever character the
+    /// server named there — the mirror of the start's floor, and the sharper of
+    /// the two. The placeholder reserves no layout width, so text a server leaves
+    /// visible after the hidden run lands at exactly the x the `…` is stroked at
+    /// and swallows the click meant for it. `endCharacter: 0` on the closer's line
+    /// is what gopls sends under `lineFoldingOnly: false`, so this is the ordinary
+    /// answer rather than a malformed one.
+    func testTheServersEndCharacterIsRaisedToThatLinesContentEnd() async throws {
         transport.script(LSPMethod.foldingRange, .reply(.array([
             foldingRangeJSON(startLine: 0, endLine: 1, endCharacter: 6),
         ])))
@@ -575,12 +579,35 @@ final class LSPIntelligenceProviderTests: XCTestCase {
 
         let region = try XCTUnwrap(regions.first)
         let source = mainSource as NSString
-        let start = NSMaxRange(source.range(of: "import Core"))
-        XCTAssertEqual(region.hiddenRange, NSRange(location: start, length: 18 - start))
-        XCTAssertEqual(source.substring(with: region.hiddenRange), "\nimport")
+        XCTAssertEqual(
+            region.hiddenRange,
+            NSRange(
+                location: NSMaxRange(source.range(of: "import Core")),
+                length: "\nimport Foundation".utf16.count
+            ),
+            "the block's last line joins the header's row, closer and all"
+        )
         XCTAssertEqual(region.headerLine, 0)
         // Nothing named it, and an unnamed block is still a block.
         XCTAssertNil(region.kind)
+    }
+
+    /// The shape the raise exists for, stated as the thing that must not happen:
+    /// nothing of the end line is left visible on the header's row. A server
+    /// ending at column 0 of the closer's line would otherwise leave the `}`
+    /// laid out under the placeholder.
+    func testAnEndAtColumnZeroStillHidesTheCloser() async throws {
+        let source = "func f() {\n    body\n}\ntail\n"
+        transport.script(LSPMethod.foldingRange, .reply(.array([
+            foldingRangeJSON(startLine: 0, startCharacter: 10, endLine: 2, endCharacter: 0),
+        ])))
+        let provider = makeProvider()
+
+        let regions = await provider.foldRegions(for: foldRequest(text: source))
+
+        let region = try XCTUnwrap(regions.first)
+        XCTAssertEqual((source as NSString).substring(with: region.hiddenRange), "\n    body\n}")
+        XCTAssertEqual(region.headerLine, 0)
     }
 
     /// **The start bound is floored at the header line's content end.** A server
@@ -613,9 +640,10 @@ final class LSPIntelligenceProviderTests: XCTestCase {
         XCTAssertEqual(region.kind, .imports)
     }
 
-    /// The floor cannot resurrect a region the buffer cannot hold: a server that
-    /// names a start inside the header line and an end on that same line is left
-    /// with nothing to hide, and the block is dropped rather than widened.
+    /// Neither clamp can resurrect a region the buffer cannot hold: a server that
+    /// names a start and an end on the *same* line leaves both bounds on that
+    /// line's content end, so there is nothing to hide and the block is dropped
+    /// rather than widened to the line below.
     func testAFoldFlooredToNothingIsDropped() async throws {
         transport.script(LSPMethod.foldingRange, .reply(.array([
             foldingRangeJSON(startLine: 0, startCharacter: 0, endLine: 0, endCharacter: 6),

@@ -650,9 +650,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     header's fragment), and drawing it would stack a second number, a second blame
     label and a second severity dot on the header's row. The question is
     `FoldState.hiddenRange(collapsingLineStartingAt:)` and deliberately not
-    `hides(offset:)` — see `core-folding.md` for why the two differ at a range that
-    ends exactly on a line start, which is the shape a server naming
-    `endCharacter: 0` produces.
+    `hides(offset:)` — see `core-folding.md` for why the two are different
+    questions even though no producer currently makes the range that separates
+    them.
     The **whole collapsed run is skipped in one step**, not a line at a time:
     hidden characters keep their glyphs, so `glyphRange(forBoundingRect:)` hands
     back a character range spanning every folded line, and stepping through them
