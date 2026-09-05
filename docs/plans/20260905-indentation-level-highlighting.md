@@ -298,15 +298,15 @@ and turning it on brings it back without a reload.
   `Sources/Pisaka/BracketHighlightController.swift`,
   `Sources/Pisaka/ContentView.swift`
 
-- [ ] add the scan-applied hook to the bracket controller (one debounce, one
+- [x] add the scan-applied hook to the bracket controller (one debounce, one
       generation token — no second one)
-- [ ] add the coordinator's width computation, its cache, and its triggers: the
+- [x] add the coordinator's width computation, its cache, and its triggers: the
       debounced text change, the tab switch, and the configuration revision
       compared **both** in the scan-applied hook and on the update path
-- [ ] add the undefaulted flag to the editor view, forward it from the
+- [x] add the undefaulted flag to the editor view, forward it from the
       coordinator to the layout manager in both the build and the update path,
       and pass it from the content view in one line
-- [ ] run `swift test` — must pass before Task 6
+- [x] run `swift test` — must pass before Task 6
 
 ### Task 6: The Preferences toggle
 
