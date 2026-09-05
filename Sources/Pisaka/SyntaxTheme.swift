@@ -45,7 +45,7 @@ struct SyntaxTheme {
 
     // MARK: - Brackets
 
-    /// The rainbow palette, cycled by nesting depth (JetBrains Rainbow Brackets).
+    /// The rainbow palette, cycled by nesting depth.
     ///
     /// `BracketDepthScanner` reports an *honest* depth (7 stays 7) and the palette
     /// is resolved here with `depth % count` — the "semantics in Core, color in the
@@ -71,10 +71,45 @@ struct SyntaxTheme {
     var unmatchedBracketColor: PlatformColor { SyntaxTheme.unmatchedBracket }
 
     /// The background painted behind both halves of the pair
-    /// `BracketMatchEngine` matched for the caret (VS Code/Xcode). Opaque and
-    /// neutral: every rainbow color has to stay readable on top of it, and it must
-    /// not be mistaken for the selection highlight.
+    /// `BracketMatchEngine` matched for the caret. Opaque and neutral: every
+    /// rainbow color has to stay readable on top of it, it must not be mistaken
+    /// for the selection highlight, and — since it is painted over the indentation
+    /// tints rather than under them — it has to read as a background of its own
+    /// wherever a matched pair sits beside an indent.
     var matchedPairBackground: PlatformColor { SyntaxTheme.pairBackground }
+
+    // MARK: - Indentation levels
+
+    /// The palette painted behind one indentation unit of leading whitespace,
+    /// cycled by the unit's level.
+    ///
+    /// `IndentLevelScanner` reports an *honest* level (a tab crossing several unit
+    /// boundaries really does skip) and the palette is resolved here with
+    /// `level % count` — the same "semantics in Core, color in the view" split the
+    /// bracket palette follows. Four hues rather than the brackets' five: nesting
+    /// this feature has to distinguish is read one column beside the next, so a
+    /// shorter cycle keeps adjacent levels further apart in hue than a longer one
+    /// would.
+    ///
+    /// Every entry is translucent, and that translucency is the constraint the hues
+    /// are chosen under rather than a decoration: the blocks are painted *under*
+    /// everything the editor draws, so the text, the selection, the matched-pair
+    /// background and both search-match backgrounds all sit on top of them and each
+    /// has to stay legible there. `levelBackgroundAlpha` is therefore low enough
+    /// that a block reads as a tint of the editor's own background — a hue told
+    /// apart from its neighbour, never a surface competing with what is drawn over
+    /// it.
+    var indentLevelColors: [PlatformColor] { SyntaxTheme.indentLevelPalette }
+
+    /// The indentation tint for a level, cycling through `indentLevelColors`. A
+    /// negative level (which the scanner never produces) folds back into range
+    /// rather than trapping, mirroring `bracketColor(forDepth:)`.
+    func indentLevelColor(forLevel level: Int) -> PlatformColor {
+        let palette = SyntaxTheme.indentLevelPalette
+        guard !palette.isEmpty else { return .clear }
+        let index = ((level % palette.count) + palette.count) % palette.count
+        return palette[index]
+    }
 
     // MARK: - Search
 
@@ -146,6 +181,12 @@ struct SyntaxTheme {
         bracketColor(forDepth: depth)
     }
 
+    /// The indentation tint for a level, spelled as the `NSColor` the background
+    /// pass in `BracketOverlayLayoutManager` fills with.
+    func nsIndentLevelColor(forLevel level: Int) -> NSColor {
+        indentLevelColor(forLevel: level)
+    }
+
     var nsUnmatchedBracketColor: NSColor { unmatchedBracketColor }
 
     var nsMatchedPairBackground: NSColor { matchedPairBackground }
@@ -166,6 +207,23 @@ struct SyntaxTheme {
 
     private static let unmatchedBracket: PlatformColor = .dynamic(light: 0xC4241A, dark: 0xFF6B60)
 
+    /// The one alpha every indentation tint carries. Measured against the four
+    /// things drawn over the blocks — the glyphs, the selection, the matched-pair
+    /// background and the two search-match backgrounds — rather than picked for
+    /// looks: at this value each of them keeps its own color, and the block is
+    /// still a hue rather than a gray.
+    private static let levelBackgroundAlpha: CGFloat = 0.1
+
+    /// Level → tint, cycled. Blue, purple, teal, gold — the bracket palette's own
+    /// hues minus one, so the two features that both read nesting agree about what
+    /// a level looks like.
+    private static let indentLevelPalette: [PlatformColor] = [
+        .dynamic(light: 0x1B6BCC, dark: 0x6FB3FF, alpha: levelBackgroundAlpha),
+        .dynamic(light: 0x7B2FBE, dark: 0xD9A2FF, alpha: levelBackgroundAlpha),
+        .dynamic(light: 0x0E7C86, dark: 0x5BD5E0, alpha: levelBackgroundAlpha),
+        .dynamic(light: 0x9A6400, dark: 0xFFD479, alpha: levelBackgroundAlpha),
+    ]
+
     private static let pairBackground: PlatformColor = .dynamic(light: 0xD0DCEA, dark: 0x3D4B5C)
 
     private static let searchBackground: PlatformColor = .dynamic(light: 0xF3E39B, dark: 0x5C4F1E)
@@ -180,8 +238,9 @@ struct SyntaxTheme {
 
     private static let diagnosticHint: PlatformColor = .dynamic(light: 0x77808C, dark: 0x6E7681)
 
-    /// Token kind → appearance-aware color. Tones loosely follow Xcode's default
-    /// light/dark presentation themes. Built through the cross-platform
+    /// Token kind → appearance-aware color. Tones follow the platform's own
+    /// conventional light/dark source presentation, so a file reads the way a
+    /// native editor's does. Built through the cross-platform
     /// `PlatformColor.dynamic(light:dark:)` bridge (on macOS `PlatformColor` is
     /// `NSColor`, so these stay the exact same dynamic `NSColor`s as before).
     private static let table: [SyntaxTokenKind: PlatformColor] = [

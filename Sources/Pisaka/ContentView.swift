@@ -1004,6 +1004,7 @@ struct ContentView: View {
             text: binding(for: file.id),
             fontSize: settings.fontSize,
             completionEnabled: settings.completionEnabled,
+            indentLevelHighlightingEnabled: settings.indentLevelHighlightingEnabled,
             interfaceMetrics: metrics,
             search: search,
             reveal: reveal,

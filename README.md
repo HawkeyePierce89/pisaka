@@ -81,7 +81,9 @@ do — is in [`docs/FEATURES.md`](docs/FEATURES.md).
   Tab key, and applies `trim_trailing_whitespace`, `insert_final_newline`
   and `end_of_line` on save.
 - **Editor** — line numbers, auto-indent, auto-closing brackets/quotes,
-  matched-pair and rainbow bracket highlighting, Cmd+D duplicate, Cmd+/
+  matched-pair and rainbow bracket highlighting, indentation-level highlighting
+  (leading whitespace tinted one unit at a time, cycling by level; macOS, on by
+  default, one Preferences switch), Cmd+D duplicate, Cmd+/
   toggle comment, middle-mouse column selection, a minimap, and per-tab
   caret/scroll memory.
 - **Syntax highlighting** (tree-sitter via Neon) for Swift, JavaScript,
@@ -97,7 +99,8 @@ do — is in [`docs/FEATURES.md`](docs/FEATURES.md).
   warning alert and leave your current workspace unchanged.
 - **Automatic updates** via Sparkle — consent asked once, every download
   verified; **Check for Updates…** is always in the app menu.
-- **Preferences** — theme, tab orientation, fonts, completion on/off, the
+- **Preferences** — theme, tab orientation, fonts, completion on/off,
+  indentation-level highlighting on/off, the
   language-server and LeetCode screens, and an Acknowledgements tab with
   every dependency's license.
 

@@ -1864,7 +1864,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     for theme, a `Stepper` + numeric "Editor font size: N pt" display bound to
     `settings.fontSize`, ranged/stepped through the store's constants, and a
     `Toggle` bound to `settings.completionEnabled`, "Offer completions as you
-    type"). That last row is the *same flag* the bottom bar's lightbulb writes
+    type", and a second `Toggle` bound to
+    `settings.indentLevelHighlightingEnabled`, "Highlight indentation levels" —
+    bound straight through in the same way, but unlike the completion flag it has
+    no second surface, so this checkbox is the only place it is set). The
+    completion row is the *same flag* the bottom bar's lightbulb writes
     (`app-window.md`): both bind straight through to the store with no local
     `@State`, which is what makes it impossible for the two surfaces to disagree —
     they are two views of one stored value, not two states to keep in sync. The
@@ -1880,9 +1884,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     spread across the views that read `settings`: the theme via
     `.preferredColorScheme` on the window content root (`ContentView`), the tab
     layout in `ContentView`, the shared editor font size in the
-    code views (`CodeEditorView`/`DiffView`/`MergeView`), and completion on/off
+    code views (`CodeEditorView`/`DiffView`/`MergeView`), completion on/off
     as a plain (undefaulted) value on `CodeEditorView` plus the Find > "Complete"
-    item's `.disabled` in `PisakaApp`.
+    item's `.disabled` in `PisakaApp`, and indentation-level highlighting as a
+    second such value on `CodeEditorView` (`app-editor-overlays.md`).
     The zoom feature adds a **"Terminal font size: N pt" `Stepper`** beside the
     editor's, bound to `settings.terminalFontSize` over the same rule's
     range/step, so the two font zones read as one pair of rows and share the

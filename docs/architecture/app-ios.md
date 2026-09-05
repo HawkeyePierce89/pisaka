@@ -16,6 +16,17 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     palettes stay per-platform and are *not* routed through this bridge —
     `DiffColors` (raw `NSColor`) on macOS, a parallel `DiffColors_iOS` (raw
     `UIColor`) on iOS — using the system semantic colors directly.
+    A second, **alpha-carrying** form — `dynamic(light:dark:alpha:)` — is the
+    primitive, and the two-argument one is it at `alpha: 1`, so the opaque path is
+    unchanged by construction. It exists because the alpha must be applied to each
+    *per-appearance variant*, inside the resolution, rather than to the finished
+    color: a dynamic color has no single component to read, so asking it for a
+    translucent copy resolves it against whatever appearance happens to be current
+    and freezes it there, while applying the alpha to the two concrete sRGB colors
+    *before* the closure keeps the result dynamic in both modes. Its one consumer
+    today is the editor's translucent indentation-level palette
+    (`app-editor-overlays.md`), which is macOS-only; the form itself is
+    cross-platform like the rest of the shim.
   - `Platform/PlatformFeedback.swift` — `warning()` (beep on macOS, error haptic
     on iOS), the single reroute for every former `NSSound.beep()` call site, plus
     `light()` for "the action ran but found nothing" — a Go to Definition on a

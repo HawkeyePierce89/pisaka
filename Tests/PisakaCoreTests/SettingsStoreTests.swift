@@ -20,6 +20,8 @@ final class SettingsStoreTests: XCTestCase {
         XCTAssertEqual(store.fontSize, 13)
         // Default *on*: a user who has never opened Preferences gets completion.
         XCTAssertTrue(store.completionEnabled)
+        // And the level tints, for the same reason: the feature ships on.
+        XCTAssertTrue(store.indentLevelHighlightingEnabled)
     }
 
     func testFontSizeClampsBelowMin() {
@@ -686,5 +688,69 @@ final class SettingsStoreTests: XCTestCase {
             store.consent(for: LSPDownloadableServer.python.id), .declined,
             "one malformed entry re-asked about every server"
         )
+    }
+
+    // MARK: - Indentation-level highlighting
+
+    /// The `completionEnabled` read discipline, and it is here for the same
+    /// reason: this preference ships **on**, so a `bool(forKey:)` read would
+    /// launch every user who has never touched it with the tints silently off.
+    func testAnAbsentIndentLevelHighlightingKeyReadsAsOn() {
+        let defaults = makeDefaults()
+        XCTAssertNil(defaults.object(forKey: SettingsStore.Keys.indentLevelHighlightingEnabled))
+
+        XCTAssertTrue(SettingsStore(defaults: defaults).indentLevelHighlightingEnabled)
+    }
+
+    /// Every fixture is one a coercing read gets *wrong*: `bool(forKey:)` falls
+    /// back to `NSString.boolValue`, so `"no"`/`"0"` come back `false`, and a
+    /// `Data`/array/date comes back `false` too — the feature off for a user who
+    /// never asked. (A `"yes"` fixture would prove nothing: both reads answer
+    /// `true` for it.)
+    func testAWrongTypedStoredIndentLevelHighlightingFlagFallsBackToOn() {
+        let wrongTypedValues: [Any] = ["no", "0", "off", Data(), ["a"], Date(timeIntervalSince1970: 0)]
+        for (index, wrongTyped) in wrongTypedValues.enumerated() {
+            // One suite per fixture — the loop must not depend on the previous
+            // iteration's writes.
+            let defaults = makeDefaults("\(#function).\(index)")
+            defaults.set(wrongTyped, forKey: SettingsStore.Keys.indentLevelHighlightingEnabled)
+
+            XCTAssertTrue(
+                SettingsStore(defaults: defaults).indentLevelHighlightingEnabled,
+                "a \(type(of: wrongTyped)) value of \(wrongTyped) must not switch the level tints off"
+            )
+        }
+    }
+
+    /// Both directions across a fresh store: a stored `false` is what
+    /// distinguishes this preference from an absent key, and a stored `true`
+    /// must survive the round trip just as plainly.
+    func testIndentLevelHighlightingRoundTripsAcrossAFreshStore() {
+        let defaults = makeDefaults()
+
+        let first = SettingsStore(defaults: defaults)
+        first.indentLevelHighlightingEnabled = false
+        XCTAssertFalse(SettingsStore(defaults: defaults).indentLevelHighlightingEnabled)
+
+        first.indentLevelHighlightingEnabled = true
+        XCTAssertTrue(SettingsStore(defaults: defaults).indentLevelHighlightingEnabled)
+    }
+
+    /// One flag, one meaning: the two editor switches are independent, so
+    /// turning completion off may not take the tints with it (nor the reverse).
+    func testTheTwoEditorSwitchesAreIndependent() {
+        let defaults = makeDefaults()
+        let store = SettingsStore(defaults: defaults)
+
+        store.completionEnabled = false
+        XCTAssertTrue(store.indentLevelHighlightingEnabled)
+
+        store.completionEnabled = true
+        store.indentLevelHighlightingEnabled = false
+        XCTAssertTrue(store.completionEnabled)
+
+        let reloaded = SettingsStore(defaults: defaults)
+        XCTAssertTrue(reloaded.completionEnabled)
+        XCTAssertFalse(reloaded.indentLevelHighlightingEnabled)
     }
 }

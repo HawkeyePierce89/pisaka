@@ -378,4 +378,137 @@ final class TerminatedLinesTests: XCTestCase {
             }
         }
     }
+
+    // MARK: - The bounded primitive
+
+    /// Over the full range the primitive tiles the text exactly: the enclosing
+    /// ranges abut with no gap and no overlap, and concatenating them
+    /// reproduces the input character for character.
+    ///
+    /// Deliberately *not* a comparison against `ranges(_:)`: that form is now
+    /// literally this call over the full range, so the two agreeing proves
+    /// nothing about either. Fuzzed over the same separator alphabet the
+    /// projection fuzz uses.
+    func testBoundedRangesOverTheFullRangeTileTheText() {
+        var rng = LCG(state: 0x5eed_1234_5678_9abc)
+        for _ in 0..<400 {
+            let text = Self.fuzzText(&rng)
+            let ns = text as NSString
+            let ranges = TerminatedLines.ranges(in: ns, range: NSRange(location: 0, length: ns.length))
+            let label = String(reflecting: text)
+            var next = 0
+            var rebuilt = ""
+            for line in ranges {
+                XCTAssertEqual(line.content.location, next, label)
+                XCTAssertEqual(line.terminator.location, NSMaxRange(line.content), label)
+                rebuilt += ns.substring(with: line.content) + ns.substring(with: line.terminator)
+                next = NSMaxRange(line.terminator)
+            }
+            XCTAssertEqual(next, ns.length, label)
+            XCTAssertEqual(rebuilt, text, label)
+        }
+    }
+
+    /// **The bounding itself**, which is the whole reason the primitive exists:
+    /// asking about a sub-range answers exactly the lines of the full split that
+    /// the range's line-expanded span covers — no more (the point: a redraw does
+    /// not walk the file) and no fewer (a line the range touches is never
+    /// dropped). Fuzzed over random sub-ranges of random texts.
+    ///
+    /// A reimplementation that enumerated the whole file and filtered would pass
+    /// this; what it pins is the *answer*, and the "no more" half is what a
+    /// clipped-instead-of-expanded regression breaks.
+    func testBoundedRangesAnswerExactlyTheLinesTheRangeCovers() {
+        var rng = LCG(state: 0xb0_1ded_1234_5678)
+        for _ in 0..<400 {
+            let text = Self.fuzzText(&rng)
+            let ns = text as NSString
+            guard ns.length > 0 else { continue }
+            let location = rng.next(ns.length)
+            let length = rng.next(ns.length - location + 1)
+            let asked = NSRange(location: location, length: length)
+            let label = "\(String(reflecting: text)) \(NSStringFromRange(asked))"
+            let expanded = ns.lineRange(for: asked)
+            let expected = TerminatedLines.ranges(in: ns, range: NSRange(location: 0, length: ns.length))
+                .filter { NSMaxRange($0.terminator) > expanded.location && $0.content.location < NSMaxRange(expanded) }
+            XCTAssertEqual(TerminatedLines.ranges(in: ns, range: asked), expected, label)
+        }
+    }
+
+    /// The conventional "not found" range shape. Its location is `Int.max`, so a
+    /// clamp that sums location and length before bounding either overflows and
+    /// traps — where this function documents an answer.
+    func testBoundedRangesOfANotFoundRangeAreAnswered() {
+        let text = "one\ntwo" as NSString
+        XCTAssertEqual(
+            TerminatedLines.ranges(in: text, range: NSRange(location: NSNotFound, length: 1)).map { text.substring(with: $0.content) },
+            ["two"]
+        )
+        XCTAssertEqual(
+            TerminatedLines.ranges(in: text, range: NSRange(location: 1, length: Int.max)).map { text.substring(with: $0.content) },
+            ["one", "two"]
+        )
+    }
+
+    /// The alphabet both bounded fuzzes draw from: every separator in the
+    /// editor's set, the CRLF pair, and a non-BMP character so a UTF-16 pair is
+    /// never split.
+    private static func fuzzText(_ rng: inout LCG) -> String {
+        let alphabet = [
+            "a", "b", " ", "\t", "\n", "\r", "\r\n",
+            "\u{0085}", "\u{2028}", "\u{2029}", "🙂",
+        ]
+        var text = ""
+        for _ in 0..<rng.next(20) {
+            text += alphabet[rng.next(alphabet.count)]
+        }
+        return text
+    }
+
+    /// A range that starts and ends mid-line answers those lines *whole* —
+    /// never a fragment — which is what lets a caller reason about a drawn
+    /// region without knowing where it cut.
+    func testBoundedRangesExpandAMidLineRangeToWholeLines() {
+        let text = "alpha\nbravo\ncharlie\n" as NSString
+        // From inside "alpha" to inside "bravo".
+        let ranges = TerminatedLines.ranges(in: text, range: NSRange(location: 2, length: 6))
+        XCTAssertEqual(ranges.map { text.substring(with: $0.content) }, ["alpha", "bravo"])
+        XCTAssertEqual(ranges.map { text.substring(with: $0.terminator) }, ["\n", "\n"])
+    }
+
+    /// Only the lines the range touches are visited — the point of bounding it.
+    func testBoundedRangesVisitOnlyTheLinesTheRangeTouches() {
+        let text = "one\ntwo\nthree\nfour\n" as NSString
+        let ranges = TerminatedLines.ranges(in: text, range: NSRange(location: 4, length: 1))
+        XCTAssertEqual(ranges.map { text.substring(with: $0.content) }, ["two"])
+    }
+
+    /// A zero-length range still names the line it sits in.
+    func testBoundedRangesOfACaretAnswerItsLine() {
+        let text = "one\ntwo\n" as NSString
+        let ranges = TerminatedLines.ranges(in: text, range: NSRange(location: 5, length: 0))
+        XCTAssertEqual(ranges.map { text.substring(with: $0.content) }, ["two"])
+    }
+
+    /// Out-of-bounds and negative requests are clamped, not trapped.
+    func testBoundedRangesClampAnOutOfBoundsRequest() {
+        let text = "one\ntwo" as NSString
+        XCTAssertEqual(
+            TerminatedLines.ranges(in: text, range: NSRange(location: 0, length: 999)),
+            TerminatedLines.ranges("one\ntwo")
+        )
+        // Clamped to a caret at the end of the text, which names the last line.
+        XCTAssertEqual(
+            TerminatedLines.ranges(in: text, range: NSRange(location: 99, length: 5)).map { text.substring(with: $0.content) },
+            ["two"]
+        )
+        XCTAssertEqual(
+            TerminatedLines.ranges(in: text, range: NSRange(location: -4, length: 2)).map { text.substring(with: $0.content) },
+            ["one"]
+        )
+    }
+
+    func testBoundedRangesOfAnEmptyTextAreEmpty() {
+        XCTAssertEqual(TerminatedLines.ranges(in: "" as NSString, range: NSRange(location: 0, length: 0)), [])
+    }
 }

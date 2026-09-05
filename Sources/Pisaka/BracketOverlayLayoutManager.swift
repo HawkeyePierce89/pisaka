@@ -85,6 +85,19 @@ final class BracketOverlayLayoutManager: NSLayoutManager {
     /// applications from re-running the intersection logic per range.
     private var isApplyingOverlays = false
 
+    /// Whether the leading whitespace of every line is painted one indentation
+    /// unit at a time, tinted by level. Off until the coordinator says
+    /// otherwise, so a layout manager that is never told draws exactly what it
+    /// drew before.
+    private var indentLevelsEnabled = false
+
+    /// The two column widths the levelled scan needs, derived in Core by
+    /// `IndentLevelScanner.widths(unit:statedTabWidth:)` from the unit
+    /// `IndentUnitRule` already answered. **This class derives neither**: it is
+    /// given both, so the block Enter appends and the block painted under it
+    /// cannot come from two different rules.
+    private var indentLevelWidths = IndentLevelWidths(unitWidth: 0, tabWidth: 0)
+
     // MARK: - Interception
 
     /// Neon (or anyone else) styled `charRange`: let the write land, then paint
@@ -355,6 +368,118 @@ final class BracketOverlayLayoutManager: NSLayoutManager {
             removeTemporaryAttribute(.underlineColor, forCharacterRange: clampedRange)
         }
         invalidateDisplay(forCharacterRange: clampedRange)
+    }
+
+    // MARK: - Indentation levels
+
+    /// Hand over the indentation-level painting state: whether to paint at all,
+    /// and the two widths every block is measured in.
+    ///
+    /// The widths arrive from `CodeEditorView.Coordinator`, which computes them
+    /// through Core off `IndentUnitRule.unit(config:inferred:)`; nothing here
+    /// reads a setting or infers a width, so a draw costs no inference.
+    ///
+    /// A change to any of the three invalidates the **visible** area, which is
+    /// what makes toggling the preference, switching tabs into a file with a
+    /// different unit, or an `.editorconfig` edit repaint without a reload.
+    /// Unchanged state is a no-op: this is called on every view update, and an
+    /// unconditional invalidation would redraw the viewport on every keystroke.
+    func setIndentLevelPainting(enabled: Bool, widths: IndentLevelWidths) {
+        guard enabled != indentLevelsEnabled || widths != indentLevelWidths else { return }
+        indentLevelsEnabled = enabled
+        indentLevelWidths = widths
+        invalidateVisibleDisplay()
+    }
+
+    /// Draw the indentation-level blocks **first**, then everything the layout
+    /// manager already draws in this pass.
+    ///
+    /// **Why the ordering is this way round.** `super` is what paints the
+    /// `.backgroundColor` temporary attributes — the caret's matched pair and
+    /// both search-match backgrounds — and the selection is drawn after this
+    /// pass entirely. Painting the level blocks before `super` therefore puts
+    /// every one of those *on top* of the tint, which is the only arrangement in
+    /// which a search match landing on indentation stays visible.
+    ///
+    /// **Why temporary attributes stay out of it.** The obvious alternative —
+    /// a `.backgroundColor` over each run — would make this class a second
+    /// writer of the one key `paintBackgrounds` is documented as the sole writer
+    /// of, and the two would then collide over exactly the characters that
+    /// matter: a search match sitting on whitespace would either lose its
+    /// highlight or erase the tint, depending on who wrote last. Drawing is not
+    /// an attribute, so the two mechanisms never meet. Neon's syntax styling is
+    /// untouched for the same reason: nothing here writes an attribute at all.
+    override func drawBackground(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {
+        paintIndentLevels(forGlyphRange: glyphsToShow, at: origin)
+        super.drawBackground(forGlyphRange: glyphsToShow, at: origin)
+    }
+
+    /// Paint the level blocks of every line the drawn glyphs intersect.
+    ///
+    /// **Geometry is read here, at draw time**, never cached: a run's x extent
+    /// is this layout manager's own bounding rect for it, and its y extent is
+    /// the enclosing line-fragment rect. Taking the height from the fragment
+    /// rather than from the glyphs is what makes consecutive lines at one level
+    /// read as a single unbroken column, and it is also why a font-size change
+    /// needs no bookkeeping at all — the next draw simply measures again.
+    ///
+    /// The buffer is read through the storage's `mutableString` handle rather
+    /// than by bridging `string`, so a draw copies no text; the scanned range is
+    /// the **drawn** one, so a draw never walks the whole file (the engine
+    /// expands it to whole lines and answers their runs unclipped — a run
+    /// starting above the viewport is simply drawn where it is and clipped by
+    /// the context).
+    private func paintIndentLevels(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {
+        guard indentLevelsEnabled else { return }
+        guard indentLevelWidths.unitWidth > 0, indentLevelWidths.tabWidth > 0 else { return }
+        guard let text = textStorage?.mutableString, glyphsToShow.length > 0 else { return }
+        // One container per editor (`makeNSView`'s TextKit 1 construction swaps
+        // in exactly one), so "the container these glyphs belong to" is the
+        // first one.
+        guard let container = textContainers.first else { return }
+
+        let charRange = characterRange(forGlyphRange: glyphsToShow, actualGlyphRange: nil)
+        let runs = IndentLevelScanner.runs(in: text, range: charRange, widths: indentLevelWidths)
+        guard !runs.isEmpty else { return }
+
+        let theme = SyntaxTheme.shared
+        for run in runs {
+            let glyphRange = glyphRange(forCharacterRange: run.range, actualCharacterRange: nil)
+            guard glyphRange.length > 0 else { continue }
+            let bounds = boundingRect(forGlyphRange: glyphRange, in: container)
+            guard bounds.width > 0 else { continue }
+            let fragment = lineFragmentRect(forGlyphAt: glyphRange.location, effectiveRange: nil)
+            let rect = NSRect(
+                x: bounds.minX + origin.x,
+                y: fragment.minY + origin.y,
+                width: bounds.width,
+                height: fragment.height
+            )
+            guard rect.height > 0 else { continue }
+            theme.nsIndentLevelColor(forLevel: run.level).setFill()
+            rect.fill()
+        }
+    }
+
+    /// Invalidate what is on screen, so the next draw repaints it.
+    ///
+    /// The level blocks are **drawn, not stored**, so there is nothing to clear
+    /// and nothing to recompute — only a redraw to ask for. Asking the *view*
+    /// for it, rather than mapping the visible rect back to a character range
+    /// through `glyphRange(forBoundingRect:in:)`, is deliberate: that method
+    /// takes a rect in **text-container** coordinates, so the view's own
+    /// `visibleRect` is the wrong space twice over — it is offset by
+    /// `textContainerOrigin`, and its `x` is the horizontally scrolled slice, so
+    /// a scrolled-right viewport would resolve to a glyph range that excludes
+    /// the very leading whitespace these blocks cover.
+    /// `BracketHighlightController.visibleCharacterRange` corrects both because
+    /// it needs the range itself; here there is no range to need, and the
+    /// viewport rect in the view's own coordinates is exactly what
+    /// `setNeedsDisplay(_:)` wants. The invalidation stays the size of the
+    /// viewport rather than the size of the file either way.
+    private func invalidateVisibleDisplay() {
+        guard let container = textContainers.first, let view = container.textView else { return }
+        view.setNeedsDisplay(view.visibleRect)
     }
 
     // MARK: - Painting

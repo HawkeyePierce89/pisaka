@@ -133,9 +133,37 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     range) — the primitive, with `split(_:)` projecting it: the save transform
     *edits* lines and would otherwise re-derive offsets by measuring the
     substrings it was handed, which is a second definition of what a line is by
-    another name. There is exactly one traversal that decides where a line ends,
-    and `TerminatedLinesTests` fuzzes this projection too. Its consumer's
-    reasoning is in `core-editorconfig.md` (`SaveTransform`).
+    another name. And **one level down again**: the offsets themselves are
+    answered by the *bounded* `ranges(in:range:) -> [TerminatedLineRange]`, of
+    which the whole-text `ranges(_:)` is simply the full-range call — so
+    `ranges(in:range:)` is *the* primitive the other two project from, and there
+    is still exactly one traversal that decides where a line ends. Bounding it is
+    what makes it the primitive rather than a convenience: a consumer that only
+    cares about the lines it is *drawing* (`IndentLevelScanner`, painting the
+    editor's indentation levels on every redraw) must not pay for a traversal of
+    the whole file, and paying for one in a second implementation of "where does
+    a line end" would be worse still. The bounded form **expands `range` to whole
+    lines before anything is enumerated**, through `NSString.lineRange(for:)`, so
+    a range starting or ending mid-line answers those lines whole rather than a
+    fragment of one, and nothing is clipped on the way out either — a caller
+    asking about a drawn region gets lines it can reason about without knowing
+    where it cut. `range` is clamped to the text first, so an out-of-bounds or
+    negative request is *answered* rather than trapping, and only the expanded
+    span is ever enumerated. The clamp bounds the **length against what is left**
+    before adding it to the location, never after: `NSRange(location: NSNotFound,
+    length: 1)` — the conventional "not found" shape, and a plausible thing to
+    hand a public primitive — overflows `Int` if the two are summed first, which
+    would be a trap exactly where this promises an answer.
+    `TerminatedLinesTests` fuzzes the `split(_:)` projection; the bounded form is
+    pinned on its own terms rather than against `ranges(_:)`, which *is* this call
+    over the full range and so could only agree with itself — the full-range fuzz
+    asserts the ranges **tile the text** (abutting, gapless, concatenating back to
+    the input) and a second fuzz asserts the **bounding itself**: a random
+    sub-range answers exactly the lines of the full split its line-expanded span
+    covers, no more (the point — a redraw does not walk the file) and no fewer.
+    `NSNotFound` and `Int.max` lengths are pinned by name. Its consumers'
+    reasoning is in `core-editorconfig.md` (`SaveTransform`) and
+    `core-editor.md` (`IndentLevelScanner`).
   - `ChangeTree.swift` — pure directory-tree grouping for the by-folder mode of
     the Local Changes view. `ChangeNode` (a uniform node: `name`, repo-relative
     `path` as identity, absolute `url` = `root` + `path` for the view's

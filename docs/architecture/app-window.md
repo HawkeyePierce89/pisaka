@@ -165,6 +165,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     is off, so an explicitly invoked command is never a silent no-op. Off is
     total but tears nothing down: ⌃⌘J go-to-definition keeps working and flipping
     it back on costs a keystroke, not a restart.
+    `indentLevelHighlightingEnabled:` rides the same route down to
+    `CodeEditorView` — a plain undefaulted value beside it, no new observation
+    path (`app-editor-overlays.md`) — differing only in having no second surface:
+    the Preferences checkbox is the only place it is set.
     Panel-height persistence: instead of the old recreated `VSplitView` (which
     reset the height on every panel switch / hide-show), `mainArea` wraps a
     `GeometryReader` around a manual `VStack { editorSplit; panelDivider;

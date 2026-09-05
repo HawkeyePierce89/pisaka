@@ -300,6 +300,22 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     whole feature that nothing in the repo can catch, since `swift test` compiles
     Core alone and the view layer is untested by convention. Requiring the
     argument makes it a compile error instead.
+    Indentation-level highlighting travels that identical route — a second plain,
+    undefaulted `indentLevelHighlightingEnabled: Bool`, for the same
+    compile-error-instead-of-silent-default reason — and the coordinator is its
+    only reader: the layout manager is *told* (`app-editor-overlays.md` carries the
+    painting and freshness rules). Two orderings inside this file are load-bearing
+    and are stated at both call sites. The apply must run **after** `editorConfig`
+    is bound, because it is what derives the widths and must be able to ask
+    `.editorconfig` rather than fall back to the content inference for one update;
+    and in `updateNSView` it must additionally run **after** `syncBlame`, which is
+    what records `fileURL` — the URL `.editorconfig` is resolved against.
+    `updateBrackets`' immediate rescan on a tab switch has by then already
+    recomputed once, against the file being *left*, so the widths cache keys on the
+    URL it used as well as on the configuration revision and the text; the apply
+    here is what notices and derives again inside the same update. Without the URL
+    in that key nothing else would move for a buffer that is only read, and the
+    outgoing file's unit would be re-asserted for the rest of the session.
     The store is observed once, where the view is built, and the
     flag travels with the update that observation already causes; making this
     view observe anything itself would add a per-keystroke re-render path to the

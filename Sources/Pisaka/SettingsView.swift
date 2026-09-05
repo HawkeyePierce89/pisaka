@@ -221,6 +221,15 @@ struct GeneralSettingsView: View {
             // Find > Complete, AppKit's stock ⌥⎋/F5) — while the symbol index,
             // the LSP layer and Go to Definition are untouched.
             Toggle("Offer completions as you type", isOn: $settings.completionEnabled)
+
+            // The editor's second switch, bound straight through to the store
+            // like the first: no local state, so the surface and the preference
+            // cannot disagree, and the change reaches every open tab at once
+            // through the value the content view passes down. Off draws nothing
+            // and computes nothing; the text, the selection and every other
+            // background are unchanged either way, because the blocks are a pass
+            // underneath them rather than a styling of the text.
+            Toggle("Highlight indentation levels", isOn: $settings.indentLevelHighlightingEnabled)
         }
         .font(metrics.scaledFont(.body))
         .padding(metrics.scaled(20))

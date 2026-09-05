@@ -87,6 +87,19 @@ struct CodeEditorView: NSViewRepresentable {
     /// untested by convention). Requiring it makes that a compile error.
     let completionEnabled: Bool
 
+    /// Whether the leading whitespace of every line is tinted by indentation
+    /// level — `SettingsStore.indentLevelHighlightingEnabled`, which
+    /// `ContentView` already observes and passes down.
+    ///
+    /// Travels `completionEnabled`'s route exactly, and is **undefaulted** for
+    /// its reason: a default would have to be `true`, so a second editor host
+    /// added later would compile clean and paint for a user who turned the
+    /// blocks off, which nothing in the repository could catch. Applied in
+    /// `makeNSView` and re-applied in `updateNSView`, so flipping the toggle
+    /// stops or resumes the painting in every open tab on the next update — no
+    /// reload, no tab switch.
+    let indentLevelHighlightingEnabled: Bool
+
     /// The interface zone's metrics, for the one piece of *chrome* this editor
     /// owns: the hover popover's prose.
     ///
@@ -462,6 +475,13 @@ struct CodeEditorView: NSViewRepresentable {
         context.coordinator.symbolIndex = symbolIndex
         context.coordinator.editorConfig = editorConfig
         context.coordinator.lspSync = lspSync
+        // Whether the indentation-level blocks are painted. Deliberately *after*
+        // the configuration model is bound: this is the call that derives the
+        // widths for the first time, and it must be able to ask what
+        // `.editorconfig` says rather than falling back to the content inference
+        // for one update. A `false` here means the derivation never runs at all
+        // for an editor built with the preference already off.
+        context.coordinator.setIndentLevelHighlighting(enabled: indentLevelHighlightingEnabled)
         // Bind the save funnel to this editor. It holds both references weakly, so
         // a torn-down editor leaves it with nothing on screen to reach — which is
         // the ordinary state for every background tab, not a degraded one. With
@@ -769,6 +789,20 @@ struct CodeEditorView: NSViewRepresentable {
         context.coordinator.symbolIndex = symbolIndex
         context.coordinator.editorConfig = editorConfig
         context.coordinator.lspSync = lspSync
+        // Re-apply the indentation-level preference. Unconditional, and cheap: the
+        // coordinator re-derives the widths only when the preference has just been
+        // switched on, the configuration model's revision moved, or the shown file
+        // changed — never on an ordinary keystroke-driven update, whose content
+        // half rides the debounced text path instead.
+        //
+        // Deliberately here rather than beside the completion preference above,
+        // for `refreshDiagnosticOverlays`' reason and the configuration model's:
+        // the derivation resolves `.editorconfig` against `syncBlame`'s recorded
+        // URL through the model bound on the line above, so it has to run after
+        // both. The bracket rescan a tab switch forces has already recomputed once
+        // by now, against the outgoing file — the widths cache carries the URL it
+        // used, so this call is what corrects it, inside the same update.
+        context.coordinator.setIndentLevelHighlighting(enabled: indentLevelHighlightingEnabled)
         // Keep the diagnostics binding current (an identity-checked no-op when
         // unchanged, like `updateHighlighter`'s language comparison).
         context.coordinator.attachDiagnostics(model: diagnostics)
@@ -1398,6 +1432,14 @@ struct CodeEditorView: NSViewRepresentable {
         /// notification, it coexists with Neon owning the storage's `delegate`.
         func attachBracketHighlighting(textView: NSTextView) {
             bracketHighlight.attach(textView: textView)
+            // The indentation-level widths ride this controller's debounce and
+            // generation token rather than growing a second pair (see
+            // `bracketScanApplied()`). The closure captures `self` weakly: the
+            // controller is owned by this coordinator, so a strong capture would
+            // be the retain cycle `CodeEditorView`'s own rule forbids.
+            bracketHighlight.onScanApplied = { [weak self] in
+                self?.bracketScanApplied()
+            }
             guard let textStorage = textView.textStorage else { return }
             NotificationCenter.default.addObserver(
                 self,
@@ -1496,6 +1538,125 @@ struct CodeEditorView: NSViewRepresentable {
             if completion.isVisible {
                 completion.dismiss()
             }
+        }
+
+        // MARK: - Indentation levels
+
+        /// Whether the indentation-level blocks are painted at all — the value
+        /// `ContentView` read off the store, travelling `completionEnabled`'s
+        /// route. The coordinator is the only thing that reads it: the layout
+        /// manager is *told*.
+        private var indentLevelsEnabled = false
+
+        /// The widths last handed to the layout manager, and the two inputs they
+        /// were derived under: the configuration revision, and the file the
+        /// configuration was resolved *for*.
+        ///
+        /// The cache is what keeps the derivation off the SwiftUI update path:
+        /// its content half is `IndentEngine.inferIndentUnit(text:)`, a walk of
+        /// the whole buffer, which must not run on every re-render. `nil` means
+        /// nothing has been computed yet — the state a freshly built editor and a
+        /// just-switched-on preference are both in, and the one that forces the
+        /// next sync to compute.
+        ///
+        /// The URL is part of the key because `.editorconfig` answers *per file*:
+        /// a tab switch, and a rename that moves a file into a different section
+        /// (`foo.txt` → `foo.py`), both change the applicable properties while the
+        /// revision stands still. Without it the widths derived for the outgoing
+        /// file would be re-asserted forever — nothing else in the key moves for a
+        /// buffer that is only looked at.
+        private var appliedIndentWidths: IndentLevelWidths?
+        private var appliedIndentConfigRevision: Int?
+        private var appliedIndentFileURL: URL?
+
+        /// Apply the preference, from `makeNSView` and every `updateNSView`.
+        ///
+        /// Turning it **off** clears the cache and tells the layout manager to
+        /// stop, so a user who does not want the blocks pays for no derivation at
+        /// all; turning it back **on** finds an empty cache and therefore computes
+        /// once, here, on the turn the toggle flipped.
+        func setIndentLevelHighlighting(enabled: Bool) {
+            indentLevelsEnabled = enabled
+            guard enabled else {
+                appliedIndentWidths = nil
+                appliedIndentConfigRevision = nil
+                appliedIndentFileURL = nil
+                overlayLayoutManager?.setIndentLevelPainting(
+                    enabled: false,
+                    widths: IndentLevelWidths(unitWidth: 0, tabWidth: 0)
+                )
+                return
+            }
+            refreshIndentLevelWidths(textChanged: false)
+        }
+
+        /// A bracket scan was applied: the buffer this editor shows just changed,
+        /// or the tab switched into a different one. Either way the content half
+        /// of the derivation is stale, so the widths are recomputed here — on the
+        /// editor's one debounced, generation-guarded text path, never on a second
+        /// one of this feature's own.
+        private func bracketScanApplied() {
+            refreshIndentLevelWidths(textChanged: true)
+        }
+
+        /// Recompute the two widths and hand them over, when anything they are
+        /// derived from can have moved.
+        ///
+        /// **The configuration revision is compared on both paths, and that is
+        /// deliberate.** `EditorConfigModel` is a plain class this editor does not
+        /// observe: an on-disk `.editorconfig` edit reaches `updateNSView` only
+        /// because the same FSEvents turn that calls `noteProjectFilesChanged()`
+        /// also bumps `WorkspaceModel.treeRevision`, whose `@Published` change
+        /// re-renders the content view. That path is indirect and could go quiet,
+        /// so the revision is compared in `bracketScanApplied()` too — one integer
+        /// against the last one seen, on a path that already runs on every
+        /// debounced edit and every tab switch. A stale width therefore never
+        /// outlives the next edit or tab switch even when no re-render arrives.
+        ///
+        /// **The shown file is compared too**, and it is the input the other two
+        /// cannot stand in for. `fileURL` is recorded by `syncBlame`, which
+        /// `updateNSView` calls *after* the bracket rescan a tab switch forces —
+        /// so the recompute this feature rides on a tab switch resolves
+        /// `.editorconfig` against the file being *left*. Keeping the URL in the
+        /// key is what lets the re-apply that follows (`syncBlame` has run by
+        /// then) notice and derive again; without it the outgoing file's unit
+        /// would be cached and re-asserted for as long as the incoming buffer is
+        /// only read.
+        ///
+        /// When nothing moved the widths are simply re-asserted, which the layout
+        /// manager answers as a no-op; the buffer is not walked again.
+        private func refreshIndentLevelWidths(textChanged: Bool) {
+            guard indentLevelsEnabled else { return }
+            guard let textView, let layoutManager = overlayLayoutManager else { return }
+            let revision = editorConfig?.revision
+            if let applied = appliedIndentWidths,
+               !textChanged,
+               revision == appliedIndentConfigRevision,
+               fileURL == appliedIndentFileURL {
+                layoutManager.setIndentLevelPainting(enabled: true, widths: applied)
+                return
+            }
+            let config = editorConfigProperties()
+            // The same answer Enter and Tab are given — asked through
+            // `indentUnit(text:)` so this cannot become a second opinion about
+            // what one level is — turned into the painter's two column widths by
+            // Core alone.
+            let widths = IndentLevelScanner.widths(
+                unit: indentUnit(text: textView.string as NSString),
+                statedTabWidth: config.tabWidth
+            )
+            appliedIndentWidths = widths
+            appliedIndentConfigRevision = revision
+            appliedIndentFileURL = fileURL
+            layoutManager.setIndentLevelPainting(enabled: true, widths: widths)
+        }
+
+        /// The overlay layout manager currently installed, resolved dynamically
+        /// for `BracketHighlightController`'s reason: `replaceLayoutManager` can
+        /// swap it under the text view, and a cached reference would paint into a
+        /// manager nothing draws from.
+        private var overlayLayoutManager: BracketOverlayLayoutManager? {
+            textView?.layoutManager as? BracketOverlayLayoutManager
         }
 
         // MARK: - Blame column

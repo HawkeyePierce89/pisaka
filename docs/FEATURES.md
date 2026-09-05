@@ -243,6 +243,24 @@ user sees it.
   inside a string literal or a comment is highlighted like any other (a
   tree-sitter-aware version is a follow-up). macOS only for now — no iOS variant
   and no settings to turn it off or change the number of colors yet.
+- Indentation-level highlighting: the leading whitespace of every line is
+  tinted one indentation unit at a time, in a translucent color that cycles with
+  the unit's level, so nesting reads at a glance and a mis-nested line stands
+  out without reading the code. What counts as one level is the same answer
+  Enter and Tab use — `.editorconfig`'s `indent_style`/`indent_size`/`tab_width`
+  first, the file's own content second — so a file under `indent_size = 2` gets
+  two-space blocks and a tab-indented file with no configuration gets exactly one
+  block per tab. A tab that crosses several levels at once is still drawn as one
+  block; whitespace left over past the last whole unit is drawn shorter, at the
+  next level; an empty line shows nothing, and a whitespace-only line is tinted
+  by its own width. The tints are painted *underneath* everything else, so the
+  text, the selection, the matched-pair background and both search-match
+  highlights all stay visible on top, the syntax colors are identical either way,
+  and nothing about the document changes — undo never contains a "highlighting
+  edit". Both light and dark appearances are covered, and the blocks follow the
+  code font as you zoom. On by default; Preferences > General > "Highlight
+  indentation levels" turns it off for every open tab at once, and off it draws
+  and computes nothing. macOS only — see the known limitations.
 - Duplicate line or selection (Cmd+D): with no selection the
   caret's line is copied below it and the caret moves into the copy at the same
   column; with a selection the selected text is copied right after itself and the
@@ -1050,16 +1068,18 @@ user sees it.
   terminal), and to the interface otherwise. Everything persists across launches;
   the code zone and the Preferences font-size row stay in sync in both
   directions, because they are one value.
-- Preferences (Cmd+,): a Settings window with five persisted options — tab
+- Preferences (Cmd+,): a Settings window with six persisted options — tab
   orientation (a vertical column beside the editor, or a horizontal strip above
   it), theme (follow the system, or force light/dark), a shared editor font
-  size used by the editor, diff, and merge views, a terminal font size, and
+  size used by the editor, diff, and merge views, a terminal font size,
   whether the editor offers
-  completions as you type (the same switch as the bottom bar's lightbulb). The
+  completions as you type (the same switch as the bottom bar's lightbulb), and
+  whether it tints each line's leading whitespace by indentation level (on by
+  default; this one has no second surface). The
   two font sizes are also adjustable on the fly by zooming over a code view or
   over the terminal (see Zoom above); the interface scale has no row of its own
   and is set by zooming over the chrome.
-  All five settings persist across launches. The Settings window's other tabs are **Language
+  All six settings persist across launches. The Settings window's other tabs are **Language
   Servers** (what may be downloaded, and what is installed), **LeetCode** (the
   account, the solutions folder, and the language new solution files are seeded
   in) and **Acknowledgements**, which lists every third-party dependency the app
@@ -1309,6 +1329,12 @@ and iPhone. The feature scope landed so far:
   menu, pull to refresh, and a tap to open — which dismisses the sheet and leaves
   you in the solution file.
 - The embedded terminal is macOS-only (SwiftTerm) and not present on iOS.
+- Indentation-level highlighting is macOS-only: the iOS editor paints nothing.
+  The preference itself is one key, not one per platform — iOS reads the same
+  one — but each install has its own defaults domain and nothing here syncs
+  between devices, so turning it off on the Mac is remembered on that Mac. iOS
+  simply shows no switch for it and no blocks, which is an absent surface rather
+  than a second setting.
 - The database viewer is macOS-only. Opening a `.sqlite` or `.db` file on iOS
   behaves exactly as it did before the viewer existed: the file is read as text,
   fails to decode, and the open reports that — an honest failure rather than a

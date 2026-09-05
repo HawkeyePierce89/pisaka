@@ -291,8 +291,20 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     doesn't stack on the inserted unit) and `IndentReplacement` (`range` of the
     current line's leading whitespace + `replacement` indentation) — and three
     static functions. `inferIndentUnit(text:)` returns a single tab if any line
-    indents with a tab, else the smallest run of leading spaces observed, falling
-    back to four spaces for an empty or unindented file. It is the **fallback
+    indents with a tab, else the smallest run of leading spaces observed
+    **of two or more**, falling back to four spaces for an empty or unindented
+    file — and for one whose only leading-space runs are single spaces. Two
+    kinds of run are skipped, for one reason: they are not indentation, and
+    counting either destroys the answer. A **whitespace-only line**'s run is
+    trailing whitespace (a stray `"  \n"` in a four-space file would otherwise
+    infer two). A **one-space run** is comment alignment: no language indents
+    one space per level, but the continuation line of a C-family block comment
+    (the ` * ` form) starts with exactly one, so an ordinary four-space file
+    carrying a single `/** … */` would otherwise infer a one-space unit — which
+    makes Enter append one space after `{` and makes the indentation-level
+    painting cycle its whole four-hue palette *inside* one level. A genuinely
+    one-space file therefore falls back to four, the same answer a file with no
+    indentation at all already gives. It is the **fallback
     half** of the unit, not the whole answer: since `.editorconfig` support
     landed, the views ask `IndentUnitRule.unit(config:inferred:)` for the `unit`
     they pass in — a config's `indent_style` decides tabs vs. spaces and its
@@ -452,6 +464,63 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     Follow-ups: tree-sitter-aware matching/scanning (skipping strings and comments,
     which would also close the crossed-input divergence), an iOS variant over these
     same two engines, and settings (on/off, number of colors).
+  - `IndentLevelScanner.swift` — pure, testable splitting of a text's *leading
+    whitespace* into levelled blocks, the one answer behind the editor's
+    indentation-level painting (Foundation only, color-free — the palette is the
+    view's, the `BracketDepthScanner` split exactly). Two `Equatable` value
+    types: `IndentLevelRun` (`range`, always non-empty UTF-16, + a zero-based
+    `level`) and `IndentLevelWidths` (`unitWidth`, the columns one level spans,
+    + `tabWidth`, the tab stop). `enum IndentLevelScanner` answers both halves.
+    **The widths are derived, never invented.** `widths(unit:statedTabWidth:)`
+    takes the unit string `IndentUnitRule.unit(config:inferred:)` already
+    answered plus the configuration's `tab_width` (`nil` when unstated): a
+    *space* unit is as wide as its own spaces and a stated `tab_width` never
+    re-widens it (the spaces are what is actually in the file); a *tab* unit is
+    as wide as the stated `tab_width` and, when unstated, as wide as
+    **`IndentUnitRule.defaultSpaceWidth`** — read from the rule rather than
+    restated as a literal, so the painter's fallback and Enter's cannot drift
+    apart; and the tab stop is the stated `tab_width` or, unstated, the unit
+    width, which is the equality that makes an unconfigured tab-indented file
+    paint exactly one block per tab. **The walk.** `runs(in:range:widths:)` (and
+    its two-widths spelling) visits only the lines `range` intersects, through
+    `TerminatedLines.ranges(in:range:)` — so the editor's separator set (LF, CR,
+    the CRLF pair as one, NEL, LS, PS) is applied by *use* rather than by a
+    second table, and a redraw never walks the whole file. Leading whitespace is
+    spaces and tabs only, the same two characters `IndentEngine` treats as
+    indentation, and the walk stops at the first character that is neither
+    (`character(at:)` per unit is deliberate where `BracketDepthScanner` reads in
+    chunks: this one visits a line's indentation, never its body). A space
+    advances the column by one, a tab to the next multiple of `tabWidth`. A run
+    **ends at the first character whose starting column crosses into a new
+    unit** and carries the level of the column it *started* at, so one tab is
+    always one block even when it crosses several unit boundaries — and the next
+    run's level then **skips**, which is honest rather than an error, the same
+    "semantics in Core" stance `BracketDepthScanner`'s depth takes (7 stays 7;
+    the view resolves `level % N`). The whitespace left over when the line's
+    content starts is emitted as one more, **shorter** run at the next level (six
+    spaces at a unit width of four → a full block at level 0 and a short one at
+    level 1); there is no error level and no special treatment of misalignment.
+    A line with no leading whitespace and an empty line yield nothing; a
+    whitespace-only line is levelled like an indent of its own width, because its
+    content range holds only whitespace and the same walk answers it. Runs are
+    **never clipped to the requested range** — a range starting or ending
+    mid-indent still answers those lines' whole, correctly levelled runs, because
+    the line primitive expands to whole lines; the painter clips by drawing, which
+    is what keeps "which level is this" out of the viewport's hands. A
+    `unitWidth` or `tabWidth` of zero or less answers **no runs** — never a trap,
+    never a loop — which is also the shape a disabled feature and an uncomputed
+    width arrive in. **The other end of that range is clamped, and for the same
+    reason `IndentUnitRule` clamps its own**: both widths are capped at
+    `IndentUnitRule.maximumSpaceWidth`, read from the rule rather than restated,
+    because an `.editorconfig` is project data and `tab_width =
+    5000000000000000000` is a value this walk can really be handed — advancing the
+    column to the next such tab stop twice overflows `Int`, and this walk runs
+    inside `drawBackground`, so a trap there is the app. Clamping rather than
+    rejecting keeps a merely-large width behaving like a large width, exactly as
+    the rule does for a space unit's string. Unit-tested in
+    `IndentLevelScannerTests` (the degenerate widths at both ends, the absurd one
+    reached the way the app reaches it — through `widths(unit:statedTabWidth:)`);
+    the view half is `BracketOverlayLayoutManager` (`app-editor-overlays.md`).
   - `TextSearch.swift` — pure, testable text search/replace over an `NSString` in
     UTF-16 offsets (Foundation only — the `DuplicateEngine`/`AutoPairEngine`
     split: the view owns selection, scrolling and colors, every decision lives

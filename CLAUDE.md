@@ -93,6 +93,7 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
 - `AutoPairEngine.swift` — auto-close/wrap/type-over/pair-delete decisions.
 - `BracketMatchEngine.swift` — caret↔bracket-pair matching.
 - `BracketDepthScanner.swift` — rainbow-bracket depth scan.
+- `IndentLevelScanner.swift` — leading whitespace → levelled runs; the two column widths, derived from `IndentUnitRule`'s unit.
 - `TextSearch.swift` — the find/replace engine shared by ⌘F and Find in Files.
 - `EditorViewport.swift` — per-tab caret + scroll anchor (a character offset) and the per-file memory.
 
@@ -100,7 +101,7 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
 - `EditorConfigGlob.swift` — the section-name dialect; deliberately not gitignore's.
 - `EditorConfigFile.swift` — text → `root` + ordered sections; the merged property map.
 - `EditorConfigResolver.swift` — the outward walk; the `root` and project-root stops.
-- `EditorConfigModel.swift` — the synchronous per-file cache; two wholesale invalidations.
+- `EditorConfigModel.swift` — the synchronous per-file cache; two wholesale invalidations through one `invalidate()`; the `revision` counter derived readers compare.
 - `IndentUnitRule.swift` — the hybrid unit rule, the stricter Tab rule, the Tab plan.
 - `SaveTransform.swift` — the pure on-save engine: the three transforms, the spared line, the position remap.
 - `SaveTransformController.swift` (app, macOS) — the one save funnel; through the editor when it holds the buffer; also the two non-save buffer rewrites (restore, rename).
@@ -188,7 +189,7 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
 - `MergeDocument.swift` — editable merge state; marker-faithful `resolvedText`.
 - `MergeModel.swift` — merge editor over the `:1/:2/:3` index stages.
 - `LineDiff.swift` — side-by-side LCS line diff (capped matrix).
-- `TerminatedLines.swift` — the single line splitter (content + verbatim terminator); `ranges(_:)` is the primitive, `split(_:)` its projection.
+- `TerminatedLines.swift` — the single line splitter (content + verbatim terminator); the bounded `ranges(in:range:)` is the primitive, `ranges(_:)`/`split(_:)` its projections.
 - `ChangeTree.swift` — by-folder grouping of changed files.
 
 `docs/architecture/core-git-models.md` — Local Changes, Log & branch models:
@@ -220,7 +221,7 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
 - `BottomPanelHeightRule.swift` — the bottom dock panel's height authority: the two upper bounds and the degenerate case.
 - `DiffWindowTitle.swift` — diff-window titles.
 - `TabOrientation.swift` / `ThemePreference.swift` — persisted preference enums.
-- `SettingsStore.swift` — persisted preferences; the three zoom scales and the zone-keyed API; the one `completionEnabled` flag; per-server LSP consent (D15).
+- `SettingsStore.swift` — persisted preferences; the three zoom scales and the zone-keyed API; the two editor flags (`completionEnabled`, `indentLevelHighlightingEnabled`); per-server LSP consent (D15).
 - `EditorSession.swift` — per-project session persistence (`SessionTab`, `SessionCatalog`, the keyed store + legacy migration).
 - `RecentProject.swift` — recent-projects projection (MRU order, `nil` excluded, existence closure, canonical identity).
 - `ScopedFileAccess.swift` — iOS security-scope helpers + `BookmarkStore`.
@@ -667,7 +668,9 @@ ci.yml's `lint` job, and the version-bump procedure.
   `.editorconfig` states falls back to the inference — so a project without one
   behaves byte-for-byte as before. **Tab is stricter**: it inserts spaces only
   when a config says `indent_style = space` outright, so the inference alone can
-  never change what a keystroke does. A **reader**, like the index: it takes no
+  never change what a keystroke does. The macOS indentation-level painting is a
+  **third consumer** of that same unit, never a second opinion about it
+  (`core-editor.md`). A **reader**, like the index: it takes no
   writer gate, is not gated by one and **adds no write of its own**, and the walk
   stops at the project root on both platforms because iOS cannot read above the
   granted folder. **Six properties are acted on**, the rest parsed and carried.

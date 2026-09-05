@@ -97,6 +97,17 @@ final class BracketHighlightController {
         textView?.layoutManager as? BracketOverlayLayoutManager
     }
 
+    /// Called every time a scan has been applied — after the debounce on an
+    /// ordinary edit, and synchronously on the immediate path a tab switch takes.
+    ///
+    /// It exists so a *second* per-edit computation the editor needs — the
+    /// indentation-level widths, whose content half walks the whole buffer — can
+    /// ride this class's one debounce and one generation token instead of growing
+    /// a second pair of its own. A scan that a newer request superseded never
+    /// reaches `applyScan`, so this is never called for a buffer that is no longer
+    /// on screen. Set by the coordinator; nothing here reads what it does.
+    var onScanApplied: (() -> Void)?
+
     /// Bind the controller to the editor's text view.
     func attach(textView: NSTextView) {
         self.textView = textView
@@ -259,6 +270,7 @@ final class BracketHighlightController {
         tokens = BracketDepthScanner.scan(text: text as NSString)
         cacheKey = key
         refreshVisible()
+        onScanApplied?()
     }
 
     /// The character range currently on screen.

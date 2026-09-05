@@ -176,4 +176,58 @@ final class EditorConfigModelTests: XCTestCase {
         XCTAssertEqual(model.properties(for: tree.url("a.swift")).indentWidth, 2)
         XCTAssertEqual(tree.readPaths, afterFirst, "a re-spelling of the same folder is not a switch")
     }
+
+    // MARK: - The revision
+
+    /// The integer a reader caching something *derived* from an answer compares
+    /// to notice its copy is stale — the editor's indentation widths are that
+    /// reader. It has to move on both wholesale invalidations, because either
+    /// one can change what a file resolves to.
+    func testBothInvalidationsBumpTheRevision() {
+        let tree = tree([
+            ".editorconfig": "[*]\nindent_style = space\nindent_size = 2\n",
+            "src/a.swift": "",
+        ])
+        let model = model(tree, root: tree.root)
+        let atStart = model.revision
+
+        model.noteProjectFilesChanged()
+        let afterFilesChanged = model.revision
+        XCTAssertGreaterThan(afterFilesChanged, atStart, "a file change must be visible to a derived reader")
+
+        model.noteProjectRoot(tree.url("src"))
+        XCTAssertGreaterThan(model.revision, afterFilesChanged, "so must a folder switch")
+    }
+
+    /// Monotonic, and bumped once per invalidation: a reader compares it to the
+    /// last one it saw, so a counter that ever went backwards — or stood still
+    /// across a second invalidation — would hide a change.
+    func testTheRevisionOnlyEverRises() {
+        let tree = tree(["a.swift": ""])
+        let model = model(tree, root: tree.root)
+
+        var seen = [model.revision]
+        for _ in 0..<3 {
+            model.noteProjectFilesChanged()
+            seen.append(model.revision)
+        }
+        XCTAssertEqual(seen, Array(seen[0]...seen[0] + 3), "one bump per invalidation, in order")
+    }
+
+    /// The cache's own no-op rule, read through the revision: an idle
+    /// re-assignment of the folder already open keeps the cache, so it must not
+    /// tell a derived reader that its answer expired either — otherwise every
+    /// SwiftUI re-render would cost the editor a whole-buffer re-inference.
+    func testASameRootReAssignmentDoesNotBumpTheRevision() {
+        let tree = tree([
+            ".editorconfig": "[*]\nindent_style = space\nindent_size = 2\n",
+            "a.swift": "",
+        ])
+        let model = model(tree, root: tree.root)
+        let before = model.revision
+
+        model.noteProjectRoot(tree.root)
+        model.noteProjectRoot(tree.root.appendingPathComponent("."))
+        XCTAssertEqual(model.revision, before)
+    }
 }

@@ -45,6 +45,32 @@ final class IndentEngineTests: XCTestCase {
         XCTAssertEqual(inferUnit(text), "\t")
     }
 
+    func testSingleSpaceRunDoesNotSkewUnit() {
+        // A four-space file carrying one C-family block comment: the ` * …`
+        // continuation lines start with exactly one space, which is comment
+        // alignment, not indentation. Counting it would infer a one-space unit —
+        // Enter would then append one space after `{`, and the editor's
+        // indentation-level painting would cycle its whole palette inside a
+        // single level.
+        let text = "/**\n * Does a thing.\n */\nfunction a() {\n    return 1;\n}\n"
+        XCTAssertEqual(inferUnit(text), "    ")
+    }
+
+    func testTwoSpaceFileWithABlockCommentStillInfersTwo() {
+        // The same skip must not floor the answer at anything: a genuinely
+        // two-space file keeps its two-space unit.
+        let text = "/**\n * Doc.\n */\nfunction a() {\n  return 1;\n}\n"
+        XCTAssertEqual(inferUnit(text), "  ")
+    }
+
+    func testFileIndentedOnlyBySingleSpacesFallsBackToFourSpaces() {
+        // Nothing is indented one space per level, so the run is not evidence of
+        // a unit; the answer is the same fallback a file with no indentation at
+        // all already gives, rather than a one-space unit.
+        let text = "func f() {\n a()\n}\n"
+        XCTAssertEqual(inferUnit(text), "    ")
+    }
+
     func testWhitespaceOnlyLineDoesNotSkewUnit() {
         // A 4-space file with a blank line carrying 2 trailing spaces must still
         // infer a 4-space unit: that 2-space run is trailing whitespace, not
