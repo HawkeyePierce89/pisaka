@@ -570,8 +570,15 @@ final class BracketOverlayLayoutManager: NSLayoutManager {
     /// to avoid, stated twice already (`HoverController.characterIndex(at:in:)`,
     /// `CodeEditorView.Coordinator.captureViewport()`) — on every draw and every
     /// click while anything at all is folded.
+    ///
+    /// The lower bound is `>= 0`, not `> 0`: `FoldRegion` permits a hidden range
+    /// starting at offset 0, and a character-precise server answering
+    /// `startLine: 0, startCharacter: 0` produces exactly one (the handshake asks
+    /// for such bounds — `lineFoldingOnly: false`). Refusing it would hide that
+    /// block's text with no `…` drawn and no box for `unfoldPlaceholder` to hit,
+    /// leaving the gutter chevron as the only way back.
     func placeholderRect(forFoldedRangeAt offset: Int) -> NSRect? {
-        guard offset > 0, offset < storageLength else { return nil }
+        guard offset >= 0, offset < storageLength else { return nil }
         let glyphIndex = glyphIndexForCharacter(at: offset)
         let fragment = lineFragmentRect(forGlyphAt: glyphIndex, effectiveRange: nil)
         guard fragment.height > 0 else { return nil }

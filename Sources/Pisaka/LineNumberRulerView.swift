@@ -868,8 +868,16 @@ final class LineNumberRulerView: NSRulerView, ZoomSurfaceProviding {
     /// fragment: `chevron.down` in `secondaryLabelColor` for a candidate that is
     /// open, `chevron.right` in `labelColor` for one that is folded — the folded
     /// one louder because it is the only sign left in the gutter that a block is
-    /// hidden. A line that heads no candidate draws nothing; the column is
-    /// blank, not absent.
+    /// hidden. A line that heads neither a candidate nor a folded region draws
+    /// nothing; the column is blank, not absent.
+    ///
+    /// **The folded set is asked as well as the candidate map**, because the two
+    /// do not arrive together: a tab switch restores what was folded in the
+    /// incoming file and publishes it with an empty candidate list, which the
+    /// answer only fills a provider round trip later. Drawing from the candidates
+    /// alone would leave a restored fold's text hidden with nothing at all in the
+    /// gutter — for up to the folding budget on a served file — which is exactly
+    /// the sign this column exists to be.
     ///
     /// The image is configured at draw time, the way the completion panel's
     /// badges are and for the same reason the fold placeholder is measured at
@@ -882,8 +890,8 @@ final class LineNumberRulerView: NSRulerView, ZoomSurfaceProviding {
         relativePoint: NSPoint
     ) {
         let line = number - 1
-        guard foldCandidateByHeaderLine[line] != nil else { return }
         let isFolded = foldedState.folded(containing: line) != nil
+        guard isFolded || foldCandidateByHeaderLine[line] != nil else { return }
         let symbolName = isFolded ? "chevron.right" : "chevron.down"
         let color = isFolded ? NSColor.labelColor : NSColor.secondaryLabelColor
         guard let image = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil) else { return }
@@ -926,7 +934,12 @@ final class LineNumberRulerView: NSRulerView, ZoomSurfaceProviding {
     /// `false` means "not mine": a click outside the column, on a line heading
     /// no candidate, or before anything is laid out.
     private func toggleFoldIfChevronClicked(_ event: NSEvent) -> Bool {
-        guard let handler = onToggleFold, !foldCandidateByHeaderLine.isEmpty else { return false }
+        // Either set can answer, for `drawFoldChevron`'s reason: a restored fold
+        // is drawn from the folded set before any candidate has arrived, and a
+        // chevron that is drawn must be clickable.
+        guard let handler = onToggleFold,
+              !foldCandidateByHeaderLine.isEmpty || !foldedState.isEmpty
+        else { return false }
         let point = convert(event.locationInWindow, from: nil)
         let minX = chevronColumnMinX
         guard point.x >= minX, point.x < minX + chevronColumnWidth else { return false }

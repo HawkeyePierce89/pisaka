@@ -227,11 +227,20 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     character in the batch is hidden: glyph generation runs on every edit and this
     override must cost a file with no folds nothing. *Half two* is
     `FoldingTypesetter`, an `NSATSTypesetter` subclass answering
-    `.zeroAdvancementAction` for every separator **inside** a folded range. **The
-    spike's recorded outcome is that half two is load-bearing**: in TextKit 1 a
-    `.null` glyph on a separator still *ends its line*, because line breaking reads
-    the characters, so the glyph pass alone draws a folded block as a run of empty
-    rows rather than as nothing at all. Both halves read one `FoldedRanges` — a small
+    `.zeroAdvancementAction` for every separator **inside** a folded range. **Half two
+    is there because in TextKit 1 line breaking is the typesetter's decision, read
+    off the characters rather than off the glyph properties**: a `.null` glyph on a
+    separator still *ends its line*, so the glyph pass alone would draw a folded
+    block as a run of empty rows rather than as nothing at all. **That is the
+    reasoning, not a measurement** — the Task 5 spike could not run inside the task
+    that wrote this file (nothing could fold anything until the controller, the
+    gutter and the commands existed), and it is still owed as the first item of the
+    plan's mandatory manual DEBUG pass. Until it runs, two things are unverified on
+    real text: whether half two is load-bearing at all, and whether it is even
+    reached — `actionForControlCharacter(at:)` is consulted for glyphs carrying
+    `.controlCharacter`, and half one has just rewritten those separators to
+    `.null`. If the pass shows half two inert it is deleted, along with its gating
+    rule, per the plan. Both halves read one `FoldedRanges` — a small
     reference box holding the sorted, non-overlapping set `FoldState.hiddenRanges`
     hands over. It exists because the layout manager is `@MainActor` and the
     typesetter is not (TextKit asks its question straight out of the line-breaking
@@ -611,7 +620,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `chevron.right` on a folded one (louder — `labelColor` against the open one's
     `secondaryLabelColor` — because it is the only sign left in the gutter that a
     block is hidden), and nothing on any other line, the column being blank rather
-    than absent. Its width is derived from `rulerFont` and from nothing else, so it
+    than absent. **Either set can put a chevron on a line**, not the candidate map
+    alone: a tab switch restores the incoming file's folded state and publishes it
+    with an empty candidate list, which the answer only fills a provider round trip
+    later, so drawing from the candidates alone would leave a restored fold's text
+    hidden with an empty gutter beside it — for up to the folding budget on a
+    served file — which is the one thing this column exists not to do. The click
+    guard reads both for the same reason: a chevron that is drawn must be
+    clickable. Its width is derived from `rulerFont` and from nothing else, so it
     scales with code zoom like the numbers and the severity dots and needs no
     thickness recomputation when the fold sets change; the image is configured at
     draw time, so a zoom, a font change and a light/dark switch each need no
