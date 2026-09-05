@@ -562,25 +562,69 @@ final class LSPIntelligenceProviderTests: XCTestCase {
         XCTAssertEqual(region.kind, .imports)
     }
 
-    /// A character-precise server is taken at its word: the handshake said
-    /// `lineFoldingOnly: false`, so a bound inside a line is a bound inside a line.
-    func testTheServersCharactersAreUsedWhereItSendsThem() async throws {
+    /// A character-precise server is taken at its word at the **end** — that is
+    /// what `lineFoldingOnly: false` buys, and the closing token joins the
+    /// header's row instead of taking one of its own.
+    func testTheServersEndCharacterIsUsedWhereItSendsIt() async throws {
         transport.script(LSPMethod.foldingRange, .reply(.array([
-            foldingRangeJSON(startLine: 0, startCharacter: 6, endLine: 1, endCharacter: 6),
+            foldingRangeJSON(startLine: 0, endLine: 1, endCharacter: 6),
         ])))
         let provider = makeProvider()
 
         let regions = await provider.foldRegions(for: foldRequest())
 
         let region = try XCTUnwrap(regions.first)
-        XCTAssertEqual(region.hiddenRange, NSRange(location: 6, length: 12))
-        XCTAssertEqual(
-            (mainSource as NSString).substring(with: region.hiddenRange),
-            " Core\nimport"
-        )
+        let source = mainSource as NSString
+        let start = NSMaxRange(source.range(of: "import Core"))
+        XCTAssertEqual(region.hiddenRange, NSRange(location: start, length: 18 - start))
+        XCTAssertEqual(source.substring(with: region.hiddenRange), "\nimport")
         XCTAssertEqual(region.headerLine, 0)
         // Nothing named it, and an unnamed block is still a block.
         XCTAssertNil(region.kind)
+    }
+
+    /// **The start bound is floored at the header line's content end.** A server
+    /// naming the start of the folded node — column 0 of an import group's first
+    /// `use`, the `//` of a comment run, the `{` of a block — would otherwise
+    /// hide the header's own text and leave a numbered row showing nothing but
+    /// the placeholder, breaking ``FoldRegion``'s contract and, with it,
+    /// `FoldCaretRule` (a caret clicked into that text would be ejected) and
+    /// `FoldReveal` (a range that is already visible would spring the block
+    /// open). This is the one place a server is second-guessed.
+    func testAStartCharacterInsideTheHeaderLineIsFlooredAtItsContentEnd() async throws {
+        transport.script(LSPMethod.foldingRange, .reply(.array([
+            foldingRangeJSON(startLine: 0, startCharacter: 0, endLine: 1, kind: "imports"),
+        ])))
+        let provider = makeProvider()
+
+        let regions = await provider.foldRegions(for: foldRequest())
+
+        let region = try XCTUnwrap(regions.first)
+        let source = mainSource as NSString
+        XCTAssertEqual(
+            region.hiddenRange,
+            NSRange(
+                location: NSMaxRange(source.range(of: "import Core")),
+                length: "\nimport Foundation".utf16.count
+            ),
+            "the header line stays visible in full"
+        )
+        XCTAssertEqual(region.headerLine, 0)
+        XCTAssertEqual(region.kind, .imports)
+    }
+
+    /// The floor cannot resurrect a region the buffer cannot hold: a server that
+    /// names a start inside the header line and an end on that same line is left
+    /// with nothing to hide, and the block is dropped rather than widened.
+    func testAFoldFlooredToNothingIsDropped() async throws {
+        transport.script(LSPMethod.foldingRange, .reply(.array([
+            foldingRangeJSON(startLine: 0, startCharacter: 0, endLine: 0, endCharacter: 6),
+        ])))
+        let provider = makeProvider()
+
+        let regions = await provider.foldRegions(for: foldRequest())
+
+        XCTAssertTrue(regions.isEmpty)
     }
 
     /// **D1 read in both directions at once.** The bounds are measured in the

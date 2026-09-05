@@ -538,9 +538,22 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
     /// and their defaults are the hidden range this editor wants anyway: no
     /// `startCharacter` means "from the end of `startLine`'s content", no
     /// `endCharacter` means "to the end of `endLine`'s content". So a
-    /// line-oriented server and a character-precise one are the same code path,
-    /// and neither is second-guessed — `lineFoldingOnly: false` is what the
-    /// handshake told them.
+    /// line-oriented server and a character-precise one are the same code path
+    /// — `lineFoldingOnly: false` is what the handshake told them, and the end
+    /// bound is where that precision buys something: a closing `}` joins the
+    /// header's row instead of taking one of its own.
+    ///
+    /// **The start bound is nonetheless floored at the header line's content
+    /// end**, which is the one place a server *is* second-guessed, because
+    /// ``FoldRegion``'s contract — the header line stays visible in full — is
+    /// load-bearing for the whole feature rather than a preference. A server
+    /// that names the start of the folded *node* (column 0 of the first `use`
+    /// of an import group, the `//` of a comment run, the `{` of a block) would
+    /// otherwise hide the header's own text, leaving a numbered row showing
+    /// nothing but `…`; and `FoldCaretRule` would then eject a caret clicked
+    /// into that text while `FoldReveal` would spring the block open for a
+    /// range that is already visible. Flooring costs nothing a line-oriented
+    /// server sends and nothing a character-precise one sends about the end.
     ///
     /// The header line is counted with the **editor's** line table, not with
     /// LSP's: it is the number the gutter draws a chevron on. The two disagree
@@ -577,11 +590,21 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
             guard range.startLine >= 0,
                   range.endLine >= range.startLine,
                   range.endLine < lspLineStarts.count else { return nil }
-            let start = boundary(
-                line: range.startLine,
-                character: range.startCharacter,
-                in: source,
-                lineStarts: lspLineStarts
+            // The floor, not the server's word: see the note above. `boundary`
+            // with no character *is* this value, so a line-oriented answer is
+            // unchanged and only a start naming text on the header line moves.
+            let start = max(
+                boundary(
+                    line: range.startLine,
+                    character: range.startCharacter,
+                    in: source,
+                    lineStarts: lspLineStarts
+                ),
+                LSPPositionMap.lineContentEnd(
+                    ofLine: range.startLine,
+                    in: source,
+                    lineStarts: lspLineStarts
+                )
             )
             let end = boundary(
                 line: range.endLine,

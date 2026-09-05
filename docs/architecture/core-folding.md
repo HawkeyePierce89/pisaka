@@ -384,6 +384,19 @@ property of the file, not of wherever the user happens to be standing. The
 default is `hover`'s reason read one way further: folding is macOS-only, so
 neither iOS surface has anything to hang an answer on.
 
+The two providers answer the same contract, and the LSP one is held to it
+rather than trusted with it: the handshake says `lineFoldingOnly: false`, so a
+server's `endCharacter` is used verbatim — that is what the flag buys, a closing
+token joining the header's row — but its `startCharacter` is **floored at the
+header line's content end**. A server naming the start of the folded *node*
+(column 0 of an import group's first item, the `//` of a comment run, the `{` of
+a block) would otherwise hide the header line's own text, and "the header line
+stays visible in full" is not a preference here: it is what makes a chevron point
+at something readable, what keeps `FoldCaretRule` from ejecting a caret clicked
+into that text, and what makes `FoldReveal`'s "a range that only touches the
+header's text unfolds nothing" true. The scanner gets the same range by
+construction; the floor is what makes the server's answer say it too.
+
 The full seam contract, and where this sits among the six questions, is in
 `core-intelligence.md`; the wire half, the capability node and the budget are
 **D38** in `core-lsp.md`.

@@ -301,7 +301,10 @@ document, together with the limits they carry.
     **`resourceOperations: []`**, the load-bearing one. D38 adds the ninth and last
     node, `textDocument.foldingRange`, under that same rule and closed like the
     rest: `lineFoldingOnly: false` (this editor hides a character range, not a run
-    of whole lines, so a character-precise server is taken at its word),
+    of whole lines, so a character-precise server is taken at its word about
+    the *end* — its **start** is floored at the header line's content end, the
+    one place a server is second-guessed, because `FoldRegion`'s "the header
+    line stays visible in full" is load-bearing rather than a preference),
     `collapsedText: false` (the placeholder is always `…`; a server-supplied one
     would be a second vocabulary to render) and a `foldingRangeKind.valueSet`
     naming exactly the three `FoldRegionKind` cases — the closed table a kind
@@ -3176,8 +3179,17 @@ optional because the specification types them so, and **their absence means
 exactly what this editor wants**: no `startCharacter` is "from the end of
 `startLine`'s content", no `endCharacter` is "to the end of `endLine`'s content",
 which is the hidden range the fold engine needs anyway — so a line-oriented
-server and a character-precise one are one code path and neither is
-second-guessed. `kind` is read through the closed `FoldRegionKind` table
+server and a character-precise one are one code path. The provider then
+floors the start at `startLine`'s content end: `FoldRegion` promises the
+header line stays visible in full, and a server naming the start of the
+folded *node* (column 0 of an import group's first item, the `//` of a
+comment run, the `{` of a block) would otherwise hide the header's own text
+— leaving a numbered row showing nothing but the placeholder, a caret
+clicked into that text ejected by `FoldCaretRule`, and `FoldReveal`
+springing the block open for a range that is already visible. It costs a
+line-oriented answer nothing, and costs a character-precise one nothing at
+the end bound, which is where that precision buys something. `kind` is read
+through the closed `FoldRegionKind` table
 (`comment`/`imports`/`region`), and a string that table does not name decodes as
 **absent rather than as a refusal**, because `FoldingRangeKind` is explicitly open
 and a block carrying a word we do not know is still a block. Nothing branches on
