@@ -408,6 +408,94 @@ final class ReleaseMetadataTests: XCTestCase {
             """)
     }
 
+    /// The headless AppKit bundle that `swift test` structurally cannot cover.
+    ///
+    /// `swift test` compiles `PisakaCore` alone — Foundation only, no AppKit —
+    /// so a launch-time trap in an `NSATSTypesetter` subclass is invisible to it.
+    /// This bundle drives the editor's real TextKit stack headlessly and is the
+    /// only gate that executes `BracketOverlayLayoutManager`/`FoldingTypesetter`.
+    /// It exists as an application host test because `@testable import Pisaka`
+    /// against an application target only links with a `TEST_HOST` /
+    /// `BUNDLE_LOADER`; it is macOS-only because every file it exercises is
+    /// inside `#if os(macOS)`, and building it for iOS would import AppKit where
+    /// it does not exist.
+    func testProjectDeclaresTheAppLayerTestTarget() throws {
+        let lines = try activeProjectLines()
+        XCTAssertTrue(lines.contains(consecutively: "PisakaAppTests:"), """
+            project.yml no longer declares the PisakaAppTests target. It is the \
+            only gate that drives the editor's real TextKit stack — the launch-time \
+            trap in FoldingTypesetter that no Core gate could see lives there.
+            """)
+        XCTAssertTrue(lines.contains(consecutively: "type: bundle.unit-test"), """
+            PisakaAppTests must be a bundle.unit-test. An application host test \
+            needs a host to link against; a different type would not have one.
+            """)
+        XCTAssertTrue(lines.contains(consecutively: "supportedDestinations: [macOS]"), """
+            PisakaAppTests must be macOS-only. Every file it exercises is inside \
+            #if os(macOS); building it for iOS would import AppKit where it does \
+            not exist, and the iOS build gate proves it does not.
+            """)
+        XCTAssertTrue(lines.contains(consecutively: "sources: [Tests/PisakaAppTests]"), """
+            PisakaAppTests must source Tests/PisakaAppTests. The directory sits \
+            under Tests/ unreferenced by Package.swift, which SwiftPM ignores \
+            silently — the only place it is named is here.
+            """)
+        XCTAssertTrue(lines.contains(consecutively: "- target: Pisaka"), """
+            PisakaAppTests must depend on the Pisaka application target. It is an \
+            application host test — @testable import Pisaka against an application \
+            target — and without the host it does not link.
+            """)
+        XCTAssertTrue(lines.contains(consecutively: "TEST_HOST: $(BUILT_PRODUCTS_DIR)/Pisaka.app/Contents/MacOS/Pisaka"), """
+            PisakaAppTests must declare TEST_HOST as the built app's executable. \
+            XcodeGen's preset does not guarantee it for an application host, so it \
+            is declared explicitly and verified by building rather than by \
+            assumption.
+            """)
+        XCTAssertTrue(lines.contains(consecutively: "BUNDLE_LOADER: $(TEST_HOST)"), """
+            PisakaAppTests must set BUNDLE_LOADER to $(TEST_HOST). It is the \
+            companion to TEST_HOST that makes the host's symbols available to the \
+            bundle.
+            """)
+    }
+
+    func testProjectSchemeExposesTheAppLayerTests() throws {
+        let lines = try activeProjectLines()
+        XCTAssertTrue(lines.contains(consecutively: "schemes:"), """
+            project.yml no longer declares an explicit schemes: block. The project \
+            shipped no shared scheme, so the test action would otherwise depend on \
+            whatever xcodebuild autocreates — and CI's AppKit test step names the \
+            scheme explicitly.
+            """)
+        XCTAssertTrue(lines.contains(consecutively: "Pisaka:"), """
+            project.yml's schemes: block must name the Pisaka scheme. It is the \
+            one xcodebuild -scheme Pisaka resolves on CI and locally.
+            """)
+        // The build action names the app, the test action names the bundle.
+        // Matched as consecutive lines to rule out a commented-out or quoted
+        // mention.
+        XCTAssertTrue(lines.contains(consecutively: """
+            build:
+            targets:
+            Pisaka: all
+            """), """
+            The Pisaka scheme's build action must build the Pisaka app. A scheme \
+            that builds something else would not produce the TEST_HOST the bundle \
+            loads.
+            """)
+        XCTAssertTrue(lines.contains(consecutively: """
+            test:
+            config: Debug
+            targets:
+            - PisakaAppTests
+            """), """
+            The Pisaka scheme's test action must name PisakaAppTests in Debug. It \
+            is the headless AppKit bundle that swift test structurally cannot \
+            cover, and running it in Debug is what makes the host's Debug \
+            configuration — the one developers and CI use — the gate that catches \
+            the typesetter's unimplemented initializer trap.
+            """)
+    }
+
     /// `project.yml`'s *active* settings: every line that is neither blank nor a
     /// comment, trimmed, in file order.
     ///

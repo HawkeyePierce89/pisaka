@@ -969,10 +969,11 @@ final class ReleaseWorkflowTests: XCTestCase {
 
     /// The configuration is what decides whether the shipped app can update at
     /// all: the entire updater is behind `#if !DEBUG` in `SoftwareUpdater.swift`.
-    /// Nothing else pins it — `Pisaka.xcodeproj` is generated and gitignored and
-    /// `project.yml` declares no `schemes:`, so the scheme is auto-created and
-    /// "archive uses Release" would rest on an implicit Xcode default. A Debug
-    /// archive still embeds `Sparkle.framework` (the package dependency links
+    /// The generated scheme's Archive action defaults to Release, but the explicit
+    /// flag is the auditable pin — `Pisaka.xcodeproj` is generated and gitignored
+    /// and `project.yml`'s `schemes:` declares only build and test actions, so
+    /// "archive uses Release" would otherwise rest on the scheme default alone.
+    /// A Debug archive still embeds `Sparkle.framework` (the package dependency links
     /// unconditionally), so every other check in this workflow would pass while
     /// the release shipped with "Check for Updates…" permanently disabled.
     ///
@@ -2954,6 +2955,65 @@ final class ReleaseWorkflowTests: XCTestCase {
             """)
     }
 
+    /// The AppKit overlay is verified by a headless XCTest bundle that drives
+    /// the editor's real TextKit stack — the layer `swift test` structurally
+    /// cannot cover. It runs in the macOS job before the Release build so a
+    /// launch-time typesetter trap fails the job before it builds what it would
+    /// not launch, and it is not skippable for the same reason the smoke launch
+    /// is not.
+    func testCIAppKitOverlayIsTestedBeforeTheBuild() throws {
+        let script = try stepScript(named: Self.ciAppKitTestStepName, in: "ci.yml", because: """
+            It is the only gate that drives the editor's real TextKit stack headlessly — the layer \
+            swift test structurally cannot cover, and the one that sees the FoldingTypesetter trap.
+            """)
+        XCTAssertTrue(script.contains { $0.contains("xcodebuild") }, """
+            ci.yml's `\(Self.ciAppKitTestStepName)` step must run `xcodebuild`. It is the headless \
+            AppKit bundle — PisakaAppTests — that reproduces the TextKit re-entrancy crash swift test \
+            cannot see.
+            """)
+        XCTAssertTrue(script.contains { $0.contains("test") }, """
+            ci.yml's `\(Self.ciAppKitTestStepName)` step must run the test action. It is the headless \
+            AppKit bundle — PisakaAppTests — that reproduces the TextKit re-entrancy crash swift test \
+            cannot see.
+            """)
+        XCTAssertTrue(script.contains { $0.contains("-destination 'platform=macOS'") }, """
+            ci.yml's `\(Self.ciAppKitTestStepName)` step must target `platform=macOS`. The bundle is \
+            macOS-only (every file it exercises is inside #if os(macOS)); an iOS destination would \
+            not link it.
+            """)
+        XCTAssertTrue(script.contains { $0.contains("CODE_SIGNING_ALLOWED=NO") }, """
+            ci.yml's `\(Self.ciAppKitTestStepName)` step must pass CODE_SIGNING_ALLOWED=NO. CI builds \
+            unsigned and the test host is the unsigned app — the same flags the build steps use.
+            """)
+        // Positioned after resolve, before the Release build.
+        let raw = try text(atRepositoryPath: ".github/workflows/ci.yml").components(separatedBy: .newlines)
+        let appKit = try XCTUnwrap(raw.firstIndex(where: {
+            $0.trimmingCharacters(in: .whitespaces) == "- name: \(Self.ciAppKitTestStepName)"
+        }), "ci.yml has no `\(Self.ciAppKitTestStepName)` step")
+        let resolve = try XCTUnwrap(raw.firstIndex(where: {
+            $0.trimmingCharacters(in: .whitespaces).contains("resolvePackageDependencies")
+        }), "ci.yml has no package resolve step")
+        let build = try XCTUnwrap(raw.firstIndex(where: {
+            $0.trimmingCharacters(in: .whitespaces) == "- name: \(Self.ciMacBuildStepName)"
+        }), "ci.yml has no `\(Self.ciMacBuildStepName)` step")
+        XCTAssertGreaterThan(appKit, resolve, """
+            ci.yml's `\(Self.ciAppKitTestStepName)` step must run after the package resolve. The test \
+            target resolves the app's packages (Neon, tree-sitter) the same way the build does.
+            """)
+        XCTAssertLessThan(appKit, build, """
+            ci.yml's `\(Self.ciAppKitTestStepName)` step must run before \
+            `\(Self.ciMacBuildStepName)`. The crash it catches is a launch crash; building a Release \
+            product that will not survive layout is wasted work and the wrong order to fail in.
+            """)
+        let owningJob = raw[..<appKit].last(where: Self.isJobHeader)
+        XCTAssertEqual(owningJob?.trimmingCharacters(in: .whitespaces), "build-macos:", """
+            The AppKit test belongs to the `build-macos:` job, which is the one that builds the macOS \
+            app. It is currently under “\(owningJob ?? "no job at all")”.
+            """)
+    }
+
+    private static let ciAppKitTestStepName = "Test the AppKit overlay (PisakaAppTests)"
+
     /// The name of CI's macOS build step. A constant for the same reason
     /// `archiveStepName` is one: a renamed step must fail loudly rather than
     /// silently check nothing.
@@ -3487,6 +3547,76 @@ final class ReleaseWorkflowTests: XCTestCase {
             that notices. Copy the intended body over the other one — do not reconcile them by hand, \
             which is how they came to differ.
             """)
+    }
+
+    /// The smoke launch must seed a restorable session before it launches,
+    /// and back the domain up so a hand-run does not clobber the real one.
+    ///
+    /// With no session there is no document, no layout and no re-entrant
+    /// pass — which is exactly why the part 1 crash passed CI. The session
+    /// lives in UserDefaults under session.projects (a PropertyListEncoder-
+    /// encoded SessionCatalog), domain ws.karmanov.pisaka. The backup is
+    /// restored on every exit path via trap, for the reason the MARKER
+    /// comment states: this body is run by hand on developer Macs where the
+    /// domain is a real session. The file route (`open --args`) was tried
+    /// and produced no window, so the launch execs the executable directly
+    /// with no arguments and reaches the document through restore.
+    func testSmokeLaunchSeedsSessionAndBacksUpDomain() throws {
+        for (workflow, step) in [
+            ("ci.yml", Self.ciSmokeLaunchStepName),
+            ("release.yml", Self.releaseSmokeLaunchStepName),
+        ] as [(String, String)] {
+            let script = try stepScript(named: step, in: workflow, because: """
+                It is one of the two copies of the launch smoke test that must seed a document \
+                so the re-entrant layout pass is exercised.
+                """)
+            XCTAssertTrue(script.contains { $0.contains("defaults export ws.karmanov.pisaka") }, """
+                \(workflow)'s `\(step)` step must back up the defaults domain with \
+                `defaults export ws.karmanov.pisaka` before seeding. Without it a hand-run on a \
+                developer Mac clobbers the real session — the reason MARKER exists as well.
+                """)
+            XCTAssertTrue(script.contains { $0.contains("defaults import ws.karmanov.pisaka") }, """
+                \(workflow)'s `\(step)` step must restore the domain with \
+                `defaults import ws.karmanov.pisaka`. The backup is meaningless without a restore.
+                """)
+            XCTAssertTrue(script.contains { $0.contains("trap restore_defaults EXIT") }, """
+                \(workflow)'s `\(step)` step must `trap restore_defaults EXIT` so the domain is \
+                restored on every exit path, not just the success one.
+                """)
+            XCTAssertTrue(script.contains { $0.contains("pisaka-smoke-fixture") }, """
+                \(workflow)'s `\(step)` step must create a fixture project under \
+                pisaka-smoke-fixture with two multi-line files. Without it there is no document \
+                to lay out.
+                """)
+            XCTAssertTrue(script.contains { $0.contains("session.projects") && $0.contains("defaults write") }, """
+                \(workflow)'s `\(step)` step must seed UserDefaults with \
+                `defaults write ws.karmanov.pisaka session.projects -data`. That is the seam \
+                the smoke launch seeds — a PropertyListEncoder-encoded SessionCatalog.
+                """)
+            // Seed must precede the launch, otherwise the launch sees no document.
+            let seedIndex = try XCTUnwrap(script.firstIndex(where: {
+                $0.contains("session.projects") && $0.contains("defaults write")
+            }), """
+                \(workflow)'s `\(step)` step has no `defaults write … session.projects` line to order.
+                """)
+            let launchIndex = try XCTUnwrap(script.firstIndex(where: { $0.contains("\"$EXECUTABLE\"") && $0.hasSuffix("&") }), """
+                \(workflow)'s `\(step)` step has no background launch line to order against.
+                """)
+            XCTAssertLessThan(seedIndex, launchIndex, """
+                \(workflow)'s `\(step)` step must seed the session *before* launching the app. \
+                After it, the app has already started with no document and no re-entrant layout pass.
+                """)
+            // The launch must exec the binary directly with no arguments; `open --args`
+            // was tried and produced no window. Asserted as the absence of `open --args`.
+            XCTAssertFalse(script.contains { $0.contains("open --args") }, """
+                \(workflow)'s `\(step)` step must not use `open --args`. That route was tried and \
+                produced no window; the launch execs the executable directly and passes no arguments.
+                """)
+            XCTAssertTrue(script.contains { $0.contains("\"$EXECUTABLE\" > \"$LOG\" 2>&1 &") }, """
+                \(workflow)'s `\(step)` step must exec the executable directly (`"$EXECUTABLE" > "$LOG" 2>&1 &`) \
+                and pass no arguments. The document is reached through session restore, not a file argument.
+                """)
+        }
     }
 
     // MARK: - The cross-file invariants

@@ -324,6 +324,12 @@ struct CodeEditorView: NSViewRepresentable {
         textView.onUnfold = { [weak coordinator = context.coordinator] in
             coordinator?.unfoldAtCaret() ?? false
         }
+        textView.onFoldAll = { [weak coordinator = context.coordinator] in
+            coordinator?.foldAll() ?? false
+        }
+        textView.onUnfoldAll = { [weak coordinator = context.coordinator] in
+            coordinator?.unfoldAll() ?? false
+        }
         textView.onPlaceholderClick = { [weak coordinator = context.coordinator] tv, point in
             coordinator?.unfoldPlaceholder(at: point, in: tv) ?? false
         }
@@ -1829,6 +1835,13 @@ struct CodeEditorView: NSViewRepresentable {
         /// spelling is `SourceViewerWindowController`'s — `standardizedFileURL`
         /// then `resolvingSymlinksInPath()`, the app-layer form of the same
         /// identity comparison the workspace makes.
+        ///
+        /// `CanonicalPath` is `internal` to Core, and the app layer already spells
+        /// this transform inline at five sites (this key, `SourceViewerWindowController`,
+        /// `PisakaApp` ×2, `RootView_iOS`), of which this is one. The spelling is
+        /// Core's `canonical(_:)` verbatim; making it `public` and routing all five
+        /// through it is a cross-cutting change with its own verification and is
+        /// deliberately not bundled here (`core-folding.md`, `CLAUDE.md` Paths).
         private var foldMemoryKey: String? {
             Coordinator.foldMemoryKey(url: fileURL, fileID: fileID)
         }
@@ -2018,6 +2031,21 @@ struct CodeEditorView: NSViewRepresentable {
             ) else { return false }
             folds.unfold(region)
             return true
+        }
+
+        /// *Fold All* (⌘⌥⇧←): fold every candidate. After folding the caret is
+        /// placed by asking `FoldCaretRule` once, with no direction, the same way
+        /// `toggleFold` asks it.
+        func foldAll() -> Bool {
+            guard folds.foldAll() else { return false }
+            applyFoldCaretRule(previous: NSRange(location: NSNotFound, length: 0))
+            return true
+        }
+
+        /// *Unfold All* (⌘⌥⇧→): unfold every folded block, or answer `false` so
+        /// the command beeps when nothing is folded.
+        func unfoldAll() -> Bool {
+            return folds.unfoldAll()
         }
 
         /// A click landed on a `…`: open the block behind it and put the caret at
@@ -3601,6 +3629,16 @@ final class EditorTextView: NSTextView, ZoomSurfaceProviding {
     /// coordinator's `unfoldAtCaret()`; `nil` until then.
     var onUnfold: (() -> Bool)?
 
+    /// Folds every candidate block (⌘⌥⇧←), and reports whether anything was
+    /// folded. Set by `CodeEditorView.makeNSView` to the coordinator's
+    /// `foldAll()`; `nil` until then.
+    var onFoldAll: (() -> Bool)?
+
+    /// Unfolds every folded block (⌘⌥⇧→), and reports whether anything was
+    /// unfolded. Set by `CodeEditorView.makeNSView` to the coordinator's
+    /// `unfoldAll()`; `nil` until then.
+    var onUnfoldAll: (() -> Bool)?
+
     /// Opens the block behind the `…` a click landed on, and reports whether the
     /// click was on one. Set by `CodeEditorView.makeNSView` to the coordinator's
     /// `unfoldPlaceholder(at:in:)`; `nil` until then.
@@ -3864,6 +3902,16 @@ final class EditorTextView: NSTextView, ZoomSurfaceProviding {
     /// `foldAtCaret()` is.
     func unfoldAtCaret() -> Bool {
         onUnfold?() ?? false
+    }
+
+    /// *Fold All* — ⌘⌥⇧←, reached and answered exactly as `foldAtCaret()` is.
+    func foldAll() -> Bool {
+        onFoldAll?() ?? false
+    }
+
+    /// *Unfold All* — ⌘⌥⇧→, reached and answered exactly as `foldAtCaret()` is.
+    func unfoldAll() -> Bool {
+        onUnfoldAll?() ?? false
     }
 
     /// A Command-held click navigates to the clicked identifier's declaration;

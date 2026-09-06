@@ -88,7 +88,8 @@ do — is in [`docs/FEATURES.md`](docs/FEATURES.md).
   caret/scroll memory.
 - **Code folding** (macOS) — collapse a block behind its first line: a chevron in
   the gutter, a `…` you can click to open it again, and Cmd+Option+Left /
-  Cmd+Option+Right for the block at the caret. Nothing is edited — the text is
+  Cmd+Option+Right for the block at the caret, plus Cmd+Option+Shift+Left /
+  Cmd+Option+Shift+Right to fold / unfold every block. Nothing is edited — the text is
   hidden on screen only, and a jump into a folded block opens it first. Blocks come
   from a language server when one is running and from brackets and indentation
   otherwise; folds last for the session and are not saved.
@@ -146,6 +147,8 @@ server fetching JSON schemas while it runs.
 | Cmd+/       | Toggle comment                             |
 | Cmd+Option+Left | Fold the block at the caret (macOS)     |
 | Cmd+Option+Right | Unfold the block at the caret (macOS) |
+| Cmd+Option+Shift+Left | Fold every block (macOS)          |
+| Cmd+Option+Shift+Right | Unfold every block (macOS)       |
 | Tab         | Insert one indentation level (commits the selected completion row when the popup is open) |
 | Cmd+F       | Find in the current file                   |
 | Cmd+G / Cmd+Shift+G | Find Next / Previous               |

@@ -189,6 +189,50 @@ final class FoldingSourceGatingTests: XCTestCase {
         )
     }
 
+    /// Fold All / Unfold All — the two new chords, their entry points and the
+    /// unchanged three-mutation count.
+    func testFoldAllChordsAndEntryPoints() throws {
+        XCTAssertEqual(
+            try fileNames(matching: "\\.leftArrow, modifiers: \\[\\.command, \\.option, \\.shift\\]", under: "Sources"),
+            ["FoldCommands.swift"],
+            "⌘⌥⇧← is spelled in exactly one file. An app-wide key equivalent fires wherever the keystroke "
+                + "lands, so a second declaration is two menu items racing for one chord."
+        )
+        XCTAssertEqual(
+            try fileNames(matching: "\\.rightArrow, modifiers: \\[\\.command, \\.option, \\.shift\\]", under: "Sources"),
+            ["FoldCommands.swift"],
+            "⌘⌥⇧→ is spelled in exactly one file, for the same reason."
+        )
+        XCTAssertEqual(
+            try fileNames(matching: "\\b(foldAll|unfoldAll)\\b", under: "Sources"),
+            ["CodeEditorView.swift", "FoldCommands.swift", "FoldController.swift"],
+            "The two new entry points are declared by the text view (CodeEditorView) and called by the "
+                + "commands (FoldCommands); the controller also exposes same-named whole-value operations "
+                + "that hand a value through apply(_:), so three files name them. A fourth caller would be "
+                + "a fold gesture that never asked the first responder which editor it meant."
+        )
+        XCTAssertEqual(
+            try fileNames(matching: "\\bonFoldAll\\b", under: "Sources"),
+            ["CodeEditorView.swift"],
+            "The Fold All closure is declared by the text view alone."
+        )
+        XCTAssertEqual(
+            try fileNames(matching: "\\bonUnfoldAll\\b", under: "Sources"),
+            ["CodeEditorView.swift"],
+            "The Unfold All closure is declared by the text view alone."
+        )
+        XCTAssertEqual(
+            try occurrences(
+                of: "\\b\\w+\\.(fold|unfold|toggle)\\(region\\)",
+                in: try code(ofFileNamed: "FoldController.swift", under: "Sources/Pisaka")
+            ),
+            3,
+            "Three mutations, one per gesture: toggle (the chevron), fold (⌘⌥←) and unfold (⌘⌥→ and the "
+                + "placeholder click). Fold All and Unfold All hand a whole value through apply(_:), which "
+                + "is what keeps the layout manager, the gutter and the memory from ever disagreeing."
+        )
+    }
+
     // MARK: - The reveal funnel
 
     /// Every jump into a buffer unfolds what it lands in before it scrolls.
@@ -369,6 +413,22 @@ final class FoldingSourceGatingTests: XCTestCase {
             ["CodeEditorView.swift"],
             "Which block a command acts on is Core's decision, asked in the one file that knows where the "
                 + "caret is."
+        )
+        XCTAssertEqual(
+            try fileNames(naming: "FoldSeverityRule", under: "Sources/Pisaka"),
+            ["LineNumberRulerView.swift"],
+            "The folded-header severity rule is named by exactly one app file: the gutter, which is the one "
+                + "place holding both inputs and is already allowed to be told a FoldState. A second caller is "
+                + "a second place that decision could be taken differently."
+        )
+        XCTAssertEqual(
+            try occurrences(
+                of: "\\bfoldedState\\.(fold|unfold|toggle)\\(",
+                in: try code(ofFileNamed: "LineNumberRulerView.swift", under: "Sources/Pisaka")
+            ),
+            0,
+            "The gutter still never mutates what it was told, even after gaining the severity rule. It draws "
+                + "the answer; it does not take a second one."
         )
 
         for url in try swiftFiles(under: "Sources/Pisaka") {

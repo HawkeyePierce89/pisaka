@@ -40,6 +40,17 @@ import PisakaCore
 /// happen). Both read one `FoldedRanges`. The text storage is never touched —
 /// no edit is registered, no undo entry exists for a fold, and every engine
 /// working on UTF-16 offsets keeps working on the full text.
+///
+/// **Why `FoldingTypesetter` has a working `init()`.** TextKit re-enters layout
+/// (`_setExtraLineFragmentRect` → `invalidateDisplay` → `_ensureLayoutComplete`)
+/// while the manager's typesetter is busy and allocates a **second** instance of
+/// the typesetter's class through Objective-C `init`. A Swift `NSATSTypesetter`
+/// subclass that declares only a custom designated initializer traps on that
+/// `init()` — `Fatal error: Use of unimplemented initializer 'init()'` — which
+/// is the launch/tab-switch crash this file fixes. The rule is therefore:
+/// **a typesetter subclass installed on a layout manager must have a working
+/// `init()` with no state of its own**, reading the hidden set from the manager
+/// it is laying out (`layoutManager as? BracketOverlayLayoutManager`) instead.
 @MainActor
 final class BracketOverlayLayoutManager: NSLayoutManager {
     /// One colored bracket: a length-1 character range and the color to paint it.
@@ -117,7 +128,17 @@ final class BracketOverlayLayoutManager: NSLayoutManager {
     ///
     /// Sorted ascending and non-overlapping, which is what `FoldState` hands
     /// over and what makes the membership test a binary search.
-    private let folded = FoldedRanges()
+    nonisolated let foldedRanges = FoldedRanges()
+
+    /// The range the last ``setFoldedRanges(_:clampingInvalidationTo:)`` call
+    /// invalidated, or `nil` when that call was a no-op (unchanged set) or its
+    /// changed bounds were empty. This is the seam that makes the boundedness
+    /// assertable: it records exactly what was handed to
+    /// `invalidateGlyphs`/`invalidateLayout`/`invalidateDisplay` and decides
+    /// nothing — a caller that needed no invalidation leaves `nil` rather than
+    /// an empty range, so "no invalidation" and "invalidate zero characters"
+    /// stay distinct.
+    internal private(set) var lastFoldInvalidation: NSRange?
 
     /// The typesetter half of hiding, installed once and kept for this
     /// manager's life. Line breaking is the **typesetter's** decision in
@@ -127,12 +148,12 @@ final class BracketOverlayLayoutManager: NSLayoutManager {
     /// only place that break can be suppressed.
     override init() {
         super.init()
-        typesetter = FoldingTypesetter(folded: folded)
+        typesetter = FoldingTypesetter()
     }
 
     required init?(coder: NSCoder) {
         super.init(coder: coder)
-        typesetter = FoldingTypesetter(folded: folded)
+        typesetter = FoldingTypesetter()
     }
 
     // MARK: - Interception
@@ -449,11 +470,18 @@ final class BracketOverlayLayoutManager: NSLayoutManager {
     /// `nil` ≡ this manager's current storage length, which is right for every
     /// other caller.
     func setFoldedRanges(_ ranges: [NSRange], clampingInvalidationTo length: Int? = nil) {
-        guard ranges != folded.ranges else { return }
-        let changed = changedBounds(from: folded.ranges, to: ranges)
-        folded.replace(with: ranges)
+        guard ranges != foldedRanges.ranges else {
+            lastFoldInvalidation = nil
+            return
+        }
+        let changed = changedBounds(from: foldedRanges.ranges, to: ranges)
+        foldedRanges.replace(with: ranges)
         let invalid = clamped(changed, to: length ?? storageLength)
-        guard invalid.length > 0 else { return }
+        guard invalid.length > 0 else {
+            lastFoldInvalidation = nil
+            return
+        }
+        lastFoldInvalidation = invalid
         invalidateGlyphs(forCharacterRange: invalid, changeInLength: 0, actualCharacterRange: nil)
         invalidateLayout(forCharacterRange: invalid, actualCharacterRange: nil)
         invalidateDisplay(forCharacterRange: invalid)
@@ -510,7 +538,7 @@ final class BracketOverlayLayoutManager: NSLayoutManager {
         font aFont: NSFont,
         forGlyphRange glyphRange: NSRange
     ) {
-        guard !folded.ranges.isEmpty, glyphRange.length > 0 else {
+        guard !foldedRanges.ranges.isEmpty, glyphRange.length > 0 else {
             super.setGlyphs(
                 glyphs,
                 properties: props,
@@ -522,7 +550,7 @@ final class BracketOverlayLayoutManager: NSLayoutManager {
         }
         var edited = Array(UnsafeBufferPointer(start: props, count: glyphRange.length))
         var hidAny = false
-        for index in 0..<glyphRange.length where folded.hides(charIndexes[index]) {
+        for index in 0..<glyphRange.length where foldedRanges.hides(charIndexes[index]) {
             // `insert`, not assignment: `GlyphProperty` is an option set, and
             // `.controlCharacter` is the bit that makes the typesetter ask
             // `actionForControlCharacter(at:)` about a separator at all.
@@ -617,7 +645,7 @@ final class BracketOverlayLayoutManager: NSLayoutManager {
     /// a token, and the secondary label is appearance-aware, so light and dark
     /// need no second table.
     private func paintFoldPlaceholders(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {
-        guard !folded.ranges.isEmpty, glyphsToShow.length > 0 else { return }
+        guard !foldedRanges.ranges.isEmpty, glyphsToShow.length > 0 else { return }
         let charRange = characterRange(forGlyphRange: glyphsToShow, actualGlyphRange: nil)
         let end = NSMaxRange(charRange)
         let font = editorFont
@@ -627,7 +655,7 @@ final class BracketOverlayLayoutManager: NSLayoutManager {
             attributes: [.font: font, .foregroundColor: color]
         )
         let size = text.size()
-        for range in folded.ranges where range.location >= charRange.location && range.location <= end {
+        for range in foldedRanges.ranges where range.location >= charRange.location && range.location <= end {
             guard var rect = placeholderRect(forFoldedRangeAt: range.location) else { continue }
             rect.origin.x += origin.x
             rect.origin.y += origin.y
@@ -1133,13 +1161,16 @@ final class BracketOverlayLayoutManager: NSLayoutManager {
 /// loop — so the set both halves of hiding read lives here rather than in
 /// either of them. Every write happens on the main thread, from
 /// `setFoldedRanges(_:)`, and every read happens during layout on that same
-/// thread; nothing else has a reference.
+/// thread; nothing else has a reference. It is `@unchecked Sendable` because
+/// the typesetter reads it off the main actor, but every write and every
+/// layout pass still happens on the main thread — the isolation is TextKit's
+/// call site, not a second writer.
 ///
 /// The ranges are the ones `FoldState.hiddenRanges` hands over: **sorted
 /// ascending and non-overlapping**. That is the whole precondition of
 /// `hides(_:)`, which binary-searches rather than scans — glyph generation asks
 /// it once per character.
-final class FoldedRanges {
+final class FoldedRanges: @unchecked Sendable {
     private(set) var ranges: [NSRange] = []
 
     func replace(with ranges: [NSRange]) {
@@ -1182,16 +1213,26 @@ final class FoldedRanges {
 ///
 /// It lives in this file, beside the glyph half, because the two are one
 /// mechanism: they read the same set and neither is correct alone.
+///
+/// **Why `override init()` with no state.** TextKit re-enters layout while the
+/// manager's own typesetter is busy and allocates a second instance of that
+/// class through Objective-C `init`. A Swift subclass declaring only a custom
+/// designated initializer traps on that `init()` — `Fatal error: Use of
+/// unimplemented initializer 'init()'` — which is the launch/tab-switch crash.
+/// This class therefore carries no state of its own and reads the hidden set
+/// from `layoutManager as? BracketOverlayLayoutManager` — which TextKit sets for
+/// the duration of a pass — deferring to `super` when there is no manager or it
+/// is of another class.
 final class FoldingTypesetter: NSATSTypesetter {
-    private let folded: FoldedRanges
-
-    init(folded: FoldedRanges) {
-        self.folded = folded
+    override init() {
         super.init()
     }
 
     override func actionForControlCharacter(at charIndex: Int) -> NSTypesetterControlCharacterAction {
-        if folded.hides(charIndex) { return .zeroAdvancementAction }
+        if let manager = layoutManager as? BracketOverlayLayoutManager,
+           manager.foldedRanges.hides(charIndex) {
+            return .zeroAdvancementAction
+        }
         return super.actionForControlCharacter(at: charIndex)
     }
 }

@@ -146,7 +146,13 @@ final class LineNumberRulerView: NSRulerView, ZoomSurfaceProviding {
     /// below refuses anything else rather than padding it into a lie — so the
     /// draw loop reads it by line number: the blame array's invariant,
     /// established at the setter instead of hoped for downstream.
-    private var diagnosticSeverities: [DiagnosticSeverity?] = []
+    internal var diagnosticSeverities: [DiagnosticSeverity?] = []
+
+    /// The last per-line severities handed to `setDiagnosticSeverities(_:)`,
+    /// before the folded-header rule is applied. The ruler stores both so a
+    /// fold change can re-derive the drawn dots without the coordinator
+    /// re-asking the store.
+    private var rawDiagnosticSeverities: [DiagnosticSeverity?] = []
 
     /// Horizontal gap between the marker column and whatever sits beside it.
     /// Smaller than `annotationGap` on purpose: this column is always present,
@@ -386,11 +392,23 @@ final class LineNumberRulerView: NSRulerView, ZoomSurfaceProviding {
     /// Thickness is deliberately *not* touched: the column's width does not
     /// depend on its contents (see ``diagnosticColumnWidth``), so only a redraw
     /// is needed. An unchanged array is a no-op — this runs on every
-    /// diagnostics-model mutation and every keystroke-driven repaint.
+    /// diagnostics-model mutation and every keystroke-driven repaint. The
+    /// folded-header rule is applied here rather than in the coordinator,
+    /// because this is the one place holding both inputs and the gutter is
+    /// already the file the gating suite allows to be *told* a ``FoldState``: it
+    /// asks the Core rule when either input is installed and draws the answer.
+    /// It decides nothing and computes no severity of its own.
     func setDiagnosticSeverities(_ severities: [DiagnosticSeverity?]) {
         guard severities.count == lineStartOffsets.count else { return }
-        guard severities != diagnosticSeverities else { return }
-        diagnosticSeverities = severities
+        guard severities != rawDiagnosticSeverities else { return }
+        rawDiagnosticSeverities = severities
+        let resolved = FoldSeverityRule.resolved(
+            severities,
+            folded: foldedState,
+            lineStarts: lineStartOffsets
+        )
+        guard resolved != diagnosticSeverities else { return }
+        diagnosticSeverities = resolved
         needsDisplay = true
     }
 
@@ -417,6 +435,16 @@ final class LineNumberRulerView: NSRulerView, ZoomSurfaceProviding {
             byHeader[region.headerLine] = region
         }
         foldCandidateByHeaderLine = byHeader
+        if rawDiagnosticSeverities.count == lineStartOffsets.count {
+            let resolved = FoldSeverityRule.resolved(
+                rawDiagnosticSeverities,
+                folded: foldedState,
+                lineStarts: lineStartOffsets
+            )
+            if resolved != diagnosticSeverities {
+                diagnosticSeverities = resolved
+            }
+        }
         needsDisplay = true
     }
 
@@ -680,6 +708,52 @@ final class LineNumberRulerView: NSRulerView, ZoomSurfaceProviding {
         return max(1, low)
     }
 
+    /// The rows the gutter *will* draw for `charRange`, in buffer order.
+    ///
+    /// Each entry carries the 1-based line number as it appears in the buffer
+    /// and the `NSString.lineRange` of that line. A line whose preceding
+    /// separator is hidden has no row of its own — its glyphs are null and that
+    /// separator advances nothing, so it shares the header's fragment — and the
+    /// whole collapsed run is skipped in one step rather than a line at a time:
+    /// the hidden characters keep their glyphs, so the visible bounding rect's
+    /// character range spans every folded line and stepping through them would
+    /// make each redraw cost the folded block rather than the visible page. The
+    /// line number is re-read from the cached starts (O(log n)), so the
+    /// numbering stays the buffer's: `12` is followed by `27`, which is the
+    /// honest answer about what the next visible line is. This is the seam that
+    /// makes the skip assertable without pixels; the draw loop below consumes
+    /// what this seam answers and decides nothing of its own.
+    internal func gutterRows(forCharRange charRange: NSRange) -> [(lineNumber: Int, lineRange: NSRange)] {
+        guard let textView else { return [] }
+        let content = textView.string as NSString
+        guard content.length > 0 else { return [] }
+        // Anchor to the start of the line containing charRange.location — the
+        // same snap the draw loop applies below — then look it up in the cached
+        // line starts (O(log n)) instead of rescanning from offset 0.
+        let firstLineStart = content.lineRange(
+            for: NSRange(location: min(charRange.location, content.length), length: 0)
+        ).location
+        var lineNumber = self.lineNumber(forLineStart: firstLineStart)
+        var index = charRange.location
+        let end = charRange.location + charRange.length
+        var rows: [(Int, NSRange)] = []
+        while index < content.length && index < end {
+            let lineRange = content.lineRange(for: NSRange(location: index, length: 0))
+            if let collapsed = foldedState.hiddenRange(collapsingLineStartingAt: lineRange.location) {
+                let lastCollapsed = content.lineRange(
+                    for: NSRange(location: min(NSMaxRange(collapsed), content.length), length: 0)
+                )
+                index = NSMaxRange(lastCollapsed)
+                lineNumber = self.lineNumber(forLineStart: index)
+                continue
+            }
+            rows.append((lineNumber, lineRange))
+            lineNumber += 1
+            index = NSMaxRange(lineRange)
+        }
+        return rows
+    }
+
     override func drawHashMarksAndLabels(in rect: NSRect) {
         guard
             let textView,
@@ -716,77 +790,50 @@ final class LineNumberRulerView: NSRulerView, ZoomSurfaceProviding {
         let glyphRange = layoutManager.glyphRange(forBoundingRect: boundingRect, in: textContainer)
         let charRange = layoutManager.characterRange(forGlyphRange: glyphRange, actualGlyphRange: nil)
 
-        // Determine the 1-based line number of the first visible line. Anchor to
-        // the *start* of the line containing `charRange.location` — the same snap
-        // the draw loop applies below — then look it up in the cached line starts
-        // (O(log n)) instead of rescanning the buffer from offset 0.
-        let firstLineStart = content.lineRange(
-            for: NSRange(location: min(charRange.location, content.length), length: 0)
-        ).location
-        var lineNumber = self.lineNumber(forLineStart: firstLineStart)
-
-        // Walk each line in the visible range, drawing its number beside the
-        // first line fragment of the line.
-        var index = charRange.location
-        let end = charRange.location + charRange.length
-        while index < content.length && index < end {
-            let lineRange = content.lineRange(for: NSRange(location: index, length: 0))
-            // A line whose preceding separator is hidden has no row of its own —
-            // its glyphs are null and that separator advances nothing, so it
-            // shares the header's line fragment. Drawing it would stack a second
-            // number, a second blame label and a second severity dot on the
-            // header's row.
-            //
-            // The **whole** collapsed run is skipped in one step rather than a
-            // line at a time: the hidden characters keep their glyphs, so the
-            // visible bounding rect's character range spans every folded line and
-            // stepping through them would make each redraw cost the folded block
-            // rather than the visible page. The line number is re-read from the
-            // cached starts (O(log n)), so the numbering stays the buffer's: `12`
-            // is followed by `27`, which is the honest answer about what the next
-            // visible line is.
-            if let collapsed = foldedState.hiddenRange(collapsingLineStartingAt: lineRange.location) {
-                let lastCollapsed = content.lineRange(
-                    for: NSRange(location: min(NSMaxRange(collapsed), content.length), length: 0)
-                )
-                index = NSMaxRange(lastCollapsed)
-                lineNumber = self.lineNumber(forLineStart: index)
-                continue
-            }
+        for row in gutterRows(forCharRange: charRange) {
             drawVisibleLine(
-                lineNumber,
-                lineRange: lineRange,
+                row.lineNumber,
+                lineRange: row.lineRange,
                 layoutManager: layoutManager,
                 textOrigin: textOrigin,
                 relativePoint: relativePoint,
                 attributes: attributes
             )
-            lineNumber += 1
-            index = NSMaxRange(lineRange)
         }
 
         // Draw the trailing line number when the document is empty or ends in a
         // line separator (the final empty line), matching editor behavior. Uses
         // `lineRange` semantics (any standard separator), not just `\n`.
+        let end = charRange.location + charRange.length
         if end >= content.length && (content.length == 0 || endsWithLineSeparator(content)) {
+            let trailingNumber: Int
+            if content.length == 0 {
+                trailingNumber = 1
+            } else {
+                // `gutterRows` already skipped collapsed runs, but the trailing
+                // empty line itself is never collapsed (its preceding separator
+                // is not hidden — hidden ranges end at content, not at a
+                // separator), so its number is the buffer's line count.
+                trailingNumber = self.lineNumber(forLineStart: content.length)
+            }
             let extraRect = layoutManager.extraLineFragmentRect
             if extraRect.height > 0 {
                 drawLineNumber(
-                    lineNumber,
+                    trailingNumber,
                     fragmentRect: extraRect,
                     textOrigin: textOrigin,
                     relativePoint: relativePoint,
                     attributes: attributes
                 )
                 drawAnnotation(
-                    forLine: lineNumber,
+                    forLine: trailingNumber,
                     fragmentRect: extraRect,
                     textOrigin: textOrigin,
                     relativePoint: relativePoint,
                     attributes: attributes
                 )
                 drawDiagnosticMarker(
-                    forLine: lineNumber,
+                    forLine: trailingNumber,
                     fragmentRect: extraRect,
                     textOrigin: textOrigin,
                     relativePoint: relativePoint

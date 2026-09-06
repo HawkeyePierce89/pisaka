@@ -39,6 +39,13 @@ public struct FoldState: Equatable, Sendable {
         hiddenRanges = FoldState.coverage(of: self.regions)
     }
 
+    /// The state that folds every candidate — normalising and merging coverage
+    /// exactly as `init(regions:)` does, so nested candidates collapse to one
+    /// hidden set. An empty candidate list folds nothing.
+    public init(foldingAll candidates: [FoldRegion]) {
+        self.init(regions: candidates)
+    }
+
     /// Nothing folded.
     public var isEmpty: Bool { regions.isEmpty }
 

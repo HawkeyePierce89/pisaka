@@ -272,6 +272,26 @@ final class FoldController {
         apply(updated)
     }
 
+    /// Fold every candidate — *Fold All* (⌘⌥⇧←). Hands a whole value through
+    /// `apply(_:)`, so the three region-level mutations stay three.
+    @discardableResult
+    func foldAll() -> Bool {
+        guard !candidates.isEmpty else { return false }
+        let desired = FoldState(foldingAll: candidates)
+        guard desired != state else { return false }
+        apply(desired)
+        return true
+    }
+
+    /// Unfold everything — *Unfold All* (⌘⌥⇧→). Hands a whole value through
+    /// `apply(_:)`, so the three region-level mutations stay three.
+    @discardableResult
+    func unfoldAll() -> Bool {
+        guard !state.isEmpty else { return false }
+        apply(FoldState())
+        return true
+    }
+
     /// Move the fold bounds through one save's transform, exactly as the caret,
     /// the selection endpoints and the scroll anchor are moved.
     ///

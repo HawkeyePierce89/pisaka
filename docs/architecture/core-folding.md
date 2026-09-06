@@ -28,6 +28,32 @@ the caret may rest (`FoldCaretRule`), what a jump opens (`FoldReveal`), which
 block a command acts on (`FoldCommandRule`) — while the app layer owns only the
 scheduling, the AppKit references, the drawing and the invalidations.
 
+### The launch-time crash, and the `init()` rule it buys
+
+Part 1 shipped with a trap that no Core gate could see. `FoldingTypesetter`
+declared only `init(folded:)`; Swift therefore emitted an unimplemented
+`init()` stub. TextKit re-enters layout (`_setExtraLineFragmentRect` →
+`invalidateDisplay` → `_ensureLayoutForVisibleRect`) while the manager's
+typesetter is busy and allocates a **second** instance of that class through
+Objective-C `init` — straight into the trap (`Fatal error: Use of
+unimplemented initializer 'init()'`), which is the `EXC_BREAKPOINT` in the
+report. Any document long enough to produce an extra line fragment on
+`textView.string = text` is enough; session restore and tab switch each do that,
+so the crash needed no fold at all and passed CI where no document was laid out.
+The fix is that `FoldingTypesetter` has a working `override init()` and **no
+state of its own**: it reads the hidden set from the manager it is laying out
+(`layoutManager as? BracketOverlayLayoutManager`), which TextKit sets for the
+duration of a pass; with no manager, or a manager of another class, it defers to
+`super` for every character. Both halves of hiding stay in
+`BracketOverlayLayoutManager.swift` and read one `FoldedRanges` — the rule is
+**a typesetter subclass installed on a layout manager must have a working
+`init()`** (`app-editor-overlays.md`, `BracketOverlayLayoutManager.swift`).
+`PisakaAppTests/FoldLayoutTests` reproduces it headlessly on the real TextKit 1
+stack and measures the halves (glyph `.null` plus `.zeroAdvancementAction`) —
+see that doc. `FoldState(foldingAll:)` / `FoldState()` and the two
+`⌘⌥⇧←`/`⌘⌥⇧→` commands, plus `FoldSeverityRule` (worst severity on a folded
+header), arrived in the same ticket; each has its own entry below.
+
 ## Core
 
 ### `FoldRegion.swift` — what a foldable block *is*
@@ -281,7 +307,14 @@ is already visible.
 `OpenFile`, so closing and reopening a file — which must keep its folds within a
 run — would produce a new id and lose them. The app supplies the canonical path
 for a url-backed file and the tab id's `uuidString` for an unsaved buffer, so the
-key is the *file*, not the tab.
+key is the *file*, not the tab. The path is spelled
+`url.standardizedFileURL.resolvingSymlinksInPath().path` — Core's
+`CanonicalPath.canonical(_:)` verbatim — and `CanonicalPath` is `internal` to
+Core while the app layer already spells that transform inline at five sites
+(`CodeEditorView.Coordinator.foldMemoryKey`, `SourceViewerWindowController`,
+`PisakaApp` ×2, `RootView_iOS`), of which this is one. Making it `public` and
+routing all five through it is a cross-cutting change with its own verification
+and is deliberately not bundled here (`CLAUDE.md` Paths).
 
 **There is deliberately no `prune(keeping:)`**, which is the one divergence from
 `EditorViewportMemory`: a viewport is where you were reading and is meaningless
@@ -370,6 +403,12 @@ of what the user selected while leaving the rest on screen. Nothing guesses at a
 bigger region to fold instead — the answer is "no", not a different block. A
 zero-length selection has no end to reach past and never refuses. *Unfold* has no
 refusal of its own: opening a block can never hide anything.
+
+### `FoldSeverityRule.swift` — the worst severity on a folded header
+
+Pure and Foundation-only: the per-line worst severities the store already answers (`DiagnosticStore.worstSeverityPerLine`, `max` over `DiagnosticSeverity`'s seriousness order) plus the folded state plus the line-start table in, the same array with every **folded header line** raised to the worst severity among itself and every line its hidden range collapses, out. "Worst" is `max(...)` over that `Comparable` order — the same expression the store uses, asked rather than restated. Nothing new is computed off the wire; hidden lines' own entries are left alone, since the gutter never draws them. For nested folds the outer header shows the worst of everything below it while the inner header still shows its own — each header is raised from the store's answer independently, which is also why a fold hiding nothing diagnosed changes nothing. An empty or unanchored line table (first entry not `0`), a count mismatch, or a header outside the table answers the input unchanged rather than trapping — the same honest degradation the store's own query uses.
+
+The app half is one call site: `LineNumberRulerView`, which is the one place holding both inputs and is already the file the gating suite allows to be *told* a `FoldState`. It asks the Core rule when either input is installed and draws the answer; it decides nothing and computes no severity of its own.
 
 ### `FoldShift.swift` — one edit, applied to both lists
 
@@ -581,10 +620,11 @@ no file, registers no edit and does not touch the text storage at all.
 
 ### `FoldCommands.swift` — the whole menu surface
 
-*Fold* (⌘⌥←) and *Unfold* (⌘⌥→) in a `CommandGroup(after: .pasteboard)`, beside
-Toggle Comment — the group they belong to is "things done to the code in front of
-you", not "things done to the file". `PisakaApp` names `FoldCommands` exactly
-once, and this is the only file where a fold command is spelled.
+*Fold* (⌘⌥←) and *Unfold* (⌘⌥→) plus *Fold All* (⌘⌥⇧←) and *Unfold All*
+(⌘⌥⇧→) in a `CommandGroup(after: .pasteboard)`, beside Toggle Comment — the group
+they belong to is "things done to the code in front of you", not "things done to
+the file". `PisakaApp` names `FoldCommands` exactly once, and this is the only
+file where a fold command is spelled.
 
 The items carry no state and are wired to nothing: like ⌘D and Toggle Comment they
 reach whatever editor holds the focus through the **first responder**
@@ -600,7 +640,16 @@ selection reaching past the block — beeps exactly as a focus that is not an ed
 does. To the person pressing the key those are the same event: nothing happened.
 The shortcut pair was verified free against every `keyboardShortcut` in the app
 (⌘⌥F, Find in Files, is the only other ⌘⌥ one) and against the text view's own key
-handling, which claims no arrow key with ⌘⌥ held.
+handling, which claims no arrow key with ⌘⌥ held. The three-modifier pair was
+verified free the same way — the only arrow shortcuts declared are the two above,
+and the existing gating regex `\[\.command, \.option\]` does not match a
+three-modifier list. *Fold All* hands a whole value through `FoldController.apply(_:)`
+(`FoldState(foldingAll: candidates)`, normalising and merging exactly as
+`FoldState(regions:)` does, so nested candidates collapse to one `hiddenRange`)
+and then asks `FoldCaretRule` once with no direction (`NSNotFound`), the same way
+`toggleFold` does; the caret never lands inside the text just hidden, so there is
+no second rule. *Unfold All* hands `FoldState()` the same way and needs no caret
+move — nothing is hidden afterwards.
 
 ### Hiding, the placeholder and the gutter
 
