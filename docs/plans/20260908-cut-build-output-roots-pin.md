@@ -110,22 +110,22 @@ rather than parsed for.
 **Files:**
 - Modify: `Tests/PisakaCoreTests/ReleaseWorkflowTests.swift`
 
-- [ ] In `assertFlagValuesAreNoIndexed`, drop the `Self.commandHalf(of:)` call: tokenize
+- [x] In `assertFlagValuesAreNoIndexed`, drop the `Self.commandHalf(of:)` call: tokenize
       each active line directly.
-- [ ] Delete `annotationMarkers`, `commandHalf(of:)`, `substitutedShell`,
+- [x] Delete `annotationMarkers`, `commandHalf(of:)`, `substitutedShell`,
       `commandSubstitution`, `parameterExpansion`, `firstCommandSeparator`,
       `expansionOpened`, `openQuote`, `nestedScopeEnd`, `stringEnd`, `firstUnescapedQuote`
       and their doc comments, and `testTheAnnotationRemovalKeepsTheCommandHalvesOfALine`
       in full.
-- [ ] Keep, unchanged in what they assert: the empty-values check, the
+- [x] Keep, unchanged in what they assert: the empty-values check, the
       occurrences-vs-values check, the `..` refusal, the `.noindex` suffix check and the
       root-equality check against `derivedDataRoot`/`archiveRoot`.
-- [ ] Reduce `shellTokens(of:)` to a whitespace split (the tab argument stays; the
+- [x] Reduce `shellTokens(of:)` to a whitespace split (the tab argument stays; the
       `${{ … }}` closing-up goes with the reference stripping in Task 3).
-- [ ] Confirm nothing in the file names an annotation marker any more:
+- [x] Confirm nothing in the file names an annotation marker any more:
       `grep -n "::error::\|::notice::\|::warning::\|annotation" Tests/PisakaCoreTests/ReleaseWorkflowTests.swift`
       returns nothing inside the section.
-- [ ] Run `swift test --filter ReleaseWorkflowTests`.
+- [x] Run `swift test --filter ReleaseWorkflowTests`.
 
 ### Task 3: Trim the matchers, `pathNamed(by:)` and the two self-tests
 
