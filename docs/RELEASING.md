@@ -692,9 +692,16 @@ The workflow then, in order:
     nothing about the app. The
     assertion is that the process *lives*, nothing more — windows appearing, the
     updater polling github.com, its first-launch permission prompt and the
-    restored document are all inert to it. With no session there is no document,
-    no layout and no re-entrant pass, which is exactly why the part 1 crash
-    passed CI: so the step first backs up the domain (`defaults export
+    restored document are all inert to it. What the seeded launch proves is
+    that the app restores a session, opens a project and lays out a real
+    document without producing a crash report inside the deadline. What it was
+    measured *not* to prove is the part 1 folding crash
+    (`FoldingTypesetter.init()` reached through a re-entrant layout pass): with
+    that fix stashed the seeded launch survived, so a regression of that class
+    is caught by the `PisakaAppTests` bundle — three of its tests trapped before
+    the fix — and never by this step. The seeding is kept anyway because a
+    launch with no document proves strictly less, not because it proves that
+    crash: the step first backs up the domain (`defaults export
     ws.karmanov.pisaka`) and seeds a restorable session — a `SessionCatalog`
     under `session.projects` (a `PropertyListEncoder`-encoded blob in domain
     `ws.karmanov.pisaka`) naming a fixture folder of two multi-line files under

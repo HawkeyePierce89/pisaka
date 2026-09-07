@@ -173,8 +173,17 @@ jobs:
           }
           trap restore_defaults EXIT
           # Seed a restorable session so the launch lays out a real document.
-          # With no session there is no document, no layout and no re-entrant
-          # pass, which is exactly why the part 1 crash passed CI.
+          # What the seeded launch proves: the app restores a session, opens a
+          # project and lays out a real document without producing a crash
+          # report inside the deadline.
+          # What it was measured *not* to prove: with the typesetter fix
+          # stashed, the seeded launch survived — the part 1 crash
+          # (FoldingTypesetter.init() reached through a re-entrant layout pass)
+          # does not fire under it. A regression of that class is caught by the
+          # PisakaAppTests bundle, where three tests trapped before the fix
+          # (recorded in the part 2 plan's Notes), never by this step.
+          # The seeding is kept because a launch with no document proves
+          # strictly less, not because it proves that crash.
           # The session lives in UserDefaults under session.projects (a
           # PropertyListEncoder-encoded SessionCatalog), domain ws.karmanov.pisaka.
           # That is the seam the smoke launch seeds.

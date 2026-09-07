@@ -3552,8 +3552,20 @@ final class ReleaseWorkflowTests: XCTestCase {
     /// The smoke launch must seed a restorable session before it launches,
     /// and back the domain up so a hand-run does not clobber the real one.
     ///
-    /// With no session there is no document, no layout and no re-entrant
-    /// pass — which is exactly why the part 1 crash passed CI. The session
+    /// What the seeded launch proves: the app restores a session, opens a
+    /// project and lays out a real document without producing a crash report
+    /// inside the deadline. What it was measured *not* to prove: with the
+    /// typesetter fix stashed the seeded launch survived, so the part 1 crash
+    /// (FoldingTypesetter.init() reached through a re-entrant layout pass)
+    /// does not fire under it — a regression of that class is caught by the
+    /// PisakaAppTests bundle, where three tests trapped before the fix, never
+    /// by this step. The seeding is kept because a launch with no document
+    /// proves strictly less, not because it proves that crash.
+    ///
+    /// None of that wording is pinned: `stepScript(named:in:because:)` drops
+    /// blank and `#`-prefixed lines, so this suite compares comment-stripped
+    /// bodies and a comment rewrite in either workflow moves neither the
+    /// identity pin nor the seeding pins below. The session
     /// lives in UserDefaults under session.projects (a PropertyListEncoder-
     /// encoded SessionCatalog), domain ws.karmanov.pisaka. The backup is
     /// restored on every exit path via trap, for the reason the MARKER

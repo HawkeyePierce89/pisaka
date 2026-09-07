@@ -157,7 +157,7 @@ Dependencies: none. No new files.
 - Modify: `docs/RELEASING.md`
 - Modify: `Tests/PisakaCoreTests/ReleaseWorkflowTests.swift`
 
-- [ ] Rewrite the seeding comment block in `ci.yml`'s `Launch the built app
+- [x] Rewrite the seeding comment block in `ci.yml`'s `Launch the built app
       (smoke test)` step (the `# Seed a restorable session …` paragraph) to state
       exactly three things: (a) what the seeded launch proves — the app restores a
       session, opens a project and lays out a real document without producing a
@@ -168,31 +168,31 @@ Dependencies: none. No new files.
       `PisakaAppTests` — three tests trapped before the fix, recorded in the part
       2 plan — not by this step; (c) that the seeding is kept because a launch
       with no document proves strictly less, not because it proves that crash.
-- [ ] Copy the rewritten block **verbatim** into `release.yml`'s `Launch the
+- [x] Copy the rewritten block **verbatim** into `release.yml`'s `Launch the
       archived app (smoke test)` step. Copy, do not re-type: the two bodies must
       stay byte-identical apart from `APP=`, and a hand-merge is how they drift.
-- [ ] Change no mechanism: the fixture, the `defaults export`/`import` backup
+- [x] Change no mechanism: the fixture, the `defaults export`/`import` backup
       pair, the `trap restore_defaults EXIT`, the `defaults write …
       session.projects -data`, the ordering of seed before launch, `DEADLINE=5`,
       the marker, the crash-report poll and the SIGTERM→SIGKILL teardown all stay
       exactly as they are.
-- [ ] Rewrite the matching sentences in `docs/RELEASING.md`'s `Launch the
+- [x] Rewrite the matching sentences in `docs/RELEASING.md`'s `Launch the
       archived app (smoke test)` bullet — the "With no session there is no
       document, no layout and no re-entrant pass, which is exactly why the part 1
       crash passed CI" clause — in the same three terms, keeping the surrounding
       description of the mechanism (the fixture, the domain backup, the
       `exec`-not-`open` note) intact.
-- [ ] Update the doc comment on
+- [x] Update the doc comment on
       `ReleaseWorkflowTests.testSmokeLaunchSeedsSessionAndBacksUpDomain` for the
       same reason: it currently repeats the untrue rationale. The assertions
       themselves do not move — `stepScript` strips comments, so the identity pin
       and the seeding pins are unaffected by the rewrite; note that explicitly in
       the doc comment so a future reader does not think the comments are pinned.
-- [ ] `swift test` — `testTheTwoSmokeLaunchesAreTheSameCheck` and
+- [x] `swift test` — `testTheTwoSmokeLaunchesAreTheSameCheck` and
       `testSmokeLaunchSeedsSessionAndBacksUpDomain` green; if any assertion turns
       out to match a rewritten sentence, it learns the new one rather than the
       sentence being bent back.
-- [ ] `swiftlint --strict`.
+- [x] `swiftlint --strict`.
 
 ### Task 3: Restore the reindented documentation lines
 
