@@ -802,8 +802,9 @@ notarize→staple→`spctl` chain with both verdicts read explicitly, that no st
 can be non-fatal, the job budget against the notary timeout, step ordering,
 draft-then-promote, tool pins, `ci.yml`'s Release macOS build *launching what it
 built*, the two `.noindex` build output roots across both workflows,
-`.gitignore` and the style authority's `excluded:` list (the one
-`.swiftlint.yml` rule this suite owns, being about build *output*, not style),
+`.gitignore`, the style authority's `excluded:` list (the one
+`.swiftlint.yml` rule this suite owns, being about build *output*, not style)
+and the three documents that spell a root in a command a reader runs,
 the `SUFeedURL` cross-file pairs and the Gatekeeper-workaround strings
 absent everywhere; **full inventory in that suite's doc comments and
 `docs/RELEASING.md`** — do not restate it here),

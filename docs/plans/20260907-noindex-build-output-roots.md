@@ -440,3 +440,41 @@ plus the acceptance grep recorded above. That is a static guarantee about the
 text of the workflow, not a demonstration that the tagged run succeeds. It is
 not claimed to be one; the first tagged release after this change is where that
 half is verified, and the Post-Completion section says which steps to watch.
+
+### Where the shipped pin diverges from Task 2, and one root it does not cover
+
+Recorded in review, because each is a decision the checklist above does not
+describe.
+
+**Task 2 said `.noindex/` lines are excluded before the bare-root match. They
+are not.** The shipped rule judges every line **whole**. The skip would have
+been redundant — neither path matcher can fire on a `.noindex` name, since
+`DerivedData.noindex/` does not contain `DerivedData/` and the `[^.\w]` prefix
+already refuses `build.noindex/` — and it would have exempted exactly the lines
+the rule exists for: a two-path command line (`ditto SRC DST`, `rm -rf a b`)
+where only one side kept its suffix. Every active line naming a build output
+root is such a line, so the skip would have exempted all of them.
+
+**Task 2 does not name the documents rule, which shipped as part of the same
+section.** `testNoDocumentSpellsABareBuildOutputRoot` runs the same matchers
+over `CLAUDE.md`, `docs/RELEASING.md` and `docs/architecture/core-services.md`,
+turning Task 4's by-hand acceptance grep into a standing pin. It reads raw text
+rather than comment-stripped lines — in Markdown the command *is* the content —
+and asserts per document that a root is still spelled there, so a document
+reworded until it names none is dropped from the roster rather than sitting in
+it passing by matching nothing.
+
+**A third relative root inside the checkout does hold an indexed application
+bundle, and this change does not address it.** The Overview's reason for leaving
+`SourcePackages` alone — "holds no product bundle of this app" — is true as
+written and beside the point: Sparkle is a SwiftPM `binaryTarget`, so a package
+resolve lands
+`SourcePackages/artifacts/sparkle/Sparkle/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework/Versions/B/Updater.app`
+in the checkout. Measured on this machine today, that path is returned by
+`mdfind -onlyin <checkout> 'kMDItemContentType == "com.apple.application-bundle"'`
+and `mdls` reports it as `com.apple.application-bundle` — so the goal stated in
+the Overview is met for the two roots this plan renamed and not for the checkout
+as a whole. Renaming it too means moving `-clonedSourcePackagesDirPath`, both
+`actions/cache` blocks' `path:`, the `.gitignore` and `.swiftlint.yml` entries
+and the pin's `styleExclusions` together; that is a separate change, deliberately
+not folded into a review of this one.

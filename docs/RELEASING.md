@@ -98,8 +98,12 @@ directory whose name ends in `.noindex` is skipped by the metadata importer
 wherever it lives: that suffix is the one name-level opt-out, which is why it is
 part of the names themselves rather than of any one command. The rule is pinned
 by `ReleaseWorkflowTests` (`// MARK: - The build output roots`), which reads
-both workflows, `.gitignore` and `.swiftlint.yml`; the sites below simply follow
-the names. Do not restate the reason at each of them.
+both workflows, `.gitignore`, `.swiftlint.yml` **and the three documents that
+spell a root in a command a reader is told to run — this file, `CLAUDE.md` and
+`docs/architecture/core-services.md`** — so the sites below are asserted, not
+merely consistent. That roster is hand-maintained: a fourth document naming a
+root is unpinned until it is added to the suite's
+`documentsThatSpellABuildOutputRoot`. Do not restate the reason at each of them.
 
 **If you have a clone that built before this rename**, delete the two old roots
 once: `rm -rf build DerivedData`. `.gitignore` still ignores them — the entries

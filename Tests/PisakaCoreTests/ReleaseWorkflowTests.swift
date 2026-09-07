@@ -4,6 +4,12 @@ import XCTest
 /// Static verification of `.github/workflows/release.yml` — the tag-triggered
 /// workflow that archives, signs and publishes the macOS build.
 ///
+/// It reaches beyond that one file where an invariant does: `ci.yml` for the
+/// pairs the two workflows must agree on, and — since the build output roots
+/// landed — `.gitignore`, `.swiftlint.yml` and the documents that spell a root
+/// in a command a reader runs. `// MARK: - The build output roots` says why
+/// that rule lives here rather than with the style authority.
+///
 /// Written in the `ReleaseMetadataTests`/`DependencyPinTests` style: the
 /// repository's own files are read through `#filePath` with Foundation only, so
 /// the check runs in `swift test` without an Xcode build and without the Core
@@ -3726,8 +3732,8 @@ final class ReleaseWorkflowTests: XCTestCase {
     /// `build.noindex/` — and any word merely *ending* in `build` — cannot read
     /// as a hit.
     ///
-    /// Both matchers judge each line **whole**: a line is never skipped for
-    /// mentioning a `.noindex/` path. Skipping one would be redundant — neither
+    /// Every matcher judges each line **whole**: a line is never skipped for
+    /// mentioning a `.noindex/` path. Skipping one would be redundant — no
     /// matcher can fire on a `.noindex` name, since `DerivedData.noindex/` does
     /// not contain `DerivedData/` and the regex's `[^.\w]` prefix already
     /// refuses `build.noindex/` — and it would blind the rule to exactly the
@@ -3743,16 +3749,7 @@ final class ReleaseWorkflowTests: XCTestCase {
                 """)
 
             for line in lines {
-                XCTAssertFalse(line.contains("DerivedData/"), """
-                    \(workflow) names a path under a bare `DerivedData/` in “\(line)”. Build output \
-                    goes under `\(Self.derivedDataRoot)/`; see this section's doc comment for why the \
-                    suffix is part of the name.
-                    """)
-                XCTAssertFalse(matches(#"(^|[^.\w])build/"#, in: line), """
-                    \(workflow) names a path under a bare `build/` in “\(line)”. The archive and \
-                    everything staged beside it go under `\(Self.archiveRoot)/`; see this section's \
-                    doc comment for why the suffix is part of the name.
-                    """)
+                assertNamesNoBareBuildOutputRoot(line, of: workflow)
             }
         }
     }
@@ -3801,51 +3798,36 @@ final class ReleaseWorkflowTests: XCTestCase {
     /// a Markdown file the command *is* the content — there is nothing to strip,
     /// and a fenced code block is exactly what a reader copies.
     ///
-    /// Two matchers, because the documents spell these roots two ways and a
-    /// rule seeing only one of them is a rule that pins one of the three files.
+    /// The matchers are the workflow rule's own, through the same helper — see
+    /// `assertNamesNoBareBuildOutputRoot(_:of:file:line:)` for why there are
+    /// three of them and what each is for. One rule, one set of patterns: a
+    /// document and a workflow line that spell the same stale path must fail
+    /// the same way, and a matcher maintained twice is one that drifts.
     ///
-    /// The **flag** matcher reads a value attached to `-derivedDataPath` or
-    /// `-archivePath`, terminated by a slash, whitespace or end of text — not by
-    /// a slash alone. `-derivedDataPath` names a directory and is spelled
-    /// without one at every site in either workflow, so a slash-terminated
-    /// matcher would let `-derivedDataPath DerivedData` through, which is the
-    /// single likeliest way a document drifts back.
+    /// Read over the file's raw lines rather than comment-stripped ones,
+    /// because in a Markdown file the command *is* the content — there is
+    /// nothing to strip, and a fenced code block is exactly what a reader
+    /// copies.
     ///
-    /// The **path** matcher is the workflow rule's own pair — `DerivedData/` as
-    /// a substring, `build/` as a regex so `build.noindex/` cannot read as a hit
-    /// — run per line. It is here because two of the three documents name a root
-    /// in a runnable command carrying no flag at all (`find DerivedData…`,
-    /// `nm -u DerivedData…` in `core-services.md`) and one names it in prose a
-    /// reader follows by hand (`docs/RELEASING.md`'s staged zip). Under the flag
-    /// matcher alone those five sites were unpinned, and `core-services.md` —
-    /// which spells neither flag — was in this list without a single line the
-    /// rule could judge.
+    /// Each listed document must also still **spell** a root. The roster is
+    /// hand-maintained and every assertion in the loop is an absence, so a
+    /// document reworded until it names no build output root at all would pass
+    /// this rule by judging nothing and sit in the list rotting green — which is
+    /// the state `core-services.md` was already found in once, in this list
+    /// without a single line the rule could judge.
     func testNoDocumentSpellsABareBuildOutputRoot() throws {
         for path in Self.documentsThatSpellABuildOutputRoot {
             let raw = try text(atRepositoryPath: path)
-            for flag in ["-derivedDataPath", "-archivePath"] {
-                for stale in ["DerivedData", "build"] {
-                    XCTAssertFalse(matches(#"\#(flag)\s+\#(stale)([/\s]|$)"#, in: raw), """
-                        \(path) tells a reader to run `\(flag) \(stale)`. That command is \
-                        reproduced verbatim from the checkout root, so it builds an application \
-                        bundle into an indexed directory — the exact thing the `.noindex` roots \
-                        exist to prevent. Use `\(Self.derivedDataRoot)`/`\(Self.archiveRoot)`; see \
-                        this section's doc comment.
-                        """)
-                }
-            }
+
+            XCTAssertTrue(raw.contains(Self.derivedDataRoot) || raw.contains(Self.archiveRoot), """
+                \(path) names neither `\(Self.derivedDataRoot)` nor `\(Self.archiveRoot)`, so every \
+                assertion below passes by matching nothing. This list names the documents that \
+                spell a build output root in a command a reader runs; drop \(path) from \
+                `documentsThatSpellABuildOutputRoot` if it no longer does.
+                """)
 
             for line in raw.components(separatedBy: .newlines) {
-                XCTAssertFalse(line.contains("DerivedData/"), """
-                    \(path) names a path under a bare `DerivedData/` in “\(line)”. Build output \
-                    goes under `\(Self.derivedDataRoot)/`; see this section's doc comment for why \
-                    the suffix is part of the name.
-                    """)
-                XCTAssertFalse(matches(#"(^|[^.\w])build/"#, in: line), """
-                    \(path) names a path under a bare `build/` in “\(line)”. The archive and \
-                    everything staged beside it go under `\(Self.archiveRoot)/`; see this \
-                    section's doc comment for why the suffix is part of the name.
-                    """)
+                assertNamesNoBareBuildOutputRoot(line, of: path)
             }
         }
     }
@@ -3864,6 +3846,18 @@ final class ReleaseWorkflowTests: XCTestCase {
     /// and what they are pinned for is the name: an entry naming the old
     /// directory excludes nothing and quietly documents a path nothing writes
     /// to.
+    ///
+    /// **Why this list is renamed where `.gitignore`'s is extended**, since the
+    /// two files were handed the same rename and answered it differently: the
+    /// two rules govern different things. An ignore entry governs what a clone
+    /// already *holds* — a stale `build/` on disk goes from ignored to staged
+    /// the instant its entry is renamed away, which is what cost 22 816 files
+    /// once — while `excluded:` governs only what a lint run *walks*, and no
+    /// repository-supported run walks either root (`included:` scopes them all
+    /// to `Sources/` and `Tests/`). The residue is an ad-hoc explicit-path run
+    /// inside a pre-rename clone, whose one-time answer is the
+    /// `rm -rf build DerivedData` note in `docs/RELEASING.md` — not a second
+    /// pair of entries here naming directories nothing writes to.
     func testTheStyleAuthorityExcludesTheNoIndexRoots() throws {
         let block = try XCTUnwrap(topLevelBlock("excluded", in: try text(atRepositoryPath: ".swiftlint.yml")), """
             .swiftlint.yml has no top-level `excluded:` block.
@@ -3896,9 +3890,13 @@ final class ReleaseWorkflowTests: XCTestCase {
     /// skipped: those spell the flag *name* inside a sentence written for a
     /// human — "check the `-archivePath` on the archive command line" — where
     /// the next word is prose, not a path. Nothing is lost by skipping them,
-    /// because a message naming a stale path is caught by the whole-file scan in
-    /// `testNoActiveWorkflowLineNamesABareBuildOutputRoot`, which reads every
-    /// active line including those.
+    /// because `testNoActiveWorkflowLineNamesABareBuildOutputRoot` reads every
+    /// active line including those, and its flag matcher judges exactly the
+    /// shape this scan would have judged: a bare root attached to one of these
+    /// two flags, whether or not the value carries a trailing slash. The two
+    /// rules therefore cover each other, which the earlier pairing did not — a
+    /// path matcher alone sees `build/` and `DerivedData/` but not
+    /// `-derivedDataPath DerivedData`, the one spelling with no slash in it.
     private func assertFlagValuesAreNoIndexed(_ flag: String,
                                               rootedAt expectedRoot: String,
                                               because reason: String,
@@ -3912,7 +3910,11 @@ final class ReleaseWorkflowTests: XCTestCase {
             XCTAssertFalse(lines.isEmpty, "parsed nothing out of \(workflow)", file: file, line: line)
 
             for entry in lines where !Self.annotationMarkers.contains(where: entry.contains) {
-                let tokens = entry.split(separator: " ").map(String.init)
+                // Split on whitespace rather than the space character alone: a
+                // value separated from its flag by a tab is still that flag's
+                // value, and a scan that cannot see it drops the occurrence
+                // instead of judging it.
+                let tokens = entry.split(whereSeparator: { $0.isWhitespace }).map(String.init)
                 for (index, token) in tokens.enumerated() where token == flag {
                     occurrences += 1
                     guard index + 1 < tokens.count else { continue }
@@ -3943,6 +3945,61 @@ final class ReleaseWorkflowTests: XCTestCase {
                 name is excluded by nothing when a path under it is handed to swiftlint explicitly. \
                 The three files must name one root, not three that merely rhyme.
                 """, file: file, line: line)
+        }
+    }
+
+    /// One line of a workflow or a document, asserted to name no bare build
+    /// output root. Three matchers, because these roots are spelled three ways
+    /// and a rule seeing only some of them pins only some of the files.
+    ///
+    /// `DerivedData/` is a plain substring: no `.noindex` name contains it.
+    /// `build/` is a regex, because `build.noindex/` and any word merely
+    /// *ending* in `build` (`xcodebuild/`) would otherwise read as hits — the
+    /// `[^.\w]` prefix is what refuses both, while still matching the leading
+    /// `./` of a relative spelling.
+    ///
+    /// The third is the **flag** matcher, and it is the one neither path
+    /// matcher can stand in for: `-derivedDataPath` names a directory and is
+    /// spelled without a trailing slash at every site in either workflow, so
+    /// `-derivedDataPath DerivedData` contains no `DerivedData/` at all. It is
+    /// the single likeliest way a document — or a workflow's own annotation
+    /// text, which the flag-value scan skips as prose — drifts back. Its value
+    /// is terminated by the same `[^.\w]` the path matcher uses, not by a
+    /// slash or whitespace: the shape this matcher exists for is a root at the
+    /// end of a quoted shell string (`"::error::… -derivedDataPath
+    /// DerivedData"`) or inside backticks in a document, where the character
+    /// after the root is neither. Excluding `.` is what keeps
+    /// `DerivedData.noindex` from reading as a hit, and excluding `\w` what
+    /// keeps a longer name starting with the same word from doing so. An
+    /// optional `./` before the value is read as part of the path rather than
+    /// as a different root.
+    ///
+    /// Both callers share this because a document and a workflow line spelling
+    /// the same stale path must fail the same way.
+    private func assertNamesNoBareBuildOutputRoot(_ line: String,
+                                                  of source: String,
+                                                  file: StaticString = #filePath,
+                                                  line assertionLine: UInt = #line) {
+        XCTAssertFalse(line.contains("DerivedData/"), """
+            \(source) names a path under a bare `DerivedData/` in “\(line)”. Build output goes \
+            under `\(Self.derivedDataRoot)/`; see this section's doc comment for why the suffix is \
+            part of the name.
+            """, file: file, line: assertionLine)
+        XCTAssertFalse(matches(#"(^|[^.\w])build/"#, in: line), """
+            \(source) names a path under a bare `build/` in “\(line)”. The archive and everything \
+            staged beside it go under `\(Self.archiveRoot)/`; see this section's doc comment for \
+            why the suffix is part of the name.
+            """, file: file, line: assertionLine)
+
+        for flag in ["-derivedDataPath", "-archivePath"] {
+            for stale in ["DerivedData", "build"] {
+                XCTAssertFalse(matches(#"\#(flag)\s+\.?/?\#(stale)([^.\w]|$)"#, in: line), """
+                    \(source) spells `\(flag) \(stale)` in “\(line)”. That command is reproduced \
+                    verbatim from the checkout root, so it builds an application bundle into an \
+                    indexed directory — the exact thing the `.noindex` roots exist to prevent. Use \
+                    `\(Self.derivedDataRoot)`/`\(Self.archiveRoot)`; see this section's doc comment.
+                    """, file: file, line: assertionLine)
+            }
         }
     }
 
@@ -4177,8 +4234,18 @@ final class ReleaseWorkflowTests: XCTestCase {
     }
 
     /// Whether `pattern` matches anywhere in `text`.
-    private func matches(_ pattern: String, in text: String) -> Bool {
-        guard let regex = try? NSRegularExpression(pattern: pattern) else { return false }
+    private func matches(_ pattern: String,
+                         in text: String,
+                         file: StaticString = #filePath,
+                         line: UInt = #line) -> Bool {
+        // An uncompilable pattern fails the test rather than returning `false`.
+        // Most callers here assert an *absence*, so a swallowed compile error
+        // would turn the rule into an assertion that always passes — the one
+        // way a matcher-based pin rots without anyone noticing.
+        guard let regex = try? NSRegularExpression(pattern: pattern) else {
+            XCTFail("`\(pattern)` is not a valid regular expression", file: file, line: line)
+            return false
+        }
         let range = NSRange(text.startIndex ..< text.endIndex, in: text)
         return regex.firstMatch(in: text, range: range) != nil
     }
