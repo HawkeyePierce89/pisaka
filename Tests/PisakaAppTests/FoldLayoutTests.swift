@@ -69,11 +69,23 @@ final class FoldLayoutTests: XCTestCase {
         let baselineFragments = fragmentCount(harness.layoutManager)
         XCTAssertGreaterThan(baselineFragments, 0)
 
-        // Fold the bracket block: from end of "header {" (offset 8) through
-        // "\n    body1\n    body2\n" (3 separators) — the shape
-        // FoldRegionScanner and the LSP provider produce for this text:
-        // hidden "\n    body1\n    body2\n" (the closer "}" stays visible and
-        // joins the header's row).
+        // Fold the bracket block: from the end of "header {" (offset 8) through
+        // "\n    body1\n    body2\n" — 3 separators, the closer "}" left out.
+        //
+        // **This is deliberately not the shape the producers make.** A
+        // `FoldRegion`'s hidden range ends at the end of the *last line's
+        // content*, so both the fallback scanner and a server-sourced region
+        // hide the closer too — 8..<30 for this text, not 8..<29 — and the
+        // header's row then reads "header {" plus the placeholder, with
+        // "footer" the next visible row (the separator after "}" is outside the
+        // range, so it still breaks the line).
+        //
+        // The fixture stops one character short on purpose: it leaves the "}"
+        // visible, which is the only way assertion (b) can check that a
+        // *visible* character after the hidden run shares the header's line
+        // fragment — the property that says the hidden separators were actually
+        // zero-advanced rather than merely blanked. What is measured here is
+        // hiding, not where a producer puts its bounds.
         let hidden = NSRange(location: 8, length: 21)
         let hiddenText = (text as NSString).substring(with: hidden)
         let hiddenSeparators = hiddenText.filter { $0 == "\n" }.count

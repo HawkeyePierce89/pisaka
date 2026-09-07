@@ -224,7 +224,7 @@ Dependencies: none. No new files.
 - Modify: `Tests/PisakaAppTests/FoldLayoutTests.swift`
 - Modify: `docs/architecture/app-editor-overlays.md`
 
-- [ ] Correct the comment in `testFoldHidesTextAndCollapsesLines`: the fixture's
+- [x] Correct the comment in `testFoldHidesTextAndCollapsesLines`: the fixture's
       `NSRange(location: 8, length: 21)` is **not** the shape the producers make.
       `FoldRegion`'s hidden range ends at the end of the *last line's content*, so
       both the fallback scanner and a server-sourced region hide the closer `}` as
@@ -232,7 +232,7 @@ Dependencies: none. No new files.
       fixture deliberately stops one character short so the `}` stays visible and
       assertion (b) can check that a visible closer shares the header's fragment.
       Say that. The assertions do not change.
-- [ ] Record the manual DEBUG pass results beside the measurement in
+- [x] Record the manual DEBUG pass results beside the measurement in
       `docs/architecture/app-editor-overlays.md` — as **observed, dated
       2026-09-06, on a DEBUG build against a restored multi-tab session**: launch
       with a restored six-tab session and three tab switches with no crash report;
@@ -241,14 +241,14 @@ Dependencies: none. No new files.
       followed by `9`); Fold All and Unfold All; a click on the `…` reopens the
       block with the caret at the block's start; a fold survives switching to
       another tab and back.
-- [ ] List the rest as **still unverified**, by name and in the same place: the
+- [x] List the rest as **still unverified**, by name and in the same place: the
       placeholder at two zoom levels; caret behaviour at both boundaries by arrow
       key; light appearance; server-sourced regions; the severity dot on a folded
       header; the reveal funnel end to end; autosave inside a folded block; branch
       switch; relaunch.
-- [ ] Keep the new lines at the surrounding 4-space continuation indent so Task
+- [x] Keep the new lines at the surrounding 4-space continuation indent so Task
       3's restoration is not undone.
-- [ ] `swift test`, `swiftlint --strict`, and `xcodebuild -project
+- [x] `swift test`, `swiftlint --strict`, and `xcodebuild -project
       Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' test` (no
       flags) — the comment change is in that bundle.
 

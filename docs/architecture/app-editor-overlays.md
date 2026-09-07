@@ -249,7 +249,21 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     fragment as a blank row — confirming half two is load-bearing. The `insert`
     preserving `.controlCharacter` is what keeps it reachable: an assignment would
     strip that bit and silence half two by construction. Both halves stay, and
-    `FoldingSourceGatingTests` pins them in this one file. Both halves read one `FoldedRanges` — a small
+    `FoldingSourceGatingTests` pins them in this one file.
+    **What a hand pass has actually seen.** Observed on 2026-09-06, on a DEBUG
+    build, against a restored multi-tab session: the app launched with a restored
+    six-tab session and survived three tab switches with no crash report; *Fold* on
+    a paren block collapsed the header and hid the closer's line behind the `…`
+    with no blank row left behind; the gutter numbering skipped the hidden run
+    (`2` followed by `9`); *Fold All* and *Unfold All* both did what they say; a
+    click on the `…` reopened the block with the caret at the block's start; and a
+    fold survived switching to another tab and back. **What is still unverified**,
+    by name, so a later pass knows what it owes: the placeholder at two zoom
+    levels; caret behaviour at both boundaries of a folded range by arrow key; the
+    light appearance; server-sourced regions; the severity dot on a folded header;
+    the reveal funnel end to end; an autosave landing inside a folded block; a
+    branch switch; and a relaunch.
+    Both halves read one `FoldedRanges` — a small
     reference box holding the sorted, non-overlapping set `FoldState.hiddenRanges`
     hands over. It exists because the layout manager is `@MainActor` and the
     typesetter is not (TextKit asks its question straight out of the line-breaking
