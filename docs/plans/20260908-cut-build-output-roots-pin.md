@@ -251,7 +251,7 @@ rather than parsed for.
 `Tests/PisakaCoreTests/ReleaseWorkflowTests.swift` returns **250**, at the plan's ≤ 250
 gate (down from 1 505).
 
-**Deletion grep** — 
+**Deletion grep** —
 `grep -n "commandHalf\|substitutedShell\|commandSubstitution\|parameterExpansion\|firstCommandSeparator\|expansionOpened\|openQuote\|nestedScopeEnd\|stringEnd\|firstUnescapedQuote\|annotationMarkers" Tests/PisakaCoreTests/ReleaseWorkflowTests.swift`
 returns **nothing** (exit 1). Every parser symbol the plan named is gone from the file.
 
@@ -275,8 +275,10 @@ workflow flag value. `ci.yml` was restored with `git checkout --`; `git diff` fo
 is clean, and the re-run is **66 tests, 0 failures**.
 
 **Smoke launches untouched** — `testTheTwoSmokeLaunchesAreTheSameCheck` passes, and
-`git diff master...HEAD -- .github/workflows/release.yml` is the single reworded `::error::`
-prose line at 509 (`-archivePath` → `archive path`) and nothing else.
+`git diff master...HEAD -- .github/workflows/release.yml` touches the one `::error::` prose
+line (`-archivePath` → `archive path`) and nothing executable. The seven comment lines above
+it were added in review (commit `63257099`) to say *why* that sentence does not name the
+flag; they are whole-line comments, which the rules drop, so they may spell the roots.
 
 **Task 6 acceptance run** — every gate executed on the branch tip, tree clean:
 
@@ -315,7 +317,10 @@ each was already correct after Task 4, and the check is recorded rather than rep
 - `CLAUDE.md` — the index entry (lines ~795–810) describes the section as the two
   `.noindex` roots across both workflows, `.gitignore`, the `excluded:` list and the three
   documents, and defers the rest to the suite's doc comments and `docs/RELEASING.md`. Every
-  clause still holds; the file is untouched by this branch, as intended.
+  clause still holds, so no edit was needed at Task 7. The file was nonetheless changed in
+  review (commit `63257099`), at a different paragraph: the comment/literal-stripping rule
+  now states **two** exceptions rather than one, the second being this suite's
+  build-output-root rules, which read each active workflow line whole.
 - Brand names — `git diff master...HEAD` over the whole tree, the plan file, and
   `git log master..HEAD`'s subjects and bodies were each scanned for product names; no hit.
 - `swift test --filter ReleaseWorkflowTests` re-run at this point: **66 tests, 0 failures**.
