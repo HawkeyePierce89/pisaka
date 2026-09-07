@@ -175,17 +175,17 @@ authority's rule configuration, and never has pinned `excluded:`.
 - Modify: `.swiftlint.yml`
 - Modify: `Tests/PisakaCoreTests/ReleaseWorkflowTests.swift`
 
-- [ ] `.gitignore`: `DerivedData/` → `DerivedData.noindex/` and `build/` →
+- [x] `.gitignore`: `DerivedData/` → `DerivedData.noindex/` and `build/` →
       `build.noindex/`. The old names are **not** kept as a second ignore line —
       after Task 1 nothing writes to them. Extend the two existing comment
       blocks with the second reason the paths are shaped this way: a local
       reproduction of a documented command drops these in the checkout root, and
       the `.noindex` suffix is the one name-level opt-out that keeps the bundles
       inside them from being surfaced as installed applications.
-- [ ] `.swiftlint.yml`: `excluded:` names `build.noindex` and
+- [x] `.swiftlint.yml`: `excluded:` names `build.noindex` and
       `DerivedData.noindex` instead of `build` and `DerivedData`. `Vendor` and
       `SourcePackages` are unchanged.
-- [ ] Add a `// MARK: - The build output roots` section to
+- [x] Add a `// MARK: - The build output roots` section to
       `ReleaseWorkflowTests` carrying the rule itself, over comment-stripped
       lines only:
   - every `-derivedDataPath` value in **both** workflows ends in `.noindex` —
@@ -208,20 +208,20 @@ authority's rule configuration, and never has pinned `excluded:`.
     failure if the scanned line set is empty. Verified today: the lines this
     would match are exactly the ones Task 1 renames, plus the one whole-line
     comment `activeYAMLLines` already drops.
-- [ ] Add the paired configuration assertions in the same section: `.gitignore`
+- [x] Add the paired configuration assertions in the same section: `.gitignore`
       names `DerivedData.noindex/` and `build.noindex/` and names neither bare
       directory as an ignore entry; `.swiftlint.yml`'s `excluded:` block (read
       through `topLevelBlock(_:in:)`) equals its four documented entries **by
       set equality**, which pins the two new names and the two untouched ones at
       once.
-- [ ] Write the rationale into that section's doc comment, once: application
+- [x] Write the rationale into that section's doc comment, once: application
       bundles are surfaced from any indexed directory, a name ending in
       `.noindex` is the one name-level opt-out, and the workflows' relative
       output paths are reproduced verbatim on developer machines — so the suffix
       is a property of the *names*, not of any one command. State what the pin
       cannot see (whether the fix works on a given machine is a runtime property
       of that machine's index; what is assertable is the name).
-- [ ] Run `swift test` and `swiftlint --strict` — both must pass before Task 3.
+- [x] Run `swift test` and `swiftlint --strict` — both must pass before Task 3.
 
 ### Task 3: The documents that spell the two roots
 

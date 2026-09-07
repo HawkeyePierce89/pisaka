@@ -3642,6 +3642,198 @@ final class ReleaseWorkflowTests: XCTestCase {
         }
     }
 
+    // MARK: - The build output roots
+
+    /// The repository-relative root every build output lands under, and the
+    /// archive root beside it. Both end in `.noindex`, and that suffix is the
+    /// property this section pins.
+    ///
+    /// The reason is not about either workflow: an application bundle is
+    /// surfaced system-wide as an installed application from *any* indexed
+    /// directory it happens to sit in, and a directory whose name ends in
+    /// `.noindex` is the one name-level opt-out the metadata importer honours
+    /// wherever that directory lives. Both workflows spell these paths
+    /// *relatively*, and both are reproduced verbatim on developer machines —
+    /// `docs/RELEASING.md`'s local archive command and `CLAUDE.md`'s Commands
+    /// section both tell a reader to run them from the checkout root — so a
+    /// build product lands inside the working copy by design. The suffix is
+    /// therefore a property of the **names**, not of any one command, which is
+    /// why it is pinned here across both workflows, `.gitignore` and the style
+    /// authority at once rather than beside whichever step happens to build.
+    ///
+    /// **What this cannot see**: whether the suffix actually keeps a given
+    /// machine's index out of a given directory. That is a runtime property of
+    /// that machine's importer, unobservable from a Foundation-only test with no
+    /// build product to point at. What *is* assertable is the name — so the name
+    /// is what is asserted, in every file that spells it.
+    private static let derivedDataRoot = "DerivedData.noindex"
+    private static let archiveRoot = "build.noindex"
+
+    /// Both workflow files, since this rule is about neither one in particular.
+    private static let workflowFileNames = ["ci.yml", "release.yml"]
+
+    /// The workflow-annotation prefixes whose lines are prose for a human
+    /// rather than a command line.
+    private static let annotationMarkers = ["::error::", "::warning::", "::notice::"]
+
+    /// The style authority's `excluded:` entries, in full.
+    private static let styleExclusions: Set<String> = [
+        "Vendor", "build.noindex", "DerivedData.noindex", "SourcePackages",
+    ]
+
+    func testEveryDerivedDataPathBuildsIntoANoIndexDirectory() throws {
+        try assertFlagValuesAreNoIndexed("-derivedDataPath", because: """
+            a derived-data root holds the built application bundle, and the workflows spell it \
+            relatively — so a local reproduction drops that bundle inside the checkout, where only \
+            a `.noindex` name keeps it from being surfaced as an installed application
+            """)
+    }
+
+    func testEveryArchivePathIsUnderANoIndexDirectory() throws {
+        try assertFlagValuesAreNoIndexed("-archivePath", because: """
+            an archive holds the application bundle itself, at a relative path reproduced verbatim \
+            by the local release repro in docs/RELEASING.md
+            """)
+    }
+
+    /// The rule read the other way round: no active line of either workflow may
+    /// name a path under a bare `DerivedData/` or `build/`.
+    ///
+    /// Scanned over the **whole file**'s active lines, deliberately not over
+    /// lines filtered by a leading command word. A command-prefixed scan would
+    /// miss exactly the lines that matter: the archive step is a folded `run: >`
+    /// scalar, so `-derivedDataPath` and `-archivePath` sit on continuation
+    /// lines, and the staging step's `ditto` source is a continuation line too.
+    ///
+    /// `build/` is matched by regex rather than as a substring so that
+    /// `build.noindex/` — and any word merely *ending* in `build` — cannot read
+    /// as a hit; lines that spell `.noindex/` are dropped before either match
+    /// for the same reason.
+    func testNoActiveWorkflowLineNamesABareBuildOutputRoot() throws {
+        for workflow in Self.workflowFileNames {
+            let lines = activeYAMLLines(of: try text(atRepositoryPath: ".github/workflows/\(workflow)"))
+            XCTAssertFalse(lines.isEmpty, """
+                parsed nothing out of \(workflow) — a rule that scans no lines passes vacuously.
+                """)
+
+            for line in lines where !line.contains(".noindex/") {
+                XCTAssertFalse(line.contains("DerivedData/"), """
+                    \(workflow) names a path under a bare `DerivedData/` in “\(line)”. Build output \
+                    goes under `\(Self.derivedDataRoot)/`; see this section's doc comment for why the \
+                    suffix is part of the name.
+                    """)
+                XCTAssertFalse(matches(#"(^|[^.\w])build/"#, in: line), """
+                    \(workflow) names a path under a bare `build/` in “\(line)”. The archive and \
+                    everything staged beside it go under `\(Self.archiveRoot)/`; see this section's \
+                    doc comment for why the suffix is part of the name.
+                    """)
+            }
+        }
+    }
+
+    /// The two roots are ignored under their new names, and neither bare name is
+    /// kept as a second entry — after the rename nothing writes to those.
+    func testTheIgnoreFileNamesTheNoIndexRootsAndNeitherBareOne() throws {
+        let entries = try ignoreEntries()
+        XCTAssertFalse(entries.isEmpty, ".gitignore parsed to no entries")
+
+        for root in [Self.derivedDataRoot, Self.archiveRoot] {
+            XCTAssertTrue(entries.contains("\(root)/"), """
+                .gitignore must ignore `\(root)/` — it is where both workflows, reproduced locally, \
+                put their build output.
+                """)
+        }
+        for bare in ["DerivedData/", "build/"] {
+            XCTAssertFalse(entries.contains(bare), """
+                .gitignore still ignores `\(bare)`. Nothing writes there any more, and keeping the \
+                entry invites a build back into an indexed directory without failing anything.
+                """)
+        }
+    }
+
+    /// The style authority skips the same two roots, by set equality — which
+    /// pins the two renamed entries and the two untouched ones at once.
+    func testTheStyleAuthorityExcludesTheNoIndexRoots() throws {
+        let block = try XCTUnwrap(topLevelBlock("excluded", in: try text(atRepositoryPath: ".swiftlint.yml")), """
+            .swiftlint.yml has no top-level `excluded:` block.
+            """)
+        let entries = Set(block.compactMap { entry -> String? in
+            guard entry.hasPrefix("- ") else { return nil }
+            return String(entry.dropFirst(2)).trimmingCharacters(in: .whitespaces)
+        })
+        XCTAssertEqual(entries, Self.styleExclusions, """
+            .swiftlint.yml's `excluded:` must name exactly \(Self.styleExclusions.sorted()). The two \
+            build output roots are listed under their `.noindex` names: a lint run from the \
+            repository root walks whatever a local build left behind, and an exclusion naming the \
+            old directory silently stops excluding anything.
+            """)
+    }
+
+    /// Every value passed to `flag` in either workflow, asserted to sit under a
+    /// `.noindex` directory.
+    ///
+    /// The value is read as the token following the flag on the same active
+    /// line, and the values are gathered across both files so a fourth
+    /// occurrence appearing later is judged by the same rule. An empty result
+    /// fails loudly: a rule that matches nothing passes vacuously, which is the
+    /// one way this pin could rot without anyone noticing. A flag with nothing
+    /// after it on its line fails too — a value that moved to a continuation
+    /// line would otherwise drop silently out of the rule's reach.
+    ///
+    /// Lines carrying a workflow annotation (`::error::` and friends) are
+    /// skipped: those spell the flag *name* inside a sentence written for a
+    /// human — "check the `-archivePath` on the archive command line" — where
+    /// the next word is prose, not a path. Nothing is lost by skipping them,
+    /// because a message naming a stale path is caught by the whole-file scan in
+    /// `testNoActiveWorkflowLineNamesABareBuildOutputRoot`, which reads every
+    /// active line including those.
+    private func assertFlagValuesAreNoIndexed(_ flag: String,
+                                              because reason: String,
+                                              file: StaticString = #filePath,
+                                              line: UInt = #line) throws {
+        var values: [String] = []
+        var occurrences = 0
+
+        for workflow in Self.workflowFileNames {
+            let lines = activeYAMLLines(of: try text(atRepositoryPath: ".github/workflows/\(workflow)"))
+            XCTAssertFalse(lines.isEmpty, "parsed nothing out of \(workflow)", file: file, line: line)
+
+            for entry in lines where !Self.annotationMarkers.contains(where: entry.contains) {
+                let tokens = entry.split(separator: " ").map(String.init)
+                for (index, token) in tokens.enumerated() where token == flag {
+                    occurrences += 1
+                    guard index + 1 < tokens.count else { continue }
+                    values.append(tokens[index + 1])
+                }
+            }
+        }
+
+        XCTAssertFalse(values.isEmpty, """
+            no `\(flag)` value found on any active line of \(Self.workflowFileNames.joined(separator: " or ")) \
+            — this rule must judge something, or it passes by matching nothing.
+            """, file: file, line: line)
+        XCTAssertEqual(values.count, occurrences, """
+            every `\(flag)` must carry its value on the same line: found \(occurrences) occurrences \
+            but \(values.count) values.
+            """, file: file, line: line)
+
+        for value in Set(values).sorted() {
+            let root = value.split(separator: "/").first.map(String.init) ?? value
+            XCTAssertTrue(root.hasSuffix(".noindex"), """
+                `\(flag) \(value)` does not sit under a `.noindex` directory. It must, because \
+                \(reason).
+                """, file: file, line: line)
+        }
+    }
+
+    /// `.gitignore`'s live entries: neither blank nor a whole-line comment.
+    private func ignoreEntries() throws -> Set<String> {
+        Set(try text(atRepositoryPath: ".gitignore")
+            .components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty && !$0.hasPrefix("#") })
+    }
+
     // MARK: - The cross-file invariants
 
     /// The half of the feed contract that lives in the workflow.
