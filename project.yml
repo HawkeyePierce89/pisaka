@@ -497,9 +497,10 @@ targets:
   # application-hosted unit-test bundle gets none from the generator by default
   # — XcodeGen emits a `PRODUCT_BUNDLE_IDENTIFIER` for the target but neither an
   # `INFOPLIST_FILE` nor this setting. Without it the documented, flag-free
-  # `xcodebuild -scheme Pisaka -destination 'platform=macOS' test` refuses on a
-  # developer Mac ("Cannot code sign because the target does not have an
-  # Info.plist file"), while CI's signing-free form
+  # `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination
+  # 'platform=macOS' test` refuses on a developer Mac ("Cannot code sign
+  # because the target does not have an Info.plist file"), while CI's
+  # signing-free form
   # (`CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO`) passes and hides it.
   PisakaAppTests:
     type: bundle.unit-test

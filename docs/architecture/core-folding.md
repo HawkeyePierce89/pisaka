@@ -39,9 +39,10 @@ Objective-C `init` — straight into the trap (`Fatal error: Use of
 unimplemented initializer 'init()'`), which is the `EXC_BREAKPOINT` in the
 report. Any document long enough to produce an extra line fragment on
 `textView.string = text` is enough; session restore and tab switch each do that,
-so the crash needed no fold at all and passed CI, where nothing executed the
-product. Laying a document out is *not* what would have caught it: with the fix
-stashed the seeded smoke launch — which does restore a session and lay out a
+so the crash needed no fold at all and passed CI, where the launch smoke test
+ran the product with no session and therefore laid out no document. Laying a
+document out is *not* what would have caught it either: with the fix stashed
+the seeded smoke launch — which does restore a session and lay out a
 document — survived, so the net for a regression of this class is the
 `PisakaAppTests` bundle, never that step (`docs/RELEASING.md`).
 The fix is that `FoldingTypesetter` has a working `override init()` and **no

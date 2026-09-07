@@ -692,10 +692,12 @@ The workflow then, in order:
     nothing about the app. The
     assertion is that the process *lives*, nothing more — windows appearing, the
     updater polling github.com, its first-launch permission prompt and the
-    restored document are all inert to it. What the seeded launch proves is
-    that the app restores a session, opens a project and lays out a real
-    document without producing a crash report inside the deadline. What it was
-    measured *not* to prove is the part 1 folding crash
+    restored document are all inert to it. The seeding adds no assertion of its
+    own: it hands the app a session so the launch exercises the layout path with
+    a real document instead of an empty window, but nothing in the step reads
+    the restore back, and `EditorSession` decodes the blob under `try?` — a seed
+    that stopped decoding would leave the step green and document-free. What the
+    seeding was measured *not* to prove is the part 1 folding crash
     (`FoldingTypesetter.init()` reached through a re-entrant layout pass): with
     that fix stashed the seeded launch survived, so a regression of that class
     is caught by the `PisakaAppTests` bundle — three of its tests trapped before
