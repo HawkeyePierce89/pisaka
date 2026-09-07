@@ -200,22 +200,22 @@ Dependencies: none. No new files.
 - Modify: `docs/architecture/app-editor-overlays.md`
 - Modify: `docs/FEATURES.md`
 
-- [ ] `docs/FEATURES.md`: drop one leading space from lines 656–665 (3 spaces → 2,
+- [x] `docs/FEATURES.md`: drop one leading space from lines 656–665 (3 spaces → 2,
       the list continuation the rest of that bullet uses) and collapse
       `overlapping ones.   Gutter` to a single space.
-- [ ] `docs/architecture/app-editor-overlays.md`: drop one leading space from the
+- [x] `docs/architecture/app-editor-overlays.md`: drop one leading space from the
       36 lines between 263 and 679 that carry 5 (→ 4, the continuation the rest of
       those bullets use) and collapse `no folds nothing.     *Half two*` at line
       231 to a single space. Leave line 241's spacing alone — it is inside a
       `"\n  body1\n  body2\n"` code literal.
-- [ ] Verify with the pre-part-2 baseline: `git diff -w 01732f8^ HEAD --stat --
+- [x] Verify with the pre-part-2 baseline: `git diff -w 01732f8^ HEAD --stat --
       docs/FEATURES.md docs/architecture/app-editor-overlays.md` and the same
       command without `-w` must report the same insertion/deletion counts, i.e. no
       line in either file differs from its `01732f8^` counterpart by whitespace
       alone. Record both outputs in the Notes, together with the reason the
       ticket's literal `master..HEAD` spelling cannot be the check here (master
       *is* the damaged state, so a restoration is itself whitespace-only).
-- [ ] `swift test` and `swiftlint --strict` — documentation only, but the
+- [x] `swift test` and `swiftlint --strict` — documentation only, but the
       repository-file suites read these paths.
 
 ### Task 4: The fixture's comment, and the manual pass results that exist
@@ -313,5 +313,37 @@ Dependencies: none. No new files.
   (0 unexpected)` and `** TEST SUCCEEDED **`. `swift test`: 5275 tests, 0
   failures. `swiftlint --strict`: 0 violations in 517 files.
 - (Task 3) `git diff -w 01732f8^ HEAD --stat` vs `git diff 01732f8^ HEAD --stat`
-  for the two documentation files:
+  for the two documentation files — after the restoration the two agree exactly,
+  so no line in either file differs from its `01732f8^` counterpart by whitespace
+  alone:
+
+  ```
+  $ git diff 01732f8^ HEAD --stat -- docs/FEATURES.md docs/architecture/app-editor-overlays.md
+   docs/FEATURES.md                         |  7 +++--
+   docs/architecture/app-editor-overlays.md | 47 ++++++++++++++++++++++++--------
+   2 files changed, 40 insertions(+), 14 deletions(-)
+
+  $ git diff -w 01732f8^ HEAD --stat -- docs/FEATURES.md docs/architecture/app-editor-overlays.md
+   docs/FEATURES.md                         |  7 +++--
+   docs/architecture/app-editor-overlays.md | 47 ++++++++++++++++++++++++--------
+   2 files changed, 40 insertions(+), 14 deletions(-)
+  ```
+
+  Before the restoration the same pair disagreed (plain: 63 insertions / 37
+  deletions; `-w`: 40 / 14), the difference being exactly the 46 whitespace-only
+  lines part 2 reindented. The ticket's literal `master..HEAD` spelling cannot be
+  the check here: master *is* the damaged state (commit `01732f8`), so restoring
+  the indentation is itself a whitespace-only change — `-w` erases it and plain
+  `diff` counts it, which makes the two disagree by construction no matter how
+  correct the restoration is. The pre-part-2 baseline is what the requirement's
+  own sentence asks for and what makes the cumulative part 2 + follow-up diff free
+  of whitespace-only lines.
+
+  What changed: `docs/FEATURES.md` lines 656–665 (3 leading spaces → 2) plus
+  `overlapping ones.   Gutter` → one space on line 663;
+  `docs/architecture/app-editor-overlays.md` 36 lines (263–277, 316–319, 663–679:
+  5 leading spaces → 4) plus `no folds nothing.     *Half two*` → one space on
+  line 231. Line 241's `\n    body1` spacing is inside a code literal and was left
+  alone. `swift test`: 5275 tests, 0 failures. `swiftlint --strict`: 0 violations
+  in 517 files.
 - (Task 5) Final gate results:
