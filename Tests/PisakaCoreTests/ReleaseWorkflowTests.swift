@@ -7,8 +7,9 @@ import XCTest
 /// It reaches beyond that one file where an invariant does: `ci.yml` for the
 /// pairs the two workflows must agree on, and — since the build output roots
 /// landed — `.gitignore`, `.swiftlint.yml` and the documents that spell a root
-/// in a command a reader runs. `// MARK: - The build output roots` says why
-/// that rule lives here rather than with the style authority.
+/// in a command a reader runs, all pinned together in
+/// `// MARK: - The build output roots`. Why the `excluded:` half is pinned there
+/// rather than with the style authority is in `docs/architecture/style-lint.md`.
 ///
 /// Written in the `ReleaseMetadataTests`/`DependencyPinTests` style: the
 /// repository's own files are read through `#filePath` with Foundation only, so
@@ -3652,12 +3653,11 @@ final class ReleaseWorkflowTests: XCTestCase {
 
     /// The two build output roots, whose `.noindex` suffix is what this section
     /// pins: a bundle in an indexed directory is surfaced system-wide as an
-    /// installed application, and a `.noindex` name is the one name-level
-    /// opt-out the importer honours wherever it sits. Both workflows spell
-    /// these roots relatively and the documents reproduce them from the
-    /// checkout root, so the suffix belongs to the **names**, not to a command.
-    /// **What this cannot see**: whether an importer honours the name, which is
-    /// runtime behaviour rather than text.
+    /// installed application, and a `.noindex` name is the one name-level opt-out
+    /// the importer honours wherever it sits. Both workflows spell these roots
+    /// relatively and the documents reproduce them from the checkout root, so the
+    /// suffix belongs to the **names**, not to a command. **What this cannot
+    /// see**: whether an importer honours the name — runtime behaviour, not text.
     private static let derivedDataRoot = "DerivedData.noindex"
     private static let archiveRoot = "build.noindex"
 
@@ -3678,10 +3678,9 @@ final class ReleaseWorkflowTests: XCTestCase {
     private static let checkoutRootReference =
         ##"(\$\{?(GITHUB_WORKSPACE|PWD)\}?|\$\(pwd\)|\$\{\{ *github\.workspace *\}\})"##
 
-    /// The documents spelling a build output root in a command a reader runs
-    /// from the checkout root — the half the suffix works for, both runners
-    /// being ephemeral. Hand-maintained, so the rule below also requires each
-    /// entry to still spell one.
+    /// The documents spelling a build output root in a command a reader runs from
+    /// the checkout root — the half the suffix works for, both runners being
+    /// ephemeral. Hand-maintained, so the rule below requires each entry to spell one.
     private static let documentsThatSpellABuildOutputRoot = [
         "CLAUDE.md",
         "docs/RELEASING.md",
@@ -3744,12 +3743,11 @@ final class ReleaseWorkflowTests: XCTestCase {
         }
     }
 
-    /// The style authority skips the same two roots, by set equality — which
-    /// pins the two renamed entries and the two untouched ones at once, and
-    /// what they are pinned for is the name: `included:` already scopes every
-    /// repository-supported run to `Sources/` and `Tests/`, so these two bite
-    /// only an explicitly named path. Renamed where `.gitignore`'s is extended,
-    /// `excluded:` governing only what a run walks.
+    /// The style authority skips the same two roots, by set equality — pinning the
+    /// two renamed entries and the two untouched ones at once. What they pin is the
+    /// name: `included:` already scopes every repository-supported run to `Sources/`
+    /// and `Tests/`, so these two bite only an explicitly named path. Renamed where
+    /// `.gitignore`'s is extended, `excluded:` governing only what a run walks.
     func testTheStyleAuthorityExcludesTheNoIndexRoots() throws {
         let authority = try text(atRepositoryPath: ".swiftlint.yml")
         let block = try XCTUnwrap(topLevelBlock("excluded", in: authority), "no top-level `excluded:` block")
@@ -3800,10 +3798,10 @@ final class ReleaseWorkflowTests: XCTestCase {
     }
 
     /// The path a token names, with the shell spelling that is not part of it
-    /// taken off: surrounding quotes or backticks and a leading `./`. Without
-    /// it the rule fails on values that are *correct*, and a rule failing on
-    /// the right answer is one someone deletes. **Unseen**: a value naming the
-    /// checkout root out loud, which no workflow writes.
+    /// taken off: surrounding quotes or backticks and a leading `./`. Without it
+    /// the rule fails on values that are *correct*. A checkout root spelled out
+    /// loud is **not** taken off: no workflow writes one, and one that did would
+    /// fail here as a bad value rather than pass — restore the strip if that changes.
     private static func pathNamed(by token: String) -> String {
         let quoting: Set<Character> = ["\"", "'", "`"]
         var value = token
@@ -3858,6 +3856,9 @@ final class ReleaseWorkflowTests: XCTestCase {
             #"            ditto "$GITHUB_WORKSPACE/build/notarization" "$ZIP""#,
             // A redirection is a delimiter whose space is routinely left out.
             #"            echo "$OUTPUT" >build/report.txt"#,
+            // The flag matcher's own quote and checkout-root branches: no path matcher.
+            #"  -derivedDataPath "$(pwd)/DerivedData" \"#,
+            "  -archivePath ${{ github.workspace }}/build \\",
         ]
         for line in stale { XCTAssertNotNil(staleBuildOutputRootSpelling(in: line), "“\(line)” names a bare build output root.") }
         let live = [
