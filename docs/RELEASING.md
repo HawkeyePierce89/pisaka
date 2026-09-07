@@ -1098,8 +1098,14 @@ asked the only question a user asks first.
 rather than a check for this one message: it runs the product in both places that
 build the shipping configuration (`ci.yml` against the DerivedData Release
 product, `release.yml` against the archived app before the submission) and
-refuses if the process is not still alive five seconds later. Any startup crash
-fails it, not just an unresolved `@rpath`.
+refuses if the process is not still alive five seconds later — so it catches
+more than an unresolved `@rpath`, but only a startup crash that *reproduces
+under a five-second headless launch*. That is not every startup crash: the part
+1 folding trap (`FoldingTypesetter.init()` reached through a re-entrant layout
+pass) was measured to survive this step even with a session seeded, and its net
+is the `PisakaAppTests` bundle instead, where three tests trapped before the
+fix. The measurement is recorded on the *Launch the archived app (smoke test)*
+bullet above.
 
 Recovery was the ordinary one and needs no special case — delete the tag, push
 it again, as [above](#cutting-a-release); the fresh run archives under a new

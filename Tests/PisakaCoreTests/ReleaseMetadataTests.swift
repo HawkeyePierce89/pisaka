@@ -261,14 +261,19 @@ final class ReleaseMetadataTests: XCTestCase {
         // target declares, so anchoring the two together is what keeps the
         // match specific to the app. (The test bundle's copy is pinned the
         // mirror-image way, against TEST_HOST/BUNDLE_LOADER, in
-        // `testProjectDeclaresTheAppLayerTestTarget`.)
+        // `testProjectDeclaresTheAppLayerTestTarget`.) The price is that the
+        // two lines must stay adjacent, in this order, in `project.yml` —
+        // recorded in `core-services.md` so a reorder that fails here is not a
+        // surprise.
         assertDeclares("""
             GENERATE_INFOPLIST_FILE: YES
             INFOPLIST_FILE: Resources/Info.plist
             """,
                        "Resources/Info.plist as the partial Info.plist merged into the generated keys")
-        // Both resource entries are matched as the *two-line pair* they are,
-        // indentation included, rather than line by line. A bare
+        // Both resource entries are matched as the *two-line pair* they are —
+        // adjacent and in this order, each line matched whole (indentation is
+        // trimmed on both sides by `contains(consecutively:)`, so nesting depth
+        // is not part of the match) — rather than line by line. A bare
         // `project.contains("type: folder")` would be satisfied by any folder
         // reference anywhere in the file, so turning Resources/Licenses into a
         // plain group while some unrelated entry kept a `type: folder` would

@@ -243,7 +243,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     makes, since a `FoldRegion`'s hidden range ends at the end of the last
     line's *content* and so hides the `}` too; leaving the closer visible is
     what lets (b) watch a visible character join the header's row, and the test
-    says so at the fixture) asserts (a) every hidden character carries
+    says so at the fixture; the producers' own shape is laid out by a second
+    test, `testProducerShapedFoldHidesTheCloserAndKeepsTheNextLineSeparate`,
+    which builds the region through `FoldRegion` rather than by hand and asserts
+    that the closer goes null, that `footer` keeps a row of its own below the
+    header's, and that the count is still 2) asserts (a) every hidden character carries
     `GlyphProperty.null`, (b) header `header {` and closer `}` share one line
     fragment, (c) fragment count drops from 5 to 2 (baseline minus hidden-separator
     count), and (d) unfolding restores 5. With the typesetter half neutralised

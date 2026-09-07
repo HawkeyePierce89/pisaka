@@ -2,6 +2,7 @@
 import AppKit
 import XCTest
 @testable import Pisaka
+@testable import PisakaCore
 
 @MainActor
 final class FoldLayoutTests: XCTestCase {
@@ -89,7 +90,11 @@ final class FoldLayoutTests: XCTestCase {
         // that fails there — 3 instead of 2 — and so names half two as
         // load-bearing; the measurement is recorded in
         // `app-editor-overlays.md`. What is measured here is hiding, not where
-        // a producer puts its bounds.
+        // a producer puts its bounds — the producers' own shape is laid out and
+        // asserted by
+        // `testProducerShapedFoldHidesTheCloserAndKeepsTheNextLineSeparate`
+        // below, so the prediction two paragraphs up is checked rather than
+        // only written down.
         let hidden = NSRange(location: 8, length: 21)
         let hiddenText = (text as NSString).substring(with: hidden)
         let hiddenSeparators = hiddenText.filter { $0 == "\n" }.count
@@ -136,6 +141,74 @@ final class FoldLayoutTests: XCTestCase {
             let prop = harness.layoutManager.propertyForGlyph(at: glyph)
             XCTAssertFalse(prop.contains(.null), "offset \(offset) should be visible after unfold")
         }
+    }
+
+    /// The shape a *producer* actually emits, which the fixture above
+    /// deliberately is not: a `FoldRegion`'s hidden range ends at the end of the
+    /// last line's content, so the closer `}` is hidden too (8..<30 for this
+    /// text, not 8..<29). The comment on `testFoldHidesTextAndCollapsesLines`
+    /// predicts what that lays out as — header row plus placeholder, "footer"
+    /// the next visible row, because the separator *after* the closer is outside
+    /// the range and still breaks the line — and nothing asserted it, so the
+    /// prediction is checked here rather than only written down.
+    func testProducerShapedFoldHidesTheCloserAndKeepsTheNextLineSeparate() {
+        let text = "header {\n    body1\n    body2\n}\nfooter"
+        let content = text as NSString
+        let harness = EditorLayoutHarness()
+        harness.textView.string = text
+        harness.layOut()
+        let baselineFragments = fragmentCount(harness.layoutManager)
+
+        // Built the way FoldRegionScanner and LSPIntelligenceProvider build it:
+        // end of the header line's content through end of the closer line's
+        // content — asked of FoldRegion rather than hard-coded, so a change to
+        // the endpoint rule reaches this test.
+        let headerLine = 0
+        let headerRange = content.lineRange(for: NSRange(location: 0, length: 0))
+        let closerRange = content.lineRange(for: content.range(of: "}"))
+        let start = NSMaxRange(headerRange) - 1
+        let end = NSMaxRange(closerRange) - 1
+        guard let region = FoldRegion(hiddenRange: NSRange(location: start, length: end - start),
+                                      headerLine: headerLine) else {
+            XCTFail("producer-shaped region should be constructible")
+            return
+        }
+        let hidden = region.hiddenRange
+        XCTAssertEqual(hidden, NSRange(location: 8, length: 22), "the producers' shape for this text")
+        let hiddenSeparators = content.substring(with: hidden).filter { $0 == "\n" }.count
+        XCTAssertEqual(hiddenSeparators, 3)
+
+        harness.layoutManager.setFoldedRanges([hidden])
+        harness.layOut()
+
+        // The closer is inside the hidden run now, so it is null too.
+        let closerOffset = content.range(of: "}").location
+        let closerGlyph = harness.layoutManager.glyphIndexForCharacter(at: closerOffset)
+        XCTAssertTrue(harness.layoutManager.propertyForGlyph(at: closerGlyph).contains(.null),
+                      "the producers' range hides the closer")
+
+        // The separator after the closer is outside the range, so it still
+        // breaks the line: "footer" is a row of its own, below the header's.
+        let footerOffset = content.range(of: "footer").location
+        let footerGlyph = harness.layoutManager.glyphIndexForCharacter(at: footerOffset)
+        XCTAssertFalse(harness.layoutManager.propertyForGlyph(at: footerGlyph).contains(.null))
+        let headerGlyph = harness.layoutManager.glyphIndexForCharacter(at: 0)
+        let headerFragment = harness.layoutManager.lineFragmentRect(forGlyphAt: headerGlyph, effectiveRange: nil)
+        let footerFragment = harness.layoutManager.lineFragmentRect(forGlyphAt: footerGlyph, effectiveRange: nil)
+        XCTAssertGreaterThan(footerFragment.minY, headerFragment.minY,
+                             "footer must stay on its own row below the header")
+
+        // Two rows, not three: no blank row where the block was.
+        XCTAssertEqual(fragmentCount(harness.layoutManager), baselineFragments - hiddenSeparators)
+
+        // And the placeholder lands on the header's row, as it does for the
+        // one-character-shorter fixture.
+        guard let rect = harness.layoutManager.placeholderRect(forFoldedRangeAt: hidden.location) else {
+            XCTFail("placeholder rect should exist for a producer-shaped range")
+            return
+        }
+        XCTAssertGreaterThan(rect.width, 0)
+        XCTAssertEqual(rect.minY, headerFragment.minY + ((headerFragment.height - rect.height) / 2).rounded(), accuracy: 0.5)
     }
 
     func testSecondTypesetterInstanceSeesFoldAfterDocumentSwap() {
@@ -188,21 +261,20 @@ final class FoldLayoutTests: XCTestCase {
 
     // MARK: - Helpers
 
+    /// The document's laid-out line fragments, counted by enumeration and by
+    /// nothing else.
+    ///
+    /// There is deliberately no "at least one for non-empty text" fallback: this
+    /// helper backs assertion (c), the one that names the typesetter half as
+    /// load-bearing, so a fabricated count would be a number the test invented
+    /// rather than measured. Zero fragments for a non-empty document is a real
+    /// failure and is reported as one.
     private func fragmentCount(_ manager: NSLayoutManager) -> Int {
-        guard let container = manager.textContainers.first else { return 0 }
         var count = 0
         let glyphRange = NSRange(location: 0, length: manager.numberOfGlyphs)
         manager.enumerateLineFragments(forGlyphRange: glyphRange) { _, _, _, _, _ in
             count += 1
         }
-        // Fallback for empty document: enumerateLineFragments may not call block.
-        if count == 0, manager.numberOfGlyphs > 0 {
-            // Ensure layout has at least one fragment for non-empty text.
-            let glyph = 0
-            _ = manager.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
-            count = 1
-        }
-        _ = container
         return count
     }
 

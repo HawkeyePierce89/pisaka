@@ -654,7 +654,16 @@ run in `swift test` rather than needing an Xcode build.
     CODE_SIGNING_REQUIRED=NO`. `ReleaseMetadataTests` pins the three settings as
     one **consecutive** block on purpose: the application target declares
     `GENERATE_INFOPLIST_FILE: YES` too, so a one-line assertion would match that
-    copy and stay green with the test bundle's deleted.
+    copy and stay green with the test bundle's deleted. The duplication is read
+    the other way round for the app target itself, whose pair is now matched
+    consecutively too — `GENERATE_INFOPLIST_FILE: YES` immediately followed by
+    `INFOPLIST_FILE: Resources/Info.plist`, `INFOPLIST_FILE` being the line only
+    this target declares. So both pins carry the same price: **these settings
+    must stay adjacent, in the order written, in `project.yml`**. Reordering or
+    separating them is behaviour-preserving for the build and fails
+    `ReleaseMetadataTests` with a message about a deletion that did not happen;
+    the specificity is still worth it, because the alternative is an assertion
+    that cannot tell the two targets apart.
 
   - `Resources/PrivacyInfo.xcprivacy` — the privacy manifest. Declared in
     `project.yml` as a single-file resource (a plain file reference, not a folder

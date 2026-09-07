@@ -775,8 +775,10 @@ Unit tests live in `Tests/PisakaCoreTests/` and cover `PisakaCore` only.
 automation) covering the macOS AppKit overlays that `swift test` is blind to:
 `BracketOverlayLayoutManager`/`FoldingTypesetter`, `LineNumberRulerView`,
 and the layout seams. It exists because the folding launch-time trap
-(`FoldingTypesetter.init()` re-entered through Objective-C) passed every Core
-gate; `swift test` remains the Foundation-only gate — `Package.swift` ignores
+(`FoldingTypesetter.init()` re-entered through Objective-C) passed **every gate
+the pipeline had** — the Core suites *and* the smoke launch, measured to survive
+the pre-fix build — so it is the only net for that class (`core-folding.md`).
+`swift test` remains the Foundation-only gate — `Package.swift` ignores
 `Tests/PisakaAppTests/` silently (no `path:`).
 
 A second class of suites in the same target verifies **repository files** rather
@@ -922,7 +924,8 @@ corrupted hash table, not a flaky assertion.
 
 ## Commands
 
-A `Makefile` wraps these as `make test` / `make lint` / `make build`; its
+A `Makefile` wraps these as `make test` / `make test-app` / `make lint` /
+`make build`; its
 targets and a generated build phase both wire this clone's hooks
 (`style-lint.md`). The raw commands below stay the authority.
 
@@ -945,8 +948,9 @@ xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'generic/platfo
 ```
 
 CI (`.github/workflows/ci.yml`) runs these same gates on every pull request and
-push to `master`: `swift test` first, then — only when it is green — an unsigned
-macOS build and an unsigned iOS build (device arch, `generic/platform=iOS`,
+push to `master`: `swift test` first, then — only when it is green — the macOS
+job (which runs the app-layer `PisakaAppTests` bundle first, then an unsigned
+build) and an unsigned iOS build (device arch, `generic/platform=iOS`,
 covering libgit2 linking) in parallel, plus an independent `lint` job
 (pinned SwiftLint 0.65.1, `--strict`, no `needs:`) that refuses style
 violations even when the pre-commit hook was bypassed or never installed. No

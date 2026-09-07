@@ -15,7 +15,7 @@ DESTINATION_IOS := generic/platform=iOS
 PROJECT := Pisaka.xcodeproj
 SCHEME := Pisaka
 
-.PHONY: help setup hooks generate test lint build build-ios all
+.PHONY: help setup hooks generate test test-app lint build build-ios all
 
 help: ## Show this help
 	@grep -hE '^[a-z-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -36,6 +36,10 @@ hooks: ## Point this clone at the repository's tracked hooks
 test: hooks ## Run the PisakaCore suite (no dependencies to install)
 	swift test
 
+test-app: generate ## Run the app-layer AppKit bundle (PisakaAppTests)
+	xcodebuild -project $(PROJECT) -scheme $(SCHEME) \
+		-destination '$(DESTINATION_MACOS)' test
+
 lint: hooks ## Run the style gate exactly as CI runs it
 	swiftlint lint --strict
 
@@ -50,4 +54,4 @@ build-ios: generate ## Build the iOS app for a device (what CI builds)
 	xcodebuild -project $(PROJECT) -scheme $(SCHEME) \
 		-destination '$(DESTINATION_IOS)' build
 
-all: lint test build build-ios ## Everything CI runs, in CI's order
+all: lint test test-app build build-ios ## Everything CI runs, in CI's order
