@@ -109,9 +109,19 @@ root is unpinned until it is added to the suite's
 once: `rm -rf build DerivedData`. `.gitignore` still ignores them — the entries
 were kept beside the new ones rather than renamed away, precisely because a
 rename un-ignores whatever an existing checkout already holds, and the branch
-that first made this change proved it by committing 22 816 files that way.
-Nothing writes to the old names any more, so the guards are the only thing they
-are for.
+that first made this change proved it by committing 22 816 files (2.2 GiB),
+including a signed application bundle, that way. Keeping them costs the rename
+nothing: what forces a build *into* a `.noindex` directory is the value on the
+command line, which `ReleaseWorkflowTests` pins, while an ignore entry writes
+nothing anywhere and only decides what a `git add` may sweep up. Nothing writes
+to the old names any more, so the guards are the only thing they are for.
+
+**`.swiftlint.yml` answers the same rename the other way**, listing only the
+`.noindex` roots: `excluded:` governs what a lint run *walks*, not what a clone
+holds, and `included:` already keeps every repository-supported run inside
+`Sources/` and `Tests/`. The residue — an ad-hoc, explicitly-pathed lint run
+inside a pre-rename clone — is answered once by the `rm -rf` above, not by a
+second pair of entries naming directories nothing writes to.
 
 Rules for the value:
 

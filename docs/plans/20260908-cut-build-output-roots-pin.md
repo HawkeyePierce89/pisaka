@@ -169,29 +169,29 @@ rather than parsed for.
 - Modify: `.gitignore`
 - Modify: `docs/RELEASING.md`
 
-- [ ] Rewrite the section's doc comments: the heading comment says what the suffix is and
+- [x] Rewrite the section's doc comments: the heading comment says what the suffix is and
       why it is a property of the names (keeping the "what this cannot see" paragraph, one
       short version); each rule gets a paragraph or two saying what it reads and what it
       cannot see. Delete every "the round after that" narrative — the completed plan's
       Notes hold that history — and every comment explaining the absence of a helper that
       no longer exists. Record the quote-closed checkout spelling as deliberately
       unhandled in one clause on `relativePathPrefix`.
-- [ ] The legacy-guard story: keep the full telling (bare entries kept beside the renamed
+- [x] The legacy-guard story: keep the full telling (bare entries kept beside the renamed
       ones; a rename un-ignores what an existing clone holds; the 22 816 files) in
       `docs/RELEASING.md` beside the `rm -rf build DerivedData` note — it already lives
       there at ~line 108; extend it only if a detail is lost from the other three sites.
-- [ ] Cut `.gitignore`'s two legacy-guard comments to one pointer sentence each, naming
+- [x] Cut `.gitignore`'s two legacy-guard comments to one pointer sentence each, naming
       `docs/RELEASING.md` and not repeating the number.
-- [ ] Cut the same story in `testTheIgnoreFileNamesTheNoIndexRootsAndTheLegacyGuards`'s
+- [x] Cut the same story in `testTheIgnoreFileNamesTheNoIndexRootsAndTheLegacyGuards`'s
       doc comment and in `testTheStyleAuthorityExcludesTheNoIndexRoots`'s to one pointer
       sentence in the section, again without the number. The assertion messages keep
       enough to be actionable, without the count.
-- [ ] Check `docs/architecture/style-lint.md`'s "One stated exception" paragraph is still
+- [x] Check `docs/architecture/style-lint.md`'s "One stated exception" paragraph is still
       accurate (it names `ReleaseWorkflowTests` and the MARK section, both of which
       survive) and update if the wording drifted.
-- [ ] `grep -rn "22 816" . --exclude-dir=.git --exclude-dir=docs/plans` must return
+- [x] `grep -rn "22 816" . --exclude-dir=.git --exclude-dir=docs/plans` must return
       `docs/RELEASING.md` alone.
-- [ ] Run `swift test --filter ReleaseWorkflowTests`; measure the section again.
+- [x] Run `swift test --filter ReleaseWorkflowTests`; measure the section again.
 
 ### Task 5: Prove the pin still fails, and record the numbers
 

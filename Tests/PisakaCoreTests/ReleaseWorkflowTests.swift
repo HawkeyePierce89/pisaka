@@ -3650,86 +3650,38 @@ final class ReleaseWorkflowTests: XCTestCase {
 
     // MARK: - The build output roots
 
-    /// The repository-relative root every build output lands under, and the
-    /// archive root beside it. Both end in `.noindex`, and that suffix is the
-    /// property this section pins.
-    ///
-    /// The reason is not about either workflow: an application bundle is
-    /// surfaced system-wide as an installed application from *any* indexed
-    /// directory it happens to sit in, and a directory whose name ends in
-    /// `.noindex` is the one name-level opt-out the metadata importer honours
-    /// wherever that directory lives. Both workflows spell these paths
-    /// *relatively*, and both are reproduced verbatim on developer machines —
-    /// `docs/RELEASING.md`'s local archive command and `CLAUDE.md`'s Commands
-    /// section both tell a reader to run them from the checkout root — so a
-    /// build product lands inside the working copy by design. The suffix is
-    /// therefore a property of the **names**, not of any one command, which is
-    /// why it is pinned here across both workflows, `.gitignore` and the style
-    /// authority at once rather than beside whichever step happens to build.
-    ///
-    /// **What this cannot see**: whether the suffix actually keeps a given
-    /// machine's index out of a given directory. That is a runtime property of
-    /// that machine's importer, unobservable from a Foundation-only test with no
-    /// build product to point at. What *is* assertable is the name — so the name
-    /// is what is asserted, in every file that spells it.
+    /// The two build output roots, whose `.noindex` suffix is what this section
+    /// pins: a bundle in an indexed directory is surfaced system-wide as an
+    /// installed application, and a `.noindex` name is the one name-level
+    /// opt-out the importer honours wherever it sits. Both workflows spell
+    /// these roots relatively and the documents reproduce them from the
+    /// checkout root, so the suffix belongs to the **names**, not to a command.
+    /// **What this cannot see**: whether an importer honours the name, which is
+    /// runtime behaviour rather than text.
     private static let derivedDataRoot = "DerivedData.noindex"
     private static let archiveRoot = "build.noindex"
 
-    /// Both workflow files, since this rule is about neither one in particular.
     private static let workflowFileNames = ["ci.yml", "release.yml"]
 
-    /// What must sit in front of a build output root for it to be *this
-    /// repository's* — the start of the line or a delimiter that begins a path
-    /// (whitespace, a quote, a backtick, an opening parenthesis, the `=` of a
-    /// shell assignment, or a redirection's `<`/`>`), plus an optional `./` or
-    /// a checkout root spelled as a variable.
-    ///
-    /// The redirection operators are there because they are the one delimiter
-    /// a shell writer routinely omits the space after: `echo … >build/report`
-    /// and `xcodebuild … 2>DerivedData/error.log` name a bare output root as
-    /// squarely as the spaced spellings do, and a class without them reads the
-    /// `>` as part of a word and lets both past.
-    ///
-    /// A bare `/` is deliberately **not** a delimiter here: a root preceded by
-    /// one is a segment of somebody else's path, not the checkout-relative
-    /// output root these rules are about. See
-    /// `assertNamesNoBareBuildOutputRoot(_:of:file:line:)` for the three shapes
-    /// this refuses and why each would otherwise fail with a message that
-    /// misdescribes the path it names.
-    ///
-    /// One checkout spelling is deliberately **unhandled**: the quote closed
-    /// around the variable alone, `"$GITHUB_WORKSPACE"/build/…`. No workflow and
-    /// no document in this repository writes it, so it is recorded here rather
-    /// than parsed for.
+    /// What must sit in front of a root for it to be *this repository's*: the
+    /// line start or a path-beginning delimiter (whitespace, a quote, a
+    /// backtick, `(`, an `=`, or a redirection's `<`/`>`, whose space a shell
+    /// writer routinely omits), plus an optional `./` or checkout root. A bare
+    /// `/` is no delimiter, and the quote closed around the variable alone
+    /// (`"$GITHUB_WORKSPACE"/build/…`) is left unhandled.
     private static let relativePathPrefix =
         ##"(^|[\s"'`(=<>])(\./|\##(checkoutRootReference)/)?"##
 
-    /// The checkout root written out rather than left implicit: the one family
-    /// of absolute paths that still names *this* repository's output root.
-    ///
-    /// It is what keeps the `/`-is-not-a-delimiter rule above honest. That rule
-    /// refuses `~/Library/Developer/Xcode/DerivedData/…` because the segment in
-    /// front of the root makes it somebody else's directory — but
-    /// `"$GITHUB_WORKSPACE/build/notarization"` and `"$PWD/DerivedData/Build"`
-    /// have a segment in front of them that is *this checkout*, so they
-    /// recreate the indexed output directory the suffix exists to prevent and
-    /// must fail like the relative spelling. Only roots the runner and the
-    /// shell define as the checkout itself are listed: `$RUNNER_TEMP/build` is
-    /// a directory outside the tree and stays live.
+    /// The checkout written out rather than left implicit — the one family of
+    /// absolute paths still naming *this* repository's output root, and what
+    /// keeps the `/`-is-no-delimiter rule honest. `$RUNNER_TEMP/build` is not.
     private static let checkoutRootReference =
         ##"(\$\{?(GITHUB_WORKSPACE|PWD)\}?|\$\(pwd\)|\$\{\{ *github\.workspace *\}\})"##
 
-    /// The documents that spell a build output root in a command a reader is
-    /// told to run from the checkout root.
-    ///
-    /// These are the half the suffix actually works for. Both workflows run on
-    /// ephemeral runners where nothing is indexed and nothing survives the job;
-    /// it is the *documented local commands* that reproduce a build product
-    /// inside somebody's home directory, which is the whole reason the roots
-    /// were renamed. The plan that renamed them ran this grep once by hand at
-    /// acceptance — it is a pin here so that a document drifting back to
-    /// `-archivePath build/` fails rather than being noticed by whoever next
-    /// reads the file.
+    /// The documents spelling a build output root in a command a reader runs
+    /// from the checkout root — the half the suffix works for, both runners
+    /// being ephemeral. Hand-maintained, so the rule below also requires each
+    /// entry to still spell one.
     private static let documentsThatSpellABuildOutputRoot = [
         "CLAUDE.md",
         "docs/RELEASING.md",
@@ -3742,225 +3694,85 @@ final class ReleaseWorkflowTests: XCTestCase {
     ]
 
     func testEveryDerivedDataPathBuildsIntoANoIndexDirectory() throws {
-        try assertFlagValuesAreNoIndexed("-derivedDataPath", rootedAt: Self.derivedDataRoot, because: """
-            a derived-data root holds the built application bundle, and the workflows spell it \
-            relatively — so a local reproduction drops that bundle inside the checkout, where only \
-            a `.noindex` name keeps it from being surfaced as an installed application
-            """)
+        try assertFlagValuesAreNoIndexed("-derivedDataPath", rootedAt: Self.derivedDataRoot,
+                                         because: "a derived-data root holds the built application bundle")
     }
 
     func testEveryArchivePathIsUnderANoIndexDirectory() throws {
-        try assertFlagValuesAreNoIndexed("-archivePath", rootedAt: Self.archiveRoot, because: """
-            an archive holds the application bundle itself, at a relative path reproduced verbatim \
-            by the local release repro in docs/RELEASING.md
-            """)
+        try assertFlagValuesAreNoIndexed("-archivePath", rootedAt: Self.archiveRoot,
+                                         because: "an archive holds the application bundle itself")
     }
 
     /// The rule read the other way round: no active line of either workflow may
-    /// name a path under a bare `DerivedData/` or `build/`.
-    ///
-    /// Scanned over the **whole file**'s active lines, deliberately not over
-    /// lines filtered by a leading command word. A command-prefixed scan would
-    /// miss exactly the lines that matter: the archive step is a folded `run: >`
-    /// scalar, so `-derivedDataPath` and `-archivePath` sit on continuation
-    /// lines, and the staging step's `ditto` source is a continuation line too.
-    ///
-    /// Both roots are matched by regex rather than as substrings, so that
-    /// `build.noindex/`, any word merely *ending* in a root (`xcodebuild/`) and
-    /// any root that is a segment of somebody else's path
-    /// (`~/Library/Developer/Xcode/DerivedData/…`) cannot read as hits — see
-    /// `assertNamesNoBareBuildOutputRoot(_:of:file:line:)`.
-    ///
-    /// Every matcher judges each line **whole**: a line is never skipped for
-    /// mentioning a `.noindex/` path. Skipping one would be redundant — no
-    /// matcher can fire on a `.noindex` name, since each demands a `/` where
-    /// those spell a `.` — and it would blind the rule to exactly the
-    /// shape it exists for: a two-path command line, `ditto SRC DST` or
-    /// `rm -rf a b`, where only one side kept its suffix. Every active line
-    /// naming a build output root is such a line, so the skip exempted all of
-    /// them.
+    /// name a path under a bare `DerivedData/` or `build/`. Read over the whole
+    /// file's active lines, not lines filtered by a leading command word (the
+    /// archive step is a folded `run: >` scalar), and judged whole rather than
+    /// skipped for also naming a `.noindex` path — that two-path shape is where
+    /// one side loses its suffix.
     func testNoActiveWorkflowLineNamesABareBuildOutputRoot() throws {
         for workflow in Self.workflowFileNames {
             let lines = activeYAMLLines(of: try text(atRepositoryPath: ".github/workflows/\(workflow)"))
-            XCTAssertFalse(lines.isEmpty, """
-                parsed nothing out of \(workflow) — a rule that scans no lines passes vacuously.
-                """)
-
-            for line in lines {
-                assertNamesNoBareBuildOutputRoot(line, of: workflow)
-            }
+            XCTAssertFalse(lines.isEmpty, "parsed nothing out of \(workflow) — a rule scanning no lines is vacuous.")
+            for line in lines { assertNamesNoBareBuildOutputRoot(line, of: workflow) }
         }
     }
 
-    /// The two roots are ignored under their new names — **and** under the two
-    /// pre-rename ones, which are kept as legacy guards.
-    ///
-    /// Keeping them costs the rename nothing: what forces a build *into* a
-    /// `.noindex` directory is the value on the command line, pinned by
-    /// `testEveryDerivedDataPathBuildsIntoANoIndexDirectory`,
-    /// `testEveryArchivePathIsUnderANoIndexDirectory` and
-    /// `testNoActiveWorkflowLineNamesABareBuildOutputRoot`. An ignore entry
-    /// writes nothing anywhere; it only decides what a `git add` may sweep up.
-    ///
-    /// Dropping the bare entries is what the rename actually costs, and it is
-    /// paid by every clone that built before the rename landed: those hold
-    /// `DerivedData/` and `build/` on disk, un-ignored the instant the entry is
-    /// renamed rather than added beside. That is why this rule requires all
-    /// four rather than forbidding two — it is asserted here because the branch
-    /// that renamed the entries committed 22 816 files, 2.2 GiB, on its way past
-    /// a green suite that had no opinion about it.
+    /// The two roots are ignored under their new names **and** under the two
+    /// pre-rename ones, kept as legacy guards: renaming an entry un-ignores
+    /// what an existing clone already holds. Full account, and the one-time
+    /// cleanup, in `docs/RELEASING.md`.
     func testTheIgnoreFileNamesTheNoIndexRootsAndTheLegacyGuards() throws {
         let entries = try ignoreEntries()
         XCTAssertFalse(entries.isEmpty, ".gitignore parsed to no entries")
-
         for root in [Self.derivedDataRoot, Self.archiveRoot] {
-            XCTAssertTrue(entries.contains("\(root)/"), """
-                .gitignore must ignore `\(root)/` — it is where both workflows, reproduced locally, \
-                put their build output.
-                """)
+            XCTAssertTrue(entries.contains("\(root)/"), "`\(root)/` must be ignored: reproduced locally, both workflows build there.")
         }
         for bare in ["DerivedData", "build"] {
-            XCTAssertTrue(entries.contains("\(bare)/"), """
-                .gitignore must keep ignoring `\(bare)/` as a legacy guard. Nothing writes there any \
-                more, but every clone that built before the rename still holds it, and dropping the \
-                entry is what puts gigabytes of stale build output one `git add -A` away from a \
-                commit — as it already did once.
-                """)
+            XCTAssertTrue(entries.contains("\(bare)/"), "`\(bare)/` must stay ignored as a legacy guard: nothing writes there any more, but every clone that built before the rename still holds it. See docs/RELEASING.md.")
         }
     }
 
-    /// The same rule over the documents, which are the sites the suffix exists
-    /// for: no document may name a bare build output root.
-    ///
-    /// Matched over the raw text rather than comment-stripped lines, because in
-    /// a Markdown file the command *is* the content — there is nothing to strip,
-    /// and a fenced code block is exactly what a reader copies.
-    ///
-    /// The matchers are the workflow rule's own, through the same helper — see
-    /// `assertNamesNoBareBuildOutputRoot(_:of:file:line:)` for why there are
-    /// three of them and what each is for. One rule, one set of patterns: a
-    /// document and a workflow line that spell the same stale path must fail
-    /// the same way, and a matcher maintained twice is one that drifts.
-    ///
-    /// Read over the file's raw lines rather than comment-stripped ones,
-    /// because in a Markdown file the command *is* the content — there is
-    /// nothing to strip, and a fenced code block is exactly what a reader
-    /// copies.
-    ///
-    /// Each listed document must also still **spell** a root. The roster is
-    /// hand-maintained and every assertion in the loop is an absence, so a
-    /// document reworded until it names no build output root at all would pass
-    /// this rule by judging nothing and sit in the list rotting green — which is
-    /// the state `core-services.md` was already found in once, in this list
-    /// without a single line the rule could judge.
+    /// The same matchers over the documents, read on raw lines rather than
+    /// comment-stripped ones: in Markdown the command *is* the content. Each
+    /// listed document must also still **spell** a root, every assertion in the
+    /// loop being an absence that would otherwise judge nothing.
     func testNoDocumentSpellsABareBuildOutputRoot() throws {
         for path in Self.documentsThatSpellABuildOutputRoot {
             let raw = try text(atRepositoryPath: path)
-
-            XCTAssertTrue(raw.contains(Self.derivedDataRoot) || raw.contains(Self.archiveRoot), """
-                \(path) names neither `\(Self.derivedDataRoot)` nor `\(Self.archiveRoot)`, so every \
-                assertion below passes by matching nothing. This list names the documents that \
-                spell a build output root in a command a reader runs; drop \(path) from \
-                `documentsThatSpellABuildOutputRoot` if it no longer does.
-                """)
-
-            for line in raw.components(separatedBy: .newlines) {
-                assertNamesNoBareBuildOutputRoot(line, of: path)
-            }
+            XCTAssertTrue(raw.contains(Self.derivedDataRoot) || raw.contains(Self.archiveRoot), "\(path) names neither root, so every assertion below passes by matching nothing. Drop it from `documentsThatSpellABuildOutputRoot` if it no longer spells one.")
+            for line in raw.components(separatedBy: .newlines) { assertNamesNoBareBuildOutputRoot(line, of: path) }
         }
     }
 
     /// The style authority skips the same two roots, by set equality — which
-    /// pins the two renamed entries and the two untouched ones at once.
-    ///
-    /// These two entries are belt and braces, and it is worth being exact about
-    /// which runs they can reach. `included:` already scopes every
-    /// repository-supported run to `Sources/` and `Tests/`: `make lint` and
-    /// ci.yml's lint job both run `swiftlint lint --strict` in discovery mode
-    /// from the root, and `.githooks/pre-commit` hands over only staged paths
-    /// matching `Sources/*.swift` and `Tests/*.swift`, so its `--force-exclude`
-    /// never has a build root to exclude either. What the entries bite is the
-    /// ad-hoc explicit-path run — the form `included:` does not scope at all —
-    /// and what they are pinned for is the name: an entry naming the old
-    /// directory excludes nothing and quietly documents a path nothing writes
-    /// to.
-    ///
-    /// **Why this list is renamed where `.gitignore`'s is extended**, since the
-    /// two files were handed the same rename and answered it differently: the
-    /// two rules govern different things. An ignore entry governs what a clone
-    /// already *holds* — a stale `build/` on disk goes from ignored to staged
-    /// the instant its entry is renamed away, which is what cost 22 816 files
-    /// once — while `excluded:` governs only what a lint run *walks*, and no
-    /// repository-supported run walks either root (`included:` scopes them all
-    /// to `Sources/` and `Tests/`). The residue is an ad-hoc explicit-path run
-    /// inside a pre-rename clone, whose one-time answer is the
-    /// `rm -rf build DerivedData` note in `docs/RELEASING.md` — not a second
-    /// pair of entries here naming directories nothing writes to.
+    /// pins the two renamed entries and the two untouched ones at once, and
+    /// what they are pinned for is the name: `included:` already scopes every
+    /// repository-supported run to `Sources/` and `Tests/`, so these two bite
+    /// only an explicitly named path. Renamed where `.gitignore`'s is extended,
+    /// `excluded:` governing only what a run walks.
     func testTheStyleAuthorityExcludesTheNoIndexRoots() throws {
-        let block = try XCTUnwrap(topLevelBlock("excluded", in: try text(atRepositoryPath: ".swiftlint.yml")), """
-            .swiftlint.yml has no top-level `excluded:` block.
-            """)
+        let authority = try text(atRepositoryPath: ".swiftlint.yml")
+        let block = try XCTUnwrap(topLevelBlock("excluded", in: authority), "no top-level `excluded:` block")
         let entries = Set(block.compactMap { entry -> String? in
             guard entry.hasPrefix("- ") else { return nil }
             return String(entry.dropFirst(2)).trimmingCharacters(in: .whitespaces)
         })
-        XCTAssertEqual(entries, Self.styleExclusions, """
-            .swiftlint.yml's `excluded:` must name exactly \(Self.styleExclusions.sorted()). The two \
-            build output roots are listed under their `.noindex` names. `included:` already keeps \
-            every repository-supported run inside Sources/ and Tests/, so these two entries are belt \
-            and braces — they bite an explicitly named path, the one form `included:` does not scope \
-            — and an entry naming the old directory excludes nothing at all.
-            """)
+        XCTAssertEqual(entries, Self.styleExclusions, "`excluded:` must name exactly \(Self.styleExclusions.sorted()): the build output roots under their `.noindex` names, an entry naming the old directory excluding nothing at all.")
     }
 
     /// Every value passed to `flag` in either workflow, asserted to sit under a
-    /// `.noindex` directory.
-    ///
-    /// The value is read as the token following the flag on the same active
-    /// line, and the values are gathered across both files so a fourth
-    /// occurrence appearing later is judged by the same rule. An empty result
-    /// fails loudly: a rule that matches nothing passes vacuously, which is the
-    /// one way this pin could rot without anyone noticing. A flag with nothing
-    /// after it on its line fails too — a value that moved to a continuation
-    /// line would otherwise drop silently out of the rule's reach.
-    ///
-    /// The whole active line is read as shell, including the prose a workflow
-    /// prints for a human. That is safe because no such sentence names
-    /// a build flag: one writing "check the `-archivePath` on the archive
-    /// command line" would have its next word — prose — read as a path, so the
-    /// sentences are worded to name no flag rather than parsed around.
-    /// **What this cannot see** is therefore a flag name that reappears inside
-    /// one; it fails as a bad value rather than passing unnoticed, which is
-    /// loud and read straight off the message.
-    ///
-    /// This rule and `testNoActiveWorkflowLineNamesABareBuildOutputRoot` do
-    /// **not** fully cover each other. That one's flag matcher judges a *bare*
-    /// root — a path matcher alone sees `build/` and `DerivedData/` but not
-    /// `-derivedDataPath DerivedData`, the one spelling with no slash in it.
-    /// What it cannot judge is the root-equality rule below: a value that ends
-    /// in `.noindex` but names a root neither `.gitignore` nor `.swiftlint.yml`
-    /// knows about is invisible to every absence matcher, and visible only
-    /// here.
-    ///
-    /// Both of this rule's checks read the value's **first** path segment, so
-    /// the value must be one that a first segment describes: a `..` behind the
-    /// root undoes it, and `-archivePath build.noindex/../build/Pisaka.xcarchive`
-    /// would open with `build.noindex` and land in `build`. The absence
-    /// matchers cannot cover that either — a root with a `/` in front of it is
-    /// somebody else's directory by their own deliberate rule — so a parent
-    /// component is refused here, ahead of the two checks that assume it away.
-    private func assertFlagValuesAreNoIndexed(_ flag: String,
-                                              rootedAt expectedRoot: String,
-                                              because reason: String,
-                                              file: StaticString = #filePath,
-                                              line: UInt = #line) throws {
+    /// `.noindex` directory: the token after the flag on the same active line,
+    /// gathered across both files. An empty result fails loudly, and so does a
+    /// flag with nothing after it. The whole line is read as shell, prose
+    /// included — safe because no sentence either workflow prints names a build
+    /// flag, and one that did would fail as a bad value rather than pass.
+    private func assertFlagValuesAreNoIndexed(_ flag: String, rootedAt expectedRoot: String, because reason: String,
+                                              file: StaticString = #filePath, line: UInt = #line) throws {
         var values: [String] = []
         var occurrences = 0
-
         for workflow in Self.workflowFileNames {
             let lines = activeYAMLLines(of: try text(atRepositoryPath: ".github/workflows/\(workflow)"))
             XCTAssertFalse(lines.isEmpty, "parsed nothing out of \(workflow)", file: file, line: line)
-
             for entry in lines {
                 let tokens = Self.shellTokens(of: entry)
                 for (index, token) in tokens.enumerated() where token == flag {
@@ -3970,68 +3782,28 @@ final class ReleaseWorkflowTests: XCTestCase {
                 }
             }
         }
-
-        XCTAssertFalse(values.isEmpty, """
-            no `\(flag)` value found on any active line of \(Self.workflowFileNames.joined(separator: " or ")) \
-            — this rule must judge something, or it passes by matching nothing.
-            """, file: file, line: line)
-        XCTAssertEqual(values.count, occurrences, """
-            every `\(flag)` must carry its value on the same line: found \(occurrences) occurrences \
-            but \(values.count) values.
-            """, file: file, line: line)
-
+        XCTAssertFalse(values.isEmpty, "no `\(flag)` value on any active workflow line — this rule must judge something.", file: file, line: line)
+        XCTAssertEqual(values.count, occurrences, "every `\(flag)` must carry its value on the same line: \(occurrences) occurrences, \(values.count) values.", file: file, line: line)
         for value in Set(values).sorted() {
             let segments = value.split(separator: "/").map(String.init)
-            XCTAssertFalse(segments.contains(".."), """
-                `\(flag) \(value)` climbs back out of the root it opens with. The rule below reads \
-                the *first* path segment, so a `..` behind it satisfies both checks while the \
-                directory the build actually lands in sits outside every `.noindex` root and is \
-                indexed like the rest of the checkout — and the bare-root matchers cannot see it \
-                either, a root with a `/` in front of it being somebody else's directory by their \
-                own rule. A build output path names its root and descends; it never ascends.
-                """, file: file, line: line)
-
+            XCTAssertFalse(segments.contains(".."), "`\(flag) \(value)` climbs back out of the root it opens with, landing outside every `.noindex` root while both checks below — which read the first segment — pass. A build output path never ascends.", file: file, line: line)
             let root = segments.first ?? value
-            XCTAssertTrue(root.hasSuffix(".noindex"), """
-                `\(flag) \(value)` does not sit under a `.noindex` directory. It must, because \
-                \(reason).
-                """, file: file, line: line)
-            XCTAssertEqual(root, expectedRoot, """
-                `\(flag) \(value)` builds into `\(root)`, but `.gitignore` and `.swiftlint.yml` \
-                name `\(expectedRoot)`. The suffix alone is not enough: a `.noindex` root nobody \
-                ignores dirties the tree after a local repro, and one the style authority does not \
-                name is excluded by nothing when a path under it is handed to swiftlint explicitly. \
-                The three files must name one root, not three that merely rhyme.
-                """, file: file, line: line)
+            XCTAssertTrue(root.hasSuffix(".noindex"), "`\(flag) \(value)` must sit under a `.noindex` directory, because \(reason) and a relatively-spelled command reproduced locally drops it inside the checkout.", file: file, line: line)
+            XCTAssertEqual(root, expectedRoot, "`\(flag) \(value)` builds into `\(root)`, but `.gitignore` and `.swiftlint.yml` name `\(expectedRoot)`. A `.noindex` root nobody ignores dirties the tree after a local repro, and one the style authority does not name is excluded by nothing: the three files must name one root.", file: file, line: line)
         }
     }
 
-    /// The words of a shell line, split on whitespace rather than on the space
-    /// character alone — a value separated from its flag by a tab is still that
-    /// flag's value, and a scan that cannot see it drops the occurrence instead
-    /// of judging it.
+    /// The words of a line, split on whitespace rather than the space character
+    /// alone — a value separated from its flag by a tab is still that flag's.
     private static func shellTokens(of line: String) -> [String] {
         line.split(whereSeparator: { $0.isWhitespace }).map(String.init)
     }
 
-    /// The path a whitespace-separated token names, with the shell spelling
-    /// that is not part of it taken off: the quotes or backticks around it and
-    /// the `./` a writer may put in front of a relative path.
-    ///
-    /// Without this the rule fails on values that are *correct*.
-    /// `-derivedDataPath "DerivedData.noindex"` and `-archivePath
-    /// ./build.noindex/Pisaka-macOS.xcarchive` name exactly the roots this
-    /// section requires, but their first path segment reads as
-    /// `"DerivedData.noindex"` and `.` — neither ends in `.noindex`, so both
-    /// fail with a message describing a root the line does not name, and the
-    /// cheapest way past a rule that fails on the right answer is to delete it.
-    /// The stale-spelling matchers already take both spellings for exactly this
-    /// reason; this is the same reading on the live half.
-    ///
-    /// **What this cannot see** is a value naming the checkout root out loud
-    /// (`"$GITHUB_WORKSPACE"/build.noindex/…`). Neither workflow writes one, so
-    /// such a value reads as the path it spells including the reference and
-    /// fails loudly rather than passing unnoticed.
+    /// The path a token names, with the shell spelling that is not part of it
+    /// taken off: surrounding quotes or backticks and a leading `./`. Without
+    /// it the rule fails on values that are *correct*, and a rule failing on
+    /// the right answer is one someone deletes. **Unseen**: a value naming the
+    /// checkout root out loud, which no workflow writes.
     private static func pathNamed(by token: String) -> String {
         let quoting: Set<Character> = ["\"", "'", "`"]
         var value = token
@@ -4042,96 +3814,24 @@ final class ReleaseWorkflowTests: XCTestCase {
     }
 
     /// One line of a workflow or a document, asserted to name no bare build
-    /// output root. Three matchers, because these roots are spelled three ways
-    /// and a rule seeing only some of them pins only some of the files.
-    ///
-    /// Two of them are **path** matchers — one per root — and both are regexes
-    /// rather than substrings, because both what they must catch and what they
-    /// must not are shaped by the character in front of the root.
-    ///
-    /// What they must catch is a *repository-relative* root: the thing a reader
-    /// reproduces from the checkout root, which is why it is only ever spelled
-    /// at the start of a path. So the root must be preceded by a delimiter —
-    /// the start of the line, whitespace, a quote, a backtick, an opening
-    /// parenthesis, the `=` of a shell assignment or a redirection's `<`/`>` —
-    /// with an optional `./` in
-    /// between, which covers every live spelling: `-archivePath build.noindex/…`
-    /// after a space, `APP="DerivedData.noindex/…"` after a quote, `rm -rf
-    /// ./build.noindex` and a Markdown `` `build.noindex/release-assets` ``.
-    /// The redirections are the delimiter whose space is routinely left out —
-    /// `echo … >build/report` names the root as squarely as ` build/report`.
-    /// The checkout is also spellable *out loud*, and those spellings name the
-    /// same directory: `$GITHUB_WORKSPACE/build/…`, `${{ github.workspace }}/…`
-    /// and `$PWD/DerivedData/…` are this repository's output root written
-    /// absolutely, so `checkoutRootReference` stands in for the `./` and they
-    /// are judged like the relative form. The quote closed around the variable
-    /// alone (`"$GITHUB_WORKSPACE"/build/…`) is the one spelling deliberately
-    /// left unhandled — see `relativePathPrefix`.
-    ///
-    /// What they must not catch is threefold. `build.noindex/` and
-    /// `DerivedData.noindex/` are the names this rule exists to *require*, and
-    /// neither matches: the pattern demands a `/` where those spell a `.`. A
-    /// word merely *ending* in the root (`xcodebuild/`) is refused because the
-    /// character before it is a letter, not a delimiter. And a root that is a
-    /// *segment of somebody else's path* — `~/Library/Developer/Xcode/`
-    /// `DerivedData/…`, the location a local build is told to use precisely so
-    /// it lands nowhere near the checkout, `$RUNNER_TEMP/build/…` on a runner,
-    /// or any nested `…/build/…` in a URL — is refused because the segment in
-    /// front of it is not this checkout: an unqualified `/` is no delimiter
-    /// here, and only the checkout roots named above requalify one. A matcher
-    /// firing there would fail with a message describing a root the path is
-    /// not.
-    ///
-    /// The third is the **flag** matcher, and it is the one neither path
-    /// matcher can stand in for: `-derivedDataPath` names a directory and is
-    /// spelled without a trailing slash at every site in either workflow, so
-    /// `-derivedDataPath DerivedData` contains no `DerivedData/` at all. It is
-    /// the single likeliest way a document — or a sentence a workflow prints
-    /// for a human — drifts back. Here the
-    /// flag itself is the anchor, so the value takes an optional opening quote
-    /// or backtick as well as an optional `./` or checkout root: a document
-    /// writing
-    /// ``-derivedDataPath "DerivedData"`` names the same stale root as the bare
-    /// spelling and must fail the same way. The value is terminated by
-    /// `[^.\w]`, not by a slash or whitespace: the shape this matcher exists
-    /// for is a root at the end of a quoted shell string (`"the build failed:
-    /// -derivedDataPath DerivedData"`) or inside backticks in a document, where
-    /// the character after the root is neither. Excluding `.` is what keeps
-    /// `DerivedData.noindex` from reading as a hit, and excluding `\w` what
-    /// keeps a longer name starting with the same word from doing so.
-    ///
-    /// Both callers share this because a document and a workflow line spelling
-    /// the same stale path must fail the same way.
-    private func assertNamesNoBareBuildOutputRoot(_ line: String,
-                                                  of source: String,
-                                                  file: StaticString = #filePath,
-                                                  line assertionLine: UInt = #line) {
+    /// output root. Two are **path** matchers, one per root, regexes rather
+    /// than substrings because what they catch and what they refuse are both
+    /// shaped by the character in front of the root (`relativePathPrefix`):
+    /// refused are `build.noindex/`, a word merely *ending* in a root, and a
+    /// root that is a segment of somebody else's path. The third is the
+    /// **flag** matcher, which neither can stand in for.
+    private func assertNamesNoBareBuildOutputRoot(_ line: String, of source: String,
+                                                  file: StaticString = #filePath, line assertionLine: UInt = #line) {
         guard let stale = staleBuildOutputRootSpelling(in: line) else { return }
-        XCTFail("""
-            \(source) spells the stale build output root `\(stale.found)` in “\(line)”. That \
-            command is reproduced verbatim from the checkout root, so it puts an application \
-            bundle in an indexed directory — the exact thing the `.noindex` roots exist to \
-            prevent. Use `\(stale.replacement)`; see this section's doc comment for why the \
-            suffix is part of the name.
-            """, file: file, line: assertionLine)
+        XCTFail("\(source) spells the stale build output root `\(stale.found)` in “\(line)”. That command is reproduced verbatim from the checkout root, so it puts an application bundle in an indexed directory. Use `\(stale.replacement)`.", file: file, line: assertionLine)
     }
 
     /// The three matchers themselves: the stale spelling a line names and the
-    /// one it should have named, or `nil` when it names none.
-    ///
-    /// They live apart from the assertion above for one reason — every caller
-    /// asserts an **absence**, and an absence rule is green whether it matches
-    /// the right shapes or nothing whatsoever. Reading them as a value is what
-    /// lets `testTheBareRootMatchersJudgeTheShapesTheyClaimTo` feed them lines
-    /// no repository file holds, in both directions, so the patterns are pinned
-    /// by something other than the repository happening to be clean today.
-    ///
-    /// The path matchers run first, so a line spelling both a flag and a path
-    /// (`-archivePath build/…`) is reported as the path it names rather than as
-    /// the flag it hangs off.
+    /// one it should have named, or `nil` when it names none. A value rather
+    /// than an assertion because every caller asserts an **absence**, green
+    /// whether the patterns match the right shapes or nothing at all.
     private func staleBuildOutputRootSpelling(in line: String) -> (found: String, replacement: String)? {
         let roots = [("DerivedData", Self.derivedDataRoot), ("build", Self.archiveRoot)]
-
         for (stale, live) in roots where matches(#"\#(Self.relativePathPrefix)\#(stale)/"#, in: line) {
             return ("\(stale)/", "\(live)/")
         }
@@ -4145,36 +3845,21 @@ final class ReleaseWorkflowTests: XCTestCase {
         return nil
     }
 
-    /// The matchers judged in both directions, against lines no repository file
-    /// holds.
-    ///
-    /// Both halves are load-bearing. The stale half is the rule's whole point,
-    /// and every other caller of it asserts an absence — a pattern that stopped
-    /// matching anything would leave all of them green. The live half is what
-    /// keeps the rule *usable*: a matcher that fires on
-    /// `~/Library/Developer/Xcode/DerivedData/…` — the out-of-checkout location
-    /// a local build is told to use precisely so nothing lands near the tree —
-    /// fails with a message describing a repository-relative root that path is
-    /// not, and the cheapest way past it is to delete the rule.
+    /// The matchers judged in both directions. The stale half is the rule's
+    /// whole point, every other caller asserting an absence; the live half
+    /// keeps it usable — one firing on `~/Library/…/DerivedData/…` would lie.
     func testTheBareRootMatchersJudgeTheShapesTheyClaimTo() {
         let stale = [
             "        xcodebuild -project Pisaka.xcodeproj -derivedDataPath DerivedData build",
             #"            APP="build/Pisaka-macOS.xcarchive/Products/Applications/Pisaka.app""#,
             "            rm -rf ./DerivedData/Build",
             "the archive lands under `-archivePath build`",
-            // The checkout written out loud is this repository's own output
-            // root, so it is judged like the relative spelling.
+            // The checkout written out loud names this repository's own root.
             #"            ditto "$GITHUB_WORKSPACE/build/notarization" "$ZIP""#,
-            // A redirection is a delimiter whose space is routinely left out,
-            // and the path behind it is as much a build output root as any.
+            // A redirection is a delimiter whose space is routinely left out.
             #"            echo "$OUTPUT" >build/report.txt"#,
         ]
-        for line in stale {
-            XCTAssertNotNil(staleBuildOutputRootSpelling(in: line), """
-                “\(line)” names a bare build output root and must be judged as one.
-                """)
-        }
-
+        for line in stale { XCTAssertNotNil(staleBuildOutputRootSpelling(in: line), "“\(line)” names a bare build output root.") }
         let live = [
             "        xcodebuild -project Pisaka.xcodeproj -derivedDataPath DerivedData.noindex build",
             #"            APP="DerivedData.noindex/Build/Products/Release/Pisaka.app""#,
@@ -4185,32 +3870,16 @@ final class ReleaseWorkflowTests: XCTestCase {
             "see https://example.invalid/runs/1/build/log for the output",
             "            run: xcodebuild -scheme Pisaka build",
         ]
-        for line in live {
-            XCTAssertNil(staleBuildOutputRootSpelling(in: line), """
-                “\(line)” names no repository-relative build output root, so judging it as one \
-                fails with a message that misdescribes the path it holds.
-                """)
-        }
+        for line in live { XCTAssertNil(staleBuildOutputRootSpelling(in: line), "“\(line)” names no repository-relative build output root; judging it as one misdescribes it.") }
     }
 
-    /// The live half of the flag-value rule read the way the stale half already
-    /// reads: a value is the path it names, not the quoting around it.
-    ///
-    /// Pinned because every failure of this reading is a **false** one, and a
-    /// rule that fails on the correct answer is a rule someone deletes.
-    /// `-derivedDataPath "DerivedData.noindex"` and `-archivePath
-    /// ./build.noindex/…` name exactly the roots this section requires, yet
-    /// their first path segment reads as `"DerivedData.noindex"` and `.` —
-    /// neither ends in `.noindex` — so both would fail with a message naming a
-    /// root the line does not spell. The stale matchers take both spellings
-    /// already; this is the same reading applied to the values that are right.
+    /// The live half read as the stale half already reads: a value is the path
+    /// it names, not its quoting — every failure here is a **false** one.
     func testAFlagValueIsReadAsThePathItNamesNotItsQuoting() {
         XCTAssertEqual(Self.pathNamed(by: #""DerivedData.noindex""#), "DerivedData.noindex")
-        XCTAssertEqual(Self.pathNamed(by: "'build.noindex/Pisaka-macOS.xcarchive'"),
-                       "build.noindex/Pisaka-macOS.xcarchive")
+        XCTAssertEqual(Self.pathNamed(by: "'build.noindex/Pisaka.xcarchive'"), "build.noindex/Pisaka.xcarchive")
         XCTAssertEqual(Self.pathNamed(by: "`build.noindex`"), "build.noindex")
-        XCTAssertEqual(Self.pathNamed(by: "./build.noindex/Pisaka-macOS.xcarchive"),
-                       "build.noindex/Pisaka-macOS.xcarchive")
+        XCTAssertEqual(Self.pathNamed(by: "./build.noindex/Pisaka.xcarchive"), "build.noindex/Pisaka.xcarchive")
         XCTAssertEqual(Self.pathNamed(by: #""./DerivedData.noindex""#), "DerivedData.noindex")
 
         // What must survive the reading: an unquoted value is untouched, and a
