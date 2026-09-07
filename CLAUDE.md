@@ -55,8 +55,9 @@ platform view layers (`Sources/Pisaka/`, AppKit/SwiftUI on macOS and
 UIKit/SwiftUI on iOS) are thin: SwiftUI glue is untested by convention, but
 AppKit subclasses with behaviour of their own — the layout manager, the
 typesetter, the ruler — are tested headlessly in the app-layer bundle
-(`Tests/PisakaAppTests`, `xcodebuild test -scheme Pisaka -destination
-'platform=macOS'`; `swift test` remains the Foundation-only Core gate).
+(`Tests/PisakaAppTests`, `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka
+-destination 'platform=macOS' test`; `swift test` remains the Foundation-only
+Core gate).
 
 **Per-file design docs live in `docs/architecture/`.** Every file's detailed
 contract — invariants, edge cases, and the reasoning behind non-obvious

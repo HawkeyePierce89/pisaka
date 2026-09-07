@@ -81,11 +81,15 @@ final class FoldLayoutTests: XCTestCase {
         // range, so it still breaks the line).
         //
         // The fixture stops one character short on purpose: it leaves the "}"
-        // visible, which is the only way assertion (b) can check that a
-        // *visible* character after the hidden run shares the header's line
-        // fragment — the property that says the hidden separators were actually
-        // zero-advanced rather than merely blanked. What is measured here is
-        // hiding, not where a producer puts its bounds.
+        // visible, so assertion (b) can check that a *visible* character after
+        // the hidden run shares the header's line fragment. (b) is *not* what
+        // discriminates the two halves of hiding: with the typesetter half
+        // neutralised the null glyphs alone still pull the closer onto the
+        // header's row, so (b) keeps passing. It is (c), the fragment count,
+        // that fails there — 3 instead of 2 — and so names half two as
+        // load-bearing; the measurement is recorded in
+        // `app-editor-overlays.md`. What is measured here is hiding, not where
+        // a producer puts its bounds.
         let hidden = NSRange(location: 8, length: 21)
         let hiddenText = (text as NSString).substring(with: hidden)
         let hiddenSeparators = hiddenText.filter { $0 == "\n" }.count

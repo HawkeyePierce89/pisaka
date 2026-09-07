@@ -239,7 +239,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     real TextKit 1 stack (headless `NSTextView` + `BracketOverlayLayoutManager`
     via `EditorLayoutHarness`)**: folding the bracket block
     `header {\n    body1\n    body2\n}\nfooter` (hidden `"\n    body1\n    body2\n"`,
-    3 separators) asserts (a) every hidden character carries
+    3 separators — deliberately one character short of what either producer
+    makes, since a `FoldRegion`'s hidden range ends at the end of the last
+    line's *content* and so hides the `}` too; leaving the closer visible is
+    what lets (b) watch a visible character join the header's row, and the test
+    says so at the fixture) asserts (a) every hidden character carries
     `GlyphProperty.null`, (b) header `header {` and closer `}` share one line
     fragment, (c) fragment count drops from 5 to 2 (baseline minus hidden-separator
     count), and (d) unfolding restores 5. With the typesetter half neutralised
