@@ -2186,15 +2186,16 @@ final class ReleaseWorkflowTests: XCTestCase {
             """)
 
         let submitted = notarize.filter { $0.contains("ditto -c -k") }
-        XCTAssertFalse(submitted.contains { $0.contains("build/release-assets") }, """
+        XCTAssertFalse(submitted.contains { $0.contains("build.noindex/release-assets") }, """
             The notarization step must pack the app into a scratch directory of its own, not into \
-            build/release-assets. That directory is what generate_appcast is pointed at — it reads \
+            build.noindex/release-assets. That directory is what generate_appcast is pointed at — \
+            it reads \
             *every* update it finds there — and its contents are what the release attaches, so a \
             pre-staple zip landing in it ships an app whose first launch needs Apple's service \
             reachable. Got \(submitted).
             """)
-        XCTAssertTrue(stage.contains { $0.contains("build/release-assets") }, """
-            The shipped zip must still be staged in build/release-assets, the directory \
+        XCTAssertTrue(stage.contains { $0.contains("build.noindex/release-assets") }, """
+            The shipped zip must still be staged in build.noindex/release-assets, the directory \
             generate_appcast reads and the release attaches from.
             """)
     }
@@ -2384,9 +2385,10 @@ final class ReleaseWorkflowTests: XCTestCase {
 
         // The hash is of the artefact that was uploaded, named by its literal
         // path — the same path the publish step attaches.
-        XCTAssertTrue(script.contains { $0 == #"ZIP="build/release-assets/Pisaka-${VERSION}.zip""# }, """
+        XCTAssertTrue(script.contains { $0 == #"ZIP="build.noindex/release-assets/Pisaka-${VERSION}.zip""# }, """
             release.yml's `\(Self.caskBumpStepName)` step must hash \
-            build/release-assets/Pisaka-${VERSION}.zip — the exact file the publish step uploaded, \
+            build.noindex/release-assets/Pisaka-${VERSION}.zip — the exact file the publish step \
+            uploaded, \
             still on the runner. Re-making the archive here produces a different digest for \
             identical contents (ditto is not bit-reproducible), and a cask whose sha256 does not \
             match the served bytes fails every brew install at the checksum.
@@ -2394,8 +2396,9 @@ final class ReleaseWorkflowTests: XCTestCase {
         let publish = try stepScript(named: "Publish the GitHub Release", because: """
             It is the step that uploads the zip this one hashes.
             """)
-        XCTAssertTrue(publish.contains { $0.contains(#"build/release-assets/Pisaka-${VERSION}.zip"#) }, """
-            The publish step must upload build/release-assets/Pisaka-${VERSION}.zip — the path \
+        XCTAssertTrue(publish.contains { $0.contains(#"build.noindex/release-assets/Pisaka-${VERSION}.zip"#) }, """
+            The publish step must upload build.noindex/release-assets/Pisaka-${VERSION}.zip — \
+            the path \
             `\(Self.caskBumpStepName)` hashes. If the two drift apart the cask advertises the \
             checksum of a file nobody can download, and neither step alone shows it.
             """)
@@ -3046,9 +3049,10 @@ final class ReleaseWorkflowTests: XCTestCase {
             executes it.
             """)
 
-        XCTAssertTrue(script.contains(#"APP="DerivedData/Build/Products/Release/Pisaka.app""#), """
+        XCTAssertTrue(script.contains(#"APP="DerivedData.noindex/Build/Products/Release/Pisaka.app""#), """
             ci.yml's `\(Self.ciSmokeLaunchStepName)` step must launch the Release product the build \
-            step above it wrote to DerivedData. Any other path launches something this job did not \
+            step above it wrote to DerivedData.noindex. Any other path launches something this job \
+            did not \
             build — a stale product, or nothing.
             """)
         XCTAssertTrue(script.contains(#"EXECUTABLE="$APP/Contents/MacOS/Pisaka""#), """
@@ -3107,7 +3111,7 @@ final class ReleaseWorkflowTests: XCTestCase {
         XCTAssertLessThan(build, smoke, """
             ci.yml's `\(Self.ciSmokeLaunchStepName)` step must run *after* \
             `\(Self.ciMacBuildStepName)`. Before it there is no product at the path it names, so the \
-            step either refuses every run or — worse, on a runner with a warm DerivedData — \
+            step either refuses every run or — worse, on a runner with a warm DerivedData.noindex — \
             launches the previous build and reports on it.
             """)
 
@@ -3424,10 +3428,10 @@ final class ReleaseWorkflowTests: XCTestCase {
     /// The release runs the bundle it is about to submit.
     ///
     /// CI's smoke launch is not this one and cannot stand in for it. CI launches
-    /// an unsigned `xcodebuild build` product out of DerivedData; this launches
-    /// the archived bundle *after* the re-sign — hardened runtime, Developer ID
-    /// signature, Sparkle's four nested helpers replaced — which is the artefact
-    /// that reaches users. The two differ in exactly the ways that can break a
+    /// an unsigned `xcodebuild build` product out of DerivedData.noindex; this
+    /// launches the archived bundle *after* the re-sign — hardened runtime,
+    /// Developer ID signature, Sparkle's four nested helpers replaced — which is
+    /// the artefact that reaches users. The two differ in exactly the ways that can break a
     /// launch on their own: an archive lays the bundle out differently from a
     /// build, and the hardened runtime is a load-time policy. A green CI job
     /// says nothing about either.
@@ -3436,7 +3440,7 @@ final class ReleaseWorkflowTests: XCTestCase {
     /// `testTheTwoSmokeLaunchesAreTheSameCheck` drops before comparing, so it is
     /// the one line no other assertion here can see. This copy must name the
     /// archive product every other step in this job names, rather than
-    /// DerivedData, which in this job does not exist.
+    /// DerivedData.noindex, which in this job does not exist.
     ///
     /// The mechanism assertions that follow it are, on a green suite, implied:
     /// `testCILaunchesWhatItBuilds` pins them on the CI copy and the equality
@@ -3451,9 +3455,10 @@ final class ReleaseWorkflowTests: XCTestCase {
             It is the only place in the release where the app is executed before a user executes it.
             """)
 
-        XCTAssertTrue(script.contains(#"APP="build/Pisaka-macOS.xcarchive/Products/Applications/Pisaka.app""#), """
+        XCTAssertTrue(script.contains(#"APP="build.noindex/Pisaka-macOS.xcarchive/Products/Applications/Pisaka.app""#), """
             release.yml's `\(Self.releaseSmokeLaunchStepName)` step must launch the archive product \
-            every other step in this job names. Pointed anywhere else — DerivedData, a copy — it \
+            every other step in this job names. Pointed anywhere else — DerivedData.noindex, a \
+            copy — it \
             launches something this run is not going to notarize, publish, or both.
             """)
         XCTAssertTrue(script.contains(#"EXECUTABLE="$APP/Contents/MacOS/Pisaka""#), """
@@ -3521,7 +3526,7 @@ final class ReleaseWorkflowTests: XCTestCase {
             """)
 
         // `APP=` is the one line the two are allowed to disagree on: CI launches
-        // the DerivedData build product, the release launches the archived
+        // the DerivedData.noindex build product, the release launches the archived
         // bundle. Both copies are asserted to name the right one of those by
         // `testCILaunchesWhatItBuilds` and `testTheReleaseLaunchesWhatItArchived`,
         // so dropping the line here loses no coverage.

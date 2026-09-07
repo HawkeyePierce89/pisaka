@@ -430,8 +430,8 @@ jobs:
           -configuration Release
           -destination 'generic/platform=macOS'
           -clonedSourcePackagesDirPath SourcePackages
-          -derivedDataPath DerivedData
-          -archivePath build/Pisaka-macOS.xcarchive
+          -derivedDataPath DerivedData.noindex
+          -archivePath build.noindex/Pisaka-macOS.xcarchive
           CURRENT_PROJECT_VERSION=${{ github.run_number }}
           CODE_SIGNING_ALLOWED=YES CODE_SIGNING_REQUIRED=YES
           CODE_SIGN_STYLE=Manual
@@ -494,7 +494,7 @@ jobs:
       - name: Re-sign Sparkle's nested helpers
         run: |
           set -euo pipefail
-          APP="build/Pisaka-macOS.xcarchive/Products/Applications/Pisaka.app"
+          APP="build.noindex/Pisaka-macOS.xcarchive/Products/Applications/Pisaka.app"
           FRAMEWORK="$APP/Contents/Frameworks/Sparkle.framework"
           IDENTITY="Developer ID Application"
 
@@ -599,7 +599,7 @@ jobs:
         run: |
           set -euo pipefail
           VERSION="${GITHUB_REF_NAME#v}"
-          APP="build/Pisaka-macOS.xcarchive/Products/Applications/Pisaka.app"
+          APP="build.noindex/Pisaka-macOS.xcarchive/Products/Applications/Pisaka.app"
           test -d "$APP" || { echo "::error::no app at ${APP}"; exit 1; }
           test -d "$APP/Contents/Frameworks/Sparkle.framework" || {
             echo "::error::Sparkle.framework is not embedded in the archived app — the destination-filtered package dependency stopped reaching the macOS build."
@@ -783,7 +783,7 @@ jobs:
       # `LD_RUNPATH_SEARCH_PATHS` on macOS too. A dynamic-link failure is
       # invisible until something runs the thing, so this step runs it.
       #
-      # Its twin in ci.yml is the same script against the DerivedData product;
+      # Its twin in ci.yml is the same script against the DerivedData.noindex product;
       # ReleaseWorkflowTests asserts the two bodies are identical apart from the
       # `APP=` line, because two hand-maintained copies drifting apart means one
       # half of the pipeline stops checking what the other does. The rest of the
@@ -821,7 +821,7 @@ jobs:
           # ci.yml; ReleaseWorkflowTests asserts everything else is
           # identical, because two hand-maintained copies drifting apart means
           # one half of the pipeline stops checking what the other does.
-          APP="build/Pisaka-macOS.xcarchive/Products/Applications/Pisaka.app"
+          APP="build.noindex/Pisaka-macOS.xcarchive/Products/Applications/Pisaka.app"
           EXECUTABLE="$APP/Contents/MacOS/Pisaka"
           DEADLINE=5
           LOG="${RUNNER_TEMP:-/tmp}/smoke-launch.log"
@@ -996,7 +996,7 @@ jobs:
           APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
         run: |
           set -euo pipefail
-          APP="build/Pisaka-macOS.xcarchive/Products/Applications/Pisaka.app"
+          APP="build.noindex/Pisaka-macOS.xcarchive/Products/Applications/Pisaka.app"
           API_KEY="${RUNNER_TEMP}/notary-key.p8"
           SUBMISSION="${RUNNER_TEMP}/notarization.json"
           trap 'rm -f "$API_KEY"' EXIT
@@ -1008,16 +1008,16 @@ jobs:
           # the import step is written the same way.
           (umask 077; printf '%s' "$APP_STORE_CONNECT_API_KEY_P8" > "$API_KEY")
 
-          rm -rf build/notarization
-          mkdir -p build/notarization
-          ditto -c -k --sequesterRsrc --keepParent "$APP" build/notarization/Pisaka.zip
+          rm -rf build.noindex/notarization
+          mkdir -p build.noindex/notarization
+          ditto -c -k --sequesterRsrc --keepParent "$APP" build.noindex/notarization/Pisaka.zip
 
           # `|| SUBMIT_EXIT=$?` rather than a bare invocation: `set -e` would
           # otherwise end the step on a rejected submission before the status
           # check below could read the verdict or fetch the log, which is the
           # one case this step exists to report properly.
           SUBMIT_EXIT=0
-          xcrun notarytool submit build/notarization/Pisaka.zip \
+          xcrun notarytool submit build.noindex/notarization/Pisaka.zip \
             --key "$API_KEY" \
             --key-id "$APP_STORE_CONNECT_KEY_ID" \
             --issuer "$APP_STORE_CONNECT_ISSUER_ID" \
@@ -1086,7 +1086,7 @@ jobs:
       - name: Staple the notarization ticket
         run: |
           set -euo pipefail
-          APP="build/Pisaka-macOS.xcarchive/Products/Applications/Pisaka.app"
+          APP="build.noindex/Pisaka-macOS.xcarchive/Products/Applications/Pisaka.app"
 
           # Wrapped like every other refusal in this file. Bare, a failure here
           # ends the job with stapler's own output, which for the common case is
@@ -1156,12 +1156,12 @@ jobs:
         run: |
           set -euo pipefail
           VERSION="${GITHUB_REF_NAME#v}"
-          rm -rf build/release-assets
-          mkdir -p build/release-assets
+          rm -rf build.noindex/release-assets
+          mkdir -p build.noindex/release-assets
           ditto -c -k --sequesterRsrc --keepParent \
-            build/Pisaka-macOS.xcarchive/Products/Applications/Pisaka.app \
-            "build/release-assets/Pisaka-${VERSION}.zip"
-          ls -l build/release-assets
+            build.noindex/Pisaka-macOS.xcarchive/Products/Applications/Pisaka.app \
+            "build.noindex/release-assets/Pisaka-${VERSION}.zip"
+          ls -l build.noindex/release-assets
 
       # The private key travels on stdin (`--ed-key-file -`) and never lands on
       # disk. `--download-url-prefix` is the release's own asset URL prefix, so
@@ -1179,7 +1179,7 @@ jobs:
             --download-url-prefix "https://github.com/HawkeyePierce89/pisaka/releases/download/${TAG}/" \
             --link "https://github.com/HawkeyePierce89/pisaka" \
             -o appcast.xml \
-            build/release-assets
+            build.noindex/release-assets
           cat appcast.xml
 
           # The one failure `generate_appcast` does *not* report through its exit
@@ -1233,7 +1233,7 @@ jobs:
             --draft \
             --title "$TAG" \
             --notes "Pisaka ${VERSION} (build ${{ github.run_number }}) for macOS 13 or later. Signed with a Developer ID Application certificate, notarized by Apple and stapled: download the zip, unzip it, move Pisaka to Applications and open it. Installed copies offer this release to themselves through Sparkle." \
-            "build/release-assets/Pisaka-${VERSION}.zip" \
+            "build.noindex/release-assets/Pisaka-${VERSION}.zip" \
             "appcast.xml"
 
           # Set equality over the asset names, both sides sorted by jq so the
@@ -1270,7 +1270,7 @@ jobs:
       #
       # ## Why the hash is of the uploaded file and not of a fresh archive
       #
-      # `build/release-assets/Pisaka-${VERSION}.zip` is the very file the publish
+      # `build.noindex/release-assets/Pisaka-${VERSION}.zip` is the very file the publish
       # step attached, still on disk. `ditto` is not bit-reproducible, so
       # re-zipping the same stapled bundle here would produce a different digest
       # for identical contents — and a cask whose `sha256` does not match the
@@ -1300,7 +1300,7 @@ jobs:
           set -euo pipefail
           TAG="${GITHUB_REF_NAME}"
           VERSION="${TAG#v}"
-          ZIP="build/release-assets/Pisaka-${VERSION}.zip"
+          ZIP="build.noindex/release-assets/Pisaka-${VERSION}.zip"
 
           # The published artefact or nothing. If this file is absent the step
           # is about to hash something other than what shipped — or, worse, to

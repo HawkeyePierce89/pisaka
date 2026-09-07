@@ -136,13 +136,13 @@ authority's rule configuration, and never has pinned `excluded:`.
 - Modify: `.github/workflows/release.yml`
 - Modify: `Tests/PisakaCoreTests/ReleaseWorkflowTests.swift`
 
-- [ ] `ci.yml`: the three `-derivedDataPath DerivedData` values become
+- [x] `ci.yml`: the three `-derivedDataPath DerivedData` values become
       `DerivedData.noindex`, and the smoke launch's
       `APP="DerivedData/Build/Products/Release/Pisaka.app"` becomes
       `APP="DerivedData.noindex/Build/Products/Release/Pisaka.app"`. Nothing
       else in the file changes — no step added, removed or reordered, no other
       flag touched.
-- [ ] `release.yml`: `-derivedDataPath DerivedData` → `DerivedData.noindex`;
+- [x] `release.yml`: `-derivedDataPath DerivedData` → `DerivedData.noindex`;
       `-archivePath build/Pisaka-macOS.xcarchive` →
       `build.noindex/Pisaka-macOS.xcarchive`; every
       `APP="build/Pisaka-macOS.xcarchive/…"` (five occurrences) →
@@ -154,19 +154,19 @@ authority's rule configuration, and never has pinned `excluded:`.
       `build.noindex/release-assets`; the `ditto` source at the staging step
       (line 1162) → `build.noindex/Pisaka-macOS.xcarchive/…`. The
       `-o appcast.xml` output stays at the repository root.
-- [ ] Update the `::error::` message at 509 and the inline comments that spell a
+- [x] Update the `::error::` message at 509 and the inline comments that spell a
       path under either root (including the whole-line comment at 1273) so they
       name the new one; leave every message whose text names only a flag
       (`-archivePath`, `-derivedDataPath`) as it is.
-- [ ] Confirm by hand that the two smoke-launch bodies still differ in the
+- [x] Confirm by hand that the two smoke-launch bodies still differ in the
       `APP=` line alone.
-- [ ] Move the existing `ReleaseWorkflowTests` literals to the new paths: the CI
+- [x] Move the existing `ReleaseWorkflowTests` literals to the new paths: the CI
       smoke launch's `APP=`, the archive-launched `APP=`, and the three
       `build/release-assets` assertions (the notarization/staging split and the
       `ZIP=`/publish pair). Update every failure message and doc comment that
       spells one of the two roots; leave the two `-archivePath` *flag-name*
       ordering lookups untouched.
-- [ ] Run `swift test` — must pass before Task 2.
+- [x] Run `swift test` — must pass before Task 2.
 
 ### Task 2: `.gitignore`, `.swiftlint.yml`, and the pin that keeps the suffix
 
