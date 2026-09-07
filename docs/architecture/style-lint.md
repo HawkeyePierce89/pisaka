@@ -169,8 +169,8 @@ sandboxed while command plugins are explicit. So the wiring rides on the two
 things people *do* run:
 
 - **`make hooks`**, reached by every working `Makefile` target — directly by
-  `setup`, `test`, `lint` and `generate`, and through `generate` by `test-app`,
-  `build`, `build-ios` and `all` — so anything run through
+  `setup`, `test`, `lint` and `generate`, through `generate` by `test-app`,
+  `build` and `build-ios`, and through `lint`/`test` by `all` — so anything run through
   make wires the clone. `LintConfigurationTests` reads that roster out of the
   `Makefile` rather than enumerating it, so a target added later is covered the
   day it lands — every name make would accept, not a narrower spelling: the scan

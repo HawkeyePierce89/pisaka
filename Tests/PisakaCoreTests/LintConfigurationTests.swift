@@ -751,7 +751,17 @@ final class LintConfigurationTests: XCTestCase {
                 as rules — a target created that way would be silently exempt from the \
                 `hooks` requirement
                 """)
-            guard let colon = line.firstIndex(of: ":") else {
+            // Everything below reads the *comment-stripped* text, because that
+            // is where make's own line ends: a `#` ends the line before the
+            // rule syntax is read at all. Splitting the raw line instead reads
+            // a comment's first word as the shape that follows the colon, and
+            // `smoke2: #x=1` — an ordinary rule with no prerequisites — is then
+            // taken for a target-specific variable assignment and skipped,
+            // which is the silent exemption this whole scan exists to refuse
+            // (for a name absent from `.PHONY`, nothing downstream recovers
+            // it). It also stops a plain assignment whose *comment* carries a
+            // colon from being read as a rule.
+            guard let colon = code.firstIndex(of: ":") else {
                 // No colon at all means the line is either a variable
                 // assignment — the one top-level shape that declares no rule
                 // and needs none — or something this scan cannot classify. The
@@ -767,13 +777,13 @@ final class LintConfigurationTests: XCTestCase {
                     """)
                 continue
             }
-            let tail = line[line.index(after: colon)...]
+            let tail = code[code.index(after: colon)...]
             // `NAME := value` / `NAME ::= value` / `NAME :::= value` /
             // `NAME:= value` are variable assignments, not rules. All three
             // colon-carrying operators are spelled out, so what is left starting
             // with a colon below is a double-colon *rule* and nothing else.
             guard !tail.hasPrefix("="), !tail.hasPrefix(":="), !tail.hasPrefix("::=") else { continue }
-            let name = line[line.startIndex..<colon].trimmingCharacters(in: .whitespaces)
+            let name = code[code.startIndex..<colon].trimmingCharacters(in: .whitespaces)
             guard !name.isEmpty else { continue }
             // A double-colon rule is the other shape this scan cannot attribute.
             // Make unions every `::` rule for a target and runs them all, while a
@@ -804,7 +814,9 @@ final class LintConfigurationTests: XCTestCase {
             // at `;` (an inline recipe). Both carry words make never resolves as
             // targets, and reading them as prerequisites is how `smoke2: # hooks`
             // or `smoke2: ; @echo hooks` would satisfy the requirement below
-            // without invoking `hooks` at all.
+            // without invoking `hooks` at all. The comment is already gone —
+            // `tail` is read off the stripped text — so the `#` here is what
+            // keeps that true of this line alone rather than of its caller.
             let body = tail.prefix(while: { $0 != "#" && $0 != ";" })
             let deps = body.split(whereSeparator: { $0 == " " || $0 == "\t" }).map(String.init)
             if name == ".PHONY" {
@@ -834,7 +846,13 @@ final class LintConfigurationTests: XCTestCase {
                 scan cannot attribute to a single target — write it as one target per \
                 rule, or this test stops covering it
                 """)
-            prerequisites[name] = deps
+            // Make *unions* the prerequisites of every rule it reads for a
+            // target — only the recipe is last-one-wins — so a target split
+            // across two lines (`build: hooks` and `build: generate` with the
+            // recipe) has both. Replacing the entry keeps only the last list
+            // and reports a `hooks` path make actually has as missing, so the
+            // lists are appended the way `.PHONY` above is unioned.
+            prerequisites[name, default: []].append(contentsOf: deps)
         }
         XCTAssertTrue(prerequisites.keys.contains("test"), """
             the Makefile target scan found no `test` target, so it is no longer reading \
