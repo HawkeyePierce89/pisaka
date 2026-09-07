@@ -101,6 +101,14 @@ by `ReleaseWorkflowTests` (`// MARK: - The build output roots`), which reads
 both workflows, `.gitignore` and `.swiftlint.yml`; the sites below simply follow
 the names. Do not restate the reason at each of them.
 
+**If you have a clone that built before this rename**, delete the two old roots
+once: `rm -rf build DerivedData`. `.gitignore` still ignores them — the entries
+were kept beside the new ones rather than renamed away, precisely because a
+rename un-ignores whatever an existing checkout already holds, and the branch
+that first made this change proved it by committing 22 816 files that way.
+Nothing writes to the old names any more, so the guards are the only thing they
+are for.
+
 Rules for the value:
 
 - **Monotonic integer.** Use a plain, strictly increasing whole number (`1`,

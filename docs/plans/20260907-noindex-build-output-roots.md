@@ -362,6 +362,27 @@ registration, and none was measured.
 `DerivedData.noindex/` was deleted immediately after the observations; the
 checkout root holds neither it nor `build.noindex/` now.
 
+**Correction, recorded in review.** The `git status --porcelain` result above is
+not the evidence the checklist asked for, and the sentence before it is wrong as
+written. The tree was clean at that moment because the *pre-rename* roots —
+`build/` and `DerivedData/`, left on disk by earlier local runs — had already
+been **committed** one task earlier: Task 2 renamed their `.gitignore` entries
+instead of adding beside them, which un-ignored them, and the same commit swept
+in 22 816 files (2.2 GiB), including a signed `Pisaka.app` and
+`build/staging/Pisaka-1.0.zip`. So the checkout root did hold build output, and
+`git status` could not see it. Task 2's stated premise — "the old names are not
+kept as a second ignore line, after Task 1 nothing writes to them" — is true of
+what *writes* and false of what an existing clone already *holds*, which is the
+only thing an ignore entry governs.
+
+Fixed in review: the 22 816 files were removed from this branch's history, both
+bare roots were restored to `.gitignore` as commented legacy guards,
+`ReleaseWorkflowTests` now *requires* all four entries rather than forbidding
+two, and `docs/RELEASING.md` carries the one-time `rm -rf build DerivedData`
+note. A tracked file is invisible to `git status`, so the check this task should
+have run is `git ls-files build DerivedData DerivedData.noindex build.noindex`
+— expected empty, and empty now.
+
 **The gate set.** Each run from the repository root, each result recorded as it
 came back:
 

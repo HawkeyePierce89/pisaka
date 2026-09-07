@@ -16,6 +16,15 @@
 SourcePackages/
 DerivedData.noindex/
 
+# The pre-rename name, kept as a legacy guard rather than deleted. Nothing
+# writes here any more — the workflows and every documented command name the
+# `.noindex` root above, and `ReleaseWorkflowTests` pins that. What this entry
+# defends is the *other* direction: every clone that ever ran the old commands
+# still holds this directory on disk, and renaming the entry instead of adding
+# beside it un-ignores gigabytes of stale build output the moment the rename
+# lands. That is not hypothetical — it committed 22 816 files here once.
+DerivedData/
+
 # The release archive path, used verbatim by `.github/workflows/release.yml`,
 # `docs/RELEASING.md` and the archive command in `CLAUDE.md`
 # (`-archivePath build.noindex/Pisaka-macOS.xcarchive`), plus the zip staging
@@ -29,6 +38,11 @@ DerivedData.noindex/
 # to keep the metadata importer out of it by name alone. Pinned by
 # `ReleaseWorkflowTests`.
 build.noindex/
+
+# The pre-rename name, kept as a legacy guard for the same reason `DerivedData/`
+# is above: a checkout that archived before the rename still holds this
+# directory, and this entry is what keeps a stale copy of it out of a commit.
+build/
 
 # The one-time Sparkle key ceremony and the tooling it needs, all of which
 # `docs/RELEASING.md` runs from a checkout. `generate_keys -x` writes the EdDSA

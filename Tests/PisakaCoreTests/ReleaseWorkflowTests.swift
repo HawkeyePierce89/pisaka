@@ -3676,13 +3676,30 @@ final class ReleaseWorkflowTests: XCTestCase {
     /// rather than a command line.
     private static let annotationMarkers = ["::error::", "::warning::", "::notice::"]
 
+    /// The documents that spell a build output root in a command a reader is
+    /// told to run from the checkout root.
+    ///
+    /// These are the half the suffix actually works for. Both workflows run on
+    /// ephemeral runners where nothing is indexed and nothing survives the job;
+    /// it is the *documented local commands* that reproduce a build product
+    /// inside somebody's home directory, which is the whole reason the roots
+    /// were renamed. The plan that renamed them ran this grep once by hand at
+    /// acceptance — it is a pin here so that a document drifting back to
+    /// `-archivePath build/` fails rather than being noticed by whoever next
+    /// reads the file.
+    private static let documentsThatSpellABuildOutputRoot = [
+        "CLAUDE.md",
+        "docs/RELEASING.md",
+        "docs/architecture/core-services.md",
+    ]
+
     /// The style authority's `excluded:` entries, in full.
     private static let styleExclusions: Set<String> = [
         "Vendor", "build.noindex", "DerivedData.noindex", "SourcePackages",
     ]
 
     func testEveryDerivedDataPathBuildsIntoANoIndexDirectory() throws {
-        try assertFlagValuesAreNoIndexed("-derivedDataPath", because: """
+        try assertFlagValuesAreNoIndexed("-derivedDataPath", rootedAt: Self.derivedDataRoot, because: """
             a derived-data root holds the built application bundle, and the workflows spell it \
             relatively — so a local reproduction drops that bundle inside the checkout, where only \
             a `.noindex` name keeps it from being surfaced as an installed application
@@ -3690,7 +3707,7 @@ final class ReleaseWorkflowTests: XCTestCase {
     }
 
     func testEveryArchivePathIsUnderANoIndexDirectory() throws {
-        try assertFlagValuesAreNoIndexed("-archivePath", because: """
+        try assertFlagValuesAreNoIndexed("-archivePath", rootedAt: Self.archiveRoot, because: """
             an archive holds the application bundle itself, at a relative path reproduced verbatim \
             by the local release repro in docs/RELEASING.md
             """)
@@ -3707,8 +3724,17 @@ final class ReleaseWorkflowTests: XCTestCase {
     ///
     /// `build/` is matched by regex rather than as a substring so that
     /// `build.noindex/` — and any word merely *ending* in `build` — cannot read
-    /// as a hit; lines that spell `.noindex/` are dropped before either match
-    /// for the same reason.
+    /// as a hit.
+    ///
+    /// Both matchers judge each line **whole**: a line is never skipped for
+    /// mentioning a `.noindex/` path. Skipping one would be redundant — neither
+    /// matcher can fire on a `.noindex` name, since `DerivedData.noindex/` does
+    /// not contain `DerivedData/` and the regex's `[^.\w]` prefix already
+    /// refuses `build.noindex/` — and it would blind the rule to exactly the
+    /// shape it exists for: a two-path command line, `ditto SRC DST` or
+    /// `rm -rf a b`, where only one side kept its suffix. Every active line
+    /// naming a build output root is such a line, so the skip exempted all of
+    /// them.
     func testNoActiveWorkflowLineNamesABareBuildOutputRoot() throws {
         for workflow in Self.workflowFileNames {
             let lines = activeYAMLLines(of: try text(atRepositoryPath: ".github/workflows/\(workflow)"))
@@ -3716,7 +3742,7 @@ final class ReleaseWorkflowTests: XCTestCase {
                 parsed nothing out of \(workflow) — a rule that scans no lines passes vacuously.
                 """)
 
-            for line in lines where !line.contains(".noindex/") {
+            for line in lines {
                 XCTAssertFalse(line.contains("DerivedData/"), """
                     \(workflow) names a path under a bare `DerivedData/` in “\(line)”. Build output \
                     goes under `\(Self.derivedDataRoot)/`; see this section's doc comment for why the \
@@ -3731,9 +3757,24 @@ final class ReleaseWorkflowTests: XCTestCase {
         }
     }
 
-    /// The two roots are ignored under their new names, and neither bare name is
-    /// kept as a second entry — after the rename nothing writes to those.
-    func testTheIgnoreFileNamesTheNoIndexRootsAndNeitherBareOne() throws {
+    /// The two roots are ignored under their new names — **and** under the two
+    /// pre-rename ones, which are kept as legacy guards.
+    ///
+    /// Keeping them costs the rename nothing: what forces a build *into* a
+    /// `.noindex` directory is the value on the command line, pinned by
+    /// `testEveryDerivedDataPathBuildsIntoANoIndexDirectory`,
+    /// `testEveryArchivePathIsUnderANoIndexDirectory` and
+    /// `testNoActiveWorkflowLineNamesABareBuildOutputRoot`. An ignore entry
+    /// writes nothing anywhere; it only decides what a `git add` may sweep up.
+    ///
+    /// Dropping the bare entries is what the rename actually costs, and it is
+    /// paid by every clone that built before the rename landed: those hold
+    /// `DerivedData/` and `build/` on disk, un-ignored the instant the entry is
+    /// renamed rather than added beside. That is why this rule requires all
+    /// four rather than forbidding two — it is asserted here because the branch
+    /// that renamed the entries committed 22 816 files, 2.2 GiB, on its way past
+    /// a green suite that had no opinion about it.
+    func testTheIgnoreFileNamesTheNoIndexRootsAndTheLegacyGuards() throws {
         let entries = try ignoreEntries()
         XCTAssertFalse(entries.isEmpty, ".gitignore parsed to no entries")
 
@@ -3743,11 +3784,39 @@ final class ReleaseWorkflowTests: XCTestCase {
                 put their build output.
                 """)
         }
-        for bare in ["DerivedData/", "build/"] {
-            XCTAssertFalse(entries.contains(bare), """
-                .gitignore still ignores `\(bare)`. Nothing writes there any more, and keeping the \
-                entry invites a build back into an indexed directory without failing anything.
+        for bare in ["DerivedData", "build"] {
+            XCTAssertTrue(entries.contains("\(bare)/"), """
+                .gitignore must keep ignoring `\(bare)/` as a legacy guard. Nothing writes there any \
+                more, but every clone that built before the rename still holds it, and dropping the \
+                entry is what puts gigabytes of stale build output one `git add -A` away from a \
+                commit — as it already did once.
                 """)
+        }
+    }
+
+    /// The same rule over the documents, which are the sites the suffix exists
+    /// for: no document may spell a build output flag with a bare root.
+    ///
+    /// Matched over the raw text rather than comment-stripped lines, because in
+    /// a Markdown file the command *is* the content — there is nothing to strip,
+    /// and a fenced code block is exactly what a reader copies. The two flags
+    /// are matched with their values attached so that prose merely *naming*
+    /// `build/` — or a gitignore fixture, or an unrelated `DerivedData` mention
+    /// — is not a hit: what is forbidden is a runnable command, not a word.
+    func testNoDocumentSpellsABareBuildOutputRoot() throws {
+        for path in Self.documentsThatSpellABuildOutputRoot {
+            let raw = try text(atRepositoryPath: path)
+            for flag in ["-derivedDataPath", "-archivePath"] {
+                for stale in ["DerivedData", "build"] {
+                    XCTAssertFalse(matches(#"\#(flag)\s+\#(stale)/"#, in: raw), """
+                        \(path) tells a reader to run `\(flag) \(stale)/…`. That command is \
+                        reproduced verbatim from the checkout root, so it builds an application \
+                        bundle into an indexed directory — the exact thing the `.noindex` roots \
+                        exist to prevent. Use `\(Self.derivedDataRoot)`/`\(Self.archiveRoot)`; see \
+                        this section's doc comment.
+                        """)
+                }
+            }
         }
     }
 
@@ -3788,6 +3857,7 @@ final class ReleaseWorkflowTests: XCTestCase {
     /// `testNoActiveWorkflowLineNamesABareBuildOutputRoot`, which reads every
     /// active line including those.
     private func assertFlagValuesAreNoIndexed(_ flag: String,
+                                              rootedAt expectedRoot: String,
                                               because reason: String,
                                               file: StaticString = #filePath,
                                               line: UInt = #line) throws {
@@ -3822,6 +3892,13 @@ final class ReleaseWorkflowTests: XCTestCase {
             XCTAssertTrue(root.hasSuffix(".noindex"), """
                 `\(flag) \(value)` does not sit under a `.noindex` directory. It must, because \
                 \(reason).
+                """, file: file, line: line)
+            XCTAssertEqual(root, expectedRoot, """
+                `\(flag) \(value)` builds into `\(root)`, but `.gitignore` and `.swiftlint.yml` \
+                name `\(expectedRoot)`. The suffix alone is not enough: a `.noindex` root nobody \
+                ignores dirties the tree after a local repro, and one nobody excludes is walked by \
+                `swiftlint --strict` from the repository root. The three files must name one root, \
+                not three that merely rhyme.
                 """, file: file, line: line)
         }
     }
