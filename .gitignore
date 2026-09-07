@@ -16,13 +16,9 @@
 SourcePackages/
 DerivedData.noindex/
 
-# The pre-rename name, kept as a legacy guard rather than deleted. Nothing
-# writes here any more — the workflows and every documented command name the
-# `.noindex` root above, and `ReleaseWorkflowTests` pins that. What this entry
-# defends is the *other* direction: every clone that ever ran the old commands
-# still holds this directory on disk, and renaming the entry instead of adding
-# beside it un-ignores gigabytes of stale build output the moment the rename
-# lands. That is not hypothetical — it committed 22 816 files here once.
+# The pre-rename name, kept as a legacy guard rather than deleted: nothing
+# writes here any more, but a clone that built before the rename still holds it.
+# Why the entry stays, and the one-time cleanup, are in `docs/RELEASING.md`.
 DerivedData/
 
 # The release archive path, used verbatim by `.github/workflows/release.yml`,
@@ -40,8 +36,7 @@ DerivedData/
 build.noindex/
 
 # The pre-rename name, kept as a legacy guard for the same reason `DerivedData/`
-# is above: a checkout that archived before the rename still holds this
-# directory, and this entry is what keeps a stale copy of it out of a commit.
+# is above; see `docs/RELEASING.md`.
 build/
 
 # The one-time Sparkle key ceremony and the tooling it needs, all of which

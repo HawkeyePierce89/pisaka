@@ -864,11 +864,15 @@ in that suite's doc comments).
 **Every one of these suites matches against comment- and literal-stripped
 text** — load-bearing, not tidy: these files quote their own settings in
 comments, so a raw `contains` stays green when the setting it names is deleted.
-**One stated exception**, and it is the same argument read the other way:
+**Two stated exceptions**, both the same argument read the other way:
 `GitHubSourceGatingTests`' `gh`-vocabulary rule strips comments *only*, because
 the tokens it forbids in the app layer (`--json`, `"pr", "list"`) **are** string
 literals, and the usual scanner would delete the very thing that rule checks
-(`core-github.md`).
+(`core-github.md`); and `ReleaseWorkflowTests`' build-output-root rules read each
+*active* workflow line whole — comments dropped, literals kept — because a
+`run:` block's printed prose sits in a string on a line whose other half is a
+live command, so no `::error::` sentence in either workflow may spell
+`-derivedDataPath`/`-archivePath` (said at the one site, in `release.yml`).
 Follow the pattern for anything that ships in the bundle with no Swift code
 behind it, and for any architectural rule `swift test` cannot otherwise see.
 Non-Swift test data lives in `Tests/PisakaCoreTests/Fixtures/<area>/`, read

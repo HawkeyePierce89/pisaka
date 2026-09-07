@@ -505,8 +505,15 @@ jobs:
           # reader off to re-derive path lists for a Sparkle version that did not
           # change. `Verify the archived app` keeps its own copies of both: it
           # must stay refusable on its own terms if the steps are ever reordered.
+          #
+          # The first message says "the archive path" rather than naming the flag
+          # on purpose. `ReleaseWorkflowTests`' build-output-root rules read every
+          # *active* line of this file as shell, so `-archivePath` or
+          # `-derivedDataPath` inside printed prose is read as a real flag and the
+          # next word as its value — a loud failure naming a root nobody wrote.
+          # Whole-line comments like this one are dropped and may spell them.
           if ! test -d "$APP"; then
-            echo "::error::no app at ${APP}. The archive step produced nothing at the path this workflow expects; check the -archivePath on the archive command line. See docs/RELEASING.md."
+            echo "::error::no app at ${APP}. The archive step produced nothing at the path this workflow expects; check the archive path on the archive command line. See docs/RELEASING.md."
             exit 1
           fi
           if ! test -d "$FRAMEWORK"; then

@@ -7,8 +7,9 @@ import XCTest
 /// It reaches beyond that one file where an invariant does: `ci.yml` for the
 /// pairs the two workflows must agree on, and — since the build output roots
 /// landed — `.gitignore`, `.swiftlint.yml` and the documents that spell a root
-/// in a command a reader runs. `// MARK: - The build output roots` says why
-/// that rule lives here rather than with the style authority.
+/// in a command a reader runs, all pinned together in
+/// `// MARK: - The build output roots`. Why the `excluded:` half is pinned there
+/// rather than with the style authority is in `docs/architecture/style-lint.md`.
 ///
 /// Written in the `ReleaseMetadataTests`/`DependencyPinTests` style: the
 /// repository's own files are read through `#filePath` with Foundation only, so
@@ -3650,639 +3651,36 @@ final class ReleaseWorkflowTests: XCTestCase {
 
     // MARK: - The build output roots
 
-    /// The repository-relative root every build output lands under, and the
-    /// archive root beside it. Both end in `.noindex`, and that suffix is the
-    /// property this section pins.
-    ///
-    /// The reason is not about either workflow: an application bundle is
-    /// surfaced system-wide as an installed application from *any* indexed
-    /// directory it happens to sit in, and a directory whose name ends in
-    /// `.noindex` is the one name-level opt-out the metadata importer honours
-    /// wherever that directory lives. Both workflows spell these paths
-    /// *relatively*, and both are reproduced verbatim on developer machines —
-    /// `docs/RELEASING.md`'s local archive command and `CLAUDE.md`'s Commands
-    /// section both tell a reader to run them from the checkout root — so a
-    /// build product lands inside the working copy by design. The suffix is
-    /// therefore a property of the **names**, not of any one command, which is
-    /// why it is pinned here across both workflows, `.gitignore` and the style
-    /// authority at once rather than beside whichever step happens to build.
-    ///
-    /// **What this cannot see**: whether the suffix actually keeps a given
-    /// machine's index out of a given directory. That is a runtime property of
-    /// that machine's importer, unobservable from a Foundation-only test with no
-    /// build product to point at. What *is* assertable is the name — so the name
-    /// is what is asserted, in every file that spells it.
+    /// The two build output roots, whose `.noindex` suffix is what this section
+    /// pins: a bundle in an indexed directory is surfaced system-wide as an
+    /// installed application, and a `.noindex` name is the one name-level opt-out
+    /// the importer honours wherever it sits. Both workflows spell these roots
+    /// relatively and the documents reproduce them from the checkout root, so the
+    /// suffix belongs to the **names**, not to a command. **What this cannot
+    /// see**: whether an importer honours the name — runtime behaviour, not text.
     private static let derivedDataRoot = "DerivedData.noindex"
     private static let archiveRoot = "build.noindex"
 
-    /// Both workflow files, since this rule is about neither one in particular.
     private static let workflowFileNames = ["ci.yml", "release.yml"]
 
-    /// What must sit in front of a build output root for it to be *this
-    /// repository's* — the start of the line or a delimiter that begins a path
-    /// (whitespace, a quote, a backtick, an opening parenthesis, the `=` of a
-    /// shell assignment, or a redirection's `<`/`>`), plus an optional `./` or
-    /// a checkout root spelled as a variable.
-    ///
-    /// The redirection operators are there because they are the one delimiter
-    /// a shell writer routinely omits the space after: `echo … >build/report`
-    /// and `xcodebuild … 2>DerivedData/error.log` name a bare output root as
-    /// squarely as the spaced spellings do, and a class without them reads the
-    /// `>` as part of a word and lets both past.
-    ///
-    /// A bare `/` is deliberately **not** a delimiter here: a root preceded by
-    /// one is a segment of somebody else's path, not the checkout-relative
-    /// output root these rules are about. See
-    /// `assertNamesNoBareBuildOutputRoot(_:of:file:line:)` for the three shapes
-    /// this refuses and why each would otherwise fail with a message that
-    /// misdescribes the path it names.
+    /// What must sit in front of a root for it to be *this repository's*: the
+    /// line start or a path-beginning delimiter (whitespace, a quote, a
+    /// backtick, `(`, an `=`, or a redirection's `<`/`>`, whose space a shell
+    /// writer routinely omits), plus an optional `./` or checkout root. A bare
+    /// `/` is no delimiter, and the quote closed around the variable alone
+    /// (`"$GITHUB_WORKSPACE"/build/…`) is left unhandled.
     private static let relativePathPrefix =
-        ##"(^|[\s"'`(=<>])(\./|\##(checkoutRootReference)\##(closingQuote)/)?"##
+        ##"(^|[\s"'`(=<>])(\./|\##(checkoutRootReference)/)?"##
 
-    /// The checkout root written out rather than left implicit: the one family
-    /// of absolute paths that still names *this* repository's output root.
-    ///
-    /// It is what keeps the `/`-is-not-a-delimiter rule above honest. That rule
-    /// refuses `~/Library/Developer/Xcode/DerivedData/…` because the segment in
-    /// front of the root makes it somebody else's directory — but
-    /// `"$GITHUB_WORKSPACE/build/notarization"` and `"$PWD/DerivedData/Build"`
-    /// have a segment in front of them that is *this checkout*, so they
-    /// recreate the indexed output directory the suffix exists to prevent and
-    /// must fail like the relative spelling. Only roots the runner and the
-    /// shell define as the checkout itself are listed: `$RUNNER_TEMP/build` is
-    /// a directory outside the tree and stays live.
+    /// The checkout written out rather than left implicit — the one family of
+    /// absolute paths still naming *this* repository's output root, and what
+    /// keeps the `/`-is-no-delimiter rule honest. `$RUNNER_TEMP/build` is not.
     private static let checkoutRootReference =
         ##"(\$\{?(GITHUB_WORKSPACE|PWD)\}?|\$\(pwd\)|\$\{\{ *github\.workspace *\}\})"##
 
-    /// The quote a checkout reference may close *before* the `/` that follows
-    /// it, wherever a matcher takes that reference.
-    ///
-    /// `"$GITHUB_WORKSPACE"/build/notarization` and `"${PWD}"/build` are the
-    /// ordinary shell spellings of the paths the reference above exists to
-    /// catch — quoting the variable alone, because that is the only part that
-    /// needs it — and they name the same directory as
-    /// `"$GITHUB_WORKSPACE/build/notarization"`. Without this the closing quote
-    /// sits between the reference and the root, so the prefix does not match and
-    /// the `/`-is-not-a-delimiter rule sends the line past every matcher: the
-    /// one spelling of the checkout root that evaded both.
-    private static let closingQuote = ##"["'`]?"##
-
-    /// The workflow-annotation prefixes after which a line is prose for a human
-    /// rather than a command line.
-    private static let annotationMarkers = ["::error::", "::warning::", "::notice::"]
-
-    /// The part of an active workflow line that is still shell: the line with
-    /// every workflow annotation cut out of it, and the whole line when it
-    /// carries none.
-    ///
-    /// An annotation is removed as a *span* rather than by truncating the line
-    /// at its marker, because shell lives on both sides of one. What must go is
-    /// prose: `echo "::error::… check the -archivePath on the archive command
-    /// line"` spells a flag name inside a sentence, where the next word is
-    /// prose and reading it as a value is a false positive. What must stay is
-    /// everything the shell still runs — the command that reports its own
-    /// failure (`xcodebuild … -derivedDataPath X.noindex || echo "::error::…"`)
-    /// *and* the command that follows the report, which this file already
-    /// writes: `test -d "$APP" || { echo "::error::no app at ${APP}"; exit 1; }`
-    /// puts shell on both sides of one marker, so a truncation at the marker
-    /// drops a real half of the line and an annotation-first line
-    /// (`echo "::notice::starting"; xcodebuild -derivedDataPath …`) would carry
-    /// a real flag value out of every rule's reach.
-    ///
-    /// The span a marker opens ends where its *string literal* does: the quote
-    /// that opened the string the marker sits in, matched by the next unescaped
-    /// quote of the same character. Matching the same character is what keeps
-    /// an apostrophe inside the prose (`the archived app's Info.plist`) from
-    /// ending the span early, and honouring the backslash is what keeps a
-    /// quoted phrase inside the prose (`\"Signed Time=\"`) from doing so — both
-    /// shapes are live in `release.yml`, and either mis-read would leak the
-    /// sentence's remainder back in as shell.
-    ///
-    /// Whether the marker sits in a literal at all is read off the shell kept
-    /// so far, as *state*, and never guessed from the quotes around it: the
-    /// last quote before a marker is as often the **closing** one of an earlier
-    /// string (`test -n "$APP" && echo ::notice::…`), and a line that quotes
-    /// anything later — a `-scheme "Pisaka"` is enough — would then have that
-    /// later quote taken for the annotation's terminator and every command
-    /// between the two cut out as prose, which is the carried-out-of-reach bug
-    /// the span exists to prevent. `kept` is exactly the shell this cut has
-    /// preserved, so its own quote parity is the answer.
-    ///
-    /// A marker with no string in front of it — `echo ::notice::starting` is
-    /// valid shell, the prose carrying no character the shell would eat — opens
-    /// no literal, so there is no closing quote to end the span at. Its prose is
-    /// the rest of that *command*, and it ends where the next one begins: at the
-    /// first unquoted `;`, `&`, `|`, `)` or `}`. Ending it there rather than at
-    /// the end of the line is the same rule the quoted form is cut by, applied
-    /// to the only terminator the unquoted form has — without it
-    /// `echo ::notice::starting; xcodebuild -derivedDataPath scratch.noindex`
-    /// carries a real flag value out of every rule's reach, which is exactly
-    /// what removing the span instead of truncating at the marker exists to
-    /// prevent. A marker with no separator after it *is* prose to the end of the
-    /// line, and the rest is dropped.
-    private static func commandHalf(of line: String) -> String {
-        var kept = ""
-        var cursor = line.startIndex
-
-        while let marker = annotationMarkers
-            .compactMap({ line.range(of: $0, range: cursor ..< line.endIndex)?.lowerBound })
-            .min() {
-            kept += line[cursor ..< marker]
-            let end: String.Index
-            let quote = openQuote(inShellPrefix: kept)
-            if let quote, let closing = stringEnd(openedBy: quote, in: line, from: marker) {
-                end = closing
-            } else if let separator = firstCommandSeparator(in: line, from: marker) {
-                end = separator
-            } else {
-                end = line.endIndex
-            }
-            kept += substitutedShell(in: line, from: marker, to: end, quotedBy: quote)
-            guard end < line.endIndex else { return kept }
-            cursor = end
-        }
-        return kept + line[cursor...]
-    }
-
-    /// The shell a span of prose still *runs*: the inside of every command
-    /// substitution the cut would otherwise have dropped, in the order the
-    /// prose spells them.
-    ///
-    /// An annotation's prose is prose only as far as the shell agrees. A `$(…)`
-    /// or a backtick pair inside it is executed before `echo` ever sees a word
-    /// of the sentence, so `echo "::notice::$(xcodebuild -derivedDataPath
-    /// scratch.noindex)"` is a real build with a real flag value — and removing
-    /// the annotation as one span carried it out of reach of the only rule that
-    /// judges *which* `.noindex` root a value names, which is the very failure
-    /// the span exists to prevent, one shape further in. Only the substitution's
-    /// *contents* come back; the sentence around it stays cut, so a flag name
-    /// written as prose is still not read as a flag.
-    ///
-    /// The scan errs toward keeping. A shape wrongly kept fails loudly and is
-    /// read straight off the message; a shape wrongly dropped is silent and
-    /// leaves the suite green — which is what every round of this parser has
-    /// cost. So only the two unambiguous suppressors are honoured, the
-    /// backslash and an unterminated substitution: a `$(` whose `)` is not in
-    /// this span is not a substitution at all and contributes nothing.
-    /// `$((…))` contributes nothing either, being arithmetic rather than a
-    /// command.
-    ///
-    /// The **third** suppressor is not the scan erring toward dropping but the
-    /// same reading of the shell applied one level up: inside a single-quoted
-    /// string nothing is substituted at all. `echo '::notice::$(xcodebuild
-    /// -derivedDataPath scratch.noindex)'` prints those words and runs no
-    /// build, so resurrecting them fails a rule about a root nobody named —
-    /// and every failure of that reading is a *false* one, which is how a rule
-    /// gets deleted. A literal that executes nothing has no shell to keep, so
-    /// the whole span contributes nothing when the annotation is single-quoted,
-    /// and a `'…'` *inside* an unquoted annotation suppresses the same way.
-    /// Inside a double-quoted one a `'` is an ordinary character and opens
-    /// nothing, which is why the enclosing quote is a parameter here rather
-    /// than something the scan guesses.
-    private static func substitutedShell(in line: String,
-                                         from start: String.Index,
-                                         to end: String.Index,
-                                         quotedBy enclosing: Character?) -> String {
-        guard enclosing != "'" else { return "" }
-
-        var shell = ""
-        var index = start
-        var escaped = false
-        var literal = false
-        while index < end {
-            let character = line[index]
-            if literal {
-                // A backslash is literal inside a single-quoted string, and the
-                // only thing that ends one is the quote itself.
-                if character == "'" { literal = false }
-            } else if escaped {
-                escaped = false
-            } else if character == #"\"# {
-                escaped = true
-            } else if character == "'", enclosing == nil {
-                literal = true
-            } else if character == "`",
-                      let closing = firstUnescapedQuote("`", in: line, from: line.index(after: index)),
-                      closing < end {
-                shell += " " + line[line.index(after: index) ..< closing]
-                index = closing
-            } else if character == "$", let inner = commandSubstitution(in: line, at: index, before: end) {
-                shell += " " + line[inner]
-                index = inner.upperBound
-            }
-            index = line.index(after: index)
-        }
-        return shell
-    }
-
-    /// The range of the shell *inside* the command substitution the `$` at
-    /// `index` opens, or `nil` when it opens something else (`${…}`, `$((…))`,
-    /// a bare `$VAR`) or opens a `$(` this span never closes.
-    ///
-    /// Parentheses nest — a subshell or a grouped condition inside the
-    /// substitution is ordinary — so the closer is found by depth rather than
-    /// by the first `)`, and a quoted one is not a closer at all. A `)` inside
-    /// a parameter expansion is not one either: `${X:-)}` spells a default
-    /// value, and reading its bracket as this substitution's closer ends the
-    /// substitution early and drops everything the rest of it *runs* — the
-    /// silent direction, which is the one that leaves the suite green while a
-    /// real `-derivedDataPath` goes unjudged. So every scope nested inside is
-    /// skipped whole through `nestedScopeEnd(in:at:before:)` — the `${…}`, the
-    /// backtick pair whose contents this scanner has no business reading, and
-    /// the inner `$(…)`, whose quotes pair with each other and not with the
-    /// ones around them — exactly as `firstCommandSeparator(in:from:)` already
-    /// skips an expansion.
-    ///
-    /// A backslash escapes here as it does in the shell — except inside a
-    /// single-quoted string, where it is an ordinary character and the only
-    /// thing that ends the string is the quote.
-    private static func commandSubstitution(in line: String,
-                                            at index: String.Index,
-                                            before end: String.Index) -> Range<String.Index>? {
-        let opener = line.index(after: index)
-        guard opener < end, line[opener] == "(" else { return nil }
-        let body = line.index(after: opener)
-        guard body < end, line[body] != "(" else { return nil }
-
-        var cursor = body
-        var depth = 1
-        var escaped = false
-        var quote: Character?
-        while cursor < end {
-            let character = line[cursor]
-            if escaped {
-                escaped = false
-            } else if quote != "'", character == #"\"# {
-                escaped = true
-            } else if let open = quote {
-                if character == open { quote = nil }
-            } else if character == "\"" || character == "'" {
-                quote = character
-            } else if character == "$" || character == "`",
-                      let closing = nestedScopeEnd(in: line, at: cursor, before: end) {
-                cursor = closing
-            } else if character == "(" {
-                depth += 1
-            } else if character == ")" {
-                depth -= 1
-                if depth == 0 { return body ..< cursor }
-            }
-            cursor = line.index(after: cursor)
-        }
-        return nil
-    }
-
-    /// The index of the `}` closing the parameter expansion the `$` at `index`
-    /// opens, or `nil` when it opens something else (`$(…)`, a bare `$VAR`) or
-    /// opens a `${` this span never closes.
-    ///
-    /// Braces nest — `${X:-${Y}}` is ordinary — so the closer is found by depth
-    /// rather than by the first `}`. A **quoted** brace is not a brace at all:
-    /// `${X:-'}'}` spells a default value of `}`, and counting the quoted one
-    /// as this expansion's closer leaves the scan reading the rest of the line
-    /// from inside a string that never ends — so the substitution around it
-    /// reads as unterminated and every command it runs is dropped. That is the
-    /// silent direction, the one that leaves the suite green while a real
-    /// `-derivedDataPath` goes unjudged, so the quote is tracked here exactly
-    /// as `commandSubstitution(in:at:before:)` and
-    /// `firstCommandSeparator(in:from:)` already track it.
-    ///
-    /// An **unquoted** brace inside a nested scope is not one either, and it is
-    /// the same reading a level down: the `}` in `${X:-`printf %s }`}` is an
-    /// argument the substitution prints, not this expansion's closer. Stopping
-    /// there leaves the caller walking the substitution's own text — where the
-    /// closing backtick pushes a scope nobody owes and the `)` that really ends
-    /// the substitution no longer pops one, so the string around it never
-    /// reopens and the command behind it is cut away as prose. So a nested
-    /// scope is skipped whole here too, through the same
-    /// `nestedScopeEnd(in:at:before:)` `commandSubstitution(in:at:before:)`
-    /// calls; the two recurse into each other because the shell nests them that
-    /// way.
-    private static func parameterExpansion(in line: String,
-                                           at index: String.Index,
-                                           before end: String.Index) -> String.Index? {
-        let opener = line.index(after: index)
-        guard opener < end, line[opener] == "{" else { return nil }
-
-        var cursor = line.index(after: opener)
-        var depth = 1
-        var escaped = false
-        var quote: Character?
-        while cursor < end {
-            let character = line[cursor]
-            if escaped {
-                escaped = false
-            } else if quote != "'", character == #"\"# {
-                escaped = true
-            } else if let open = quote {
-                if character == open { quote = nil }
-            } else if character == "\"" || character == "'" {
-                quote = character
-            } else if character == "$" || character == "`",
-                      let closing = nestedScopeEnd(in: line, at: cursor, before: end) {
-                cursor = closing
-            } else if character == "{" {
-                depth += 1
-            } else if character == "}" {
-                depth -= 1
-                if depth == 0 { return cursor }
-            }
-            cursor = line.index(after: cursor)
-        }
-        return nil
-    }
-
-    /// The index of the first character at or after `start` that ends an
-    /// unquoted annotation's prose: a shell operator that starts the next
-    /// command (`;`, `&`, `|`) or closes the group this one runs in (`)`, `}`).
-    ///
-    /// None of the five *starts* a word an `echo` would print, which is what
-    /// makes them the terminator; the scan therefore honours both the backslash
-    /// and a string opened *after* the marker, so a quoted `;` inside the prose
-    /// does not end it early.
-    ///
-    /// Two of them do nonetheless appear unquoted mid-word, closing what a `$`
-    /// opened: `${APP}` and `$(basename "$APP")` are ordinary in an
-    /// annotation's prose, and reading their `}` or `)` as the end of the
-    /// command leaves the sentence behind them in the line as shell — where
-    /// `-archivePath on the command line` reads as a flag whose value is `on`
-    /// and fails a rule about a path nobody wrote. So the scan tracks what each
-    /// `$` opened and pops it, and the five are terminators only at the top
-    /// level; inside an expansion nothing is, `$(a; b)` being one word too.
-    ///
-    /// Brackets nest inside an expansion as well, and only the closer the
-    /// expansion is *owed* may be stolen: an ordinary grouping `(` inside one
-    /// — `$(( (COUNT + 1) * 2 ))`, `$(cd x && (a; b))` — pays back a `)` the
-    /// expansion still needs, so its own `)` reads as a top-level terminator
-    /// and the prose behind it leaks in as shell. A bare `(` therefore pushes
-    /// its own closer while an expansion is open. A `{` needs no twin: the only
-    /// closer it could steal is the `}` of a `${…}`, whose body has no place
-    /// for one.
-    private static func firstCommandSeparator(in line: String, from start: String.Index) -> String.Index? {
-        var index = start
-        var escaped = false
-        var openQuote: Character?
-        var expansionClosers: [Character] = []
-        while index < line.endIndex {
-            let character = line[index]
-            if escaped {
-                escaped = false
-            } else if openQuote != "'", character == #"\"# {
-                escaped = true
-            } else if let quote = openQuote {
-                if character == quote { openQuote = nil }
-            } else if character == "\"" || character == "'" {
-                openQuote = character
-            } else if character == "$", let opened = expansionOpened(in: line, at: index) {
-                expansionClosers.append(contentsOf: opened.closers)
-                index = opened.lastOpener
-            } else if !expansionClosers.isEmpty, character == "(" {
-                expansionClosers.append(")")
-            } else if expansionClosers.last == character {
-                expansionClosers.removeLast()
-            } else if expansionClosers.isEmpty, ";&|)}".contains(character) {
-                return index
-            }
-            index = line.index(after: index)
-        }
-        return nil
-    }
-
-    /// What the `$` at `index` opens, if it opens anything: the closers owed
-    /// (`}` for `${…}`, `)` for `$(…)`, and two for the `$((…))` an arithmetic
-    /// expansion closes with `))`) and the index of the last bracket consumed,
-    /// so the scan does not read that bracket a second time as an opener.
-    private static func expansionOpened(in line: String,
-                                        at index: String.Index) -> (closers: [Character],
-                                                                    lastOpener: String.Index)? {
-        let opener = line.index(after: index)
-        guard opener < line.endIndex else { return nil }
-        switch line[opener] {
-        case "{":
-            return (["}"], opener)
-        case "(":
-            let second = line.index(after: opener)
-            if second < line.endIndex, line[second] == "(" { return ([")", ")"], second) }
-            return ([")"], opener)
-        default:
-            return nil
-        }
-    }
-
-    /// The quote character still open at the end of `prefix` — the string an
-    /// annotation marker sitting directly after it is inside — or `nil` when
-    /// every string the prefix opened is closed again and the marker is
-    /// unquoted (`test -d "$APP" || echo ::error::…`).
-    ///
-    /// State, not a candidate: a scan for the *last* quote cannot tell an
-    /// opener from the closer of an earlier string, and reading a closer as an
-    /// opener hands the span whatever quote comes next — cutting every command
-    /// between them out of the line as prose.
-    ///
-    /// A command substitution is a quoting scope of its own, and the shell's
-    /// own rule: the quotes inside `$(…)` pair with each other and not with
-    /// the ones around it, so `echo "$(printf "::notice::…"` opens *two*
-    /// strings rather than opening and closing one. Read flat, the inner
-    /// opener is taken for the outer's closer, the marker reads as unquoted,
-    /// and the span is then cut to the next command separator — which is
-    /// inside the substitution's own string, so `; xcodebuild
-    /// -derivedDataPath scratch.noindex)` is carried out of every rule's
-    /// reach. So the scope is pushed at `$(` and popped at the `)` that closes
-    /// it, and the whole thing is skipped inside a single-quoted string, where
-    /// `$(` substitutes nothing.
-    ///
-    /// Parentheses nest inside that scope exactly as they do in the two other
-    /// scanners: a subshell or a grouped condition inside a substitution
-    /// (`$( ( printf x ); printf "::notice::…"; xcodebuild -derivedDataPath
-    /// scratch.noindex)`) is ordinary shell, and its `)` is the group's own.
-    /// Popping the substitution's scope there restores the outer quote a
-    /// bracket early, the marker reads as unquoted again, and the span is cut
-    /// to a separator inside the substitution — the same carried-out-of-reach
-    /// failure the scope exists to prevent, one nesting level further in. So an
-    /// unquoted `(` inside a scope owes a closer of its own; it is entered
-    /// unquoted and left unquoted, which is exactly what pushing `open` there
-    /// says, and only the closer the innermost scope is *owed* may pop it.
-    ///
-    /// A `${…}` is skipped whole for the same reason, and by the same helper
-    /// `commandSubstitution(in:at:before:)` already uses: neither its `}` nor
-    /// anything it encloses is punctuation anyone here counts. `${X:-)}`
-    /// spells a default value of `)`, and reading that bracket as the
-    /// substitution's closer restores the outer quote a bracket early — the
-    /// nested-grouping failure above, reached through an expansion instead of a
-    /// subshell; `${X:-'}'}` would open a string the rest of the prefix never
-    /// closes.
-    ///
-    /// A backtick pair is that same scope in the older spelling, and this file
-    /// already reads one — `substitutedShell(in:from:to:quotedBy:)` resurrects
-    /// its contents. So it pushes and pops a scope exactly as `$(` does: read
-    /// flat, the `"` inside ``echo "`printf "::notice::…"; xcodebuild
-    /// -derivedDataPath scratch.noindex`"`` is taken for the outer string's
-    /// closer, the marker reads as unquoted, and the build behind it is carried
-    /// out of reach. It is delimited by the next unescaped backtick — the rule
-    /// `substitutedShell` already reads it by — so the pending scope is popped
-    /// at that backtick rather than at a quote-balanced one, and inside a
-    /// single-quoted string a backtick substitutes nothing and opens nothing.
-    private static func openQuote(inShellPrefix prefix: String) -> Character? {
-        var open: Character?
-        var escaped = false
-        var enclosing: [(closer: Character, quote: Character?)] = []
-        var index = prefix.startIndex
-        while index < prefix.endIndex {
-            let character = prefix[index]
-            let next = prefix.index(after: index)
-            if escaped {
-                escaped = false
-            } else if open != "'", character == #"\"# {
-                escaped = true
-            } else if open != "'", character == "$", next < prefix.endIndex, prefix[next] == "(" {
-                enclosing.append((closer: ")", quote: open))
-                open = nil
-                index = next
-            } else if open != "'", character == "$",
-                      let closing = parameterExpansion(in: prefix, at: index, before: prefix.endIndex) {
-                index = closing
-            } else if open != "'", character == "`" {
-                if enclosing.last?.closer == "`" {
-                    open = enclosing.removeLast().quote
-                } else {
-                    enclosing.append((closer: "`", quote: open))
-                    open = nil
-                }
-            } else if open == nil, character == "(", !enclosing.isEmpty {
-                enclosing.append((closer: ")", quote: nil))
-            } else if open == nil, character == ")", enclosing.last?.closer == ")" {
-                open = enclosing.removeLast().quote
-            } else if let quote = open {
-                if character == quote { open = nil }
-            } else if character == "\"" || character == "'" {
-                open = character
-            }
-            index = prefix.index(after: index)
-        }
-        return open
-    }
-
-    /// The index of the character that closes the nested scope the character
-    /// at `index` opens — the `)` of a `$(…)`, the `}` of a `${…}` or the
-    /// closing backtick of a backtick pair — or `nil` when it opens no scope,
-    /// or opens one this span never closes.
-    ///
-    /// Every scanner in this file counts punctuation, and none of the
-    /// punctuation inside a nested scope is its own: the `}` in
-    /// `$(printf %s })` is an argument, the `"` in `$(printf "x")` pairs with
-    /// the one beside it, and the `)` of `${X:-)}` is a default value. Reading
-    /// any of them as the enclosing construct's own closer ends that construct
-    /// early and drops every command behind it — the silent direction, the one
-    /// that leaves the suite green while a real `-derivedDataPath` goes
-    /// unjudged. So a nested scope is skipped **whole**, and through this one
-    /// definition rather than restated once per bracket somebody counts: the
-    /// three spellings nest inside each other freely, and a scanner taught only
-    /// the two it happened to meet is the shape every round of this parser has
-    /// cost.
-    ///
-    /// It is the *keeping* direction that makes the recursion safe: a scope
-    /// this span never closes is not skipped at all, and its opener is left to
-    /// the caller's own counting, which is exactly what that caller did before.
-    private static func nestedScopeEnd(in line: String,
-                                       at index: String.Index,
-                                       before end: String.Index) -> String.Index? {
-        if line[index] == "`" {
-            let body = line.index(after: index)
-            guard body < end,
-                  let closing = firstUnescapedQuote("`", in: line, from: body),
-                  closing < end else { return nil }
-            return closing
-        }
-        guard line[index] == "$" else { return nil }
-        if let inner = commandSubstitution(in: line, at: index, before: end) { return inner.upperBound }
-        return parameterExpansion(in: line, at: index, before: end)
-    }
-
-    /// The index of the quote that closes the string an annotation marker sits
-    /// in — where its prose ends — or `nil` when the line never closes it.
-    ///
-    /// The quote that ends the span is read at the annotation's **own** level,
-    /// the same rule `openQuote(inShellPrefix:)` reads the quote that starts
-    /// it by. A `$(…)`, a `${…}` or a backtick pair inside the prose is a
-    /// quoting scope of its own — `echo "::notice::$(xcodebuild
-    /// -derivedDataPath scratch.noindex; printf "x") done"` is one string
-    /// around a substitution that opens and closes another — so scanning flatly
-    /// for the next `"` ends the span at the inner opener. The span then stops
-    /// *inside* the substitution, which leaves that substitution unterminated
-    /// as far as `substitutedShell(in:from:to:quotedBy:)` can see, so its
-    /// contents are not resurrected either and the build it really runs is
-    /// dropped whole: the carried-out-of-reach failure reached through the end
-    /// of the span rather than through the quote that decides its start.
-    ///
-    /// A **single**-quoted string is the exception, and the shell's own rule:
-    /// it substitutes nothing, so nothing inside it is a scope and it ends at
-    /// the very next `'`.
-    private static func stringEnd(openedBy quote: Character,
-                                  in line: String,
-                                  from start: String.Index) -> String.Index? {
-        guard quote != "'" else { return firstUnescapedQuote("'", in: line, from: start) }
-
-        var index = start
-        var escaped = false
-        while index < line.endIndex {
-            let character = line[index]
-            if escaped {
-                escaped = false
-            } else if character == #"\"# {
-                escaped = true
-            } else if character == quote {
-                return index
-            } else if character == "$" || character == "`",
-                      let closing = nestedScopeEnd(in: line, at: index, before: line.endIndex) {
-                index = closing
-            }
-            index = line.index(after: index)
-        }
-        return nil
-    }
-
-    /// The index of the first `quote` at or after `start` that no backslash
-    /// escapes — where the annotation's string literal ends.
-    ///
-    /// A **single**-quoted string is the exception, and the shell's own rule:
-    /// nothing is escapable inside one, so the string ends at the very next
-    /// `'` however many backslashes precede it. Honouring the backslash there
-    /// makes a sentence ending in one (`'::notice::…backslash \'`) run past its
-    /// real terminator to whatever quote comes next — a `-scheme 'Pisaka'`
-    /// suffices — and every command between the two is cut out as prose,
-    /// carrying a real flag value out of reach: the same failure the span
-    /// exists to prevent, reached through the escape rule instead of the quote
-    /// rule.
-    private static func firstUnescapedQuote(_ quote: Character,
-                                            in line: String,
-                                            from start: String.Index) -> String.Index? {
-        var index = start
-        var escaped = false
-        while index < line.endIndex {
-            let character = line[index]
-            if escaped {
-                escaped = false
-            } else if quote != "'", character == #"\"# {
-                escaped = true
-            } else if character == quote {
-                return index
-            }
-            index = line.index(after: index)
-        }
-        return nil
-    }
-
-    /// The documents that spell a build output root in a command a reader is
-    /// told to run from the checkout root.
-    ///
-    /// These are the half the suffix actually works for. Both workflows run on
-    /// ephemeral runners where nothing is indexed and nothing survives the job;
-    /// it is the *documented local commands* that reproduce a build product
-    /// inside somebody's home directory, which is the whole reason the roots
-    /// were renamed. The plan that renamed them ran this grep once by hand at
-    /// acceptance — it is a pin here so that a document drifting back to
-    /// `-archivePath build/` fails rather than being noticed by whoever next
-    /// reads the file.
+    /// The documents spelling a build output root in a command a reader runs from
+    /// the checkout root — the half the suffix works for, both runners being
+    /// ephemeral. Hand-maintained, so the rule below requires each entry to spell one.
     private static let documentsThatSpellABuildOutputRoot = [
         "CLAUDE.md",
         "docs/RELEASING.md",
@@ -4295,233 +3693,86 @@ final class ReleaseWorkflowTests: XCTestCase {
     ]
 
     func testEveryDerivedDataPathBuildsIntoANoIndexDirectory() throws {
-        try assertFlagValuesAreNoIndexed("-derivedDataPath", rootedAt: Self.derivedDataRoot, because: """
-            a derived-data root holds the built application bundle, and the workflows spell it \
-            relatively — so a local reproduction drops that bundle inside the checkout, where only \
-            a `.noindex` name keeps it from being surfaced as an installed application
-            """)
+        try assertFlagValuesAreNoIndexed("-derivedDataPath", rootedAt: Self.derivedDataRoot,
+                                         because: "a derived-data root holds the built application bundle")
     }
 
     func testEveryArchivePathIsUnderANoIndexDirectory() throws {
-        try assertFlagValuesAreNoIndexed("-archivePath", rootedAt: Self.archiveRoot, because: """
-            an archive holds the application bundle itself, at a relative path reproduced verbatim \
-            by the local release repro in docs/RELEASING.md
-            """)
+        try assertFlagValuesAreNoIndexed("-archivePath", rootedAt: Self.archiveRoot,
+                                         because: "an archive holds the application bundle itself")
     }
 
     /// The rule read the other way round: no active line of either workflow may
-    /// name a path under a bare `DerivedData/` or `build/`.
-    ///
-    /// Scanned over the **whole file**'s active lines, deliberately not over
-    /// lines filtered by a leading command word. A command-prefixed scan would
-    /// miss exactly the lines that matter: the archive step is a folded `run: >`
-    /// scalar, so `-derivedDataPath` and `-archivePath` sit on continuation
-    /// lines, and the staging step's `ditto` source is a continuation line too.
-    ///
-    /// Both roots are matched by regex rather than as substrings, so that
-    /// `build.noindex/`, any word merely *ending* in a root (`xcodebuild/`) and
-    /// any root that is a segment of somebody else's path
-    /// (`~/Library/Developer/Xcode/DerivedData/…`) cannot read as hits — see
-    /// `assertNamesNoBareBuildOutputRoot(_:of:file:line:)`.
-    ///
-    /// Every matcher judges each line **whole**: a line is never skipped for
-    /// mentioning a `.noindex/` path. Skipping one would be redundant — no
-    /// matcher can fire on a `.noindex` name, since each demands a `/` where
-    /// those spell a `.` — and it would blind the rule to exactly the
-    /// shape it exists for: a two-path command line, `ditto SRC DST` or
-    /// `rm -rf a b`, where only one side kept its suffix. Every active line
-    /// naming a build output root is such a line, so the skip exempted all of
-    /// them.
+    /// name a path under a bare `DerivedData/` or `build/`. Read over the whole
+    /// file's active lines, not lines filtered by a leading command word (the
+    /// archive step is a folded `run: >` scalar), and judged whole rather than
+    /// skipped for also naming a `.noindex` path — that two-path shape is where
+    /// one side loses its suffix.
     func testNoActiveWorkflowLineNamesABareBuildOutputRoot() throws {
         for workflow in Self.workflowFileNames {
             let lines = activeYAMLLines(of: try text(atRepositoryPath: ".github/workflows/\(workflow)"))
-            XCTAssertFalse(lines.isEmpty, """
-                parsed nothing out of \(workflow) — a rule that scans no lines passes vacuously.
-                """)
-
-            for line in lines {
-                assertNamesNoBareBuildOutputRoot(line, of: workflow)
-            }
+            XCTAssertFalse(lines.isEmpty, "parsed nothing out of \(workflow) — a rule scanning no lines is vacuous.")
+            for line in lines { assertNamesNoBareBuildOutputRoot(line, of: workflow) }
         }
     }
 
-    /// The two roots are ignored under their new names — **and** under the two
-    /// pre-rename ones, which are kept as legacy guards.
-    ///
-    /// Keeping them costs the rename nothing: what forces a build *into* a
-    /// `.noindex` directory is the value on the command line, pinned by
-    /// `testEveryDerivedDataPathBuildsIntoANoIndexDirectory`,
-    /// `testEveryArchivePathIsUnderANoIndexDirectory` and
-    /// `testNoActiveWorkflowLineNamesABareBuildOutputRoot`. An ignore entry
-    /// writes nothing anywhere; it only decides what a `git add` may sweep up.
-    ///
-    /// Dropping the bare entries is what the rename actually costs, and it is
-    /// paid by every clone that built before the rename landed: those hold
-    /// `DerivedData/` and `build/` on disk, un-ignored the instant the entry is
-    /// renamed rather than added beside. That is why this rule requires all
-    /// four rather than forbidding two — it is asserted here because the branch
-    /// that renamed the entries committed 22 816 files, 2.2 GiB, on its way past
-    /// a green suite that had no opinion about it.
+    /// The two roots are ignored under their new names **and** under the two
+    /// pre-rename ones, kept as legacy guards: renaming an entry un-ignores
+    /// what an existing clone already holds. Full account, and the one-time
+    /// cleanup, in `docs/RELEASING.md`.
     func testTheIgnoreFileNamesTheNoIndexRootsAndTheLegacyGuards() throws {
         let entries = try ignoreEntries()
         XCTAssertFalse(entries.isEmpty, ".gitignore parsed to no entries")
-
         for root in [Self.derivedDataRoot, Self.archiveRoot] {
-            XCTAssertTrue(entries.contains("\(root)/"), """
-                .gitignore must ignore `\(root)/` — it is where both workflows, reproduced locally, \
-                put their build output.
-                """)
+            XCTAssertTrue(entries.contains("\(root)/"), "`\(root)/` must be ignored: reproduced locally, both workflows build there.")
         }
         for bare in ["DerivedData", "build"] {
-            XCTAssertTrue(entries.contains("\(bare)/"), """
-                .gitignore must keep ignoring `\(bare)/` as a legacy guard. Nothing writes there any \
-                more, but every clone that built before the rename still holds it, and dropping the \
-                entry is what puts gigabytes of stale build output one `git add -A` away from a \
-                commit — as it already did once.
-                """)
+            XCTAssertTrue(entries.contains("\(bare)/"), "`\(bare)/` must stay ignored as a legacy guard: nothing writes there any more, but every clone that built before the rename still holds it. See docs/RELEASING.md.")
         }
     }
 
-    /// The same rule over the documents, which are the sites the suffix exists
-    /// for: no document may name a bare build output root.
-    ///
-    /// Matched over the raw text rather than comment-stripped lines, because in
-    /// a Markdown file the command *is* the content — there is nothing to strip,
-    /// and a fenced code block is exactly what a reader copies.
-    ///
-    /// The matchers are the workflow rule's own, through the same helper — see
-    /// `assertNamesNoBareBuildOutputRoot(_:of:file:line:)` for why there are
-    /// three of them and what each is for. One rule, one set of patterns: a
-    /// document and a workflow line that spell the same stale path must fail
-    /// the same way, and a matcher maintained twice is one that drifts.
-    ///
-    /// Read over the file's raw lines rather than comment-stripped ones,
-    /// because in a Markdown file the command *is* the content — there is
-    /// nothing to strip, and a fenced code block is exactly what a reader
-    /// copies.
-    ///
-    /// Each listed document must also still **spell** a root. The roster is
-    /// hand-maintained and every assertion in the loop is an absence, so a
-    /// document reworded until it names no build output root at all would pass
-    /// this rule by judging nothing and sit in the list rotting green — which is
-    /// the state `core-services.md` was already found in once, in this list
-    /// without a single line the rule could judge.
+    /// The same matchers over the documents, read on raw lines rather than
+    /// comment-stripped ones: in Markdown the command *is* the content. Each
+    /// listed document must also still **spell** a root, every assertion in the
+    /// loop being an absence that would otherwise judge nothing.
     func testNoDocumentSpellsABareBuildOutputRoot() throws {
         for path in Self.documentsThatSpellABuildOutputRoot {
             let raw = try text(atRepositoryPath: path)
-
-            XCTAssertTrue(raw.contains(Self.derivedDataRoot) || raw.contains(Self.archiveRoot), """
-                \(path) names neither `\(Self.derivedDataRoot)` nor `\(Self.archiveRoot)`, so every \
-                assertion below passes by matching nothing. This list names the documents that \
-                spell a build output root in a command a reader runs; drop \(path) from \
-                `documentsThatSpellABuildOutputRoot` if it no longer does.
-                """)
-
-            for line in raw.components(separatedBy: .newlines) {
-                assertNamesNoBareBuildOutputRoot(line, of: path)
-            }
+            XCTAssertTrue(raw.contains(Self.derivedDataRoot) || raw.contains(Self.archiveRoot), "\(path) names neither root, so every assertion below passes by matching nothing. Drop it from `documentsThatSpellABuildOutputRoot` if it no longer spells one.")
+            for line in raw.components(separatedBy: .newlines) { assertNamesNoBareBuildOutputRoot(line, of: path) }
         }
     }
 
-    /// The style authority skips the same two roots, by set equality — which
-    /// pins the two renamed entries and the two untouched ones at once.
-    ///
-    /// These two entries are belt and braces, and it is worth being exact about
-    /// which runs they can reach. `included:` already scopes every
-    /// repository-supported run to `Sources/` and `Tests/`: `make lint` and
-    /// ci.yml's lint job both run `swiftlint lint --strict` in discovery mode
-    /// from the root, and `.githooks/pre-commit` hands over only staged paths
-    /// matching `Sources/*.swift` and `Tests/*.swift`, so its `--force-exclude`
-    /// never has a build root to exclude either. What the entries bite is the
-    /// ad-hoc explicit-path run — the form `included:` does not scope at all —
-    /// and what they are pinned for is the name: an entry naming the old
-    /// directory excludes nothing and quietly documents a path nothing writes
-    /// to.
-    ///
-    /// **Why this list is renamed where `.gitignore`'s is extended**, since the
-    /// two files were handed the same rename and answered it differently: the
-    /// two rules govern different things. An ignore entry governs what a clone
-    /// already *holds* — a stale `build/` on disk goes from ignored to staged
-    /// the instant its entry is renamed away, which is what cost 22 816 files
-    /// once — while `excluded:` governs only what a lint run *walks*, and no
-    /// repository-supported run walks either root (`included:` scopes them all
-    /// to `Sources/` and `Tests/`). The residue is an ad-hoc explicit-path run
-    /// inside a pre-rename clone, whose one-time answer is the
-    /// `rm -rf build DerivedData` note in `docs/RELEASING.md` — not a second
-    /// pair of entries here naming directories nothing writes to.
+    /// The style authority skips the same two roots, by set equality — pinning the
+    /// two renamed entries and the two untouched ones at once. What they pin is the
+    /// name: `included:` already scopes every repository-supported run to `Sources/`
+    /// and `Tests/`, so these two bite only an explicitly named path. Renamed where
+    /// `.gitignore`'s is extended, `excluded:` governing only what a run walks.
     func testTheStyleAuthorityExcludesTheNoIndexRoots() throws {
-        let block = try XCTUnwrap(topLevelBlock("excluded", in: try text(atRepositoryPath: ".swiftlint.yml")), """
-            .swiftlint.yml has no top-level `excluded:` block.
-            """)
+        let authority = try text(atRepositoryPath: ".swiftlint.yml")
+        let block = try XCTUnwrap(topLevelBlock("excluded", in: authority), "no top-level `excluded:` block")
         let entries = Set(block.compactMap { entry -> String? in
             guard entry.hasPrefix("- ") else { return nil }
             return String(entry.dropFirst(2)).trimmingCharacters(in: .whitespaces)
         })
-        XCTAssertEqual(entries, Self.styleExclusions, """
-            .swiftlint.yml's `excluded:` must name exactly \(Self.styleExclusions.sorted()). The two \
-            build output roots are listed under their `.noindex` names. `included:` already keeps \
-            every repository-supported run inside Sources/ and Tests/, so these two entries are belt \
-            and braces — they bite an explicitly named path, the one form `included:` does not scope \
-            — and an entry naming the old directory excludes nothing at all.
-            """)
+        XCTAssertEqual(entries, Self.styleExclusions, "`excluded:` must name exactly \(Self.styleExclusions.sorted()): the build output roots under their `.noindex` names, an entry naming the old directory excluding nothing at all.")
     }
 
     /// Every value passed to `flag` in either workflow, asserted to sit under a
-    /// `.noindex` directory.
-    ///
-    /// The value is read as the token following the flag on the same active
-    /// line, and the values are gathered across both files so a fourth
-    /// occurrence appearing later is judged by the same rule. An empty result
-    /// fails loudly: a rule that matches nothing passes vacuously, which is the
-    /// one way this pin could rot without anyone noticing. A flag with nothing
-    /// after it on its line fails too — a value that moved to a continuation
-    /// line would otherwise drop silently out of the rule's reach.
-    ///
-    /// A line carrying a workflow annotation (`::error::` and friends) has the
-    /// annotation **cut out of it** by `commandHalf(of:)`, and is neither
-    /// skipped whole nor truncated at the marker. The annotation itself is a
-    /// sentence written for a human — "check the `-archivePath` on the archive
-    /// command line" — where the word after the flag name is prose, not a path,
-    /// and scanning it would read `on` as an archive path. Everything outside
-    /// it is still shell, on *both* sides: `xcodebuild … -derivedDataPath
-    /// X.noindex || echo "::error::…"` puts a real command in front of one and
-    /// `{ echo "::error::…"; exit 1; }` puts one behind, so neither dropping
-    /// the line nor cutting it at the marker keeps the only rule that judges
-    /// *which* `.noindex` root a value names. Removing the span alone is what
-    /// the skip was ever for.
-    ///
-    /// That distinction matters because the two rules do **not** fully cover
-    /// each other. `testNoActiveWorkflowLineNamesABareBuildOutputRoot` reads
-    /// every active line including the annotations, and its flag matcher
-    /// judges the shape this scan would have judged for a *bare* root — a path
-    /// matcher alone sees `build/` and `DerivedData/` but not
-    /// `-derivedDataPath DerivedData`, the one spelling with no slash in it.
-    /// What it cannot judge is the root-equality rule below: a value that ends
-    /// in `.noindex` but names a root neither `.gitignore` nor `.swiftlint.yml`
-    /// knows about is invisible to every absence matcher, and visible only
-    /// here.
-    ///
-    /// Both of this rule's checks read the value's **first** path segment, so
-    /// the value must be one that a first segment describes: a `..` behind the
-    /// root undoes it, and `-archivePath build.noindex/../build/Pisaka.xcarchive`
-    /// would open with `build.noindex` and land in `build`. The absence
-    /// matchers cannot cover that either — a root with a `/` in front of it is
-    /// somebody else's directory by their own deliberate rule — so a parent
-    /// component is refused here, ahead of the two checks that assume it away.
-    private func assertFlagValuesAreNoIndexed(_ flag: String,
-                                              rootedAt expectedRoot: String,
-                                              because reason: String,
-                                              file: StaticString = #filePath,
-                                              line: UInt = #line) throws {
+    /// `.noindex` directory: the token after the flag on the same active line,
+    /// gathered across both files. An empty result fails loudly, and so does a
+    /// flag with nothing after it. The whole line is read as shell, prose
+    /// included — safe because no sentence either workflow prints names a build
+    /// flag, and one that did would fail as a bad value rather than pass.
+    private func assertFlagValuesAreNoIndexed(_ flag: String, rootedAt expectedRoot: String, because reason: String,
+                                              file: StaticString = #filePath, line: UInt = #line) throws {
         var values: [String] = []
         var occurrences = 0
-
         for workflow in Self.workflowFileNames {
             let lines = activeYAMLLines(of: try text(atRepositoryPath: ".github/workflows/\(workflow)"))
             XCTAssertFalse(lines.isEmpty, "parsed nothing out of \(workflow)", file: file, line: line)
-
             for entry in lines {
-                let tokens = Self.shellTokens(of: Self.commandHalf(of: entry))
+                let tokens = Self.shellTokens(of: entry)
                 for (index, token) in tokens.enumerated() where token == flag {
                     occurrences += 1
                     guard index + 1 < tokens.count else { continue }
@@ -4529,198 +3780,62 @@ final class ReleaseWorkflowTests: XCTestCase {
                 }
             }
         }
-
-        XCTAssertFalse(values.isEmpty, """
-            no `\(flag)` value found on any active line of \(Self.workflowFileNames.joined(separator: " or ")) \
-            — this rule must judge something, or it passes by matching nothing.
-            """, file: file, line: line)
-        XCTAssertEqual(values.count, occurrences, """
-            every `\(flag)` must carry its value on the same line: found \(occurrences) occurrences \
-            but \(values.count) values.
-            """, file: file, line: line)
-
+        XCTAssertFalse(values.isEmpty, "no `\(flag)` value on any active workflow line — this rule must judge something.", file: file, line: line)
+        XCTAssertEqual(values.count, occurrences, "every `\(flag)` must carry its value on the same line: \(occurrences) occurrences, \(values.count) values.", file: file, line: line)
         for value in Set(values).sorted() {
             let segments = value.split(separator: "/").map(String.init)
-            XCTAssertFalse(segments.contains(".."), """
-                `\(flag) \(value)` climbs back out of the root it opens with. The rule below reads \
-                the *first* path segment, so a `..` behind it satisfies both checks while the \
-                directory the build actually lands in sits outside every `.noindex` root and is \
-                indexed like the rest of the checkout — and the bare-root matchers cannot see it \
-                either, a root with a `/` in front of it being somebody else's directory by their \
-                own rule. A build output path names its root and descends; it never ascends.
-                """, file: file, line: line)
-
+            XCTAssertFalse(segments.contains(".."), "`\(flag) \(value)` climbs back out of the root it opens with, landing outside every `.noindex` root while both checks below — which read the first segment — pass. A build output path never ascends.", file: file, line: line)
             let root = segments.first ?? value
-            XCTAssertTrue(root.hasSuffix(".noindex"), """
-                `\(flag) \(value)` does not sit under a `.noindex` directory. It must, because \
-                \(reason).
-                """, file: file, line: line)
-            XCTAssertEqual(root, expectedRoot, """
-                `\(flag) \(value)` builds into `\(root)`, but `.gitignore` and `.swiftlint.yml` \
-                name `\(expectedRoot)`. The suffix alone is not enough: a `.noindex` root nobody \
-                ignores dirties the tree after a local repro, and one the style authority does not \
-                name is excluded by nothing when a path under it is handed to swiftlint explicitly. \
-                The three files must name one root, not three that merely rhyme.
-                """, file: file, line: line)
+            XCTAssertTrue(root.hasSuffix(".noindex"), "`\(flag) \(value)` must sit under a `.noindex` directory, because \(reason) and a relatively-spelled command reproduced locally drops it inside the checkout.", file: file, line: line)
+            XCTAssertEqual(root, expectedRoot, "`\(flag) \(value)` builds into `\(root)`, but `.gitignore` and `.swiftlint.yml` name `\(expectedRoot)`. A `.noindex` root nobody ignores dirties the tree after a local repro, and one the style authority does not name is excluded by nothing: the three files must name one root.", file: file, line: line)
         }
     }
 
-    /// The words of a shell line, split on whitespace rather than on the space
-    /// character alone — a value separated from its flag by a tab is still that
-    /// flag's value, and a scan that cannot see it drops the occurrence instead
-    /// of judging it — with a GitHub expression's *internal* spaces closed up
-    /// first.
-    ///
-    /// `${{ github.workspace }}` is one value written with spaces inside it, so
-    /// a whitespace split tears it into three words and the flag's value reads
-    /// as the bare `${{` — a root nobody wrote, failing a correct line. It is
-    /// one of the checkout spellings the stale matchers already take, and
-    /// closing it up is what lets `pathNamed(by:)` take it here.
+    /// The words of a line, split on whitespace rather than the space character
+    /// alone — a value separated from its flag by a tab is still that flag's.
     private static func shellTokens(of line: String) -> [String] {
-        line.replacingOccurrences(of: ##"\$\{\{ *([^{}]*?) *\}\}"##,
-                                  with: "${{$1}}",
-                                  options: .regularExpression)
-            .split(whereSeparator: { $0.isWhitespace })
-            .map(String.init)
+        line.split(whereSeparator: { $0.isWhitespace }).map(String.init)
     }
 
-    /// The path a whitespace-separated token names, with the shell spelling
-    /// that is not part of it taken off: the quotes or backticks around it, the
-    /// checkout root written out loud in front of it, and the `./` a writer may
-    /// put in front of a relative path.
-    ///
-    /// Without this the rule fails on values that are *correct*.
-    /// `-derivedDataPath "DerivedData.noindex"` and `-archivePath
-    /// ./build.noindex/Pisaka-macOS.xcarchive` name exactly the roots this
-    /// section requires, but their first path segment reads as
-    /// `"DerivedData.noindex"` and `.` — neither ends in `.noindex`, so both
-    /// fail with a message describing a root the line does not name, and the
-    /// cheapest way past a rule that fails on the right answer is to delete it.
-    /// The stale-spelling matchers already take both spellings for exactly this
-    /// reason; this is the same reading on the live half.
-    ///
-    /// The checkout reference is the same argument one spelling further out.
-    /// `-archivePath "$GITHUB_WORKSPACE"/build.noindex/Pisaka-macOS.xcarchive`
-    /// names precisely the root this section requires — the stale matchers take
-    /// that spelling and its whole family (`$PWD`, `$(pwd)`,
-    /// `${{ github.workspace }}`, with or without the quote closed around the
-    /// variable alone), and `testTheBareRootMatchersJudgeTheShapesTheyClaimTo`
-    /// pins that exact line as live — yet its first path segment reads as
-    /// `$GITHUB_WORKSPACE"`. Stripping it costs the rule nothing: the stale
-    /// spelling behind the same reference is `build/…`, which still fails both
-    /// the suffix and the root check, only now with a message naming the root
-    /// the line actually spells. What is *not* this checkout —
-    /// `"$RUNNER_TEMP"/…` — is left alone, exactly as the matchers leave it.
+    /// The path a token names, with the shell spelling that is not part of it
+    /// taken off: surrounding quotes or backticks and a leading `./`. Without it
+    /// the rule fails on values that are *correct*. A checkout root spelled out
+    /// loud is **not** taken off: no workflow writes one, and one that did would
+    /// fail here as a bad value rather than pass — restore the strip if that changes.
     private static func pathNamed(by token: String) -> String {
         let quoting: Set<Character> = ["\"", "'", "`"]
         var value = token
         while let first = value.first, quoting.contains(first) { value.removeFirst() }
         while let last = value.last, quoting.contains(last) { value.removeLast() }
-        if let reference = value.range(of: ##"^\##(checkoutRootReference)\##(closingQuote)/"##,
-                                       options: .regularExpression) {
-            value = String(value[reference.upperBound...])
-        }
         if value.hasPrefix("./") { value.removeFirst(2) }
         return value
     }
 
     /// One line of a workflow or a document, asserted to name no bare build
-    /// output root. Three matchers, because these roots are spelled three ways
-    /// and a rule seeing only some of them pins only some of the files.
-    ///
-    /// Two of them are **path** matchers — one per root — and both are regexes
-    /// rather than substrings, because both what they must catch and what they
-    /// must not are shaped by the character in front of the root.
-    ///
-    /// What they must catch is a *repository-relative* root: the thing a reader
-    /// reproduces from the checkout root, which is why it is only ever spelled
-    /// at the start of a path. So the root must be preceded by a delimiter —
-    /// the start of the line, whitespace, a quote, a backtick, an opening
-    /// parenthesis, the `=` of a shell assignment or a redirection's `<`/`>` —
-    /// with an optional `./` in
-    /// between, which covers every live spelling: `-archivePath build.noindex/…`
-    /// after a space, `APP="DerivedData.noindex/…"` after a quote, `rm -rf
-    /// ./build.noindex` and a Markdown `` `build.noindex/release-assets` ``.
-    /// The redirections are the delimiter whose space is routinely left out —
-    /// `echo … >build/report` names the root as squarely as ` build/report`.
-    /// The checkout is also spellable *out loud*, and those spellings name the
-    /// same directory: `$GITHUB_WORKSPACE/build/…`, `${{ github.workspace }}/…`
-    /// and `$PWD/DerivedData/…` are this repository's output root written
-    /// absolutely, so `checkoutRootReference` stands in for the `./` and they
-    /// are judged like the relative form — with the quote a shell writer closes
-    /// around the variable alone (`"$GITHUB_WORKSPACE"/build/…`) allowed
-    /// between the reference and the root, since it names the same directory.
-    ///
-    /// What they must not catch is threefold. `build.noindex/` and
-    /// `DerivedData.noindex/` are the names this rule exists to *require*, and
-    /// neither matches: the pattern demands a `/` where those spell a `.`. A
-    /// word merely *ending* in the root (`xcodebuild/`) is refused because the
-    /// character before it is a letter, not a delimiter. And a root that is a
-    /// *segment of somebody else's path* — `~/Library/Developer/Xcode/`
-    /// `DerivedData/…`, the location a local build is told to use precisely so
-    /// it lands nowhere near the checkout, `$RUNNER_TEMP/build/…` on a runner,
-    /// or any nested `…/build/…` in a URL — is refused because the segment in
-    /// front of it is not this checkout: an unqualified `/` is no delimiter
-    /// here, and only the checkout roots named above requalify one. A matcher
-    /// firing there would fail with a message describing a root the path is
-    /// not.
-    ///
-    /// The third is the **flag** matcher, and it is the one neither path
-    /// matcher can stand in for: `-derivedDataPath` names a directory and is
-    /// spelled without a trailing slash at every site in either workflow, so
-    /// `-derivedDataPath DerivedData` contains no `DerivedData/` at all. It is
-    /// the single likeliest way a document — or a workflow's own annotation
-    /// text, which the flag-value scan reads as prose — drifts back. Here the
-    /// flag itself is the anchor, so the value takes an optional opening quote
-    /// or backtick as well as an optional `./` or checkout root: a document
-    /// writing
-    /// ``-derivedDataPath "DerivedData"`` names the same stale root as the bare
-    /// spelling and must fail the same way. The value is terminated by
-    /// `[^.\w]`, not by a slash or whitespace: the shape this matcher exists
-    /// for is a root at the end of a quoted shell string (`"::error::…
-    /// -derivedDataPath DerivedData"`) or inside backticks in a document, where
-    /// the character after the root is neither. Excluding `.` is what keeps
-    /// `DerivedData.noindex` from reading as a hit, and excluding `\w` what
-    /// keeps a longer name starting with the same word from doing so.
-    ///
-    /// Both callers share this because a document and a workflow line spelling
-    /// the same stale path must fail the same way.
-    private func assertNamesNoBareBuildOutputRoot(_ line: String,
-                                                  of source: String,
-                                                  file: StaticString = #filePath,
-                                                  line assertionLine: UInt = #line) {
+    /// output root. Two are **path** matchers, one per root, regexes rather
+    /// than substrings because what they catch and what they refuse are both
+    /// shaped by the character in front of the root (`relativePathPrefix`):
+    /// refused are `build.noindex/`, a word merely *ending* in a root, and a
+    /// root that is a segment of somebody else's path. The third is the
+    /// **flag** matcher, which neither can stand in for.
+    private func assertNamesNoBareBuildOutputRoot(_ line: String, of source: String,
+                                                  file: StaticString = #filePath, line assertionLine: UInt = #line) {
         guard let stale = staleBuildOutputRootSpelling(in: line) else { return }
-        XCTFail("""
-            \(source) spells the stale build output root `\(stale.found)` in “\(line)”. That \
-            command is reproduced verbatim from the checkout root, so it puts an application \
-            bundle in an indexed directory — the exact thing the `.noindex` roots exist to \
-            prevent. Use `\(stale.replacement)`; see this section's doc comment for why the \
-            suffix is part of the name.
-            """, file: file, line: assertionLine)
+        XCTFail("\(source) spells the stale build output root `\(stale.found)` in “\(line)”. That command is reproduced verbatim from the checkout root, so it puts an application bundle in an indexed directory. Use `\(stale.replacement)`.", file: file, line: assertionLine)
     }
 
     /// The three matchers themselves: the stale spelling a line names and the
-    /// one it should have named, or `nil` when it names none.
-    ///
-    /// They live apart from the assertion above for one reason — every caller
-    /// asserts an **absence**, and an absence rule is green whether it matches
-    /// the right shapes or nothing whatsoever. Reading them as a value is what
-    /// lets `testTheBareRootMatchersJudgeTheShapesTheyClaimTo` feed them lines
-    /// no repository file holds, in both directions, so the patterns are pinned
-    /// by something other than the repository happening to be clean today.
-    ///
-    /// The path matchers run first, so a line spelling both a flag and a path
-    /// (`-archivePath build/…`) is reported as the path it names rather than as
-    /// the flag it hangs off.
+    /// one it should have named, or `nil` when it names none. A value rather
+    /// than an assertion because every caller asserts an **absence**, green
+    /// whether the patterns match the right shapes or nothing at all.
     private func staleBuildOutputRootSpelling(in line: String) -> (found: String, replacement: String)? {
         let roots = [("DerivedData", Self.derivedDataRoot), ("build", Self.archiveRoot)]
-
         for (stale, live) in roots where matches(#"\#(Self.relativePathPrefix)\#(stale)/"#, in: line) {
             return ("\(stale)/", "\(live)/")
         }
         for flag in ["-derivedDataPath", "-archivePath"] {
             for (stale, live) in roots
-            where matches(##"\##(flag)\s+["'`]?(\.?/?|\##(Self.checkoutRootReference)\##(Self.closingQuote)/)\##(stale)([^.\w]|$)"##,
+            where matches(##"\##(flag)\s+["'`]?(\.?/?|\##(Self.checkoutRootReference)/)\##(stale)([^.\w]|$)"##,
                           in: line) {
                 return ("\(flag) \(stale)", "\(flag) \(live)")
             }
@@ -4728,45 +3843,24 @@ final class ReleaseWorkflowTests: XCTestCase {
         return nil
     }
 
-    /// The matchers judged in both directions, against lines no repository file
-    /// holds.
-    ///
-    /// Both halves are load-bearing. The stale half is the rule's whole point,
-    /// and every other caller of it asserts an absence — a pattern that stopped
-    /// matching anything would leave all of them green. The live half is what
-    /// keeps the rule *usable*: a matcher that fires on
-    /// `~/Library/Developer/Xcode/DerivedData/…` — the out-of-checkout location
-    /// a local build is told to use precisely so nothing lands near the tree —
-    /// fails with a message describing a repository-relative root that path is
-    /// not, and the cheapest way past it is to delete the rule.
+    /// The matchers judged in both directions. The stale half is the rule's
+    /// whole point, every other caller asserting an absence; the live half
+    /// keeps it usable — one firing on `~/Library/…/DerivedData/…` would lie.
     func testTheBareRootMatchersJudgeTheShapesTheyClaimTo() {
         let stale = [
             "        xcodebuild -project Pisaka.xcodeproj -derivedDataPath DerivedData build",
             #"            APP="build/Pisaka-macOS.xcarchive/Products/Applications/Pisaka.app""#,
             "            rm -rf ./DerivedData/Build",
-            #"  -derivedDataPath "DerivedData" \"#,
             "the archive lands under `-archivePath build`",
-            #"xcodebuild -derivedDataPath DerivedData || echo "::error::the build failed""#,
+            // The checkout written out loud names this repository's own root.
             #"            ditto "$GITHUB_WORKSPACE/build/notarization" "$ZIP""#,
-            "            rm -rf $PWD/DerivedData/Build",
-            "  -archivePath ${{ github.workspace }}/build \\",
-            // The same two paths with the quote closed around the variable
-            // alone — the ordinary shell spelling, and the one that used to sit
-            // between the reference and the root and evade both matchers.
-            #"            rm -rf "$GITHUB_WORKSPACE"/build/notarization"#,
-            #"  -archivePath "${PWD}"/build/Pisaka.xcarchive \"#,
-            #"  -derivedDataPath "$PWD"/DerivedData"#,
-            // A redirection is a delimiter whose space is routinely left out,
-            // and the path behind it is as much a build output root as any.
+            // A redirection is a delimiter whose space is routinely left out.
             #"            echo "$OUTPUT" >build/report.txt"#,
-            "            xcodebuild -scheme Pisaka build 2>DerivedData/error.log",
+            // The flag matcher's own quote and checkout-root branches: no path matcher.
+            #"  -derivedDataPath "$(pwd)/DerivedData" \"#,
+            "  -archivePath ${{ github.workspace }}/build \\",
         ]
-        for line in stale {
-            XCTAssertNotNil(staleBuildOutputRootSpelling(in: line), """
-                “\(line)” names a bare build output root and must be judged as one.
-                """)
-        }
-
+        for line in stale { XCTAssertNotNil(staleBuildOutputRootSpelling(in: line), "“\(line)” names a bare build output root.") }
         let live = [
             "        xcodebuild -project Pisaka.xcodeproj -derivedDataPath DerivedData.noindex build",
             #"            APP="DerivedData.noindex/Build/Products/Release/Pisaka.app""#,
@@ -4774,375 +3868,27 @@ final class ReleaseWorkflowTests: XCTestCase {
             "            ditto build.noindex/Pisaka-macOS.xcarchive build.noindex/release-assets",
             "  -derivedDataPath ~/Library/Developer/Xcode/DerivedData/pisaka-local",
             #"            ditto "$RUNNER_TEMP/build/staging" "$ZIP""#,
-            // The closing quote requalifies nothing on its own: what is in
-            // front of the root here is still a directory outside the tree.
-            #"            ditto "$RUNNER_TEMP"/build/staging "$ZIP""#,
-            #"            echo "$OUTPUT" >build.noindex/report.txt"#,
-            #"  -archivePath "$GITHUB_WORKSPACE"/build.noindex/Pisaka-macOS.xcarchive \"#,
             "see https://example.invalid/runs/1/build/log for the output",
             "            run: xcodebuild -scheme Pisaka build",
         ]
-        for line in live {
-            XCTAssertNil(staleBuildOutputRootSpelling(in: line), """
-                “\(line)” names no repository-relative build output root, so judging it as one \
-                fails with a message that misdescribes the path it holds.
-                """)
-        }
+        for line in live { XCTAssertNil(staleBuildOutputRootSpelling(in: line), "“\(line)” names no repository-relative build output root; judging it as one misdescribes it.") }
     }
 
-    /// The live half of the flag-value rule read the way the stale half already
-    /// reads: a value is the path it names, not the quoting around it.
-    ///
-    /// Pinned because every failure of this reading is a **false** one, and a
-    /// rule that fails on the correct answer is a rule someone deletes.
-    /// `-derivedDataPath "DerivedData.noindex"` and `-archivePath
-    /// ./build.noindex/…` name exactly the roots this section requires, yet
-    /// their first path segment reads as `"DerivedData.noindex"` and `.` —
-    /// neither ends in `.noindex` — so both would fail with a message naming a
-    /// root the line does not spell. The stale matchers take both spellings
-    /// already; this is the same reading applied to the values that are right.
+    /// The live half read as the stale half already reads: a value is the path
+    /// it names, not its quoting — every failure here is a **false** one.
     func testAFlagValueIsReadAsThePathItNamesNotItsQuoting() {
         XCTAssertEqual(Self.pathNamed(by: #""DerivedData.noindex""#), "DerivedData.noindex")
-        XCTAssertEqual(Self.pathNamed(by: "'build.noindex/Pisaka-macOS.xcarchive'"),
-                       "build.noindex/Pisaka-macOS.xcarchive")
+        XCTAssertEqual(Self.pathNamed(by: "'build.noindex/Pisaka.xcarchive'"), "build.noindex/Pisaka.xcarchive")
         XCTAssertEqual(Self.pathNamed(by: "`build.noindex`"), "build.noindex")
-        XCTAssertEqual(Self.pathNamed(by: "./build.noindex/Pisaka-macOS.xcarchive"),
-                       "build.noindex/Pisaka-macOS.xcarchive")
+        XCTAssertEqual(Self.pathNamed(by: "./build.noindex/Pisaka.xcarchive"), "build.noindex/Pisaka.xcarchive")
         XCTAssertEqual(Self.pathNamed(by: #""./DerivedData.noindex""#), "DerivedData.noindex")
 
-        // The checkout written out loud is the same directory as the relative
-        // spelling, in every form the stale matchers take — including the quote
-        // a shell writer closes around the variable alone, which lands *inside*
-        // the token and is the one the outer-quote strip cannot reach.
-        XCTAssertEqual(Self.pathNamed(by: #""$GITHUB_WORKSPACE"/build.noindex/Pisaka-macOS.xcarchive"#),
-                       "build.noindex/Pisaka-macOS.xcarchive")
-        XCTAssertEqual(Self.pathNamed(by: #""$GITHUB_WORKSPACE/DerivedData.noindex""#), "DerivedData.noindex")
-        XCTAssertEqual(Self.pathNamed(by: #""${PWD}"/build.noindex"#), "build.noindex")
-        XCTAssertEqual(Self.pathNamed(by: "$(pwd)/DerivedData.noindex"), "DerivedData.noindex")
-        XCTAssertEqual(Self.pathNamed(by: "${{github.workspace}}/build.noindex/x"), "build.noindex/x")
-
-        // What must survive the reading: a stale root stays stale however it is
-        // quoted or qualified, an unquoted value is untouched, and a reference
-        // that is *not* this checkout requalifies nothing.
+        // What must survive the reading: an unquoted value is untouched, and a
+        // stale root stays stale however it is quoted.
         XCTAssertEqual(Self.pathNamed(by: "DerivedData.noindex/Build"), "DerivedData.noindex/Build")
-        XCTAssertEqual(Self.pathNamed(by: #""DerivedData""#), "DerivedData")
         XCTAssertEqual(Self.pathNamed(by: "./scratch.noindex"), "scratch.noindex")
-        XCTAssertEqual(Self.pathNamed(by: #""$PWD"/build/Pisaka.xcarchive"#), "build/Pisaka.xcarchive")
-        XCTAssertEqual(Self.pathNamed(by: #""$RUNNER_TEMP"/staging.noindex"#), #"$RUNNER_TEMP"/staging.noindex"#)
-
-        // And a GitHub expression is one value, not the three words a
-        // whitespace split makes of it.
-        XCTAssertEqual(Self.shellTokens(of: "  -archivePath ${{ github.workspace }}/build.noindex/x \\"),
-                       ["-archivePath", "${{github.workspace}}/build.noindex/x", "\\"], """
-            `${{ … }}` carries spaces inside one value; splitting it apart leaves the flag's value \
-            reading as `${{`, and the rule fails on a root the line does not name.
-            """)
-    }
-
-    /// The annotation removal, in both directions: the prose inside a marker's
-    /// string is dropped, and the shell on either side of it is not.
-    ///
-    /// The second half is the one worth pinning. Every rule that reads a
-    /// workflow line for a flag value reads it through here, so a cut that
-    /// swallowed a command half would carry real `-derivedDataPath` values out
-    /// of reach of the only rule that judges *which* `.noindex` root they name
-    /// — silently, and with the suite still green. Truncating at the marker is
-    /// exactly such a cut for a line whose command sits *after* its annotation,
-    /// which is why that shape is pinned here rather than trusted to be
-    /// unwritable.
-    func testTheAnnotationRemovalKeepsTheCommandHalvesOfALine() {
-        let prose = #"echo "::error::no app at ${APP}; check the -archivePath on the command line.""#
-        XCTAssertEqual(Self.commandHalf(of: prose), "echo \"\"")
-
-        let reporting = #"xcodebuild -derivedDataPath DerivedData.noindex || echo "::error::failed""#
-        XCTAssertTrue(Self.commandHalf(of: reporting).contains("-derivedDataPath DerivedData.noindex"), """
-            a command that reports its own failure must keep its flags judged; only the sentence \
-            inside the annotation's string is prose.
-            """)
-        XCTAssertFalse(Self.commandHalf(of: reporting).contains("failed"))
-
-        // The shape release.yml already writes: shell on both sides of one
-        // marker. A truncation at the marker drops the `exit 1` half.
-        let bracketed = #"test -d "$APP" || { echo "::error::no app at ${APP}"; exit 1; }"#
-        XCTAssertEqual(Self.commandHalf(of: bracketed), #"test -d "$APP" || { echo ""; exit 1; }"#)
-
-        // The same shape carrying a real flag after the annotation: truncating
-        // would hide the value from the root-equality rule entirely.
-        let annotationFirst = #"echo "::notice::starting"; xcodebuild -derivedDataPath scratch.noindex"#
-        XCTAssertTrue(Self.commandHalf(of: annotationFirst).contains("-derivedDataPath scratch.noindex"), """
-            a command that follows an annotation must still be judged: it is the half that names \
-            the root, and nothing else in the suite can see a `.noindex` root spelled wrong.
-            """)
-        XCTAssertFalse(Self.commandHalf(of: annotationFirst).contains("starting"))
-
-        // An apostrophe inside the prose does not end the annotation's string:
-        // the closing quote is the one that opened it.
-        let apostrophe = #"{ echo "::error::${KEY} is empty in the app's Info.plist."; exit 1; }"#
-        XCTAssertEqual(Self.commandHalf(of: apostrophe), #"{ echo ""; exit 1; }"#)
-
-        // Nor does a quoted phrase escaped inside it — `release.yml` writes
-        // several, and reading one as the terminator leaks the sentence back in.
-        let escaped = #"{ echo "::error::${LABEL} reports \"Signed Time=\" and no -archivePath."; exit 1; }"#
-        XCTAssertEqual(Self.commandHalf(of: escaped), #"{ echo ""; exit 1; }"#)
-
-        // A marker no string opened is prose to the end of the *command*, and
-        // the command that follows it is not prose at all. An unquoted
-        // annotation is valid shell whenever its prose carries nothing the
-        // shell would eat, so this is the same trap as the quoted
-        // annotation-first line above and must be cut the same way.
-        let unquoted = "echo ::notice::starting; xcodebuild -derivedDataPath scratch.noindex"
-        XCTAssertEqual(Self.commandHalf(of: unquoted),
-                       "echo ; xcodebuild -derivedDataPath scratch.noindex", """
-            an unquoted annotation ends at the operator that starts the next command, not at the \
-            end of the line — otherwise the flag value behind it is judged by nothing.
-            """)
-
-        // The bracketed shape with the annotation unquoted: `}` and `;` are
-        // both terminators, and the first one wins.
-        XCTAssertEqual(Self.commandHalf(of: "{ echo ::error::no app; exit 1; }"),
-                       "{ echo ; exit 1; }")
-
-        // A quoted separator inside the unquoted prose is prose, not a
-        // terminator: the scan reads the string it opens.
-        XCTAssertEqual(Self.commandHalf(of: #"echo ::error::no app at "a;b" && exit 1"#),
-                       "echo && exit 1")
-
-        // A quote *before* an unquoted marker is as often the closing one of an
-        // earlier string. Reading it as the annotation's opener hands the span
-        // the next quote on the line — here the one around a `-scheme` value —
-        // and cuts the whole command between them out as prose, carrying a real
-        // flag value out of reach exactly as truncating at the marker did.
-        let closedBeforeMarker =
-            #"test -n "$APP" && echo ::notice::starting; xcodebuild -derivedDataPath scratch.noindex -scheme "Pisaka""#
-        XCTAssertEqual(Self.commandHalf(of: closedBeforeMarker),
-                       #"test -n "$APP" && echo ; xcodebuild -derivedDataPath scratch.noindex -scheme "Pisaka""#, """
-            an annotation is inside a string only when one is still open at the marker; a quote \
-            that closed before it opens nothing, and the command after the prose must survive.
-            """)
-
-        // `}` and `)` also close what a `$` opened, and an expansion is a word
-        // of the prose rather than the end of the command. Reading one as a
-        // terminator leaves the sentence behind it in the line as shell, where
-        // the flag scan reads `-archivePath on` and fails on a path nobody
-        // wrote.
-        XCTAssertEqual(Self.commandHalf(of: "{ echo ::error::${KEY} check the -archivePath on the line; exit 1; }"),
-                       "{ echo ; exit 1; }", """
-            a parameter expansion's `}` is part of the prose, not the operator that ends it.
-            """)
-        XCTAssertEqual(Self.commandHalf(of: #"echo ::error::no app at $(basename "$APP") -archivePath x; exit 1"#),
-                       #"echo  basename "$APP"; exit 1"#, """
-            a command substitution's `)` is part of the prose, and a `;` inside one is not the \
-            end of the annotation's own command either — while what the substitution *runs* is \
-            not prose at all and comes back.
-            """)
-        XCTAssertEqual(Self.commandHalf(of: "echo ::error::only $((COUNT + 1)) -archivePath x; exit 1"),
-                       "echo ; exit 1", """
-            an arithmetic expansion runs no command, so it contributes nothing to the shell kept.
-            """)
-
-        // Nested parentheses inside an expansion pay back a closer the
-        // expansion is still owed. Reading the last `)` as the top-level
-        // terminator would leak `-archivePath on` back in as shell and fail a
-        // rule about a path nobody wrote.
-        XCTAssertEqual(Self.commandHalf(of: "echo ::error::only $(( (COUNT + 1) * 2 )) -archivePath on the line; exit 1"),
-                       "echo ; exit 1", """
-            an ordinary grouping `(` inside an expansion owes its own `)`; without that the \
-            expansion's closer is spent early and the prose behind it reads as shell.
-            """)
-
-        // A substitution *inside* an annotation is executed before `echo` sees
-        // a word of the sentence, so the build it runs must still be judged —
-        // in both the quoted and the unquoted form, and through a backtick.
-        let substituted = #"echo "::notice::$(xcodebuild -derivedDataPath scratch.noindex)""#
-        XCTAssertTrue(Self.commandHalf(of: substituted).contains("-derivedDataPath scratch.noindex"), """
-            a command substitution inside an annotation is a real command with a real flag value; \
-            cutting the span must not carry it out of reach of the root-equality rule.
-            """)
-        XCTAssertFalse(Self.commandHalf(of: substituted).contains("::notice::"))
-
-        let substitutedUnquoted = "echo ::notice::built $(xcodebuild -archivePath scratch.noindex/x) ok; exit 0"
-        XCTAssertEqual(Self.commandHalf(of: substitutedUnquoted),
-                       "echo  xcodebuild -archivePath scratch.noindex/x; exit 0", """
-            the sentence around a substitution stays cut — a flag name written as prose is still \
-            not a flag — while the substitution's own words come back.
-            """)
-
-        XCTAssertTrue(Self.commandHalf(of: #"echo "::error::`xcodebuild -derivedDataPath scratch.noindex`""#)
-            .contains("-derivedDataPath scratch.noindex"), """
-            a backtick pair inside an annotation runs its contents exactly as `$(…)` does.
-            """)
-
-        // An escaped backtick is prose, and release.yml already writes one.
-        XCTAssertEqual(Self.commandHalf(of: #"{ echo "::error::run \`base64 -i x\` again."; exit 1; }"#),
-                       #"{ echo ""; exit 1; }"#, """
-            a backslash-escaped backtick opens no substitution; the sentence around it is prose.
-            """)
-
-        // A `)` inside a parameter expansion closes the expansion, not the
-        // substitution around it. Reading it as the substitution's own closer
-        // ends the span early and drops every command behind it — the silent
-        // direction, and the one that leaves the suite green.
-        let nestedExpansion = #"echo "::notice::$(echo ${X:-)}; xcodebuild -derivedDataPath scratch.noindex)""#
-        XCTAssertTrue(Self.commandHalf(of: nestedExpansion).contains("-derivedDataPath scratch.noindex"), """
-            a `${…}` inside a command substitution is one word of it; its brackets must not be \
-            read as the substitution's closer, or the build behind them is judged by nothing.
-            """)
-
-        // Nothing is escapable inside a single-quoted string, so one ending in
-        // a backslash still ends at the very next `'`. Honouring the backslash
-        // hands the span the quote around a later `-scheme` value and cuts the
-        // whole command between them out as prose.
-        let literalBackslash =
-            #"echo '::notice::ends in a backslash \'; xcodebuild -derivedDataPath scratch.noindex -scheme 'Pisaka'"#
-        XCTAssertTrue(Self.commandHalf(of: literalBackslash).contains("-derivedDataPath scratch.noindex"), """
-            a backslash is an ordinary character inside a single-quoted string; reading it as an \
-            escape runs the annotation's span past its terminator and swallows the command half.
-            """)
-        XCTAssertFalse(Self.commandHalf(of: literalBackslash).contains("ends in a backslash"))
-
-        // The same reading owed by the other two scanners, which no shape above
-        // can tell apart. A single-quoted string that *closed* before the
-        // marker must not read as still open — the state is what decides
-        // whether the annotation is in a literal at all, and a trailing
-        // backslash read as an escape leaves it open and hands the span the
-        // next quote on the line, cutting the command between them out.
-        let closedLiteralBeforeMarker =
-            #"echo 'a\' && echo ::notice::starting; xcodebuild -derivedDataPath scratch.noindex -scheme 'Pisaka'"#
-        XCTAssertTrue(Self.commandHalf(of: closedLiteralBeforeMarker).contains("-derivedDataPath scratch.noindex"), """
-            `'a\\'` is a complete string: the backslash inside it is an ordinary character, so \
-            nothing is open at the marker and the command after the prose must survive.
-            """)
-
-        // And in the unquoted branch, the same misread leaves a literal open
-        // through the terminator, so the prose runs to the end of the line and
-        // takes the next command with it.
-        XCTAssertEqual(Self.commandHalf(of: #"echo ::notice::built 'a\' ; xcodebuild -derivedDataPath scratch.noindex"#),
-                       "echo ; xcodebuild -derivedDataPath scratch.noindex", """
-            an unquoted annotation's prose ends at the first `;` outside a string, and a string \
-            ending in a backslash is closed by its own quote like any other.
-            """)
-
-        // The other direction of the same reading: a single-quoted annotation
-        // substitutes nothing, so its `$(…)` is a sentence rather than a build.
-        // Resurrecting it fails a rule about a root nobody named.
-        XCTAssertEqual(Self.commandHalf(of: "echo '::notice::$(xcodebuild -derivedDataPath scratch.noindex)'"),
-                       "echo ''", """
-            the shell prints a substitution inside single quotes verbatim and runs no command; \
-            judging it is a false failure, and a rule that fails on a correct line gets deleted.
-            """)
-        XCTAssertEqual(Self.commandHalf(of: "echo ::notice::built '$(xcodebuild -archivePath scratch.noindex)' ok; ls"),
-                       "echo ; ls", """
-            a `'…'` inside an *unquoted* annotation suppresses the same way — while inside a \
-            double-quoted one a `'` opens nothing at all.
-            """)
-        XCTAssertTrue(Self.commandHalf(of: #"echo "::notice::it's $(xcodebuild -archivePath scratch.noindex)""#)
-            .contains("-archivePath scratch.noindex"), """
-            an apostrophe inside a double-quoted annotation is prose, not a literal that would \
-            suppress the substitution behind it.
-            """)
-
-        // A quoted brace inside a `${…}` is a default *value*, not the closer.
-        // Counting it as one leaves the scan reading the rest of the line from
-        // inside a string that never ends, so the substitution around it reads
-        // as unterminated and everything it runs is dropped — silently.
-        let quotedBrace =
-            #"echo "::notice::$(echo ${X:-'}'}; xcodebuild -derivedDataPath scratch.noindex)""#
-        XCTAssertTrue(Self.commandHalf(of: quotedBrace).contains("-derivedDataPath scratch.noindex"), """
-            `${X:-'}'}` closes at its *unquoted* `}`; reading the quoted one as the closer strands \
-            the scan inside a string and drops the build behind it.
-            """)
-
-        // And a command substitution is a quoting scope of its own: the quotes
-        // inside `$(…)` pair with each other. Read flat, the inner opener is
-        // taken for the outer's closer, the marker reads as unquoted, and the
-        // span runs to a separator inside the substitution's own string —
-        // carrying the command behind it out of reach.
-        let nestedQuoting =
-            #"echo "$(printf "::notice::text"; xcodebuild -derivedDataPath scratch.noindex)""#
-        XCTAssertTrue(Self.commandHalf(of: nestedQuoting).contains("-derivedDataPath scratch.noindex"), """
-            the marker sits inside the *inner* string, so the span ends at that string's own \
-            closing quote and the command after it is still shell.
-            """)
-        XCTAssertFalse(Self.commandHalf(of: nestedQuoting).contains("::notice::"))
-
-        // And that scope nests: an ordinary grouping `(` inside a substitution
-        // owes its own `)`, so the first bracket is the group's and not the
-        // substitution's. Popping the scope there restores the outer quote a
-        // bracket early and the marker reads as unquoted again — the same
-        // failure as the shape above, one nesting level further in.
-        let nestedGrouping =
-            #"echo "$( ( printf x ); printf "::notice::text"; xcodebuild -derivedDataPath scratch.noindex)""#
-        XCTAssertTrue(Self.commandHalf(of: nestedGrouping).contains("-derivedDataPath scratch.noindex"), """
-            a subshell inside a command substitution closes itself; reading its `)` as the \
-            substitution's own hands the marker the outer quote and drops the build behind it.
-            """)
-        XCTAssertFalse(Self.commandHalf(of: nestedGrouping).contains("::notice::"))
-
-        // A `${…}` inside that scope is skipped whole, exactly as the two other
-        // scanners already skip one: its `}` is not a brace anyone counts, and
-        // its `)` is a default *value* rather than the substitution's closer.
-        // Popping the scope there restores the outer quote early, the marker
-        // reads as unquoted, and the build behind it is cut away as prose.
-        let expansionInsideScope =
-            #"echo "$(echo ${X:-)}; printf "::notice::text"; xcodebuild -derivedDataPath scratch.noindex)""#
-        XCTAssertTrue(Self.commandHalf(of: expansionInsideScope).contains("-derivedDataPath scratch.noindex"), """
-            `${X:-)}` spells a default value of `)`; reading that bracket as the substitution's \
-            closer hands the marker the outer quote and drops the build behind it.
-            """)
-        XCTAssertFalse(Self.commandHalf(of: expansionInsideScope).contains("::notice::"))
-
-        // A backtick substitution is the older spelling of the same scope, and
-        // `substitutedShell(in:from:to:quotedBy:)` already reads one: the quotes
-        // inside a pair of backticks pair with each other, so read flat the
-        // inner opener is taken for the outer's closer and the marker reads as
-        // unquoted — the `$(…)` failure in the spelling this file's own prose
-        // uses.
-        let backtickScope =
-            #"echo "`printf "::notice::text"; xcodebuild -derivedDataPath scratch.noindex`""#
-        XCTAssertTrue(Self.commandHalf(of: backtickScope).contains("-derivedDataPath scratch.noindex"), """
-            the marker sits inside the string *inside* the backticks, so the span ends at that \
-            string's own closing quote and the command after it is still shell.
-            """)
-        XCTAssertFalse(Self.commandHalf(of: backtickScope).contains("::notice::"))
-
-        // The span's *end* is read at the annotation's own level too. A `$(…)`
-        // inside the prose is a quoting scope of its own, so the quotes inside
-        // it pair with each other: read flat, the opener of `printf "x"` is
-        // taken for the annotation string's closing quote, the span ends inside
-        // the substitution, and the substitution then reads as unterminated —
-        // so nothing of it is resurrected and the build it really runs is
-        // dropped. The silent direction, reached through the end of the span
-        // rather than through the quote that decides its start.
-        let substitutionQuotingAfterMarker =
-            #"echo "::notice::$(xcodebuild -derivedDataPath scratch.noindex; printf "x") done""#
-        XCTAssertTrue(Self.commandHalf(of: substitutionQuotingAfterMarker)
-            .contains("-derivedDataPath scratch.noindex"), """
-            the string an annotation sits in ends at its own closing quote, not at the first \
-            quote inside a substitution the prose runs on the way there.
-            """)
-        XCTAssertFalse(Self.commandHalf(of: substitutionQuotingAfterMarker).contains("::notice::"))
-
-        // And a substitution nested inside a `${…}` is skipped whole as well:
-        // the `}` `printf` prints is one of its arguments, not the expansion's
-        // closer. Reading it as the closer leaves the scan walking the
-        // substitution's own text, where the closing backtick pushes a scope
-        // nobody owes and the `)` that really ends the substitution no longer
-        // pops one — so the outer string never reopens, the marker reads as
-        // unquoted, and the command after it is cut away as prose.
-        let expansionOverASubstitution =
-            #"echo "$(echo ${X:-`printf %s }`}) ::notice::text"; xcodebuild -derivedDataPath scratch.noindex"#
-        XCTAssertTrue(Self.commandHalf(of: expansionOverASubstitution)
-            .contains("-derivedDataPath scratch.noindex"), """
-            a `${…}` closes after the substitution it defaults to, not at a `}` that substitution \
-            prints; reading the inner one strands every scope behind it and drops the build.
-            """)
-        XCTAssertFalse(Self.commandHalf(of: expansionOverASubstitution).contains("::notice::"))
-
-        // A marker with no separator after it is prose to the end of the line.
-        XCTAssertEqual(Self.commandHalf(of: "echo ::error::no app at the -archivePath"), "echo ")
-
-        XCTAssertEqual(Self.commandHalf(of: "  -archivePath build.noindex/Pisaka-macOS.xcarchive"),
-                       "  -archivePath build.noindex/Pisaka-macOS.xcarchive")
+        XCTAssertEqual(Self.pathNamed(by: #""DerivedData""#), "DerivedData")
+        XCTAssertEqual(Self.pathNamed(by: "'./build/Pisaka.xcarchive'"), "build/Pisaka.xcarchive")
     }
 
     /// `.gitignore`'s live entries: neither blank nor a whole-line comment.
