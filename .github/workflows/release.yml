@@ -857,7 +857,10 @@ jobs:
           trap restore_defaults EXIT
           # Seed a restorable session so the launch lays out a real document.
           # What the seeded launch proves is what any launch here proves: the
-          # process was alive at the deadline and wrote no crash report. The
+          # process was alive at the deadline. Nothing more — the crash-report
+          # harvest below runs only on the death path, so a report is evidence
+          # collected when the launch has already failed, never part of the
+          # success criterion. The
           # seeding adds no assertion of its own — it hands the app a session so
           # the launch exercises the layout path with a real document instead of
           # an empty window. Nothing here reads the restore back, and

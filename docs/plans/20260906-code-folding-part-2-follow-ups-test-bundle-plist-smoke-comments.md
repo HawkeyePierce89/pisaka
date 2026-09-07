@@ -420,5 +420,8 @@ Dependencies: none. No new files.
   comment. The untrue clause is gone everywhere: `grep -n "which is exactly why
   the part 1 crash passed CI" docs/RELEASING.md .github/workflows/*.yml
   Tests/PisakaCoreTests/ReleaseWorkflowTests.swift` exits 1. And `grep -rn
-  "smoke" docs/architecture/ CLAUDE.md README.md` still returns nothing, so no
-  other architecture doc claims the smoke launch catches the part 1 crash.
+  "smoke" docs/architecture/ CLAUDE.md README.md` returns two hits, both in
+  `docs/architecture/core-folding.md` (lines 42 and 45, added by this branch's
+  own review-fix commit) and both saying the opposite of the removed claim: that
+  the crash passed CI and that the seeded launch does *not* catch it. No
+  architecture doc claims the smoke launch catches the part 1 crash.

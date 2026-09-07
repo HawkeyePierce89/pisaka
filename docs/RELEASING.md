@@ -701,7 +701,10 @@ The workflow then, in order:
     (`FoldingTypesetter.init()` reached through a re-entrant layout pass): with
     that fix stashed the seeded launch survived, so a regression of that class
     is caught by the `PisakaAppTests` bundle — three of its tests trapped before
-    the fix — and never by this step. The seeding is kept anyway because a
+    the fix — and never by this step. That bundle is `ci.yml`'s gate, on pull
+    request and push to `master`; this workflow's own test job runs `swift test`
+    alone, so the release pipeline inherits the net only by the tag being cut
+    from a commit CI already passed. The seeding is kept anyway because a
     launch with no document proves strictly less, not because it proves that
     crash: the step first backs up the domain (`defaults export
     ws.karmanov.pisaka`) and seeds a restorable session — a `SessionCatalog`

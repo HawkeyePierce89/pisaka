@@ -262,11 +262,21 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     (`2` followed by `9`); *Fold All* and *Unfold All* both did what they say; a
     click on the `…` reopened the block with the caret at the block's start; and a
     fold survived switching to another tab and back. **What is still unverified**,
-    by name, so a later pass knows what it owes: the placeholder at two zoom
-    levels; caret behaviour at both boundaries of a folded range by arrow key; the
-    light appearance; server-sourced regions; the severity dot on a folded header;
-    the reveal funnel end to end; an autosave landing inside a folded block; a
-    branch switch; and a relaunch.
+    by name, so a later pass knows what it owes: no clipped glyph at the
+    placeholder; the placeholder at two zoom levels; caret behaviour at both
+    boundaries of a folded range by arrow key, a click on a hidden row being
+    impossible, and shift-selecting across a folded block so a copy yields the
+    full text; gutter numbers never overlapping, the blame column and diagnostic
+    markers following them, and a fold near the end of a file; the severity dot on
+    a folded header; the light appearance, and switching appearance while a block
+    is folded; server-sourced regions, and the indentation chevrons an unserved
+    language shows; closing a file and reopening it in the same run; a branch
+    switch; an autosave landing inside a folded block; a relaunch; the reveal
+    funnel end to end; and the one non-reveal scroll left in place — Tab under
+    `indent_style = space` on a scrolled-away caret. The authority for what the
+    pass owes stays the eight numbered items in the part 1 plan's
+    *Post-Completion: mandatory manual DEBUG pass*; this list is that pass minus
+    what the paragraph above records as seen.
     Both halves read one `FoldedRanges` — a small
     reference box holding the sorted, non-overlapping set `FoldState.hiddenRanges`
     hands over. It exists because the layout manager is `@MainActor` and the

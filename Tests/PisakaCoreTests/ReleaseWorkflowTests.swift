@@ -3553,8 +3553,10 @@ final class ReleaseWorkflowTests: XCTestCase {
     /// and back the domain up so a hand-run does not clobber the real one.
     ///
     /// What the seeded launch proves is what any launch here proves: the
-    /// process was alive at the deadline and wrote no crash report. The
-    /// seeding adds no assertion of its own — it hands the app a session so
+    /// process was alive at the deadline, and nothing more — the step's
+    /// crash-report harvest runs only on the death path, so a report is
+    /// evidence collected once the launch has already failed rather than part
+    /// of the success criterion. The seeding adds no assertion of its own — it hands the app a session so
     /// the launch exercises the layout path with a real document instead of an
     /// empty window; nothing reads the restore back, and EditorSession decodes
     /// the blob under `try?`. What it was measured *not* to prove: with the

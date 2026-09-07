@@ -253,10 +253,20 @@ final class ReleaseMetadataTests: XCTestCase {
                 """)
         }
 
-        assertDeclares("INFOPLIST_FILE: Resources/Info.plist",
-                       "Resources/Info.plist as the partial Info.plist")
-        assertDeclares("GENERATE_INFOPLIST_FILE: YES",
-                       "generated Info.plist keys (the partial plist is merged into them, not a replacement)")
+        // Matched as the *two-line pair* they are, and for the reason the pair
+        // below is: `GENERATE_INFOPLIST_FILE: YES` is no longer unique in the
+        // file — PisakaAppTests carries its own copy, so a bare one-line needle
+        // would be satisfied by the test bundle's line and stay green with the
+        // application target's deleted. `INFOPLIST_FILE` is what only this
+        // target declares, so anchoring the two together is what keeps the
+        // match specific to the app. (The test bundle's copy is pinned the
+        // mirror-image way, against TEST_HOST/BUNDLE_LOADER, in
+        // `testProjectDeclaresTheAppLayerTestTarget`.)
+        assertDeclares("""
+            GENERATE_INFOPLIST_FILE: YES
+            INFOPLIST_FILE: Resources/Info.plist
+            """,
+                       "Resources/Info.plist as the partial Info.plist merged into the generated keys")
         // Both resource entries are matched as the *two-line pair* they are,
         // indentation included, rather than line by line. A bare
         // `project.contains("type: folder")` would be satisfied by any folder
