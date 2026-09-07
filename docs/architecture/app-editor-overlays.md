@@ -248,9 +248,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     fragment, (c) fragment count drops from 5 to 2 (baseline minus hidden-separator
     count), and (d) unfolding restores 5. With the typesetter half neutralised
     (a harness-local replacement of the manager's `typesetter` with a plain
-    `NSATSTypesetter` after `setFoldedRanges`), (a) still passes but (c) fails —
-    fragments are 3 not 2, the visible newline after the block occupies its own
-    fragment as a blank row — confirming half two is load-bearing. The `insert`
+    `NSATSTypesetter` after `setFoldedRanges`), (a) and (b) still pass — the null
+    glyphs alone pull the visible closer onto the header's row — but (c) fails:
+    fragments are 3 not 2, the visible newline after the block occupying its own
+    fragment as a blank row. (c) is therefore the assertion that names half two
+    as load-bearing; (b) does not discriminate the two halves. The `insert`
     preserving `.controlCharacter` is what keeps it reachable: an assignment would
     strip that bit and silence half two by construction. Both halves stay, and
     `FoldingSourceGatingTests` pins them in this one file.

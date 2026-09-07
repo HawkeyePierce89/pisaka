@@ -108,7 +108,7 @@ jobs:
       # — not that any window appeared or that the UI behaves. Everything the
       # launched app does is inert to it: the Release-only Sparkle updater
       # starting and polling github.com, its first-launch permission prompt,
-      # session restore finding no session.
+      # and the document restored from the session this step seeds below.
       #
       # The success path is being killed at the deadline. The app exiting on its
       # own is a refusal *whatever its status*, because a clean `exit 0` seconds
