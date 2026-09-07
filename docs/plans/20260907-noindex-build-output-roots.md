@@ -230,27 +230,27 @@ authority's rule configuration, and never has pinned `excluded:`.
 - Modify: `docs/RELEASING.md`
 - Modify: `docs/architecture/core-services.md`
 
-- [ ] `CLAUDE.md`'s Commands section: the release archive command's
+- [x] `CLAUDE.md`'s Commands section: the release archive command's
       `-archivePath` becomes `build.noindex/Pisaka-macOS.xcarchive`. Nothing
       else in the surrounding comment changes.
-- [ ] `docs/RELEASING.md`: the local archive repro command, the archive product
+- [x] `docs/RELEASING.md`: the local archive repro command, the archive product
       path, the two DerivedData-Release-product mentions and the
       `build.noindex/release-assets/Pisaka-${VERSION}.zip` chain (the staging
       prose and the cask-hash prose) all follow. Add the rationale in one place
       — a short note where the reader first meets the name, at the local archive
       repro command — saying why the two roots carry the suffix and that the pin
       lives in `ReleaseWorkflowTests`. Do not restate it at the other sites.
-- [ ] `docs/architecture/core-services.md`: the required-reason-API audit's
+- [x] `docs/architecture/core-services.md`: the required-reason-API audit's
       `find` and `nm -u` command lines read out of `DerivedData.noindex/…`; the
       smoke-launch prose naming the DerivedData Release product follows.
-- [ ] Re-grep `docs/architecture/style-lint.md` for the excluded-directory names
+- [x] Re-grep `docs/architecture/style-lint.md` for the excluded-directory names
       to confirm it still names none (it does today); update it only if the grep
       says otherwise.
-- [ ] Leave `Tests/PisakaCoreTests/DependencyPinTests.swift`'s doc comment as it
+- [x] Leave `Tests/PisakaCoreTests/DependencyPinTests.swift`'s doc comment as it
       is — it describes Xcode's own DerivedData under `~/Library`, a different
       directory — and leave `docs/plans/completed/**` as the historical record it
       is.
-- [ ] Run `swift test` — must pass before Task 4.
+- [x] Run `swift test` — must pass before Task 4.
 
 ### Task 4: Verify acceptance criteria
 

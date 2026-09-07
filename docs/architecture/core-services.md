@@ -690,9 +690,10 @@ run in `swift test` rather than needing an Xcode build.
     **Required-reason API audit.** The unit of audit is the **linked binary**,
     not `Sources/`: libgit2 and every tree-sitter grammar compile from C source
     *into* the app, and none of the 21 dependencies ships a
-    `PrivacyInfo.xcprivacy` of its own (`find DerivedData/SourcePackages/checkouts
-    -name '*.xcprivacy'` returns nothing — **but that path alone is now
-    incomplete**: Sparkle is a SwiftPM `binaryTarget`, so it lands in
+    `PrivacyInfo.xcprivacy` of its own (`find
+    DerivedData.noindex/SourcePackages/checkouts -name '*.xcprivacy'` returns
+    nothing — **but that path alone is now incomplete**: Sparkle is a SwiftPM
+    `binaryTarget`, so it lands in
     `SourcePackages/artifacts/`, not `checkouts/`, and the `find` above would
     miss it. Scan both. Checked by hand: the shipped `Sparkle.framework` carries
     no `.xcprivacy` either; the build would surface one if it ever
@@ -705,7 +706,7 @@ run in `swift test` rather than needing an Xcode build.
     over `Sources/` **plus** a symbol check on the built binary:
 
     ```sh
-    nm -u DerivedData/Build/Products/Debug-iphoneos/Pisaka.app/Pisaka.debug.dylib \
+    nm -u DerivedData.noindex/Build/Products/Debug-iphoneos/Pisaka.app/Pisaka.debug.dylib \
       | grep -E '_(stat|lstat|fstat|fstatat|statfs|statvfs|fstatfs|getattrlist|getattrlistat|fgetattrlist|getattrlistbulk|mach_absolute_time|sysctl)$'
     ```
 
@@ -943,8 +944,9 @@ byte-level — `swift test` compiles Core and reads repository files, CI builds 
 app, the release workflow reads signatures, plist keys and a notary verdict back
 off the archive — and a dynamic-link failure is invisible to all of them. So the
 two workflows that build the shipping configuration now **run the product**:
-`ci.yml`'s macOS job launches the DerivedData Release app, and `release.yml`
-launches the archived app after the re-sign and before the notary submission.
+`ci.yml`'s macOS job launches the `DerivedData.noindex` Release app, and
+`release.yml` launches the archived app after the re-sign and before the notary
+submission.
 Both use the same script (identical apart from `APP=`, which
 `ReleaseWorkflowTests` asserts): background-launch, poll with `kill -0` for five
 seconds, kill it. Being killed is the pass; the process going away on its own is

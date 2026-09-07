@@ -944,7 +944,7 @@ xcodebuild -project Pisaka.xcodeproj -scheme Pisaka \
 # no identity on purpose — the release workflow passes all of them (and the
 # hardened runtime) on its own command line. See docs/RELEASING.md.
 xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'generic/platform=macOS' \
-  -archivePath build/Pisaka-macOS.xcarchive CURRENT_PROJECT_VERSION=<n> archive
+  -archivePath build.noindex/Pisaka-macOS.xcarchive CURRENT_PROJECT_VERSION=<n> archive
 ```
 
 CI (`.github/workflows/ci.yml`) runs these same gates on every pull request and

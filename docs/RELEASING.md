@@ -85,10 +85,21 @@ unsigned command below is the build-number mechanism, verified end to end.
 xcodegen generate
 xcodebuild -project Pisaka.xcodeproj -scheme Pisaka \
   -destination 'generic/platform=macOS' \
-  -archivePath build/Pisaka-macOS.xcarchive \
+  -archivePath build.noindex/Pisaka-macOS.xcarchive \
   CURRENT_PROJECT_VERSION=7 \
   archive
 ```
+
+**Why `build.noindex`, and why `DerivedData.noindex` beside it.** Both workflows
+spell their output roots *relatively*, so a verbatim local reproduction of any
+documented command — this one included — writes them into the checkout root.
+An application bundle is surfaced by name from any indexed directory, and a
+directory whose name ends in `.noindex` is skipped by the metadata importer
+wherever it lives: that suffix is the one name-level opt-out, which is why it is
+part of the names themselves rather than of any one command. The rule is pinned
+by `ReleaseWorkflowTests` (`// MARK: - The build output roots`), which reads
+both workflows, `.gitignore` and `.swiftlint.yml`; the sites below simply follow
+the names. Do not restate the reason at each of them.
 
 Rules for the value:
 
@@ -593,7 +604,7 @@ The workflow then, in order:
     that run never reached the publish step there was no draft release to delete
     first.
   - The app is taken straight from
-    `build/Pisaka-macOS.xcarchive/Products/Applications/Pisaka.app` — no
+    `build.noindex/Pisaka-macOS.xcarchive/Products/Applications/Pisaka.app` — no
     `-exportArchive`. That is a choice rather than a limitation now: by the time
     this step runs the app already carries the shipping Developer ID signature
     and the hardened runtime — the archive's, replaced in place by the re-sign
@@ -732,9 +743,9 @@ The workflow then, in order:
     afterwards and is the standing proof.
 
     An identical script — identical to the line, apart from `APP=`, which
-    `ReleaseWorkflowTests` asserts — runs in `ci.yml` against the DerivedData
-    Release product, so the same failure is caught on a pull request rather than
-    on a tag. Why the step exists at all is
+    `ReleaseWorkflowTests` asserts — runs in `ci.yml` against the
+    `DerivedData.noindex` Release product, so the same failure is caught on a
+    pull request rather than on a tag. Why the step exists at all is
     [the `v1.0` launch crash](#the-v10-launch-crash-and-why-every-gate-missed-it)
     below.
   - **Notarize**, then **staple** — the two steps described in
@@ -783,7 +794,7 @@ The workflow then, in order:
     this workflow (it carries no `if:` and no `continue-on-error:`):
 
     1. **Version and hash.** `VERSION` is the tag with its `v` stripped, and the
-       zip is `build/release-assets/Pisaka-${VERSION}.zip` — **the exact file
+       zip is `build.noindex/release-assets/Pisaka-${VERSION}.zip` — **the exact file
        `gh release create` uploaded**, still on the runner, not a re-made
        archive. Its absence is a refusal: `ditto` is not bit-reproducible, so a
        hash taken from a second archive of the same app is a checksum no
@@ -999,7 +1010,7 @@ assertion pair — the `-z` guard reaching `exit 1`, and the `env:` mapping
 present verbatim — kept separate from the five Apple secrets, whose failure text
 is about signing and notarization and would be the wrong message here. `testTheCaskBumpIsSurgicalAndSelfChecking` pins the step
 itself: the version derived from `GITHUB_REF_NAME` rather than restated, the
-hash taken over the literal `build/release-assets/Pisaka-${VERSION}.zip` with
+hash taken over the literal `build.noindex/release-assets/Pisaka-${VERSION}.zip` with
 `shasum -a 256` and `awk '{print $1}'` (the digest is the first field;
 carrying `shasum`'s trailing path into the substitution puts slashes in the
 `sed` replacement and in the cask's own `sha256` line), the full `git@` clone
@@ -1096,8 +1107,9 @@ asked the only question a user asks first.
 
 **The smoke launch is the structural answer**, and it is deliberately structural
 rather than a check for this one message: it runs the product in both places that
-build the shipping configuration (`ci.yml` against the DerivedData Release
-product, `release.yml` against the archived app before the submission) and
+build the shipping configuration (`ci.yml` against the `DerivedData.noindex`
+Release product, `release.yml` against the archived app before the submission)
+and
 refuses if the process is not still alive five seconds later — so it catches
 more than an unresolved `@rpath`, but only a startup crash that *reproduces
 under a five-second headless launch*. That is not every startup crash: the part
