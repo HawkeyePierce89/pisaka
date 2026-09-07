@@ -217,15 +217,15 @@ rather than parsed for.
 
 ### Task 6: Verify acceptance criteria
 
-- [ ] `swift test` — full Core suite green.
-- [ ] `swiftlint --strict` from the repository root — clean.
-- [ ] `xcodegen generate`.
-- [ ] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' build`
+- [x] `swift test` — full Core suite green.
+- [x] `swiftlint --strict` from the repository root — clean.
+- [x] `xcodegen generate`.
+- [x] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' build`
       (derived data outside the repository root, per the local-build convention).
-- [ ] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build`.
-- [ ] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' test`
+- [x] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build`.
+- [x] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' test`
       — the app-layer bundle.
-- [ ] Re-confirm the section line count after any late edit.
+- [x] Re-confirm the section line count after any late edit.
 
 ### Task 7: Update documentation
 
@@ -277,3 +277,22 @@ is clean, and the re-run is **66 tests, 0 failures**.
 **Smoke launches untouched** — `testTheTwoSmokeLaunchesAreTheSameCheck` passes, and
 `git diff master...HEAD -- .github/workflows/release.yml` is the single reworded `::error::`
 prose line at 509 (`-archivePath` → `archive path`) and nothing else.
+
+**Task 6 acceptance run** — every gate executed on the branch tip, tree clean:
+
+- `swift test` — **5 283 tests, 0 failures**.
+- `swiftlint --strict` from the repository root — **0 violations, 0 serious in 517 files**.
+- `xcodegen generate` — project written.
+- `xcodebuild … -destination 'platform=macOS' build` — **BUILD SUCCEEDED**.
+- `xcodebuild … -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build` — **BUILD
+  SUCCEEDED**.
+- `xcodebuild … -destination 'platform=macOS' test` — **TEST SUCCEEDED**, the
+  `PisakaAppTests` bundle at 15 tests, 0 failures. The first invocation died with "The
+  test runner hung before establishing connection" and **zero tests run** — a host-launch
+  failure, not an assertion: the app binary launched and stayed up when run directly, the
+  branch touches no file under `Sources/`, `Tests/PisakaAppTests/` or `project.yml`, and a
+  retry after clearing stray host processes was green.
+- Section line count re-measured after the run: **250**, unchanged and at the gate.
+
+All local builds used derived data outside the repository root
+(`~/Library/Developer/Xcode/DerivedData/pisaka-verify{,-ios}`).
