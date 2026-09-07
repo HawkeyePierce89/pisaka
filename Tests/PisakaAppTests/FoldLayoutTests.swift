@@ -159,18 +159,19 @@ final class FoldLayoutTests: XCTestCase {
         harness.layOut()
         let baselineFragments = fragmentCount(harness.layoutManager)
 
-        // Built the way FoldRegionScanner and LSPIntelligenceProvider build it:
-        // end of the header line's content through end of the closer line's
-        // content — asked of FoldRegion rather than hard-coded, so a change to
-        // the endpoint rule reaches this test.
-        let headerLine = 0
-        let headerRange = content.lineRange(for: NSRange(location: 0, length: 0))
-        let closerRange = content.lineRange(for: content.range(of: "}"))
-        let start = NSMaxRange(headerRange) - 1
-        let end = NSMaxRange(closerRange) - 1
-        guard let region = FoldRegion(hiddenRange: NSRange(location: start, length: end - start),
-                                      headerLine: headerLine) else {
-            XCTFail("producer-shaped region should be constructible")
+        // Asked of a producer rather than restated here: `FoldRegionScanner` is
+        // the fallback answer, and its endpoint rule (end of the header line's
+        // content through end of the last line's content) is the same one
+        // `LSPIntelligenceProvider` applies to a server's answer. Re-deriving
+        // the bounds in this file would pin a copy of the rule instead of the
+        // rule, so a change to it would leave this test green while laying out
+        // a shape nothing emits. The literal below is the cross-check, not the
+        // source. (`FoldRegion.init` owns no endpoint rule — it only refuses an
+        // empty or negative range — so constructing one by hand proves nothing.)
+        let widths = IndentLevelWidths(unitWidth: 4, tabWidth: 4)
+        let regions = FoldRegionScanner.scan(text: content, widths: widths)
+        guard let region = regions.first(where: { $0.headerLine == 0 }) else {
+            XCTFail("the scanner should propose a region on the header line")
             return
         }
         let hidden = region.hiddenRange

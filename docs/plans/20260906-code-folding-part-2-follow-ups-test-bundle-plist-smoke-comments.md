@@ -278,7 +278,14 @@ Dependencies: none. No new files.
       command that works. Add nothing about the plist unless the Tests section's
       description of `ReleaseMetadataTests`' pinned inventory would otherwise be
       wrong; if it would, extend that one sentence and nothing else.
+      *(Amended on review: the Commands section's `xcodebuild` spelling and the
+      CI paragraph's description of the macOS job were stale on `master` — the
+      job runs the `PisakaAppTests` bundle before the build — so both were
+      corrected and `make test-app` named. The deviation from "stays as it is"
+      is deliberate and recorded here rather than left as drift.)*
 - [x] `README.md`: no user-facing change — confirm and leave it alone.
+      *(Amended on review: the new `make test-app` target and the app-layer test
+      command are user-facing, so both were documented beside `swift test`.)*
 - [x] Confirm `docs/architecture/app-editor-overlays.md` and `docs/RELEASING.md`
       carry the changes from Tasks 2–4 and that no other architecture doc claims
       the smoke launch catches the part 1 crash (`grep -rn "smoke"
@@ -311,7 +318,12 @@ Dependencies: none. No new files.
   -destination 'platform=macOS' test`, no extra flags — reports
   `Test Suite 'PisakaAppTests.xctest' passed … Executed 14 tests, with 0 failures
   (0 unexpected)` and `** TEST SUCCEEDED **`. `swift test`: 5275 tests, 0
-  failures. `swiftlint --strict`: 0 violations in 517 files.
+  failures. `swiftlint --strict`: 0 violations in 517 files. **Re-measured on
+  the final tree after review**, which added
+  `testProducerShapedFoldHidesTheCloserAndKeepsTheNextLineSeparate`: the same
+  flag-free command reports `Executed 15 tests, with 0 failures (0 unexpected)`
+  and `** TEST SUCCEEDED **`; `swift test` 5275/0; `swiftlint --strict` 0
+  violations in 517 files.
 - (Task 3) `git diff -w 01732f8^ HEAD --stat` vs `git diff 01732f8^ HEAD --stat`
   for the two documentation files — after the restoration the two agree exactly,
   so no line in either file differs from its `01732f8^` counterpart by whitespace
@@ -363,7 +375,9 @@ Dependencies: none. No new files.
     'platform=macOS' test` — `Test Suite 'PisakaAppTests.xctest' passed …
     Executed 14 tests, with 0 failures (0 unexpected)` and
     `** TEST SUCCEEDED **`. This is the refusal recorded at the top of these
-    Notes, now gone.
+    Notes, now gone. (Re-run on the final tree after review, which added a
+    second layout test: `Executed 15 tests, with 0 failures (0 unexpected)`,
+    `** TEST SUCCEEDED **`.)
 
   The two smoke bodies: `testTheTwoSmokeLaunchesAreTheSameCheck` and
   `testSmokeLaunchSeedsSessionAndBacksUpDomain` both pass. Diffing the two step
@@ -400,15 +414,17 @@ Dependencies: none. No new files.
   appears. (The scan's only hits were the substring `zed` inside
   `standardizedFileURL` on a line that merely moved.)
 
-- (Task 6) Documentation read-back on the finished tree. `CLAUDE.md` is
-  unchanged: its Commands section now describes a command that works (the
-  flag-free `xcodebuild … -destination 'platform=macOS' test`), and the Tests
-  section's `ReleaseMetadataTests` inventory reads "…, the `project.yml`
-  wiring, …" — which already covers Task 1's pin on the `PisakaAppTests`
-  target's three settings lines, so nothing in that sentence became wrong and
-  nothing was added to it. `README.md` is unchanged and needed no change: it
-  documents `swift test` and the macOS build only, never the app-layer test
-  bundle's command and never the smoke launch, and its Code folding bullet is
+- (Task 6) Documentation read-back on the finished tree. The read-back as first
+  written recorded `CLAUDE.md` and `README.md` as unchanged; **the branch's
+  later review-fix commits changed both**, so what shipped is recorded here
+  instead. `CLAUDE.md`: the Tests section's `ReleaseMetadataTests` inventory
+  reads "…, the `project.yml` wiring, …", which already covers Task 1's pin on
+  the `PisakaAppTests` target's settings lines and needed no extension — but the
+  Commands section's `xcodebuild` spelling and the CI paragraph's description of
+  the macOS job were stale on `master` (the job runs the `PisakaAppTests` bundle
+  before the build), and both were corrected, with `make test-app` named.
+  `README.md` gained `make test-app` in the target list and the flag-free
+  app-layer test command beside `swift test`; its Code folding bullet is
   untouched by this plan. Tasks 2–4's edits confirmed present:
   `docs/RELEASING.md` carries the rewritten three-term paragraph (lines ~695–703
   — what the seeded launch proves, what it was measured *not* to prove, why the
@@ -420,8 +436,9 @@ Dependencies: none. No new files.
   comment. The untrue clause is gone everywhere: `grep -n "which is exactly why
   the part 1 crash passed CI" docs/RELEASING.md .github/workflows/*.yml
   Tests/PisakaCoreTests/ReleaseWorkflowTests.swift` exits 1. And `grep -rn
-  "smoke" docs/architecture/ CLAUDE.md README.md` returns two hits, both in
-  `docs/architecture/core-folding.md` (lines 42 and 45, added by this branch's
-  own review-fix commit) and both saying the opposite of the removed claim: that
+  "smoke" docs/architecture/ CLAUDE.md README.md` returns three hits — two in
+  `docs/architecture/core-folding.md` (lines 42 and 45) and one in `CLAUDE.md`
+  (line 779), all three added by this branch's own review-fix commits and all
+  three saying the opposite of the removed claim: that
   the crash passed CI and that the seeded launch does *not* catch it. No
   architecture doc claims the smoke launch catches the part 1 crash.

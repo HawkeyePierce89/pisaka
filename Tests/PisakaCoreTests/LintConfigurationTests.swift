@@ -542,17 +542,41 @@ final class LintConfigurationTests: XCTestCase {
             Makefile no longer wires core.hooksPath, so running anything through \
             make leaves the clone without its local lint gate
             """)
-        // Every target that does real work must carry `hooks` as a prerequisite:
-        // the wiring is worth nothing if it lives in a target nobody invokes.
-        for target in ["setup", "test", "lint", "generate"] {
-            let declaration = makefile
-                .components(separatedBy: .newlines)
-                .first { $0.hasPrefix("\(target):") }
-            let prerequisites = try XCTUnwrap(declaration, "Makefile has no `\(target):` target")
-            XCTAssertTrue(prerequisites.contains("hooks"), """
-                Makefile's `\(target)` target does not depend on `hooks`, so invoking it \
-                leaves this clone's hooks unwired — which is the whole reason the \
-                Makefile exists beside the raw commands
+        // Every target that does real work must reach `hooks` — directly or
+        // through a prerequisite that does, which is how `build`, `build-ios`
+        // and `test-app` reach it via `generate`. The list is **read from the
+        // Makefile**, not enumerated here: a hard-coded roster covers the
+        // targets that existed when it was written and silently exempts every
+        // one added since, which is exactly the regression this test exists to
+        // catch. `help` prints and `hooks` *is* the wiring, so both are the
+        // stated exceptions.
+        var prerequisites: [String: [String]] = [:]
+        for line in makefile.components(separatedBy: .newlines) {
+            guard let colon = line.firstIndex(of: ":"),
+                  line.first.map({ $0.isLowercase }) == true else { continue }
+            let name = String(line[line.startIndex..<colon])
+            guard !name.isEmpty, name.allSatisfy({ $0.isLowercase || $0 == "-" }) else { continue }
+            let tail = line[line.index(after: colon)...]
+            let body = tail.components(separatedBy: "##").first ?? ""
+            prerequisites[name] = body.split(whereSeparator: { $0 == " " || $0 == "\t" }).map(String.init)
+        }
+        XCTAssertTrue(prerequisites.keys.contains("test"), """
+            the Makefile target scan found no `test` target, so it is no longer reading \
+            the file it means to read
+            """)
+
+        func reachesHooks(_ target: String, seen: Set<String> = []) -> Bool {
+            guard !seen.contains(target) else { return false }
+            guard let deps = prerequisites[target] else { return false }
+            if deps.contains("hooks") { return true }
+            return deps.contains { reachesHooks($0, seen: seen.union([target])) }
+        }
+
+        for target in prerequisites.keys.sorted() where target != "help" && target != "hooks" {
+            XCTAssertTrue(reachesHooks(target), """
+                Makefile's `\(target)` target does not reach `hooks` through its \
+                prerequisites, so invoking it leaves this clone's hooks unwired — which \
+                is the whole reason the Makefile exists beside the raw commands
                 """)
         }
     }

@@ -168,9 +168,12 @@ no side effect, with or without `--disable-sandbox`. There is no `preinstall`,
 sandboxed while command plugins are explicit. So the wiring rides on the two
 things people *do* run:
 
-- **`make hooks`**, a prerequisite of every working `Makefile` target
-  (`test`, `lint`, `generate`, `build`, `build-ios`), so anything run through
-  make wires the clone. `make setup` does it explicitly and additionally
+- **`make hooks`**, reached by every working `Makefile` target — directly by
+  `setup`, `test`, `lint` and `generate`, and through `generate` by `test-app`,
+  `build`, `build-ios` and `all` — so anything run through
+  make wires the clone. `LintConfigurationTests` reads that roster out of the
+  `Makefile` rather than enumerating it, so a target added later is covered the
+  day it lands. `make setup` does it explicitly and additionally
   refuses when the pinned linter is absent.
 - **The `Wire git hooks` build phase** declared in `project.yml`, so generating
   the project and building the app — what every app contributor and every agent

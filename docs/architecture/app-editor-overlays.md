@@ -245,7 +245,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     what lets (b) watch a visible character join the header's row, and the test
     says so at the fixture; the producers' own shape is laid out by a second
     test, `testProducerShapedFoldHidesTheCloserAndKeepsTheNextLineSeparate`,
-    which builds the region through `FoldRegion` rather than by hand and asserts
+    which takes the region from `FoldRegionScanner.scan(text:widths:)` rather
+    than restating the endpoint rule — so a change to that rule reaches the
+    layout assertions instead of leaving them green against a shape nothing
+    emits — and asserts
     that the closer goes null, that `footer` keeps a row of its own below the
     header's, and that the count is still 2) asserts (a) every hidden character carries
     `GlyphProperty.null`, (b) header `header {` and closer `}` share one line
