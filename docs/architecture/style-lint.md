@@ -173,8 +173,58 @@ things people *do* run:
   `build`, `build-ios` and `all` — so anything run through
   make wires the clone. `LintConfigurationTests` reads that roster out of the
   `Makefile` rather than enumerating it, so a target added later is covered the
-  day it lands. `make setup` does it explicitly and additionally
-  refuses when the pinned linter is absent.
+  day it lands — every name make would accept, not a narrower spelling: the scan
+  cross-checks what it found against the `.PHONY` declarations (**all** of them,
+  unioned, as make itself reads them) and *fails* on a rule shape it cannot
+  attribute to one target, because a target it merely skipped would be silently
+  exempt from the requirement. Prerequisites end where make ends them — at a `#`
+  comment or a `;` inline recipe — so a word appearing after either is never
+  read as a dependency — and a line that is a *target-specific variable
+  assignment* (`smoke2: NOTE = hooks`, in any of make's seven operators, with or
+  without a `private`/`export`/`override`/`unexport` modifier) declares no
+  prerequisites at all, so it is skipped rather than read as a rule that both
+  invents a `hooks` dependency and overwrites the target's real one. Its name is
+  read as make reads it, ending where an *operator* begins rather than where an
+  operator's first character appears — `+`, `?` and `!` are ordinary name
+  characters unless `=` follows, so `smoke2: cache+key = hooks` is that same
+  prerequisite-free assignment and not a `hooks` dependency. A target
+  written only that way is still caught by the `.PHONY` cross-check. Directives
+  the scan cannot interpret are *refused*: a conditional most of all, since make
+  runs one branch while a scan reads both and a roster keyed by name keeps the
+  last — an inactive `else`-branch `smoke2: hooks` answering for an active rule
+  that reaches nothing — and with it `include` (rules, and the `.PHONY` naming
+  them, in a file this scan never opens), `define`/`endef` (a body of
+  rule-shaped lines make never reads as rules) and `.RECIPEPREFIX` (which
+  retires the tab every recipe skip depends on). `$(eval …)` is refused for the
+  same reason and is the sharpest case of it, because make *expands* a line
+  before it reads it: `COLON := :` followed by `$(eval smoke2$(COLON))` defines
+  a real `smoke2` target on a line carrying no colon at all — invisible to the
+  rule path, undeclared in `.PHONY`, hence invisible to the cross-check as well
+  — and hidden on the right of an assignment (`X := $(eval smoke2$(COLON))`) it
+  would be skipped as one. So the reference is refused wherever it appears on a
+  non-recipe line, and, since nothing else expands into a rule, a top-level line
+  with **no colon** must parse as a variable assignment — the one shape that
+  declares no rule and needs none — or it fails the test rather than being
+  skipped. A
+  *double-colon* rule is refused outright, alongside the multi-target and pattern
+  shapes: make unions every `::` rule for a target and runs them all, where a
+  roster keyed by name keeps only the last, and the second colon is what would
+  otherwise smuggle `smoke2:: NOTE = hooks` — a line make invokes nothing for —
+  past the assignment check as a `hooks` prerequisite. Indentation is read the
+  way make reads it too: the recipe prefix is a *tab* and only a tab, so a rule
+  written `  smoke2:` is un-indented and scanned rather than mistaken for a
+  recipe, and a trailing `\` is *folded* before anything is read, because make
+  folds it first and the join can land between a target's name and its colon
+  (`smoke2 \` / `:`) — a rule that discarding the continuation would drop
+  entirely, name and all, which is exactly the silent exemption the scan exists
+  to refuse. A continued recipe folds too and is still skipped by the tab its
+  first line carries. And a leading dot
+  exempts nothing by itself: make's own special targets (`.PHONY`, `.SUFFIXES`,
+  `.DELETE_ON_ERROR`, …) are skipped **by name**, and any other dot-prefixed
+  rule — `.smoke2`, a legacy suffix rule — fails the test, because make runs
+  those on request like any other target.
+  `make setup` does it
+  explicitly and additionally refuses when the pinned linter is absent.
 - **The `Wire git hooks` build phase** declared in `project.yml`, so generating
   the project and building the app — what every app contributor and every agent
   run does — wires it too. It is idempotent, silent on success, and exits 0
