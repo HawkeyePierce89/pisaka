@@ -274,12 +274,12 @@ Dependencies: none. No new files.
 
 ### Task 6: Update documentation
 
-- [ ] `CLAUDE.md`: the Commands section stays as it is — it now describes a
+- [x] `CLAUDE.md`: the Commands section stays as it is — it now describes a
       command that works. Add nothing about the plist unless the Tests section's
       description of `ReleaseMetadataTests`' pinned inventory would otherwise be
       wrong; if it would, extend that one sentence and nothing else.
-- [ ] `README.md`: no user-facing change — confirm and leave it alone.
-- [ ] Confirm `docs/architecture/app-editor-overlays.md` and `docs/RELEASING.md`
+- [x] `README.md`: no user-facing change — confirm and leave it alone.
+- [x] Confirm `docs/architecture/app-editor-overlays.md` and `docs/RELEASING.md`
       carry the changes from Tasks 2–4 and that no other architecture doc claims
       the smoke launch catches the part 1 crash (`grep -rn "smoke"
       docs/architecture/ CLAUDE.md README.md` currently returns nothing).
@@ -399,3 +399,26 @@ Dependencies: none. No new files.
   diff was scanned for editor and vendor names. No product or brand name
   appears. (The scan's only hits were the substring `zed` inside
   `standardizedFileURL` on a line that merely moved.)
+
+- (Task 6) Documentation read-back on the finished tree. `CLAUDE.md` is
+  unchanged: its Commands section now describes a command that works (the
+  flag-free `xcodebuild … -destination 'platform=macOS' test`), and the Tests
+  section's `ReleaseMetadataTests` inventory reads "…, the `project.yml`
+  wiring, …" — which already covers Task 1's pin on the `PisakaAppTests`
+  target's three settings lines, so nothing in that sentence became wrong and
+  nothing was added to it. `README.md` is unchanged and needed no change: it
+  documents `swift test` and the macOS build only, never the app-layer test
+  bundle's command and never the smoke launch, and its Code folding bullet is
+  untouched by this plan. Tasks 2–4's edits confirmed present:
+  `docs/RELEASING.md` carries the rewritten three-term paragraph (lines ~695–703
+  — what the seeded launch proves, what it was measured *not* to prove, why the
+  seeding is kept), both workflow bodies carry the same rewritten comment block
+  (`ci.yml` ~175–186, `release.yml` ~858–869),
+  `docs/architecture/app-editor-overlays.md` carries the dated manual-pass
+  record and the still-unverified list (lines ~253–260), and
+  `Tests/PisakaAppTests/FoldLayoutTests.swift` carries the corrected fixture
+  comment. The untrue clause is gone everywhere: `grep -n "which is exactly why
+  the part 1 crash passed CI" docs/RELEASING.md .github/workflows/*.yml
+  Tests/PisakaCoreTests/ReleaseWorkflowTests.swift` exits 1. And `grep -rn
+  "smoke" docs/architecture/ CLAUDE.md README.md` still returns nothing, so no
+  other architecture doc claims the smoke launch catches the part 1 crash.
