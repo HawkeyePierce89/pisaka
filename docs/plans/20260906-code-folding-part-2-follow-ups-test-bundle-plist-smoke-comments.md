@@ -254,22 +254,22 @@ Dependencies: none. No new files.
 
 ### Task 5: Verify acceptance criteria
 
-- [ ] `swift test` — green.
-- [ ] `swiftlint --strict` from the repository root — clean.
-- [ ] `xcodegen generate` — clean.
-- [ ] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination
+- [x] `swift test` — green.
+- [x] `swiftlint --strict` from the repository root — clean.
+- [x] `xcodegen generate` — clean.
+- [x] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination
       'platform=macOS' build` — green.
-- [ ] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination
+- [x] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination
       'platform=iOS Simulator,name=iPhone 17 Pro' build` — green.
-- [ ] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination
+- [x] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination
       'platform=macOS' test` — green **with no extra flags**; record the command
       and the result.
-- [ ] Confirm the two smoke bodies are still byte-identical apart from `APP=`
+- [x] Confirm the two smoke bodies are still byte-identical apart from `APP=`
       (`testTheTwoSmokeLaunchesAreTheSameCheck`), and that
       `.github/workflows/ci.yml`'s AppKit test step still carries
       `CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO` unchanged.
-- [ ] Re-run the whitespace check from Task 3 on the final tree and record it.
-- [ ] Read back the rewritten smoke-launch comments and the `docs/RELEASING.md`
+- [x] Re-run the whitespace check from Task 3 on the final tree and record it.
+- [x] Read back the rewritten smoke-launch comments and the `docs/RELEASING.md`
       paragraph and confirm no product or brand name appears anywhere in the diff.
 
 ### Task 6: Update documentation
@@ -346,4 +346,56 @@ Dependencies: none. No new files.
   line 231. Line 241's `\n    body1` spacing is inside a code literal and was left
   alone. `swift test`: 5275 tests, 0 failures. `swiftlint --strict`: 0 violations
   in 517 files.
-- (Task 5) Final gate results:
+- (Task 5) Final gate results, run in this repository's order on the finished
+  tree (working tree clean, `xcodegen generate` producing no change):
+
+  - `swift test` — `Executed 5275 tests, with 0 failures (0 unexpected)`.
+  - `swiftlint --strict` from the repository root — `Found 0 violations, 0
+    serious in 517 files`.
+  - `xcodegen generate` — `Created project at .../Pisaka.xcodeproj`, and
+    `git status --porcelain` empty afterwards.
+  - `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination
+    'platform=macOS' build` — `** BUILD SUCCEEDED **`.
+  - `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination
+    'platform=iOS Simulator,name=iPhone 17 Pro' build` — `** BUILD SUCCEEDED **`.
+  - The command Task 1 exists for, typed with **no extra flags** —
+    `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination
+    'platform=macOS' test` — `Test Suite 'PisakaAppTests.xctest' passed …
+    Executed 14 tests, with 0 failures (0 unexpected)` and
+    `** TEST SUCCEEDED **`. This is the refusal recorded at the top of these
+    Notes, now gone.
+
+  The two smoke bodies: `testTheTwoSmokeLaunchesAreTheSameCheck` and
+  `testSmokeLaunchSeedsSessionAndBacksUpDomain` both pass. Diffing the two step
+  bodies by hand reports three differing lines and no others — the step name
+  (`Launch the built app` vs `Launch the archived app`), the reciprocal
+  cross-reference *comment* naming the other file (`release.yml` vs `ci.yml`),
+  and `APP=`. The comment line is not part of what the pin compares
+  (`stepScript` strips `#` lines), so the bodies are identical apart from
+  `APP=` exactly as the criterion states. `.github/workflows/ci.yml`'s AppKit
+  test step still carries `CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
+  test` unchanged at line 72 — a signing-free runner stays the right default
+  there; the plist makes the *documented* flag-free command work on a developer
+  Mac, it does not change CI.
+
+  The whitespace check re-run on the final tree — the counts are larger than
+  Task 3's recording because Task 4 added prose to `app-editor-overlays.md`,
+  and the point is that the two agree:
+
+  ```
+  $ git diff 01732f8^ HEAD --stat -- docs/FEATURES.md docs/architecture/app-editor-overlays.md
+   docs/FEATURES.md                         |  7 ++--
+   docs/architecture/app-editor-overlays.md | 61 +++++++++++++++++++++++++-------
+   2 files changed, 54 insertions(+), 14 deletions(-)
+
+  $ git diff -w 01732f8^ HEAD --stat -- docs/FEATURES.md docs/architecture/app-editor-overlays.md
+   docs/FEATURES.md                         |  7 ++--
+   docs/architecture/app-editor-overlays.md | 61 +++++++++++++++++++++++++-------
+   2 files changed, 54 insertions(+), 14 deletions(-)
+  ```
+
+  Brand-name read-back: the rewritten seeding comment in both workflows and the
+  `docs/RELEASING.md` bullet were read in full, and the whole `master..HEAD`
+  diff was scanned for editor and vendor names. No product or brand name
+  appears. (The scan's only hits were the substring `zed` inside
+  `standardizedFileURL` on a line that merely moved.)
