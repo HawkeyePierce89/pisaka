@@ -108,7 +108,7 @@ jobs:
       # — not that any window appeared or that the UI behaves. Everything the
       # launched app does is inert to it: the Release-only Sparkle updater
       # starting and polling github.com, its first-launch permission prompt,
-      # session restore finding no session.
+      # and the document restored from the session this step seeds below.
       #
       # The success path is being killed at the deadline. The app exiting on its
       # own is a refusal *whatever its status*, because a clean `exit 0` seconds
@@ -173,8 +173,24 @@ jobs:
           }
           trap restore_defaults EXIT
           # Seed a restorable session so the launch lays out a real document.
-          # With no session there is no document, no layout and no re-entrant
-          # pass, which is exactly why the part 1 crash passed CI.
+          # What the seeded launch proves is what any launch here proves: the
+          # process was alive at the deadline. Nothing more — the crash-report
+          # harvest below runs only on the death path, so a report is evidence
+          # collected when the launch has already failed, never part of the
+          # success criterion. The
+          # seeding adds no assertion of its own — it hands the app a session so
+          # the launch exercises the layout path with a real document instead of
+          # an empty window. Nothing here reads the restore back, and
+          # EditorSession decodes the blob under `try?`, so a seed that stopped
+          # decoding would leave this step green and document-free.
+          # What it was measured *not* to prove: with the typesetter fix
+          # stashed, the seeded launch survived — the part 1 crash
+          # (FoldingTypesetter.init() reached through a re-entrant layout pass)
+          # does not fire under it. A regression of that class is caught by the
+          # PisakaAppTests bundle, where three tests trapped before the fix
+          # (recorded in the part 2 plan's Notes), never by this step.
+          # The seeding is kept because a launch with no document proves
+          # strictly less, not because it proves that crash.
           # The session lives in UserDefaults under session.projects (a
           # PropertyListEncoder-encoded SessionCatalog), domain ws.karmanov.pisaka.
           # That is the seam the smoke launch seeds.

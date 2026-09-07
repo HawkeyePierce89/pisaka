@@ -228,7 +228,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     through untouched, which is what keeps every UTF-16 offset meaning the same thing
     folded and unfolded. Nothing is copied at all when there is no fold or when no
     character in the batch is hidden: glyph generation runs on every edit and this
-    override must cost a file with no folds nothing.     *Half two* is
+    override must cost a file with no folds nothing. *Half two* is
     `FoldingTypesetter`, an `NSATSTypesetter` subclass answering
     `.zeroAdvancementAction` for every separator **inside** a folded range. **Half two
     is there because in TextKit 1 line breaking is the typesetter's decision, read
@@ -239,17 +239,54 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     real TextKit 1 stack (headless `NSTextView` + `BracketOverlayLayoutManager`
     via `EditorLayoutHarness`)**: folding the bracket block
     `header {\n    body1\n    body2\n}\nfooter` (hidden `"\n    body1\n    body2\n"`,
-    3 separators) asserts (a) every hidden character carries
+    3 separators — deliberately one character short of what either producer
+    makes, since a `FoldRegion`'s hidden range ends at the end of the last
+    line's *content* and so hides the `}` too; leaving the closer visible is
+    what lets (b) watch a visible character join the header's row, and the test
+    says so at the fixture; the producers' own shape is laid out by a second
+    test, `testProducerShapedFoldHidesTheCloserAndKeepsTheNextLineSeparate`,
+    which takes the region from `FoldRegionScanner.scan(text:widths:)` rather
+    than restating the endpoint rule — so a change to that rule reaches the
+    layout assertions instead of leaving them green against a shape nothing
+    emits — and asserts
+    that the closer goes null, that `footer` keeps a row of its own below the
+    header's, and that the count is still 2) asserts (a) every hidden character carries
     `GlyphProperty.null`, (b) header `header {` and closer `}` share one line
     fragment, (c) fragment count drops from 5 to 2 (baseline minus hidden-separator
     count), and (d) unfolding restores 5. With the typesetter half neutralised
     (a harness-local replacement of the manager's `typesetter` with a plain
-    `NSATSTypesetter` after `setFoldedRanges`), (a) still passes but (c) fails —
-    fragments are 3 not 2, the visible newline after the block occupies its own
-    fragment as a blank row — confirming half two is load-bearing. The `insert`
+    `NSATSTypesetter` after `setFoldedRanges`), (a) and (b) still pass — the null
+    glyphs alone pull the visible closer onto the header's row — but (c) fails:
+    fragments are 3 not 2, the visible newline after the block occupying its own
+    fragment as a blank row. (c) is therefore the assertion that names half two
+    as load-bearing; (b) does not discriminate the two halves. The `insert`
     preserving `.controlCharacter` is what keeps it reachable: an assignment would
     strip that bit and silence half two by construction. Both halves stay, and
-    `FoldingSourceGatingTests` pins them in this one file. Both halves read one `FoldedRanges` — a small
+    `FoldingSourceGatingTests` pins them in this one file.
+    **What a hand pass has actually seen.** Observed on 2026-09-06, on a DEBUG
+    build, against a restored multi-tab session: the app launched with a restored
+    six-tab session and survived three tab switches with no crash report; *Fold* on
+    a paren block collapsed the header and hid the closer's line behind the `…`
+    with no blank row left behind; the gutter numbering skipped the hidden run
+    (`2` followed by `9`); *Fold All* and *Unfold All* both did what they say; a
+    click on the `…` reopened the block with the caret at the block's start; and a
+    fold survived switching to another tab and back. **What is still unverified**,
+    by name, so a later pass knows what it owes: no clipped glyph at the
+    placeholder; the placeholder at two zoom levels; caret behaviour at both
+    boundaries of a folded range by arrow key, a click on a hidden row being
+    impossible, and shift-selecting across a folded block so a copy yields the
+    full text; gutter numbers never overlapping, the blame column and diagnostic
+    markers following them, and a fold near the end of a file; the severity dot on
+    a folded header; the light appearance, and switching appearance while a block
+    is folded; server-sourced regions, and the indentation chevrons an unserved
+    language shows; closing a file and reopening it in the same run; a branch
+    switch; an autosave landing inside a folded block; a relaunch; the reveal
+    funnel end to end; and the one non-reveal scroll left in place — Tab under
+    `indent_style = space` on a scrolled-away caret. The authority for what the
+    pass owes stays the eight numbered items in the part 1 plan's
+    *Post-Completion: mandatory manual DEBUG pass*; this list is that pass minus
+    what the paragraph above records as seen.
+    Both halves read one `FoldedRanges` — a small
     reference box holding the sorted, non-overlapping set `FoldState.hiddenRanges`
     hands over. It exists because the layout manager is `@MainActor` and the
     typesetter is not (TextKit asks its question straight out of the line-breaking
@@ -260,21 +297,21 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     generation asks it once per character. Every character outside a folded range
     defers to `super`, so tabs, ordinary newlines and the container break are
     untouched.
-     `setFoldedRanges(_:clampingInvalidationTo:)` stores the set and then invalidates
-     **the union of the
-     symmetric difference** of the old and the new one — the ranges that stopped
-     being hidden plus the ones that started — never the whole file, so folding one
-     block near the end of a large file does not re-generate every glyph above it;
-     glyphs first, then layout, then display, in that order because each is decided
-     by the half before it. Unchanged input is a **no-op**, since the coordinator
-     calls this on every view update. The **boundedness is made assertable by an
-     `internal private(set) var lastFoldInvalidation: NSRange?` seam**: it records
-     exactly the range handed to `invalidateGlyphs`/`invalidateLayout`/`invalidateDisplay`
-     (or `nil` when the call was a no-op or its bounding range was empty) and decides
-     nothing — a caller that needed no invalidation leaves `nil` rather than an empty
-     range, so "no invalidation" and "invalidate zero characters" stay distinct.
-     `GutterFoldTests` asserts that folding a block near the end leaves the prefix
-     untouched and that an unchanged set invalidates nothing through this seam. The **extent the invalidation is clamped to**
+    `setFoldedRanges(_:clampingInvalidationTo:)` stores the set and then invalidates
+    **the union of the
+    symmetric difference** of the old and the new one — the ranges that stopped
+    being hidden plus the ones that started — never the whole file, so folding one
+    block near the end of a large file does not re-generate every glyph above it;
+    glyphs first, then layout, then display, in that order because each is decided
+    by the half before it. Unchanged input is a **no-op**, since the coordinator
+    calls this on every view update. The **boundedness is made assertable by an
+    `internal private(set) var lastFoldInvalidation: NSRange?` seam**: it records
+    exactly the range handed to `invalidateGlyphs`/`invalidateLayout`/`invalidateDisplay`
+    (or `nil` when the call was a no-op or its bounding range was empty) and decides
+    nothing — a caller that needed no invalidation leaves `nil` rather than an empty
+    range, so "no invalidation" and "invalidate zero characters" stay distinct.
+    `GutterFoldTests` asserts that folding a block near the end leaves the prefix
+    untouched and that an unchanged set invalidates nothing through this seam. The **extent the invalidation is clamped to**
     is a parameter for `clearBackgrounds(storageLength:)`'s reason, and one caller
     passes it: `FoldController.noteEdit` reaches here from inside
     `didProcessEditingNotification`, which the storage posts *before* it notifies
@@ -313,10 +350,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `allowsNonContiguousLayout` exists to avoid, stated on `HoverController` and
     `captureViewport`) on every draw and every click while anything at all is
     folded. The hit-testing caller bounds itself to the visible range for the same
-     reason. The whole feature is documented in `core-folding.md`; the fold
-     memory's canonical-path key reuses the app-layer
-     `standardizedFileURL.resolvingSymlinksInPath().path` spelling whose
-     `CanonicalPath` exception is recorded there and in `CLAUDE.md` Paths.
+    reason. The whole feature is documented in `core-folding.md`; the fold
+    memory's canonical-path key reuses the app-layer
+    `standardizedFileURL.resolvingSymlinksInPath().path` spelling whose
+    `CanonicalPath` exception is recorded there and in `CLAUDE.md` Paths.
   - `BracketHighlightController.swift` — the macOS `@MainActor` owner of the
     bracket overlays: it holds the cached `[BracketToken]` for the current buffer
     behind a (`fileID`, text length, edit epoch) cache key with a ~100 ms debounce
@@ -660,23 +697,23 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     candidate map in `FoldRegion`'s own `Comparable` order, so a header line with one
     candidate — the only shape the fallback scanner ever offers, since it merges
     the rest — has exactly one entry.
-     **The numbering skips hidden lines and keeps counting.** A line whose
-     *preceding separator* is hidden draws nothing at all: it has no row of its own
-     (its glyphs are null and that separator advances nothing, so it shares the
-     header's fragment), and drawing it would stack a second number, a second blame
-     label and a second severity dot on the header's row. The question is
-     `FoldState.hiddenRange(collapsingLineStartingAt:)` and deliberately not
-     `hides(offset:)` — see `core-folding.md` for why the two are different
-     questions even though no producer currently makes the range that separates
-     them.
-     The decision is **lifted into an `internal` seam** so the skip is assertable
-     without pixels: `gutterRows(forCharRange:)` answers the rows the gutter *will*
-     draw for a character range — the 1-based number and the `lineRange` of each —
-     with `drawHashMarksAndLabels(in:)` consuming what it answers and deciding
-     nothing of its own; the drawing code below it is unchanged.
-     `GutterFoldTests` asserts that a folded set makes `12` followed by `27` in
-     one step and that with nothing folded every line is reported.
-     The **whole collapsed run is skipped in one step**, not a line at a time:
+    **The numbering skips hidden lines and keeps counting.** A line whose
+    *preceding separator* is hidden draws nothing at all: it has no row of its own
+    (its glyphs are null and that separator advances nothing, so it shares the
+    header's fragment), and drawing it would stack a second number, a second blame
+    label and a second severity dot on the header's row. The question is
+    `FoldState.hiddenRange(collapsingLineStartingAt:)` and deliberately not
+    `hides(offset:)` — see `core-folding.md` for why the two are different
+    questions even though no producer currently makes the range that separates
+    them.
+    The decision is **lifted into an `internal` seam** so the skip is assertable
+    without pixels: `gutterRows(forCharRange:)` answers the rows the gutter *will*
+    draw for a character range — the 1-based number and the `lineRange` of each —
+    with `drawHashMarksAndLabels(in:)` consuming what it answers and deciding
+    nothing of its own; the drawing code below it is unchanged.
+    `GutterFoldTests` asserts that a folded set makes `12` followed by `27` in
+    one step and that with nothing folded every line is reported.
+    The **whole collapsed run is skipped in one step**, not a line at a time:
     hidden characters keep their glyphs, so `glyphRange(forBoundingRect:)` hands
     back a character range spanning every folded line, and stepping through them
     would make each redraw — every scroll tick, every keystroke — cost the folded

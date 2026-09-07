@@ -491,6 +491,17 @@ targets:
   # **macOS-only** because every file it exercises is inside `#if os(macOS)`;
   # building it for iOS would import AppKit on a destination that does not ship
   # it.
+  #
+  # `GENERATE_INFOPLIST_FILE` is the third setting, and it is here for the same
+  # kind of reason: signing a bundle needs a plist to sign, and an
+  # application-hosted unit-test bundle gets none from the generator by default
+  # — XcodeGen emits a `PRODUCT_BUNDLE_IDENTIFIER` for the target but neither an
+  # `INFOPLIST_FILE` nor this setting. Without it the documented, flag-free
+  # `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination
+  # 'platform=macOS' test` refuses on a developer Mac ("Cannot code sign
+  # because the target does not have an Info.plist file"), while CI's
+  # signing-free form
+  # (`CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO`) passes and hides it.
   PisakaAppTests:
     type: bundle.unit-test
     supportedDestinations: [macOS]
@@ -501,6 +512,7 @@ targets:
       base:
         TEST_HOST: $(BUILT_PRODUCTS_DIR)/Pisaka.app/Contents/MacOS/Pisaka
         BUNDLE_LOADER: $(TEST_HOST)
+        GENERATE_INFOPLIST_FILE: YES
 
 # The generated project ships its scheme from this block
 # (Pisaka.xcodeproj/xcshareddata/xcschemes/Pisaka.xcscheme); before it

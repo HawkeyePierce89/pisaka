@@ -3552,8 +3552,25 @@ final class ReleaseWorkflowTests: XCTestCase {
     /// The smoke launch must seed a restorable session before it launches,
     /// and back the domain up so a hand-run does not clobber the real one.
     ///
-    /// With no session there is no document, no layout and no re-entrant
-    /// pass — which is exactly why the part 1 crash passed CI. The session
+    /// What the seeded launch proves is what any launch here proves: the
+    /// process was alive at the deadline, and nothing more — the step's
+    /// crash-report harvest runs only on the death path, so a report is
+    /// evidence collected once the launch has already failed rather than part
+    /// of the success criterion. The seeding adds no assertion of its own — it hands the app a session so
+    /// the launch exercises the layout path with a real document instead of an
+    /// empty window; nothing reads the restore back, and EditorSession decodes
+    /// the blob under `try?`. What it was measured *not* to prove: with the
+    /// typesetter fix stashed the seeded launch survived, so the part 1 crash
+    /// (FoldingTypesetter.init() reached through a re-entrant layout pass)
+    /// does not fire under it — a regression of that class is caught by the
+    /// PisakaAppTests bundle, where three tests trapped before the fix, never
+    /// by this step. The seeding is kept because a launch with no document
+    /// proves strictly less, not because it proves that crash.
+    ///
+    /// None of that wording is pinned: `stepScript(named:in:because:)` drops
+    /// blank and `#`-prefixed lines, so this suite compares comment-stripped
+    /// bodies and a comment rewrite in either workflow moves neither the
+    /// identity pin nor the seeding pins below. The session
     /// lives in UserDefaults under session.projects (a PropertyListEncoder-
     /// encoded SessionCatalog), domain ws.karmanov.pisaka. The backup is
     /// restored on every exit path via trap, for the reason the MARKER
@@ -3568,7 +3585,7 @@ final class ReleaseWorkflowTests: XCTestCase {
         ] as [(String, String)] {
             let script = try stepScript(named: step, in: workflow, because: """
                 It is one of the two copies of the launch smoke test that must seed a document \
-                so the re-entrant layout pass is exercised.
+                so the launch exercises the layout path rather than an empty window.
                 """)
             XCTAssertTrue(script.contains { $0.contains("defaults export ws.karmanov.pisaka") }, """
                 \(workflow)'s `\(step)` step must back up the defaults domain with \
@@ -3604,7 +3621,8 @@ final class ReleaseWorkflowTests: XCTestCase {
                 """)
             XCTAssertLessThan(seedIndex, launchIndex, """
                 \(workflow)'s `\(step)` step must seed the session *before* launching the app. \
-                After it, the app has already started with no document and no re-entrant layout pass.
+                After it, the app has already started with no document, so the launch exercises an \
+                empty window instead of the layout path.
                 """)
             // The launch must exec the binary directly with no arguments; `open --args`
             // was tried and produced no window. Asserted as the absence of `open --args`.

@@ -641,6 +641,30 @@ run in `swift test` rather than needing an Xcode build.
     the same deliberate spill `INFOPLIST_KEY_UILaunchScreen_Generation` and
     `INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace` already make in the other
     direction; two inert strings are cheaper than splitting the plist in two.
+    The **app-layer test bundle** carries a third pinned setting of its own,
+    beside `TEST_HOST`/`BUNDLE_LOADER`: `GENERATE_INFOPLIST_FILE: YES` with no
+    `INFOPLIST_FILE`, so `PisakaAppTests` generates a plist *wholesale* rather
+    than merging the partial one above (nothing in it belongs to a test
+    bundle). It is there because signing needs a plist to sign and XcodeGen
+    emits none for an application-hosted unit-test bundle, so without it the
+    documented, flag-free `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka
+    -destination 'platform=macOS' test` refuses on a developer Mac ("Cannot code
+    sign because the target does not have an Info.plist file") — a refusal CI
+    cannot see, because its step passes `CODE_SIGNING_ALLOWED=NO
+    CODE_SIGNING_REQUIRED=NO`. `ReleaseMetadataTests` pins the three settings as
+    one **consecutive** block on purpose: the application target declares
+    `GENERATE_INFOPLIST_FILE: YES` too, so a one-line assertion would match that
+    copy and stay green with the test bundle's deleted. The duplication is read
+    the other way round for the app target itself, whose pair is now matched
+    consecutively too — `GENERATE_INFOPLIST_FILE: YES` immediately followed by
+    `INFOPLIST_FILE: Resources/Info.plist`, `INFOPLIST_FILE` being the line only
+    this target declares. So both pins carry the same price: **these settings
+    must stay adjacent, in the order written, in `project.yml`**. Reordering or
+    separating them is behaviour-preserving for the build and fails
+    `ReleaseMetadataTests` with a message about a deletion that did not happen;
+    the specificity is still worth it, because the alternative is an assertion
+    that cannot tell the two targets apart.
+
   - `Resources/PrivacyInfo.xcprivacy` — the privacy manifest. Declared in
     `project.yml` as a single-file resource (a plain file reference, not a folder
     reference, and not via the recursive `Sources/Pisaka` entry), which is what

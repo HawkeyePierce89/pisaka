@@ -253,12 +253,27 @@ final class ReleaseMetadataTests: XCTestCase {
                 """)
         }
 
-        assertDeclares("INFOPLIST_FILE: Resources/Info.plist",
-                       "Resources/Info.plist as the partial Info.plist")
-        assertDeclares("GENERATE_INFOPLIST_FILE: YES",
-                       "generated Info.plist keys (the partial plist is merged into them, not a replacement)")
-        // Both resource entries are matched as the *two-line pair* they are,
-        // indentation included, rather than line by line. A bare
+        // Matched as the *two-line pair* they are, and for the reason the pair
+        // below is: `GENERATE_INFOPLIST_FILE: YES` is no longer unique in the
+        // file — PisakaAppTests carries its own copy, so a bare one-line needle
+        // would be satisfied by the test bundle's line and stay green with the
+        // application target's deleted. `INFOPLIST_FILE` is what only this
+        // target declares, so anchoring the two together is what keeps the
+        // match specific to the app. (The test bundle's copy is pinned the
+        // mirror-image way, against TEST_HOST/BUNDLE_LOADER, in
+        // `testProjectDeclaresTheAppLayerTestTarget`.) The price is that the
+        // two lines must stay adjacent, in this order, in `project.yml` —
+        // recorded in `core-services.md` so a reorder that fails here is not a
+        // surprise.
+        assertDeclares("""
+            GENERATE_INFOPLIST_FILE: YES
+            INFOPLIST_FILE: Resources/Info.plist
+            """,
+                       "Resources/Info.plist as the partial Info.plist merged into the generated keys")
+        // Both resource entries are matched as the *two-line pair* they are —
+        // adjacent and in this order, each line matched whole (indentation is
+        // trimmed on both sides by `contains(consecutively:)`, so nesting depth
+        // is not part of the match) — rather than line by line. A bare
         // `project.contains("type: folder")` would be satisfied by any folder
         // reference anywhere in the file, so turning Resources/Licenses into a
         // plain group while some unrelated entry kept a `type: folder` would
@@ -455,6 +470,26 @@ final class ReleaseMetadataTests: XCTestCase {
             PisakaAppTests must set BUNDLE_LOADER to $(TEST_HOST). It is the \
             companion to TEST_HOST that makes the host's symbols available to the \
             bundle.
+            """)
+        // The three settings are pinned *together*, in order, on purpose: the
+        // application target already carries GENERATE_INFOPLIST_FILE: YES, so a
+        // bare one-line assertion would match that one and stay green with the
+        // test bundle's copy deleted. Anchoring on TEST_HOST / BUNDLE_LOADER —
+        // which only this target declares — is what makes the match specific.
+        XCTAssertTrue(lines.contains(consecutively: """
+            TEST_HOST: $(BUILT_PRODUCTS_DIR)/Pisaka.app/Contents/MacOS/Pisaka
+            BUNDLE_LOADER: $(TEST_HOST)
+            GENERATE_INFOPLIST_FILE: YES
+            """), """
+            PisakaAppTests must set GENERATE_INFOPLIST_FILE: YES beside TEST_HOST \
+            and BUNDLE_LOADER. Signing a bundle needs a plist to sign, and an \
+            application-hosted unit-test bundle gets none from the generator by \
+            default — so without it the documented, flag-free \
+            `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination \
+            'platform=macOS' test` refuses on a developer Mac with "Cannot code \
+            sign because the target does not have an Info.plist file". Only CI's \
+            step, which passes CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO, \
+            hides that; the documented command is the one developers run.
             """)
     }
 

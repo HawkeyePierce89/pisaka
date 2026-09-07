@@ -542,17 +542,347 @@ final class LintConfigurationTests: XCTestCase {
             Makefile no longer wires core.hooksPath, so running anything through \
             make leaves the clone without its local lint gate
             """)
-        // Every target that does real work must carry `hooks` as a prerequisite:
-        // the wiring is worth nothing if it lives in a target nobody invokes.
-        for target in ["setup", "test", "lint", "generate"] {
-            let declaration = makefile
-                .components(separatedBy: .newlines)
-                .first { $0.hasPrefix("\(target):") }
-            let prerequisites = try XCTUnwrap(declaration, "Makefile has no `\(target):` target")
-            XCTAssertTrue(prerequisites.contains("hooks"), """
-                Makefile's `\(target)` target does not depend on `hooks`, so invoking it \
-                leaves this clone's hooks unwired — which is the whole reason the \
-                Makefile exists beside the raw commands
+        // Every target that does real work must reach `hooks` — directly or
+        // through a prerequisite that does, which is how `build`, `build-ios`
+        // and `test-app` reach it via `generate`. The list is **read from the
+        // Makefile**, not enumerated here: a hard-coded roster covers the
+        // targets that existed when it was written and silently exempts every
+        // one added since, which is exactly the regression this test exists to
+        // catch. `help` prints and `hooks` *is* the wiring, so both are the
+        // stated exceptions.
+        //
+        // Reading it means reading *every* name, and refusing the shapes this
+        // scan cannot read rather than skipping them: a name filter narrower
+        // than make's own — lowercase and hyphens alone, say — re-introduces the
+        // silent exemption one target called `smoke2` at a time. So a rule line
+        // is anything unindented whose colon is not an assignment's, the name is
+        // taken verbatim, and a multi-target, pattern or double-colon rule fails
+        // the test instead of vanishing from the roster. `.PHONY` is then read as the
+        // Makefile's own declaration of that roster and cross-checked against
+        // what the scan found, so the two can never quietly disagree.
+        // A colon after a target name does not always introduce prerequisites:
+        // make also reads `smoke2: NOTE = hooks` as a *target-specific variable
+        // assignment*, which declares no prerequisites at all and invokes
+        // nothing. Read as a rule it yields `["NOTE", "=", "hooks"]` — enough to
+        // satisfy the requirement below on its own, and enough to overwrite the
+        // target's real rule if it is written after it. So the shape is
+        // recognized as make writes it: any number of `private`/`export`/
+        // `override`/`unexport` modifiers, one variable name, then one of
+        // make's assignment operators.
+        //
+        // A modifier word is only a modifier while something follows it: make
+        // reads each word by trying it as a variable definition *first* and
+        // only then as a modifier, so `smoke2: private = hooks` assigns the
+        // variable literally named `private` and is as prerequisite-free as
+        // `smoke2: NOTE = hooks`. Taking the keyword for a modifier
+        // unconditionally leaves the recursion looking at a bare `= hooks`,
+        // finding no name, and reporting a rule whose "prerequisites" contain
+        // `hooks` — the exact silent exemption this shape is refused for. So
+        // the operator is looked for before the keyword is.
+        //
+        // Make's seven operators, longest first: `:::=` must never be read as
+        // `::` followed by `=`.
+        func assignmentOperatorLength(_ text: Substring) -> Int? {
+            for candidate in [":::=", "::=", ":=", "+=", "?=", "!=", "="] where text.hasPrefix(candidate) {
+                return candidate.count
+            }
+            return nil
+        }
+
+        // The name ends where an *operator* begins, not where an operator's
+        // first character appears: `+`, `?` and `!` are ordinary characters in
+        // a make variable name unless `=` follows them, so
+        // `smoke2: cache+key = hooks` assigns the variable literally named
+        // `cache+key` and declares no prerequisites — verified against make
+        // itself, which reads that line as an assignment and then refuses the
+        // recipe under it for want of a rule. Stopping the name at the bare `+`
+        // instead reports the "prerequisites" `cache+key`, `=`, `hooks`, which
+        // both invents the dependency and overwrites the target's real rule.
+        // A bare `:` is the one character make will not carry in a name (it
+        // ends the variable definition and, in a prerequisite list, is an error
+        // in its own right), so it is what returns the line to the rule path.
+        // The same reader answers the top-level question too: make's assignment
+        // syntax is one grammar, written the same on either side of a rule's
+        // colon, so a colon-less line is refused below unless it parses here.
+        func isVariableAssignment(_ tail: Substring) -> Bool {
+            var rest = tail.drop(while: { $0 == " " || $0 == "\t" })
+            while true {
+                var index = rest.startIndex
+                var stoppedAtOperator = false
+                while index < rest.endIndex {
+                    let character = rest[index]
+                    if character == " " || character == "\t" { break }
+                    if assignmentOperatorLength(rest[index...]) != nil {
+                        stoppedAtOperator = true
+                        break
+                    }
+                    if character == ":" { return false }
+                    index = rest.index(after: index)
+                }
+                let word = rest[rest.startIndex..<index]
+                guard !word.isEmpty else { return false }
+                if stoppedAtOperator { return true }
+                let after = rest[index...].drop(while: { $0 == " " || $0 == "\t" })
+                if assignmentOperatorLength(after) != nil { return true }
+                guard ["private", "export", "override", "unexport"].contains(String(word)) else { return false }
+                rest = after
+            }
+        }
+
+        // Matched as a whole first word, so an ordinary target named for one of
+        // them (`define: hooks`, whose first word is `define:`) is still read
+        // as the rule it is.
+        let makeDirectivesTheScanRefuses: Set<String> = [
+            "ifeq", "ifneq", "ifdef", "ifndef", "else", "endif",
+            "include", "-include", "sinclude", "define", "endef",
+        ]
+
+        // Make's own special targets: a rule named for one of these is a
+        // directive to make, never a target this repository asks anyone to run.
+        let makeSpecialTargets: Set<String> = [
+            ".DEFAULT", ".DELETE_ON_ERROR", ".EXPORT_ALL_VARIABLES", ".IGNORE",
+            ".INTERMEDIATE", ".LOW_RESOLUTION_TIME", ".NOTINTERMEDIATE", ".NOTPARALLEL",
+            ".ONESHELL", ".PHONY", ".POSIX", ".PRECIOUS", ".SECONDARY",
+            ".SECONDEXPANSION", ".SILENT", ".SUFFIXES", ".WAIT",
+        ]
+        // Make folds a line ending in a backslash onto the next one *before* it
+        // reads anything, and that join can land anywhere in a rule — including
+        // between a target's name and its colon:
+        //
+        //     smoke2 \
+        //     :
+        //     <tab>@echo work
+        //
+        // Reading physical lines and discarding the continuations loses that
+        // rule outright — the first line carries no colon, the second is
+        // discarded, the recipe is a recipe — which is the silent exemption
+        // this scan exists to refuse. So the physical lines are folded the way
+        // make folds them first, and every rule below is read off a *logical*
+        // one. Outside a recipe the backslash-newline and the whitespace after
+        // it collapse to a single space; a continued *recipe* line stays part
+        // of its recipe, and the joined line still opens with the tab that
+        // skips it.
+        //
+        // Only an *odd* run of trailing backslashes continues the line: make
+        // reads each `\\` as one escaped, literal backslash, so `foo: hooks \\`
+        // ends its rule and the line after it opens a new one. Folding on the
+        // last character alone would swallow that next line — and with it a
+        // target that is not named in `.PHONY`, which is the one shape the
+        // cross-check below cannot recover. So the run is counted, and only
+        // the final backslash of an odd one is dropped.
+        func logicalLines(of makefile: String) -> [String] {
+            var joined: [String] = []
+            var pending: String?
+            for rawLine in makefile.components(separatedBy: .newlines) {
+                let trailingBackslashes = rawLine.reversed().prefix(while: { $0 == "\\" }).count
+                let continues = trailingBackslashes % 2 == 1
+                let content = continues ? String(rawLine.dropLast()) : rawLine
+                if let started = pending {
+                    pending = started + " " + content.drop(while: { $0 == " " || $0 == "\t" })
+                } else {
+                    pending = content
+                }
+                if !continues, let complete = pending {
+                    joined.append(complete)
+                    pending = nil
+                }
+            }
+            // A trailing backslash on the file's last line continues onto
+            // nothing; make reads what it has, and so does this.
+            if let unterminated = pending { joined.append(unterminated) }
+            return joined
+        }
+
+        var prerequisites: [String: [String]] = [:]
+        var declaredPhony: Set<String> = []
+        for rawLine in logicalLines(of: makefile) {
+            // The recipe prefix is a *tab*, and only a tab — make reads a
+            // space-indented line as an ordinary rule line. Treating all leading
+            // whitespace as a recipe marker would skip `  smoke2:` outright,
+            // which is the silent exemption this scan exists to refuse, so the
+            // spaces are dropped exactly as make drops them.
+            guard let first = rawLine.first, first != "\t", first != "#" else { continue }
+            let line = rawLine.drop(while: { $0 == " " })
+            guard let afterIndent = line.first, afterIndent != "#" else { continue }
+            // Directives this scan does not interpret, refused rather than
+            // ignored — ignoring one is the same silent exemption every shape
+            // above is refused for. A *conditional* is the sharpest case: make
+            // reads one branch, this scan reads both, and a roster keyed by
+            // target name keeps whichever came last, so an inactive
+            // `else`-branch `smoke2: hooks` would answer for an active rule
+            // that reaches nothing. `include` keeps whole rules — and the
+            // `.PHONY` line that would otherwise catch them — in a file this
+            // scan never opens; a `define` body carries rule-shaped lines make
+            // never reads as rules; and `.RECIPEPREFIX` retires the tab that
+            // every recipe skip here depends on. None appear in this Makefile,
+            // and adding one is meant to be a failing test rather than a hole.
+            let directive = line.prefix(while: { !$0.isWhitespace })
+            let nameHead = line.prefix(while: { !$0.isWhitespace && $0 != ":" && $0 != "=" })
+            XCTAssertFalse(
+                makeDirectivesTheScanRefuses.contains(String(directive)) || nameHead == ".RECIPEPREFIX",
+                """
+                the Makefile uses `\(directive)`, a directive this scan neither \
+                interprets nor can read around — rules it hides, or hands it two \
+                versions of, would be silently exempt from the `hooks` requirement
+                """
+            )
+            // Make *expands* a line before it reads it, and one function turns
+            // an expansion back into makefile syntax: `$(eval …)` hands make
+            // whole rules this scan never sees. It is also the one shape that
+            // escapes the rule path entirely, because the line defining the
+            // rule need carry no colon of its own:
+            //
+            //     COLON := :
+            //     $(eval smoke2$(COLON))
+            //
+            // defines a real `smoke2` target that reaches nothing, on a line
+            // the colon guard below would skip — and, being undeclared, one the
+            // `.PHONY` cross-check never asks about either. Hidden on the right
+            // of an assignment (`X := $(eval smoke2$(COLON))`, expanded at
+            // assignment time) it is skipped by the assignment path instead.
+            // So the reference itself is refused wherever it appears on a
+            // non-recipe line, which is also where a `$(call …)` of a variable
+            // holding one is caught: the variable's own definition names it.
+            // Nothing else expands into a rule — `include` and `define` are
+            // refused above — so this is the whole of that class.
+            let code = line.prefix(while: { $0 != "#" })
+            XCTAssertFalse(code.contains("$(eval") || code.contains("${eval"), """
+                the Makefile expands `eval`, which defines rules this scan never reads \
+                as rules — a target created that way would be silently exempt from the \
+                `hooks` requirement
+                """)
+            // Everything below reads the *comment-stripped* text, because that
+            // is where make's own line ends: a `#` ends the line before the
+            // rule syntax is read at all. Splitting the raw line instead reads
+            // a comment's first word as the shape that follows the colon, and
+            // `smoke2: #x=1` — an ordinary rule with no prerequisites — is then
+            // taken for a target-specific variable assignment and skipped,
+            // which is the silent exemption this whole scan exists to refuse
+            // (for a name absent from `.PHONY`, nothing downstream recovers
+            // it). It also stops a plain assignment whose *comment* carries a
+            // colon from being read as a rule.
+            guard let colon = code.firstIndex(of: ":") else {
+                // No colon at all means the line is either a variable
+                // assignment — the one top-level shape that declares no rule
+                // and needs none — or something this scan cannot classify. The
+                // second is refused rather than skipped, for the reason every
+                // shape above is: make reads more than literal text, and a line
+                // that expands into a rule (or that make rejects outright) must
+                // fail here rather than quietly leave the roster short by one.
+                XCTAssertTrue(isVariableAssignment(code), """
+                    the Makefile carries the top-level line `\(line)`, which is neither a \
+                    rule nor a variable assignment this scan can read — write it as one, \
+                    or a target hiding behind it would be silently exempt from the \
+                    `hooks` requirement
+                    """)
+                continue
+            }
+            let tail = code[code.index(after: colon)...]
+            // `NAME := value` / `NAME ::= value` / `NAME :::= value` /
+            // `NAME:= value` are variable assignments, not rules. All three
+            // colon-carrying operators are spelled out, so what is left starting
+            // with a colon below is a double-colon *rule* and nothing else.
+            guard !tail.hasPrefix("="), !tail.hasPrefix(":="), !tail.hasPrefix("::=") else { continue }
+            let name = code[code.startIndex..<colon].trimmingCharacters(in: .whitespaces)
+            guard !name.isEmpty else { continue }
+            // A double-colon rule is the other shape this scan cannot attribute.
+            // Make unions every `::` rule for a target and runs them all, while a
+            // dictionary keyed by name keeps only the last; and splitting at the
+            // *first* colon leaves the second one in the tail, which defeats the
+            // assignment check below — `smoke2:: NOTE = hooks`, which make invokes
+            // nothing for, would be read as the prerequisites `: NOTE = hooks` and
+            // satisfy the requirement outright. So it is refused, like a
+            // multi-target or pattern rule, rather than read wrong.
+            if tail.hasPrefix(":") {
+                XCTFail("""
+                    the Makefile declares `\(name)` as a double-colon rule, a shape this \
+                    scan cannot attribute to a single rule — write it with one colon, or \
+                    this test stops covering it
+                    """)
+                continue
+            }
+            // A target-specific variable assignment carries no prerequisites, so
+            // it is skipped rather than recorded — recording it would both
+            // manufacture a `hooks` dependency out of the assigned value and
+            // overwrite whatever the target's real rule says. A target that has
+            // *only* such a line still cannot hide: `.PHONY` names every target
+            // this repository declares, and the cross-check below refuses a
+            // declared name the scan found no rule for.
+            guard !isVariableAssignment(tail) else { continue }
+            // Prerequisites end where make says they end: at `#` (a comment —
+            // `##` is this file's help convention and merely a case of it) or
+            // at `;` (an inline recipe). Both carry words make never resolves as
+            // targets, and reading them as prerequisites is how `smoke2: # hooks`
+            // or `smoke2: ; @echo hooks` would satisfy the requirement below
+            // without invoking `hooks` at all. The comment is already gone —
+            // `tail` is read off the stripped text — so the `#` here is what
+            // keeps that true of this line alone rather than of its caller.
+            let body = tail.prefix(while: { $0 != "#" && $0 != ";" })
+            let deps = body.split(whereSeparator: { $0 == " " || $0 == "\t" }).map(String.init)
+            if name == ".PHONY" {
+                // Make allows any number of `.PHONY` lines and unions them; a
+                // roster that replaced the previous one would let everything
+                // named in an earlier declaration slip past the cross-check.
+                declaredPhony.formUnion(deps)
+                continue
+            }
+            // Other special targets (`.SUFFIXES`, `.DELETE_ON_ERROR`, …) are
+            // make's own, not this repository's front door — skipped by *name*,
+            // never by the leading dot alone: `.smoke2` is an ordinary target
+            // make runs on request, and exempting every dot-prefixed rule would
+            // hide it from the requirement below one name at a time. Anything
+            // else wearing a dot — an unknown directive, a legacy suffix rule
+            // like `.c.o` — is refused rather than guessed at.
+            if name.hasPrefix(".") {
+                XCTAssertTrue(makeSpecialTargets.contains(name), """
+                    the Makefile declares `\(name)`, which is not one of make's special \
+                    targets — an ordinary target wearing a leading dot, skipped by this scan, \
+                    would be silently exempt from the `hooks` requirement
+                    """)
+                continue
+            }
+            XCTAssertFalse(name.contains(" ") || name.contains("%"), """
+                the Makefile declares `\(name)`, a multi-target or pattern rule this \
+                scan cannot attribute to a single target — write it as one target per \
+                rule, or this test stops covering it
+                """)
+            // Make *unions* the prerequisites of every rule it reads for a
+            // target — only the recipe is last-one-wins — so a target split
+            // across two lines (`build: hooks` and `build: generate` with the
+            // recipe) has both. Replacing the entry keeps only the last list
+            // and reports a `hooks` path make actually has as missing, so the
+            // lists are appended the way `.PHONY` above is unioned.
+            prerequisites[name, default: []].append(contentsOf: deps)
+        }
+        XCTAssertTrue(prerequisites.keys.contains("test"), """
+            the Makefile target scan found no `test` target, so it is no longer reading \
+            the file it means to read
+            """)
+        XCTAssertFalse(declaredPhony.isEmpty, """
+            the Makefile declares no `.PHONY` targets, so the roster this scan checks \
+            itself against is gone
+            """)
+        for target in declaredPhony.sorted() {
+            XCTAssertNotNil(prerequisites[target], """
+                Makefile declares `\(target)` in `.PHONY` but this scan found no rule \
+                for it — either the declaration outlived the target, or the rule is \
+                written in a shape the scan can no longer read and would otherwise be \
+                silently exempt from the `hooks` requirement
+                """)
+        }
+
+        func reachesHooks(_ target: String, seen: Set<String> = []) -> Bool {
+            guard !seen.contains(target) else { return false }
+            guard let deps = prerequisites[target] else { return false }
+            if deps.contains("hooks") { return true }
+            return deps.contains { reachesHooks($0, seen: seen.union([target])) }
+        }
+
+        for target in prerequisites.keys.sorted() where target != "help" && target != "hooks" {
+            XCTAssertTrue(reachesHooks(target), """
+                Makefile's `\(target)` target does not reach `hooks` through its \
+                prerequisites, so invoking it leaves this clone's hooks unwired — which \
+                is the whole reason the Makefile exists beside the raw commands
                 """)
         }
     }

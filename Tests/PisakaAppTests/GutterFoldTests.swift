@@ -104,6 +104,8 @@ final class GutterFoldTests: XCTestCase {
         XCTAssertFalse(numbers.contains(15))
         if let idx12 = numbers.firstIndex(of: 12), let idx27 = numbers.firstIndex(of: 27) {
             XCTAssertEqual(idx27, idx12 + 1)
+        } else {
+            XCTFail("numbers missing 12 or 27: \(numbers)")
         }
     }
 

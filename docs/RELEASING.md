@@ -692,9 +692,21 @@ The workflow then, in order:
     nothing about the app. The
     assertion is that the process *lives*, nothing more — windows appearing, the
     updater polling github.com, its first-launch permission prompt and the
-    restored document are all inert to it. With no session there is no document,
-    no layout and no re-entrant pass, which is exactly why the part 1 crash
-    passed CI: so the step first backs up the domain (`defaults export
+    restored document are all inert to it. The seeding adds no assertion of its
+    own: it hands the app a session so the launch exercises the layout path with
+    a real document instead of an empty window, but nothing in the step reads
+    the restore back, and `EditorSession` decodes the blob under `try?` — a seed
+    that stopped decoding would leave the step green and document-free. What the
+    seeding was measured *not* to prove is the part 1 folding crash
+    (`FoldingTypesetter.init()` reached through a re-entrant layout pass): with
+    that fix stashed the seeded launch survived, so a regression of that class
+    is caught by the `PisakaAppTests` bundle — three of its tests trapped before
+    the fix — and never by this step. That bundle is `ci.yml`'s gate, on pull
+    request and push to `master`; this workflow's own test job runs `swift test`
+    alone, so the release pipeline inherits the net only by the tag being cut
+    from a commit CI already passed. The seeding is kept anyway because a
+    launch with no document proves strictly less, not because it proves that
+    crash: the step first backs up the domain (`defaults export
     ws.karmanov.pisaka`) and seeds a restorable session — a `SessionCatalog`
     under `session.projects` (a `PropertyListEncoder`-encoded blob in domain
     `ws.karmanov.pisaka`) naming a fixture folder of two multi-line files under
@@ -1086,8 +1098,14 @@ asked the only question a user asks first.
 rather than a check for this one message: it runs the product in both places that
 build the shipping configuration (`ci.yml` against the DerivedData Release
 product, `release.yml` against the archived app before the submission) and
-refuses if the process is not still alive five seconds later. Any startup crash
-fails it, not just an unresolved `@rpath`.
+refuses if the process is not still alive five seconds later — so it catches
+more than an unresolved `@rpath`, but only a startup crash that *reproduces
+under a five-second headless launch*. That is not every startup crash: the part
+1 folding trap (`FoldingTypesetter.init()` reached through a re-entrant layout
+pass) was measured to survive this step even with a session seeded, and its net
+is the `PisakaAppTests` bundle instead, where three tests trapped before the
+fix. The measurement is recorded on the *Launch the archived app (smoke test)*
+bullet above.
 
 Recovery was the ordinary one and needs no special case — delete the tag, push
 it again, as [above](#cutting-a-release); the fresh run archives under a new

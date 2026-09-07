@@ -186,7 +186,7 @@ SwiftPM executable target.
 and refuses if the pinned [SwiftLint](docs/architecture/style-lint.md) is
 missing; commits that violate `.swiftlint.yml`, the style authority at the
 repository root, are refused. `make` also wraps everything below:
-`make test`, `make lint`, `make build`, `make build-ios`.
+`make test`, `make test-app`, `make lint`, `make build`, `make build-ios`.
 
 ```sh
 make setup             # one time per clone: hooks + linter check
@@ -198,10 +198,16 @@ open Pisaka.xcodeproj  # build & run from Xcode
 xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' build
 
 swift test             # run the domain-logic test suite (PisakaCore)
+
+# The AppKit overlays swift test cannot see (PisakaAppTests):
+xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' test
 ```
 
 `swift test` builds and tests only the platform-agnostic `PisakaCore`
-library — the fast, dependency-free gate for the domain logic. The macOS app
+library — the fast, dependency-free gate for the domain logic. A second,
+app-hosted bundle covers the macOS AppKit subclasses whose behaviour only
+appears at run time — the layout manager, the typesetter, the ruler — and CI
+runs it too. The macOS app
 runs non-sandboxed so the standard open/save panels work without
 entitlements.
 
