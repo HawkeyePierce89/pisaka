@@ -198,21 +198,21 @@ rather than parsed for.
 **Files:**
 - Modify (temporarily, then restore): `.github/workflows/ci.yml`
 
-- [ ] Measure the section with the `awk` command above; it must be ≤ 250. If it is not,
+- [x] Measure the section with the `awk` command above; it must be ≤ 250. If it is not,
       cut doc comments and assertion prose further — never by re-introducing a helper.
       Record the number.
-- [ ] Record the deletion grep:
+- [x] Record the deletion grep:
       `grep -n "commandHalf\|substitutedShell\|commandSubstitution\|parameterExpansion\|firstCommandSeparator\|expansionOpened\|openQuote\|nestedScopeEnd\|stringEnd\|firstUnescapedQuote\|annotationMarkers" Tests/PisakaCoreTests/ReleaseWorkflowTests.swift`
       must return nothing.
-- [ ] Inject `-derivedDataPath DerivedData` into an active line of `ci.yml`, run
+- [x] Inject `-derivedDataPath DerivedData` into an active line of `ci.yml`, run
       `swift test --filter ReleaseWorkflowTests`, and confirm both
       `testEveryDerivedDataPathBuildsIntoANoIndexDirectory` and
       `testNoActiveWorkflowLineNamesABareBuildOutputRoot` fail with a message naming the
       stale root. Restore `ci.yml` exactly (`git diff` clean for that file) and re-run.
-- [ ] Confirm `testTheTwoSmokeLaunchesAreTheSameCheck` is green and its two step bodies
+- [x] Confirm `testTheTwoSmokeLaunchesAreTheSameCheck` is green and its two step bodies
       were not touched (`git diff` over `release.yml` shows the one reworded prose line
       and nothing else).
-- [ ] Record all three results (line count, grep, injection with the failing test names)
+- [x] Record all three results (line count, grep, injection with the failing test names)
       in the plan's Notes section.
 
 ### Task 6: Verify acceptance criteria
@@ -247,6 +247,33 @@ rather than parsed for.
 
 ## Notes
 
-(Filled in during execution: the measured section line count, the deletion grep output,
-the stale-spelling injection result with the failing test names, and the
-`grep -rn "22 816"` result.)
+**Section line count** — the `awk` measurement over
+`Tests/PisakaCoreTests/ReleaseWorkflowTests.swift` returns **250**, at the plan's ≤ 250
+gate (down from 1 505).
+
+**Deletion grep** — 
+`grep -n "commandHalf\|substitutedShell\|commandSubstitution\|parameterExpansion\|firstCommandSeparator\|expansionOpened\|openQuote\|nestedScopeEnd\|stringEnd\|firstUnescapedQuote\|annotationMarkers" Tests/PisakaCoreTests/ReleaseWorkflowTests.swift`
+returns **nothing** (exit 1). Every parser symbol the plan named is gone from the file.
+
+**`grep -rn "22 816"`** — returns `docs/RELEASING.md` alone (recorded in Task 4).
+
+**Stale-spelling injection** — `.github/workflows/ci.yml:71` was temporarily rewritten
+from `-derivedDataPath DerivedData.noindex` to `-derivedDataPath DerivedData`. Exactly the
+two expected tests failed, each naming the stale root:
+
+- `testEveryDerivedDataPathBuildsIntoANoIndexDirectory` — two assertions, at
+  `ReleaseWorkflowTests.swift:3697`: "`-derivedDataPath DerivedData` must sit under a
+  `.noindex` directory…" and "…builds into `DerivedData`, but `.gitignore` and
+  `.swiftlint.yml` name `DerivedData.noindex`".
+- `testNoActiveWorkflowLineNamesABareBuildOutputRoot` — at `ReleaseWorkflowTests.swift:3716`:
+  "ci.yml spells the stale build output root `-derivedDataPath DerivedData` in
+  “-derivedDataPath DerivedData”… Use `-derivedDataPath DerivedData.noindex`."
+
+No other test failed; `testNoDocumentSpellsABareBuildOutputRoot` and
+`testEveryArchivePathIsUnderANoIndexDirectory` stayed green, as the injection was a
+workflow flag value. `ci.yml` was restored with `git checkout --`; `git diff` for that file
+is clean, and the re-run is **66 tests, 0 failures**.
+
+**Smoke launches untouched** — `testTheTwoSmokeLaunchesAreTheSameCheck` passes, and
+`git diff master...HEAD -- .github/workflows/release.yml` is the single reworded `::error::`
+prose line at 509 (`-archivePath` → `archive path`) and nothing else.
