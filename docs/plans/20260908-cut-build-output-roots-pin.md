@@ -94,15 +94,15 @@ rather than parsed for.
 **Files:**
 - Modify: `.github/workflows/release.yml`
 
-- [ ] Reword `release.yml:509`'s `::error::` prose so it names no flag: "check the archive
+- [x] Reword `release.yml:509`'s `::error::` prose so it names no flag: "check the archive
       path on the archive command line" in place of "check the `-archivePath` on the
       archive command line". Everything else about the line — the refusal, the `exit 1`,
       the `See docs/RELEASING.md.` tail — is unchanged.
-- [ ] Audit both workflows for a second active line carrying an annotation marker and
+- [x] Audit both workflows for a second active line carrying an annotation marker and
       either `-derivedDataPath` or `-archivePath`:
       `grep -n "::error::\|::warning::\|::notice::" .github/workflows/*.yml | grep -e -derivedDataPath -e -archivePath`
       Expect no remaining hit. Reword the same way if one exists.
-- [ ] Run `swift test --filter ReleaseWorkflowTests` — green with the section still in its
+- [x] Run `swift test --filter ReleaseWorkflowTests` — green with the section still in its
       current form, proving the reword breaks none of the existing rules.
 
 ### Task 2: Delete the parser; the flag-value rule reads active lines directly

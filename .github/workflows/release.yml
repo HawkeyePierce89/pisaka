@@ -506,7 +506,7 @@ jobs:
           # change. `Verify the archived app` keeps its own copies of both: it
           # must stay refusable on its own terms if the steps are ever reordered.
           if ! test -d "$APP"; then
-            echo "::error::no app at ${APP}. The archive step produced nothing at the path this workflow expects; check the -archivePath on the archive command line. See docs/RELEASING.md."
+            echo "::error::no app at ${APP}. The archive step produced nothing at the path this workflow expects; check the archive path on the archive command line. See docs/RELEASING.md."
             exit 1
           fi
           if ! test -d "$FRAMEWORK"; then
