@@ -229,15 +229,15 @@ rather than parsed for.
 
 ### Task 7: Update documentation
 
-- [ ] `docs/RELEASING.md` — the legacy-guard telling is the single full account; the
+- [x] `docs/RELEASING.md` — the legacy-guard telling is the single full account; the
       `// MARK: - The build output roots` description stays accurate about what the
       section reads.
-- [ ] `docs/architecture/style-lint.md` — the `excluded:` "One stated exception"
+- [x] `docs/architecture/style-lint.md` — the `excluded:` "One stated exception"
       paragraph accurate.
-- [ ] `CLAUDE.md` — the `ReleaseWorkflowTests` index entry already says "full inventory in
+- [x] `CLAUDE.md` — the `ReleaseWorkflowTests` index entry already says "full inventory in
       that suite's doc comments and `docs/RELEASING.md`"; confirm it needs no change and
       leave it alone if so.
-- [ ] No product or brand name introduced anywhere: code, comments, tests, docs, the plan,
+- [x] No product or brand name introduced anywhere: code, comments, tests, docs, the plan,
       the commit messages.
 
 ## Post-Completion (manual)
@@ -296,3 +296,26 @@ prose line at 509 (`-archivePath` → `archive path`) and nothing else.
 
 All local builds used derived data outside the repository root
 (`~/Library/Developer/Xcode/DerivedData/pisaka-verify{,-ios}`).
+
+**Task 7 documentation verification** — no edit was needed at any of the four sites;
+each was already correct after Task 4, and the check is recorded rather than repeated.
+
+- `docs/RELEASING.md` — the `rm -rf build DerivedData` paragraph (~line 108) is the single
+  full legacy-guard account: the entries kept beside the renamed ones, the rename
+  un-ignoring what an existing clone holds, the 22 816 files (2.2 GiB) and the signed
+  bundle among them, plus the `.swiftlint.yml`-answers-it-the-other-way paragraph. The
+  section description above it still matches the trimmed code term for term: the suite
+  reads both workflows, `.gitignore`, `.swiftlint.yml` and the three documents, and
+  `documentsThatSpellABuildOutputRoot` — the roster it calls hand-maintained — survives
+  under that name with those three entries.
+- `docs/architecture/style-lint.md` — the "One stated exception" paragraph (lines 8–15)
+  names `ReleaseWorkflowTests`, `// MARK: - The build output roots` and `styleExclusions`,
+  all three of which survive, and its "four entries, two of them the build output roots"
+  matches `styleExclusions` exactly. Unchanged.
+- `CLAUDE.md` — the index entry (lines ~795–810) describes the section as the two
+  `.noindex` roots across both workflows, `.gitignore`, the `excluded:` list and the three
+  documents, and defers the rest to the suite's doc comments and `docs/RELEASING.md`. Every
+  clause still holds; the file is untouched by this branch, as intended.
+- Brand names — `git diff master...HEAD` over the whole tree, the plan file, and
+  `git log master..HEAD`'s subjects and bodies were each scanned for product names; no hit.
+- `swift test --filter ReleaseWorkflowTests` re-run at this point: **66 tests, 0 failures**.
