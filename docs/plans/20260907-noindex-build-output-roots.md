@@ -292,17 +292,17 @@ task that owns the file)
 - Modify: `CLAUDE.md` (only if the Tests section needs the new pin named)
 - Modify: the plan file's Notes section
 
-- [ ] If the new pin warrants a mention, add it to `CLAUDE.md`'s existing
+- [x] If the new pin warrants a mention, add it to `CLAUDE.md`'s existing
       `ReleaseWorkflowTests` sentence rather than as a new paragraph — that
       suite's inventory is explicitly delegated to its own doc comments and
       `docs/RELEASING.md`, so the index gains at most a clause, not an essay.
-- [ ] Record in the plan's Notes what this change is *not* proven by: `ci.yml`'s
+- [x] Record in the plan's Notes what this change is *not* proven by: `ci.yml`'s
       half is exercised end to end by the pull request's three green jobs, and
       that is the only end-to-end check available. `release.yml`'s half — the
       archive path, the notarization scratch directory, the staging directory,
       the appcast input, the publish upload and the cask hash — is exercised
       only by the next `v*` tag. Say so plainly; do not claim it was verified.
-- [ ] Run `swift test` and `swiftlint --strict` one final time.
+- [x] Run `swift test` and `swiftlint --strict` one final time.
 
 ## Post-Completion (outside the agent's reach)
 
@@ -377,3 +377,36 @@ came back:
 Only the reproduction above used `-derivedDataPath` inside the checkout, which
 is the point of that step; the three gate builds wrote to derived-data
 directories under `~/Library/Developer/Xcode/DerivedData/`.
+
+### Task 5 — what this change is *not* proven by
+
+Stated plainly, because the two halves of this rename have very different
+evidence behind them.
+
+**`ci.yml`'s half is exercised end to end**, and that is the only end-to-end
+check this repository has. The pull request's three jobs run the renamed
+commands for real: the test job, the macOS Release build — which builds into
+`DerivedData.noindex` and then *launches* the product out of it, so a wrong
+`APP=` path fails the job rather than passing quietly — and the iOS build.
+Three green jobs mean the `DerivedData.noindex` rename works where it runs.
+
+**`release.yml`'s half is not exercised by anything until the next `v*` tag.**
+Nothing in pull-request CI touches it, by design: the workflow runs only on a
+tag, and its secrets are unreachable from a pull request. So every one of these
+is renamed and statically pinned but **unrun**:
+
+- the archive path (`build.noindex/Pisaka-macOS.xcarchive`) and the five
+  `APP=` readings out of it,
+- the notarization scratch directory (`build.noindex/notarization`),
+- the staging directory (`build.noindex/release-assets`) and the `ditto` that
+  fills it,
+- the appcast generator's input directory,
+- the publish upload,
+- the cask step's `ZIP=` and therefore the `sha256` the cask bump records.
+
+What stands behind that half is `ReleaseWorkflowTests` — which reads the
+workflow's shape from the file and now also pins both roots' `.noindex` names —
+plus the acceptance grep recorded above. That is a static guarantee about the
+text of the workflow, not a demonstration that the tagged run succeeds. It is
+not claimed to be one; the first tagged release after this change is where that
+half is verified, and the Post-Completion section says which steps to watch.

@@ -801,7 +801,10 @@ helpers verified on the app, the framework and every Mach-O inside it, the
 notarize→staple→`spctl` chain with both verdicts read explicitly, that no step
 can be non-fatal, the job budget against the notary timeout, step ordering,
 draft-then-promote, tool pins, `ci.yml`'s Release macOS build *launching what it
-built*, the `SUFeedURL` cross-file pairs and the Gatekeeper-workaround strings
+built*, the two `.noindex` build output roots across both workflows,
+`.gitignore` and the style authority's `excluded:` list (the one
+`.swiftlint.yml` rule this suite owns, being about build *output*, not style),
+the `SUFeedURL` cross-file pairs and the Gatekeeper-workaround strings
 absent everywhere; **full inventory in that suite's doc comments and
 `docs/RELEASING.md`** — do not restate it here),
 `LicenseCoverageTests` (`licenses.json` vs.
