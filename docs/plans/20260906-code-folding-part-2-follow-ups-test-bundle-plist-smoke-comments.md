@@ -442,3 +442,39 @@ Dependencies: none. No new files.
   three saying the opposite of the removed claim: that
   the crash passed CI and that the seeded launch does *not* catch it. No
   architecture doc claims the smoke launch catches the part 1 crash.
+
+- (Review) Two deliberate deviations from the task text above, recorded here
+  because both tasks are ticked and neither departure is visible from the
+  checkbox alone.
+
+  **Task 2's term (a), narrowed.** The checkbox asks the comment to state that
+  the seeded launch proves "the app restores a session, opens a project and
+  lays out a real document without producing a crash report inside the
+  deadline". What shipped refuses that claim instead: the step proves only that
+  "the process was alive at the deadline", and the comment goes on to say that
+  nothing here reads the restore back and that `EditorSession` decodes the blob
+  under `try?` (`EditorSession.swift:423`), so a seed that stopped decoding
+  would leave the step green and document-free. The narrowing is deliberate and
+  was kept: the plan's own wording asserts a restore this step never verifies,
+  and a plan whose whole purpose is that comments say what is actually true
+  cannot ship a comment that overstates its step. Terms (b) and (c) are
+  unchanged from the task text. The crash-report harvest was checked against the
+  step body — it runs only inside the `ALIVE -eq 0` branch, so a report is
+  evidence collected after a failure, never part of the success criterion.
+
+  **`testMakefileTargetsAllDependOnWiringTheHooks`, expanded beyond the task
+  text.** Adding `make test-app` (Makefile:39–41) broke the old hard-coded
+  direct-prerequisite check, because `test-app` reaches `hooks` transitively
+  through `generate`. The replacement reads the roster out of the Makefile
+  rather than restating it — a hard-coded list silently exempts every target
+  added after it was written, which is the regression the test exists to catch —
+  and that turned a 12-line assertion into a scan that refuses the make shapes
+  it cannot attribute (line folding, the seven assignment operators,
+  target-specific assignments, `$(eval …)`, `.RECIPEPREFIX`, double-colon,
+  pattern and multi-target rules) instead of skipping them. The expansion is
+  larger than "four small, independent corrections" implies and is *not* what
+  the task asked for; it is recorded rather than reverted because the refusals
+  are what keep the roster honest, and its prose lives in
+  `docs/architecture/style-lint.md:171–226`. A future tightening — the
+  transitive `reachesHooks` walk plus the `.PHONY` cross-check, dropping the
+  shape refusals — is a legitimate follow-up.
