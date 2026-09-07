@@ -3852,6 +3852,18 @@ final class ReleaseWorkflowTests: XCTestCase {
 
     /// The style authority skips the same two roots, by set equality — which
     /// pins the two renamed entries and the two untouched ones at once.
+    ///
+    /// These two entries are belt and braces, and it is worth being exact about
+    /// which runs they can reach. `included:` already scopes every
+    /// repository-supported run to `Sources/` and `Tests/`: `make lint` and
+    /// ci.yml's lint job both run `swiftlint lint --strict` in discovery mode
+    /// from the root, and `.githooks/pre-commit` hands over only staged paths
+    /// matching `Sources/*.swift` and `Tests/*.swift`, so its `--force-exclude`
+    /// never has a build root to exclude either. What the entries bite is the
+    /// ad-hoc explicit-path run — the form `included:` does not scope at all —
+    /// and what they are pinned for is the name: an entry naming the old
+    /// directory excludes nothing and quietly documents a path nothing writes
+    /// to.
     func testTheStyleAuthorityExcludesTheNoIndexRoots() throws {
         let block = try XCTUnwrap(topLevelBlock("excluded", in: try text(atRepositoryPath: ".swiftlint.yml")), """
             .swiftlint.yml has no top-level `excluded:` block.
@@ -3862,10 +3874,10 @@ final class ReleaseWorkflowTests: XCTestCase {
         })
         XCTAssertEqual(entries, Self.styleExclusions, """
             .swiftlint.yml's `excluded:` must name exactly \(Self.styleExclusions.sorted()). The two \
-            build output roots are listed under their `.noindex` names. `included:` already keeps an \
-            ordinary root-level run inside Sources/ and Tests/, so these two entries are belt and \
-            braces — they bite when a path is named explicitly, as the pre-commit hook's \
-            `--force-exclude` run does — and an entry naming the old directory guards nothing at all.
+            build output roots are listed under their `.noindex` names. `included:` already keeps \
+            every repository-supported run inside Sources/ and Tests/, so these two entries are belt \
+            and braces — they bite an explicitly named path, the one form `included:` does not scope \
+            — and an entry naming the old directory excludes nothing at all.
             """)
     }
 
@@ -3927,9 +3939,9 @@ final class ReleaseWorkflowTests: XCTestCase {
             XCTAssertEqual(root, expectedRoot, """
                 `\(flag) \(value)` builds into `\(root)`, but `.gitignore` and `.swiftlint.yml` \
                 name `\(expectedRoot)`. The suffix alone is not enough: a `.noindex` root nobody \
-                ignores dirties the tree after a local repro, and one nobody excludes is walked by \
-                `swiftlint --strict` from the repository root. The three files must name one root, \
-                not three that merely rhyme.
+                ignores dirties the tree after a local repro, and one the style authority does not \
+                name is excluded by nothing when a path under it is handed to swiftlint explicitly. \
+                The three files must name one root, not three that merely rhyme.
                 """, file: file, line: line)
         }
     }
