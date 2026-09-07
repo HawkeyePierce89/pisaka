@@ -132,19 +132,19 @@ rather than parsed for.
 **Files:**
 - Modify: `Tests/PisakaCoreTests/ReleaseWorkflowTests.swift`
 
-- [ ] Fold the checkout-root family into `relativePathPrefix` as one alternation
+- [x] Fold the checkout-root family into `relativePathPrefix` as one alternation
       (`checkoutRootReference` may stay as its own `let` for readability); delete
       `closingQuote` and every use of it in `relativePathPrefix`,
       `staleBuildOutputRootSpelling` and `pathNamed`.
-- [ ] Reduce `pathNamed(by:)` to stripping surrounding quotes/backticks and a leading
+- [x] Reduce `pathNamed(by:)` to stripping surrounding quotes/backticks and a leading
       `./`; delete the reference-stripping branch and the `${{ … }}` closing-up in
       `shellTokens(of:)`.
-- [ ] Keep `staleBuildOutputRootSpelling(in:)` with its three matchers (two path regexes,
+- [x] Keep `staleBuildOutputRootSpelling(in:)` with its three matchers (two path regexes,
       one flag regex), path matchers first, and both absence rules
       (`testNoActiveWorkflowLineNamesABareBuildOutputRoot`,
       `testNoDocumentSpellsABareBuildOutputRoot`) exactly as they judge today, including
       the two loud-vacuity guards inside them.
-- [ ] Trim `testTheBareRootMatchersJudgeTheShapesTheyClaimTo`'s fixtures to the shapes the
+- [x] Trim `testTheBareRootMatchersJudgeTheShapesTheyClaimTo`'s fixtures to the shapes the
       repository writes plus one representative of each deliberate refusal: stale —
       `-derivedDataPath DerivedData`, `APP="build/…"`, `./DerivedData/Build`, a document
       line naming `-archivePath build`, one `$GITHUB_WORKSPACE/build/…` and one
@@ -152,14 +152,14 @@ rather than parsed for.
       `~/Library/Developer/Xcode/DerivedData/…`, `"$RUNNER_TEMP/build/staging"`,
       `xcodebuild -scheme Pisaka build`, and a URL containing `/build/`. No line per
       hypothetical quoting style.
-- [ ] Trim `testAFlagValueIsReadAsThePathItNamesNotItsQuoting` to the cases that survive
+- [x] Trim `testAFlagValueIsReadAsThePathItNamesNotItsQuoting` to the cases that survive
       the reduced `pathNamed(by:)`: the quote/backtick strips, the `./` strip, the
       untouched unquoted value, and that a stale root stays stale however quoted. Delete
       the checkout-reference and `${{ … }}` cases.
-- [ ] Leave `testTheIgnoreFileNamesTheNoIndexRootsAndTheLegacyGuards` and
+- [x] Leave `testTheIgnoreFileNamesTheNoIndexRootsAndTheLegacyGuards` and
       `testTheStyleAuthorityExcludesTheNoIndexRoots` alone in what they assert (their doc
       comments are rewritten in Task 4).
-- [ ] Run `swift test --filter ReleaseWorkflowTests`; measure the section and record the
+- [x] Run `swift test --filter ReleaseWorkflowTests`; measure the section and record the
       running number.
 
 ### Task 4: Doc comments proportionate to the code, legacy-guard story told once

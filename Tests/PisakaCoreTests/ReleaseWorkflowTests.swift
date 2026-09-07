@@ -3696,8 +3696,13 @@ final class ReleaseWorkflowTests: XCTestCase {
     /// `assertNamesNoBareBuildOutputRoot(_:of:file:line:)` for the three shapes
     /// this refuses and why each would otherwise fail with a message that
     /// misdescribes the path it names.
+    ///
+    /// One checkout spelling is deliberately **unhandled**: the quote closed
+    /// around the variable alone, `"$GITHUB_WORKSPACE"/build/…`. No workflow and
+    /// no document in this repository writes it, so it is recorded here rather
+    /// than parsed for.
     private static let relativePathPrefix =
-        ##"(^|[\s"'`(=<>])(\./|\##(checkoutRootReference)\##(closingQuote)/)?"##
+        ##"(^|[\s"'`(=<>])(\./|\##(checkoutRootReference)/)?"##
 
     /// The checkout root written out rather than left implicit: the one family
     /// of absolute paths that still names *this* repository's output root.
@@ -3713,19 +3718,6 @@ final class ReleaseWorkflowTests: XCTestCase {
     /// a directory outside the tree and stays live.
     private static let checkoutRootReference =
         ##"(\$\{?(GITHUB_WORKSPACE|PWD)\}?|\$\(pwd\)|\$\{\{ *github\.workspace *\}\})"##
-
-    /// The quote a checkout reference may close *before* the `/` that follows
-    /// it, wherever a matcher takes that reference.
-    ///
-    /// `"$GITHUB_WORKSPACE"/build/notarization` and `"${PWD}"/build` are the
-    /// ordinary shell spellings of the paths the reference above exists to
-    /// catch — quoting the variable alone, because that is the only part that
-    /// needs it — and they name the same directory as
-    /// `"$GITHUB_WORKSPACE/build/notarization"`. Without this the closing quote
-    /// sits between the reference and the root, so the prefix does not match and
-    /// the `/`-is-not-a-delimiter rule sends the line past every matcher: the
-    /// one spelling of the checkout root that evaded both.
-    private static let closingQuote = ##"["'`]?"##
 
     /// The documents that spell a build output root in a command a reader is
     /// told to run from the checkout root.
@@ -4017,26 +4009,14 @@ final class ReleaseWorkflowTests: XCTestCase {
     /// The words of a shell line, split on whitespace rather than on the space
     /// character alone — a value separated from its flag by a tab is still that
     /// flag's value, and a scan that cannot see it drops the occurrence instead
-    /// of judging it — with a GitHub expression's *internal* spaces closed up
-    /// first.
-    ///
-    /// `${{ github.workspace }}` is one value written with spaces inside it, so
-    /// a whitespace split tears it into three words and the flag's value reads
-    /// as the bare `${{` — a root nobody wrote, failing a correct line. It is
-    /// one of the checkout spellings the stale matchers already take, and
-    /// closing it up is what lets `pathNamed(by:)` take it here.
+    /// of judging it.
     private static func shellTokens(of line: String) -> [String] {
-        line.replacingOccurrences(of: ##"\$\{\{ *([^{}]*?) *\}\}"##,
-                                  with: "${{$1}}",
-                                  options: .regularExpression)
-            .split(whereSeparator: { $0.isWhitespace })
-            .map(String.init)
+        line.split(whereSeparator: { $0.isWhitespace }).map(String.init)
     }
 
     /// The path a whitespace-separated token names, with the shell spelling
-    /// that is not part of it taken off: the quotes or backticks around it, the
-    /// checkout root written out loud in front of it, and the `./` a writer may
-    /// put in front of a relative path.
+    /// that is not part of it taken off: the quotes or backticks around it and
+    /// the `./` a writer may put in front of a relative path.
     ///
     /// Without this the rule fails on values that are *correct*.
     /// `-derivedDataPath "DerivedData.noindex"` and `-archivePath
@@ -4048,27 +4028,15 @@ final class ReleaseWorkflowTests: XCTestCase {
     /// The stale-spelling matchers already take both spellings for exactly this
     /// reason; this is the same reading on the live half.
     ///
-    /// The checkout reference is the same argument one spelling further out.
-    /// `-archivePath "$GITHUB_WORKSPACE"/build.noindex/Pisaka-macOS.xcarchive`
-    /// names precisely the root this section requires — the stale matchers take
-    /// that spelling and its whole family (`$PWD`, `$(pwd)`,
-    /// `${{ github.workspace }}`, with or without the quote closed around the
-    /// variable alone), and `testTheBareRootMatchersJudgeTheShapesTheyClaimTo`
-    /// pins that exact line as live — yet its first path segment reads as
-    /// `$GITHUB_WORKSPACE"`. Stripping it costs the rule nothing: the stale
-    /// spelling behind the same reference is `build/…`, which still fails both
-    /// the suffix and the root check, only now with a message naming the root
-    /// the line actually spells. What is *not* this checkout —
-    /// `"$RUNNER_TEMP"/…` — is left alone, exactly as the matchers leave it.
+    /// **What this cannot see** is a value naming the checkout root out loud
+    /// (`"$GITHUB_WORKSPACE"/build.noindex/…`). Neither workflow writes one, so
+    /// such a value reads as the path it spells including the reference and
+    /// fails loudly rather than passing unnoticed.
     private static func pathNamed(by token: String) -> String {
         let quoting: Set<Character> = ["\"", "'", "`"]
         var value = token
         while let first = value.first, quoting.contains(first) { value.removeFirst() }
         while let last = value.last, quoting.contains(last) { value.removeLast() }
-        if let reference = value.range(of: ##"^\##(checkoutRootReference)\##(closingQuote)/"##,
-                                       options: .regularExpression) {
-            value = String(value[reference.upperBound...])
-        }
         if value.hasPrefix("./") { value.removeFirst(2) }
         return value
     }
@@ -4096,9 +4064,9 @@ final class ReleaseWorkflowTests: XCTestCase {
     /// same directory: `$GITHUB_WORKSPACE/build/…`, `${{ github.workspace }}/…`
     /// and `$PWD/DerivedData/…` are this repository's output root written
     /// absolutely, so `checkoutRootReference` stands in for the `./` and they
-    /// are judged like the relative form — with the quote a shell writer closes
-    /// around the variable alone (`"$GITHUB_WORKSPACE"/build/…`) allowed
-    /// between the reference and the root, since it names the same directory.
+    /// are judged like the relative form. The quote closed around the variable
+    /// alone (`"$GITHUB_WORKSPACE"/build/…`) is the one spelling deliberately
+    /// left unhandled — see `relativePathPrefix`.
     ///
     /// What they must not catch is threefold. `build.noindex/` and
     /// `DerivedData.noindex/` are the names this rule exists to *require*, and
@@ -4169,7 +4137,7 @@ final class ReleaseWorkflowTests: XCTestCase {
         }
         for flag in ["-derivedDataPath", "-archivePath"] {
             for (stale, live) in roots
-            where matches(##"\##(flag)\s+["'`]?(\.?/?|\##(Self.checkoutRootReference)\##(Self.closingQuote)/)\##(stale)([^.\w]|$)"##,
+            where matches(##"\##(flag)\s+["'`]?(\.?/?|\##(Self.checkoutRootReference)/)\##(stale)([^.\w]|$)"##,
                           in: line) {
                 return ("\(flag) \(stale)", "\(flag) \(live)")
             }
@@ -4193,21 +4161,13 @@ final class ReleaseWorkflowTests: XCTestCase {
             "        xcodebuild -project Pisaka.xcodeproj -derivedDataPath DerivedData build",
             #"            APP="build/Pisaka-macOS.xcarchive/Products/Applications/Pisaka.app""#,
             "            rm -rf ./DerivedData/Build",
-            #"  -derivedDataPath "DerivedData" \"#,
             "the archive lands under `-archivePath build`",
+            // The checkout written out loud is this repository's own output
+            // root, so it is judged like the relative spelling.
             #"            ditto "$GITHUB_WORKSPACE/build/notarization" "$ZIP""#,
-            "            rm -rf $PWD/DerivedData/Build",
-            "  -archivePath ${{ github.workspace }}/build \\",
-            // The same two paths with the quote closed around the variable
-            // alone — the ordinary shell spelling, and the one that used to sit
-            // between the reference and the root and evade both matchers.
-            #"            rm -rf "$GITHUB_WORKSPACE"/build/notarization"#,
-            #"  -archivePath "${PWD}"/build/Pisaka.xcarchive \"#,
-            #"  -derivedDataPath "$PWD"/DerivedData"#,
             // A redirection is a delimiter whose space is routinely left out,
             // and the path behind it is as much a build output root as any.
             #"            echo "$OUTPUT" >build/report.txt"#,
-            "            xcodebuild -scheme Pisaka build 2>DerivedData/error.log",
         ]
         for line in stale {
             XCTAssertNotNil(staleBuildOutputRootSpelling(in: line), """
@@ -4222,11 +4182,6 @@ final class ReleaseWorkflowTests: XCTestCase {
             "            ditto build.noindex/Pisaka-macOS.xcarchive build.noindex/release-assets",
             "  -derivedDataPath ~/Library/Developer/Xcode/DerivedData/pisaka-local",
             #"            ditto "$RUNNER_TEMP/build/staging" "$ZIP""#,
-            // The closing quote requalifies nothing on its own: what is in
-            // front of the root here is still a directory outside the tree.
-            #"            ditto "$RUNNER_TEMP"/build/staging "$ZIP""#,
-            #"            echo "$OUTPUT" >build.noindex/report.txt"#,
-            #"  -archivePath "$GITHUB_WORKSPACE"/build.noindex/Pisaka-macOS.xcarchive \"#,
             "see https://example.invalid/runs/1/build/log for the output",
             "            run: xcodebuild -scheme Pisaka build",
         ]
@@ -4258,33 +4213,12 @@ final class ReleaseWorkflowTests: XCTestCase {
                        "build.noindex/Pisaka-macOS.xcarchive")
         XCTAssertEqual(Self.pathNamed(by: #""./DerivedData.noindex""#), "DerivedData.noindex")
 
-        // The checkout written out loud is the same directory as the relative
-        // spelling, in every form the stale matchers take — including the quote
-        // a shell writer closes around the variable alone, which lands *inside*
-        // the token and is the one the outer-quote strip cannot reach.
-        XCTAssertEqual(Self.pathNamed(by: #""$GITHUB_WORKSPACE"/build.noindex/Pisaka-macOS.xcarchive"#),
-                       "build.noindex/Pisaka-macOS.xcarchive")
-        XCTAssertEqual(Self.pathNamed(by: #""$GITHUB_WORKSPACE/DerivedData.noindex""#), "DerivedData.noindex")
-        XCTAssertEqual(Self.pathNamed(by: #""${PWD}"/build.noindex"#), "build.noindex")
-        XCTAssertEqual(Self.pathNamed(by: "$(pwd)/DerivedData.noindex"), "DerivedData.noindex")
-        XCTAssertEqual(Self.pathNamed(by: "${{github.workspace}}/build.noindex/x"), "build.noindex/x")
-
-        // What must survive the reading: a stale root stays stale however it is
-        // quoted or qualified, an unquoted value is untouched, and a reference
-        // that is *not* this checkout requalifies nothing.
+        // What must survive the reading: an unquoted value is untouched, and a
+        // stale root stays stale however it is quoted.
         XCTAssertEqual(Self.pathNamed(by: "DerivedData.noindex/Build"), "DerivedData.noindex/Build")
-        XCTAssertEqual(Self.pathNamed(by: #""DerivedData""#), "DerivedData")
         XCTAssertEqual(Self.pathNamed(by: "./scratch.noindex"), "scratch.noindex")
-        XCTAssertEqual(Self.pathNamed(by: #""$PWD"/build/Pisaka.xcarchive"#), "build/Pisaka.xcarchive")
-        XCTAssertEqual(Self.pathNamed(by: #""$RUNNER_TEMP"/staging.noindex"#), #"$RUNNER_TEMP"/staging.noindex"#)
-
-        // And a GitHub expression is one value, not the three words a
-        // whitespace split makes of it.
-        XCTAssertEqual(Self.shellTokens(of: "  -archivePath ${{ github.workspace }}/build.noindex/x \\"),
-                       ["-archivePath", "${{github.workspace}}/build.noindex/x", "\\"], """
-            `${{ … }}` carries spaces inside one value; splitting it apart leaves the flag's value \
-            reading as `${{`, and the rule fails on a root the line does not name.
-            """)
+        XCTAssertEqual(Self.pathNamed(by: #""DerivedData""#), "DerivedData")
+        XCTAssertEqual(Self.pathNamed(by: "'./build/Pisaka.xcarchive'"), "build/Pisaka.xcarchive")
     }
 
     /// `.gitignore`'s live entries: neither blank nor a whole-line comment.
