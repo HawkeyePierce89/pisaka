@@ -3795,27 +3795,57 @@ final class ReleaseWorkflowTests: XCTestCase {
     }
 
     /// The same rule over the documents, which are the sites the suffix exists
-    /// for: no document may spell a build output flag with a bare root.
+    /// for: no document may name a bare build output root.
     ///
     /// Matched over the raw text rather than comment-stripped lines, because in
     /// a Markdown file the command *is* the content — there is nothing to strip,
-    /// and a fenced code block is exactly what a reader copies. The two flags
-    /// are matched with their values attached so that prose merely *naming*
-    /// `build/` — or a gitignore fixture, or an unrelated `DerivedData` mention
-    /// — is not a hit: what is forbidden is a runnable command, not a word.
+    /// and a fenced code block is exactly what a reader copies.
+    ///
+    /// Two matchers, because the documents spell these roots two ways and a
+    /// rule seeing only one of them is a rule that pins one of the three files.
+    ///
+    /// The **flag** matcher reads a value attached to `-derivedDataPath` or
+    /// `-archivePath`, terminated by a slash, whitespace or end of text — not by
+    /// a slash alone. `-derivedDataPath` names a directory and is spelled
+    /// without one at every site in either workflow, so a slash-terminated
+    /// matcher would let `-derivedDataPath DerivedData` through, which is the
+    /// single likeliest way a document drifts back.
+    ///
+    /// The **path** matcher is the workflow rule's own pair — `DerivedData/` as
+    /// a substring, `build/` as a regex so `build.noindex/` cannot read as a hit
+    /// — run per line. It is here because two of the three documents name a root
+    /// in a runnable command carrying no flag at all (`find DerivedData…`,
+    /// `nm -u DerivedData…` in `core-services.md`) and one names it in prose a
+    /// reader follows by hand (`docs/RELEASING.md`'s staged zip). Under the flag
+    /// matcher alone those five sites were unpinned, and `core-services.md` —
+    /// which spells neither flag — was in this list without a single line the
+    /// rule could judge.
     func testNoDocumentSpellsABareBuildOutputRoot() throws {
         for path in Self.documentsThatSpellABuildOutputRoot {
             let raw = try text(atRepositoryPath: path)
             for flag in ["-derivedDataPath", "-archivePath"] {
                 for stale in ["DerivedData", "build"] {
-                    XCTAssertFalse(matches(#"\#(flag)\s+\#(stale)/"#, in: raw), """
-                        \(path) tells a reader to run `\(flag) \(stale)/…`. That command is \
+                    XCTAssertFalse(matches(#"\#(flag)\s+\#(stale)([/\s]|$)"#, in: raw), """
+                        \(path) tells a reader to run `\(flag) \(stale)`. That command is \
                         reproduced verbatim from the checkout root, so it builds an application \
                         bundle into an indexed directory — the exact thing the `.noindex` roots \
                         exist to prevent. Use `\(Self.derivedDataRoot)`/`\(Self.archiveRoot)`; see \
                         this section's doc comment.
                         """)
                 }
+            }
+
+            for line in raw.components(separatedBy: .newlines) {
+                XCTAssertFalse(line.contains("DerivedData/"), """
+                    \(path) names a path under a bare `DerivedData/` in “\(line)”. Build output \
+                    goes under `\(Self.derivedDataRoot)/`; see this section's doc comment for why \
+                    the suffix is part of the name.
+                    """)
+                XCTAssertFalse(matches(#"(^|[^.\w])build/"#, in: line), """
+                    \(path) names a path under a bare `build/` in “\(line)”. The archive and \
+                    everything staged beside it go under `\(Self.archiveRoot)/`; see this \
+                    section's doc comment for why the suffix is part of the name.
+                    """)
             }
         }
     }
@@ -3832,9 +3862,10 @@ final class ReleaseWorkflowTests: XCTestCase {
         })
         XCTAssertEqual(entries, Self.styleExclusions, """
             .swiftlint.yml's `excluded:` must name exactly \(Self.styleExclusions.sorted()). The two \
-            build output roots are listed under their `.noindex` names: a lint run from the \
-            repository root walks whatever a local build left behind, and an exclusion naming the \
-            old directory silently stops excluding anything.
+            build output roots are listed under their `.noindex` names. `included:` already keeps an \
+            ordinary root-level run inside Sources/ and Tests/, so these two entries are belt and \
+            braces — they bite when a path is named explicitly, as the pre-commit hook's \
+            `--force-exclude` run does — and an entry naming the old directory guards nothing at all.
             """)
     }
 

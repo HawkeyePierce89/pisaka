@@ -329,6 +329,15 @@ task that owns the file)
 - `\bbuild/(release-assets|notarization|Pisaka-)` — empty
 - `\bDerivedData/` — empty
 
+**Amendment (review, same day).** The review that followed restored the two
+pre-rename `.gitignore` entries as legacy guards (see the correction recorded
+below), so the fourth pattern no longer comes back empty over that file: re-run
+today it reports `.gitignore:26:DerivedData/` and the comment line above the
+`build/` guard. Both hits are the intended guards, not a regression. Over the
+other six files all four patterns are still empty, which is what the recorded
+result means from here on; the guards themselves are pinned by
+`testTheIgnoreFileNamesTheNoIndexRootsAndTheLegacyGuards`.
+
 **The local reproduction.** `ci.yml`'s macOS Release build was reproduced
 verbatim from the repository root — `xcodegen generate`, then
 `xcodebuild -project Pisaka.xcodeproj -resolvePackageDependencies
