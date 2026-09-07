@@ -119,19 +119,19 @@ Dependencies: none. No new files.
 - Modify: `project.yml`
 - Modify: `Tests/PisakaCoreTests/ReleaseMetadataTests.swift`
 
-- [ ] Reproduce first: run `xcodegen generate` then `xcodebuild -project
+- [x] Reproduce first: run `xcodegen generate` then `xcodebuild -project
       Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' test` with
       **no** signing flags and capture the refusal verbatim (expected: *"Cannot
       code sign because the target does not have an Info.plist file"* against
       `PisakaAppTests`). Record it in the Notes.
-- [ ] Add `GENERATE_INFOPLIST_FILE: YES` to the `PisakaAppTests` target's
+- [x] Add `GENERATE_INFOPLIST_FILE: YES` to the `PisakaAppTests` target's
       `settings.base`, beside `TEST_HOST` and `BUNDLE_LOADER`, with a comment
       saying why the bundle needs one: signing a bundle needs a plist to sign, and
       an application-hosted unit-test bundle gets none from the generator by
       default — so the documented, flag-free `xcodebuild … test` refuses on a
       developer Mac while CI's signing-free form passes. Extend the existing
       comment block above the target rather than starting a second one.
-- [ ] Extend `testProjectDeclaresTheAppLayerTestTarget()` with a
+- [x] Extend `testProjectDeclaresTheAppLayerTestTarget()` with a
       `contains(consecutively:)` assertion over the three settings lines together
       — `TEST_HOST: …`, `BUNDLE_LOADER: $(TEST_HOST)`,
       `GENERATE_INFOPLIST_FILE: YES` — **not** a bare one-line check, because the
@@ -139,15 +139,15 @@ Dependencies: none. No new files.
       would pass against it. Give it the failure message the reason states:
       without the plist the documented command cannot sign the bundle, and only
       the CI step's `CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO` hides it.
-- [ ] Leave `.github/workflows/ci.yml`'s step and its flags untouched (a
+- [x] Leave `.github/workflows/ci.yml`'s step and its flags untouched (a
       signing-free runner stays the right default there), and leave `CLAUDE.md`'s
       Commands section as it is.
-- [ ] `swift test` — `ReleaseMetadataTests` green.
-- [ ] `xcodegen generate`, then run the **plain** command again: `xcodebuild
+- [x] `swift test` — `ReleaseMetadataTests` green.
+- [x] `xcodegen generate`, then run the **plain** command again: `xcodebuild
       -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS'
       test`. It must pass with no extra flags. Record the pass — test count and
       the command as typed — in the Notes.
-- [ ] `swiftlint --strict`.
+- [x] `swiftlint --strict`.
 
 ### Task 2: The smoke launch says what it proves
 
@@ -293,8 +293,25 @@ Dependencies: none. No new files.
 
 ## Notes (filled in during execution)
 
-- (Task 1) The pre-change refusal, verbatim:
-- (Task 1) The flag-free `xcodebuild … test` result after the change:
+- (Task 1) The pre-change refusal, verbatim — from `xcodegen generate` followed
+  by `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination
+  'platform=macOS' test` with no signing flags:
+
+  ```
+  error: Cannot code sign because the target does not have an Info.plist file and one is not being generated automatically. Apply an Info.plist file to the target using the INFOPLIST_FILE build setting or generate one automatically by setting the GENERATE_INFOPLIST_FILE build setting to YES (recommended). (in target 'PisakaAppTests' from project 'Pisaka' at path '/Users/antonkarmanov/git/pisaka/Pisaka.xcodeproj')
+
+  Testing failed:
+  	Cannot code sign because the target does not have an Info.plist file and one is not being generated automatically. …
+  	Testing cancelled because the build failed.
+
+  ** TEST FAILED **
+  ```
+- (Task 1) The flag-free `xcodebuild … test` result after the change: the same
+  command as typed above — `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka
+  -destination 'platform=macOS' test`, no extra flags — reports
+  `Test Suite 'PisakaAppTests.xctest' passed … Executed 14 tests, with 0 failures
+  (0 unexpected)` and `** TEST SUCCEEDED **`. `swift test`: 5275 tests, 0
+  failures. `swiftlint --strict`: 0 violations in 517 files.
 - (Task 3) `git diff -w 01732f8^ HEAD --stat` vs `git diff 01732f8^ HEAD --stat`
   for the two documentation files:
 - (Task 5) Final gate results:

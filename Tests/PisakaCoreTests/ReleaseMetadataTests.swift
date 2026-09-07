@@ -456,6 +456,26 @@ final class ReleaseMetadataTests: XCTestCase {
             companion to TEST_HOST that makes the host's symbols available to the \
             bundle.
             """)
+        // The three settings are pinned *together*, in order, on purpose: the
+        // application target already carries GENERATE_INFOPLIST_FILE: YES, so a
+        // bare one-line assertion would match that one and stay green with the
+        // test bundle's copy deleted. Anchoring on TEST_HOST / BUNDLE_LOADER —
+        // which only this target declares — is what makes the match specific.
+        XCTAssertTrue(lines.contains(consecutively: """
+            TEST_HOST: $(BUILT_PRODUCTS_DIR)/Pisaka.app/Contents/MacOS/Pisaka
+            BUNDLE_LOADER: $(TEST_HOST)
+            GENERATE_INFOPLIST_FILE: YES
+            """), """
+            PisakaAppTests must set GENERATE_INFOPLIST_FILE: YES beside TEST_HOST \
+            and BUNDLE_LOADER. Signing a bundle needs a plist to sign, and an \
+            application-hosted unit-test bundle gets none from the generator by \
+            default — so without it the documented, flag-free \
+            `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination \
+            'platform=macOS' test` refuses on a developer Mac with "Cannot code \
+            sign because the target does not have an Info.plist file". Only CI's \
+            step, which passes CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO, \
+            hides that; the documented command is the one developers run.
+            """)
     }
 
     func testProjectSchemeExposesTheAppLayerTests() throws {
