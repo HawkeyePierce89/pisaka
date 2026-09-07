@@ -257,14 +257,14 @@ authority's rule configuration, and never has pinned `excluded:`.
 **Files:** none modified (verification only; any failure sends work back to the
 task that owns the file)
 
-- [ ] Record in the plan's Notes the acceptance grep and its output: `grep -rn`
+- [x] Record in the plan's Notes the acceptance grep and its output: `grep -rn`
       over `.github/workflows/ci.yml`, `.github/workflows/release.yml`,
       `.gitignore`, `.swiftlint.yml`, `CLAUDE.md`, `docs/RELEASING.md` and
       `docs/architecture/core-services.md` for `-derivedDataPath
       DerivedData[^.]`, `-archivePath build/`,
       `\bbuild/(release-assets|notarization|Pisaka-)` and `\bDerivedData/` —
       expected empty.
-- [ ] Reproduce `ci.yml`'s macOS Release build command verbatim from the
+- [x] Reproduce `ci.yml`'s macOS Release build command verbatim from the
       repository root (`xcodegen generate`, the package resolve, then the
       Release build with `-derivedDataPath DerivedData.noindex`) and confirm the
       product lands at `DerivedData.noindex/Build/Products/Release/Pisaka.app`.
@@ -273,15 +273,15 @@ task that owns the file)
       output directory is deleted immediately afterwards. Budget for a long run:
       a Release build compiles the app and every linked dependency with
       whole-module optimization, which is why CI gives this job 45 minutes.
-- [ ] With the product in place, run `mdfind -name Pisaka.app` and record that
+- [x] With the product in place, run `mdfind -name Pisaka.app` and record that
       the reproduction's path is absent from the output, and
       `git status --porcelain` and record that it is empty. Record honestly in
       the Notes what this observation is worth: an absent path is consistent
       with the suffix working, and cannot on its own distinguish "skipped by
       name" from "not yet indexed" — the structural guarantee is the name, and
       the pin in Task 2 is what keeps it.
-- [ ] Delete `DerivedData.noindex/` afterwards.
-- [ ] Run the full gate set and record each result: `swift test`,
+- [x] Delete `DerivedData.noindex/` afterwards.
+- [x] Run the full gate set and record each result: `swift test`,
       `swiftlint --strict`, `xcodegen generate`, the macOS build, the iOS
       Simulator build, and `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka
       -destination 'platform=macOS' test`.
@@ -316,6 +316,64 @@ task that owns the file)
 
 ## Notes
 
-- To be filled during execution: the acceptance grep and its output, the local
-  reproduction's product path, the `mdfind` and `git status --porcelain`
-  observations, and each gate's result.
+### Task 4 — acceptance verification (run 2026-09-07)
+
+**The acceptance grep.** All four patterns, run with `grep -rnE` over
+`.github/workflows/ci.yml`, `.github/workflows/release.yml`, `.gitignore`,
+`.swiftlint.yml`, `CLAUDE.md`, `docs/RELEASING.md` and
+`docs/architecture/core-services.md`, produced **no output** (exit status 1,
+"no lines selected", for each):
+
+- `-derivedDataPath DerivedData[^.]` — empty
+- `-archivePath build/` — empty
+- `\bbuild/(release-assets|notarization|Pisaka-)` — empty
+- `\bDerivedData/` — empty
+
+**The local reproduction.** `ci.yml`'s macOS Release build was reproduced
+verbatim from the repository root — `xcodegen generate`, then
+`xcodebuild -project Pisaka.xcodeproj -resolvePackageDependencies
+-clonedSourcePackagesDirPath SourcePackages`, then the Release build with
+`-derivedDataPath DerivedData.noindex` — and ended `** BUILD SUCCEEDED **`
+(exit 0). The product landed exactly where the smoke launch's `APP=` line now
+names it:
+`DerivedData.noindex/Build/Products/Release/Pisaka.app`, with the executable at
+`Contents/MacOS/Pisaka`.
+
+**`mdfind` and `git status`.** With that product in place,
+`mdfind -name Pisaka.app` returned `/Applications/Pisaka.app` alone — the
+reproduction's path was **absent** — and `mdfind -onlyin <checkout> -name
+Pisaka.app` returned nothing at all. `git status --porcelain` was **empty**.
+
+*What that observation is worth, stated honestly:* an absent path is
+*consistent* with the suffix working and nothing more. It cannot on its own
+distinguish "skipped by the metadata importer because of the name" from "not
+yet indexed at the moment the query ran" — the index is a runtime property of
+the machine that holds it. The structural guarantee here is the **name**, and
+the pin added in Task 2 is what keeps that name from regressing.
+
+*One further honest limit, observed in the build log:* the Release build's own
+output carries an
+`lsregister -f -R -trusted …/DerivedData.noindex/Build/Products/Release/Pisaka.app`
+line — the build registers its product with LaunchServices directly, which is a
+different mechanism from the metadata importer that `.noindex` governs. This
+change is about the *index*; it does not claim anything about LaunchServices
+registration, and none was measured.
+
+`DerivedData.noindex/` was deleted immediately after the observations; the
+checkout root holds neither it nor `build.noindex/` now.
+
+**The gate set.** Each run from the repository root, each result recorded as it
+came back:
+
+| Gate | Result |
+| --- | --- |
+| `swift test` | passed — 5 280 tests, 0 failures |
+| `swiftlint --strict` | passed — 0 violations, 0 serious, 517 files |
+| `xcodegen generate` | passed — project written |
+| macOS build (`-destination 'platform=macOS'`) | `** BUILD SUCCEEDED **` |
+| iOS Simulator build (`iPhone 17 Pro`) | `** BUILD SUCCEEDED **` |
+| App-layer bundle (`-destination 'platform=macOS' test`) | `** TEST SUCCEEDED **`, 0 failures |
+
+Only the reproduction above used `-derivedDataPath` inside the checkout, which
+is the point of that step; the three gate builds wrote to derived-data
+directories under `~/Library/Developer/Xcode/DerivedData/`.
