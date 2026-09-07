@@ -478,3 +478,310 @@ as a whole. Renaming it too means moving `-clonedSourcePackagesDirPath`, both
 `actions/cache` blocks' `path:`, the `.gitignore` and `.swiftlint.yml` entries
 and the pin's `styleExclusions` together; that is a separate change, deliberately
 not folded into a review of this one.
+
+### The matchers as shipped, after external review
+
+Recorded because Task 2 spells one of them out and the shipped patterns are
+narrower and wider in ways worth naming.
+
+**The bare-root path matchers.** Task 2 names `(^|[^.\w])build/`. Both roots now
+run through one shared prefix — `` (^|[\s"'`(=])(\./)? `` — which requires the root
+to *begin* a path: line start or a delimiter that opens one (whitespace, a
+quote, a backtick, `(`, or the `=` of a shell assignment), with an optional
+`./`. Every live spelling still matches (`-archivePath build.noindex/…` after a
+space, `APP="DerivedData.noindex/…"` after a quote, a Markdown backticked path).
+What no longer matches is a root that is a *segment of somebody else's path* —
+`~/Library/Developer/Xcode/DerivedData/…`, which is the out-of-checkout location
+a local build is told to use precisely so nothing lands near the tree, and any
+nested `…/build/…` in a URL. The old `[^.\w]` prefix treated `/` as a boundary
+and so failed those with a message describing a repository-relative root they
+are not.
+
+**The checkout can also be spelled out loud.** Refusing an unqualified `/` in
+front of a root leaves one shape uncovered, and a later review round named it:
+`"$GITHUB_WORKSPACE/build/notarization"` and `$PWD/DerivedData/Build` have a
+segment in front of the root, but that segment *is* this checkout, so they
+recreate the very directory the suffix exists to keep out of the index. Both
+matchers now take a `checkoutRootReference` — `$GITHUB_WORKSPACE`, `$PWD`,
+`$(pwd)`, `${{ github.workspace }}`, braced or not — wherever they take the
+optional `./`. Only roots that name the checkout itself qualify: `$RUNNER_TEMP/
+build/…` is a directory outside the tree and stays live, and is pinned as such.
+
+A later round named the second half of the same shape: a shell writer quotes the
+*variable* alone, so `rm -rf "$GITHUB_WORKSPACE"/build/notarization` and
+`-archivePath "${PWD}"/build/Pisaka.xcarchive` put a closing quote between the
+reference and the root. That quote left the path matching neither the reference
+branch (which demanded the `/` immediately) nor the bare one (whose `/` is no
+delimiter), so the one spelling that names this checkout out loud *and* reads
+naturally evaded both. Both matchers now take an optional closing quote after
+the reference. It requalifies nothing on its own — `"$RUNNER_TEMP"/build/staging`
+is still live, and pinned as such.
+
+**The flag matcher takes a quoted value.** `-derivedDataPath "DerivedData"` names
+the same stale root as the bare spelling and now fails the same way: the value
+may carry one opening quote or backtick as well as the optional `./`.
+
+**Annotations are cut out, not skipped and not truncated at.** The flag-*value*
+scan (`assertFlagValuesAreNoIndexed`) skipped any line carrying `::error::` and
+friends, because those spell a flag name inside a sentence where the next word
+is prose. The skip was not free, contrary to what its comment claimed: the
+paired absence rule can see a *bare* root attached to a flag, but nothing else
+can see the **root-equality** rule — a value ending in `.noindex` that names a
+root neither `.gitignore` nor `.swiftlint.yml` knows about. A command reporting
+its own failure (`xcodebuild … -derivedDataPath X.noindex || echo "::error::…"`)
+carries both halves on one line, and skipping it whole carried the value out of
+the only rule that judges it. Verified by injecting exactly that line into
+`ci.yml`: the rule now fails on it, naming `scratch.noindex` against
+`DerivedData.noindex`.
+
+Truncating at the marker was the first answer and only half of one, as the same
+review round pointed out: shell lives on *both* sides of an annotation, which
+`release.yml` already demonstrates (`test -d "$APP" || { echo "::error::no app
+at ${APP}"; exit 1; }`), so a line whose command follows its annotation —
+`echo "::notice::…"; xcodebuild -derivedDataPath scratch.noindex` — was carried
+out of reach exactly as the skip had been. `commandHalf(of:)` now removes the
+annotation as a *span*: from the marker to the end of the string literal that
+opened it, matched on the same quote character and honouring backslash escapes,
+so an apostrophe in the prose (`the app's Info.plist`) and an escaped quoted
+phrase (`\"Signed Time=\"`) — both live in `release.yml` — cannot end it early
+and leak the sentence back in as shell.
+
+A marker with no string in front of it opens no literal, and the first answer —
+the rest of that line is prose — was the truncation bug once more, one shape
+further out. `echo ::notice::starting` is valid shell whenever the prose carries
+nothing the shell would eat, so `echo ::notice::starting; xcodebuild
+-derivedDataPath scratch.noindex` was carried out of reach exactly as the quoted
+form had been. An unquoted annotation's prose is the rest of that *command*, and
+ends where the next one begins: at the first unquoted `;`, `&`, `|`, `)` or `}`,
+none of which can sit unquoted among an `echo`'s words without being that
+operator. Only a marker with no separator after it is prose to the end of the
+line.
+
+A further round refuted both halves of that sentence's reasoning, in the same
+direction each time — the cut reaching further than the prose. The quoted
+branch asked for the *last* quote before the marker and took a matching quote
+anywhere later as its terminator, but the last quote before a marker is as
+often the **closing** one of an earlier string (`test -n "$APP" && echo
+::notice::…`), so any quote later on the line — a `-scheme "Pisaka"` suffices —
+was read as the annotation's end and every command between the two cut out as
+prose, carrying a real `-derivedDataPath` out of reach exactly as truncating at
+the marker had. Whether a literal is open is now read off `kept`, the shell the
+cut has preserved, as *state*; a quote is never guessed from the quotes around
+the marker. And two of the five terminators do sit unquoted mid-word after all,
+closing what a `$` opened: `${APP}` and `$(basename "$APP")` are ordinary in
+prose, and ending the command at their `}` or `)` left the rest of the sentence
+in the line as shell — where `-archivePath on the command line` reads as a flag
+whose value is `on` and fails a rule about a path nobody wrote. The scan now
+tracks what each `$` opened (including the `))` of an arithmetic expansion) and
+treats the five as terminators at the top level only; inside an expansion
+nothing is, `$(a; b)` being one word too. All four shapes are pinned in
+`testTheAnnotationRemovalKeepsTheCommandHalvesOfALine`, and each was confirmed
+to fail against the previous parser before the fix landed.
+
+**Both are pinned in both directions.** The matchers were read out of the
+assertion into `staleBuildOutputRootSpelling(in:)` so
+`testTheBareRootMatchersJudgeTheShapesTheyClaimTo` can feed them stale *and*
+live lines no repository file holds — every other caller asserts an absence, and
+an absence rule is green whether it matches the right shapes or nothing at all.
+`testTheAnnotationRemovalKeepsTheCommandHalvesOfALine` does the same for the
+annotation span, both sides of it included.
+
+**Four boundary shapes from the round after that**, all of them the same two
+mistakes the rounds above made — the cut reaching further than the prose, and a
+delimiter list that is shorter than the shell's.
+
+*An annotation's prose is prose only as far as the shell agrees.* A `$(…)` or a
+backtick pair inside one is executed before `echo` sees a word of the sentence,
+so `echo "::notice::$(xcodebuild -derivedDataPath scratch.noindex)"` is a real
+build with a real flag value — and removing the annotation as one span carried
+it out of reach of the root-equality rule, which is the failure the span exists
+to prevent, one shape further in. `commandHalf(of:)` now puts the *contents* of
+every substitution in the cut span back into the shell it keeps
+(`substitutedShell(in:from:to:)`); the sentence around it stays cut, so a flag
+name written as prose is still not read as a flag. Verified by injecting that
+exact line into `ci.yml`: the rule fails on it, naming `scratch.noindex` against
+`DerivedData.noindex`. An escaped backtick — `release.yml` writes one — opens
+nothing, and `$((…))` runs no command and contributes nothing.
+
+*Brackets nest inside an expansion too.* The terminator scan recorded only the
+closers a `$` introduced, so an ordinary grouping `(` inside one —
+`$(( (COUNT + 1) * 2 ))` — paid back a `)` the expansion still needed, the
+expansion's own `)` read as a top-level terminator, and the prose behind it
+(`-archivePath on the line`) leaked in as shell: the `on`-is-a-path failure the
+previous round fixed, reached by another door. A bare `(` now pushes its own
+closer while an expansion is open. A `{` needs no twin — the only closer it
+could steal is the `}` of a `${…}`, whose body has no place for one.
+
+*A redirection is a delimiter whose space is routinely left out.*
+`echo … >build/report` and `xcodebuild … 2>DerivedData/error.log` name a bare
+output root as squarely as the spaced spellings, and the path prefix's delimiter
+class read the `>` as part of a word and let both past. `<` and `>` join it, and
+both shapes are pinned stale (with `>build.noindex/report.txt` pinned live).
+
+*And the live half of the flag rule now reads a value the way the stale half
+already did.* `-derivedDataPath "DerivedData.noindex"` and `-archivePath
+./build.noindex/…` name exactly the roots this section requires, but the scan
+compared the raw whitespace token, whose first path segment is
+`"DerivedData.noindex"` or `.` — so both failed with a message naming a root the
+line does not spell. Every failure of that reading is a *false* one, and a rule
+that fails on the correct answer is a rule someone deletes. `pathNamed(by:)`
+takes the quoting and the `./` off the token, pinned in both directions by
+`testAFlagValueIsReadAsThePathItNamesNotItsQuoting`; the quoted *stale* spelling
+still fails, through the absence rule that has taken a quoted value all along.
+
+**Four more from the round after that**, three of them the same mistake as
+before — the cut reaching further than the prose — and one of them its mirror,
+the rule failing on a line that is right.
+
+*A `${…}` is one word of a substitution, brackets included.* The depth scan in
+`commandSubstitution(in:at:before:)` counted raw parentheses and quotes but not
+parameter expansions, so `$(echo ${X:-)}; xcodebuild -derivedDataPath
+scratch.noindex)` ended at the expansion's `)` and everything the substitution
+still ran was dropped — the silent direction, the one that leaves the suite
+green. It now skips a `${…}` whole, by brace depth, exactly as the terminator
+scan already did.
+
+*Nothing is escapable inside a single-quoted string.* All four scanners honoured
+the backslash unconditionally, so a sentence ending in one — `echo
+'::notice::ends in a backslash \'; xcodebuild -derivedDataPath scratch.noindex
+-scheme 'Pisaka'` — ran the span past its real terminator to the quote around
+`Pisaka` and cut the whole command between them out as prose: the quote-parity
+bug of two rounds ago, reached through the escape rule instead. The rule is now
+the shell's — a backslash inside `'…'` is an ordinary character — in
+`firstUnescapedQuote`, `openQuote(inShellPrefix:)`, `firstCommandSeparator` and
+`commandSubstitution` alike. The last two have shapes of their own here, since
+nothing that pins the first two can tell them apart.
+
+*And a single-quoted annotation substitutes nothing.* `substitutedShell` pulled
+every `$(…)` and backtick pair back out of the cut span without asking which
+quote the annotation sat in, so `echo '::notice::$(xcodebuild -derivedDataPath
+scratch.noindex)'` — words the shell prints, running no build — failed a rule
+about a root nobody named. This is not the scan erring toward dropping but the
+same reading one level up: a literal that executes nothing has no shell to keep.
+The enclosing quote is now a parameter, and a `'…'` inside an *unquoted*
+annotation suppresses the same way — while inside a double-quoted one an
+apostrophe still opens nothing, which is pinned too.
+
+*The checkout spelled out loud is the checkout.* `-archivePath
+"$GITHUB_WORKSPACE"/build.noindex/Pisaka-macOS.xcarchive` names exactly the root
+this section requires — `testTheBareRootMatchersJudgeTheShapesTheyClaimTo` pins
+that very line as live for the stale matchers — yet its first path segment read
+as `$GITHUB_WORKSPACE"` and failed. `pathNamed(by:)` now takes the same
+reference family the matchers take, and `shellTokens(of:)` closes up the
+internal spaces of `${{ github.workspace }}` first, since a whitespace split
+otherwise leaves the value reading as the bare `${{`. Stripping costs the rule
+nothing: the stale spelling behind the same reference still fails both checks,
+now with a message naming the root the line actually spells, and
+`"$RUNNER_TEMP"/…` is left alone exactly as the matchers leave it.
+
+**Three more from the round after that** — two of them the same silent
+direction, one nesting level further in than any shape above, and one a hole in
+the rule rather than in the parser.
+
+*A quoted brace is not a brace.* `parameterExpansion(in:at:before:)` counted
+`{` and `}` by depth without reading the quotes around them, so `${X:-'}'}` —
+an ordinary default value of `}` — closed at the *quoted* bracket. The scan
+then read the rest of the line from inside a string that never ends, the
+substitution around it looked unterminated, and `$(echo ${X:-'}'}; xcodebuild
+-derivedDataPath scratch.noindex)` contributed nothing at all. It now tracks the
+quote exactly as `commandSubstitution` and `firstCommandSeparator` already do.
+
+*A command substitution is a quoting scope of its own.* `openQuote(inShellPrefix:)`
+paired every quote flatly, but the quotes inside `$(…)` pair with each other and
+not with the ones around them: `echo "$(printf "::notice::text"; xcodebuild
+-derivedDataPath scratch.noindex)"` opens two strings, and read flat the inner
+opener was taken for the outer's closer. The marker then read as *unquoted*, the
+span was cut to a separator sitting inside the substitution's own string, and the
+build behind it was carried out of reach — the quote-parity failure of two rounds
+ago, reached a third way. The scope is now pushed at `$(` and popped at its `)`,
+and skipped inside `'…'`, where `$(` substitutes nothing.
+
+*And a value may not climb back out of its own root.* Both halves of
+`assertFlagValuesAreNoIndexed` read the value's **first** path segment, so
+`-archivePath build.noindex/../build/Pisaka.xcarchive` opened with
+`build.noindex`, satisfied the suffix check and the root-equality check, and
+landed the archive in `build` — indexed like the rest of the checkout. The
+absence matchers cannot cover it either: a root with a `/` in front of it is
+somebody else's directory by their own deliberate rule, which is what keeps
+`~/Library/Developer/Xcode/DerivedData/…` live. A parent component is now
+refused outright, ahead of the two checks that assume it away.
+
+**One more from the round after that**, the same silent direction again and the
+directly adjacent nesting level of the scope the previous round had just added.
+
+*And that scope nests.* `openQuote(inShellPrefix:)` pushed at `$(` and popped at
+the very next unquoted `)`, without counting the ordinary parentheses in
+between — so a subshell or a grouped condition inside the substitution
+(`echo "$( ( printf x ); printf "::notice::text"; xcodebuild -derivedDataPath
+scratch.noindex)"`) paid the substitution's closer with the *group's* bracket.
+The outer quote came back a bracket early, the marker read as unquoted, the span
+was cut to a separator inside the substitution's own string, and the build behind
+it was carried out of reach — the same failure the scope was added to prevent,
+one level further in, and the shape both other scanners had already been taught
+(`firstCommandSeparator` counts a nested `(` as a closer owed,
+`commandSubstitution` finds its closer by depth). An unquoted `(` inside a scope
+now owes a closer of its own; it is entered unquoted and left unquoted, which is
+what pushing the current quote there says, and it makes `$((…))` balance through
+the same two pops rather than by falling off the end.
+
+**Two more from the round after that**, both the last two shapes the scope
+rule had not yet been taught — and both the silent direction, again.
+
+*A `${…}` inside the scope is not punctuation.* `openQuote(inShellPrefix:)` read
+every bracket in a substitution by hand, so a parameter expansion spelling one as
+a *value* paid the substitution's closer: `echo "$(echo ${X:-)}; printf
+"::notice::text"; xcodebuild -derivedDataPath scratch.noindex)"` popped the scope
+at the `)` inside `${X:-)}`, the outer quote came back early, the marker read as
+unquoted, and the build behind it was cut away as prose. It is the
+nested-grouping failure of the previous round reached through an expansion
+instead of a subshell, and the fix is the one the two other scanners already
+carry: the expansion is skipped whole, through the same
+`parameterExpansion(in:at:before:)` `commandSubstitution` calls — which, since
+that helper tracks quotes, also disposes of the `${X:-'}'}` shape at this scanner.
+
+*And a backtick pair is that scope in the older spelling.* The scan pushed one at
+`$(` alone, while ``echo "`printf "::notice::text"; xcodebuild -derivedDataPath
+scratch.noindex`"`` is the same two strings written the other way — read flat,
+the inner opener was again taken for the outer's closer and the build behind it
+was carried out of reach. This file already reads a backtick substitution
+(`substitutedShell` resurrects its contents), so the scanner that decides whether
+the marker is quoted at all now pushes and pops a scope there too, delimited by
+the next unescaped backtick — `substitutedShell`'s own rule — and opening
+nothing inside `'…'`. The other two scanners need no such teaching:
+`firstCommandSeparator` opens no quote at a backtick, so one can only end a span
+*earlier*, which keeps shell rather than dropping it.
+
+**Two more from the round after that**, and both are the nesting rule read one
+step further than the previous rounds had taken it — still the silent direction.
+
+*The quote that **ends** a span is read at the annotation's own level too.*
+Every round so far had taught the scanner that decides whether a marker is
+quoted; the one that decides where its string *closes* still scanned flatly for
+the next quote, so `echo "::notice::$(xcodebuild -derivedDataPath
+scratch.noindex; printf "x") done"` — one string around a substitution that
+opens and closes another — ended the span at the inner opener. The span then
+stopped *inside* the substitution, which left that substitution unterminated as
+far as `substitutedShell` could see, so its contents were not resurrected either
+and the whole build was dropped: the carried-out-of-reach failure reached
+through the end of the span rather than through its start. The span's end is now
+found by `stringEnd(openedBy:in:from:)`, which skips every nested scope whole —
+and `'…'` remains the exception, substituting nothing and therefore ending at
+the very next `'`.
+
+*And a scope nested inside a `${…}` is not punctuation either.*
+`parameterExpansion(in:at:before:)` tracked quotes and brace depth but read a
+nested substitution's brackets as its own, so the `}` in ``${X:-`printf %s }`}``
+— an argument the substitution prints — was taken for the expansion's closer.
+That left `openQuote(inShellPrefix:)` walking the substitution's own text, where
+the closing backtick pushed a scope nobody owed and the `)` that really ended
+the substitution no longer popped one: the outer string never reopened, the
+marker read as unquoted, and `echo "$(echo ${X:-`printf %s }`}) ::notice::text";
+xcodebuild -derivedDataPath scratch.noindex` lost its build to the prose. It is
+the previous round's `${X:-)}` failure with the two constructs swapped, so the
+fix is stated once and shared: `nestedScopeEnd(in:at:before:)` is now the single
+definition of "skip a nested `$(…)`, `${…}` or backtick pair whole", and the
+three scanners that count punctuation call it instead of each learning the two
+spellings it happened to meet. The two helpers recurse into each other because
+the shell nests them that way, and a scope the span never closes is still not
+skipped at all — the keeping direction, which leaves the caller counting exactly
+what it counted before.
