@@ -4,16 +4,44 @@
 
 # Build artifacts from running the CI build commands locally: the workflow uses
 # relative `-clonedSourcePackagesDirPath SourcePackages` / `-derivedDataPath
-# DerivedData`, so a local repro drops these in the repo root.
+# DerivedData.noindex`, so a local repro drops these in the repo root.
+#
+# That relative path is also why the derived-data root carries a `.noindex`
+# suffix: a local reproduction of a documented command builds a real application
+# bundle inside the checkout, and every bundle sitting in an indexed directory is
+# surfaced system-wide as an installed application. A directory whose name ends
+# in `.noindex` is skipped by the metadata importer wherever it lives, which is
+# the one name-level opt-out available here — so the suffix belongs to the
+# *name*, not to any one command. Pinned by `ReleaseWorkflowTests`.
 SourcePackages/
+DerivedData.noindex/
+
+# The pre-rename name, kept as a legacy guard rather than deleted. Nothing
+# writes here any more — the workflows and every documented command name the
+# `.noindex` root above, and `ReleaseWorkflowTests` pins that. What this entry
+# defends is the *other* direction: every clone that ever ran the old commands
+# still holds this directory on disk, and renaming the entry instead of adding
+# beside it un-ignores gigabytes of stale build output the moment the rename
+# lands. That is not hypothetical — it committed 22 816 files here once.
 DerivedData/
 
 # The release archive path, used verbatim by `.github/workflows/release.yml`,
 # `docs/RELEASING.md` and the archive command in `CLAUDE.md`
-# (`-archivePath build/Pisaka-macOS.xcarchive`), plus the zip staging directory
-# beside it. A local release repro must leave `git status` clean: the build
-# number is passed on the command line and never committed, so the archive it
-# produces must not be the thing that dirties the tree instead.
+# (`-archivePath build.noindex/Pisaka-macOS.xcarchive`), plus the zip staging
+# directory beside it. A local release repro must leave `git status` clean: the
+# build number is passed on the command line and never committed, so the archive
+# it produces must not be the thing that dirties the tree instead.
+#
+# The `.noindex` suffix is here for the same reason it is on the derived-data
+# root above: an archive holds the application bundle itself, reproduced
+# verbatim in the checkout root, and a name ending in `.noindex` is the only way
+# to keep the metadata importer out of it by name alone. Pinned by
+# `ReleaseWorkflowTests`.
+build.noindex/
+
+# The pre-rename name, kept as a legacy guard for the same reason `DerivedData/`
+# is above: a checkout that archived before the rename still holds this
+# directory, and this entry is what keeps a stale copy of it out of a commit.
 build/
 
 # The one-time Sparkle key ceremony and the tooling it needs, all of which

@@ -68,7 +68,7 @@ jobs:
           xcodebuild -project Pisaka.xcodeproj -scheme Pisaka
           -destination 'platform=macOS'
           -clonedSourcePackagesDirPath SourcePackages
-          -derivedDataPath DerivedData
+          -derivedDataPath DerivedData.noindex
           CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO test
       # Release, deliberately, and it is the macOS job that carries it. The whole
       # Sparkle updater is behind `#if !DEBUG` (`SoftwareUpdater.swift`), so a
@@ -92,7 +92,7 @@ jobs:
           -configuration Release
           -destination 'platform=macOS'
           -clonedSourcePackagesDirPath SourcePackages
-          -derivedDataPath DerivedData
+          -derivedDataPath DerivedData.noindex
           CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build
       # Every other gate in this repository is byte-level. `swift test` compiles
       # Core and reads repository files; the build above proves the app links;
@@ -138,7 +138,7 @@ jobs:
           # release.yml; ReleaseWorkflowTests asserts everything else is
           # identical, because two hand-maintained copies drifting apart means
           # one half of the pipeline stops checking what the other does.
-          APP="DerivedData/Build/Products/Release/Pisaka.app"
+          APP="DerivedData.noindex/Build/Products/Release/Pisaka.app"
           EXECUTABLE="$APP/Contents/MacOS/Pisaka"
           DEADLINE=5
           LOG="${RUNNER_TEMP:-/tmp}/smoke-launch.log"
@@ -306,7 +306,7 @@ jobs:
           xcodebuild -project Pisaka.xcodeproj -scheme Pisaka
           -destination 'generic/platform=iOS'
           -clonedSourcePackagesDirPath SourcePackages
-          -derivedDataPath DerivedData
+          -derivedDataPath DerivedData.noindex
           CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build
 
   # CI is the real gate for style. The pre-commit hook is only local courtesy:

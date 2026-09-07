@@ -801,7 +801,11 @@ helpers verified on the app, the framework and every Mach-O inside it, the
 notarize→staple→`spctl` chain with both verdicts read explicitly, that no step
 can be non-fatal, the job budget against the notary timeout, step ordering,
 draft-then-promote, tool pins, `ci.yml`'s Release macOS build *launching what it
-built*, the `SUFeedURL` cross-file pairs and the Gatekeeper-workaround strings
+built*, the two `.noindex` build output roots across both workflows,
+`.gitignore`, the style authority's `excluded:` list (the one
+`.swiftlint.yml` rule this suite owns, being about build *output*, not style)
+and the three documents that spell a root in a command a reader runs,
+the `SUFeedURL` cross-file pairs and the Gatekeeper-workaround strings
 absent everywhere; **full inventory in that suite's doc comments and
 `docs/RELEASING.md`** — do not restate it here),
 `LicenseCoverageTests` (`licenses.json` vs.
@@ -944,7 +948,7 @@ xcodebuild -project Pisaka.xcodeproj -scheme Pisaka \
 # no identity on purpose — the release workflow passes all of them (and the
 # hardened runtime) on its own command line. See docs/RELEASING.md.
 xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'generic/platform=macOS' \
-  -archivePath build/Pisaka-macOS.xcarchive CURRENT_PROJECT_VERSION=<n> archive
+  -archivePath build.noindex/Pisaka-macOS.xcarchive CURRENT_PROJECT_VERSION=<n> archive
 ```
 
 CI (`.github/workflows/ci.yml`) runs these same gates on every pull request and

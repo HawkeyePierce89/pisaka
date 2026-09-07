@@ -5,6 +5,15 @@ static pin for everything here is `Tests/PisakaCoreTests/LintConfigurationTests.
 (see that suite's doc comment for the full assertion inventory); this doc
 carries the rationale and the procedures.
 
+**One stated exception**: the `excluded:` block is pinned by set equality in
+`ReleaseWorkflowTests` (`// MARK: - The build output roots`), not here. Two of
+its four entries are the repository's build output roots, and the rule that
+keeps those named `build.noindex`/`DerivedData.noindex` is about build *output*
+— where a local repro drops an application bundle — rather than about style, so
+it lives with the workflows and `.gitignore` that name the same two roots.
+Changing `excluded:` therefore means updating `ReleaseWorkflowTests`'
+`styleExclusions`, and the suite fails until it is.
+
 ## Contributor setup
 
 One time per clone:

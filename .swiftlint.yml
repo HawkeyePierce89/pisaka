@@ -19,8 +19,8 @@ included:
 # they carry their own conventions and are not this document's audience.
 excluded:
   - Vendor
-  - build
-  - DerivedData
+  - build.noindex
+  - DerivedData.noindex
   - SourcePackages
 
 # Every historical hit was a LENGTH complaint ("should be between N and N
