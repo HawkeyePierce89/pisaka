@@ -39,10 +39,13 @@ import PisakaCore
 /// `docs/architecture/core-provisioning.md`.
 ///
 /// **The maximum is enforced on bytes received, never on a header.** The body is
-/// streamed through a `URLSessionDataDelegate` that appends each chunk and cancels
-/// the task the moment the running total passes the maximum, so a response that
-/// keeps sending is stopped at the ceiling rather than at the twenty-minute
-/// resource timeout. `Content-Length` and `expectedContentLength` are deliberately
+/// streamed through a `URLSessionDataDelegate` that measures each arriving chunk
+/// against the room still allowed *before* it appends anything: a chunk that does
+/// not fit is refused without being held, and the task is cancelled there. So a
+/// response that keeps sending is stopped at the ceiling rather than at the
+/// twenty-minute resource timeout, and the ceiling is inclusive — a chunk exactly
+/// filling the remaining room is kept.
+/// `Content-Length` and `expectedContentLength` are deliberately
 /// not consulted: a chunked response reports `-1`, and a header is written by
 /// whoever is answering. `URLSession.bytes(for:)` was the other candidate and was
 /// rejected — `AsyncBytes` yields one `UInt8` at a time, which turns a 53 MB
@@ -181,8 +184,10 @@ final class LSPDownloadService: LSPArtifactDownloading, @unchecked Sendable {
 
 /// One transfer's bytes, counted against a ceiling as they arrive.
 ///
-/// The whole of the streaming half of D14: it appends, it counts, and it stops the
-/// task itself when the total passes the maximum. Everything it refuses is
+/// The whole of the streaming half of D14: it counts, then it appends, and it
+/// stops the task itself when a chunk does not fit the room still allowed — the
+/// order being the point, since a chunk measured after it is appended is a chunk
+/// the ceiling has already let in. Everything it refuses is
 /// recorded as a `Failure` **before** the cancel, because URLSession reports a
 /// cancelled task as `URLError.cancelled` regardless of why it was cancelled — so
 /// the recorded reason, not the completion's error, is what the seam throws when
@@ -201,7 +206,10 @@ private final class BoundedBodyCollector: NSObject, URLSessionDataDelegate {
         // final length in the ordinary case rather than a guess. Reserving it
         // keeps the peak resident cost the one the docs state: appending 52 MB in
         // chunks otherwise doubles the buffer repeatedly, and each doubling holds
-        // the old allocation and the new one at once.
+        // the old allocation and the new one at once. The promise holds because
+        // the check precedes the append — nothing that would outgrow this
+        // capacity is ever appended — so the peak resident cost is the pinned
+        // size and never more.
         body.reserveCapacity(maximumByteCount)
     }
 
@@ -234,14 +242,19 @@ private final class BoundedBodyCollector: NSObject, URLSessionDataDelegate {
 
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
         lock.lock()
-        body.append(data)
-        let overLimit = body.count > maximumByteCount
+        // Measured against what is still allowed, *before* anything is appended:
+        // a chunk that does not fit is never resident, so the body never grows
+        // past the capacity reserved for the pin. The ceiling is inclusive — a
+        // chunk exactly filling the remaining room is kept.
+        let roomLeft = maximumByteCount - body.count
+        let overLimit = data.count > roomLeft
         if overLimit {
-            // Dropped rather than kept: the transfer is over, and holding the
-            // chunk that crossed the line is the one thing the ceiling exists to
-            // avoid.
+            // Dropped rather than kept: the transfer is over, and holding what
+            // has arrived so far is the one thing the ceiling exists to avoid.
             body = Data()
             refusal = refusal ?? .tooLarge
+        } else {
+            body.append(data)
         }
         lock.unlock()
         if overLimit { dataTask.cancel() }

@@ -78,31 +78,31 @@ Behaviour visible to a user does not change: an over-limit response still fails 
 - Modify: `Sources/Pisaka/LSPDownloadService.swift`
 - Modify: `docs/architecture/core-provisioning.md`
 
-- [ ] Read D14 in `docs/architecture/core-provisioning.md` end to end before editing the
+- [x] Read D14 in `docs/architecture/core-provisioning.md` end to end before editing the
       Swift file, including the two Known-limits bullets it owns.
-- [ ] In `urlSession(_:dataTask:didReceive:)`: under the existing lock, compute the room
+- [x] In `urlSession(_:dataTask:didReceive:)`: under the existing lock, compute the room
       still allowed (`maximumByteCount - body.count`); when the chunk is longer than that,
       record `.tooLarge` (keeping the existing `refusal = refusal ?? …` first-reason rule),
       drop the body and cancel outside the lock **without appending**; only a chunk that
       fits is appended. The ceiling stays **inclusive** — a chunk exactly filling the
       remaining room is appended and kept.
-- [ ] Leave untouched: the response-status/`notHTTP` refusals and their `.cancel`
+- [x] Leave untouched: the response-status/`notHTTP` refusals and their `.cancel`
       dispositions, the record-before-cancel rule, the completion path that prefers a
       recorded refusal over the completion's error, the ephemeral no-cache configuration,
       both timeouts and the seam's signature.
-- [ ] Update the doc comments in that file so they state the new order rather than the old
+- [x] Update the doc comments in that file so they state the new order rather than the old
       one: the class doc's "appends each chunk and cancels … the moment the running total
       passes", the `BoundedBodyCollector` doc's "it appends, it counts", and the
       `reserveCapacity` comment — which is the promise this task exists to keep, so it now
       says the check precedes the append and the peak resident cost is the pinned size and
       never more.
-- [ ] `core-provisioning.md`, same task: amend the D14 "Who counts and who decides"
+- [x] `core-provisioning.md`, same task: amend the D14 "Who counts and who decides"
       paragraph (the delegate measures each chunk against what is still allowed and refuses
       without holding it), the `LSPDownloadService.swift` file entry, and the whole-in-memory
       Known-limits bullet whose current sentence about reserving the pin "so appending does
       not transiently hold two buffers" is the claim being made true. Leave the cap bullet's
       substance alone except where it repeats the append-first wording.
-- [ ] `swift test` (Core gate, must stay green — no Core file is touched, so this is a
+- [x] `swift test` (Core gate, must stay green — no Core file is touched, so this is a
       regression check) and `swiftlint --strict` from the repository root.
 
 ### Task 2: The collector gets a headless test in the app-layer bundle
@@ -210,3 +210,17 @@ Behaviour visible to a user does not change: an over-limit response still fails 
 
 (Filled in as the tasks run: the "prove it bites" failing test name and message, the live
 run's ceiling and observed error, and every gate's result.)
+
+### Task 1
+
+- `swift test` — 5296 tests, 0 failures.
+- `swiftlint --strict` — 0 violations in 520 files.
+- Code: `urlSession(_:dataTask:didReceive:)` now computes `maximumByteCount - body.count`
+  under the lock, refuses `.tooLarge` and drops the body without appending when the chunk
+  is longer, and appends only a chunk that fits (inclusive ceiling). The response-status
+  refusals, the record-before-cancel rule, the completion path, the configuration, both
+  timeouts and the seam signature are untouched.
+- Docs: the class doc, the collector doc and the `reserveCapacity` comment now state the
+  check-then-append order; `core-provisioning.md`'s D14 "Who counts and who decides"
+  paragraph, the `LSPDownloadService.swift` file entry and the whole-in-memory Known-limits
+  bullet say the same. The cap bullet keeps its substance.

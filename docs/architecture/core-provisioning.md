@@ -595,9 +595,11 @@ below. All of it, with decisions D21–D24, is in `core-lsp.md`.
     `URLSession` per request, one `Data`, counted as it arrives. Untested by
     repository convention, so it is kept to the three decisions it actually makes
     — how the session is configured, what counts as a failure, and where the bytes
-    stop. The body is streamed through a `URLSessionDataDelegate` that appends
-    each chunk and cancels the task the moment the running total passes
-    `maximumByteCount`; the configuration is still built once and unchanged, the
+    stop. The body is streamed through a `URLSessionDataDelegate` that measures
+    each arriving chunk against the room still allowed under `maximumByteCount`
+    *before* it appends anything — a chunk that does not fit is refused without
+    being held, the body is dropped and the task cancelled there, and the ceiling
+    is inclusive; the configuration is still built once and unchanged, the
     session per request because the *delegate* is (it holds one transfer's bytes),
     and `finishTasksAndInvalidate()` ends it. `expectedContentLength` is never
     consulted. The delegate **records its own reason before it cancels**, so an
@@ -996,9 +998,15 @@ a limit the sender chooses.
 **Who counts and who decides are different halves.** The app implementation
 counts, because a cutoff can only protect *memory* where the bytes arrive:
 `LSPDownloadService` streams the body through a `URLSessionDataDelegate` that
-appends each chunk and cancels the task the moment the running total passes the
-maximum (one session per request, its own delegate,
-`finishTasksAndInvalidate()` when the request ends). `LSPInstallEngine` *decides*:
+measures each arriving chunk against the room still allowed *before* it appends
+anything — a chunk longer than what is left is refused without ever being held,
+the body is dropped and the task is cancelled there, while a chunk that fits is
+appended, the ceiling being inclusive (one session per request, its own delegate,
+`finishTasksAndInvalidate()` when the request ends). The order is the whole of
+the memory promise: a chunk measured *after* it is appended is a chunk the
+ceiling has already let into the buffer, which is exactly what reserving the
+pinned capacity up front is supposed to prevent.
+`LSPInstallEngine` *decides*:
 after the seam returns it refuses `archive.count > artifact.byteCount` as
 `downloadFailed`, before the digest. That is not the same check written twice — it
 is what makes the pin binding on an implementation that ignored it, and it is the
@@ -1332,7 +1340,10 @@ checks at the end of the plan re-validate that the server actually answers.
 - **A download is held whole in memory** (D14). The peak resident cost is the
   largest artifact — ~53 MB for Node, once, during a first install, and the
   collector reserves exactly the pinned size up front so appending does not
-  transiently hold two buffers. The body *arrives* in chunks — that is how the
+  transiently hold two buffers. That holds because the ceiling is checked
+  *before* the append and never after it: a chunk that would outgrow the reserved
+  capacity is refused rather than appended, so the peak resident cost is the
+  pinned size and never a reallocation past it. The body *arrives* in chunks — that is how the
   ceiling below is enforced — but nothing is streamed to disk: there is no
   on-disk staging of the transfer, no progress reporting and no resume, so a
   download interrupted at 90% starts again from zero when Retry is pressed.
