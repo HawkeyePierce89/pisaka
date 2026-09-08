@@ -594,14 +594,17 @@ below. All of it, with decisions D21–D24, is in `core-lsp.md`.
   - `LSPDownloadService.swift` — the real `LSPArtifactDownloading`: one
     `URLSession` per request, one `Data`, counted as it arrives. It is kept to
     the three decisions it actually makes — how the session is configured, what
-    counts as a failure, and where the bytes stop — and the third of them is
+    counts as a failure, and where the bytes stop — the last two of which are
     pinned by `BoundedBodyCollectorTests` in the app-layer bundle, which drives
     the delegate callbacks directly with no network at all (see Tests below).
     The body is streamed through a `URLSessionDataDelegate` that measures
     each arriving chunk against the room still allowed under `maximumByteCount`
-    *before* it appends anything — a chunk that does not fit is refused without
-    being held, the body is dropped and the task cancelled there, and the ceiling
-    is inclusive; the configuration is still built once and unchanged, the
+    *before* it appends anything — a chunk that does not fit is never appended,
+    the body already collected is dropped and the task cancelled there, and the
+    ceiling is inclusive. A recorded refusal is **latched**: the cancel is
+    asynchronous, so chunks already in flight keep arriving, and accumulating
+    them would rebuild a body from an emptied buffer whose reserved capacity went
+    with the refused one. The configuration is still built once and unchanged, the
     session per request because the *delegate* is (it holds one transfer's bytes),
     and `finishTasksAndInvalidate()` ends it. `expectedContentLength` is never
     consulted. The delegate **records its own reason before it cancels**, so an
@@ -1001,13 +1004,18 @@ a limit the sender chooses.
 counts, because a cutoff can only protect *memory* where the bytes arrive:
 `LSPDownloadService` streams the body through a `URLSessionDataDelegate` that
 measures each arriving chunk against the room still allowed *before* it appends
-anything — a chunk longer than what is left is refused without ever being held,
-the body is dropped and the task is cancelled there, while a chunk that fits is
+anything — a chunk longer than what is left is never appended, the body already
+collected is dropped and the task is cancelled there, while a chunk that fits is
 appended, the ceiling being inclusive (one session per request, its own delegate,
 `finishTasksAndInvalidate()` when the request ends). The order is the whole of
 the memory promise: a chunk measured *after* it is appended is a chunk the
 ceiling has already let into the buffer, which is exactly what reserving the
-pinned capacity up front is supposed to prevent.
+pinned capacity up front is supposed to prevent. The refusal is **latched** for
+the same reason: `cancel()` is asynchronous, so the chunks already in flight
+still arrive, and buffering them again would start a second body in the buffer
+emptied by the refusal — one whose reserved capacity went with the first — and
+grow it back by doubling. Nothing is accumulated after the first refusal, and the
+first reason recorded is the one the completion throws.
 `LSPInstallEngine` *decides*:
 after the seam returns it refuses `archive.count > artifact.byteCount` as
 `downloadFailed`, before the digest. That is not the same check written twice — it
@@ -1347,9 +1355,10 @@ checks at the end of the plan re-validate that the server actually answers.
   largest artifact — ~53 MB for Node, once, during a first install, and the
   collector reserves exactly the pinned size up front so appending does not
   transiently hold two buffers. That holds because the ceiling is checked
-  *before* the append and never after it: a chunk that would outgrow the reserved
-  capacity is refused rather than appended, so the peak resident cost is the
-  pinned size and never a reallocation past it. The body *arrives* in chunks — that is how the
+  *before* the append and never after it, and because a refusal is latched: a
+  chunk that would outgrow the reserved capacity is refused rather than appended,
+  and the dropped body is never rebuilt into an unreserved one, so the body's
+  peak is the pinned size, reached without a reallocation past it. The body *arrives* in chunks — that is how the
   ceiling below is enforced — but nothing is streamed to disk: there is no
   on-disk staging of the transfer, no progress reporting and no resume, so a
   download interrupted at 90% starts again from zero when Retry is pressed.
@@ -1488,8 +1497,16 @@ carries the one suite `swift test` cannot:
   the **check-then-append order** — read off `peakHeldByteCount`, the collector's
   high-water mark, because both orders *drop* the body on refusal and their two
   predicates are algebraically the same, so the final state cannot tell them
-  apart and only what was transiently resident can — and the **cancellation
-  mapping** both ways: a self-caused cancel completing with `URLError.cancelled`
-  still resolves as `Failure.tooLarge`, while a foreign `URLError` with nothing
-  recorded resolves as itself. The typed failure is matched by pattern, so no
-  `Equatable` conformance exists for the product code's sake alone.
+  apart and only what was transiently resident can — the **accumulation** of
+  successive fitting chunks against a ceiling measured from what is already held,
+  the **latch** (a chunk arriving after a refusal is not buffered again), the
+  **cancel** the delegate performs itself (read off a task created and never
+  resumed, so any state but `.suspended` is the delegate's doing), the response
+  callback's own two refusals — `unexpectedStatus(404)` and `notHTTP`, each with
+  the `.cancel` disposition — and the **cancellation mapping** both ways: a
+  self-caused cancel completing with `URLError.cancelled` still resolves as
+  `Failure.tooLarge`, a 404 whose error page then runs past the ceiling still
+  resolves as `unexpectedStatus(404)` (the first reason wins), and a foreign
+  `URLError` with nothing recorded resolves as itself. The typed failure is
+  matched by pattern, so no `Equatable` conformance exists for the product code's
+  sake alone.

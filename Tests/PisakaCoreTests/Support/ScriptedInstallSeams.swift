@@ -43,8 +43,9 @@ enum ScriptedArchive {
 ///
 /// It runs no `URLSession`, so the *other* half of the real seam's rule — that a
 /// cancellation the implementation itself caused surfaces as the size failure and
-/// never as "cancelled" — is invisible here; it lives in `LSPDownloadService`'s
-/// doc comment and beside D14.
+/// never as "cancelled" — is invisible here, and to `swift test` as a whole. It is
+/// pinned one bundle over, by `BoundedBodyCollectorTests` in `Tests/PisakaAppTests`,
+/// which drives the delegate's callbacks with no socket at all.
 final class ScriptedDownloader: LSPArtifactDownloading, @unchecked Sendable {
     enum Failure: Error, LocalizedError {
         /// The transport failed: no network, TLS rejected, a 500.

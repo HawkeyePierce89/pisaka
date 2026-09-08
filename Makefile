@@ -36,7 +36,7 @@ hooks: ## Point this clone at the repository's tracked hooks
 test: hooks ## Run the PisakaCore suite (no dependencies to install)
 	swift test
 
-test-app: generate ## Run the app-layer AppKit bundle (PisakaAppTests)
+test-app: generate ## Run the app-layer test bundle (PisakaAppTests)
 	xcodebuild -project $(PROJECT) -scheme $(SCHEME) \
 		-destination '$(DESTINATION_MACOS)' test
 

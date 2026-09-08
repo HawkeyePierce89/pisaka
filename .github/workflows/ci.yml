@@ -57,10 +57,12 @@ jobs:
         run: xcodegen generate
       - name: Resolve package dependencies
         run: xcodebuild -project Pisaka.xcodeproj -resolvePackageDependencies -clonedSourcePackagesDirPath SourcePackages
-      # The AppKit test bundle that `swift test` structurally cannot cover: it
+      # The app-layer test bundle that `swift test` structurally cannot cover: it
       # drives `NSTextView`/`NSLayoutManager`/`NSATSTypesetter` subclasses with
       # behaviour of their own (the bracket overlay, the folding typesetter),
-      # whose launch-time trap no Core gate could see. It runs in Debug because
+      # whose launch-time trap no Core gate could see, plus the app-layer rules
+      # with no Core seam at all — the download collector's ceiling and its
+      # cancellation mapping (`core-provisioning.md`). It runs in Debug because
       # the app's own Debug configuration is what the test host builds, and the
       # trap is present in both.
       - name: Test the AppKit overlay (PisakaAppTests)

@@ -199,15 +199,16 @@ xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS
 
 swift test             # run the domain-logic test suite (PisakaCore)
 
-# The AppKit overlays swift test cannot see (PisakaAppTests):
+# What swift test cannot see (PisakaAppTests):
 xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' test
 ```
 
 `swift test` builds and tests only the platform-agnostic `PisakaCore`
 library — the fast, dependency-free gate for the domain logic. A second,
 app-hosted bundle covers the macOS AppKit subclasses whose behaviour only
-appears at run time — the layout manager, the typesetter, the ruler — and CI
-runs it too. The macOS app
+appears at run time — the layout manager, the typesetter, the ruler — plus the
+app-layer rules the Foundation-only gate structurally cannot reach, such as the
+language-server download's size ceiling. CI runs it too. The macOS app
 runs non-sandboxed so the standard open/save panels work without
 entitlements.
 

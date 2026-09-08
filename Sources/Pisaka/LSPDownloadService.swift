@@ -43,7 +43,10 @@ import PisakaCore
 /// **The maximum is enforced on bytes received, never on a header.** The body is
 /// streamed through a `URLSessionDataDelegate` that measures each arriving chunk
 /// against the room still allowed *before* it appends anything: a chunk that does
-/// not fit is refused without being held, and the task is cancelled there. So a
+/// not fit is never appended, the body already collected is dropped, and the task
+/// is cancelled there. Nothing is accumulated after that, because the cancel is
+/// asynchronous and the chunks still in flight would otherwise rebuild a buffer
+/// from nothing. So a
 /// response that keeps sending is stopped at the ceiling rather than at the
 /// twenty-minute resource timeout, and the ceiling is inclusive — a chunk exactly
 /// filling the remaining room is kept.
@@ -218,15 +221,18 @@ final class BoundedBodyCollector: NSObject, URLSessionDataDelegate {
         // chunks otherwise doubles the buffer repeatedly, and each doubling holds
         // the old allocation and the new one at once. The promise holds because
         // the check precedes the append — nothing that would outgrow this
-        // capacity is ever appended — so the peak resident cost is the pinned
-        // size and never more.
+        // capacity is ever appended — and because a refusal is latched, so the
+        // dropped body is never rebuilt into an unreserved one. The body's peak
+        // is the pinned size, reached without a reallocation past it.
         body.reserveCapacity(maximumByteCount)
     }
 
     /// The bytes currently held. Exists for `BoundedBodyCollectorTests` in the
     /// app-layer bundle, which reads it synchronously right after a chunk
-    /// callback to see that a refused chunk was never appended; nothing in
-    /// `Sources` calls it. It takes the lock like every other reader here.
+    /// callback; nothing in `Sources` calls it. It states the *outcome* — what
+    /// a fitting chunk accumulated, and that a refusal drops the lot — never the
+    /// order, which both orders agree on and only `peakHeldByteCount` separates.
+    /// It takes the lock like every other reader here.
     var heldByteCount: Int {
         lock.lock()
         defer { lock.unlock() }
@@ -282,8 +288,18 @@ final class BoundedBodyCollector: NSObject, URLSessionDataDelegate {
 
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
         lock.lock()
+        // A recorded refusal ends the transfer, and `cancel()` is asynchronous:
+        // chunks already in flight still arrive afterwards. Accumulating them
+        // would start over from an empty body — one whose reserved capacity went
+        // with the refused one — and grow it back by doubling, which is the
+        // allocation the reserve exists to prevent. So nothing is accumulated
+        // once a reason is on record, and the first reason stays the one kept.
+        guard refusal == nil else {
+            lock.unlock()
+            return
+        }
         // Measured against what is still allowed, *before* anything is appended:
-        // a chunk that does not fit is never resident, so the body never grows
+        // a chunk that does not fit is never appended, so the body never grows
         // past the capacity reserved for the pin. The ceiling is inclusive — a
         // chunk exactly filling the remaining room is kept.
         let roomLeft = maximumByteCount - body.count
@@ -292,7 +308,7 @@ final class BoundedBodyCollector: NSObject, URLSessionDataDelegate {
             // Dropped rather than kept: the transfer is over, and holding what
             // has arrived so far is the one thing the ceiling exists to avoid.
             body = Data()
-            refusal = refusal ?? .tooLarge
+            refusal = .tooLarge
         } else {
             body.append(data)
             peakByteCount = max(peakByteCount, body.count)
