@@ -183,17 +183,17 @@ Behaviour visible to a user does not change: an over-limit response still fails 
 
 ### Task 5: Update documentation
 
-- [ ] `docs/architecture/core-provisioning.md` — finish what Task 1 started: the layer's
+- [x] `docs/architecture/core-provisioning.md` — finish what Task 1 started: the layer's
       Tests inventory names the new app-bundle suite and what it pins (the order, the
       inclusive ceiling, the cancellation mapping), and the D14 sentence claiming nothing in
       the pipeline can see these rules is replaced rather than left standing. The cap
       Known-limits bullet keeps its substance; only the append-first wording moves.
-- [ ] `CLAUDE.md` — the Tests section's `Tests/PisakaAppTests` sentence gains the collector
+- [x] `CLAUDE.md` — the Tests section's `Tests/PisakaAppTests` sentence gains the collector
       in **one clause**, beside the AppKit overlays. No new essay; the index stays an index.
       The provisioning invariant's "size is enforced, not only displayed" paragraph keeps
       its wording — the enforcement did not change, only the moment it happens.
-- [ ] `README.md` — confirm no change is needed (nothing user-facing moves) and say so.
-- [ ] Re-run `swift test` and `swiftlint --strict` after the doc edits, since the repository
+- [x] `README.md` — confirm no change is needed (nothing user-facing moves) and say so.
+- [x] Re-run `swift test` and `swiftlint --strict` after the doc edits, since the repository
       suites read documents (`LintConfigurationTests`, `ReleaseWorkflowTests`) and a doc line
       is not automatically inert.
 
@@ -329,3 +329,40 @@ run's ceiling and observed error, and every gate's result.)
   for any product or editor brand.
 - Task 2's "prove it bites" run and Task 3's live observation are recorded in their own
   sections above and stand unchanged by this verification.
+
+### Task 5
+
+- `core-provisioning.md`, four sites:
+  - The `LSPDownloadService.swift` file entry no longer says "Untested by
+    repository convention" — a sentence Task 1's fix made false — and names
+    `BoundedBodyCollectorTests` as what pins the third of its three decisions.
+  - D14's "Nothing in `swift test` can see this" sentence is **replaced**, not
+    left standing: `swift test` still cannot (`ScriptedDownloader` runs no
+    URLSession), and the rule is pinned one bundle over, by name, with what it
+    covers — the inclusive ceiling, the check-then-append order, and both halves
+    of the cancellation mapping.
+  - The Tests inventory's opening line no longer claims `swift test` covers the
+    layer end to end, and a new `Tests/PisakaAppTests` entry describes
+    `BoundedBodyCollectorTests`, including *why* the order is read off
+    `peakHeldByteCount` (both orders drop the body on refusal and the two
+    predicates are algebraically identical, so only the transient peak tells them
+    apart — Task 2's deviation, now recorded where a reader will look).
+  - `LSPSourceGatingTests`' entry notes that a file under `Tests/` is invisible to
+    its sweep, so the new suite adds no exception.
+- The cap Known-limits bullet kept its substance and needed no edit: its wording
+  ("counted as they arrive, the transfer is stopped where the ceiling is") never
+  stated the append-first order. The whole-in-memory bullet was already corrected
+  in Task 1.
+- `CLAUDE.md` — the `Tests/PisakaAppTests` sentence gained the collector in one
+  clause beside the AppKit overlays, pointing at `core-provisioning.md`. The
+  provisioning invariant's "size is enforced, not only displayed" paragraph is
+  untouched, as planned. **Note for the reviewer:** the repository's size hook
+  reports `CLAUDE.md` at ~90 900 chars, over its 40k guideline. That overflow
+  predates this branch (this edit added ~100 characters); trimming the index is a
+  cross-cutting change deliberately not bundled here.
+- `README.md` — **no change needed, confirmed**. Its only download mentions are
+  user-facing (checksum-pinned, consent-gated, "one-time downloads you explicitly
+  accept"); none states the append order, the ceiling's mechanics or the
+  in-memory peak, and nothing user-visible moved.
+- Post-doc gates: `swift test` — **5296 tests, 0 failures**; `swiftlint --strict`
+  from the repository root — **0 violations, 0 serious in 521 files**.

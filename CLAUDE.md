@@ -778,7 +778,8 @@ Unit tests live in `Tests/PisakaCoreTests/` and cover `PisakaCore` only.
 `Tests/PisakaAppTests/` is the second bundle — headless XCTest (not UI
 automation) covering the macOS AppKit overlays that `swift test` is blind to:
 `BracketOverlayLayoutManager`/`FoldingTypesetter`, `LineNumberRulerView`,
-and the layout seams. It exists because the folding launch-time trap
+the layout seams, and the download collector's ceiling rule
+(`BoundedBodyCollectorTests`, `core-provisioning.md`). It exists because the folding launch-time trap
 (`FoldingTypesetter.init()` re-entered through Objective-C) passed **every gate
 the pipeline had** — the Core suites *and* the smoke launch, measured to survive
 the pre-fix build — so it is the only net for that class (`core-folding.md`).

@@ -592,10 +592,12 @@ below. All of it, with decisions D21–D24, is in `core-lsp.md`.
 ### `Pisaka` (app, macOS-gated)
 
   - `LSPDownloadService.swift` — the real `LSPArtifactDownloading`: one
-    `URLSession` per request, one `Data`, counted as it arrives. Untested by
-    repository convention, so it is kept to the three decisions it actually makes
-    — how the session is configured, what counts as a failure, and where the bytes
-    stop. The body is streamed through a `URLSessionDataDelegate` that measures
+    `URLSession` per request, one `Data`, counted as it arrives. It is kept to
+    the three decisions it actually makes — how the session is configured, what
+    counts as a failure, and where the bytes stop — and the third of them is
+    pinned by `BoundedBodyCollectorTests` in the app-layer bundle, which drives
+    the delegate callbacks directly with no network at all (see Tests below).
+    The body is streamed through a `URLSessionDataDelegate` that measures
     each arriving chunk against the room still allowed under `maximumByteCount`
     *before* it appends anything — a chunk that does not fit is refused without
     being held, the body is dropped and the task cancelled there, and the ceiling
@@ -1021,9 +1023,13 @@ with `URLError.cancelled`, and that word — not the size — is what would othe
 reach `LSPInstallError.downloadFailed` and the Settings row. So the delegate
 records its own reason *before* it cancels, and the completion path consults that
 record first: an over-limit body throws `LSPDownloadService.Failure.tooLarge`. A
-cancellation the delegate did not cause keeps its own error unchanged. Nothing in
-`swift test` can see this — `ScriptedDownloader` runs no URLSession — so it is
-stated here and in that file's doc comment rather than pinned by a test.
+cancellation the delegate did not cause keeps its own error unchanged. `swift
+test` still cannot see this — `ScriptedDownloader` runs no URLSession — so it is
+pinned one bundle over, by `BoundedBodyCollectorTests` in `Tests/PisakaAppTests`,
+which feeds the delegate its own callbacks (response, chunk, completion) with no
+socket and no server: the inclusive ceiling, the check-then-append order, and
+both halves of this mapping — a self-caused cancel resolving as `tooLarge`, a
+foreign error resolving as itself.
 
 `URLSession.bytes(for:)` was the other candidate for the streaming half and was
 rejected: `AsyncBytes` yields one `UInt8` at a time, which turns a 53 MB artifact
@@ -1442,7 +1448,9 @@ checks at the end of the plan re-validate that the server actually answers.
 
 ## Tests
 
-`swift test` covers this layer end to end without a network or a `tar`:
+`swift test` covers this layer end to end without a network or a `tar` — all but
+the one decision that lives in a `URLSessionDataDelegate`, which the app-layer
+bundle pins instead:
 
 - `SHA256Tests` — the published FIPS vectors, the multi-chunk equivalence and
   the padding-boundary sweep.
@@ -1465,3 +1473,23 @@ checks at the end of the plan re-validate that the server actually answers.
   the app-side files open with `#if os(macOS)`, the Core-side ones import
   Foundation and nothing else and mention neither `Process` nor a platform
   framework. `SHA256` is in that sweep, so a later `import CryptoKit` fails here.
+  A test file under `Tests/` is invisible to it, so the suite below adds no
+  exception.
+
+`Tests/PisakaAppTests` — the headless app-layer bundle, run by `xcodebuild
+-project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' test` —
+carries the one suite `swift test` cannot:
+
+- `BoundedBodyCollectorTests` — D14's ceiling as the delegate itself enforces it,
+  with no network: the callbacks (`didReceive response`, `didReceive data`,
+  `didCompleteWithError`) are fed the way `URLSession` would feed them, against a
+  data task that is created and never resumed. It pins the **inclusive ceiling**
+  (a chunk exactly filling the maximum is kept and the body comes back whole),
+  the **check-then-append order** — read off `peakHeldByteCount`, the collector's
+  high-water mark, because both orders *drop* the body on refusal and their two
+  predicates are algebraically the same, so the final state cannot tell them
+  apart and only what was transiently resident can — and the **cancellation
+  mapping** both ways: a self-caused cancel completing with `URLError.cancelled`
+  still resolves as `Failure.tooLarge`, while a foreign `URLError` with nothing
+  recorded resolves as itself. The typed failure is matched by pattern, so no
+  `Equatable` conformance exists for the product code's sake alone.
