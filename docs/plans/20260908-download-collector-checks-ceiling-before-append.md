@@ -167,18 +167,18 @@ Behaviour visible to a user does not change: an over-limit response still fails 
 
 ### Task 4: Verify acceptance criteria
 
-- [ ] `swift test` — full Core suite green; record the test count.
-- [ ] `swiftlint --strict` from the repository root — clean; record the file count.
-- [ ] `xcodegen generate`.
-- [ ] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' build`.
-- [ ] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build`.
-- [ ] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' test`
+- [x] `swift test` — full Core suite green; record the test count.
+- [x] `swiftlint --strict` from the repository root — clean; record the file count.
+- [x] `xcodegen generate`.
+- [x] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' build`.
+- [x] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build`.
+- [x] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' test`
       — the app-layer bundle with the collector's suite, flag-free.
-- [ ] `LSPSourceGatingTests` green with no new exception: `Sources/Pisaka` still holds the
+- [x] `LSPSourceGatingTests` green with no new exception: `Sources/Pisaka` still holds the
       only `URLSession` of this layer and the file is still `#if os(macOS)`.
-- [ ] Grep the whole diff for product or brand names — code, comments, tests, docs, plan,
+- [x] Grep the whole diff for product or brand names — code, comments, tests, docs, plan,
       commit messages.
-- [ ] Record every result in this plan's Notes, including Task 2's "prove it bites" run and
+- [x] Record every result in this plan's Notes, including Task 2's "prove it bites" run and
       Task 3's live observation.
 
 ### Task 5: Update documentation
@@ -299,3 +299,33 @@ run's ceiling and observed error, and every gate's result.)
 - Cleanup: the scratch server script, its port/log files and the temporary test are
   deleted; `xcodegen generate` re-run, `git status --short` empty, and the app bundle
   re-run whole — **TEST SUCCEEDED**, 20 tests, 0 failures, exactly Tasks 1–2's tree.
+
+### Task 4
+
+- `swift test` — **5296 tests, 0 failures** (the full Core suite; no Core file is touched
+  by this branch, so this is a regression check).
+- `swiftlint --strict` from the repository root — **0 violations, 0 serious in 521 files**
+  (520 before Task 2; the new test file is the 521st).
+- `xcodegen generate` — `Created project at /Users/antonkarmanov/git/pisaka/Pisaka.xcodeproj`.
+- `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' build`
+  — **BUILD SUCCEEDED**.
+- `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination
+  'platform=iOS Simulator,name=iPhone 17 Pro' build` — **BUILD SUCCEEDED**.
+- `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' test`
+  — **TEST SUCCEEDED**, **20 tests, 0 failures**, flag-free (default DerivedData, nothing
+  written inside the repository). The collector's five cases, re-run alone with
+  `-only-testing:PisakaAppTests/BoundedBodyCollectorTests`, all pass:
+  `testChunkExactlyFillingTheMaximumIsKeptAndReturnedWhole`,
+  `testChunkPastTheMaximumIsRefusedWithoutBeingAppended`,
+  `testFirstChunkPastTheMaximumIsNeverResident`,
+  `testForeignErrorWithNothingRecordedResolvesAsThatError`,
+  `testSelfCausedCancellationResolvesAsTooLargeAndNotAsCancelled`.
+- `LSPSourceGatingTests` — **7 tests, 0 failures**, with **no new exception**: the suite
+  sweeps `Sources/Pisaka` only, so the new file under `Tests/PisakaAppTests` is invisible
+  to it; `LSPDownloadService.swift` is still the LSP layer's only `URLSession` and still
+  opens with `#if os(macOS)`.
+- Brand-name grep over the whole branch diff (`git diff a0b72805..HEAD`, 672 lines —
+  code, comments, tests, docs, this plan and the commit messages it records): **no match**
+  for any product or editor brand.
+- Task 2's "prove it bites" run and Task 3's live observation are recorded in their own
+  sections above and stand unchanged by this verification.
