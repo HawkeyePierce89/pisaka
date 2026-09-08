@@ -132,12 +132,13 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
 - `TextualUsageScanner.swift` — the pure whole-word scan; boundaries delegated to `IdentifierScanner`.
 - `FindUsagesModel.swift` — the usages panel's model: the server first, the project walk second (never a provider fallback), two generation tokens.
 
-`docs/architecture/core-lsp.md` — the LSP client (sourcekit-lsp, gopls, rust-analyzer), incl. decisions D1–D10 + D17–D38:
+`docs/architecture/core-lsp.md` — the LSP client (sourcekit-lsp, gopls, rust-analyzer), incl. decisions D1–D10 + D17–D39:
 - `LSPMessage.swift` — JSON-RPC envelopes; `null` vs. absent.
 - `LSPFraming.swift` — `Content-Length` framing; a framing error is terminal.
 - `LSPProtocolTypes.swift` — decode leniently, encode exactly; the closed capability tree.
 - `LSPPositionMap.swift` — offset ↔ `(line, character)`, LSP's separators only (D1).
 - `LSPTransport.swift` — the macOS/Core boundary; EOF reports a crash.
+- `LSPWriteBudget.swift` — the outgoing queue's ceiling; a backlog past it is the server's death (D39).
 - `LSPSession.swift` — one conversation: handshake, ids, budgets, cancel; both configuration channels (D27); the notification stream (D29).
 - `LSPServerDescription.swift` — description + registry (D9); the per-server `configuration` (D27).
 - `LSPWorkspace.swift` — one server per `(server, root)`; the D2 flush, D7 backoff, `updateRegistry(_:)` (D16); push routing + teardown clears (D31/D33).

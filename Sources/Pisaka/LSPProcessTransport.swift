@@ -60,6 +60,11 @@ final class LSPProcessTransport: LSPTransport, @unchecked Sendable {
     private var isStopped = false
     private var streamIsFinished = false
 
+    /// What is queued but not yet written, bounded (D39). Guarded by `lock`, like
+    /// every other piece of state here: `send` admits from the session's actor and
+    /// the write queue drains from its own thread.
+    private var writeBudget = LSPWriteBudget()
+
     /// Launch `executable` with `arguments`, rooted at `directory`.
     ///
     /// Throws `LSPTransportError.launchFailed` and nothing else: every way this
@@ -219,11 +224,33 @@ final class LSPProcessTransport: LSPTransport, @unchecked Sendable {
     /// it is, a death: the stream is finished, which is the one thing the session
     /// already knows how to handle. `notRunning` is thrown only for a send after
     /// the transport has already stopped.
+    ///
+    /// **The queue is bounded** (D39). A server that is alive but no longer
+    /// reading its stdin never fails a write, so without a bound the backlog grows
+    /// by one whole document per `didChange` and nothing in the layer ever
+    /// notices — a request timeout fails one request, and `didChange` has no reply
+    /// to time out at all. `LSPWriteBudget` therefore admits every message before
+    /// it is queued: nothing pending is always accepted, however large (one big
+    /// document is not a dead server), and a backlog that would cross
+    /// `LSPWriteBudget.defaultCeiling` — 32 MiB — is read as the server's death.
+    /// That is the *same* call the failed write above already makes: nothing is
+    /// queued, the stream is finished, no error is thrown and no new failure
+    /// channel exists, so `LSPWorkspace` owns everything after it exactly as it
+    /// owns a crash (D7's backoff, the diagnostics clear, the fourth-failure
+    /// retirement).
     func send(_ data: Data) throws {
         lock.lock()
-        let stopped = isStopped
+        if isStopped {
+            lock.unlock()
+            throw LSPTransportError.notRunning
+        }
+        let admission = writeBudget.admit(data.count)
         lock.unlock()
-        guard !stopped else { throw LSPTransportError.notRunning }
+
+        guard admission == .queued else {
+            finishStream()
+            return
+        }
 
         let handle = input.fileHandleForWriting
         writeQueue.async { [weak self] in
@@ -232,6 +259,13 @@ final class LSPProcessTransport: LSPTransport, @unchecked Sendable {
             } catch {
                 self?.finishStream()
             }
+            // On both paths: the bytes are off the queue either way, and a
+            // transport that stopped counting on a failure would refuse the next
+            // send of a server that is merely being torn down.
+            guard let self else { return }
+            self.lock.lock()
+            self.writeBudget.drain(data.count)
+            self.lock.unlock()
         }
     }
 

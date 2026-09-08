@@ -104,6 +104,7 @@ final class LSPSourceGatingTests: XCTestCase {
         "LSPSession.swift",
         "LSPTransport.swift",
         "LSPWorkspace.swift",
+        "LSPWriteBudget.swift",
         "RoutingIntelligenceProvider.swift",
         "SHA256.swift",
     ]

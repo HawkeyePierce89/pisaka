@@ -246,9 +246,9 @@ here.
 - Modify: `Tests/PisakaCoreTests/LSPSourceGatingTests.swift`
 - Modify: `docs/architecture/core-lsp.md`, `CLAUDE.md`
 
-- [ ] Read `core-lsp.md`'s `LSPTransport.swift`/`LSPSession.swift` entries and D7 before
+- [x] Read `core-lsp.md`'s `LSPTransport.swift`/`LSPSession.swift` entries and D7 before
       editing.
-- [ ] Write `LSPWriteBudget`: a `public struct` in Core with
+- [x] Write `LSPWriteBudget`: a `public struct` in Core with
       `public static let defaultCeiling = 32 * 1024 * 1024` (the reason beside it — a 1 MB
       file re-synced whole thirty times over, half the incoming `Content-Length` cap),
       `let ceiling`, `private(set) var pendingByteCount`,
@@ -259,31 +259,31 @@ here.
       server); otherwise `overCeiling` when `pendingByteCount + byteCount > ceiling`, and
       an `overCeiling` message is **not** counted as pending (it was never queued);
       `drain` clamps at zero.
-- [ ] Write `LSPWriteBudgetTests` first against those rules: the ceiling crossed by
+- [x] Write `LSPWriteBudgetTests` first against those rules: the ceiling crossed by
       repeated admits with no drains; the *same total volume* admitted with a drain after
       each admit never crosses; the first admit is accepted at any size, including one
       larger than the ceiling; a message that crosses leaves `pendingByteCount` unchanged;
       `drain` past zero clamps; the default ceiling's value is pinned.
-- [ ] Wire the transport: `LSPProcessTransport` gains `private var writeBudget` guarded by
+- [x] Wire the transport: `LSPProcessTransport` gains `private var writeBudget` guarded by
       the existing `lock`. `send(_:)` admits `data.count` under the lock after its
       `isStopped` check; on `.overCeiling` it calls `finishStream()` and returns without
       queueing anything — the same call the failed-write path already makes, no throw and
       no new `LSPTransportError` case. The write-queue block drains `data.count` under the
       lock after the write attempt, on both the success and the failure path.
-- [ ] Update `send(_:)`'s doc comment: what the ceiling is, that crossing it is read as the
+- [x] Update `send(_:)`'s doc comment: what the ceiling is, that crossing it is read as the
       server's death, and that `LSPWorkspace` (D7) owns everything after.
-- [ ] Add `LSPWriteBudget.swift` to `LSPSourceGatingTests.expectedCoreFiles` (a set
+- [x] Add `LSPWriteBudget.swift` to `LSPSourceGatingTests.expectedCoreFiles` (a set
       equality — the suite fails until this is done).
-- [ ] `ScriptedLSPTransport` is untouched, and the plan says why in its own comment if one
+- [x] `ScriptedLSPTransport` is untouched, and the plan says why in its own comment if one
       is warranted: the fake never blocks, so it has no backlog to bound.
-- [ ] `core-lsp.md`: a `LSPWriteBudget.swift` line under Files; **D39** in the Decisions
+- [x] `core-lsp.md`: a `LSPWriteBudget.swift` line under Files; **D39** in the Decisions
       section stating the ceiling and its reason, the death mapping, why a request timeout
       does not count (it fails one request and `didChange` has no reply at all, so nothing
       in the existing machinery can ever notice this), why coalescing is not done, and the
       deliberate non-change of the incoming streams with its reason. Add the incoming-stream
       non-change to Known limits as well.
-- [ ] `CLAUDE.md`: one index line for `LSPWriteBudget.swift` under `core-lsp.md`.
-- [ ] Gates: `swift test`; `swiftlint --strict`; `xcodegen generate`;
+- [x] `CLAUDE.md`: one index line for `LSPWriteBudget.swift` under `core-lsp.md`.
+- [x] Gates: `swift test`; `swiftlint --strict`; `xcodegen generate`;
       `xcodebuild … -destination 'platform=macOS' build`;
       `xcodebuild … -destination 'platform=macOS' test` (the app-layer bundle).
 
@@ -460,6 +460,34 @@ here.
   Pro, derived data under `~/Library/Developer/Xcode/DerivedData/pisaka-audit-ios`) —
   **BUILD SUCCEEDED**, which is also what typechecks the assignment (the file is
   `#if os(iOS)`, so no other gate compiles it at all).
+
+### Task 2 — a bounded write queue for language servers
+
+- **What landed.** `LSPWriteBudget` (Core, pure: `defaultCeiling` 32 MiB, `admit` /
+  `drain`, `Admission` with two cases) plus `LSPWriteBudgetTests`; the applier is
+  `LSPProcessTransport.send(_:)`, which admits `data.count` under the existing lock after
+  the `isStopped` check, calls `finishStream()` and returns without queueing on
+  `.overCeiling`, and drains `data.count` under the lock on both the success and the
+  failure path of the write. No new `LSPTransportError` case, no throw, no counter.
+  `ScriptedLSPTransport` is untouched and now says why in its own doc comment above
+  `send(_:)`. D39, the file entry and the incoming-stream non-change are in `core-lsp.md`
+  (the Known-limits entry included); `CLAUDE.md` carries the index line and its D-range now
+  reads D17–D39.
+- **Gates:** `swift test` — 5292 tests, 0 failures (up from 5286 by the six new budget
+  tests). `swiftlint --strict` — 0 violations in 520 files. `xcodegen generate` — project
+  written. `xcodebuild … -destination 'platform=macOS' build` (derived data under
+  `~/Library/Developer/Xcode/DerivedData/pisaka-audit`) — **BUILD SUCCEEDED**, which is what
+  typechecks the wiring.
+- **The app-layer bundle did not run here, and the reason is not this change.**
+  `xcodebuild … -destination 'platform=macOS' test` fails with
+  `Pisaka (…) encountered an error (The test runner hung before establishing connection.)`
+  after ~330 s of "Testing started". It was run three times, then run once more against the
+  **stashed tree** (Task 1's committed state, none of this task's files present) into a
+  separate derived-data root: it fails there identically, so this is the environment — a
+  non-interactive session with no window server for a GUI host app — and not a regression.
+  Nothing in `PisakaAppTests` covers the transport in any case (it owns `Process`, which
+  this repository does not unit-test). CI's macOS job is where that bundle is really
+  gated; Task 5 records it again, and the pull request is the honest verdict.
 
 (filled in during execution: the redirect pin's failing test names with the assignment
 removed; the write-budget live reproduction, recorded by the reviewer during the acceptance
