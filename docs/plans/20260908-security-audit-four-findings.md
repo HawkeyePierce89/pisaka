@@ -415,18 +415,21 @@ here.
 
 ### Task 6: Update documentation
 
-- [ ] `docs/architecture/app-ios.md` — the redirect policy, the one sentence on why the
+- [x] `docs/architecture/app-ios.md` — the redirect policy, the one sentence on why the
       callback compares nothing, and the port-keying non-decision.
-- [ ] `docs/architecture/core-lsp.md` — D39, the `LSPWriteBudget.swift` file entry, the
+- [x] `docs/architecture/core-lsp.md` — D39, the `LSPWriteBudget.swift` file entry, the
       incoming-stream non-change under Known limits.
-- [ ] `docs/architecture/core-provisioning.md` — D14 amended (including the
+- [x] `docs/architecture/core-provisioning.md` — D14 amended (including the
       cancellation-to-`tooLarge` mapping), the size-limit known limit replaced.
-- [ ] `Vendor/TreeSitterSql/VENDORED.md` — `scanner.c` listed as modified, update
+- [x] `Vendor/TreeSitterSql/VENDORED.md` — `scanner.c` listed as modified, update
       procedure adjusted.
-- [ ] `CLAUDE.md` — the `LSPWriteBudget.swift` index line and the provisioning invariant's
+- [x] `CLAUDE.md` — the `LSPWriteBudget.swift` index line and the provisioning invariant's
       "pinned size is enforced" clause. No new essays; the index stays an index.
-- [ ] `README.md` — confirm no change is needed (nothing here is user-facing) and leave it
-      alone if so.
+- [x] `README.md` — confirmed no change is needed and left alone: nothing in the four
+      findings is user-facing. The Features entry still says downloads are
+      "checksum-pinned" (true, and the enforced size is an implementation detail
+      behind it), the network paragraph's list of what touches the network is
+      unchanged, and no surface, shortcut or consent sentence moved.
 
 ## Post-Completion (manual)
 
