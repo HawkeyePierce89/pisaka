@@ -1510,3 +1510,22 @@ carries the one suite `swift test` cannot:
   `URLError` with nothing recorded resolves as itself. The typed failure is
   matched by pattern, so no `Equatable` conformance exists for the product code's
   sake alone.
+
+  The five cases that read a resolved continuation go through one helper,
+  `resolve(_:)`, and they are **bounded**. Nothing in the staged scenario is
+  raced: each case feeds `attach`, the delegate callbacks and the completion
+  synchronously on one thread inside the continuation closure, with no
+  `URLSession` running, so the continuation is resumed before that closure
+  returns. The one asynchronous step is the handoff from the staging `Task` to
+  the test, and the expectation *is* that handoff — a wait on a signal that must
+  arrive, which may well be entered before the staging task has started, never on
+  a window that may already have closed. The bound covers the single regression
+  the staging itself cannot survive — a completion path that stops resuming at
+  all — which unbounded is a bundle hung to the CI job's timeout with nothing
+  naming the case responsible. Bounded, each affected case fails in ten seconds
+  against its own named expectation and the rest of the bundle still runs. The
+  wait is the report; the `NeverResumed` error the helper falls back to is only
+  what lets it hand back a `Result` rather than an optional, so no case unwraps
+  one — not a second, independent report of the timeout, since a staging task
+  resuming just past the bound still writes its real outcome and that case fails
+  on the wait alone.

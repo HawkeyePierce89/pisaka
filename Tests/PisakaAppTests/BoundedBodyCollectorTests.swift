@@ -77,6 +77,75 @@ final class BoundedBodyCollectorTests: XCTestCase {
         }
     }
 
+    /// Whatever the collector resolved the continuation with, under a bound.
+    ///
+    /// Every case here stages its whole scenario *synchronously* — `attach`, the
+    /// delegate callbacks, then the completion — inside the continuation closure,
+    /// on one thread, with no URLSession running: nothing there races anything,
+    /// and the continuation is resumed before `stage` returns. What remains
+    /// asynchronous is only the handoff from the staging `Task` to this one, and
+    /// that is exactly what the expectation is: the wait may be entered before the
+    /// task has run at all, so it is a wait on a signal that must arrive rather
+    /// than on a window that may already have closed. Nothing about the staged
+    /// scenario is being raced or interleaved, which is why the bound may be a
+    /// blunt one: it covers the single regression the staging itself cannot
+    /// survive, a completion path that stops resuming at all. Unbounded that is a
+    /// bundle hung to the job's timeout with nothing naming the case responsible;
+    /// bounded, the case fails in seconds, says so, and every other case in the
+    /// bundle still runs.
+    ///
+    /// The expectation is what reports that hang; `NeverResumed` is only the
+    /// fallback that lets this hand back a `Result` rather than an optional, so
+    /// no case has to unwrap one. It is not a second, independent report of the
+    /// timeout: a staging task that resumes just past the bound still writes its
+    /// real outcome before the read below, and such a case would pass its own
+    /// assertion and fail on the wait alone.
+    private func resolve(
+        _ stage: @escaping (CheckedContinuation<Data, Error>) -> Void
+    ) async -> Result<Data, Error> {
+        let resumed = XCTestExpectation(description: "the collector resumed the continuation")
+        let outcome = ResolutionBox()
+        Task {
+            do {
+                outcome.value = .success(try await withCheckedThrowingContinuation(stage))
+            } catch {
+                outcome.value = .failure(error)
+            }
+            resumed.fulfill()
+        }
+        await fulfillment(of: [resumed], timeout: Self.resolutionTimeout)
+        return outcome.value ?? .failure(NeverResumed())
+    }
+
+    /// Generous by design: the staged work is a handful of synchronous calls on
+    /// no network at all, so anything approaching this is the hang and not a
+    /// loaded machine.
+    private static let resolutionTimeout: TimeInterval = 10
+
+    /// The fallback for a bound that expired with nothing written.
+    private struct NeverResumed: Error {}
+
+    /// The staged run's answer, handed back across the task boundary under a
+    /// lock: on the bound's timeout path that run is still out there and may yet
+    /// write, so the read is not merely ordered by the expectation.
+    private final class ResolutionBox: @unchecked Sendable {
+        private let lock = NSLock()
+        private var stored: Result<Data, Error>?
+
+        var value: Result<Data, Error>? {
+            get {
+                lock.lock()
+                defer { lock.unlock() }
+                return stored
+            }
+            set {
+                lock.lock()
+                stored = newValue
+                lock.unlock()
+            }
+        }
+    }
+
     // MARK: - The inclusive ceiling
 
     func testChunkExactlyFillingTheMaximumIsKeptAndReturnedWhole() async throws {
@@ -84,13 +153,14 @@ final class BoundedBodyCollectorTests: XCTestCase {
         defer { session.invalidateAndCancel() }
         let payload = Data(repeating: 0x41, count: 8)
 
-        let body: Data = try await withCheckedThrowingContinuation { continuation in
+        let outcome = await resolve { continuation in
             collector.attach(continuation)
-            feedOKResponse(to: collector, session: session, task: task)
+            self.feedOKResponse(to: collector, session: session, task: task)
             collector.urlSession(session, dataTask: task, didReceive: payload)
             collector.urlSession(session, task: task, didCompleteWithError: nil)
         }
 
+        let body = try outcome.get()
         XCTAssertEqual(body, payload)
     }
 
@@ -105,9 +175,9 @@ final class BoundedBodyCollectorTests: XCTestCase {
         let first = Data(repeating: 0x41, count: 5)
         let second = Data(repeating: 0x42, count: 3)
 
-        let body: Data = try await withCheckedThrowingContinuation { continuation in
+        let outcome = await resolve { continuation in
             collector.attach(continuation)
-            feedOKResponse(to: collector, session: session, task: task)
+            self.feedOKResponse(to: collector, session: session, task: task)
             collector.urlSession(session, dataTask: task, didReceive: first)
             collector.urlSession(session, dataTask: task, didReceive: second)
             XCTAssertEqual(collector.heldByteCount, 8)
@@ -116,6 +186,7 @@ final class BoundedBodyCollectorTests: XCTestCase {
             collector.urlSession(session, task: task, didCompleteWithError: nil)
         }
 
+        let body = try outcome.get()
         XCTAssertEqual(body, first + second)
     }
 
@@ -222,15 +293,17 @@ final class BoundedBodyCollectorTests: XCTestCase {
         let (collector, session, task) = makeCollector(maximumByteCount: 4)
         defer { session.invalidateAndCancel() }
 
-        do {
-            _ = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Data, Error>) in
-                collector.attach(continuation)
-                feedResponse(httpResponse(statusCode: 404), to: collector, session: session, task: task)
-                collector.urlSession(session, dataTask: task, didReceive: Data(repeating: 0x41, count: 64))
-                collector.urlSession(session, task: task, didCompleteWithError: URLError(.cancelled))
-            }
+        let outcome = await resolve { continuation in
+            collector.attach(continuation)
+            self.feedResponse(self.httpResponse(statusCode: 404), to: collector, session: session, task: task)
+            collector.urlSession(session, dataTask: task, didReceive: Data(repeating: 0x41, count: 64))
+            collector.urlSession(session, task: task, didCompleteWithError: URLError(.cancelled))
+        }
+
+        switch outcome {
+        case .success:
             XCTFail("expected the call to throw")
-        } catch {
+        case .failure(let error):
             guard let failure = error as? LSPDownloadService.Failure else {
                 XCTFail("expected LSPDownloadService.Failure, got \(error)")
                 return
@@ -259,16 +332,18 @@ final class BoundedBodyCollectorTests: XCTestCase {
         let (collector, session, task) = makeCollector(maximumByteCount: 4)
         defer { session.invalidateAndCancel() }
 
-        do {
-            _ = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Data, Error>) in
-                collector.attach(continuation)
-                feedOKResponse(to: collector, session: session, task: task)
-                collector.urlSession(session, dataTask: task, didReceive: Data(repeating: 0x44, count: 5))
-                // What URLSession answers a cancelled task with, whoever cancelled it.
-                collector.urlSession(session, task: task, didCompleteWithError: URLError(.cancelled))
-            }
+        let outcome = await resolve { continuation in
+            collector.attach(continuation)
+            self.feedOKResponse(to: collector, session: session, task: task)
+            collector.urlSession(session, dataTask: task, didReceive: Data(repeating: 0x44, count: 5))
+            // What URLSession answers a cancelled task with, whoever cancelled it.
+            collector.urlSession(session, task: task, didCompleteWithError: URLError(.cancelled))
+        }
+
+        switch outcome {
+        case .success:
             XCTFail("expected the call to throw")
-        } catch {
+        case .failure(let error):
             assertIsTooLarge(error)
         }
     }
@@ -277,14 +352,16 @@ final class BoundedBodyCollectorTests: XCTestCase {
         let (collector, session, task) = makeCollector(maximumByteCount: 8)
         defer { session.invalidateAndCancel() }
 
-        do {
-            _ = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Data, Error>) in
-                collector.attach(continuation)
-                feedOKResponse(to: collector, session: session, task: task)
-                collector.urlSession(session, task: task, didCompleteWithError: URLError(.notConnectedToInternet))
-            }
+        let outcome = await resolve { continuation in
+            collector.attach(continuation)
+            self.feedOKResponse(to: collector, session: session, task: task)
+            collector.urlSession(session, task: task, didCompleteWithError: URLError(.notConnectedToInternet))
+        }
+
+        switch outcome {
+        case .success:
             XCTFail("expected the call to throw")
-        } catch {
+        case .failure(let error):
             XCTAssertNil(error as? LSPDownloadService.Failure)
             XCTAssertEqual((error as? URLError)?.code, .notConnectedToInternet)
         }
