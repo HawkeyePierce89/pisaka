@@ -1330,9 +1330,28 @@ checks at the end of the plan re-validate that the server actually answers.
 ## Known limits
 
 - **A download is held whole in memory** (D14). The peak resident cost is the
-  largest artifact — ~53 MB for Node, once, during a first install. There is no
-  streaming, no progress reporting and no resume: a download interrupted at 90%
-  starts again from zero when Retry is pressed.
+  largest artifact — ~53 MB for Node, once, during a first install, and the
+  collector reserves exactly the pinned size up front so appending does not
+  transiently hold two buffers. The body *arrives* in chunks — that is how the
+  ceiling below is enforced — but nothing is streamed to disk: there is no
+  on-disk staging of the transfer, no progress reporting and no resume, so a
+  download interrupted at 90% starts again from zero when Retry is pressed.
+- **No connection is reused between artifacts** (D14). The session is per
+  request, because the delegate holding one transfer's bytes is, and a
+  `URLSession`'s connection pool is per session — so `yaml-language-server`'s
+  twenty `registry.npmjs.org` tarballs cost twenty handshakes rather than one
+  reused HTTP/2 connection. A first-install latency cost of a second or two on a
+  real link, paid once, against a delegate whose whole state is one transfer's.
+  For the same reason `httpMaximumConnectionsPerHost` bounds one request rather
+  than the layer, which is what its comment now says.
+- **The transfer is not Swift-task-cancellable** (D14). Cancelling the enclosing
+  `Task` neither cancels the URL task nor resumes the seam early; the call
+  returns when the transfer does, or at the 20-minute resource timeout. Nothing
+  cancels an install today — `LSPProvisioningModel` never cancels its attempt
+  task — and serving a hypothetical caller would mean the collector must also
+  remember a completion arriving before its continuation is attached, since
+  `URLSessionTask.cancel()` can race `resume()`. Recorded here rather than built
+  for nobody.
 - **The response is capped, and the cap is the pin** (D14). The manifest's
   `byteCount` is both the size shown to the user and the ceiling handed to the
   download seam: the bytes are counted as they arrive, the transfer is stopped

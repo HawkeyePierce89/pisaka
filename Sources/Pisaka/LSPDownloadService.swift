@@ -120,10 +120,13 @@ final class LSPDownloadService: LSPArtifactDownloading, @unchecked Sendable {
         configuration.urlCache = nil
         configuration.timeoutIntervalForRequest = Self.requestTimeout
         configuration.timeoutIntervalForResource = Self.resourceTimeout
-        // One artifact at a time is all the engine ever asks for (its sequence is
-        // strictly serial), so this bounds nothing in practice — it is here so that
-        // a future parallel install cannot turn a first launch into six
-        // simultaneous transfers competing for the same link.
+        // Read this as a bound on *one request*, not on the layer: the limit is
+        // per `URLSession`, and a session here lives for exactly one call (see
+        // `data(from:maximumByteCount:)`), so N concurrent calls would be N
+        // sessions and up to 2N connections. It therefore bounds nothing today —
+        // the engine's artifact sequence is strictly serial, one transfer at a
+        // time — and is kept only so a redirect chain or a retry inside a single
+        // request cannot fan out.
         configuration.httpMaximumConnectionsPerHost = 2
         // `waitsForConnectivity` stays off, on purpose. It would turn "there is no
         // network" into a request that sits silently until the resource timeout,
@@ -144,7 +147,24 @@ final class LSPDownloadService: LSPArtifactDownloading, @unchecked Sendable {
     /// bytes of exactly one transfer, so sharing one session would mean either
     /// keying that state by task or serializing the layer on a lock for a sequence
     /// that is already serial. It is invalidated when the call ends, which is what
-    /// releases the delegate.
+    /// releases the delegate. **The stated cost is that no connection is reused
+    /// between artifacts** — the pool is per session, so `yaml-language-server`'s
+    /// twenty `registry.npmjs.org` tarballs cost twenty handshakes rather than one
+    /// reused HTTP/2 connection. That is a first-install latency cost measured in
+    /// a second or two on a real link, paid once, and it buys a delegate whose
+    /// whole state is one transfer's; recorded as a known limit in
+    /// `docs/architecture/core-provisioning.md`.
+    ///
+    /// **The transfer is not Swift-task-cancellable**, and that is a limit rather
+    /// than an oversight: cancelling the enclosing `Task` neither cancels the URL
+    /// task nor resumes this continuation early, so the call returns when the
+    /// transfer does (or at the resource timeout). Nothing cancels an install —
+    /// `LSPProvisioningModel` never cancels its attempt task — so there is no
+    /// caller to serve, and serving a hypothetical one means the collector must
+    /// also remember a completion that arrived before `attach`, since
+    /// `URLSessionTask.cancel()` can race `resume()`. Adding that bookkeeping for
+    /// nobody is the more expensive mistake; the day a Cancel button exists, this
+    /// is the paragraph it has to delete.
     func data(from url: URL, maximumByteCount: Int) async throws -> Data {
         var request = URLRequest(url: url)
         request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
@@ -177,6 +197,12 @@ private final class BoundedBodyCollector: NSObject, URLSessionDataDelegate {
 
     init(maximumByteCount: Int) {
         self.maximumByteCount = maximumByteCount
+        // The maximum *is* the artifact's pinned size, exactly, so this is the
+        // final length in the ordinary case rather than a guess. Reserving it
+        // keeps the peak resident cost the one the docs state: appending 52 MB in
+        // chunks otherwise doubles the buffer repeatedly, and each doubling holds
+        // the old allocation and the new one at once.
+        body.reserveCapacity(maximumByteCount)
     }
 
     func attach(_ continuation: CheckedContinuation<Data, Error>) {

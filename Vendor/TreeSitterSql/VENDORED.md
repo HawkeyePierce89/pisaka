@@ -78,7 +78,8 @@ Written **in this repository** (or modified from upstream):
    and **drop** it (deleting its entry above) if upstream now does. If every one is dropped,
    move the file back into the verbatim list.
 6. **Keep** (do not overwrite): `Package.swift` and this file.
-7. Check if upstream fixed the two defects: if the manifest no longer has the hard
+7. Check if upstream fixed the two *packaging* defects from "Why this is vendored"
+   (not the scanner fixes of step 5): if the manifest no longer has the hard
    dependency error, and if the generated parser is available, prefer dropping this
    directory and restoring the remote pin in `project.yml`.
 8. Re-derive the capture-name set from `queries/highlights.scm` and reconcile

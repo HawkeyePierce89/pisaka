@@ -1330,6 +1330,20 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     file exceeds the buffer), so a write that fails afterwards finishes the byte
     stream instead of throwing, which is the one signal the session already knows how
     to act on; `notRunning` is thrown only for a send after the transport has stopped.
+    **The queue is bounded, and crossing the bound is a third way the stream finishes**
+    (D39, `core-lsp.md`): `send` admits `data.count` against an `LSPWriteBudget` under
+    the same lock it already reads `isStopped` under, before anything is queued, and
+    drains it after the write attempt on *both* paths — a transport that stopped
+    counting on a failure would refuse the next send of a server merely being torn
+    down. Nothing pending is always admitted, however large, because one big document
+    is not a dead server; a backlog that would cross 32 MiB is a server that is alive
+    and no longer reading its stdin, which never fails a write and which nothing else
+    in the layer can notice (a request timeout fails one request, and `didChange` has
+    no reply to time out at all). So the message is dropped, `finishStream()` is
+    called — the same call the failed write above makes — and nothing is thrown. There
+    is no new `LSPTransportError` case and no second failure channel, so `LSPWorkspace`
+    handles it exactly as it handles a crash. The arithmetic is Core's and unit-tested;
+    the wiring is here and, like the rest of this file, untested by convention.
     **`weak self` in the readability handler is load-bearing twice**: a `FileHandle`
     retains its handler, the handle is retained by the pipe and the pipe by the
     transport, so a strong capture is a cycle — `deinit` would never run and the

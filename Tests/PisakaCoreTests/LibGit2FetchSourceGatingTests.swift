@@ -29,9 +29,10 @@ import XCTest
 /// The pin is therefore written as a *mechanism* rather than as a `contains`
 /// that a comment could satisfy:
 ///
-/// 1. It matches comment- and literal-stripped source, through the scanner five
-///    other suites share, so the prose above the assignment — which names the
-///    field and the constant — cannot keep this suite green on its own.
+/// 1. It matches comment- and literal-stripped source, through the scanner every
+///    other source-gating suite shares, so the prose above the assignment —
+///    which names the field and the constant — cannot keep this suite green on
+///    its own.
 /// 2. It asserts **position**: the assignment must sit after the file's single
 ///    `git_fetch_options_init(` and before its single `git_remote_fetch(`, so it
 ///    is pinned to the options that fetch uses rather than to some other
@@ -39,7 +40,16 @@ import XCTest
 ///    are also the loud-vacuity guard — a file that lost either call satisfies
 ///    the ordering rule trivially, so the ordering assertion is only meaningful
 ///    once both are known to occur exactly once.
-/// 3. It forbids the two permissive constants anywhere in the stripped file, so
+/// 3. It asserts **identity**, which position alone cannot: the value the policy
+///    is assigned *to* must be the value `git_remote_fetch` is handed. libgit2
+///    accepts `NULL` fetch options and falls back to its own defaults, so
+///    `git_remote_fetch(remote, nil, nil, nil)` restores the exact vulnerable
+///    behaviour while leaving a correctly-ordered, correctly-spelled assignment
+///    sitting above it — mutating a value nothing reads, which is not even an
+///    unused-variable warning. So the receiver of the assignment is read out of
+///    the source, and required to be both what `git_fetch_options_init` was
+///    handed and what the fetch call carries.
+/// 4. It forbids the two permissive constants anywhere in the stripped file, so
 ///    "hardening" this into `GIT_REMOTE_REDIRECT_INITIAL` — which is precisely
 ///    the default the assignment exists to overrule — fails here instead of
 ///    passing quietly.
@@ -59,29 +69,22 @@ final class LibGit2FetchSourceGatingTests: XCTestCase {
         return LSPSourceGatingTests.strippingCommentsAndStringLiterals(source)
     }
 
-    /// The UTF-16 offsets at which `needle` occurs in `code`, matched literally.
-    ///
-    /// UTF-16, so these are comparable with the regular expression's own match
-    /// locations without a second index space in the middle.
-    private func offsets(of needle: String, in code: String) -> [Int] {
-        let text = code as NSString
-        var found: [Int] = []
-        var searchStart = 0
-        while searchStart < text.length {
-            let remaining = NSRange(location: searchStart, length: text.length - searchStart)
-            let range = text.range(of: needle, options: [.literal], range: remaining)
-            guard range.location != NSNotFound else { break }
-            found.append(range.location)
-            searchStart = range.location + max(range.length, 1)
-        }
-        return found
-    }
-
     /// The UTF-16 offsets at which `pattern` matches `code`.
-    private func matchOffsets(of pattern: String, in code: String) throws -> [Int] {
+    ///
+    /// One search, regular-expression shaped, spelled the way
+    /// `LocalHistorySourceGatingTests` already spells it; a landmark that is a
+    /// plain string goes through ``literal(_:)`` rather than getting a second,
+    /// differently-shaped search of its own. UTF-16 offsets, so every landmark
+    /// here is comparable without a second index space in the middle.
+    private func offsets(of pattern: String, in code: String) throws -> [Int] {
         let regex = try NSRegularExpression(pattern: pattern)
         let matches = regex.matches(in: code, range: NSRange(code.startIndex..., in: code))
         return matches.map(\.range.location)
+    }
+
+    /// `text` as a pattern that matches itself and nothing else.
+    private func literal(_ text: String) -> String {
+        NSRegularExpression.escapedPattern(for: text)
     }
 
     // MARK: - The loud-vacuity guard
@@ -100,11 +103,11 @@ final class LibGit2FetchSourceGatingTests: XCTestCase {
             "\(Self.relativePath) read as empty — the pin below would be vacuous"
         )
         XCTAssertEqual(
-            offsets(of: "git_fetch_options_init(", in: code).count, 1,
+            try offsets(of: literal("git_fetch_options_init("), in: code).count, 1,
             "expected exactly one git_fetch_options_init( in \(Self.relativePath)"
         )
         XCTAssertEqual(
-            offsets(of: "git_remote_fetch(", in: code).count, 1,
+            try offsets(of: literal("git_remote_fetch("), in: code).count, 1,
             "expected exactly one git_remote_fetch( in \(Self.relativePath)"
         )
     }
@@ -118,7 +121,7 @@ final class LibGit2FetchSourceGatingTests: XCTestCase {
     /// rule; that it is made, once, between the initialization and the call is.
     func testFetchRefusesOffSiteRedirects() throws {
         let code = try strippedSource()
-        let assignments = try matchOffsets(
+        let assignments = try offsets(
             of: #"follow_redirects\s*=\s*GIT_REMOTE_REDIRECT_NONE"#,
             in: code
         )
@@ -132,9 +135,22 @@ final class LibGit2FetchSourceGatingTests: XCTestCase {
             Access Token would be presented to whatever host it named
             """
         )
-        guard let assignment = assignments.first,
-              let initialization = offsets(of: "git_fetch_options_init(", in: code).first,
-              let fetchCall = offsets(of: "git_remote_fetch(", in: code).first else { return }
+        // `XCTUnwrap`, never `guard … else { return }`: a landmark that disappeared
+        // would otherwise make the two ordering assertions below vanish silently,
+        // leaving a green test that asserted nothing about order. The vacuity guard
+        // above is a *different* test method, so it cannot speak for this one.
+        let assignment = try XCTUnwrap(
+            assignments.first,
+            "no redirect-policy assignment to order — the rule below was not evaluated"
+        )
+        let initialization = try XCTUnwrap(
+            try offsets(of: literal("git_fetch_options_init("), in: code).first,
+            "no git_fetch_options_init( to order against — the rule below was not evaluated"
+        )
+        let fetchCall = try XCTUnwrap(
+            try offsets(of: literal("git_remote_fetch("), in: code).first,
+            "no git_remote_fetch( to order against — the rule below was not evaluated"
+        )
         XCTAssertTrue(
             initialization < assignment,
             "the redirect policy must be set after git_fetch_options_init, which would otherwise overwrite it"
@@ -142,6 +158,46 @@ final class LibGit2FetchSourceGatingTests: XCTestCase {
         XCTAssertTrue(
             assignment < fetchCall,
             "the redirect policy must be set before git_remote_fetch, on the options that fetch is handed"
+        )
+    }
+
+    /// The options carrying the policy are the options `git_remote_fetch` is handed.
+    ///
+    /// Position is not identity. libgit2 accepts `NULL` fetch options and falls
+    /// back to its own defaults — which is the vulnerable state — so
+    /// `git_remote_fetch(remotePointer, nil, nil, nil)` would leave the ordering
+    /// rule above satisfied by an assignment to a value nobody reads. The
+    /// receiver is therefore read out of the assignment itself and required to be
+    /// both what `git_fetch_options_init` was handed and what the fetch call
+    /// carries, so the three references are pinned to one variable rather than to
+    /// three independently plausible spellings.
+    func testTheFetchIsHandedTheOptionsCarryingThePolicy() throws {
+        let code = try strippedSource()
+        let receiverPattern = #"([A-Za-z_][A-Za-z0-9_]*)\.follow_redirects\s*=\s*GIT_REMOTE_REDIRECT_NONE"#
+        let regex = try NSRegularExpression(pattern: receiverPattern)
+        let text = code as NSString
+        let matches = regex.matches(in: code, range: NSRange(location: 0, length: text.length))
+        let match = try XCTUnwrap(
+            matches.first,
+            """
+            no `<options>.follow_redirects = GIT_REMOTE_REDIRECT_NONE` in \(Self.relativePath) \
+            — the identity rule below was not evaluated
+            """
+        )
+        let receiver = text.substring(with: match.range(at: 1))
+
+        XCTAssertEqual(
+            try offsets(of: #"git_fetch_options_init\(\s*&"# + literal(receiver) + #"\b"#, in: code).count, 1,
+            "git_fetch_options_init must initialize &\(receiver), the value the redirect policy is set on"
+        )
+        XCTAssertEqual(
+            try offsets(of: #"git_remote_fetch\([^)]*&"# + literal(receiver) + #"\b"#, in: code).count, 1,
+            """
+            git_remote_fetch must be handed &\(receiver) in \(Self.relativePath): libgit2 accepts NULL \
+            fetch options and falls back to its own defaults, so passing nil there restores the \
+            off-site redirect the assignment above exists to refuse — while leaving that assignment \
+            correctly spelled and correctly positioned
+            """
         )
     }
 
@@ -157,7 +213,7 @@ final class LibGit2FetchSourceGatingTests: XCTestCase {
         let code = try strippedSource()
         for constant in ["GIT_REMOTE_REDIRECT_INITIAL", "GIT_REMOTE_REDIRECT_ALL"] {
             XCTAssertTrue(
-                offsets(of: constant, in: code).isEmpty,
+                try offsets(of: literal(constant), in: code).isEmpty,
                 "\(constant) must not appear in \(Self.relativePath) — off-site redirects carry the PAT to another host"
             )
         }

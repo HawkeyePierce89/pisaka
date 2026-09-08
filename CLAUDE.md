@@ -815,7 +815,13 @@ absent everywhere; **full inventory in that suite's doc comments and
 `LicenseCoverageTests` (`licenses.json` vs.
 `project.yml`/`Package.resolved`/`Vendor/`), `LSPSourceGatingTests` (the LSP
 layer's platform split, by set equality over both sides),
-`SparkleSourceGatingTests` (`import Sparkle` in exactly one file inside both
+`LibGit2FetchSourceGatingTests` (the iOS fetch's redirect policy —
+`follow_redirects = GIT_REMOTE_REDIRECT_NONE` exactly once, ordered between the
+file's single `git_fetch_options_init(` and its single `git_remote_fetch(`, on
+the *same* options value the fetch is handed, with neither permissive constant
+named; a text pin because `LibGit2Service.swift` is `#if os(iOS)` and no gate in
+this pipeline compiles or runs it; inventory in that suite's doc comments and
+`app-ios.md`), `SparkleSourceGatingTests` (`import Sparkle` in exactly one file inside both
 `#if os(macOS)` and `#if !DEBUG`, no `SPU…` reference in the DEBUG branch, and
 that file as the *only* DEBUG-only branch outside `Sources/Pisaka/iOS/`) and
 `ZoomSourceGatingTests` (the zoom zones' five view-layer rules — who may name
@@ -1099,7 +1105,12 @@ owed are documented in `docs/RELEASING.md`.
 - The iOS branch-switcher's network fetch is **HTTPS-only** (libgit2 over the
   built-in Apple TLS backend, PAT from the Keychain). SSH is out on iOS: this
   libgit2's SSH transport execs the system `ssh` binary and iOS has no
-  subprocess, so only an HTTPS `origin` can be fetched.
+  subprocess, so only an HTTPS `origin` can be fetched. **Off-site redirects are
+  refused** (`GIT_REMOTE_REDIRECT_NONE`, since the field's zero default sends
+  libgit2 to `http.followRedirects`, which permits an initial one), so a stored
+  PAT can never be presented to a host a `Location` named; same-host and
+  path-only redirects still follow, and `LibGit2FetchSourceGatingTests` is the
+  only thing in the pipeline that can see the rule (`app-ios.md`).
 - Target platforms are macOS 13+ and iOS/iPadOS 17+.
 - **Style is enforced, not conventional**: `.swiftlint.yml` at the root is the
   single style authority (the nested `Tests/.swiftlint.yml` carries the
