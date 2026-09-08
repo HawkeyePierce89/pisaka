@@ -7,8 +7,9 @@ import PisakaCore
 /// The second app-side seam, and the smaller one. Core decides *which* archive is
 /// unpacked, *where* it lands and *how many* leading components to drop; this file
 /// runs the one program that can do it and reports whether it worked. Like
-/// `LSPProcessTransport` and `LSPDownloadService` it is untested by repository
-/// convention, so it is kept to a few readable functions over one shared runner.
+/// `LSPProcessTransport` it is untested by repository convention — unlike
+/// `LSPDownloadService`, whose ceiling rule the app-layer bundle now pins — so it
+/// is kept to a few readable functions over one shared runner.
 ///
 /// **`/usr/bin/tar` and `/usr/bin/gunzip`, not a library.** macOS ships bsdtar
 /// (via libarchive) and gzip as system binaries, and they have read these two

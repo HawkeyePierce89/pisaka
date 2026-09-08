@@ -16,9 +16,11 @@ import PisakaCore
 /// library, which is why the seam carries an `LSPGoToolchainReport` rather than a
 /// search. Every *rule* about what that report permits lives in
 /// `LSPGoplsProvisioningModel` and is unit-tested with no Go toolchain anywhere in
-/// sight; this file is untested by repository convention, like the two seams above
-/// and like `LSPProcessTransport`, so it is kept to the decisions it actually
-/// makes: where to look, in what order, and what counts as a failure.
+/// sight; this file is untested by repository convention, like `LSPRustToolchainService`,
+/// `LSPArchiveUnpacker` and `LSPProcessTransport`, so it is kept to the decisions
+/// it actually makes: where to look, in what order, and what counts as a failure.
+/// `LSPDownloadService` is the one seam of this shape that is no longer in that
+/// list: its ceiling rule is pinned in the app-layer bundle.
 ///
 /// **Nothing is downloaded by this app and nothing global is touched** (D17/D20).
 /// The install points `GOBIN` at a staging directory the model owns and inherits

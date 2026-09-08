@@ -1438,7 +1438,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     file, unlike 2b's `LSPDownloadService`/`LSPArchiveUnpacker` pair, because they
     are not two technologies — both are "run the user's `go` and read what it
     says", and splitting them would duplicate the process plumbing to keep two
-    short functions apart. Untested by convention, like every seam of this shape,
+    short functions apart. Untested by convention, like every seam of this shape
+    except the download seam's collector, whose ceiling rule is pinned in the
+    app-layer bundle (`core-provisioning.md`),
     so it is kept to the decisions it actually makes.
     **The search order is the decision.** The inherited `PATH` first, because a
     Pisaka started from a terminal should use the `go` that terminal would have

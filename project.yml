@@ -481,9 +481,10 @@ targets:
           cd "$SRCROOT"
           git rev-parse --git-dir >/dev/null 2>&1 || exit 0
           git config core.hooksPath .githooks
-  # PisakaAppTests — the headless AppKit test bundle that exercises the
+  # PisakaAppTests — the headless app-layer test bundle that exercises the
   # editor's real TextKit stack (BracketOverlayLayoutManager, FoldingTypesetter,
-  # LineNumberRulerView). It is an **application host test**: `@testable import
+  # LineNumberRulerView) and the app-layer rules `swift test` cannot reach
+  # (BoundedBodyCollector's download ceiling). It is an **application host test**: `@testable import
   # Pisaka` against an application target only links with a TEST_HOST /
   # BUNDLE_LOADER (the host's executable), which is why those two settings are
   # declared explicitly below — XcodeGen's preset does not guarantee them for an

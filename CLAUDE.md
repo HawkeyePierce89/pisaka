@@ -54,7 +54,9 @@ The project keeps all logic in `PisakaCore` so it is testable without a UI; the
 platform view layers (`Sources/Pisaka/`, AppKit/SwiftUI on macOS and
 UIKit/SwiftUI on iOS) are thin: SwiftUI glue is untested by convention, but
 AppKit subclasses with behaviour of their own — the layout manager, the
-typesetter, the ruler — are tested headlessly in the app-layer bundle
+typesetter, the ruler — and the few app-layer rules the Core gate structurally
+cannot see (the download collector's ceiling) are tested headlessly in the
+app-layer bundle
 (`Tests/PisakaAppTests`, `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka
 -destination 'platform=macOS' test`; `swift test` remains the Foundation-only
 Core gate).
@@ -289,8 +291,9 @@ Thin SwiftUI/AppKit (macOS, all under `#if os(macOS)`) and SwiftUI/UIKit (iOS,
 `Sources/Pisaka/iOS/`) layers observing the Core models; a platform-shim layer
 in `Sources/Pisaka/Platform/` bridges per-platform APIs. SwiftUI glue is
 untested by convention; AppKit subclasses with behaviour of their own — the
-layout manager, the typesetter, the ruler — are tested headlessly in
-`Tests/PisakaAppTests`.
+layout manager, the typesetter, the ruler — and the few app-layer rules the Core
+gate structurally cannot see (the download collector's ceiling) are tested
+headlessly in `Tests/PisakaAppTests`.
 
 `docs/architecture/app-ios.md` — platform shims & the whole iOS layer:
 - `Platform/PlatformColor.swift` / `PlatformFeedback.swift` / `PlatformAlert.swift` / `PlatformRoute.swift` — per-platform API shims.
@@ -776,9 +779,11 @@ ci.yml's `lint` job, and the version-bump procedure.
 
 Unit tests live in `Tests/PisakaCoreTests/` and cover `PisakaCore` only.
 `Tests/PisakaAppTests/` is the second bundle — headless XCTest (not UI
-automation) covering the macOS AppKit overlays that `swift test` is blind to:
+automation) covering what `swift test` is blind to, mostly the macOS AppKit
+overlays:
 `BracketOverlayLayoutManager`/`FoldingTypesetter`, `LineNumberRulerView`,
-and the layout seams. It exists because the folding launch-time trap
+the layout seams, and the download collector's ceiling rule
+(`BoundedBodyCollectorTests`, `core-provisioning.md`). It exists because the folding launch-time trap
 (`FoldingTypesetter.init()` re-entered through Objective-C) passed **every gate
 the pipeline had** — the Core suites *and* the smoke launch, measured to survive
 the pre-fix build — so it is the only net for that class (`core-folding.md`).
@@ -949,7 +954,7 @@ targets and a generated build phase both wire this clone's hooks
 
 ```sh
 swift test            # run the PisakaCore test suite (all platforms)
-xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' test  # app-layer AppKit bundle
+xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' test  # app-layer test bundle
 
 # The app target is built through the XcodeGen project, not `swift build`/`run`:
 xcodegen generate     # regenerate Pisaka.xcodeproj from project.yml

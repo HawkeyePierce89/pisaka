@@ -17,9 +17,10 @@ import PisakaCore
 /// carries an `LSPRustToolchainReport` rather than a search. Every *rule* about
 /// what that report permits lives in `LSPRustProvisioningModel` and is unit-tested
 /// with no Rust toolchain anywhere in sight; this file is untested by repository
-/// convention, like `LSPGoToolchainService` and `LSPDownloadService`, so it is
-/// kept to the decisions it actually makes: where to look, in what order, and what
-/// counts as not finding anything.
+/// convention, like `LSPGoToolchainService` (and unlike `LSPDownloadService`,
+/// whose ceiling rule the app-layer bundle pins), so it is kept to the decisions
+/// it actually makes: where to look, in what order, and what counts as not
+/// finding anything.
 ///
 /// **Nothing here installs, downloads or writes.** It reads directory entries and
 /// runs two programs with `--version`. The one thing it can spawn that is not

@@ -592,12 +592,19 @@ below. All of it, with decisions D21–D24, is in `core-lsp.md`.
 ### `Pisaka` (app, macOS-gated)
 
   - `LSPDownloadService.swift` — the real `LSPArtifactDownloading`: one
-    `URLSession` per request, one `Data`, counted as it arrives. Untested by
-    repository convention, so it is kept to the three decisions it actually makes
-    — how the session is configured, what counts as a failure, and where the bytes
-    stop. The body is streamed through a `URLSessionDataDelegate` that appends
-    each chunk and cancels the task the moment the running total passes
-    `maximumByteCount`; the configuration is still built once and unchanged, the
+    `URLSession` per request, one `Data`, counted as it arrives. It is kept to
+    the three decisions it actually makes — how the session is configured, what
+    counts as a failure, and where the bytes stop — the last two of which are
+    pinned by `BoundedBodyCollectorTests` in the app-layer bundle, which drives
+    the delegate callbacks directly with no network at all (see Tests below).
+    The body is streamed through a `URLSessionDataDelegate` that measures
+    each arriving chunk against the room still allowed under `maximumByteCount`
+    *before* it appends anything — a chunk that does not fit is never appended,
+    the body already collected is dropped and the task cancelled there, and the
+    ceiling is inclusive. A recorded refusal is **latched**: the cancel is
+    asynchronous, so chunks already in flight keep arriving, and accumulating
+    them would rebuild a body from an emptied buffer whose reserved capacity went
+    with the refused one. The configuration is still built once and unchanged, the
     session per request because the *delegate* is (it holds one transfer's bytes),
     and `finishTasksAndInvalidate()` ends it. `expectedContentLength` is never
     consulted. The delegate **records its own reason before it cancels**, so an
@@ -996,9 +1003,20 @@ a limit the sender chooses.
 **Who counts and who decides are different halves.** The app implementation
 counts, because a cutoff can only protect *memory* where the bytes arrive:
 `LSPDownloadService` streams the body through a `URLSessionDataDelegate` that
-appends each chunk and cancels the task the moment the running total passes the
-maximum (one session per request, its own delegate,
-`finishTasksAndInvalidate()` when the request ends). `LSPInstallEngine` *decides*:
+measures each arriving chunk against the room still allowed *before* it appends
+anything — a chunk longer than what is left is never appended, the body already
+collected is dropped and the task is cancelled there, while a chunk that fits is
+appended, the ceiling being inclusive (one session per request, its own delegate,
+`finishTasksAndInvalidate()` when the request ends). The order is the whole of
+the memory promise: a chunk measured *after* it is appended is a chunk the
+ceiling has already let into the buffer, which is exactly what reserving the
+pinned capacity up front is supposed to prevent. The refusal is **latched** for
+the same reason: `cancel()` is asynchronous, so the chunks already in flight
+still arrive, and buffering them again would start a second body in the buffer
+emptied by the refusal — one whose reserved capacity went with the first — and
+grow it back by doubling. Nothing is accumulated after the first refusal, and the
+first reason recorded is the one the completion throws.
+`LSPInstallEngine` *decides*:
 after the seam returns it refuses `archive.count > artifact.byteCount` as
 `downloadFailed`, before the digest. That is not the same check written twice — it
 is what makes the pin binding on an implementation that ignored it, and it is the
@@ -1013,9 +1031,13 @@ with `URLError.cancelled`, and that word — not the size — is what would othe
 reach `LSPInstallError.downloadFailed` and the Settings row. So the delegate
 records its own reason *before* it cancels, and the completion path consults that
 record first: an over-limit body throws `LSPDownloadService.Failure.tooLarge`. A
-cancellation the delegate did not cause keeps its own error unchanged. Nothing in
-`swift test` can see this — `ScriptedDownloader` runs no URLSession — so it is
-stated here and in that file's doc comment rather than pinned by a test.
+cancellation the delegate did not cause keeps its own error unchanged. `swift
+test` still cannot see this — `ScriptedDownloader` runs no URLSession — so it is
+pinned one bundle over, by `BoundedBodyCollectorTests` in `Tests/PisakaAppTests`,
+which feeds the delegate its own callbacks (response, chunk, completion) with no
+socket and no server: the inclusive ceiling, the check-then-append order, and
+both halves of this mapping — a self-caused cancel resolving as `tooLarge`, a
+foreign error resolving as itself.
 
 `URLSession.bytes(for:)` was the other candidate for the streaming half and was
 rejected: `AsyncBytes` yields one `UInt8` at a time, which turns a 53 MB artifact
@@ -1332,7 +1354,11 @@ checks at the end of the plan re-validate that the server actually answers.
 - **A download is held whole in memory** (D14). The peak resident cost is the
   largest artifact — ~53 MB for Node, once, during a first install, and the
   collector reserves exactly the pinned size up front so appending does not
-  transiently hold two buffers. The body *arrives* in chunks — that is how the
+  transiently hold two buffers. That holds because the ceiling is checked
+  *before* the append and never after it, and because a refusal is latched: a
+  chunk that would outgrow the reserved capacity is refused rather than appended,
+  and the dropped body is never rebuilt into an unreserved one, so the body's
+  peak is the pinned size, reached without a reallocation past it. The body *arrives* in chunks — that is how the
   ceiling below is enforced — but nothing is streamed to disk: there is no
   on-disk staging of the transfer, no progress reporting and no resume, so a
   download interrupted at 90% starts again from zero when Retry is pressed.
@@ -1431,7 +1457,9 @@ checks at the end of the plan re-validate that the server actually answers.
 
 ## Tests
 
-`swift test` covers this layer end to end without a network or a `tar`:
+`swift test` covers this layer end to end without a network or a `tar` — all but
+the one decision that lives in a `URLSessionDataDelegate`, which the app-layer
+bundle pins instead:
 
 - `SHA256Tests` — the published FIPS vectors, the multi-chunk equivalence and
   the padding-boundary sweep.
@@ -1454,3 +1482,50 @@ checks at the end of the plan re-validate that the server actually answers.
   the app-side files open with `#if os(macOS)`, the Core-side ones import
   Foundation and nothing else and mention neither `Process` nor a platform
   framework. `SHA256` is in that sweep, so a later `import CryptoKit` fails here.
+  A test file under `Tests/` is invisible to it, so the suite below adds no
+  exception.
+
+`Tests/PisakaAppTests` — the headless app-layer bundle, run by `xcodebuild
+-project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' test` —
+carries the one suite `swift test` cannot:
+
+- `BoundedBodyCollectorTests` — D14's ceiling as the delegate itself enforces it,
+  with no network: the callbacks (`didReceive response`, `didReceive data`,
+  `didCompleteWithError`) are fed the way `URLSession` would feed them, against a
+  data task that is created and never resumed. It pins the **inclusive ceiling**
+  (a chunk exactly filling the maximum is kept and the body comes back whole),
+  the **check-then-append order** — read off `peakHeldByteCount`, the collector's
+  high-water mark, because both orders *drop* the body on refusal and their two
+  predicates are algebraically the same, so the final state cannot tell them
+  apart and only what was transiently resident can — the **accumulation** of
+  successive fitting chunks against a ceiling measured from what is already held,
+  the **latch** (a chunk arriving after a refusal is not buffered again), the
+  **cancel** the delegate performs itself (read off a task created and never
+  resumed, so any state but `.suspended` is the delegate's doing), the response
+  callback's own two refusals — `unexpectedStatus(404)` and `notHTTP`, each with
+  the `.cancel` disposition — and the **cancellation mapping** both ways: a
+  self-caused cancel completing with `URLError.cancelled` still resolves as
+  `Failure.tooLarge`, a 404 whose error page then runs past the ceiling still
+  resolves as `unexpectedStatus(404)` (the first reason wins), and a foreign
+  `URLError` with nothing recorded resolves as itself. The typed failure is
+  matched by pattern, so no `Equatable` conformance exists for the product code's
+  sake alone.
+
+  The five cases that read a resolved continuation go through one helper,
+  `resolve(_:)`, and they are **bounded**. Nothing in the staged scenario is
+  raced: each case feeds `attach`, the delegate callbacks and the completion
+  synchronously on one thread inside the continuation closure, with no
+  `URLSession` running, so the continuation is resumed before that closure
+  returns. The one asynchronous step is the handoff from the staging `Task` to
+  the test, and the expectation *is* that handoff — a wait on a signal that must
+  arrive, which may well be entered before the staging task has started, never on
+  a window that may already have closed. The bound covers the single regression
+  the staging itself cannot survive — a completion path that stops resuming at
+  all — which unbounded is a bundle hung to the CI job's timeout with nothing
+  naming the case responsible. Bounded, each affected case fails in ten seconds
+  against its own named expectation and the rest of the bundle still runs. The
+  wait is the report; the `NeverResumed` error the helper falls back to is only
+  what lets it hand back a `Result` rather than an optional, so no case unwraps
+  one — not a second, independent report of the timeout, since a staging task
+  resuming just past the bound still writes its real outcome and that case fails
+  on the wait alone.
