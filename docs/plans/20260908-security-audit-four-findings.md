@@ -196,18 +196,18 @@ here.
 - Modify: `docs/architecture/app-ios.md`
 - Create: `Tests/PisakaCoreTests/LibGit2FetchSourceGatingTests.swift`
 
-- [ ] Read the `LibGit2Service` entry in `docs/architecture/app-ios.md` before editing.
-- [ ] In `fetch(remote:root:)`, immediately after `git_fetch_options_init(&options, …)`
+- [x] Read the `LibGit2Service` entry in `docs/architecture/app-ios.md` before editing.
+- [x] In `fetch(remote:root:)`, immediately after `git_fetch_options_init(&options, …)`
       and before the credentials wiring, add
       `options.follow_redirects = GIT_REMOTE_REDIRECT_NONE`, with a comment stating what
       it refuses (a `Location` naming another host, at any stage), what it still allows
       (a path-only `Location`, and a redirect to the same host — libgit2's
       `git_net_url_apply_redirect` compares the host alone when off-site is disallowed),
       and why the credentials callback is not the place for this check.
-- [ ] Change nothing else about the fetch: the same refspecs, the same callback, the same
+- [x] Change nothing else about the fetch: the same refspecs, the same callback, the same
       `CredentialContext`, the same error mapping. A private repository on a well-behaved
       host must fetch exactly as before.
-- [ ] Write `LibGit2FetchSourceGatingTests`: read
+- [x] Write `LibGit2FetchSourceGatingTests`: read
       `Sources/Pisaka/iOS/LibGit2Service.swift` through `#filePath`, strip with
       `LSPSourceGatingTests.strippingCommentsAndStringLiterals(_:)`, then assert, on the
       stripped text:
@@ -224,16 +224,16 @@ here.
       The suite's doc comment states plainly that this is a text pin, not an integration
       test, and names what an integration test would need (an HTTP server redirecting to a
       second host that answers 401, inside a simulator this pipeline does not have).
-- [ ] Update the `LibGit2Service` entry in `docs/architecture/app-ios.md`: the policy and
+- [x] Update the `LibGit2Service` entry in `docs/architecture/app-ios.md`: the policy and
       what it refuses/allows; one sentence on why the callback compares nothing
       (`handle_remote_auth` hands it the original remote URL, so a comparison would
       compare the original with itself); one sentence that keying the PAT by port is
       deliberately not done, for the same reason; and a pointer to the gating suite as the
       only thing that can see this rule.
-- [ ] Prove the pin bites: temporarily delete the assignment, run
+- [x] Prove the pin bites: temporarily delete the assignment, run
       `swift test --filter LibGit2FetchSourceGatingTests`, record the failing test names
       and messages, restore the line (`git diff` clean for that file), re-run green.
-- [ ] Gates: `swift test`; `swiftlint --strict`; `xcodegen generate`;
+- [x] Gates: `swift test`; `swiftlint --strict`; `xcodegen generate`;
       `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build`.
 
 ### Task 2: A bounded write queue for language servers
@@ -445,6 +445,21 @@ here.
   job, the iOS build, `lint`).
 
 ## Notes
+
+### Task 1 — off-site redirects refused on the iOS fetch
+
+- **The pin bites.** With `options.follow_redirects = GIT_REMOTE_REDIRECT_NONE` deleted
+  from `LibGit2Service.fetch`, `swift test --filter LibGit2FetchSourceGatingTests` failed
+  on `testFetchRefusesOffSiteRedirects`:
+  `XCTAssertEqual failed: ("0") is not equal to ("1")`, carrying the assignment's whole
+  reason. The other two tests — the loud-vacuity guard and the permissive-constant ban —
+  stayed green, which is correct: neither is the rule. Line restored, `git diff` shows
+  only the intended change, all three green again.
+- **Gates:** `swift test` — 5286 tests, 0 failures. `swiftlint --strict` — 0 violations
+  in 518 files. `xcodegen generate` — project written. iOS Simulator build (iPhone 17
+  Pro, derived data under `~/Library/Developer/Xcode/DerivedData/pisaka-audit-ios`) —
+  **BUILD SUCCEEDED**, which is also what typechecks the assignment (the file is
+  `#if os(iOS)`, so no other gate compiles it at all).
 
 (filled in during execution: the redirect pin's failing test names with the assignment
 removed; the write-budget live reproduction, recorded by the reviewer during the acceptance

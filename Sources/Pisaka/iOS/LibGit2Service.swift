@@ -289,7 +289,9 @@ final class LibGit2Service: GitServicing, @unchecked Sendable {
     /// Fetch `remote` into the repository at `root` over HTTPS.
     ///
     /// Part B (Task 8) wires the real libgit2 network transport: `git_remote_lookup`
-    /// + `git_remote_fetch` with default `git_fetch_options`, going out over the
+    /// + `git_remote_fetch` with `git_fetch_options` that differ from the defaults in
+    /// one field — `follow_redirects` is pinned to `GIT_REMOTE_REDIRECT_NONE`, see the
+    /// comment at that assignment — going out over the
     /// built-in Apple TLS backend the pinned libgit2 ships (no `git` subprocess,
     /// which is impossible on iOS). Passing `nil` refspecs uses the remote's
     /// configured fetch refspecs — the same set `git fetch <remote>` uses — so the
@@ -320,6 +322,20 @@ final class LibGit2Service: GitServicing, @unchecked Sendable {
 
             var options = git_fetch_options()
             git_fetch_options_init(&options, UInt32(GIT_FETCH_OPTIONS_VERSION))
+            // Refuse off-site redirects at every stage. `git_fetch_options_init` leaves
+            // this field zero — "not specified" — which makes libgit2 consult the
+            // `http.followRedirects` configuration, whose own default allows an
+            // *initial* off-site redirect; a stored Personal Access Token would then be
+            // presented to whichever host that `Location` named. Refused: a `Location`
+            // naming another host, on the first request or any later one. Still allowed:
+            // a path-only `Location` (rewritten in place) and a redirect to the same
+            // host — `git_net_url_apply_redirect` compares the host alone when off-site
+            // is disallowed, so a well-behaved private repository fetches exactly as
+            // before. The credentials callback is deliberately not the place for this
+            // check: libgit2 hands it the *original* remote URL, so a comparison there
+            // would compare the original with itself and report a match for exactly the
+            // case it was written to catch (`app-ios.md`).
+            options.follow_redirects = GIT_REMOTE_REDIRECT_NONE
 
             // Install the credentials callback only when a store is present; the
             // context outlives the synchronous fetch (see `withExtendedLifetime`).
