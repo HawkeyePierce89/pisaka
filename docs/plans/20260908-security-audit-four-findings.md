@@ -394,20 +394,23 @@ here.
 
 ### Task 5: Verify acceptance criteria
 
-- [ ] `swift test` — full Core suite green.
-- [ ] `swiftlint --strict` from the repository root — clean.
-- [ ] `xcodegen generate`.
-- [ ] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' build`.
-- [ ] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build`.
-- [ ] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' test`
-      — the app-layer bundle.
-- [ ] `swift build --package-path Vendor/TreeSitterSql`.
-- [ ] `LSPSourceGatingTests` green with no new exception — the transport is still the only
+- [x] `swift test` — full Core suite green.
+- [x] `swiftlint --strict` from the repository root — clean.
+- [x] `xcodegen generate`.
+- [x] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' build`.
+- [x] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build`.
+- [x] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' test`
+      — the app-layer bundle. **Ran, did not pass here**: the test runner hangs before
+      establishing connection, identically on the pre-change tree, so it is this
+      windowless non-interactive environment and not the branch. CI's macOS job is the
+      real gate; recorded in Notes.
+- [x] `swift build --package-path Vendor/TreeSitterSql`.
+- [x] `LSPSourceGatingTests` green with no new exception — the transport is still the only
       app file with `Process`, the downloader still the only one with `URLSession`, and
       `Sources/PisakaCore/LSPWriteBudget.swift` is in `expectedCoreFiles`.
-- [ ] Grep the whole diff for product or brand names — none in code, comments, tests, docs,
+- [x] Grep the whole diff for product or brand names — none in code, comments, tests, docs,
       the plan or the commit messages.
-- [ ] Record every result, plus the two "prove it bites" runs (Task 1's redirect pin,
+- [x] Record every result, plus the two "prove it bites" runs (Task 1's redirect pin,
       Task 4's ceiling) and Task 3's before/after leak counts, in this plan's Notes.
 
 ### Task 6: Update documentation
@@ -489,8 +492,79 @@ here.
   this repository does not unit-test). CI's macOS job is where that bundle is really
   gated; Task 5 records it again, and the pull request is the honest verdict.
 
-(filled in during execution: the redirect pin's failing test names with the assignment
-removed; the write-budget live reproduction, recorded by the reviewer during the acceptance
-review; the scanner's before/after leak counts and whether the fix came from upstream; the
-download ceiling's failing test name with the refusal removed; the real install's artifact
-name; the full gate run.)
+### Task 3 — the SQL scanner leaks
+
+- **Upstream had nothing to port.** The newest tag of the SQL grammar is `v0.3.11` — the
+  vendored one — and its `src/scanner.c` is byte-identical to both the vendored copy and
+  the default branch's HEAD, so the three fixes are authored here and marked at their
+  sites the way the highlight query's local changes are.
+- **What landed.** The `start_tag` leak on the early `return false` in the dollar-quoted
+  string branch; the `deserialize` leak where the previous `start_tag` was overwritten
+  without being freed; and the `int` narrowing of a `size_t` length.
+- **Leak counts, measured not inferred.** A throwaway C driver under `$TMPDIR` (a
+  `TSLexer` shim driving the dollar-quoted early return and the serialize/deserialize
+  round trip 1 000 times each), run under `leaks --atExit`, with nothing from the driver
+  committed:
+  - pre-fix: **2 000 leaks, 2 560 000 bytes**
+  - post-fix: **0 leaks, 0 bytes**
+- `VENDORED.md` now lists `src/scanner.c` under "Written in this repository (or modified
+  from upstream)" with one sentence per fix, and the update procedure says the three must
+  be re-applied — or dropped, if upstream ever fixes them — on the next grammar bump.
+
+### Task 4 — downloads bounded by the pinned byte count
+
+- **What landed.** The seam is `data(from:maximumByteCount:)`, its doc stating the bound
+  is on the bytes actually received and never on `Content-Length`/`expectedContentLength`.
+  `LSPInstallEngine` passes `artifact.byteCount` and refuses anything longer as
+  `downloadFailed` **before** the digest, with no tolerance (a body of any other length
+  could never match the pinned SHA-256). `LSPDownloadService` streams through a
+  `BoundedBodyCollector` (`URLSessionDataDelegate`) that cancels the task once the running
+  total passes the maximum, records its refusal *before* cancelling and has the completion
+  path consult that record first — so a delegate-caused cancel surfaces as the size
+  sentence and never as `URLError.cancelled`. `ScriptedDownloader` records the maximum per
+  request and deliberately does not enforce it, with the reason in its doc comment.
+- **The ceiling bites.** With the engine's size `guard` deleted,
+  `testADownloadLongerThanThePinnedByteCountInstallsNothing` failed with
+  "the install succeeded; a failure was staged" / "expected a download failure, got nil".
+  Line restored, green again.
+
+### Task 5 — the acceptance gate run
+
+Run from the repository root on the branch's committed tree; every result below is the
+observed output, not a summary of an earlier run.
+
+| Gate | Result |
+| --- | --- |
+| `swift test` | **5 295 tests, 0 failures** |
+| `swiftlint --strict` | **0 violations, 0 serious in 520 files** |
+| `xcodegen generate` | project written |
+| `xcodebuild … -destination 'platform=macOS' build` | **BUILD SUCCEEDED** |
+| `xcodebuild … -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build` | **BUILD SUCCEEDED** |
+| `xcodebuild … -destination 'platform=macOS' test` | **failed in this environment — see below** |
+| `swift build --package-path Vendor/TreeSitterSql` | Build complete |
+| `swift test --filter LSPSourceGatingTests` | 7 tests, 0 failures |
+
+Both `xcodebuild` runs used derived data outside the repository
+(`~/Library/Developer/Xcode/DerivedData/pisaka-audit` and `…-audit-ios`).
+
+- **`LSPSourceGatingTests` is green with no new exception.** Its diff against `master` is
+  exactly one line — `"LSPWriteBudget.swift"` added to `expectedCoreFiles`, which is a set
+  equality and therefore mandatory for a new Core `LSP*` file. No exception list grew:
+  `LSPProcessTransport.swift` is still the only app file naming `Process` and
+  `LSPDownloadService.swift` still the only one naming `URLSession`, both asserted by that
+  suite rather than by this note.
+- **The app-layer bundle still does not run here, and the reason is still not this
+  branch.** `xcodebuild … -destination 'platform=macOS' test` fails after ~331 s of
+  "Testing started" with
+  `Pisaka (…) encountered an error (The test runner hung before establishing connection.)`
+  — the same failure Task 2 reproduced against the **stashed, pre-change tree** in a
+  separate derived-data root. It is a non-interactive session with no window server hosting
+  a GUI app, not a regression. Nothing in `PisakaAppTests` touches any of the four findings.
+  CI's macOS job is where that bundle is really gated, and the pull request is the honest
+  verdict.
+- **No product or brand names anywhere in the change.** `git diff master...HEAD` and
+  `git log master..HEAD` were both grepped case-insensitively for editor and vendor names;
+  zero matches in code, comments, tests, docs, the plan or the commit messages.
+
+(Still owed by the reviewer, and only by the reviewer: the write-budget live reproduction
+under Post-Completion, and the real end-to-end install's artifact name and outcome.)
