@@ -294,12 +294,12 @@ here.
 - Modify: `Vendor/TreeSitterSql/src/scanner.c`
 - Modify: `Vendor/TreeSitterSql/VENDORED.md`
 
-- [ ] Check upstream first: fetch the newest tag of the SQL grammar and diff its
+- [x] Check upstream first: fetch the newest tag of the SQL grammar and diff its
       `src/scanner.c` against the vendored `v0.3.11` copy. If any of the three defects is
       already fixed there, port that hunk **verbatim** and record the upstream tag and
       commit in `VENDORED.md`. Record the outcome of this check either way (including
       "upstream unreachable / no newer tag", if that is the answer).
-- [ ] Otherwise author the three fixes, each marked in the source the way the highlight
+- [x] Otherwise author the three fixes, each marked in the source the way the highlight
       query's are (a short `// Local fix (see VENDORED.md)` at the site):
       - the `DOLLAR_QUOTED_STRING` branch: `free(start_tag);` before the early
         `return false` taken when it equals `state->start_tag`;
@@ -308,24 +308,24 @@ here.
         `>= TREE_SITTER_SERIALIZATION_BUFFER_SIZE` refusal (`return 0`) kept and now
         without the narrowing, with the return converted at the `return` where the guard
         has already bounded it.
-- [ ] Do not change anything else in the file: no reformatting, no unrelated tidying — a
+- [x] Do not change anything else in the file: no reformatting, no unrelated tidying — a
       vendored file's diff against upstream must stay readable.
-- [ ] `VENDORED.md`: move `src/scanner.c` out of "Copied **verbatim** from the git tag"
+- [x] `VENDORED.md`: move `src/scanner.c` out of "Copied **verbatim** from the git tag"
       into "Written **in this repository** (or modified from upstream)", with one sentence
       per fix; add to the update procedure the step that re-copies `scanner.c` and
       re-applies the marked fixes, and drops them once upstream carries them.
-- [ ] Leak-check with a scratch driver **outside the repository** (e.g. under `$TMPDIR`):
+- [x] Leak-check with a scratch driver **outside the repository** (e.g. under `$TMPDIR`):
       a small C main that provides the `TSLexer` shim the scanner needs, drives the
       dollar-quoted-string branch to the early return and the serialize/deserialize round
       trip, and is run under `leaks --atExit -- ./driver` (LeakSanitizer's `detect_leaks`
       is unavailable on this platform; `leaks` is the equivalent). Run it against the
       pre-fix file and the post-fix file and record both leak counts — non-zero before,
       zero after. Nothing from the driver is committed.
-- [ ] Run the package's own verification steps from `VENDORED.md`: re-derive the capture
+- [x] Run the package's own verification steps from `VENDORED.md`: re-derive the capture
       set and reconcile `VendoredGrammarQueryTests`, check
       `Resources/Queries/sql/symbols.scm` against `SymbolQueryTests`, and
       `swift build --package-path Vendor/TreeSitterSql`.
-- [ ] Gates: `swift build --package-path Vendor/TreeSitterSql`; `swift test`;
+- [x] Gates: `swift build --package-path Vendor/TreeSitterSql`; `swift test`;
       `swiftlint --strict`; `xcodegen generate`; the macOS and iOS Simulator builds (the
       grammar links on both destinations).
 
