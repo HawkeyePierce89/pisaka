@@ -125,6 +125,7 @@ bool tree_sitter_sql_external_scanner_scan(void *payload, TSLexer *lexer, const 
     }
 
     if (state->start_tag != NULL && strcmp(state->start_tag, start_tag) == 0) {
+      free(start_tag);  // Local fix (see VENDORED.md)
       return false;
     }
 
@@ -164,7 +165,7 @@ unsigned tree_sitter_sql_external_scanner_serialize(void *payload, char *buffer)
     return 0;
   }
   // + 1 for the '\0'
-  int tag_length = strlen(state->start_tag) + 1;
+  size_t tag_length = strlen(state->start_tag) + 1;  // Local fix (see VENDORED.md)
   if (tag_length >= TREE_SITTER_SERIALIZATION_BUFFER_SIZE) {
     return 0;
   }
@@ -174,11 +175,14 @@ unsigned tree_sitter_sql_external_scanner_serialize(void *payload, char *buffer)
     free(state->start_tag);
     state->start_tag = NULL;
   }
-  return tag_length;
+  return (unsigned)tag_length;  // Local fix (see VENDORED.md): bounded by the guard above
 }
 
 void tree_sitter_sql_external_scanner_deserialize(void *payload, const char *buffer, unsigned length) {
   LexerState *state = (LexerState *)payload;
+  if (state->start_tag != NULL) {  // Local fix (see VENDORED.md)
+    free(state->start_tag);
+  }
   state->start_tag = NULL;
   // A length of 1 can't exists.
   if (length > 1) {

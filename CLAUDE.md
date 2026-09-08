@@ -132,12 +132,13 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
 - `TextualUsageScanner.swift` — the pure whole-word scan; boundaries delegated to `IdentifierScanner`.
 - `FindUsagesModel.swift` — the usages panel's model: the server first, the project walk second (never a provider fallback), two generation tokens.
 
-`docs/architecture/core-lsp.md` — the LSP client (sourcekit-lsp, gopls, rust-analyzer), incl. decisions D1–D10 + D17–D38:
+`docs/architecture/core-lsp.md` — the LSP client (sourcekit-lsp, gopls, rust-analyzer), incl. decisions D1–D10 + D17–D39:
 - `LSPMessage.swift` — JSON-RPC envelopes; `null` vs. absent.
 - `LSPFraming.swift` — `Content-Length` framing; a framing error is terminal.
 - `LSPProtocolTypes.swift` — decode leniently, encode exactly; the closed capability tree.
 - `LSPPositionMap.swift` — offset ↔ `(line, character)`, LSP's separators only (D1).
 - `LSPTransport.swift` — the macOS/Core boundary; EOF reports a crash.
+- `LSPWriteBudget.swift` — the outgoing queue's ceiling; a backlog past it is the server's death (D39).
 - `LSPSession.swift` — one conversation: handshake, ids, budgets, cancel; both configuration channels (D27); the notification stream (D29).
 - `LSPServerDescription.swift` — description + registry (D9); the per-server `configuration` (D27).
 - `LSPWorkspace.swift` — one server per `(server, root)`; the D2 flush, D7 backoff, `updateRegistry(_:)` (D16); push routing + teardown clears (D31/D33).
@@ -468,8 +469,11 @@ ci.yml's `lint` job, and the version-bump procedure.
   still writes nothing (D10).
 - **Provisioned servers**: nothing downloads without per-server consent; what
   *may* be downloaded is pinned data in Core (URL + SHA-256 + size), changed
-  only by shipping a new app version. Every install verifies before unpacking
-  and lands as one rename inside
+  only by shipping a new app version. The **size is enforced, not only
+  displayed** (D14): it crosses the download seam as a maximum, the app half
+  counts the bytes arriving and stops at the ceiling, and Core refuses anything
+  longer before the digest. Every install verifies
+  before unpacking and lands as one rename inside
   `~/Library/Application Support/Pisaka/LanguageServers` — nothing global, so
   deleting that directory de-provisions completely and the disk *is* the state.
   Core never fetches or unpacks (the two seams are macOS app files); the whole
@@ -811,7 +815,13 @@ absent everywhere; **full inventory in that suite's doc comments and
 `LicenseCoverageTests` (`licenses.json` vs.
 `project.yml`/`Package.resolved`/`Vendor/`), `LSPSourceGatingTests` (the LSP
 layer's platform split, by set equality over both sides),
-`SparkleSourceGatingTests` (`import Sparkle` in exactly one file inside both
+`LibGit2FetchSourceGatingTests` (the iOS fetch's redirect policy —
+`follow_redirects = GIT_REMOTE_REDIRECT_NONE` exactly once, ordered between the
+file's single `git_fetch_options_init(` and its single `git_remote_fetch(`, on
+the *same* options value the fetch is handed, with neither permissive constant
+named; a text pin because `LibGit2Service.swift` is `#if os(iOS)` and no gate in
+this pipeline compiles or runs it; inventory in that suite's doc comments and
+`app-ios.md`), `SparkleSourceGatingTests` (`import Sparkle` in exactly one file inside both
 `#if os(macOS)` and `#if !DEBUG`, no `SPU…` reference in the DEBUG branch, and
 that file as the *only* DEBUG-only branch outside `Sources/Pisaka/iOS/`) and
 `ZoomSourceGatingTests` (the zoom zones' five view-layer rules — who may name
@@ -1095,7 +1105,12 @@ owed are documented in `docs/RELEASING.md`.
 - The iOS branch-switcher's network fetch is **HTTPS-only** (libgit2 over the
   built-in Apple TLS backend, PAT from the Keychain). SSH is out on iOS: this
   libgit2's SSH transport execs the system `ssh` binary and iOS has no
-  subprocess, so only an HTTPS `origin` can be fetched.
+  subprocess, so only an HTTPS `origin` can be fetched. **Off-site redirects are
+  refused** (`GIT_REMOTE_REDIRECT_NONE`, since the field's zero default sends
+  libgit2 to `http.followRedirects`, which permits an initial one), so a stored
+  PAT can never be presented to a host a `Location` named; same-host and
+  path-only redirects still follow, and `LibGit2FetchSourceGatingTests` is the
+  only thing in the pipeline that can see the rule (`app-ios.md`).
 - Target platforms are macOS 13+ and iOS/iPadOS 17+.
 - **Style is enforced, not conventional**: `.swiftlint.yml` at the root is the
   single style authority (the nested `Tests/.swiftlint.yml` carries the

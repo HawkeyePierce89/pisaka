@@ -204,6 +204,11 @@ final class ScriptedLSPTransport: LSPTransport, @unchecked Sendable {
 
     // MARK: - LSPTransport
 
+    /// Deliberately carries no write budget (D39). The bound the real transport
+    /// grew is about a *backlog*, and this fake decodes each message inside the
+    /// call and never queues anything — there is no pipe to fill, so a ceiling
+    /// here could only be crossed by a test writing 32 MiB of scripted JSON to
+    /// watch an arithmetic rule `LSPWriteBudgetTests` already states directly.
     func send(_ data: Data) throws {
         lock.lock()
         if terminated {

@@ -41,7 +41,6 @@ Copied **verbatim** from the npm tarball `@derekstride/tree-sitter-sql@0.3.11`
 
 Copied **verbatim** from the git tag:
 
-- `src/scanner.c`
 - `grammar.js`
 - `bindings/swift/TreeSitterSql/sql.h` (the npm tarball does not include Swift bindings)
 - `queries/indents.scm`
@@ -51,6 +50,21 @@ Written **in this repository** (or modified from upstream):
 
 - `Package.swift` — drops the test target and dependencies to avoid the SwiftPM error.
 - `queries/highlights.scm` — modified from upstream to add missing captures for columns and functions (`;; Added by Review Fixes` at the bottom of the file).
+- `src/scanner.c` — copied from the git tag, then three memory defects fixed. Each site
+  carries a `// Local fix (see VENDORED.md)` marker:
+  - the `DOLLAR_QUOTED_STRING` branch freed nothing on the early `return false` taken when
+    the tag it had just scanned equals the one the state already holds — every dollar-quoted
+    string re-scanned in that position leaked its tag;
+  - `tree_sitter_sql_external_scanner_deserialize` overwrote `state->start_tag` with `NULL`
+    without freeing what it was holding, so deserializing over a live state leaked that tag;
+  - `tree_sitter_sql_external_scanner_serialize` narrowed `strlen(...) + 1` from `size_t` to
+    `int`. The existing `>= TREE_SITTER_SERIALIZATION_BUFFER_SIZE` refusal is unchanged and
+    still returns `0`; the length is now a `size_t` throughout and converted to the
+    function's `unsigned` at the `return`, where that guard has already bounded it.
+
+  Checked against upstream on 2026-09-08: the newest tag is still `v0.3.11` and the default
+  branch's `src/scanner.c` is byte-identical to it, so none of the three is fixed upstream
+  and there was no hunk to port.
 - This file.
 
 ## Update procedure
@@ -59,12 +73,17 @@ Written **in this repository** (or modified from upstream):
 2. Record the tag, SHA, and date.
 3. Re-copy the generated `src/` files from the npm tarball.
 4. Re-copy the other files (`queries/indents.scm`, `grammar.js`, `LICENSE`, Swift headers) from the git tag. For `queries/highlights.scm`, re-copy it but re-apply the local fixes marked `;; Added by Review Fixes`.
-5. **Keep** (do not overwrite): `Package.swift` and this file.
-6. Check if upstream fixed the two defects: if the manifest no longer has the hard
+5. Re-copy `src/scanner.c` from the git tag, then diff it against the vendored copy: for each
+   fix marked `// Local fix (see VENDORED.md)`, re-apply it if the new tag does not carry it,
+   and **drop** it (deleting its entry above) if upstream now does. If every one is dropped,
+   move the file back into the verbatim list.
+6. **Keep** (do not overwrite): `Package.swift` and this file.
+7. Check if upstream fixed the two *packaging* defects from "Why this is vendored"
+   (not the scanner fixes of step 5): if the manifest no longer has the hard
    dependency error, and if the generated parser is available, prefer dropping this
    directory and restoring the remote pin in `project.yml`.
-7. Re-derive the capture-name set from `queries/highlights.scm` and reconcile
+8. Re-derive the capture-name set from `queries/highlights.scm` and reconcile
    the expectation in `VendoredGrammarQueryTests`.
-8. Verify `Resources/Queries/sql/symbols.scm` against `SymbolQueryTests`.
-9. `swift build --package-path Vendor/TreeSitterSql`.
-10. `swift test` at the repo root, then the macOS and iOS builds.
+9. Verify `Resources/Queries/sql/symbols.scm` against `SymbolQueryTests`.
+10. `swift build --package-path Vendor/TreeSitterSql`.
+11. `swift test` at the repo root, then the macOS and iOS builds.

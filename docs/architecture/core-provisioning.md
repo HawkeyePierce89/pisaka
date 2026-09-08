@@ -592,9 +592,18 @@ below. All of it, with decisions D21–D24, is in `core-lsp.md`.
 ### `Pisaka` (app, macOS-gated)
 
   - `LSPDownloadService.swift` — the real `LSPArtifactDownloading`: one
-    `URLSession`, one request, one `Data`. Untested by repository convention, so
-    it is kept to the two decisions it actually makes — how the session is
-    configured, and what counts as a failure.
+    `URLSession` per request, one `Data`, counted as it arrives. Untested by
+    repository convention, so it is kept to the three decisions it actually makes
+    — how the session is configured, what counts as a failure, and where the bytes
+    stop. The body is streamed through a `URLSessionDataDelegate` that appends
+    each chunk and cancels the task the moment the running total passes
+    `maximumByteCount`; the configuration is still built once and unchanged, the
+    session per request because the *delegate* is (it holds one transfer's bytes),
+    and `finishTasksAndInvalidate()` ends it. `expectedContentLength` is never
+    consulted. The delegate **records its own reason before it cancels**, so an
+    over-limit body throws `Failure.tooLarge` rather than the `URLError.cancelled`
+    the cancel produces; a cancellation the delegate did not cause keeps its own
+    error (D14).
     **Nothing is cached, at any layer**: the session is `.ephemeral`, its
     `urlCache` is `nil`, and every request is
     `.reloadIgnoringLocalAndRemoteCacheData`. Three statements of one intent,
@@ -969,13 +978,48 @@ failure removes the staging tree and leaves the old install (or nothing) exactly
 as it was. Staging lives under the same base so the rename is within one volume.
 Leftover staging from a crash is swept at launch, before anything can install.
 
-**D14 — The seams carry bytes, not files.** `LSPArtifactDownloading` answers
-`Data` for a URL; `LSPArchiveUnpacking` takes that `Data`, a destination and a
-strip depth. Core never reads or writes archive bytes, so `swift test` needs
-neither network nor `tar`. Handing back a file URL instead would make Core
-responsible for a temporary file it would have to hash, unpack *and* delete on
-four different failure paths; the price is the peak resident size of the largest
-artifact (~53 MB), recorded as a known limit.
+**D14 — The seams carry bytes, not files, and the bytes are bounded.**
+`LSPArtifactDownloading` answers `Data` for a URL *and a maximum*
+(`data(from:maximumByteCount:)`); `LSPArchiveUnpacking` takes that `Data`, a
+destination and a strip depth. Core never reads or writes archive bytes, so
+`swift test` needs neither network nor `tar`. Handing back a file URL instead
+would make Core responsible for a temporary file it would have to hash, unpack
+*and* delete on four different failure paths; the price is the peak resident size
+of the largest artifact (~53 MB), recorded as a known limit.
+
+The maximum is the artifact's own `byteCount` — the number the consent prompt and
+the Settings row already show — and it bounds the bytes **actually received**,
+never `Content-Length` or `expectedContentLength`: a chunked response reports
+`-1`, and a header is written by whoever is answering, so a limit read off one is
+a limit the sender chooses.
+
+**Who counts and who decides are different halves.** The app implementation
+counts, because a cutoff can only protect *memory* where the bytes arrive:
+`LSPDownloadService` streams the body through a `URLSessionDataDelegate` that
+appends each chunk and cancels the task the moment the running total passes the
+maximum (one session per request, its own delegate,
+`finishTasksAndInvalidate()` when the request ends). `LSPInstallEngine` *decides*:
+after the seam returns it refuses `archive.count > artifact.byteCount` as
+`downloadFailed`, before the digest. That is not the same check written twice — it
+is what makes the pin binding on an implementation that ignored it, and it is the
+rule the tests exercise, since `ScriptedDownloader` records the maximum and
+deliberately does not enforce it. No tolerance is allowed and none is needed: the
+artifact is pinned by SHA-256, so a body of any other length could never have
+verified.
+
+**A cancellation the delegate itself caused surfaces as the size failure, never as
+"cancelled".** `URLSessionTask.cancel()` makes URLSession complete the request
+with `URLError.cancelled`, and that word — not the size — is what would otherwise
+reach `LSPInstallError.downloadFailed` and the Settings row. So the delegate
+records its own reason *before* it cancels, and the completion path consults that
+record first: an over-limit body throws `LSPDownloadService.Failure.tooLarge`. A
+cancellation the delegate did not cause keeps its own error unchanged. Nothing in
+`swift test` can see this — `ScriptedDownloader` runs no URLSession — so it is
+stated here and in that file's doc comment rather than pinned by a test.
+
+`URLSession.bytes(for:)` was the other candidate for the streaming half and was
+rejected: `AsyncBytes` yields one `UInt8` at a time, which turns a 53 MB artifact
+into ~53 million iterations.
 
 **D15 — Consent is per server, sized, and sticky.** `SettingsStore` persists
 `unasked`/`accepted`/`declined` per server id. Accepting installs the server
@@ -1174,6 +1218,14 @@ curl -fsSL "$URL" | shasum -a 256          # → sha256
 curl -fsSL "$URL" | wc -c                  # → byteCount
 ```
 
+`byteCount` must be the **exact** served length, not a rounded or approximate one:
+since D14 it is the download's ceiling as well as the figure the consent prompt
+shows, so a pin one byte short of what the endpoint serves fails the install
+outright. Take it from the bytes (`wc -c`) whenever the artifact is small enough
+to fetch twice; the `Content-Length` recipe above is the same number for these
+endpoints and is only used where re-downloading a 53 MB tarball to count it is
+not worth it.
+
 `unpackedByteCount` is measured once and rounded. **Nothing reads it at runtime**
 — no surface shows a disk figure and nothing checks for free space before an
 unpack (a full volume surfaces as `unpackFailed`, which discards the staging tree
@@ -1278,18 +1330,40 @@ checks at the end of the plan re-validate that the server actually answers.
 ## Known limits
 
 - **A download is held whole in memory** (D14). The peak resident cost is the
-  largest artifact — ~53 MB for Node, once, during a first install. There is no
-  streaming, no progress reporting and no resume: a download interrupted at 90%
-  starts again from zero when Retry is pressed.
-- **Nothing caps the size of a response.** The manifest's `byteCount` is a
-  *size shown to the user*, not a limit — nothing compares a response against it,
-  and no ceiling is imposed on the body. An endpoint that streamed indefinitely
-  would grow the app's memory until `URLSession`'s 20-minute resource timeout cut
-  it off. Deliberate: a length check is strictly weaker than the SHA-256 that
-  already gates the unpack, so a body of the wrong size installs nothing either
-  way, and enforcing a ceiling would need the byte count threaded through the
-  seam plus a chunked read for a case that requires a compromised TLS endpoint
-  at `nodejs.org` or `registry.npmjs.org` to reach.
+  largest artifact — ~53 MB for Node, once, during a first install, and the
+  collector reserves exactly the pinned size up front so appending does not
+  transiently hold two buffers. The body *arrives* in chunks — that is how the
+  ceiling below is enforced — but nothing is streamed to disk: there is no
+  on-disk staging of the transfer, no progress reporting and no resume, so a
+  download interrupted at 90% starts again from zero when Retry is pressed.
+- **No connection is reused between artifacts** (D14). The session is per
+  request, because the delegate holding one transfer's bytes is, and a
+  `URLSession`'s connection pool is per session — so `yaml-language-server`'s
+  twenty `registry.npmjs.org` tarballs cost twenty handshakes rather than one
+  reused HTTP/2 connection. A first-install latency cost of a second or two on a
+  real link, paid once, against a delegate whose whole state is one transfer's.
+  For the same reason `httpMaximumConnectionsPerHost` bounds one request rather
+  than the layer, which is what its comment now says.
+- **The transfer is not Swift-task-cancellable** (D14). Cancelling the enclosing
+  `Task` neither cancels the URL task nor resumes the seam early; the call
+  returns when the transfer does, or at the 20-minute resource timeout. Nothing
+  cancels an install today — `LSPProvisioningModel` never cancels its attempt
+  task — and serving a hypothetical caller would mean the collector must also
+  remember a completion arriving before its continuation is attached, since
+  `URLSessionTask.cancel()` can race `resume()`. Recorded here rather than built
+  for nobody.
+- **The response is capped, and the cap is the pin** (D14). The manifest's
+  `byteCount` is both the size shown to the user and the ceiling handed to the
+  download seam: the bytes are counted as they arrive, the transfer is stopped
+  where the ceiling is, and the engine refuses anything longer before the digest.
+  So an endpoint that streamed indefinitely is cut off at the artifact's own size
+  rather than at `URLSession`'s 20-minute resource timeout. Two things this is
+  *not*: it is not a second guarantee about what the bytes are — that is still the
+  SHA-256's answer alone — and it is not a rule the app half can be trusted with,
+  which is why Core re-decides it on what it was handed. The remaining limit is
+  that a pin one byte short of what the endpoint legitimately serves fails the
+  install outright; the pins are exact serve sizes, and the manifest's update
+  procedure below is where a bump re-measures them.
 - **Deleting an install tree blocks the main actor.** `FileServicing` is
   synchronous and not `Sendable`, so the four `removeItem` sites — Settings →
   Remove, the post-upgrade sweep of older versions, the staging discard on a

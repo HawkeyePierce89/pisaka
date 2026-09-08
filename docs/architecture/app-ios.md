@@ -756,7 +756,30 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     for the host it throws `GitError.credentialsRequired(host:)`, and a non-HTTPS
     `origin` (no host from `RemoteHost.host(...)`) surfaces a clear "HTTPS origin
     required" error. SSH remotes are unsupported on iOS (libgit2's SSH transport is
-    exec-based — no subprocess on iOS), so the network path is HTTPS-only. It holds a
+    exec-based — no subprocess on iOS), so the network path is HTTPS-only.
+    **The fetch refuses off-site redirects**: `options.follow_redirects` is pinned to
+    `GIT_REMOTE_REDIRECT_NONE` immediately after `git_fetch_options_init`, which
+    leaves the field zero — *unspecified*, not *refused*, so libgit2 would otherwise
+    resolve it through `http.followRedirects`, whose default permits an off-site
+    redirect on the initial request and would hand the stored PAT to whatever host
+    that `Location` named. Refused: a `Location` naming another host, at any stage of
+    the fetch. Still allowed: a path-only `Location` (rewritten in place) and a
+    redirect to the same host — `git_net_url_apply_redirect` compares the host alone
+    when off-site is disallowed — so a well-behaved private repository fetches
+    exactly as before, with the same refspecs, callback, `CredentialContext` and
+    error mapping. **The credentials callback deliberately compares nothing**:
+    libgit2's `handle_remote_auth` hands it `transport->owner->url`, the *original*
+    remote URL rather than the redirect target, so a host comparison there would
+    compare the original with itself and report a match for exactly the case it was
+    written to catch. Keying the PAT by port is not done for the same reason, and
+    neither is a second lookup at credential time. Nothing in this pipeline can
+    *execute* the rule — the file is `#if os(iOS)`, `swift test` builds Core alone,
+    the app-layer bundle is macOS and CI has no simulator — so it is held by
+    `LibGit2FetchSourceGatingTests`, a text pin over comment- and literal-stripped
+    source asserting the assignment occurs exactly once *between* the file's single
+    `git_fetch_options_init(` and its single `git_remote_fetch(`, with neither
+    permissive constant named anywhere; that suite's doc comment states what a real
+    integration test would need and why it does not exist here. It holds a
     `CredentialStore` (the `KeychainCredentialStore`) for the callback, and runs all
     calls on the service's serial queue under the security scope like the rest of the
     libgit2 code.

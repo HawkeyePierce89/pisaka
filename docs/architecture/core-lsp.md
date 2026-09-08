@@ -526,6 +526,21 @@ document, together with the limits they carry.
     *yet* rather than block the main-actor turn it was called on, and `LSPWorkspace`
     spends no restart budget on it (see `LSPToolchain`).
 
+  - `LSPWriteBudget.swift` — how many bytes may sit unwritten in one server's
+    outgoing queue before the backlog itself is read as that server's death
+    (D39). A pure value with two members — `admit(_:)` before a message is
+    queued, `drain(_:)` after the write attempt — and one applier,
+    `LSPProcessTransport.send(_:)`, in the `ZoomScaleRule`/`ZoomController`
+    shape: the arithmetic is testable without a process, the app half only wires
+    it to the lock it already holds. The ceiling is a property of the **backlog**,
+    never of one message: nothing pending is always admitted, however large (a
+    `didOpen` carrying a 20 MB file is a big write, not a dead server), and
+    `.overCeiling` is only reachable when a backlog already exists and the new
+    message would push the total past `defaultCeiling`. A refused message is not
+    counted as pending — it was never queued — and `drain` clamps at zero rather
+    than trapping, because the applier drains on both the success and the failure
+    path of a write and a transport in teardown is not worth a crash.
+
   - `LSPSession.swift` — one live conversation with one server process: the
     handshake, the id counter, the pending-request table, and the rules for every
     way a conversation can end. It knows nothing about projects, languages or a
@@ -3245,6 +3260,72 @@ D1's separator divergence is settled at the boundary and cannot reappear as a
 drifting chevron. Everything downstream (`FoldShift` included) is in the editor's
 numbering only.
 
+**D39 — the outgoing queue is bounded, and crossing the bound is the server's
+death.** `LSPProcessTransport.send(_:)` hands a framed message to a serial write
+queue and returns, because waiting would put the session's actor behind a pipe a
+busy server has not drained (`LSPTransport`'s own contract). That is the right
+trade and it has exactly one failure mode: a server that is **alive but no longer
+reading its stdin** never fails a write, so the queue grows by one whole document
+per `didChange` and the app's memory climbs until the folder is closed.
+
+*Nothing already in the layer can notice it.* A request budget fails **one
+request** and says nothing about the transport, and the notification that does
+the growing — `didChange`, pushed on a 400 ms debounce per served buffer (D30) —
+**has no reply at all**, so there is no deadline it can miss. The handshake
+succeeded long ago, the process is running, the byte stream has not finished:
+every existing signal reads healthy. Hence a bound, and hence one here rather
+than one more thing for `LSPSession` to track.
+
+*The ceiling is about a backlog, not about one message.* `LSPWriteBudget.admit`
+always accepts when nothing is pending, whatever the size — a `didOpen` carrying
+a 20 MB file is a big write, and the pipe will drain it. `.overCeiling` is only
+reachable when a backlog already exists **and** the new message would push the
+total past `LSPWriteBudget.defaultCeiling`, which is precisely the shape the
+failure has. The number is **32 MiB** (`33_554_432`), meant to be read two ways:
+a 1 MB source file re-synced whole thirty times over is still under it, so
+ordinary typing against a merely slow server never approaches it; and it is half
+the incoming `LSPFraming.defaultMaximumContentLength`, the cap this layer already
+lives with in the other direction, which makes the two numbers legible together.
+
+*Crossing it calls `finishStream()` and nothing else.* No new
+`LSPTransportError` case, no throw back to the caller, no counter, no alert, no
+second failure channel — it is the **same call the failed write already makes**.
+The stream finishing is how this layer has always reported a dead server, so
+`LSPSession` goes terminal on its own EOF path and `LSPWorkspace` owns everything
+after it exactly as it owns a crash: D7's backoff, the diagnostics clear, the
+fourth-failure retirement of that `(server, root)`. A server that stops reading
+is, for every purpose this layer has, a server that died — and the message that
+crossed the line is dropped rather than queued, because there is nobody left to
+read it.
+
+*Pending `didChange`s are not coalesced.* Collapsing the backlog to the newest
+sync per document is the obvious optimisation and it is deliberately not done:
+the transport is handed **opaque framed bytes** and by contract never interprets
+a message, so it cannot tell which document a queued write belongs to without
+parsing JSON in an app file, and the session cannot learn that an earlier sync is
+still unsent without a second channel back from the transport. Both are plumbing
+whose only job would be to postpone the moment this rule fires. The bound alone
+is the answer.
+
+*The incoming streams stay `.unbounded`, deliberately.* The symmetry is
+tempting and wrong. Each incoming element is already bounded by `LSPFraming`'s
+`Content-Length` cap, the consumer is an actor that drains continuously, and —
+decisively — **dropping one element desyncs `LSPFraming.Decoder` permanently**,
+which is the one failure this layer cannot recover from. A bounded incoming
+buffer would convert a momentary read burst into a conversation that can never
+be parsed again. Recorded in Known limits as a non-change.
+
+*What is not tested, and why.* `LSPWriteBudgetTests` states the arithmetic
+directly — the ceiling crossed by admits with no drains, the *same total volume*
+never crossing when each admit is followed by its drain, the first admit accepted
+at any size, a refused message leaving the pending count untouched. The wiring
+itself is in an app-layer file that owns `Process`, which this repository does
+not unit-test; `ScriptedLSPTransport` is untouched and says so in its own comment
+(it decodes inside the call and queues nothing, so it has no backlog to bound).
+Live evidence — a scratch server that answers `initialize` and then stops reading
+its stdin, driven past the ceiling — is a reviewer's step, recorded as observed
+rather than inferred.
+
 ## Known limits
 
 - **NEL / U+2028 / U+2029 line separators.** In a file delimited by those, the
@@ -3256,6 +3337,13 @@ numbering only.
   rather than left as an assumption.
 - **The interior of a CRLF pair is not an addressable LSP position.** Both
   mapping directions clamp it to the line's content end.
+- **The incoming byte streams are unbounded on purpose** (D39). The *outgoing*
+  queue is bounded and a backlog past 32 MiB is read as the server's death; the
+  incoming side keeps `.unbounded` buffering, because every element is already
+  bounded by the `Content-Length` cap and dropping one would desync
+  `LSPFraming.Decoder` for good — trading a bounded memory spike for a
+  conversation that can never be parsed again. A server that floods stdout
+  faster than the session drains it therefore still costs memory.
 - **Late auto-import is a second undo step** (D4), and is skipped entirely if the
   buffer changed between the insertion and the resolve landing.
 - **D4's auto-import was unobservable in 2a, and is not any more.**

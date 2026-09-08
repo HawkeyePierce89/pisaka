@@ -2,15 +2,17 @@
 import Foundation
 import PisakaCore
 
-/// The real `LSPArtifactDownloading`: one `URLSession`, one request, one `Data`
-/// (D14).
+/// The real `LSPArtifactDownloading`: one `URLSession` per request, one `Data`,
+/// counted as it arrives (D14).
 ///
 /// The app half of the download seam, and the counterpart to `LSPProcessTransport`
 /// on the other one — Core owns *what* may be fetched (the pinned manifest), *what
-/// makes it acceptable* (the SHA-256) and *what happens when it is not* (the whole
-/// staging/rename sequence); this file owns the socket and knows none of that. It
-/// is untested by repository convention, so it is kept to the two decisions it
-/// actually makes: how the session is configured, and what counts as a failure.
+/// makes it acceptable* (the SHA-256), *how large it may be* (the manifest's
+/// `byteCount`, handed over as the maximum) and *what happens when it is not* (the
+/// whole staging/rename sequence); this file owns the socket and knows none of
+/// that. It is untested by repository convention, so it is kept to the three
+/// decisions it actually makes: how the session is configured, what counts as a
+/// failure, and where the bytes stop.
 ///
 /// **Nothing is cached, at any layer.** The session is `.ephemeral` *and* its
 /// `urlCache` is cleared *and* every request is `.reloadIgnoringLocalAndRemoteCacheData`,
@@ -29,16 +31,38 @@ import PisakaCore
 /// construction, which is why it is the right kind here rather than merely a
 /// convenient one.
 ///
-/// **`data(from:)` rather than a download task**, per D14's "the seam carries
-/// bytes, not files": handing back a file URL would make Core responsible for a
-/// temporary file it would have to hash, unpack *and* delete on four different
-/// failure paths. The stated cost is the peak resident size of the largest
-/// artifact, recorded as a known limit in
+/// **`data(from:maximumByteCount:)` rather than a download task**, per D14's "the
+/// seam carries bytes, not files": handing back a file URL would make Core
+/// responsible for a temporary file it would have to hash, unpack *and* delete on
+/// four different failure paths. The stated cost is the peak resident size of the
+/// largest artifact, recorded as a known limit in
 /// `docs/architecture/core-provisioning.md`.
 ///
+/// **The maximum is enforced on bytes received, never on a header.** The body is
+/// streamed through a `URLSessionDataDelegate` that appends each chunk and cancels
+/// the task the moment the running total passes the maximum, so a response that
+/// keeps sending is stopped at the ceiling rather than at the twenty-minute
+/// resource timeout. `Content-Length` and `expectedContentLength` are deliberately
+/// not consulted: a chunked response reports `-1`, and a header is written by
+/// whoever is answering. `URLSession.bytes(for:)` was the other candidate and was
+/// rejected — `AsyncBytes` yields one `UInt8` at a time, which turns a 53 MB
+/// artifact into ~53 million iterations.
+///
+/// **A cancellation this file caused surfaces as the size failure, never as
+/// "cancelled".** `URLSessionTask.cancel()` makes URLSession complete the request
+/// with `URLError.cancelled`, and that word — not the size — is what would
+/// otherwise reach `LSPInstallError.downloadFailed` and the Settings row. So the
+/// delegate **records its own reason before it cancels**, and the completion path
+/// consults that record first: a cancellation for the maximum throws
+/// `Failure.tooLarge`. A cancellation this file did *not* cause keeps its own
+/// error unchanged. `ScriptedDownloader` cannot see any of this — it runs no
+/// URLSession at all — which is why the rule is stated here and beside D14 rather
+/// than pinned by a test.
+///
 /// `@unchecked Sendable` over an immutable `let`, the `LSPProcessTransport`
-/// arrangement: there is no mutable state here at all, and `URLSession` is
-/// documented as safe to use from multiple threads.
+/// arrangement: there is no mutable state here at all — the configuration is built
+/// once, read-only afterwards, and `URLSession` copies it — and the per-request
+/// delegate that *does* hold state is created, used and discarded inside one call.
 final class LSPDownloadService: LSPArtifactDownloading, @unchecked Sendable {
     /// How long a single request may go without progress. Generous, because the
     /// slowest legitimate case is a first-launch Node download on a hotel network,
@@ -71,6 +95,10 @@ final class LSPDownloadService: LSPArtifactDownloading, @unchecked Sendable {
         /// ever stopped being `https:`, which `LSPProvisioningManifestTests` pins
         /// against, and cheaper to answer than to reason about.
         case notHTTP
+        /// More bytes arrived than the manifest pins for this artifact. The
+        /// transfer was stopped where the ceiling is, so the sentence describes
+        /// the body rather than the cancellation that carried it out.
+        case tooLarge
 
         var errorDescription: String? {
             switch self {
@@ -78,11 +106,13 @@ final class LSPDownloadService: LSPArtifactDownloading, @unchecked Sendable {
                 return "The server responded \(code)."
             case .notHTTP:
                 return "The server did not answer with a web response."
+            case .tooLarge:
+                return "The server sent more than the size this app expects for this download."
             }
         }
     }
 
-    private let session: URLSession
+    private let configuration: URLSessionConfiguration
 
     init() {
         let configuration = URLSessionConfiguration.ephemeral
@@ -90,17 +120,20 @@ final class LSPDownloadService: LSPArtifactDownloading, @unchecked Sendable {
         configuration.urlCache = nil
         configuration.timeoutIntervalForRequest = Self.requestTimeout
         configuration.timeoutIntervalForResource = Self.resourceTimeout
-        // One artifact at a time is all the engine ever asks for (its sequence is
-        // strictly serial), so this bounds nothing in practice — it is here so that
-        // a future parallel install cannot turn a first launch into six
-        // simultaneous transfers competing for the same link.
+        // Read this as a bound on *one request*, not on the layer: the limit is
+        // per `URLSession`, and a session here lives for exactly one call (see
+        // `data(from:maximumByteCount:)`), so N concurrent calls would be N
+        // sessions and up to 2N connections. It therefore bounds nothing today —
+        // the engine's artifact sequence is strictly serial, one transfer at a
+        // time — and is kept only so a redirect chain or a retry inside a single
+        // request cannot fan out.
         configuration.httpMaximumConnectionsPerHost = 2
         // `waitsForConnectivity` stays off, on purpose. It would turn "there is no
         // network" into a request that sits silently until the resource timeout,
         // and this layer's answer to no network is to fail immediately and leave a
         // Retry button — a twenty-minute spinner is a worse version of the same
         // outcome.
-        session = URLSession(configuration: configuration)
+        self.configuration = configuration
     }
 
     /// The bytes at `url`, or a `Failure`/`URLError` for anything else.
@@ -109,11 +142,134 @@ final class LSPDownloadService: LSPArtifactDownloading, @unchecked Sendable {
     /// `localizedDescription` ("The Internet connection appears to be offline.")
     /// is a better sentence than anything this file could write, and it is the
     /// sentence the Settings row ends up showing.
-    func data(from url: URL) async throws -> Data {
-        let (data, response) = try await session.data(from: url)
-        guard let http = response as? HTTPURLResponse else { throw Failure.notHTTP }
-        guard http.statusCode == 200 else { throw Failure.unexpectedStatus(http.statusCode) }
-        return data
+    ///
+    /// The session is per request because the delegate is: a delegate holds the
+    /// bytes of exactly one transfer, so sharing one session would mean either
+    /// keying that state by task or serializing the layer on a lock for a sequence
+    /// that is already serial. It is invalidated when the call ends, which is what
+    /// releases the delegate. **The stated cost is that no connection is reused
+    /// between artifacts** — the pool is per session, so `yaml-language-server`'s
+    /// twenty `registry.npmjs.org` tarballs cost twenty handshakes rather than one
+    /// reused HTTP/2 connection. That is a first-install latency cost measured in
+    /// a second or two on a real link, paid once, and it buys a delegate whose
+    /// whole state is one transfer's; recorded as a known limit in
+    /// `docs/architecture/core-provisioning.md`.
+    ///
+    /// **The transfer is not Swift-task-cancellable**, and that is a limit rather
+    /// than an oversight: cancelling the enclosing `Task` neither cancels the URL
+    /// task nor resumes this continuation early, so the call returns when the
+    /// transfer does (or at the resource timeout). Nothing cancels an install —
+    /// `LSPProvisioningModel` never cancels its attempt task — so there is no
+    /// caller to serve, and serving a hypothetical one means the collector must
+    /// also remember a completion that arrived before `attach`, since
+    /// `URLSessionTask.cancel()` can race `resume()`. Adding that bookkeeping for
+    /// nobody is the more expensive mistake; the day a Cancel button exists, this
+    /// is the paragraph it has to delete.
+    func data(from url: URL, maximumByteCount: Int) async throws -> Data {
+        var request = URLRequest(url: url)
+        request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
+        let collector = BoundedBodyCollector(maximumByteCount: maximumByteCount)
+        let session = URLSession(configuration: configuration, delegate: collector, delegateQueue: nil)
+        defer { session.finishTasksAndInvalidate() }
+        return try await withCheckedThrowingContinuation { continuation in
+            // Set before `resume()`, so no callback can arrive with nowhere to go.
+            collector.attach(continuation)
+            session.dataTask(with: request).resume()
+        }
+    }
+}
+
+/// One transfer's bytes, counted against a ceiling as they arrive.
+///
+/// The whole of the streaming half of D14: it appends, it counts, and it stops the
+/// task itself when the total passes the maximum. Everything it refuses is
+/// recorded as a `Failure` **before** the cancel, because URLSession reports a
+/// cancelled task as `URLError.cancelled` regardless of why it was cancelled — so
+/// the recorded reason, not the completion's error, is what the seam throws when
+/// there is one. A completion with no record is either the bytes or somebody
+/// else's error, both passed through untouched.
+private final class BoundedBodyCollector: NSObject, URLSessionDataDelegate {
+    private let maximumByteCount: Int
+    private let lock = NSLock()
+    private var body = Data()
+    private var refusal: LSPDownloadService.Failure?
+    private var continuation: CheckedContinuation<Data, Error>?
+
+    init(maximumByteCount: Int) {
+        self.maximumByteCount = maximumByteCount
+        // The maximum *is* the artifact's pinned size, exactly, so this is the
+        // final length in the ordinary case rather than a guess. Reserving it
+        // keeps the peak resident cost the one the docs state: appending 52 MB in
+        // chunks otherwise doubles the buffer repeatedly, and each doubling holds
+        // the old allocation and the new one at once.
+        body.reserveCapacity(maximumByteCount)
+    }
+
+    func attach(_ continuation: CheckedContinuation<Data, Error>) {
+        lock.lock()
+        self.continuation = continuation
+        lock.unlock()
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        dataTask: URLSessionDataTask,
+        didReceive response: URLResponse,
+        completionHandler: @escaping (URLSession.ResponseDisposition) -> Void
+    ) {
+        guard let http = response as? HTTPURLResponse else {
+            record(.notHTTP)
+            completionHandler(.cancel)
+            return
+        }
+        guard http.statusCode == 200 else {
+            record(.unexpectedStatus(http.statusCode))
+            completionHandler(.cancel)
+            return
+        }
+        // `expectedContentLength` is deliberately not consulted here: it is the
+        // sender's claim, and the ceiling is about what actually arrives.
+        completionHandler(.allow)
+    }
+
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+        lock.lock()
+        body.append(data)
+        let overLimit = body.count > maximumByteCount
+        if overLimit {
+            // Dropped rather than kept: the transfer is over, and holding the
+            // chunk that crossed the line is the one thing the ceiling exists to
+            // avoid.
+            body = Data()
+            refusal = refusal ?? .tooLarge
+        }
+        lock.unlock()
+        if overLimit { dataTask.cancel() }
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        lock.lock()
+        let continuation = self.continuation
+        self.continuation = nil
+        let refusal = self.refusal
+        let body = self.body
+        self.body = Data()
+        lock.unlock()
+
+        guard let continuation else { return }
+        if let refusal {
+            continuation.resume(throwing: refusal)
+        } else if let error {
+            continuation.resume(throwing: error)
+        } else {
+            continuation.resume(returning: body)
+        }
+    }
+
+    private func record(_ failure: LSPDownloadService.Failure) {
+        lock.lock()
+        refusal = refusal ?? failure
+        lock.unlock()
     }
 }
 

@@ -455,7 +455,10 @@ user sees it.
   acceptance is about **57 MB** (Node is most of it); each further server costs
   about **4–5 MB** because the runtime is already there. The size the
   prompt shows is always what is still missing, not the total. Every file is
-  checked against a checksum built into the app before it is unpacked, comes from
+  checked against a checksum **and a size** built into the app before it is
+  unpacked — the transfer stops at the pinned size rather than growing for as
+  long as a server keeps sending, and anything longer than the pin fails the
+  install with that reason instead of being unpacked — comes from
   `nodejs.org` or `registry.npmjs.org`, and is installed under
   `~/Library/Application Support/Pisaka/LanguageServers/` — nothing is put on your
   `PATH`, nothing global is touched, and no `npm` or Node installation of your own
@@ -1352,7 +1355,10 @@ and iPhone. The feature scope landed so far:
   and points you to Settings; you can also create from the local tracking ref
   without fetching, or cancel. Note: only an **HTTPS `origin`** can be fetched with
   a PAT — an SSH remote (`git@…`) cannot, since libgit2's SSH transport is
-  exec-based and there is no subprocess on iOS.
+  exec-based and there is no subprocess on iOS. The fetch also refuses to follow
+  a redirect to a **different host**, so a token you stored for one host is never
+  presented to another; a redirect within the same host, or one that only changes
+  the path, is followed as before.
 - The same LeetCode integration, reached from the "+" toolbar menu: one screen
   combining the account and the problem input rather than the macOS
   menu-plus-sheet pair. Solution files default to the app container's
