@@ -10,9 +10,11 @@ import PisakaCore
 /// makes it acceptable* (the SHA-256), *how large it may be* (the manifest's
 /// `byteCount`, handed over as the maximum) and *what happens when it is not* (the
 /// whole staging/rename sequence); this file owns the socket and knows none of
-/// that. It is untested by repository convention, so it is kept to the three
-/// decisions it actually makes: how the session is configured, what counts as a
-/// failure, and where the bytes stop.
+/// that. It is kept to the three decisions it actually makes: how the session is
+/// configured, what counts as a failure, and where the bytes stop. Of those, the
+/// last two are pinned by `BoundedBodyCollectorTests` in the app-layer bundle,
+/// which drives the delegate callbacks directly and touches no network; the
+/// configuration stays untested by repository convention.
 ///
 /// **Nothing is cached, at any layer.** The session is `.ephemeral` *and* its
 /// `urlCache` is cleared *and* every request is `.reloadIgnoringLocalAndRemoteCacheData`,
@@ -59,8 +61,10 @@ import PisakaCore
 /// consults that record first: a cancellation for the maximum throws
 /// `Failure.tooLarge`. A cancellation this file did *not* cause keeps its own
 /// error unchanged. `ScriptedDownloader` cannot see any of this — it runs no
-/// URLSession at all — which is why the rule is stated here and beside D14 rather
-/// than pinned by a test.
+/// URLSession at all — so the rule is pinned instead by
+/// `BoundedBodyCollectorTests`, which feeds the delegate a self-caused cancel's
+/// `URLError.cancelled` completion and asserts the seam still resolves as
+/// `Failure.tooLarge`.
 ///
 /// `@unchecked Sendable` over an immutable `let`, the `LSPProcessTransport`
 /// arrangement: there is no mutable state here at all — the configuration is built
@@ -193,10 +197,16 @@ final class LSPDownloadService: LSPArtifactDownloading, @unchecked Sendable {
 /// the recorded reason, not the completion's error, is what the seam throws when
 /// there is one. A completion with no record is either the bytes or somebody
 /// else's error, both passed through untouched.
-private final class BoundedBodyCollector: NSObject, URLSessionDataDelegate {
+final class BoundedBodyCollector: NSObject, URLSessionDataDelegate {
     private let maximumByteCount: Int
     private let lock = NSLock()
     private var body = Data()
+    /// The high-water mark of `body.count`, updated wherever the body grows.
+    /// It is *the* observable of the check-then-append order: the final state
+    /// after a refusal is identical either way (the body is dropped), so only
+    /// what was transiently resident tells the two orders apart. Read through
+    /// `peakHeldByteCount`.
+    private var peakByteCount = 0
     private var refusal: LSPDownloadService.Failure?
     private var continuation: CheckedContinuation<Data, Error>?
 
@@ -211,6 +221,36 @@ private final class BoundedBodyCollector: NSObject, URLSessionDataDelegate {
         // capacity is ever appended — so the peak resident cost is the pinned
         // size and never more.
         body.reserveCapacity(maximumByteCount)
+    }
+
+    /// The bytes currently held. Exists for `BoundedBodyCollectorTests` in the
+    /// app-layer bundle, which reads it synchronously right after a chunk
+    /// callback to see that a refused chunk was never appended; nothing in
+    /// `Sources` calls it. It takes the lock like every other reader here.
+    var heldByteCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return body.count
+    }
+
+    /// The most bytes ever held at once. Exists for the same suite, and it is
+    /// the accessor that pins the order rather than merely the outcome: a
+    /// collector that appended first and measured afterwards would report a
+    /// peak above `maximumByteCount`, which is exactly the promise the reserved
+    /// capacity makes.
+    var peakHeldByteCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return peakByteCount
+    }
+
+    /// The refusal recorded so far, if any. Exists for the same suite and for
+    /// the same reason — the recorded reason is what the completion path
+    /// prefers, so it is the thing the order is observed through.
+    var recordedRefusal: LSPDownloadService.Failure? {
+        lock.lock()
+        defer { lock.unlock() }
+        return refusal
     }
 
     func attach(_ continuation: CheckedContinuation<Data, Error>) {
@@ -255,6 +295,7 @@ private final class BoundedBodyCollector: NSObject, URLSessionDataDelegate {
             refusal = refusal ?? .tooLarge
         } else {
             body.append(data)
+            peakByteCount = max(peakByteCount, body.count)
         }
         lock.unlock()
         if overLimit { dataTask.cancel() }

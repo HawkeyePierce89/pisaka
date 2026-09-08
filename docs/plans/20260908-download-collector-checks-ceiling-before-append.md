@@ -111,19 +111,19 @@ Behaviour visible to a user does not change: an over-limit response still fails 
 - Modify: `Sources/Pisaka/LSPDownloadService.swift` (visibility only)
 - Create: `Tests/PisakaAppTests/BoundedBodyCollectorTests.swift`
 
-- [ ] Widen visibility only as far as the bundle needs: `BoundedBodyCollector` becomes
+- [x] Widen visibility only as far as the bundle needs: `BoundedBodyCollector` becomes
       `internal` (drop the file-private `private`), plus lock-taking read accessors for the
       two things the rule is observed through — the bytes it currently holds and the refusal
       it has recorded. Nothing becomes `public`, nothing is added to Core, and the
       accessors are documented as existing for the bundle's sake.
-- [ ] New suite, in the bundle's shape (`#if os(macOS)`, `import XCTest`,
+- [x] New suite, in the bundle's shape (`#if os(macOS)`, `import XCTest`,
       `@testable import Pisaka`, no UI automation, no `@MainActor` — the delegate callbacks
       are nonisolated): a small helper builds a `URLSession` from the ephemeral
       configuration with the collector as delegate and creates a data task for a loopback
       URL that is **never resumed** (cancelling an unresumed task is harmless), invalidating
       the session in `defer`; a second helper makes a 200 `HTTPURLResponse`. Callbacks are
       then fed the way URLSession would: response, chunks, completion.
-- [ ] The four cases, each an assertion of the rule and not of the network:
+- [x] The four cases, each an assertion of the rule and not of the network:
       (1) a chunk that exactly fills the maximum is appended and the body comes back whole
       at completion — the inclusive ceiling;
       (2) a chunk that would exceed the maximum is **not appended**: read synchronously,
@@ -133,16 +133,16 @@ Behaviour visible to a user does not change: an over-limit response still fails 
       completion, still resolves the seam as `Failure.tooLarge` and never as "cancelled";
       (4) a completion carrying a foreign `URLError` with nothing recorded resolves as that
       error unchanged.
-- [ ] Assert the typed failure by pattern match rather than by adding an `Equatable`
+- [x] Assert the typed failure by pattern match rather than by adding an `Equatable`
       conformance the product code does not otherwise need.
-- [ ] `xcodegen generate`, then the documented flag-free
+- [x] `xcodegen generate`, then the documented flag-free
       `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' test`
       — the whole bundle green, the new cases included.
-- [ ] **Prove the test bites**: move the check back after the append (the pre-Task-1 order),
+- [x] **Prove the test bites**: move the check back after the append (the pre-Task-1 order),
       re-run the bundle, record the failing test's name and its message, restore the fix,
       re-run green, and confirm `git diff` shows only the intended change. The failing name
       and message go in this plan's Notes.
-- [ ] `swiftlint --strict` — clean, including the new test file.
+- [x] `swiftlint --strict` — clean, including the new test file.
 
 ### Task 3: A live run of the real service against a streaming local server
 
@@ -224,3 +224,53 @@ run's ceiling and observed error, and every gate's result.)
   check-then-append order; `core-provisioning.md`'s D14 "Who counts and who decides"
   paragraph, the `LSPDownloadService.swift` file entry and the whole-in-memory Known-limits
   bullet say the same. The cap bullet keeps its substance.
+
+### Task 2
+
+- Visibility: `BoundedBodyCollector` is now `internal` (the file-private `private`
+  dropped); three lock-taking read accessors were added — `heldByteCount`,
+  `recordedRefusal` and `peakHeldByteCount` — each documented as existing for the
+  bundle's sake. Nothing became `public`, nothing was added to Core. Two now-false
+  sentences in the file's own doc comments were corrected in the same pass: "It is
+  untested by repository convention" and "which is why the rule is stated here and
+  beside D14 rather than pinned by a test".
+- **Deviation from the plan, with the reason.** The plan expected case (2) — the held
+  body read synchronously after an over-limit chunk — to be the case that sees the
+  order. It is not: both orders *drop* the body on refusal (`body = Data()`), and the
+  two predicates are algebraically identical (`body.count + data.count > maximum` is
+  `data.count > maximum - body.count`), so every reading of the final state agrees
+  under either order. The only thing that differs is what was *transiently* resident —
+  which is exactly the promise the `reserveCapacity` comment makes — so a third
+  accessor, `peakHeldByteCount`, was added: a high-water mark of `body.count` updated
+  at the append site, and the one observable that tells the two orders apart. It is
+  one `max(...)` line in the locked block; nothing else about the collector changed.
+- Second deviation: the never-resumed data task is created from a session the collector
+  is **not** the delegate of. With the collector as delegate, the `cancel()` the refusal
+  performs delivers a real `didCompleteWithError` that can race the completion the test
+  feeds and resume the same continuation twice. The collector never reads the session
+  argument, so nothing about the rule under test is weakened; the reasoning is in the
+  suite's doc comment.
+- Five cases, covering the plan's four: the inclusive ceiling
+  (`testChunkExactlyFillingTheMaximumIsKeptAndReturnedWhole`), the order
+  (`testChunkPastTheMaximumIsRefusedWithoutBeingAppended` and
+  `testFirstChunkPastTheMaximumIsNeverResident`), the cancellation mapping
+  (`testSelfCausedCancellationResolvesAsTooLargeAndNotAsCancelled`) and the foreign
+  error (`testForeignErrorWithNothingRecordedResolvesAsThatError`). The typed failure
+  is matched by pattern; no `Equatable` conformance was added.
+- `xcodegen generate`, then
+  `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' test`
+  — **TEST SUCCEEDED**, 20 tests, 0 failures (5 of them the new suite).
+- **Prove it bites** — the append-first order re-introduced verbatim (append, watermark,
+  then `body.count > maximumByteCount`), bundle re-run:
+  - `testChunkPastTheMaximumIsRefusedWithoutBeingAppended` failed —
+    `BoundedBodyCollectorTests.swift:106: XCTAssertEqual failed: ("11") is not equal to ("5")`
+    and `:107: XCTAssertLessThanOrEqual failed: ("11") is greater than ("8")`.
+  - `testFirstChunkPastTheMaximumIsNeverResident` failed —
+    `BoundedBodyCollectorTests.swift:118: XCTAssertEqual failed: ("4096") is not equal to ("0")`.
+  - Confirming the deviation above: the `heldByteCount == 0` and `recordedRefusal`
+    assertions **passed** under the old order, as did the two async cases. Only the
+    watermark bit.
+  - Fix restored, bundle re-run: **TEST SUCCEEDED**, 20 tests, 0 failures. `git diff`
+    shows one modified file (`Sources/Pisaka/LSPDownloadService.swift`, +47/-6) and one
+    new file, nothing else.
+- `swift test` — 5296 tests, 0 failures. `swiftlint --strict` — 0 violations in 521 files.
