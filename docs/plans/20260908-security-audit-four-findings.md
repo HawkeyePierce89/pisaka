@@ -340,21 +340,21 @@ here.
 - Modify: `Tests/PisakaCoreTests/LSPInstallEngineTests.swift`
 - Modify: `docs/architecture/core-provisioning.md`, `CLAUDE.md`
 
-- [ ] Read `core-provisioning.md`'s D14 and its Known limits before editing.
-- [ ] Change the seam to `func data(from url: URL, maximumByteCount: Int) async throws -> Data`
+- [x] Read `core-provisioning.md`'s D14 and its Known limits before editing.
+- [x] Change the seam to `func data(from url: URL, maximumByteCount: Int) async throws -> Data`
       and rewrite its doc comment: the maximum is the manifest's pin, it is a bound on
       bytes **actually received** and never on `Content-Length`/`expectedContentLength`
       (a chunked response reports −1 and a header can lie), and the peak resident cost of
       one artifact stays the stated limit.
-- [ ] `LSPInstallEngine`: pass `artifact.byteCount` as the maximum, and after the seam
+- [x] `LSPInstallEngine`: pass `artifact.byteCount` as the maximum, and after the seam
       returns refuse `archive.count > artifact.byteCount` with
       `LSPInstallError.downloadFailed(component:reason:)` carrying a plain sentence, before
       the digest. Its comment states the split — the app-side cutoff protects memory, this
       refusal is the decision, and no tolerance is needed because a body of any other
       length can never match the pinned digest.
-- [ ] `LSPProvisioningManifest`: correct the `byteCount` doc comment — it is the enforced
+- [x] `LSPProvisioningManifest`: correct the `byteCount` doc comment — it is the enforced
       download ceiling as well as the size shown in the Settings row.
-- [ ] `LSPDownloadService`: stream the response with a `URLSessionDataDelegate` that
+- [x] `LSPDownloadService`: stream the response with a `URLSessionDataDelegate` that
       appends each chunk and cancels the task the moment the accumulated count exceeds the
       maximum; one session per request built from the existing configuration, its own
       delegate, `finishTasksAndInvalidate()` when the request ends. Add a
@@ -362,7 +362,7 @@ here.
       the file's existing convention. Keep the status/`notHTTP` checks, the ephemeral
       no-cache configuration and the two timeouts exactly as they are, and update the file's
       doc comment where it describes `data(from:)` and the unbounded peak.
-- [ ] **Map the delegate's own cancellation to `tooLarge`, explicitly.** Cancelling the
+- [x] **Map the delegate's own cancellation to `tooLarge`, explicitly.** Cancelling the
       task makes URLSession complete the request with `URLError.cancelled`, and that word
       — not the size — is what would otherwise reach `LSPInstallError.downloadFailed` and
       the Settings row. So: the delegate **records the over-limit reason** on itself (a
@@ -371,25 +371,25 @@ here.
       `Failure.tooLarge` and **never** `URLError.cancelled` for this case. A cancellation
       the delegate did not cause (a genuine external one) keeps its own error unchanged.
       Both halves of this rule go in the file's doc comment.
-- [ ] `ScriptedDownloader`: take the maximum, record it per request (so a test can assert
+- [x] `ScriptedDownloader`: take the maximum, record it per request (so a test can assert
       the engine handed over `artifact.byteCount`), and **deliberately not enforce it** —
       with a comment saying it stands in for a server that ignores what it was asked for,
       which is exactly what Core's refusal has to catch. It runs no URLSession, so the
       cancellation-mapping rule above is not visible to it and lives in the doc comment.
-- [ ] Tests in `LSPInstallEngineTests`: a scripted download returning more bytes than the
+- [x] Tests in `LSPInstallEngineTests`: a scripted download returning more bytes than the
       pin fails as `.downloadFailed`, installs nothing and leaves no staging directory
       behind; a download of exactly the pinned bytes with the right digest installs as
       before; the maximum handed to the seam equals the artifact's `byteCount`.
-- [ ] Prove the new test bites: temporarily remove the engine's size refusal, run
+- [x] Prove the new test bites: temporarily remove the engine's size refusal, run
       `swift test --filter LSPInstallEngineTests`, record the failing test name and
       message, restore, re-run green.
-- [ ] `core-provisioning.md`: amend D14 (the seam carries a maximum; who counts and who
+- [x] `core-provisioning.md`: amend D14 (the seam carries a maximum; who counts and who
       decides; why not a file; and that a delegate-caused cancellation surfaces as the
       size failure rather than as "cancelled"), replace the "the peak is bounded by what
       the server sends" known limit with the new rule, and keep the ~53 MB peak-resident
       limit, which is still true. `CLAUDE.md`'s provisioning invariant gains the clause
       that the pinned size is now enforced, not only displayed.
-- [ ] Gates: `swift test`; `swiftlint --strict`; `xcodegen generate`;
+- [x] Gates: `swift test`; `swiftlint --strict`; `xcodegen generate`;
       `xcodebuild … -destination 'platform=macOS' build`.
 
 ### Task 5: Verify acceptance criteria

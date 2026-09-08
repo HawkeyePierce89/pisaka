@@ -16,19 +16,32 @@ import Foundation
 /// failure path — four more things to get wrong for a peak that a machine running
 /// an IDE already has.
 ///
-/// The peak is bounded by what the *server* sends, not by the manifest: nothing
-/// caps a response, so an endpoint that streamed indefinitely would grow the
-/// app's memory until the session's resource timeout cut it off. That is
-/// deliberate rather than overlooked — capping it needs the byte count at the
-/// seam and a chunked read, and it would buy nothing against the threat that
-/// matters, since a body of the wrong size still fails the digest and installs
-/// nothing. Both are recorded as known limits in
-/// `docs/architecture/core-provisioning.md`.
+/// **The peak is bounded by the manifest, not by the server.** The seam carries
+/// a maximum, and it is the artifact's own pinned `byteCount` — the same number
+/// the consent prompt shows. The bound is on bytes **actually received**, never
+/// on `Content-Length` or `expectedContentLength`: a chunked response reports
+/// `-1` and a header is written by whoever is answering, so a limit read off one
+/// is a limit the sender chooses. So the peak resident cost of one artifact is
+/// the stated limit (~53 MB for the largest) rather than whatever an endpoint
+/// decides to keep sending.
+///
+/// Who counts and who decides are deliberately different halves. The
+/// implementation counts — a cutoff can only protect *memory* where the bytes
+/// arrive — while the engine *decides*, refusing anything longer than the pin
+/// after this returns. An implementation that ignores the maximum therefore
+/// installs nothing rather than being trusted, which is exactly what
+/// `ScriptedDownloader` is written to prove.
 public protocol LSPArtifactDownloading: Sendable {
     /// The bytes at `url`, or a thrown error for anything that went wrong —
-    /// transport, TLS, a non-200 status. The engine does not distinguish them:
-    /// every one of them is `LSPInstallError.downloadFailed`.
-    func data(from url: URL) async throws -> Data
+    /// transport, TLS, a non-200 status, or a body longer than
+    /// `maximumByteCount`. The engine does not distinguish them: every one of
+    /// them is `LSPInstallError.downloadFailed`.
+    ///
+    /// `maximumByteCount` is a ceiling on the bytes received, counted as they
+    /// arrive. An implementation that stops early must surface *its own* reason
+    /// — the size — and not whatever its cancellation machinery produces, or the
+    /// Settings row ends up saying "cancelled" about a body that was oversized.
+    func data(from url: URL, maximumByteCount: Int) async throws -> Data
 }
 
 /// Expanding one verified archive into a directory (D14).
@@ -359,11 +372,29 @@ public final class LSPInstallEngine {
             for artifact in artifacts {
                 let archive: Data
                 do {
-                    archive = try await downloader.data(from: artifact.url)
+                    archive = try await downloader.data(
+                        from: artifact.url,
+                        maximumByteCount: artifact.byteCount
+                    )
                 } catch {
                     throw LSPInstallError.downloadFailed(
                         component: component.id,
                         reason: error.localizedDescription
+                    )
+                }
+
+                // The seam was handed the pin as a ceiling, and this is the
+                // decision that ceiling stands for. The two are different halves,
+                // not one check written twice: a cutoff where the bytes arrive is
+                // the only place *memory* can be protected, while this refusal is
+                // what makes the pin binding on an implementation that ignored it.
+                // No tolerance is allowed, and none is needed — the artifact is
+                // pinned by SHA-256, so a body of any other length could never
+                // have verified anyway.
+                guard archive.count <= artifact.byteCount else {
+                    throw LSPInstallError.downloadFailed(
+                        component: component.id,
+                        reason: "The download was larger than the size this app has pinned for it."
                     )
                 }
 

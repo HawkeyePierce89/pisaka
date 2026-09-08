@@ -116,13 +116,13 @@ public enum LSPArchiveFormat: Equatable, Sendable {
 
 /// One downloadable file, and everything needed to verify and place it.
 ///
-/// The byte counts are *sizes shown to the user*, not checks. `byteCount` is what
-/// the consent prompt and the Settings row put in front of someone before anything
-/// is fetched (D15 — "sized"); nothing compares a response against it, because a
-/// length check is strictly weaker than the SHA-256 that already gates the unpack
-/// and adding one would suggest a second guarantee that is not there. The single
-/// thing standing between the manifest and whatever the network hands over is the
-/// digest.
+/// `byteCount` is both the size shown and the download ceiling. It is what the
+/// consent prompt and the Settings row put in front of someone before anything is
+/// fetched (D15 — "sized"), *and* the maximum the download seam is handed: the
+/// bytes are counted as they arrive and anything longer is refused before the
+/// digest is even computed. That is a bound on memory rather than a second
+/// guarantee about contents — what the bytes *are* is still the SHA-256's answer
+/// alone, and a body of any other length could never have matched it.
 public struct LSPArtifact: Equatable, Sendable {
     public let url: URL
 
@@ -131,7 +131,8 @@ public struct LSPArtifact: Equatable, Sendable {
     /// can be pasted rather than transcribed.
     public let sha256: String
 
-    /// Compressed size, as served. Shown to the user; never trusted as a limit.
+    /// Compressed size, as served. Shown to the user, and enforced as the
+    /// download's ceiling.
     public let byteCount: Int
 
     /// Approximate size on disk after unpacking. Rounded on purpose — it is

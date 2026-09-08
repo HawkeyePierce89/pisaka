@@ -17,6 +17,14 @@ import XCTest
 final class LSPInstallEngineTests: XCTestCase {
     // MARK: - The fixture manifest
 
+    /// The pins the rest of the suite installs against.
+    ///
+    /// Every `byteCount` here is comfortably larger than the canned bytes
+    /// `ScriptedArchive` derives from the URL, and that is now load-bearing rather
+    /// than arbitrary: the count is the download's ceiling, so a fixture pinning
+    /// fewer bytes than its own stub serves would fail every install that touches
+    /// it. The ceiling itself is exercised deliberately by `Sized`, below, whose
+    /// pin is placed either side of its stub's length on purpose.
     private enum Fixture {
         static let runtimeARM = URL(string: "https://example.invalid/runtime-1.0.0-arm64.tar.gz")!
         static let runtimeIntel = URL(string: "https://example.invalid/runtime-1.0.0-x64.tar.gz")!
@@ -66,7 +74,7 @@ final class LSPInstallEngineTests: XCTestCase {
             licenseFileSubpaths: ["node_modules/server/LICENSE"],
             artifacts: [
                 artifact(serverArchive, byteCount: 200, destinationSubpath: "node_modules/server"),
-                artifact(helperArchive, byteCount: 30, destinationSubpath: "node_modules/helper"),
+                artifact(helperArchive, byteCount: 300, destinationSubpath: "node_modules/helper"),
             ],
             requires: ["runtime"],
             executableSubpath: "node_modules/server/main.js"
@@ -80,7 +88,7 @@ final class LSPInstallEngineTests: XCTestCase {
             licenseFileSubpaths: ["node_modules/server/LICENSE"],
             artifacts: [
                 artifact(bumpedServerArchive, byteCount: 210, destinationSubpath: "node_modules/server"),
-                artifact(helperArchive, byteCount: 30, destinationSubpath: "node_modules/helper"),
+                artifact(helperArchive, byteCount: 300, destinationSubpath: "node_modules/helper"),
             ],
             requires: ["runtime"],
             executableSubpath: "node_modules/server/main.js"
@@ -91,7 +99,7 @@ final class LSPInstallEngineTests: XCTestCase {
             version: "1.0.0",
             licenseSPDX: "MIT",
             licenseFileSubpaths: [],
-            artifacts: [artifact(intelOnlyArchive, byteCount: 10, architecture: .x64)]
+            artifacts: [artifact(intelOnlyArchive, byteCount: 100, architecture: .x64)]
         )
 
         /// A bare `.gz` of one executable — rust-analyzer's shape (D22), and the
@@ -165,7 +173,7 @@ final class LSPInstallEngineTests: XCTestCase {
             artifacts: [
                 artifact(
                     escapingDestinationArchive,
-                    byteCount: 40,
+                    byteCount: 400,
                     destinationSubpath: "../../../escape"
                 ),
             ]
@@ -624,10 +632,10 @@ final class LSPInstallEngineTests: XCTestCase {
 
     func testThePendingDownloadSizeCountsOnlyWhatIsMissing() async throws {
         let harness = Harness()
-        XCTAssertEqual(harness.engine.pendingDownloadByteCount(for: "server"), 1000 + 200 + 30)
+        XCTAssertEqual(harness.engine.pendingDownloadByteCount(for: "server"), 1000 + 200 + 300)
 
         try await harness.engine.install("runtime")
-        XCTAssertEqual(harness.engine.pendingDownloadByteCount(for: "server"), 200 + 30)
+        XCTAssertEqual(harness.engine.pendingDownloadByteCount(for: "server"), 200 + 300)
 
         try await harness.engine.install("server")
         XCTAssertEqual(harness.engine.pendingDownloadByteCount(for: "server"), 0)
@@ -981,7 +989,7 @@ final class LSPInstallEngineTests: XCTestCase {
                     artifacts: [
                         Fixture.artifact(
                             Fixture.escapingDestinationArchive,
-                            byteCount: 40,
+                            byteCount: 400,
                             destinationSubpath: "../../binary/1.0.0/bin"
                         ),
                     ]
@@ -1037,6 +1045,108 @@ final class LSPInstallEngineTests: XCTestCase {
         let entry = harness.layout.file("node_modules/server/main.js", of: Fixture.server)
         XCTAssertFalse(harness.tree.isExecutableFile(at: entry))
         XCTAssertTrue(harness.engine.isInstalled("server"))
+    }
+
+    // MARK: - The pinned byte count as a ceiling
+
+    /// A component whose pin can be moved either side of the canned bytes' own
+    /// length, which is what lets "exactly the pin" and "one byte over" be the
+    /// same install staged twice. Its checksum is always the *right* one, so a
+    /// refusal that named the digest would be reporting the wrong rule.
+    private enum Sized {
+        static let archive = URL(string: "https://example.invalid/sized-1.0.0.tgz")!
+
+        static var bytes: Data { ScriptedArchive.bytes(for: archive) }
+
+        static func manifest(pinning byteCount: Int) -> LSPProvisioningManifest {
+            LSPProvisioningManifest(components: [
+                LSPComponent(
+                    id: "sized",
+                    version: "1.0.0",
+                    licenseSPDX: "MIT",
+                    licenseFileSubpaths: [],
+                    artifacts: [
+                        LSPArtifact(
+                            url: archive,
+                            sha256: ScriptedArchive.checksum(for: archive),
+                            byteCount: byteCount,
+                            unpackedByteCount: byteCount * 4,
+                            stripComponents: 1,
+                            destinationSubpath: "",
+                            architecture: nil
+                        ),
+                    ],
+                    executableSubpath: "main.js"
+                ),
+            ])
+        }
+    }
+
+    @MainActor
+    private func sizedHarness(pinning byteCount: Int) -> Harness {
+        let harness = Harness(manifest: Sized.manifest(pinning: byteCount))
+        harness.downloader.serve(Sized.archive)
+        harness.unpacker.stub(Sized.archive, tree: ["main.js": "sized 1.0.0"])
+        return harness
+    }
+
+    /// The decision, and it is Core's: the seam was handed the pin as a ceiling
+    /// and ignored it — which is what a misbehaving endpoint does — so the engine
+    /// refuses the body itself. Before the digest, and therefore *instead* of a
+    /// checksum verdict: the bytes here hash to exactly what the manifest pins, so
+    /// the only thing wrong with them is their length.
+    func testADownloadLongerThanThePinnedByteCountInstallsNothing() async {
+        let harness = sizedHarness(pinning: Sized.bytes.count - 1)
+
+        let error = await expectFailure(installing: "sized", on: harness.engine)
+        guard case .downloadFailed(let component, let reason) = error else {
+            XCTFail("expected a download failure, got \(String(describing: error))")
+            return
+        }
+        XCTAssertEqual(component, "sized")
+        XCTAssertFalse(reason.isEmpty)
+
+        // Nothing was written, nothing was unpacked, and no staging tree survived.
+        XCTAssertEqual(harness.unpacker.calls, [])
+        XCTAssertEqual(harness.stagingEntries, [])
+        XCTAssertTrue(
+            harness.tree.directories.filter { $0.hasPrefix("LanguageServers/.staging/") }.isEmpty,
+            "a staging directory survived an oversized download"
+        )
+        XCTAssertEqual(harness.engine.state(of: "sized"), .absent)
+    }
+
+    /// The ceiling is inclusive, and the ordinary path is untouched by it: a body
+    /// of exactly the pinned length installs the way every other artifact here
+    /// does.
+    func testADownloadOfExactlyThePinnedByteCountInstallsAsBefore() async throws {
+        let harness = sizedHarness(pinning: Sized.bytes.count)
+
+        try await harness.engine.install("sized")
+
+        XCTAssertEqual(harness.engine.state(of: "sized"), .installed(version: "1.0.0"))
+        XCTAssertEqual(harness.unpacker.calls.map(\.archive), [Sized.bytes])
+        XCTAssertEqual(harness.stagingEntries, [])
+    }
+
+    /// What crosses the seam is the artifact's own pin — not a constant, not a
+    /// component total, and not something the app half chose.
+    func testTheMaximumHandedToTheSeamIsTheArtifactsOwnPin() async throws {
+        let harness = Harness()
+        try await harness.engine.install("server")
+
+        XCTAssertEqual(
+            harness.downloader.maximumsRequested(for: Fixture.runtimeARM),
+            [Fixture.runtime.artifacts[0].byteCount]
+        )
+        XCTAssertEqual(
+            harness.downloader.maximumsRequested(for: Fixture.serverArchive),
+            [Fixture.server.artifacts[0].byteCount]
+        )
+        XCTAssertEqual(
+            harness.downloader.maximumsRequested(for: Fixture.helperArchive),
+            [Fixture.server.artifacts[1].byteCount]
+        )
     }
 
     // MARK: - The error messages

@@ -469,8 +469,11 @@ ci.yml's `lint` job, and the version-bump procedure.
   still writes nothing (D10).
 - **Provisioned servers**: nothing downloads without per-server consent; what
   *may* be downloaded is pinned data in Core (URL + SHA-256 + size), changed
-  only by shipping a new app version. Every install verifies before unpacking
-  and lands as one rename inside
+  only by shipping a new app version. The **size is enforced, not only
+  displayed** (D14): it crosses the download seam as a maximum, the app half
+  counts the bytes arriving and stops at the ceiling, and Core refuses anything
+  longer before the digest. Every install verifies
+  before unpacking and lands as one rename inside
   `~/Library/Application Support/Pisaka/LanguageServers` — nothing global, so
   deleting that directory de-provisions completely and the disk *is* the state.
   Core never fetches or unpacks (the two seams are macOS app files); the whole

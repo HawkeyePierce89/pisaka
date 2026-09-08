@@ -33,6 +33,18 @@ enum ScriptedArchive {
 
 /// A downloader answering canned bytes per URL — or an error, or nothing at all
 /// until a `Gate` is released.
+///
+/// **It records the maximum it was handed and then ignores it**, which is the
+/// point rather than an omission: it stands in for a server that answers with more
+/// than it was asked for, and Core's own refusal — `archive.count` against
+/// `artifact.byteCount`, after the seam returns — is what has to catch that. A
+/// fake that enforced the ceiling itself would make the engine's decision
+/// untestable, since nothing over the line could ever reach it.
+///
+/// It runs no `URLSession`, so the *other* half of the real seam's rule — that a
+/// cancellation the implementation itself caused surfaces as the size failure and
+/// never as "cancelled" — is invisible here; it lives in `LSPDownloadService`'s
+/// doc comment and beside D14.
 final class ScriptedDownloader: LSPArtifactDownloading, @unchecked Sendable {
     enum Failure: Error, LocalizedError {
         /// The transport failed: no network, TLS rejected, a 500.
@@ -59,6 +71,7 @@ final class ScriptedDownloader: LSPArtifactDownloading, @unchecked Sendable {
     private var answers: [URL: Answer] = [:]
     private var gates: [URL: Gate] = [:]
     private var requested: [URL] = []
+    private var maximums: [(url: URL, maximumByteCount: Int)] = []
 
     /// Serve `url` with its canned bytes — the stub for a download that works.
     func serve(_ url: URL) {
@@ -102,15 +115,25 @@ final class ScriptedDownloader: LSPArtifactDownloading, @unchecked Sendable {
         requestedURLs.filter { $0 == url }.count
     }
 
-    func data(from url: URL) async throws -> Data {
+    /// The maximum the engine handed over for each request, in call order — what
+    /// pins that the ceiling passed across the seam is the artifact's own pin.
+    func maximumsRequested(for url: URL) -> [Int] {
+        lock.lock()
+        defer { lock.unlock() }
+        return maximums.filter { $0.url == url }.map(\.maximumByteCount)
+    }
+
+    func data(from url: URL, maximumByteCount: Int) async throws -> Data {
         // Recorded before the wait, so a test can see the request has arrived
         // while it is still being held. The locking is factored into a
         // synchronous method rather than written inline: `lock()`/`unlock()` in
         // an `async` body is a hard error under the Swift 6 language mode, and
         // there is no suspension point between the two here anyway.
-        let (gate, answer) = claim(url)
+        let (gate, answer) = claim(url, maximumByteCount: maximumByteCount)
         gate?.wait()
 
+        // `maximumByteCount` is recorded and then deliberately not applied: see
+        // the type's doc comment.
         switch answer {
         case .data(let data): return data
         case .failure(let error): throw error
@@ -118,10 +141,11 @@ final class ScriptedDownloader: LSPArtifactDownloading, @unchecked Sendable {
         }
     }
 
-    private func claim(_ url: URL) -> (Gate?, Answer?) {
+    private func claim(_ url: URL, maximumByteCount: Int) -> (Gate?, Answer?) {
         lock.lock()
         defer { lock.unlock() }
         requested.append(url)
+        maximums.append((url: url, maximumByteCount: maximumByteCount))
         return (gates[url], answers[url])
     }
 }
