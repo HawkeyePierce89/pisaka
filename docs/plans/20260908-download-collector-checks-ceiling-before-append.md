@@ -150,18 +150,18 @@ Behaviour visible to a user does not change: an over-limit response still fails 
 - Temporary, uncommitted only (a scratch server script and a scratch test), removed before
   the task closes.
 
-- [ ] Stand up a loopback HTTP server on an ephemeral port that answers `200` and then keeps
+- [x] Stand up a loopback HTTP server on an ephemeral port that answers `200` and then keeps
       writing chunks well past any ceiling handed to it — a short raw-socket script is
       enough; nothing in the repository is added for it.
-- [ ] Exercise the **real** `LSPDownloadService` (not the collector directly) against that
+- [x] Exercise the **real** `LSPDownloadService` (not the collector directly) against that
       URL with a small `maximumByteCount`, through a temporary test in the app bundle, and
       confirm the call throws `Failure.tooLarge` and not `URLError.cancelled` — the mapping
       D14 states, end to end over a real socket.
-- [ ] Record in Notes: the command(s), the ceiling used, the observed error, and that the
+- [x] Record in Notes: the command(s), the ceiling used, the observed error, and that the
       transfer stopped at the ceiling rather than at the resource timeout.
-- [ ] Delete the scratch server script and the temporary test; `git status` shows nothing
+- [x] Delete the scratch server script and the temporary test; `git status` shows nothing
       stray, and the committed tree is exactly Tasks 1–2's changes.
-- [ ] If this environment cannot run the bundle against a socket, say so plainly in Notes
+- [x] If this environment cannot run the bundle against a socket, say so plainly in Notes
       with the observed failure and move the step to Post-Completion — do not report it as
       done.
 
@@ -274,3 +274,28 @@ run's ceiling and observed error, and every gate's result.)
     shows one modified file (`Sources/Pisaka/LSPDownloadService.swift`, +47/-6) and one
     new file, nothing else.
 - `swift test` — 5296 tests, 0 failures. `swiftlint --strict` — 0 violations in 521 files.
+
+### Task 3
+
+- Ran here, over a real socket; nothing moved to Post-Completion.
+- Scratch server: a raw-socket script bound to `127.0.0.1:0` (the ephemeral port it
+  reported was `57763`), answering `HTTP/1.1 200 OK` with
+  `Transfer-Encoding: chunked` and then writing 16 KB chunks up to 64 MB or until the
+  peer went away. Probed first with
+  `curl -s --max-time 3 http://127.0.0.1:57763/artifact.tar.gz -o …` — 64 MB received,
+  so the server does keep writing well past any ceiling.
+- Scratch test: one temporary case in `Tests/PisakaAppTests` calling the **real**
+  `LSPDownloadService().data(from:maximumByteCount:)` — not the collector — with a
+  ceiling of **65 536 bytes** (64 KB), run flag-free as
+  `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS'
+  -only-testing:PisakaAppTests/ScratchLiveDownloadCeilingTests test`.
+- Observed: **`LSPDownloadService.Failure.tooLarge`**, matched by pattern, **never**
+  `URLError.cancelled` — the D14 mapping end to end over a real socket.
+  **TEST SUCCEEDED**, 1 test, 0 failures.
+- Stopped at the ceiling, not at a timeout: the refusal arrived after **0.0040 s**
+  against a 60 s request timeout and a 20 min resource timeout, and the server logged
+  `conn ended: BrokenPipeError(32, 'Broken pipe')` — the client hung up mid-stream,
+  where the same server had served curl's full 64 MB without error a moment before.
+- Cleanup: the scratch server script, its port/log files and the temporary test are
+  deleted; `xcodegen generate` re-run, `git status --short` empty, and the app bundle
+  re-run whole — **TEST SUCCEEDED**, 20 tests, 0 failures, exactly Tasks 1–2's tree.
