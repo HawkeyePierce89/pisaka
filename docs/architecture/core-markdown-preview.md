@@ -930,11 +930,21 @@ The four facts the glue forwards:
   instead. A line belonging to the *outgoing* document is still dropped: the
   retarget and the clear both null the pending line, so what is held can only
   describe the document the page is about to show.
+  What is *sent* is also **remembered** (`lastScrolledLine`), and a shell reload
+  — an appearance change or a recovery — re-offers it as pending, which is the
+  same argument read at the other end of the document's life: the reloaded
+  container is empty and scrolled to the top, and the editor says nothing about
+  it, a theme switch and a zoom step moving no clip view, so a reader who
+  stepped into dark mode halfway down would be thrown to the first line and left
+  there until they happened to scroll again — which for a file being read rather
+  than edited may be never. The memory describes *this* document, so the
+  retarget and the clear forget it exactly where they null the pending line.
 - `pageIsGone()` — the page's web content process died and took the document
   with it. The shell is composed again from the appearance already forwarded and
   the body re-sent **from the tree already parsed**: the buffer did not change,
   only the page did, so this costs a render and not a parse — exactly as an
-  appearance change does. It is the one method whose *purpose* is to falsify the
+  appearance change does — including the scroll position, which the reload would
+  otherwise lose. It is the one method whose *purpose* is to falsify the
   memory the others compare against: `lastBody` and `appearance` describe a page
   that no longer exists, and while they stand every method above is correctly a
   no-op, so no keystroke, no ⌘⇧P and no tab switch would put anything back and

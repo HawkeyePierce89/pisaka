@@ -129,6 +129,21 @@ public final class MarkdownPreviewModel {
     private var pendingScrollLine: Int?
     private var isScrollFlushScheduled = false
 
+    /// The line last *sent* to the page, for the current document.
+    ///
+    /// A reloaded shell ships its container empty and its scroll position at the
+    /// top, so a reader who switched to dark mode or stepped the code zoom
+    /// mid-document would be thrown back to the first line — and the editor has
+    /// nothing to say about it, its clip view's bounds not having moved, so
+    /// nothing would put them back until they happened to scroll again. That is
+    /// the argument ``noteScrolled(toLine:)`` already makes for holding a line
+    /// reported before a body exists, read at the other end of the document's
+    /// life: the memory is what a reload re-offers as pending.
+    ///
+    /// It describes *this* document, so it is forgotten wherever
+    /// ``pendingScrollLine`` is — a retarget and a clear.
+    private var lastScrolledLine: Int?
+
     public init(parser: any MarkdownParsing, sink: any MarkdownPreviewPageSink) {
         self.parser = parser
         self.sink = sink
@@ -156,6 +171,7 @@ public final class MarkdownPreviewModel {
         // was showing is gone: recording that here is what lets the body be
         // re-sent even though it is byte-for-byte the one already rendered.
         lastBody = nil
+        pendingScrollLine = pendingScrollLine ?? lastScrolledLine
         sink.reloadShell(html: MarkdownPreviewPage.html(theme: theme, fontSize: fontSize))
         publishBody()
     }
@@ -186,6 +202,7 @@ public final class MarkdownPreviewModel {
     public func pageIsGone() {
         guard let appearance else { return }
         lastBody = nil
+        pendingScrollLine = pendingScrollLine ?? lastScrolledLine
         sink.reloadShell(html: MarkdownPreviewPage.html(theme: appearance.theme, fontSize: appearance.fontSize))
         publishBody()
     }
@@ -210,6 +227,7 @@ public final class MarkdownPreviewModel {
         self.text = text
         lastDocument = nil
         pendingScrollLine = nil
+        lastScrolledLine = nil
         publish(body: "")
         render(debounced: false)
     }
@@ -237,6 +255,7 @@ public final class MarkdownPreviewModel {
         text = ""
         lastDocument = nil
         pendingScrollLine = nil
+        lastScrolledLine = nil
         generation += 1
         renderTask?.cancel()
         renderTask = nil
@@ -342,10 +361,14 @@ public final class MarkdownPreviewModel {
     /// A page with no body has nothing to scroll to, so the line stays pending
     /// rather than being consumed: ``publishBody()`` schedules the flush again
     /// once there is one. See ``noteScrolled(toLine:)``.
+    ///
+    /// What is sent is also remembered, in ``lastScrolledLine``, so a shell
+    /// reload can re-offer it and land the reader back where they were.
     private func flushScroll() {
         isScrollFlushScheduled = false
         guard let line = pendingScrollLine, lastDocument != nil else { return }
         pendingScrollLine = nil
+        lastScrolledLine = line
         sink.evaluate(MarkdownPreviewPage.scrollToLineSource(line: line))
     }
 }

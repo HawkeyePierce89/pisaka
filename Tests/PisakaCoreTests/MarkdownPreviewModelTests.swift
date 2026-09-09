@@ -398,6 +398,99 @@ final class MarkdownPreviewModelTests: XCTestCase {
         XCTAssertEqual(sink.scrolledLines, [])
     }
 
+    /// A reloaded shell lands the reader back where they were.
+    ///
+    /// The reload ships an empty container scrolled to the top, and the editor
+    /// says nothing about it — a theme switch moves no clip view — so without
+    /// the memory a reader who stepped into dark mode halfway down a document
+    /// would be thrown to its first line and left there until they happened to
+    /// scroll again, which for a file being read rather than edited may be
+    /// never. That is the argument the held-line rule already makes, read at the
+    /// other end of the document's life.
+    func testAnAppearanceChangeRestoresTheLineTheReaderWasOn() async {
+        let (model, _, sink) = makeModel()
+
+        model.updateAppearance(theme: .light, fontSize: 13)
+        model.retarget(to: documentContext, text: "alpha")
+        await waitFor("the first body") { sink.bodies.last == self.body(for: "alpha") }
+
+        model.noteScrolled(toLine: 42)
+        await waitFor("the scroll") { sink.scrolledLines == [42] }
+        sink.clearEvents()
+
+        model.updateAppearance(theme: .dark, fontSize: 13)
+
+        await waitFor("the restored scroll") { !sink.scrolledLines.isEmpty }
+        await settle()
+        XCTAssertEqual(sink.shellReloads.count, 1)
+        XCTAssertEqual(sink.bodies, [body(for: "alpha")])
+        XCTAssertEqual(sink.scrolledLines, [42])
+    }
+
+    /// The same for the page that died: the recovery exists so the pane is not
+    /// blank for the rest of the window's life, and recovering to the wrong
+    /// position is most of that bug still standing.
+    func testARecoveredPageIsScrolledBackToo() async {
+        let (model, _, sink) = makeModel()
+
+        model.updateAppearance(theme: .dark, fontSize: 15)
+        model.retarget(to: documentContext, text: "alpha")
+        await waitFor("the first body") { sink.bodies.last == self.body(for: "alpha") }
+
+        model.noteScrolled(toLine: 17)
+        await waitFor("the scroll") { sink.scrolledLines == [17] }
+        sink.clearEvents()
+
+        model.pageIsGone()
+
+        await waitFor("the restored scroll") { !sink.scrolledLines.isEmpty }
+        await settle()
+        XCTAssertEqual(sink.scrolledLines, [17])
+    }
+
+    /// The memory describes *this* document, so a retarget forgets it: a reload
+    /// after one must not scroll the new file to the old file's line.
+    func testARetargetForgetsTheLineAReloadWouldRestore() async {
+        let (model, _, sink) = makeModel()
+
+        model.updateAppearance(theme: .light, fontSize: 13)
+        model.retarget(to: documentContext, text: "alpha")
+        await waitFor("the first body") { sink.bodies.last == self.body(for: "alpha") }
+
+        model.noteScrolled(toLine: 42)
+        await waitFor("the scroll") { sink.scrolledLines == [42] }
+
+        model.retarget(to: otherContext, text: "beta")
+        await waitFor("the second body") { !sink.bodies.isEmpty }
+        sink.clearEvents()
+
+        model.updateAppearance(theme: .dark, fontSize: 13)
+
+        await waitFor("the re-rendered body") { !sink.bodies.isEmpty }
+        await settle()
+        XCTAssertEqual(sink.scrolledLines, [])
+    }
+
+    /// And a clear forgets it as well, for the same reason.
+    func testAClearForgetsTheLineAReloadWouldRestore() async {
+        let (model, _, sink) = makeModel()
+
+        model.updateAppearance(theme: .light, fontSize: 13)
+        model.retarget(to: documentContext, text: "alpha")
+        await waitFor("the first body") { sink.bodies.last == self.body(for: "alpha") }
+
+        model.noteScrolled(toLine: 42)
+        await waitFor("the scroll") { sink.scrolledLines == [42] }
+
+        model.clear()
+        sink.clearEvents()
+
+        model.updateAppearance(theme: .dark, fontSize: 13)
+
+        await settle()
+        XCTAssertEqual(sink.scrolledLines, [])
+    }
+
     func testAScrollBeforeAnyBodySendsNothing() async {
         let (model, _, sink) = makeModel()
 
