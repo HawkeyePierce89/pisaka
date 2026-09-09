@@ -985,19 +985,21 @@ struct ContentView: View {
                 // which has anything to say about a file that is not text.
                 if file.kind == .viewer {
                     DatabaseViewerHost(file: file)
-                } else if isMarkdownPreviewShown(for: file) {
-                    // The third branch, beside the tab kind and for the same
-                    // reason: what goes under the breadcrumb is decided in one
-                    // expression. It is a branch and not an always-present
-                    // trailing pane (the LeetCode statement's shape) because the
-                    // split needs the available width, and a `GeometryReader`
-                    // around every editor would erase the minimum widths the
-                    // editor column states. The price is the bottom dock's own:
-                    // toggling the preview re-creates the text view, exactly as
-                    // toggling the dock does.
-                    markdownSplit(for: file)
                 } else {
-                    textEditorZone(for: file)
+                    // **Every text tab takes this one branch**, previewed or
+                    // not, and that is load-bearing rather than tidy: a
+                    // `ViewBuilder` `if` is a structural identity, so a second
+                    // branch here would put `CodeEditorView` at two different
+                    // positions in the tree and SwiftUI would tear the text view
+                    // — and its `Coordinator` — down on every switch between a
+                    // Markdown tab and any other one. The coordinator is where
+                    // *all* tabs' undo managers, the viewport memory and the
+                    // fold memory live (see `CodeEditorView.Coordinator`), so
+                    // that teardown would silently drop every open file's undo
+                    // stack, remembered scroll position and folds. The split
+                    // decides *inside* instead: same editor, given a width when
+                    // there is a preview beside it.
+                    markdownSplit(for: file)
                 }
             }
         } else {
@@ -1086,11 +1088,19 @@ struct ContentView: View {
             && SyntaxLanguage(forFileName: file.displayName) == .markdown
     }
 
-    /// The editor and its preview side by side, with a draggable divider.
+    /// The editor, and beside it the preview when this tab is previewed — with a
+    /// draggable divider between them.
     ///
-    /// The `GeometryReader` is here for the one input `MarkdownPreviewWidthRule`
-    /// needs — the width the two halves share — exactly as `mainArea`'s is there
-    /// for the bottom dock's height.
+    /// Reached for **every** text tab, previewed or not (see `editorZone`), so
+    /// the `GeometryReader` now wraps every editor. That costs the editor column
+    /// nothing: its 320pt floor is stated explicitly on `editorZone` at both of
+    /// `editorSplit`'s call sites, not derived from the text view's intrinsic
+    /// width, and a `GeometryReader` is greedy in exactly the way that frame
+    /// already asks for.
+    ///
+    /// The reader is here for the one input `MarkdownPreviewWidthRule` needs —
+    /// the width the two halves share — exactly as `mainArea`'s is there for the
+    /// bottom dock's height.
     private func markdownSplit(for file: OpenFile) -> some View {
         GeometryReader { geo in
             markdownSplitContent(for: file, size: geo.size)
@@ -1100,6 +1110,12 @@ struct ContentView: View {
     /// Lifted out of the `GeometryReader` so the widths are plain arithmetic on
     /// a size rather than declarations inside a view builder.
     private func markdownSplitContent(for file: OpenFile, size: CGSize) -> some View {
+        // Whether there is a second half at all. Everything below is written so
+        // that the *first* half — the editor — is the same view in the same
+        // position either way: the preview is a trailing element that comes and
+        // goes, and the width is an optional constraint rather than a second
+        // branch.
+        let isPreviewed = isMarkdownPreviewShown(for: file)
         // The divider is spent before either half gets anything, so the rule
         // divides what is left — which is what keeps the two frames summing to
         // no more than the area.
@@ -1110,28 +1126,47 @@ struct ContentView: View {
         )
         return HStack(spacing: 0) {
             // The editor's three strips stacked as `editorZone` stacks them —
-            // this is the same content, given a width.
+            // this is the same content, given a width when it is sharing the
+            // area and none when it has all of it.
             VStack(spacing: 0) {
                 // The preview follows the editor and never the other way round,
                 // so this is the whole of scroll sync's wiring: an offset out of
                 // the editor, a line into the model. Neither the mapping nor the
                 // coalescing is here — see `MarkdownPreviewController` and
                 // `MarkdownPreviewModel`.
+                //
+                // `nil` for an unpreviewed tab, which is what keeps the scroll
+                // path free (see `CodeEditorView.onScrolled`); it is a stored
+                // property re-assigned on every update, so it costs no identity.
                 textEditorZone(
                     for: file,
-                    onScrolled: { offset in markdownPreview.noteScrolled(topOffset: offset) }
+                    onScrolled: isPreviewed
+                        ? { offset in markdownPreview.noteScrolled(topOffset: offset) }
+                        : nil
                 )
             }
-            .frame(width: CGFloat(editorWidth))
-            markdownPreviewDivider(available: available)
-            MarkdownPreviewPane(
-                controller: markdownPreview,
-                settings: settings,
-                file: file,
-                projectRoot: model.projectRoot,
-                onOpenFile: onOpenFile
+            // Two frames, both always applied, because the editor half is a
+            // fixed width beside a preview and a greedy one without: a single
+            // `maxWidth: .infinity` would swallow the whole area in the split,
+            // and a single fixed width would leave the unpreviewed editor
+            // painting at whatever the text view asks for.
+            .frame(width: isPreviewed ? CGFloat(editorWidth) : nil, alignment: .topLeading)
+            .frame(
+                maxWidth: isPreviewed ? nil : .infinity,
+                maxHeight: .infinity,
+                alignment: .topLeading
             )
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            if isPreviewed {
+                markdownPreviewDivider(available: available)
+                MarkdownPreviewPane(
+                    controller: markdownPreview,
+                    settings: settings,
+                    file: file,
+                    projectRoot: model.projectRoot,
+                    onOpenFile: onOpenFile
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
         }
         // Pinned and clipped for `mainArea`'s reason: a fixed-width frame
         // reports the width it was given, so a half that refuses its proposal

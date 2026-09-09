@@ -918,12 +918,13 @@ document that carries no targets.
 
 ## The touched hosts
 
-- `ContentView.swift` (`app-window.md`) — the split. `isMarkdownPreviewShown(for:)`
-  is the third branch beside the tab kind, and it is a branch rather than an
-  always-present trailing pane because the split needs the available width and a
-  `GeometryReader` around every editor would erase the editor column's minimum
-  widths. The price is the bottom dock's own: toggling the preview re-creates the
-  text view. The divider is the dock's divider turned on its side, with one
+- `ContentView.swift` (`app-window.md`) — the split. `markdownSplit(for:)` is
+  reached for **every** text tab and `isMarkdownPreviewShown(for:)` is asked
+  *inside* it, deciding a trailing pane and a width rather than a branch: a
+  `ViewBuilder` `if` is a structural identity, and a second branch here would
+  tear `CodeEditorView`'s coordinator — every open tab's undo manager, viewport
+  memory and fold memory — down on every switch between a Markdown tab and any
+  other one. The divider is the dock's divider turned on its side, with one
   difference — the fraction it reaches is **persisted, once, in `onEnded`**,
   because writing on every changed frame would put a `UserDefaults` write on the
   drag's per-frame path and republish the window sixty times a second.

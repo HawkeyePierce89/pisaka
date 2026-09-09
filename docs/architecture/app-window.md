@@ -6,13 +6,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     just `ProjectTreeView` (the old segmented "Project ⇄ Changes" toggle and
     `LeftPanelMode` are gone — Local Changes moved to the bottom dock), middle is
     the open-tabs list (`TabListView`), right zone is the `editorZone` — which
-    routes on the selected tab's `kind` and **one preference**: a `.viewer` tab
-    gets `DatabaseViewerHost(file:)` (`core-database-viewer.md`), a `.text` tab
-    whose language is Markdown while `markdownPreviewEnabled` is on gets
-    `markdownSplit(for:)` — the editor beside its preview, the third branch and
-    the only one that is not about the tab kind (`core-markdown-preview.md`) —
-    any other `.text` tab the `textEditorZone(for:onScrolled:)` described next
-    (with `nil` for every tab that is not being previewed), and no tab at all a
+    routes on the selected tab's `kind` and **on nothing else**: a `.viewer` tab
+    gets `DatabaseViewerHost(file:)` (`core-database-viewer.md`), **every** `.text`
+    tab gets `markdownSplit(for:)` — the editor, and beside it the preview when
+    that tab is previewed (`core-markdown-preview.md`) — and no tab at all a
     "No file open" placeholder (no
     inline diff — the old
     Changes-mode right-zone `DiffPane` branch and the `DiffPane` struct itself were
@@ -338,13 +335,25 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `.onDisappear`, which is what keeps ⌘-toggling the dock with the pointer on the
     divider from leaking a push that outlives the view that made it.
     **The Markdown preview's divider is that divider turned on its side, with a
-    second flag of its own** (`core-markdown-preview.md`). A previewed tab is
-    routed by `isMarkdownPreviewShown(for:)` — the third branch beside the tab
-    kind, and a branch rather than an always-present trailing pane (the LeetCode
-    statement's shape) because the split needs the available width and a
-    `GeometryReader` around every editor would erase the editor column's minimum
-    widths; the price is the dock's own, that toggling the preview re-creates the
-    text view. `markdownSplitContent(for:size:)` spends the divider's 5 scaled
+    second flag of its own** (`core-markdown-preview.md`). `markdownSplit(for:)`
+    is reached for **every** text tab, previewed or not, and that is
+    load-bearing rather than tidy: a `ViewBuilder` `if` *is* a structural
+    identity, so routing previewed and unpreviewed tabs down two branches would
+    put `CodeEditorView` at two positions in the tree and SwiftUI would tear the
+    text view — and its `Coordinator` — down on every switch between a Markdown
+    tab and any other one. That coordinator is where **all** open tabs' undo
+    managers, `EditorViewportMemory` and `FoldStateMemory` live, so the teardown
+    would silently drop every open file's undo stack, remembered scroll position
+    and folds. `isMarkdownPreviewShown(for:)` is therefore asked *inside*
+    `markdownSplitContent(for:size:)`, where it decides a trailing element and a
+    width rather than a branch: the editor half carries two always-applied
+    frames, a fixed `editorWidth` beside a preview and `maxWidth: .infinity`
+    without one, and `onScrolled` is `nil` for an unpreviewed tab — a stored
+    property re-assigned on every update, so it costs no identity. The
+    `GeometryReader` consequently wraps every editor, which costs the editor
+    column nothing: its 320pt floor is stated explicitly on `editorZone` at both
+    of `editorSplit`'s call sites rather than derived from the text view's
+    intrinsic width. `markdownSplitContent(for:size:)` spends the divider's 5 scaled
     points first and hands what is left to `MarkdownPreviewWidthRule`, so the two
     frames sum to no more than the area, and pins/clips the pair for `mainArea`'s
     reason. The gesture is measured in `markdownSplitSpace` — the split's own
