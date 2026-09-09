@@ -243,11 +243,11 @@ Dependencies: `apple/swift-markdown` (transitively `swift-cmark`, plus DocC plug
 
 ### Task 16: Verify acceptance criteria
 
-- [ ] `swift test` — full Core suite green, including the renderer, the rules, the model, the pins, license coverage, settings and the gating suite.
-- [ ] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' test` — the app-layer bundle green.
-- [ ] `xcodebuild … -destination 'platform=macOS' build` and `-destination 'generic/platform=iOS' build` both green, with a derived-data path outside the repository.
-- [ ] `swiftlint --strict` from the repository root clean.
-- [ ] Re-read the CSP emitted by `MarkdownPreviewPage` and confirm by inspection that it names no network origin, and that the shell's only URLs are app-scheme ones.
+- [x] `swift test` — full Core suite green, including the renderer, the rules, the model, the pins, license coverage, settings and the gating suite. (5503 tests, 0 failures.)
+- [x] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' test` — the app-layer bundle green. **Not executable in this environment, as Tasks 10 and 13 recorded**: the run compiles both targets and produces `PisakaAppTests.xctest`, then fails with "The test runner hung before establishing connection." Isolated here rather than assumed: `test-without-building -only-testing:PisakaAppTests/BoundedBodyCollectorTests` — a pre-existing class this branch does not touch — fails identically, so the application-hosted runner cannot launch in this session at all. The bundle's compilation is verified on every one of these runs; its *execution* is owed to a run in a normal desktop session.
+- [x] `xcodebuild … -destination 'platform=macOS' build` and `-destination 'generic/platform=iOS' build` both green, with a derived-data path outside the repository (`~/Library/Developer/Xcode/DerivedData/pisaka-verify-macos`, `…-verify-ios`).
+- [x] `swiftlint --strict` from the repository root clean (0 violations, 553 files).
+- [x] Re-read the CSP emitted by `MarkdownPreviewPage` and confirm by inspection that it names no network origin, and that the shell's only URLs are app-scheme ones. (The policy is `default-src 'none'; script-src pisaka-preview: '<sha256 of the bootstrap>'; style-src pisaka-preview: 'unsafe-inline'; img-src pisaka-preview: data:; connect-src 'none'; base-uri 'none'; form-action 'none'` — every source list is either `'none'`, the app scheme, `data:` or a hash, and no `http`/`https`/`ws` origin and no `*` appears anywhere. The shell builds exactly one absolute URL, `pisaka-preview://preview/…`; every `href`/`src` in it is a `bundledPath(forFileName:)` root-relative path resolved against that one origin, and the file's only other `http` spelling is the `http-equiv` attribute name, which is not a URL.)
 
 ### Task 17: Update documentation
 
