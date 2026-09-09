@@ -161,9 +161,11 @@ final class LicenseCoverageTests: XCTestCase {
         "Apache-2.0",
         "BSD-2-Clause",
         "BSD-3-Clause",
+        "ISC",
         "LGPL-2.1-or-later",
         "MIT",
         "Unicode-DFS-2016",
+        "Unlicense",
         "Zlib",
     ]
 
@@ -677,6 +679,56 @@ final class LicenseCoverageTests: XCTestCase {
                 utf8proc) was lost. Re-copy COPYING at the pinned revision in full.
                 """)
         }
+
+        // mermaid is the sixth case, and the first one from the third source
+        // class — a third-party file shipped as *data* under
+        // `Resources/MarkdownPreview/`. It is also the case where the obvious
+        // procedure is the wrong one. `mermaid.min.js` is an esbuild bundle of
+        // mermaid's whole runtime dependency closure, and the bundler's trailing
+        // `Bundled license information` banner is *not* that closure: esbuild
+        // emits an entry only for a source that happens to carry a `/*! … */`
+        // legal comment, which is four packages, while KaTeX, marked,
+        // dagre-d3-es, d3, rough.js and some fifty more carry none and are
+        // compiled in silently. So the appendix is the closure, enumerated with
+        // npm (the commands are in that directory's VENDORED.md), and what is
+        // pinned here is one holder per library a banner-only re-copy would drop
+        // — including the ISC and BSD-3-Clause texts, since the manifest's
+        // expression now names those licences and only this file carries them.
+        let mermaid = try text(atRepositoryPath: "Resources/Licenses/mermaid.txt")
+        for holder in ["Copyright (c) 2013-2020 Khan Academy and other contributors",
+                       "Copyright (c) 2011-2018, Christopher Jeffrey",
+                       "Original dagre copyright: Copyright (c) 2012-2014 Chris Pettitt",
+                       "Copyright 2010-2023 Mike Bostock",
+                       "Copyright 2001 Robert Penner",
+                       "Copyright (c) 2019 Preet Shihn",
+                       "Copyright (C) 2011-2015 by Vitaly Puzrin",
+        ] {
+            XCTAssertTrue(mermaid.contains(holder), """
+                mermaid.txt no longer names “\(holder)” — a package compiled into \
+                mermaid.min.js lost its notice. The set is the production dependency closure of \
+                the pinned mermaid version, not the bundler's own banner; re-enumerate it with \
+                the procedure in Resources/MarkdownPreview/VENDORED.md.
+                """)
+        }
+        // The two banners are kept on top of the closure rather than replaced by
+        // it, and for one reason: cytoscape embeds four third-party snippets in
+        // its own sources that its own LICENSE never mentions, so the banner is
+        // the only notice this app has for them. Pin one of the four.
+        XCTAssertTrue(mermaid.contains("Copyright (c) 2013-2014 Ralf S. Engelschall"), """
+            mermaid.txt must keep the distribution's own bundled-license banners above the \
+            dependency closure: cytoscape's entry carries notices for four snippets embedded in \
+            cytoscape's sources (the Promises/A+ thenable, the jQuery-derived event object, and \
+            the bezier and spring generators) that cytoscape's own LICENSE does not name.
+            """)
+        // DOMPurify is taken on its Apache-2.0 side, which the manifest's
+        // expression states — and an Apache grant obliges the redistribution to
+        // carry the licence itself, not a one-line reference to it. The banner
+        // alone is that reference, so the text must be here as well.
+        XCTAssertTrue(mermaid.contains("Version 2.0, January 2004"), """
+            mermaid.txt must carry the Apache License 2.0 text for DOMPurify — the manifest's \
+            expression names Apache-2.0, and §4(a) requires the licence itself to travel with \
+            the redistribution. The bundler's one-line banner is a reference, not the licence.
+            """)
 
         // Checked and found clean, recorded here because "nothing was found" is
         // otherwise indistinguishable from "nobody looked": tree-sitter-rust

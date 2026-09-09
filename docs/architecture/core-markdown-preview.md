@@ -1151,6 +1151,23 @@ it contributes is the **lifetime**: `onDisappear` is the only place `clear` is
 reached from, which is why the feature's three clears (a non-Markdown tab, the
 preference off, a folder switch) are one code path.
 
+It *reports* that lifetime rather than performing the clear, and the difference
+is load-bearing. `ContentView` instantiates `editorZone` at **two** positions —
+the `.vertical` and `.horizontal` branches of the tab-orientation switch — so
+changing that preference is a structural replacement: one pane removed, another
+inserted, in the same update. SwiftUI does not guarantee which of `onAppear` and
+`onDisappear` runs first across such a replacement, and with the inserted pane
+going first the order was *appear, forward, disappear, clear* — leaving a blank
+pane the user could not get back, because every method on the model is
+deliberately a no-op for a fact that did not move (`retarget` on an unchanged
+context, `updateAppearance` on an unchanged appearance, `publish` on an
+unchanged body). That is the same shape `pageIsGone()` exists for: the early
+returns are right, and what breaks is the memory they compare against. So
+`MarkdownPreviewController` counts live panes (`paneAppeared()` /
+`paneDisappeared()`) and clears only when the count reaches zero —
+ordering-independent by construction, since the count is zero exactly when no
+pane is left.
+
 The document and the appearance travel on different paths in the model, so they
 are forwarded through different `onChange` modifiers; the appearance is keyed on
 its **inputs** (`prefersDark` + font size) rather than on the theme, because

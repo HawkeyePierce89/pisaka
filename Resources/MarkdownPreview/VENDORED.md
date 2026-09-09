@@ -91,7 +91,7 @@ failure is silent, which is why the list is pinned rather than discovered.
 | Source | <https://cdnjs.cloudflare.com/ajax/libs/mermaid/11.15.0/mermaid.min.js> |
 | Bytes | `3312967` |
 | SHA-256 | `70137e77bb273bb2ef972b86e8b0400cca8be53cb25bfc45911a186dc98665de` |
-| License | MIT — `Resources/Licenses/mermaid.txt`, copied verbatim from the tag above (© 2014–2022 Knut Sveidqvist), with the distribution's own bundled-license banner appended |
+| License | MIT — `Resources/Licenses/mermaid.txt`, copied verbatim from the tag above (© 2014–2022 Knut Sveidqvist), with both bundled-license banners and the verbatim notice of every package in the bundled runtime dependency closure appended |
 
 Copied **verbatim**. This version is the pin for a reason worth stating: it is a
 **single self-contained file**. mermaid's ESM distribution splits into chunks
@@ -103,16 +103,48 @@ anywhere, and it embeds its own `version:"11.15.0"`, which is what the pin test
 cross-checks. **A bump must re-verify that property before anything else** — a
 chunked build produces a preview whose diagrams silently never appear.
 
-The licence appendix is the second thing a bump must redo. mermaid's own MIT
-`LICENSE` covers mermaid's own source; the single-file distribution also carries
-DOMPurify (dual Apache-2.0 / MPL-2.0, taken here on its Apache-2.0 side, which is
-why the manifest's expression reads `MIT AND Apache-2.0` and stays a flat SPDX
-expression), js-yaml, lodash and cytoscape's own embedded notices. Those arrive
-as the bundler's trailing `Bundled license information` banner at the very end of
-`mermaid.min.js`, and `Resources/Licenses/mermaid.txt` is upstream's `LICENSE`
-with that banner appended below it — the `libgit2.txt` / `tree-sitter.txt`
+The licence appendix is the second thing a bump must redo, and it is the step
+where the obvious procedure is wrong. mermaid's own MIT `LICENSE` covers
+mermaid's own source; the single-file distribution is an `esbuild` bundle of
+mermaid's **whole runtime dependency closure**, so every package in that closure
+compiles into this app. `Resources/Licenses/mermaid.txt` is upstream's `LICENSE`
+with those notices appended below it — the `libgit2.txt` / `tree-sitter.txt`
 pattern, for the same reason: a bundled dependency has no package identity, so no
 package-level coverage check can see it.
+
+**The bundler's own `Bundled license information` banner is not that closure**,
+and taking it for one is the mistake this paragraph exists to prevent. `esbuild`
+emits an entry only for a source that happens to carry a `/*! … */` legal
+comment — four packages here (DOMPurify, js-yaml, lodash-es, cytoscape) — while
+KaTeX, marked, dagre-d3-es, d3, rough.js and some fifty more carry none and are
+compiled in silently. The banners are still copied in, above the closure,
+because cytoscape's entry names four snippets embedded in cytoscape's own
+sources that cytoscape's own `LICENSE` does not. Note also that the file carries
+**two** banners, not one; both are reproduced.
+
+Enumerate the closure with npm rather than by reading the bundle:
+
+```sh
+mkdir /tmp/mermaid-lic && cd /tmp/mermaid-lic && npm init -y
+npm install --omit=dev --ignore-scripts mermaid@<version>
+ls node_modules   # then copy each package's LICENSE/NOTICE verbatim
+```
+
+Two kinds of package in that closure are left out, and each exclusion must be
+*re-verified* rather than carried over: TypeScript declaration packages
+(`@types/*`, `@iconify/types`, `@chevrotain/types`), which contain no runtime
+code; and the Node-only helpers reached from `@iconify/utils`'s Node entry
+points (`@antfu/install-pkg`, `commander`, `iconv-lite`, `import-meta-resolve`,
+`package-manager-detector`, `rw`, `safer-buffer`, `tinyexec`), none of whose
+string literals appears in `mermaid.min.js`. A package the resolution no longer
+reaches but the bundle still names — `js-yaml` today — is added by hand at the
+version the banner states. DOMPurify is dual Apache-2.0 / MPL-2.0 and is taken
+on its Apache-2.0 side, which is why the manifest's expression names
+`Apache-2.0` and why the Apache *text* (not just the banner's one-line
+reference) is in the file; the expression stays a flat SPDX one.
+`LicenseCoverageTests.testTextsCarryTheirBundledSubDependencyNotices` pins one
+holder per library a banner-only re-copy would drop, so this cannot silently
+regress.
 
 ## What was written here
 
@@ -145,12 +177,17 @@ Both bundles are updated **by hand**, and the two must be done separately.
    count and SHA-256 in the table above **and** in
    `Tests/PisakaCoreTests/MarkdownPreviewAssetPinTests.swift`. That suite fails
    until both agree, which is what keeps this document from going stale.
-4. Re-copy the upstream `LICENSE` at the new tag into `Resources/Licenses/`, and
-   for mermaid re-append the distribution's trailing bundled-license banner
-   verbatim; update the entry's `version` and `revision` in
-   `Resources/Licenses/licenses.json`. `LicenseCoverageTests` fails until every
-   file in this directory is either one of the two first-party files, this
-   document, or the origin of exactly one notice.
+4. Re-copy the upstream `LICENSE` at the new tag into `Resources/Licenses/`. For
+   mermaid, re-append **both** bundled-license banners *and* re-enumerate the
+   runtime dependency closure with the `npm install` recipe above, copying each
+   package's `LICENSE`/`NOTICE` verbatim — the banner alone is four packages of
+   sixty-odd, and the packages it omits are the ones nothing else names. Update
+   the entry's `version`, `revision` and, if a new licence family arrived, its
+   `spdx` in `Resources/Licenses/licenses.json`, adding any new SPDX id to
+   `LicenseCoverageTests.usedSPDXLicenseIDs`. `LicenseCoverageTests` fails until
+   every file in this directory is either one of the two first-party files, this
+   document, or the origin of exactly one notice, and until `mermaid.txt` still
+   names each holder that suite pins.
 5. For highlight.js, re-read `docs/css-classes-reference.rst` at the new tag and
    re-state the scope list above and in `MarkdownHighlightClasses`. Nothing at run
    time can notice a stale entry.

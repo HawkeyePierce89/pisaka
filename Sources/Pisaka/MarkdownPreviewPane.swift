@@ -7,11 +7,15 @@ import SwiftUI
 ///
 /// It draws nothing of its own — no header, no chrome, no placeholder — because
 /// everything the user sees is the page, and the page is composed in Core. What
-/// this view contributes is the *lifetime*: while it exists there is a document
-/// being previewed, and when it goes the model is cleared. The three ways it
-/// goes are the three clears the feature has — a tab that is not Markdown became
-/// active, the preference was switched off, and the project folder changed —
-/// which is why `onDisappear` is the only place `clear` is reached from.
+/// this view contributes is the *lifetime*: while a pane exists there is a
+/// document being previewed, and when the last one goes the model is cleared.
+/// The three ways it goes are the three clears the feature has — a tab that is
+/// not Markdown became active, the preference was switched off, and the project
+/// folder changed — which is why `onDisappear` is the only place a clear is
+/// reached from. It reports the lifetime rather than performing the clear: the
+/// tab-orientation switch replaces this pane with another in one update and the
+/// two callbacks may arrive in either order, so *which* disappearance is the
+/// last one is the controller's count to keep.
 ///
 /// **The facts, and why each is watched separately.** The document (this tab's
 /// text, its URL and the project root) re-parses; the appearance (the resolved
@@ -78,12 +82,18 @@ struct MarkdownPreviewPane: View {
             .background(ZoomSurfaceMarker(kind: .code))
             .onAppear {
                 controller.openInEditor = onOpenFile
+                controller.paneAppeared()
                 // The appearance first: it installs the shell, and the body that
                 // follows it is held by the page until that document has loaded.
                 forwardAppearance()
                 forwardDocument()
             }
-            .onDisappear { controller.preview(nil, projectRoot: nil) }
+            // Not `preview(nil,…)` directly: a tab-orientation change replaces
+            // this pane with another one in the same update, and the two
+            // lifetime callbacks may arrive in either order. The controller
+            // counts panes so the document is dropped only when the last one
+            // goes — see `MarkdownPreviewController.livePanes`.
+            .onDisappear { controller.paneDisappeared() }
             // A keystroke. The model debounces it; nothing here does.
             .onChange(of: file.text) { _ in forwardDocument() }
             // A selection change to another Markdown tab — the pane is not

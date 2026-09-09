@@ -68,6 +68,37 @@ final class MarkdownPreviewController: ObservableObject {
         self.parser = parser
     }
 
+    /// How many `MarkdownPreviewPane`s are on screen for this window's page.
+    ///
+    /// Ordinarily one or zero, and the count exists for the moment it is briefly
+    /// two. `ContentView` instantiates `editorZone` at **two** positions — the
+    /// `.vertical` and `.horizontal` branches of the tab-orientation switch — so
+    /// changing that preference is a structural replacement: one pane is removed
+    /// and another inserted in the same update. SwiftUI does not guarantee which
+    /// of `onAppear` and `onDisappear` runs first there, and with the inserted
+    /// pane going first the sequence was *appear, forward, disappear, clear* —
+    /// a blank pane the user could not get back, because every method the model
+    /// offers is deliberately a no-op for a fact that did not move (the same
+    /// "the memory they compare against is false" shape `pageIsGone()` was
+    /// written for). A keystroke would have fixed it; a file being read rather
+    /// than edited would stay blank indefinitely.
+    private var livePanes = 0
+
+    /// A pane came on screen. Balanced by ``paneDisappeared()``.
+    func paneAppeared() {
+        livePanes += 1
+    }
+
+    /// A pane went off screen; the document is dropped only when the last one
+    /// does. Ordering-independent by construction: whichever of the two calls
+    /// arrives first, the count is only zero when no pane is left.
+    func paneDisappeared() {
+        livePanes -= 1
+        guard livePanes <= 0 else { return }
+        livePanes = 0
+        preview(nil, projectRoot: nil)
+    }
+
     /// What opening a link into the project means. Forwarded to the page, which
     /// is where the navigation delegate lives; this type neither classifies a
     /// link nor knows what a tab is.

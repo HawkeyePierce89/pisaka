@@ -240,7 +240,7 @@
       "origin" : "Resources/MarkdownPreview/mermaid.min.js",
       "version" : "11.15.0",
       "revision" : "41646dfd43ac83f001b03c70605feb036afae46d",
-      "spdx" : "MIT AND Apache-2.0",
+      "spdx" : "MIT AND Apache-2.0 AND ISC AND BSD-3-Clause AND Unlicense",
       "file" : "mermaid.txt"
     }
   ],
