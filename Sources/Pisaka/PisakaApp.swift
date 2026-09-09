@@ -1426,6 +1426,23 @@ struct PisakaApp: App {
                     togglePanel(.pullRequests)
                 }
                 .keyboardShortcut("r", modifiers: [.command, .shift])
+
+                Divider()
+
+                // The Markdown preview's one global preference, and the only
+                // place anything writes it. A `Toggle` rather than a
+                // Show/Hide `Button` because this is a setting that persists
+                // across launches and across files — the checkmark says what
+                // the next `.md` file will do, which a verb in a label cannot.
+                //
+                // Disabled unless the active tab is Markdown: the item has no
+                // effect anywhere else, and an item that silently does nothing
+                // is worse than one that says so. The tab *kind* is not asked
+                // here — no `.md` file opens as a viewer tab — and the pane's
+                // own routing asks it anyway.
+                Toggle("Markdown Preview", isOn: $settings.markdownPreviewEnabled)
+                    .keyboardShortcut("p", modifiers: [.command, .shift])
+                    .disabled(SyntaxLanguage(forFileName: model.selectedFile?.displayName ?? "") != .markdown)
             }
 
             CommandMenu("Find") {

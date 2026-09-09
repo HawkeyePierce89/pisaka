@@ -38,6 +38,13 @@ final class MarkdownPreviewModelTests: XCTestCase {
         projectRoot: URL(fileURLWithPath: "/project")
     )
 
+    /// The same file name under another opened folder — a folder switch, as the
+    /// glue forwards it.
+    private let otherProjectContext = MarkdownDocumentContext(
+        documentURL: URL(fileURLWithPath: "/other/README.md"),
+        projectRoot: URL(fileURLWithPath: "/other")
+    )
+
     /// The body the default one-paragraph tree renders to, spelled once.
     private func body(for text: String) -> String {
         MarkdownRenderer.body(
@@ -339,5 +346,79 @@ final class MarkdownPreviewModelTests: XCTestCase {
         await settle()
 
         XCTAssertTrue(sink.events.isEmpty)
+    }
+
+    // MARK: - The three moves the app glue makes
+
+    /// `MarkdownPreviewController` and `MarkdownPreviewPane` hold no ordering of
+    /// their own: they forward the window's facts, and every case below is one of
+    /// those forwards. They are asserted here, on the model, because that is
+    /// where the behaviour is — the glue has no tests of its own for exactly this
+    /// reason.
+
+    /// A selection change from one Markdown tab to another.
+    ///
+    /// The pane is *not* rebuilt for it — one web view per window, retargeted —
+    /// so the evidence is the shell being installed exactly once across both
+    /// tabs while the body follows the selection.
+    func testASelectionChangeRetargetsTheOnePageWithoutReloadingTheShell() async {
+        let (model, _, sink) = makeModel()
+        model.updateAppearance(theme: .light, fontSize: 13)
+
+        model.retarget(to: documentContext, text: "alpha")
+        await waitFor("the first tab's body") { sink.bodies.last == self.body(for: "alpha") }
+
+        model.retarget(to: otherContext, text: "beta")
+        let expected = MarkdownRenderer.body(
+            for: ScriptedMarkdownParser.defaultDocument(for: "beta"),
+            context: otherContext
+        )
+        await waitFor("the second tab's body") { sink.bodies.last == expected }
+
+        XCTAssertEqual(model.context, otherContext)
+        XCTAssertEqual(sink.shellReloads.count, 1, "a tab switch must replace a body, never re-load a page")
+    }
+
+    /// A folder switch: the pane goes with the tab set, which clears, and comes
+    /// back pointed at the new project.
+    func testAFolderSwitchClearsTheBodyAndTheContext() async {
+        let (model, _, sink) = makeModel()
+
+        model.retarget(to: documentContext, text: "alpha")
+        await waitFor("the first project's body") { sink.bodies.last == self.body(for: "alpha") }
+
+        model.clear()
+        XCTAssertEqual(model.context, .none)
+        XCTAssertEqual(sink.bodies.last, "")
+
+        model.retarget(to: otherProjectContext, text: "alpha")
+        let expected = MarkdownRenderer.body(
+            for: ScriptedMarkdownParser.defaultDocument(for: "alpha"),
+            context: otherProjectContext
+        )
+        await waitFor("the second project's body") { sink.bodies.last == expected }
+        XCTAssertEqual(model.context, otherProjectContext)
+    }
+
+    /// The preference going off, and coming back on.
+    ///
+    /// Off empties the page; the shell stays installed, so switching it back on
+    /// costs a body and not a page load — which is what makes ⌘⇧P cheap.
+    func testThePreferenceGoingOffEmptiesThePageAndLeavesTheShellInstalled() async {
+        let (model, parser, sink) = makeModel()
+        model.updateAppearance(theme: .dark, fontSize: 15)
+
+        model.retarget(to: documentContext, text: "alpha")
+        await waitFor("the body") { sink.bodies.last == self.body(for: "alpha") }
+
+        model.clear()
+        await settle()
+        XCTAssertEqual(sink.bodies.last, "")
+        XCTAssertEqual(sink.shellReloads.count, 1)
+
+        model.retarget(to: documentContext, text: "alpha")
+        await waitFor("the body again") { sink.bodies.last == self.body(for: "alpha") }
+        XCTAssertEqual(sink.shellReloads.count, 1, "the shell survives a clear")
+        XCTAssertEqual(parser.parsed, ["alpha", "alpha"])
     }
 }

@@ -129,13 +129,18 @@ line_length:
 # whole feature costs this file: `FoldCommands()` in the `.commands` builder.
 # Everything else about folding — the two menu items, their shortcuts, the
 # first-responder route and the beep — lives in `FoldCommands.swift`, which is
-# why one line is the entire share and not the opening of a budget. The number tracks
+# why one line is the entire share and not the opening of a budget. And 1890 with
+# the Markdown preview, for the **four** lines that are the whole of this file's
+# share in it: a `Divider()` and the three-line View menu item that toggles the
+# one global preference. Everything else — the pane, the split, the divider and
+# the ordering — lives in `MarkdownPreviewPane.swift`, `ContentView.swift` and
+# Core. The number tracks
 # the one file that approaches
 # it — measured, never rounded up for room — and is not a licence to grow the
 # others.
 file_length:
-  warning: 1886
-  error: 1886
+  warning: 1890
+  error: 1890
   ignore_comment_only_lines: true
 
 # Same reasoning as file_length, and one number behind it again: the viewer's
@@ -154,10 +159,13 @@ file_length:
 # parameter and the two calls to it, all inside the struct body like every line
 # before them, so this ceiling moves by exactly what `file_length` did again —
 # and to 1870 with code folding's single `FoldCommands()`, which lands inside the
-# struct body too, so it moves by exactly what `file_length` did once more.
+# struct body too, so it moves by exactly what `file_length` did once more — and
+# to 1874 with the Markdown preview's four, which land inside the `.commands`
+# builder and therefore inside the struct body like all of them, so it moves by
+# exactly what `file_length` did yet again.
 type_body_length:
-  warning: 1870
-  error: 1870
+  warning: 1874
+  error: 1874
 
 function_body_length:
   warning: 140

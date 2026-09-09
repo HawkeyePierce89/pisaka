@@ -330,6 +330,41 @@ struct ContentView: View {
     /// window root ever gains chrome above `mainArea`.
     private static let panelColumnSpace = "pisaka.bottomPanelColumn"
 
+    /// The window's one Markdown preview — its web view, its scheme handler and
+    /// the Core model that orders everything they show.
+    ///
+    /// A `@StateObject` here rather than in the scene, so the lifetime is the
+    /// *window's*: one page per window is the feature's shape, and a second
+    /// window previews its own tab. It publishes nothing, so holding it costs
+    /// this view no invalidation; it builds nothing until the pane is shown, so
+    /// it costs a window with the preference off nothing at all.
+    @StateObject private var markdownPreview = MarkdownPreviewController()
+
+    /// The fraction the preview divider has been dragged to, while it is being
+    /// dragged. `nil` otherwise, in which case the split is drawn at the
+    /// persisted preference — which is written once, when the drag ends.
+    @State private var markdownDragFraction: Double?
+
+    /// The fraction captured at the start of a preview-divider drag, so the
+    /// cumulative translation applies to a fixed base rather than compounding
+    /// frame to frame. `nil` when not dragging, so it is also the one answer to
+    /// "is a drag in flight" — the bottom dock's rule, and the cursor needs that
+    /// answer for the reason stated there.
+    @State private var markdownDragBaseFraction: Double?
+
+    /// Whether the pointer is inside the preview divider's hit strip.
+    @State private var markdownDividerHovering = false
+
+    /// Whether *this view* currently holds a pushed cursor for the preview
+    /// divider. Separate from the bottom dock's flag because the two dividers
+    /// can be hovered independently and each must balance its own push.
+    @State private var markdownDividerCursorPushed = false
+
+    /// The name of the coordinate space the preview divider's drag is measured
+    /// in — the split itself, whose frame does not move while the divider does.
+    /// `panelColumnSpace`'s reason, on the horizontal axis.
+    private static let markdownSplitSpace = "pisaka.markdownPreviewSplit"
+
     /// The interface zone's metrics. Computed from the store rather than read
     /// from the environment because this view is the *root* that injects it (see
     /// `SettingsStore.interfaceMetrics`); every view below reads the environment.
@@ -950,6 +985,17 @@ struct ContentView: View {
                 // which has anything to say about a file that is not text.
                 if file.kind == .viewer {
                     DatabaseViewerHost(file: file)
+                } else if isMarkdownPreviewShown(for: file) {
+                    // The third branch, beside the tab kind and for the same
+                    // reason: what goes under the breadcrumb is decided in one
+                    // expression. It is a branch and not an always-present
+                    // trailing pane (the LeetCode statement's shape) because the
+                    // split needs the available width, and a `GeometryReader`
+                    // around every editor would erase the minimum widths the
+                    // editor column states. The price is the bottom dock's own:
+                    // toggling the preview re-creates the text view, exactly as
+                    // toggling the dock does.
+                    markdownSplit(for: file)
                 } else {
                     textEditorZone(for: file)
                 }
@@ -1017,6 +1063,173 @@ struct ContentView: View {
             onViewDefinitionOutsideProject: onViewDefinitionOutsideProject,
             onFindUsages: onFindUsages,
             onRenameSymbol: onRenameSymbol
+        )
+    }
+
+    // MARK: - The Markdown preview split
+
+    /// Whether this tab is previewed beside its editor: a text tab whose
+    /// language is Markdown, while the one global preference is on.
+    ///
+    /// The tab kind is asked as well as the language because the two are
+    /// independent questions and only `.text` has a buffer to preview; today no
+    /// `.md` file can become a viewer tab, and this does not rely on that
+    /// staying true.
+    private func isMarkdownPreviewShown(for file: OpenFile) -> Bool {
+        settings.markdownPreviewEnabled
+            && file.kind == .text
+            && SyntaxLanguage(forFileName: file.displayName) == .markdown
+    }
+
+    /// The editor and its preview side by side, with a draggable divider.
+    ///
+    /// The `GeometryReader` is here for the one input `MarkdownPreviewWidthRule`
+    /// needs — the width the two halves share — exactly as `mainArea`'s is there
+    /// for the bottom dock's height.
+    private func markdownSplit(for file: OpenFile) -> some View {
+        GeometryReader { geo in
+            markdownSplitContent(for: file, size: geo.size)
+        }
+    }
+
+    /// Lifted out of the `GeometryReader` so the widths are plain arithmetic on
+    /// a size rather than declarations inside a view builder.
+    private func markdownSplitContent(for file: OpenFile, size: CGSize) -> some View {
+        // The divider is spent before either half gets anything, so the rule
+        // divides what is left — which is what keeps the two frames summing to
+        // no more than the area.
+        let available = max(0, size.width - metrics.scaled(5))
+        let editorWidth = markdownPreviewWidthRule.editorWidth(
+            fraction: markdownPreviewFraction,
+            available: Double(available)
+        )
+        return HStack(spacing: 0) {
+            // The editor's three strips stacked as `editorZone` stacks them —
+            // this is the same content, given a width.
+            VStack(spacing: 0) {
+                textEditorZone(for: file)
+            }
+            .frame(width: CGFloat(editorWidth))
+            markdownPreviewDivider(available: available)
+            MarkdownPreviewPane(
+                controller: markdownPreview,
+                settings: settings,
+                file: file,
+                projectRoot: model.projectRoot,
+                onOpenFile: onOpenFile
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        // Pinned and clipped for `mainArea`'s reason: a fixed-width frame
+        // reports the width it was given, so a half that refuses its proposal
+        // would otherwise paint over the other one. The coordinate space is
+        // published on the pinned rect, which cannot move while the divider
+        // does.
+        .frame(width: size.width, height: size.height, alignment: .topLeading)
+        .coordinateSpace(name: Self.markdownSplitSpace)
+        .clipped()
+    }
+
+    /// The draggable divider between the editor and its preview. Drag right to
+    /// grow the editor, left to grow the preview.
+    ///
+    /// The bottom dock's divider, turned on its side and with one difference:
+    /// the fraction it reaches is *persisted*, and it is written to
+    /// `SettingsStore` exactly once, in `onEnded`. Writing on every changed
+    /// frame would put a `UserDefaults` write on the drag's per-frame path and
+    /// would republish the store — and therefore this window — sixty times a
+    /// second.
+    ///
+    /// Everything else is the dock's, for the reasons written there:
+    /// `minimumDistance: 0` so the first frame does not arrive with ten points
+    /// already accumulated, the opening zero-translation frame writing nothing
+    /// so a bare click changes no preference, a base captured once so the
+    /// cumulative translation does not compound, the drag measured in a space
+    /// the divider does not move, and the resize cursor following the *drag*
+    /// rather than the pointer.
+    private func markdownPreviewDivider(available: CGFloat) -> some View {
+        Rectangle()
+            .fill(Color(NSColor.separatorColor))
+            .frame(width: metrics.scaled(5))
+            .contentShape(Rectangle())
+            .onHover { hovering in
+                markdownDividerHovering = hovering
+                syncMarkdownDividerCursor()
+            }
+            .gesture(
+                DragGesture(minimumDistance: 0, coordinateSpace: .named(Self.markdownSplitSpace))
+                    .onChanged { value in
+                        // The base is the fraction being *rendered*: the stored
+                        // one is a remembered proposal that the point minimums
+                        // re-clamp at layout time, so a base taken from it would
+                        // start the gesture outside the bounds it is clamped
+                        // against.
+                        let beginning = markdownDragBaseFraction == nil
+                        let base = markdownDragBaseFraction ?? markdownPreviewWidthRule.fraction(
+                            proposed: settings.markdownPreviewFraction,
+                            available: Double(available)
+                        )
+                        if beginning {
+                            markdownDragBaseFraction = base
+                            syncMarkdownDividerCursor()
+                        }
+                        guard !beginning || value.translation.width != 0 else { return }
+                        markdownDragFraction = markdownPreviewWidthRule.fraction(
+                            base: base,
+                            dragTranslation: Double(value.translation.width),
+                            available: Double(available)
+                        )
+                    }
+                    .onEnded { _ in
+                        // The one write. `nil` is a click that never became a
+                        // drag, which must leave the preference exactly as it
+                        // found it.
+                        if let fraction = markdownDragFraction {
+                            settings.markdownPreviewFraction = fraction
+                        }
+                        markdownDragBaseFraction = nil
+                        markdownDragFraction = nil
+                        syncMarkdownDividerCursor()
+                    }
+            )
+            .onDisappear {
+                // ⌘⇧P with the pointer on the divider takes the divider away
+                // without an `onHover(false)`, and the same removal can land
+                // mid-drag, where no `onEnded` arrives either — the dock's two
+                // reasons, both of which apply here.
+                markdownDividerHovering = false
+                markdownDragBaseFraction = nil
+                markdownDragFraction = nil
+                syncMarkdownDividerCursor()
+            }
+    }
+
+    /// Pushes or pops the resize cursor so exactly one push of ours is on
+    /// `NSCursor`'s stack while this divider is hovered or dragged, and none
+    /// otherwise — the bottom dock's rule, with its own flag.
+    private func syncMarkdownDividerCursor() {
+        let wanted = markdownDividerHovering || markdownDragBaseFraction != nil
+        guard wanted != markdownDividerCursorPushed else { return }
+        if wanted { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() }
+        markdownDividerCursorPushed = wanted
+    }
+
+    /// The fraction the split is drawn at: the live one while a drag is in
+    /// flight, the persisted one otherwise. Both are re-clamped by the rule
+    /// against the width actually available.
+    private var markdownPreviewFraction: Double {
+        markdownDragFraction ?? settings.markdownPreviewFraction
+    }
+
+    /// The one authority on what the split may be — the drag, the rendered
+    /// widths and the persisted preference all go through it.
+    ///
+    /// The pane minimum is scaled here and handed over as a plain number, so
+    /// Core stays scale-agnostic: at 200% two panes need twice the points, and
+    /// the degenerate case where the window cannot hold both is the rule's.
+    private var markdownPreviewWidthRule: MarkdownPreviewWidthRule {
+        MarkdownPreviewWidthRule(
+            paneMinimum: Double(metrics.scaled(CGFloat(MarkdownPreviewWidthRule.defaultPaneMinimum)))
         )
     }
 
