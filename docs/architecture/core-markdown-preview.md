@@ -739,14 +739,31 @@ the query themselves are dropped: the renderer emits no `id`, so there is nothin
 to carry an anchor to (a stated limit below), and the handler answers a file
 rather than a request with parameters — the file is what the target was for.
 
-`URL(string:)` is consulted only for the **scheme** (the component Foundation
-reads the way WebKit does), and the answer is **lowercased before it is
-compared**: a URI scheme is case-insensitive, `URL.scheme` hands back whatever
-the document spelled, and `MarkdownLinkRule` already makes that reading of the
-schemes it dispatches on — so `FILE:///…` is the same target as `file:///…`
-rather than a valid in-project file emitted unresolved and then refused. Reading
-the path back out of it would re-encode a
-target that was never encoded. A destination may be percent-encoded (`a%20b.png`)
+The **scheme is read lexically**, by `lexicalScheme(of:)`, and not through
+`URL(string:)`. The question the branch asks is only *does this destination name
+a scheme*, and `URL(string:)` answers a different one: it returns `nil` for any
+target it cannot parse **as a whole**, and that `nil` is indistinguishable from a
+scheme-less target — so an unparseable external destination fell through to the
+relative branch, was resolved against the document's directory, landed *inside*
+the root and came back out as a project file. Containment was never at risk (the
+canonical check still ran); the answer was wrong in the direction that looks
+right — `MarkdownLinkRule` said `openInEditor` and a click opened a missing file
+instead of handing the URL to the system. That is the deployment target's
+ordinary case, not a malformed one: macOS 13's parser refuses a space and every
+non-ASCII character, so `https://ru.wikipedia.org/wiki/Привет` took that branch.
+The reading is RFC 3986's, which is also CommonMark's for an absolute
+destination — an ASCII letter, then letters/digits/`+`/`-`/`.`, ended by `:` —
+so a colon reached after a `/`, `?` or `#`, or behind a character that cannot
+start a scheme, belongs to a path (`img/logo:v2.png`) and names no scheme. The
+answer is **lowercased before it is compared**: a URI scheme is case-insensitive,
+a document spells it however it likes, and `MarkdownLinkRule` already makes that
+reading of the schemes it dispatches on — so `FILE:///…` is the same target as
+`file:///…` rather than a valid in-project file emitted unresolved and then
+refused. `URL(string:)` is then consulted by the **`file:` branch alone**, which
+is the one branch that wants the path read back out of a parse; doing that to a
+scheme-less target would re-encode a
+target that was never encoded, and a `file:` URL Foundation cannot parse is
+refused rather than guessed at. A destination may be percent-encoded (`a%20b.png`)
 or may contain a literal `%` that decodes to nothing, so decoding is attempted
 and the raw spelling kept when it fails — the only reading under which both files
 are reachable. The URL is composed through `URLComponents`, so the path is

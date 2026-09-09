@@ -88,14 +88,14 @@ public enum MarkdownPreviewAsset {
     private static func fileURL(forTarget target: String, documentURL: URL) -> URL? {
         guard !target.isEmpty, !target.hasPrefix("#") else { return nil }
 
-        // A parsed scheme is the one thing that settles the question outright.
-        // `URL(string:)` is only consulted for the scheme: it is the component
-        // Foundation reads the same way WebKit does, and reading the *path* back
-        // out of it would re-encode a target that was never encoded to begin
-        // with. Lowercased on comparison, since a scheme is case-insensitive and
-        // `URL.scheme` hands back whatever the document spelled — the same
-        // reading ``MarkdownLinkRule`` makes of the schemes it dispatches on.
-        if let scheme = URL(string: target)?.scheme?.lowercased(), !scheme.isEmpty {
+        // A scheme is the one thing that settles the question outright, and it
+        // is read *lexically* rather than through `URL(string:)` — see
+        // ``lexicalScheme(of:)`` for why. Only the `file:` branch consults
+        // `URL`, and only for a target it has already been told carries that
+        // scheme: reading the *path* back out of a parse is what turns a
+        // `file:` URL into a file, and doing the same to a scheme-less target
+        // would re-encode a spelling that was never encoded to begin with.
+        if let scheme = lexicalScheme(of: target) {
             guard scheme == "file", let absolute = URL(string: target) else { return nil }
             return absolute.standardizedFileURL
         }
@@ -134,6 +134,43 @@ public enum MarkdownPreviewAsset {
         }
         let base = documentURL.standardizedFileURL.deletingLastPathComponent()
         return URL(fileURLWithPath: path, relativeTo: base).standardizedFileURL
+    }
+
+    /// The scheme `target` spells, lowercased — or `nil` when it spells none.
+    ///
+    /// Read by hand, because the question asked here is *only* "does this
+    /// destination name a scheme", and `URL(string:)` answers a strictly
+    /// different one: it answers `nil` for any target it cannot parse **as a
+    /// whole**, and a `nil` there is indistinguishable from a scheme-less
+    /// target, so an unparseable external destination falls through to the
+    /// relative-path branch below and comes back out as a project file that
+    /// does not exist. That is not hypothetical on the deployment target:
+    /// macOS 13's parser refuses a space and every non-ASCII character, so
+    /// `https://ru.wikipedia.org/wiki/Привет` — an ordinary link — resolved to
+    /// `<document directory>/https:/ru.wikipedia.org/…`, which is inside the
+    /// root, and clicking it opened a missing file in the editor instead of
+    /// handing the URL to the system. Containment was never at risk; the
+    /// answer was simply wrong, and wrong in the direction that looks right.
+    ///
+    /// The reading is RFC 3986's, which is also CommonMark's for an absolute
+    /// destination: an ASCII letter followed by any number of ASCII letters,
+    /// digits, `+`, `-` or `.`, ended by a `:`. Anything else in front of that
+    /// colon — or a `/`, `?` or `#` reached first — means the colon belongs to
+    /// a path (`img/a:b.png`) and there is no scheme.
+    private static func lexicalScheme(of target: String) -> String? {
+        var scheme = ""
+        for character in target {
+            if character == ":" { return scheme.isEmpty ? nil : scheme.lowercased() }
+            guard character.isASCII else { return nil }
+            if scheme.isEmpty {
+                guard character.isLetter else { return nil }
+            } else {
+                guard character.isLetter || character.isNumber
+                    || character == "+" || character == "-" || character == "." else { return nil }
+            }
+            scheme.append(character)
+        }
+        return nil
     }
 
     /// `fileURL`'s path components below `root`, canonically — or `nil` when it

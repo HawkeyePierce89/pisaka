@@ -211,6 +211,45 @@ final class MarkdownPreviewAssetTests: XCTestCase {
         }
     }
 
+    /// A destination carrying a scheme is refused **because it carries one**,
+    /// not because Foundation could parse it: the scheme is read lexically, so
+    /// a target `URL(string:)` answers `nil` for still settles the question.
+    ///
+    /// The failure this pins is not a refusal but a wrong resolution. A
+    /// scheme-less answer falls through to the relative-path branch, where the
+    /// whole destination is resolved against the document's directory and lands
+    /// *inside* the project root — so it resolves, the navigation rule answers
+    /// `openInEditor`, and clicking an external link opens a missing file
+    /// instead of the browser. macOS 13, the deployment target, refuses every
+    /// non-ASCII character here, which makes an ordinary link the common case.
+    func testAnUnparseableSchemeIsStillASchemeAndResolvesToNothing() {
+        for target in [
+            "https://ru.wikipedia.org/wiki/Привет",
+            "https://exa mple.com/i.png",
+            "http://[bad",
+            "javascript:alert('привет')",
+        ] {
+            XCTAssertNil(
+                MarkdownPreviewAsset.assetURL(forTarget: target, context: context),
+                "\(target) carries a scheme and must not resolve to a project file"
+            )
+        }
+    }
+
+    /// And the lexical reading refuses nothing the parsed one accepted: a colon
+    /// reached after a path separator is part of a name, not a scheme, and a
+    /// leading character that cannot start one leaves the target scheme-less.
+    func testAColonInsideAPathIsNotAScheme() {
+        XCTAssertEqual(
+            MarkdownPreviewAsset.assetURL(forTarget: "img/logo:v2.png", context: context)?.absoluteString,
+            "pisaka-preview://preview/file/docs/img/logo:v2.png"
+        )
+        XCTAssertEqual(
+            MarkdownPreviewAsset.assetURL(forTarget: "./2:1.png", context: context)?.absoluteString,
+            "pisaka-preview://preview/file/docs/2:1.png"
+        )
+    }
+
     func testADocumentWithNoURLResolvesNothing() {
         let noDocument = MarkdownDocumentContext(
             documentURL: nil,
