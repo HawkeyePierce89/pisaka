@@ -725,8 +725,17 @@ the page is showing.
 - Configuration: the scheme handler registered for `MarkdownPreviewPage.scheme`,
   a **non-persistent** website data store (the document is composed from a file
   already open in the editor, and a persistent store would keep copies in caches
-  and local storage nothing in this app would clean up), and back-forward
-  gestures off (there is nothing to go back to).
+  and local storage nothing in this app would clean up), back-forward
+  gestures off (there is nothing to go back to) and **`allowsLinkPreview` off**.
+  The last one is the only entry here that is spelled to *unset* a default, and
+  it is the one that keeps M2's claim true from the other side: a link preview
+  loads the URL it is showing in a web view of WebKit's own, which the delegate
+  below never sees and which the shell's `default-src 'none'` cannot reach —
+  a CSP being a property of a document, not of the process. Left at its default
+  of `true`, a force press on an `http(s)` link in a rendered document would be
+  the single path by which this feature fetched anything from the network, and
+  the property `docs/FEATURES.md` and `README.md` both state outright would be
+  false. `MarkdownPreviewSourceGatingTests` pins the line.
 - `documentContext` is a computed property over the handler's, so there is one
   answer (M5).
 - `evaluate(_:)` / `reloadShell(html:)` — the seam, plus the pending-source queue

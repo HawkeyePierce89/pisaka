@@ -392,6 +392,29 @@ final class MarkdownPreviewSourceGatingTests: XCTestCase {
         )
     }
 
+    /// The page's *only* fetch is the one the handler answers.
+    ///
+    /// The rule above pins how the document arrives; this pins that nothing
+    /// else can arrive at all. `WKWebView.allowsLinkPreview` defaults to `true`,
+    /// and a link preview loads the URL it is previewing in a web view of
+    /// WebKit's own — outside `navigationDelegate`, whose every answer is
+    /// `.cancel`, and outside the shell's `default-src 'none'`, which is a
+    /// property of the document and not of the process. So a force press on an
+    /// `http(s)` link in a rendered document would be the one path by which
+    /// this feature reached the network, and the property stated in
+    /// `docs/FEATURES.md` and `README.md` — that the page is not allowed to
+    /// make a request of any kind — would be false. It is off by a line, and
+    /// this is the line.
+    func testNoDocumentIsFetchedOutsideTheNavigationDelegate() throws {
+        let webView = try code(ofFileNamed: "MarkdownPreviewWebView.swift", under: "Sources/Pisaka")
+        XCTAssertEqual(
+            try occurrences(of: "\\ballowsLinkPreview\\s*=\\s*false\\b", in: webView),
+            1,
+            "The preview's web view must turn allowsLinkPreview off: it defaults to true, and a link "
+                + "preview fetches its URL outside both the navigation delegate and the page's CSP."
+        )
+    }
+
     // MARK: - The app-scheme vocabulary
 
     /// The scheme, the host, the shell path and the two path prefixes are

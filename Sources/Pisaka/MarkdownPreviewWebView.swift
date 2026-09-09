@@ -138,6 +138,16 @@ final class MarkdownPreviewWebView: NSObject, MarkdownPreviewPageSink {
         // There is nothing to go back to — the page is loaded once and updated
         // in place — so a swipe would only ever leave the preview blank.
         webView.allowsBackForwardNavigationGestures = false
+        // The one *other* way a document can be fetched, and the reason it is
+        // spelled here rather than left at its default: a link preview loads
+        // the URL it is showing in a web view of WebKit's own, which neither
+        // `navigationDelegate` below nor the shell's `default-src 'none'` can
+        // reach. Every navigation this feature sees ends in `.cancel` — an
+        // `http(s)` link is handed to the system browser and nothing else is
+        // followed at all — so leaving this on would be the single path by
+        // which the preview fetched something from the network, and the
+        // feature's stated property is that there is none.
+        webView.allowsLinkPreview = false
 
         super.init()
         webView.navigationDelegate = self
