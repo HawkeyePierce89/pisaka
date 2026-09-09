@@ -326,6 +326,35 @@ targets:
       # themselves by `SymbolQueryTests`.
       - path: Resources/Queries
         type: folder
+      # The Markdown preview pane's page assets — the two pinned third-party
+      # bundles (highlight.js, mermaid) plus the first-party `preview.js` and
+      # `preview.css` — declared as a *folder reference* for the third time and
+      # for the same reason as `Licenses/` and `Queries/`: the directory is
+      # copied verbatim, so the four files land as `MarkdownPreview/<name>` and
+      # `MarkdownPreviewSchemeHandler` resolves each one through `Bundle.main`
+      # under the fixed name `MarkdownPreviewPage` spells. A file that does not
+      # reach the bundle is a 404 the page answers by rendering unstyled and
+      # unhighlighted — no build error, so `ReleaseMetadataTests` asserts this
+      # entry and `MarkdownPreviewAssetPinTests` asserts the bytes.
+      #
+      # Filtered to macOS, and it is the *second* place in this file a
+      # destination filter appears — Sparkle's is on a package dependency, this
+      # one is on a source entry. It was attempted rather than assumed: XcodeGen
+      # accepts `destinationFilters:` on a `type: folder` source and emits
+      # `platformFilters = (macos, )` on the generated resource `PBXBuildFile`,
+      # and `generic/platform=iOS` builds green with it. So the preview's ~3.4 MB
+      # is copied on the destination that reads it and nowhere else, unlike
+      # SwiftTerm and libgit2, which stay unfiltered dead weight for the reason
+      # this file's header records (they are *linked*, and changing what links
+      # into the shipping app is a separate change with its own verification —
+      # copying a directory is not).
+      #
+      # The filter is a bundle-size decision, never the restriction: the feature
+      # is confined to macOS by the source-level `#if os(macOS)` on every app
+      # file of it, which `MarkdownPreviewSourceGatingTests` pins.
+      - path: Resources/MarkdownPreview
+        type: folder
+        destinationFilters: [macOS]
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: ws.karmanov.pisaka

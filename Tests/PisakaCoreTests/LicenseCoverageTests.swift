@@ -14,10 +14,12 @@ import XCTest
 /// Foundation only, so it runs in `swift test` without an Xcode build — and
 /// asserts the three things that make `licenses.json` the list of record:
 ///
-///  * its id set is **exactly** the set of packages `project.yml` links (minus
-///    the local `PisakaCore`) plus the documented transitive `tree-sitter` C
-///    runtime, so a new dependency fails here until its license ships, and a
-///    removed one fails until its text is dropped;
+///  * its id set is **exactly** the union of the three source classes — the
+///    packages `project.yml` links (minus the local `PisakaCore`), the
+///    documented transitive identities that are linked but not declared, and the
+///    third-party files bundled as *data* under `Resources/MarkdownPreview/` —
+///    so a new dependency fails here until its license ships, and a removed one
+///    fails until its text is dropped;
 ///  * every remote entry's `revision` equals that identity's `Package.resolved`
 ///    pin, so a text can never be quietly taken from upstream `HEAD` — the
 ///    shipped text must be the one that goes with the shipped code;
@@ -39,6 +41,14 @@ import XCTest
 /// set is compared package by package, and a package that vendors third-party C
 /// into its own target ships licenses no package-level comparison can see. See
 /// `testTextsCarryTheirBundledSubDependencyNotices`.
+///
+/// The bundled-asset class is checked from **both ends**, because it is the one
+/// class where neither end is enough: from the manifest (every `Resources/`
+/// origin must name a file that ships, and its revision must match the record in
+/// `VENDORED.md`) and from the *directory* (every file in it must be one of the
+/// three written here or the origin of exactly one notice). Starting from the
+/// manifest alone would wave through a third-party file dropped into a folder
+/// reference, which is precisely how an unacknowledged 3 MB bundle would ship.
 final class LicenseCoverageTests: XCTestCase {
     /// Linked by the app but resolved *transitively* rather than declared in
     /// `project.yml`, so it ships and must be acknowledged even though no
@@ -56,6 +66,31 @@ final class LicenseCoverageTests: XCTestCase {
     /// `testEveryResolvedIdentityIsAcknowledgedOrExplicitlyExcluded`.
     private static let transitiveIdentities: Set<String> = ["tree-sitter", "swift-cmark"]
 
+    /// The **third source class**: third-party code that ships as *data* rather
+    /// than as a linked package.
+    ///
+    /// The two bundles under `Resources/MarkdownPreview/` — the preview page's
+    /// syntax highlighter and its diagram renderer — are copied into the app by a
+    /// folder reference and handed to a web view. Nothing resolves them, so they
+    /// have no SwiftPM identity, no `Package.resolved` pin and no `- package:`
+    /// line: every check in this suite that looks at those files would skip them
+    /// silently, and the obligation is exactly the same as for a linked package.
+    /// So the coverage set is *packages ∪ transitive ∪ bundled assets*, and the
+    /// provenance of this class is checked against `VENDORED.md` instead — the
+    /// same answer the vendored grammars get, for the same reason.
+    ///
+    /// Membership is by id here and by `origin` in the tests below (the origin is
+    /// the shipped path), so a bundled asset cannot be mistaken for a remote
+    /// package or vice versa.
+    private static let bundledAssetIdentities: Set<String> = ["highlight.js", "mermaid"]
+
+    /// The directory the bundled assets live in, and the files in it that are
+    /// **written in this repository** and therefore need no notice. Everything
+    /// else in there is third-party and must be the origin of exactly one —
+    /// `testEveryBundledFileIsEitherFirstPartyOrLicensed`.
+    private static let bundledAssetDirectory = "Resources/MarkdownPreview"
+    private static let firstPartyBundledFiles: Set<String> = ["preview.js", "preview.css", "VENDORED.md"]
+
     /// The local package (`path: .`), which is this repository's own code.
     private static let localPackage = "PisakaCore"
 
@@ -68,11 +103,14 @@ final class LicenseCoverageTests: XCTestCase {
         let expected = project.linkedPackages
             .subtracting([Self.localPackage])
             .union(Self.transitiveIdentities)
+            .union(Self.bundledAssetIdentities)
 
         XCTAssertEqual(Set(manifest.notices.map(\.id)), expected, """
-            Resources/Licenses/licenses.json must list exactly the dependencies the app links. \
-            Missing entries are unacknowledged licenses; extra ones acknowledge something that \
-            no longer ships. Add or remove the entry *and* its text file under Resources/Licenses.
+            Resources/Licenses/licenses.json must list exactly what the app ships third-party code \
+            from: the packages project.yml links, the two linked transitive identities, and the \
+            bundled assets under \(Self.bundledAssetDirectory). Missing entries are unacknowledged \
+            licenses; extra ones acknowledge something that no longer ships. Add or remove the \
+            entry *and* its text file under Resources/Licenses.
             """)
     }
 
@@ -209,17 +247,22 @@ final class LicenseCoverageTests: XCTestCase {
 
     // MARK: - Provenance
 
-    /// The two provenance tests below select on `origin`: one takes the
-    /// `https://` entries, the other the `Vendor/` ones. An entry spelled any
-    /// other way (`http://`, `git@…`, a bare URL) would be picked up by neither
-    /// and so would ship with its `revision` checked against nothing. Partition
-    /// first, so a third shape has to be dealt with rather than skipped.
-    func testEveryEntryHasARemoteOrVendoredOrigin() throws {
+    /// The provenance tests below select on `origin`: one takes the `https://`
+    /// entries, one the `Vendor/` ones, one the `Resources/` ones. An entry
+    /// spelled any other way (`http://`, `git@…`, a bare URL) would be picked up
+    /// by none of them and so would ship with its `revision` checked against
+    /// nothing. Partition first, so a fourth shape has to be dealt with rather
+    /// than skipped.
+    func testEveryEntryHasARemoteVendoredOrBundledOrigin() throws {
         for notice in try loadManifest().notices {
-            XCTAssertTrue(notice.origin.hasPrefix("https://") || notice.origin.hasPrefix("Vendor/"), """
-                \(notice.id)'s origin “\(notice.origin)” is neither an https:// URL nor a \
-                Vendor/ path, so neither provenance test covers it and its revision is \
-                unverified. Spell a remote origin exactly as Package.resolved's location.
+            XCTAssertTrue(notice.origin.hasPrefix("https://")
+                            || notice.origin.hasPrefix("Vendor/")
+                            || notice.origin.hasPrefix("Resources/"), """
+                \(notice.id)'s origin “\(notice.origin)” is none of the three shapes this suite \
+                knows — an https:// URL for a resolved package, a Vendor/ path for a vendored \
+                one, a Resources/ path for a bundled asset — so no provenance test covers it and \
+                its revision is unverified. Spell a remote origin exactly as Package.resolved's \
+                location, and a bundled one as the shipped file's path.
                 """)
         }
     }
@@ -305,6 +348,98 @@ final class LicenseCoverageTests: XCTestCase {
         return nil
     }
 
+    // MARK: - The bundled assets
+
+    /// A bundled asset's `origin` is the path of the file that ships, so it can
+    /// be checked the way nothing else in this manifest can: the file must
+    /// actually be there. The remote entries' origins are URLs nothing offline
+    /// can resolve, and a vendored entry's origin is a directory; this class is
+    /// the one where "acknowledged" and "shipped" are the same statement.
+    func testEveryBundledAssetEntryNamesAFileThatShips() throws {
+        let bundled = try loadManifest().notices.filter { $0.origin.hasPrefix("Resources/") }
+        XCTAssertEqual(Set(bundled.map(\.id)), Self.bundledAssetIdentities, """
+            The Resources/-origin notices must be exactly the bundled assets \
+            \(Self.bundledAssetIdentities.sorted()). A `Resources/` origin is this suite's marker \
+            for "third-party code that ships as data", and a package must not be filed under it.
+            """)
+
+        for notice in bundled {
+            XCTAssertTrue(notice.origin.hasPrefix(Self.bundledAssetDirectory + "/"), """
+                \(notice.id) is acknowledged as a bundled asset but its origin “\(notice.origin)” \
+                is not inside \(Self.bundledAssetDirectory) — the only directory whose contents \
+                this class covers.
+                """)
+            XCTAssertTrue(
+                FileManager.default.fileExists(atPath:
+                    Self.repositoryRoot.appendingPathComponent(notice.origin).path), """
+                \(notice.id)'s origin names \(notice.origin), but there is no such file. A bundled \
+                asset's origin is the path that ships, so a notice pointing at nothing is a \
+                licence for something the app does not carry — or a file that was renamed and left \
+                the acknowledgement behind.
+                """)
+        }
+    }
+
+    /// The mirror image, and the half that catches the real mistake: a
+    /// third-party file *added* to that directory. It would be copied into the
+    /// app by the folder reference with nothing naming it, and every check above
+    /// would stay green, because they all start from the manifest.
+    ///
+    /// So start from the *directory* instead. Every file in it must be one of the
+    /// three written here or the origin of exactly one notice — "exactly", so two
+    /// entries cannot both claim a file and leave a second one unclaimed.
+    func testEveryBundledFileIsEitherFirstPartyOrLicensed() throws {
+        let notices = try loadManifest().notices
+        let directory = Self.repositoryRoot.appendingPathComponent(Self.bundledAssetDirectory)
+        let listing = try FileManager.default.contentsOfDirectory(atPath: directory.path)
+            .filter { $0 != ".DS_Store" }
+
+        XCTAssertFalse(listing.isEmpty, "read nothing out of \(Self.bundledAssetDirectory)")
+
+        for name in listing.sorted() {
+            if Self.firstPartyBundledFiles.contains(name) { continue }
+
+            let origin = "\(Self.bundledAssetDirectory)/\(name)"
+            let claiming = notices.filter { $0.origin == origin }
+            XCTAssertEqual(claiming.count, 1, """
+                \(origin) is neither one of this repository's own files \
+                (\(Self.firstPartyBundledFiles.sorted())) nor the origin of exactly one \
+                licences.json notice — it is claimed by \(claiming.count). The directory is a \
+                folder reference, so it ships whatever is in it: a third-party file added there \
+                ships unacknowledged, and two notices claiming one file means another has none.
+                """)
+        }
+    }
+
+    /// A bundled asset has no `Package.resolved` pin, so — exactly like a
+    /// vendored grammar — its `revision` and `version` are checked against the
+    /// record that does exist: its section of
+    /// `Resources/MarkdownPreview/VENDORED.md`. Without this, bumping a bundle
+    /// leaves the Acknowledgements screen naming the previous release, with a
+    /// green suite.
+    func testEveryBundledAssetEntryMatchesItsVendoredDoc() throws {
+        let sections = MarkdownPreviewVendoredDoc.sections(
+            in: try text(atRepositoryPath: "\(Self.bundledAssetDirectory)/VENDORED.md"))
+
+        for notice in try loadManifest().notices where notice.origin.hasPrefix("Resources/") {
+            let section = try XCTUnwrap(sections[notice.id], """
+                \(Self.bundledAssetDirectory)/VENDORED.md has no `## \(notice.id)` section, so \
+                nothing records where the shipped bytes — or the shipped licence text — came from.
+                """)
+            XCTAssertEqual(notice.revision, section.value("Commit"), """
+                \(notice.id) is acknowledged at \(notice.revision), but VENDORED.md records the \
+                bundled file as coming from \(section.value("Commit") ?? "no commit at all"). The \
+                licence text must be the one that goes with the shipped bytes.
+                """)
+            XCTAssertEqual(notice.version, section.value("Version"), """
+                \(notice.id)'s acknowledged version disagrees with VENDORED.md's.
+                """)
+            XCTAssertEqual(notice.origin, "\(Self.bundledAssetDirectory)/\(section.value("File") ?? "")", """
+                \(notice.id)'s origin names a different file than its VENDORED.md section does.
+                """)
+        }
+    }
+
     // MARK: - The texts themselves
 
     func testEveryEntryShipsANonEmptyTextAndNothingElseDoes() throws {
@@ -382,6 +517,8 @@ final class LicenseCoverageTests: XCTestCase {
         "TreeSitterDotenv": "Copyright (c) 2024 Henrik Hautakoski",
         "TreeSitterGitignore": "Copyright (c) 2022 shunsambongi",
         "TreeSitterSql": "Copyright (c) 2021 Derek Stride",
+        "highlight.js": "Copyright (c) 2006, Ivan Sagalaev.",
+        "mermaid": "Copyright (c) 2014 - 2022 Knut Sveidqvist",
     ]
 
     /// Every shipped text actually names the dependency it is filed under.

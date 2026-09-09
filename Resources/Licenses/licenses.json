@@ -224,6 +224,24 @@
       "revision" : "c4d5e725e1bbf683b223f4bebe83142cefe68da5",
       "spdx" : "MIT",
       "file" : "TreeSitterEditorconfig.txt"
+    },
+    {
+      "id" : "highlight.js",
+      "name" : "highlight.js (bundled asset)",
+      "origin" : "Resources/MarkdownPreview/highlight.min.js",
+      "version" : "11.11.1",
+      "revision" : "08cb242e7d4aee787114eb04cc7ab18314d82f92",
+      "spdx" : "BSD-3-Clause",
+      "file" : "highlight.js.txt"
+    },
+    {
+      "id" : "mermaid",
+      "name" : "mermaid (bundled asset)",
+      "origin" : "Resources/MarkdownPreview/mermaid.min.js",
+      "version" : "11.15.0",
+      "revision" : "41646dfd43ac83f001b03c70605feb036afae46d",
+      "spdx" : "MIT AND Apache-2.0",
+      "file" : "mermaid.txt"
     }
   ],
   "excluded" : [
