@@ -268,6 +268,29 @@ final class MarkdownPreviewAssetPinTests: XCTestCase {
         }
     }
 
+    /// The prefix a diagram render id carries is spelled on both sides.
+    ///
+    /// Core states the rule — a capital, which no heading slug can spell — and
+    /// the script is where the id is actually built. Nothing else compares the
+    /// two: a rename in the script alone would compile nothing, break no Core
+    /// test and quietly restore the failure the prefix exists to prevent, a
+    /// heading deleted from the page by mermaid the first time a fence rendered.
+    func testThePreviewScriptBuildsDiagramIDsFromTheNamespacedPrefix() throws {
+        let script = try text(forAsset: MarkdownPreviewPage.previewScriptFileName)
+        let prefix = MarkdownPreviewPage.diagramElementIDPrefix
+
+        XCTAssertTrue(script.contains("\"\(prefix)\""), """
+            Resources/MarkdownPreview/\(MarkdownPreviewPage.previewScriptFileName) does not spell \
+            the diagram id prefix “\(prefix)” Core declares. mermaid removes whatever element \
+            already carries the id it is handed, so a prefix a heading slug can also spell deletes \
+            that heading from the preview.
+            """)
+        XCTAssertFalse(script.contains("\"pisaka-diagram-\""), """
+            Resources/MarkdownPreview/\(MarkdownPreviewPage.previewScriptFileName) still builds a \
+            lowercase diagram id, which `## Pisaka diagram 1` slugs to exactly.
+            """)
+    }
+
     /// The five members Core actually calls, read out of the sources it
     /// composes rather than listed again here.
     private static func reachedMembers() throws -> Set<String> {

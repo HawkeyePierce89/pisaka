@@ -147,6 +147,32 @@ extension MarkdownPreviewPage {
     /// and is why the scroll position survives typing.
     public static let containerElementID = "content"
 
+    /// The prefix every id `preview.js` hands mermaid carries — the second
+    /// family of `id`s the page holds that the renderer did not write.
+    ///
+    /// mermaid is given an id per diagram render and **removes whatever element
+    /// already carries it** before it measures its own (`removeExistingElements`
+    /// in the bundle), so an id family that a heading slug could also produce
+    /// would delete that heading from the page the moment any fence rendered —
+    /// silently, and taking its anchor with it. The container id is reserved in
+    /// ``MarkdownRenderer`` for the same class of failure; this one cannot be
+    /// reserved that way because the sequence has no end, so it is kept out of
+    /// reach by its *alphabet* instead.
+    ///
+    /// An ASCII capital is what does it: ``MarkdownHeadingSlug/slug(forText:)``
+    /// lowercases before it filters, so no slug it can ever answer carries one —
+    /// which makes "no heading is a diagram id" a property of the two spellings
+    /// rather than of anyone remembering. `MarkdownHeadingSlugTests` asserts
+    /// both halves, and `MarkdownPreviewAssetPinTests` pins the script's own
+    /// spelling of it, the two files being in different languages with nothing
+    /// else able to notice a rename on one side.
+    ///
+    /// The rest of the id is a decimal counter `preview.js` owns, so the whole
+    /// id stays a CSS identifier: mermaid builds `#\(id)`, `#d\(id)` and
+    /// `#i\(id)` selectors from it, and anything needing an escape there would
+    /// throw inside the bundle.
+    public static let diagramElementIDPrefix = "PisakaDiagram"
+
     /// The JavaScript global `preview.js` defines and everything else calls
     /// through. Spelled once so the bootstrap, the body update and the scroll
     /// call cannot name three different objects.

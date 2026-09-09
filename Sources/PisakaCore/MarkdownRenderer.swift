@@ -47,6 +47,13 @@ public enum MarkdownRenderer {
         // that id would send its link to the top of the container instead of to
         // itself. Reserved here rather than inside the allocator because the page
         // is this file's dependency, not the slug rule's.
+        //
+        // It is the only id reserved here because it is the only one that *can*
+        // be: the page's other id family — the one `preview.js` hands mermaid
+        // per diagram render, which mermaid removes an existing element for
+        // before it draws — is an unbounded sequence, and is kept out of reach
+        // by carrying a capital instead (`MarkdownPreviewPage
+        // .diagramElementIDPrefix`), which a lowercasing slug rule cannot spell.
         var slugs = MarkdownHeadingSlug.Allocator(reserving: [MarkdownPreviewPage.containerElementID])
         return document.blocks
             .map { render($0.block, attributes: lineAttribute($0.sourceLine), context: context, slugs: &slugs) }

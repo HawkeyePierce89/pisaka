@@ -152,4 +152,52 @@ final class MarkdownHeadingSlugTests: XCTestCase {
         var slugs = MarkdownHeadingSlug.Allocator(reserving: ["content"])
         XCTAssertEqual(slugs.allocate(forText: "Notes"), "notes")
     }
+
+    // MARK: - The diagram id family
+
+    /// No slug this rule can answer carries an ASCII capital.
+    ///
+    /// The page's *other* id family — the one `preview.js` hands mermaid, which
+    /// mermaid removes an existing element for before it draws — is an unbounded
+    /// sequence and so cannot be reserved the way the container id is. What
+    /// keeps a heading off it is this alphabet: the rule lowercases before it
+    /// filters, so a prefix carrying a capital is unreachable from any heading
+    /// text at all. Asserted over inputs from four scripts, because "lowercased"
+    /// is Unicode's answer rather than ASCII's and a Cherokee or Georgian
+    /// capital is exactly the kind of thing that would fold the other way.
+    func testNoSlugCarriesAnASCIICapital() {
+        let texts = [
+            "PisakaDiagram1", "PISAKA DIAGRAM 1", "Pisaka_Diagram-1",
+            "ПРИВЕТ Мир", "ΑΘΉΝΑ Δοκιμή", "ᏣᎳᏋ", "ႨႩႪ", "Straße ẞ",
+            "MiXeD CaSe 42",
+        ]
+        for text in texts {
+            let slug = MarkdownHeadingSlug.slug(forText: text)
+            XCTAssertNotNil(slug, text)
+            XCTAssertFalse(slug?.contains(where: { $0.isASCII && $0.isUppercase }) ?? true, """
+                “\(text)” slugs to “\(slug ?? "")”, which carries an ASCII capital. The diagram id \
+                family is kept out of a heading's reach by that alphabet alone: a slug that can \
+                spell one can name an element mermaid deletes before it renders.
+                """)
+        }
+    }
+
+    /// …and the prefix `preview.js` builds a diagram id from carries one, which
+    /// is the other half of the same property.
+    func testTheDiagramIDPrefixIsUnreachableFromAnyHeading() {
+        let prefix = MarkdownPreviewPage.diagramElementIDPrefix
+        XCTAssertTrue(prefix.contains(where: { $0.isASCII && $0.isUppercase }), """
+            MarkdownPreviewPage.diagramElementIDPrefix is “\(prefix)”, which carries no ASCII \
+            capital — so a heading could slug to a diagram id, and mermaid would remove that \
+            heading from the page the first time any fence rendered.
+            """)
+        // The whole id, not just the prefix: what mermaid is handed is the
+        // prefix and a decimal counter, and it is that string a heading must
+        // not be able to spell.
+        var slugs = MarkdownHeadingSlug.Allocator()
+        for sequence in 1...3 {
+            let diagramID = "\(prefix)\(sequence)"
+            XCTAssertNotEqual(slugs.allocate(forText: diagramID), diagramID)
+        }
+    }
 }

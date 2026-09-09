@@ -1344,6 +1344,26 @@ keeps the same generation counter the Swift model keeps, for the same reason —
 this is the one place in the page where two answers can be in flight at once).
 `mermaid` is initialized with `startOnLoad: false` and `securityLevel: "strict"`.
 
+**A diagram's id and a heading's id are drawn from disjoint alphabets.** mermaid
+is handed an id per render and **removes whatever element already carries it**
+(`removeExistingElements` in the bundle) before it measures its own, so an id
+family a heading slug could also spell would delete that heading the moment any
+fence rendered — and, since the svg mermaid returns carries the id too, the
+document would still answer `getElementById` with the diagram that replaced it.
+That is silent twice over. The container id can be *reserved* in
+`MarkdownRenderer` because there is one of it; a diagram sequence has no end, so
+it is kept out of reach by its spelling instead:
+`MarkdownPreviewPage.diagramElementIDPrefix` (`PisakaDiagram`, plus the counter
+`preview.js` owns) carries an ASCII capital, and `MarkdownHeadingSlug` lowercases
+before it filters, so no slug it can ever answer carries one. Both halves are
+asserted — the slug alphabet in `MarkdownHeadingSlugTests`, the prefix's capital
+beside it, the script's own spelling of the prefix in
+`MarkdownPreviewAssetPinTests` — and the sentence they protect, which is about
+what mermaid *does* rather than about two spellings, is asserted where the bundle
+can actually run: `MarkdownPreviewDiagramIDTests` renders a heading slugging to
+the old scheme's first id next to a diagram and asks the loaded page which
+element carries that id.
+
 **A fence never renders as nothing.** A diagram block still holds its own source
 until the script replaces it, and hiding that source is keyed on
 `mermaid-pending` — a class the script adds when it *starts* a render and removes
@@ -1471,7 +1491,14 @@ honest answer for a link to a section the document does not have.
   test, and cancels the one load the feature performs — leaving the pane blank
   for the app's life. Asserted end to end (the shell's container element exists
   in the loaded document) rather than by standing a probe in for the delegate,
-  so the real object is the one deciding.
+  so the real object is the one deciding. `MarkdownPreviewDiagramIDTests` is the
+  second suite driving a real `WKWebView`, and the only one that *executes the
+  bundled mermaid*: it renders `# Pisaka diagram 1` — which slugs to exactly the
+  id the page used to hand its first diagram — beside a `mermaid` fence, waits
+  for the render to settle on the class the script clears at every ending, and
+  asks which element carries that id. Asked as the element rather than as the id,
+  because mermaid gives its own svg the id it was handed: the deleted-heading
+  document still answers `getElementById`, with the picture that replaced it.
 
 ## Stated limits
 

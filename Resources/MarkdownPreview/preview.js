@@ -43,6 +43,13 @@
        current one is discarded rather than written. */
     var generation = 0;
 
+    /* The prefix every id below carries, spelled in Core as
+       `MarkdownPreviewPage.diagramElementIDPrefix`. Its capital is load-bearing:
+       mermaid removes whatever element already carries the id it is handed, and
+       a heading slug — lowercased before it is filtered — can never contain one,
+       so no `id` the renderer writes can be taken for a diagram's. */
+    var DIAGRAM_ID_PREFIX = "PisakaDiagram";
+
     /* Distinct per diagram *and* per render, because mermaid keys its internal
        definitions by the id it is given and a repeated id re-uses the previous
        diagram's state. */
@@ -119,7 +126,7 @@
     function renderDiagram(block, mine) {
         var source = block.textContent;
         diagramSequence += 1;
-        var id = "pisaka-diagram-" + diagramSequence;
+        var id = DIAGRAM_ID_PREFIX + diagramSequence;
 
         /* The block's source is hidden only while a render of it is in flight —
            see `preview.css`. Every ending below reveals it again, which is what
