@@ -79,12 +79,12 @@ Dependencies: `apple/swift-markdown` (transitively `swift-cmark`, plus DocC plug
 **Files:**
 - Create: `Sources/Pisaka/MarkdownParser.swift`, `Tests/PisakaAppTests/MarkdownParserTests.swift`, `Tests/PisakaAppTests/Fixtures/every-element.md`
 
-- [ ] Write `MarkdownParser` under `#if os(macOS)`: one `parse(_ text: String) -> MarkdownDocument` that walks swift-markdown's AST and maps it onto the Core tree, taking `sourceLine` from each top-level node's source range and **making no decisions** — no filtering, no normalisation, no defaults beyond the mapping itself.
-- [ ] Conform it to Core's parser seam protocol (Task 11), so the model never names swift-markdown.
-- [ ] Map raw HTML nodes (block and inline) to **nothing**, which is not a decision but the absence of a target case; state that in the doc comment.
-- [ ] Write the fixture containing every supported element (headings, nested lists, task items, a table, both fence forms, a `mermaid` fence, images, autolinks, strikethrough, a raw HTML block and an inline raw HTML span).
-- [ ] Add the headless `PisakaAppTests` case asserting the resulting tree's shape and every top-level `sourceLine` — the only place in the pipeline where the parser executes.
-- [ ] Run `swift test` and `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' test`.
+- [x] Write `MarkdownParser` under `#if os(macOS)`: one `parse(_ text: String) -> MarkdownDocument` that walks swift-markdown's AST and maps it onto the Core tree, taking `sourceLine` from each top-level node's source range and **making no decisions** — no filtering, no normalisation, no defaults beyond the mapping itself.
+- [x] Conform it to Core's parser seam protocol (Task 11), so the model never names swift-markdown.
+- [x] Map raw HTML nodes (block and inline) to **nothing**, which is not a decision but the absence of a target case; state that in the doc comment.
+- [x] Write the fixture containing every supported element (headings, nested lists, task items, a table, both fence forms, a `mermaid` fence, images, autolinks, strikethrough, a raw HTML block and an inline raw HTML span).
+- [x] Add the headless `PisakaAppTests` case asserting the resulting tree's shape and every top-level `sourceLine` — the only place in the pipeline where the parser executes.
+- [x] Run `swift test` and `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' test`.
 
 ### Task 4: The theme and the highlight class table
 

@@ -181,3 +181,25 @@ public struct MarkdownDocument: Equatable, Sendable {
     /// shows before a first parse has landed.
     public static let empty = MarkdownDocument(blocks: [])
 }
+
+// MARK: - The parser seam
+
+/// The one thing Core asks of a Markdown parser: text in, tree out.
+///
+/// The parser itself cannot live here — it is `apple/swift-markdown`, an
+/// external dependency the `PisakaCore` library deliberately does not link — so
+/// the preview's model reaches it through this protocol and never names it. The
+/// app's `MarkdownParser` is its only production conformer; the tests' scripted
+/// one is the other, which is what lets the model's whole ordering be asserted
+/// in `swift test` with no parser present at all.
+///
+/// `Sendable` and *not* `@MainActor`: parsing a large document is the one part
+/// of an update that is worth doing off the main actor, so the model hops with
+/// it. The method is synchronous because parsing is — the hop is the caller's
+/// decision, not the seam's.
+public protocol MarkdownParsing: Sendable {
+    /// The document `text` describes. A parser answers a tree for every input —
+    /// an unparseable one is not a thing Markdown has, so there is no failure
+    /// case and no `throws`.
+    func parse(_ text: String) -> MarkdownDocument
+}
