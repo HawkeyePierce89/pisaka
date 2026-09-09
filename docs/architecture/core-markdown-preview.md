@@ -890,9 +890,17 @@ The four facts the glue forwards:
   and **never by a timer**: a gesture delivers a bounds change per frame, and
   marking the model dirty then flushing from a main-actor `Task` (which runs
   after the current synchronous work drains) collapses the burst into one
-  `scrollToLine` carrying the last line. Nothing is sent while the page shows no
-  body — there is no element to scroll to, and the position will be part of the
-  next scroll anyway.
+  `scrollToLine` carrying the last line. Nothing is *sent* while the page shows
+  no body — there is no element to scroll to — but the line is **held rather
+  than dropped**, and `publishBody()` schedules the flush again once there is
+  one. That is what makes the preview open where the editor already is: on the
+  two moves that begin a preview — a switch to a Markdown tab whose viewport is
+  restored mid-document, and the pane being shown over an already-scrolled one —
+  the report arrives in the same turn as the retarget, while the parse is still
+  off the main actor, and there may be no next scroll to carry the position
+  instead. A line belonging to the *outgoing* document is still dropped: the
+  retarget and the clear both null the pending line, so what is held can only
+  describe the document the page is about to show.
 - `pageIsGone()` — the page's web content process died and took the document
   with it. The shell is composed again from the appearance already forwarded and
   the body re-sent **from the tree already parsed**: the buffer did not change,
@@ -1211,7 +1219,14 @@ document that carries no targets.
   viewport, so an ordinary tab does not even capture one: `captureViewport()`
   asks the layout system for the character at a point, which is work worth
   skipping on every scroll frame. It carries an offset rather than a line
-  because that is what the editor has.
+  because that is what the editor has. **A listener arriving reports once by
+  itself**, on the `nil` → non-`nil` transition alone: showing the pane over an
+  already-scrolled document changes the editor's *frame*, not its clip view's
+  bounds origin, so `clipViewBoundsChanged` never fires and nothing would be
+  reported at all. Deferred by a turn rather than sent inside `updateNSView`,
+  because the retarget this line belongs to is `MarkdownPreviewPane.onAppear`'s
+  and SwiftUI orders neither against the other — sent synchronously it could
+  land ahead of the retarget, which nulls the pending line by design.
 - `SyntaxTheme.swift` (`app-editor-overlays.md`) — `markdownPreviewTheme(prefersDark:)`
   (M10), resolving inside `performAsCurrentDrawingAppearance` so the answer is
   the one the caller asked for rather than the one the calling thread happens to

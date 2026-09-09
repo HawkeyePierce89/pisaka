@@ -407,6 +407,76 @@ final class MarkdownPreviewModelTests: XCTestCase {
         XCTAssertTrue(sink.events.isEmpty)
     }
 
+    /// The scroll a tab switch produces, which arrives while the new document is
+    /// still being parsed.
+    ///
+    /// The editor's one observation of a scroll is its clip view's bounds
+    /// change, and restoring a tab's viewport fires it in the same turn as the
+    /// retarget — so this line is reported when the page has no body yet. Held
+    /// rather than dropped, it is what makes the preview open where the editor
+    /// is; dropped, the pane sat at the top of the document until the user
+    /// scrolled again.
+    func testAScrollReportedBeforeTheBodyIsSentOnceTheBodyLands() async {
+        let (model, _, sink) = makeModel()
+
+        model.retarget(to: documentContext, text: "alpha")
+        model.noteScrolled(toLine: 40)
+
+        await waitFor("the first body") { sink.bodies.last == self.body(for: "alpha") }
+        await waitFor("the held scroll") { !sink.scrolledLines.isEmpty }
+        await settle()
+
+        XCTAssertEqual(sink.scrolledLines, [40])
+    }
+
+    /// The same held line, still coalesced: a burst reported before the body
+    /// lands is one call carrying the last of them, not one call each.
+    func testABurstReportedBeforeTheBodyIsStillOneCall() async {
+        let (model, _, sink) = makeModel()
+
+        model.retarget(to: documentContext, text: "alpha")
+        for line in 1...60 {
+            model.noteScrolled(toLine: line)
+        }
+
+        await waitFor("the held scroll") { !sink.scrolledLines.isEmpty }
+        await settle()
+
+        XCTAssertEqual(sink.scrolledLines, [60])
+    }
+
+    /// A line held across a retarget still belongs to the outgoing document, so
+    /// the retarget's own null is what must win.
+    ///
+    /// This is the guard the held-line rule could plausibly have broken: the
+    /// page ends up showing `beta`, and the position `alpha` was scrolled to
+    /// must not be applied to it.
+    func testAHeldScrollIsStillDroppedByARetargetBeforeTheBodyLands() async {
+        let (model, _, sink) = makeModel()
+
+        model.retarget(to: documentContext, text: "alpha")
+        model.noteScrolled(toLine: 40)
+        model.retarget(to: otherContext, text: "beta")
+
+        await waitFor("the second body") { sink.bodies.last == self.body(for: "beta") }
+        await settle()
+
+        XCTAssertEqual(sink.scrolledLines, [])
+    }
+
+    /// The same, for the clear: nothing held survives the page being emptied.
+    func testAHeldScrollIsStillDroppedByAClearBeforeTheBodyLands() async {
+        let (model, _, sink) = makeModel()
+
+        model.retarget(to: documentContext, text: "alpha")
+        model.noteScrolled(toLine: 40)
+        model.clear()
+
+        await settle()
+
+        XCTAssertEqual(sink.scrolledLines, [])
+    }
+
     // MARK: - The three moves the app glue makes
 
     /// `MarkdownPreviewController` and `MarkdownPreviewPane` hold no ordering of

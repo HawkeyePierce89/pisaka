@@ -923,7 +923,26 @@ struct CodeEditorView: NSViewRepresentable {
         context.coordinator.viewDefinitionOutsideProject = onViewDefinitionOutsideProject
         context.coordinator.requestUsages = onFindUsages
         context.coordinator.requestRename = onRenameSymbol
+        // A listener arriving is the one moment a scroll must be reported
+        // without a scroll having happened. Showing the Markdown preview over an
+        // already-scrolled document changes this editor's *frame*, not its clip
+        // view's bounds origin, so `clipViewBoundsChanged` never fires and the
+        // pane would open at the top of a file the editor is reading the middle
+        // of. Guarded on the transition, so the ordinary update — where the
+        // closure is merely refreshed — still reports nothing.
+        //
+        // Deferred by a turn rather than sent here, because the retarget this
+        // line belongs to is `MarkdownPreviewPane.onAppear`'s and SwiftUI does
+        // not order that against this update: reported synchronously, it could
+        // land *before* the retarget, which nulls the pending line by design.
+        // After the turn drains, both have run whichever way round they were.
+        let gainedScrollListener = context.coordinator.reportScrolled == nil && onScrolled != nil
         context.coordinator.reportScrolled = onScrolled
+        if gainedScrollListener {
+            DispatchQueue.main.async { [weak coordinator = context.coordinator] in
+                coordinator?.reportScroll()
+            }
+        }
         if switchedFile || contentReplaced || retargetedBuffer {
             context.coordinator.reindexSymbols(
                 text: textView.string,

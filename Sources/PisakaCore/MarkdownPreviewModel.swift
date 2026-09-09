@@ -253,13 +253,33 @@ public final class MarkdownPreviewModel {
     /// `scrollToLine` carrying the last line. A timer would add a latency nobody
     /// asked for and a second clock to reason about; this adds neither.
     ///
-    /// Nothing is sent while the page is showing no body: there is no element to
-    /// scroll to, and the position the editor is at will be part of the next
-    /// scroll anyway.
+    /// **A line reported while the page is showing no body is held, not
+    /// dropped.** There is no element to scroll to yet, so nothing is *sent* —
+    /// but the report is recorded and flushed by the publish that gives the page
+    /// its body. That is not a refinement of the coalescing rule, it is what
+    /// makes the feature start in the right place: the editor's one observation
+    /// of a scroll is its clip view's bounds change, and on the two moves that
+    /// begin a preview — a switch to a Markdown tab whose viewport is restored
+    /// mid-document, and the pane being shown over an already-scrolled one — the
+    /// bounds change arrives in the same turn as ``retarget(to:context:)``,
+    /// while the parse is still off the main actor. Dropping it left the preview
+    /// pinned to the top of the document until the user happened to scroll
+    /// again, which for a file being read rather than edited may be never.
+    ///
+    /// A line belonging to the *outgoing* document is still dropped: the
+    /// retarget and the clear both null the pending line, so what is held here
+    /// can only ever describe the document the page is about to show.
     public func noteScrolled(toLine line: Int) {
-        guard lastDocument != nil else { return }
         pendingScrollLine = line
-        guard !isScrollFlushScheduled else { return }
+        scheduleScrollFlush()
+    }
+
+    /// Queue this turn's one flush, unless a line is already waiting for it.
+    ///
+    /// Reached from the report above and from ``publishBody()``, which is the
+    /// moment a held line becomes sendable.
+    private func scheduleScrollFlush() {
+        guard pendingScrollLine != nil, !isScrollFlushScheduled else { return }
         isScrollFlushScheduled = true
         Task { [weak self] in
             self?.flushScroll()
@@ -299,9 +319,15 @@ public final class MarkdownPreviewModel {
     }
 
     /// Render ``lastDocument`` into the page, or do nothing when there is none.
+    ///
+    /// The page now has a body, so a line reported before it did — the scroll
+    /// the tab switch or the pane's appearance produced — becomes sendable here.
+    /// Scheduled rather than sent, so it still costs one call per turn and still
+    /// carries the last line reported.
     private func publishBody() {
         guard let lastDocument else { return }
         publish(body: MarkdownRenderer.body(for: lastDocument, context: context))
+        scheduleScrollFlush()
     }
 
     /// Send `body` to the page, unless the page is already showing it.
@@ -312,9 +338,13 @@ public final class MarkdownPreviewModel {
     }
 
     /// The one scroll call a turn's worth of bounds changes produces.
+    ///
+    /// A page with no body has nothing to scroll to, so the line stays pending
+    /// rather than being consumed: ``publishBody()`` schedules the flush again
+    /// once there is one. See ``noteScrolled(toLine:)``.
     private func flushScroll() {
         isScrollFlushScheduled = false
-        guard let line = pendingScrollLine else { return }
+        guard let line = pendingScrollLine, lastDocument != nil else { return }
         pendingScrollLine = nil
         sink.evaluate(MarkdownPreviewPage.scrollToLineSource(line: line))
     }
