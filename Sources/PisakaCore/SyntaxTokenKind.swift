@@ -11,7 +11,18 @@ import Foundation
 /// longest known dotted prefix against a name→kind table, so unrecognised
 /// suffixes degrade gracefully to the broader kind, and unknown names to
 /// `.plain`.
-public enum SyntaxTokenKind: Equatable {
+///
+/// **The conformances are load-bearing, not decoration.** `CaseIterable` is what
+/// lets the Markdown preview's highlight-class table be checked for coverage by
+/// *set equality* rather than against a hand-kept list that would rot the moment
+/// a kind is added — the new kind then fails that suite instead of silently
+/// rendering uncoloured, and the preview's page emits one CSS custom property
+/// per case by walking `allCases`. `Hashable` is what the two colour tables
+/// (`SyntaxTheme`'s and `MarkdownPreviewTheme`'s) are keyed on and `Sendable`
+/// what lets one of them cross an actor boundary; both were already true of a
+/// payload-free enum and are now written down. `Hashable` refines `Equatable`,
+/// which is why that spelling is gone rather than dropped.
+public enum SyntaxTokenKind: CaseIterable, Hashable, Sendable {
     case keyword
     case string
     case comment

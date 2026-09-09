@@ -90,14 +90,14 @@ Dependencies: `apple/swift-markdown` (transitively `swift-cmark`, plus DocC plug
 
 **Files:**
 - Create: `Sources/PisakaCore/MarkdownPreviewTheme.swift`, `Sources/PisakaCore/MarkdownHighlightClasses.swift`, `Tests/PisakaCoreTests/MarkdownPreviewThemeTests.swift`
-- Modify: `Sources/Pisaka/SyntaxTheme.swift`
+- Modify: `Sources/Pisaka/SyntaxTheme.swift`, `Sources/PisakaCore/SyntaxTokenKind.swift` (the `CaseIterable`/`Hashable`/`Sendable` conformances the set-equality tests and the per-kind CSS emission need)
 
-- [ ] Define `MarkdownPreviewTheme` as CSS colour strings only (background, text, secondary text, link, code background, border, table border, `colorScheme`) **plus one colour per `SyntaxTokenKind`**, in the `LeetCodeStatementDocument.Theme` mould — no platform colours anywhere in the file.
-- [ ] Define `MarkdownHighlightClasses`: the mapping from highlight.js class name to `SyntaxTokenKind`, plus the pinned list of the standard build's emitted class names, with the source of that list recorded in the doc comment (and re-stated in `VENDORED.md` in Task 9).
-- [ ] Add the app-side derivation in `SyntaxTheme.swift`: one function turning the editor palette + a resolved appearance into a `MarkdownPreviewTheme`, so preview code matches editor code.
-- [ ] Test the table **both ways** by set equality: every `SyntaxTokenKind` is reachable from at least one class, and every class of the pinned standard set maps to a kind.
-- [ ] Test that a light and a dark theme differ in every colour field, and that `colorScheme` is exactly `"light"`/`"dark"`.
-- [ ] Run `swift test`.
+- [x] Define `MarkdownPreviewTheme` as CSS colour strings only (background, text, secondary text, link, code background, border, table border, `colorScheme`) **plus one colour per `SyntaxTokenKind`**, in the `LeetCodeStatementDocument.Theme` mould — no platform colours anywhere in the file.
+- [x] Define `MarkdownHighlightClasses`: the mapping from highlight.js class name to `SyntaxTokenKind`, plus the pinned list of the standard build's emitted class names, with the source of that list recorded in the doc comment (and re-stated in `VENDORED.md` in Task 9).
+- [x] Add the app-side derivation in `SyntaxTheme.swift`: one function turning the editor palette + a resolved appearance into a `MarkdownPreviewTheme`, so preview code matches editor code.
+- [x] Test the table **both ways** by set equality: every `SyntaxTokenKind` is reachable from at least one class, and every class of the pinned standard set maps to a kind.
+- [x] Test that a light and a dark theme differ in every colour field, and that `colorScheme` is exactly `"light"`/`"dark"`.
+- [x] Run `swift test`.
 
 ### Task 5: The renderer (tree → HTML body)
 
