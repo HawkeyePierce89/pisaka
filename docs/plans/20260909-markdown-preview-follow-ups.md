@@ -206,12 +206,21 @@ gains exactly one setter and decides nothing.
 
 ### Task 4: Verify the acceptance criteria
 
-- [ ] `swift test` green.
-- [ ] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination
-      'platform=macOS' test` green (`PisakaAppTests`), with `-derivedDataPath
-      ~/Library/Developer/Xcode/DerivedData/pisaka-mdfollowups`.
-- [ ] `swiftlint --strict` clean from the repository root.
-- [ ] macOS and iOS builds green, same derived-data path outside the repository.
+- [x] `swift test` green — 5591 tests, 0 failures.
+- [x] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination
+      'platform=macOS' test` green (`PisakaAppTests`, 71 tests, 0 failures), with
+      `-derivedDataPath ~/Library/Developer/Xcode/DerivedData/pisaka-mdfollowups`.
+      One machine-local note, not a code condition: a rebuilt, ad-hoc-signed host
+      is not on the ACL of this Mac's existing LeetCode session Keychain item, so
+      `LeetCodeKeychainStore.load()` — called from `PisakaApp.init()` — blocks on
+      a SecurityAgent prompt nobody can click and the runner reports "hung before
+      establishing connection". Answering the prompt once, or running with
+      `TEST_RUNNER_HOME=<throwaway dir>` (process-scoped; the user's Keychain is
+      not touched), gets past it. CI never sees this: there is no such item there.
+- [x] `swiftlint --strict` clean from the repository root — 0 violations,
+      558 files.
+- [x] macOS and iOS builds green (`platform=macOS` and `generic/platform=iOS`),
+      same derived-data path outside the repository.
 
 ### Task 5: Update documentation
 
