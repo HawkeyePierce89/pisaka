@@ -491,4 +491,55 @@ final class MarkdownPreviewAssetTests: XCTestCase {
         // own bytes and have nothing to do with a project.
         XCTAssertEqual(MarkdownPreviewAsset.classify(MarkdownPreviewPage.shellURL, context: .none), .shell)
     }
+
+    // MARK: - The unresolved form
+
+    /// A target that is already absolute, or that addresses this page, keeps its
+    /// own spelling: the base URL has nothing to do to it, and rewriting it
+    /// would cost the broken image its alt text and an `http` link its opening.
+    func testAnAbsoluteOrFragmentTargetIsUnresolvedAsItself() {
+        for target in [
+            "https://example.com/i.png",
+            "http://example.com/i.png",
+            "mailto:a@e.com",
+            "file:///etc/passwd",
+            "javascript:alert(1)",
+            "#section",
+            "",
+        ] {
+            XCTAssertEqual(MarkdownPreviewAsset.unresolvedTarget(target), target, target.debugDescription)
+        }
+    }
+
+    /// A scheme-less target is carried as one opaque segment under the reserved
+    /// prefix, so nothing is left for the page's base URL to resolve.
+    ///
+    /// The encoding is the load-bearing half: an unencoded `../..` under the
+    /// prefix would be normalized away by the web view before the inverse ever
+    /// saw it, which is the same bug one level deeper.
+    func testASchemeLessTargetIsCarriedAsOneOpaqueSegment() throws {
+        for target in ["img/a.png", "../../etc/passwd", "/etc/passwd", "../file/x.png", "a b.png"] {
+            let emitted = MarkdownPreviewAsset.unresolvedTarget(target)
+            XCTAssertTrue(
+                emitted.hasPrefix(
+                    MarkdownPreviewPage.unresolvedURLString(forOpaqueTarget: "")
+                ),
+                target
+            )
+            let url = try XCTUnwrap(URL(string: emitted), target)
+            // One segment, read on the **encoded** path — the reading URL
+            // normalization makes, and the only one under which the claim means
+            // anything: `URL.path` decodes `%2F` back into a `/` that was never
+            // a delimiter. Nothing after the prefix is a segment a `..` could
+            // climb through, so resolving the URL changes nothing.
+            let encodedPath = try XCTUnwrap(URLComponents(string: emitted)?.percentEncodedPath, target)
+            XCTAssertEqual(
+                encodedPath.dropFirst(MarkdownPreviewPage.unresolvedPathPrefix.count).filter { $0 == "/" }.count,
+                0,
+                target
+            )
+            XCTAssertEqual(url.standardized.absoluteString, url.absoluteString, target)
+            XCTAssertEqual(MarkdownPreviewAsset.classify(url, context: context), .refused, target)
+        }
+    }
 }

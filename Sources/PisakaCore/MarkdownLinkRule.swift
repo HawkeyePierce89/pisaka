@@ -43,13 +43,20 @@ public enum MarkdownLinkDecision: Equatable, Sendable {
 /// forward direction to have done it, because the URL arriving here need not be
 /// one the forward direction produced.
 ///
-/// A target the renderer could **not** resolve was emitted with the source's own
-/// spelling, so it arrives here as whatever the page's base URL made of it: an
-/// `http` URL stays one and opens externally, and a relative path resolves
-/// against the shell's URL into an app-scheme URL naming a file that is either
-/// inside the root (in which case opening it is right, and the forward
-/// direction's refusal was about the *document's* directory, not about reach) or
-/// outside it, in which case the inverse refuses it here.
+/// A target the renderer could **not** resolve arrives here as
+/// ``MarkdownPreviewAsset/unresolvedTarget(_:)`` made of it. A target carrying a
+/// scheme keeps its own spelling — an `http` one stays one and opens externally,
+/// a `file:` one is refused below — because a scheme is already absolute and the
+/// page's base URL has nothing to do to it. A **scheme-less** one arrives under
+/// ``MarkdownPreviewPage/unresolvedPathPrefix`` as a single opaque segment, and
+/// is refused here for naming no project file, which is the forward direction's
+/// decision arriving intact.
+///
+/// That indirection is the point: left verbatim, a scheme-less spelling would be
+/// resolved by the web view against the shell's URL, and one normalizing under
+/// ``MarkdownPreviewPage/filePathPrefix`` would be read here as `openInEditor`
+/// on a *different* in-project file. Containment held — the inverse re-checks
+/// against the root — but the file opened was not the one refused.
 public enum MarkdownLinkRule {
 
     /// The schemes that leave the app. Lowercased on comparison, since a URL may

@@ -124,6 +124,16 @@ public enum MarkdownListTightness {
     /// one as a break here would shift every line number below it. Swift's
     /// grapheme breaking already reads `CRLF` as one `Character`, which is why
     /// the set has three members and no look-ahead.
+    ///
+    /// **The whitespace is cmark's too**, for the same reason and by the same
+    /// argument: CommonMark's blank line holds spaces and tabs and nothing else,
+    /// so the test names those two rather than asking `Character.isWhitespace`,
+    /// whose set is Unicode's. That set contains `NBSP`, `U+2007`, `U+202F`,
+    /// `U+3000` — and `NEL`, `LS` and `PS`, which this very function refuses to
+    /// read as separators. A line holding one pasted `NBSP` is content to cmark
+    /// and would be blank here: the enclosing list would render loose against a
+    /// tree that says it is tight, and a code block's span would be trimmed into
+    /// its own content.
     public static func blankLines(in source: String) -> Set<Int> {
         var blanks: Set<Int> = []
         var line = 1
@@ -133,7 +143,7 @@ public enum MarkdownListTightness {
                 if isBlank { blanks.insert(line) }
                 line += 1
                 isBlank = true
-            } else if !character.isWhitespace, character != ">" {
+            } else if character != " ", character != "\t", character != ">" {
                 isBlank = false
             }
         }

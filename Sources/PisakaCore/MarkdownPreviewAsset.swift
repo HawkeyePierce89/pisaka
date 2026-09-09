@@ -136,6 +136,36 @@ public enum MarkdownPreviewAsset {
         return URL(fileURLWithPath: path, relativeTo: base).standardizedFileURL
     }
 
+    /// What a target ``assetURL(forTarget:context:)`` refused is emitted as.
+    ///
+    /// The refusal has to survive the page's base URL. A target that carries a
+    /// scheme, and a fragment-only target, already do: an `http:` spelling stays
+    /// an `http:` URL the navigation rule hands to the system, a `file:` one
+    /// stays a `file:` URL it refuses, and `#section` addresses this document.
+    /// Each is emitted exactly as the source spelled it, which is what makes an
+    /// out-of-project image a broken image showing its alt text.
+    ///
+    /// A **scheme-less** spelling does not: the web view resolves it against
+    /// ``MarkdownPreviewPage/shellURL``, and one that normalizes under
+    /// ``MarkdownPreviewPage/filePathPrefix`` re-enters the served namespace as
+    /// another project file entirely. So it is emitted under
+    /// ``MarkdownPreviewPage/unresolvedPathPrefix`` instead, its spelling
+    /// percent-encoded to alphanumerics so the whole of it is one segment that
+    /// cannot normalize into anything: the inverse mapping finds no
+    /// ``MarkdownPreviewPage/filePathPrefix`` and refuses, the handler answers a
+    /// 404, and the image is broken and the link dead — which is what the
+    /// forward direction decided.
+    ///
+    /// Nothing is *dropped* either way: the attribute is present, so a document
+    /// that had an image is never mistaken for one that did not.
+    public static func unresolvedTarget(_ target: String) -> String {
+        guard !target.isEmpty, !target.hasPrefix("#"), lexicalScheme(of: target) == nil else {
+            return target
+        }
+        let opaque = target.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? ""
+        return MarkdownPreviewPage.unresolvedURLString(forOpaqueTarget: opaque)
+    }
+
     /// The scheme `target` spells, lowercased — or `nil` when it spells none.
     ///
     /// Read by hand, because the question asked here is *only* "does this
@@ -298,6 +328,11 @@ extension MarkdownPreviewAsset {
         }
         let path = url.path
         if path == MarkdownPreviewPage.shellPath { return .shell }
+        // Said outright rather than left to the fall-through below, which would
+        // reach the same answer: this prefix is what a *refused* target was
+        // emitted under, and the handler answering a 404 for it is the refusal
+        // taking effect rather than a path that happened not to match anything.
+        if path.hasPrefix(MarkdownPreviewPage.unresolvedPathPrefix) { return .refused }
         if path.hasPrefix(MarkdownPreviewPage.bundledPathPrefix) {
             let name = String(path.dropFirst(MarkdownPreviewPage.bundledPathPrefix.count))
             // Membership, not existence: the set is fixed at build time, so a

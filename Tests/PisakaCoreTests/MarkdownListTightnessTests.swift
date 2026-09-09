@@ -144,6 +144,27 @@ final class MarkdownListTightnessTests: XCTestCase {
         XCTAssertEqual(blankLines("a\u{85}\n\nb\n"), [2, 4])
     }
 
+    /// The **whitespace** is cmark's two and not Unicode's set: CommonMark's
+    /// blank line holds spaces and tabs only, so a line carrying one pasted
+    /// `NBSP` (or any other Unicode space) is content, exactly as cmark reads
+    /// it.
+    ///
+    /// The failure this pins is silent and cosmetic but real: the enclosing list
+    /// would be reported loose against a tree that says it is tight, and a code
+    /// block's span would be trimmed into its own content by a gap the source
+    /// never wrote. Note that `NEL`, `LS` and `PS` are in `isWhitespace` too —
+    /// the very three the separator rule above refuses to read as breaks — so
+    /// the two halves of this function would have disagreed about them.
+    func testTheBlankTestIsTheWhitespaceCmarkCounts() {
+        for space in ["\u{00A0}", "\u{2007}", "\u{202F}", "\u{3000}", "\u{0085}", "\u{2028}"] {
+            XCTAssertEqual(blankLines("a\n\(space)\nb\n"), [4], space.debugDescription)
+        }
+        // …while the two it does count still make a line blank, alone, together
+        // and after a block-quote marker.
+        XCTAssertEqual(blankLines("a\n \t\nb\n"), [2, 4])
+        XCTAssertEqual(blankLines("> a\n>\t \n> b\n"), [2, 4])
+    }
+
     func testTheLineAfterATrailingSeparatorIsBlankAndAnEmptySourceIsOneBlankLine() {
         XCTAssertEqual(blankLines(""), [1])
         XCTAssertEqual(blankLines("a"), [])

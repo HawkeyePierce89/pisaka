@@ -93,6 +93,7 @@ final class MarkdownPreviewSourceGatingTests: XCTestCase {
     /// The Core half, enumerated rather than matched by prefix.
     private static let coreFileNames = [
         "MarkdownDocument.swift",
+        "MarkdownListTightness.swift",
         "MarkdownPreviewTheme.swift",
         "MarkdownHighlightClasses.swift",
         "MarkdownRenderer.swift",

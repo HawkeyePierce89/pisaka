@@ -60,6 +60,27 @@ public enum MarkdownPreviewPage {
     /// re-check against the root it was given.
     public static let filePathPrefix = "/file/"
 
+    /// The path prefix a target the forward mapping **refused** is emitted
+    /// under, carrying that target's own spelling as one opaque, fully
+    /// percent-encoded segment.
+    ///
+    /// It exists because "emit the source's own spelling" is not, on its own, a
+    /// refusal. The page's base URL is ``shellURL``, so a *scheme-less* spelling
+    /// left verbatim is re-resolved by the web view against `/index.html` — and
+    /// any spelling that normalizes to a path under ``filePathPrefix`` (say
+    /// `../file/logo.png`, or every relative target at all in an unsaved buffer)
+    /// lands back inside the served project-file namespace, naming a *different*
+    /// in-project file. Containment is never broken — the inverse re-checks
+    /// against the root either way — but the answer is silently the wrong file
+    /// rather than the broken image and the refused link this feature states it
+    /// is. Reserving a prefix nothing is served under makes the refusal true.
+    ///
+    /// The spelling is carried percent-encoded down to alphanumerics precisely
+    /// so it cannot climb back out: an unencoded `../..` under this prefix would
+    /// be normalized away by the web view before the inverse ever saw it, which
+    /// is the bug one level deeper.
+    public static let unresolvedPathPrefix = "/unresolved/"
+
     /// The URL the web view loads, and the only document the handler ever serves
     /// as HTML.
     public static let shellURL = URL(string: "\(scheme)://\(host)\(shellPath)")!
@@ -99,6 +120,18 @@ extension MarkdownPreviewPage {
     /// The page-relative URL path a bundled file answers under.
     public static func bundledPath(forFileName name: String) -> String {
         bundledPathPrefix + name
+    }
+
+    /// The absolute URL string a refused target is emitted as, given that
+    /// target's spelling already reduced to one opaque segment.
+    ///
+    /// Absolute rather than page-relative, so that there is nothing left for the
+    /// base URL to do to it — a relative spelling under this prefix would be
+    /// resolved, and resolving it is the whole thing this prefix exists to stop.
+    /// The composition lives here because the scheme and the host are spelled in
+    /// this file and in no other.
+    public static func unresolvedURLString(forOpaqueTarget segment: String) -> String {
+        "\(scheme)://\(host)\(unresolvedPathPrefix)\(segment)"
     }
 }
 

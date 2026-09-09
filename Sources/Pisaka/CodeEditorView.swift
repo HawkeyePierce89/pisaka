@@ -923,22 +923,33 @@ struct CodeEditorView: NSViewRepresentable {
         context.coordinator.viewDefinitionOutsideProject = onViewDefinitionOutsideProject
         context.coordinator.requestUsages = onFindUsages
         context.coordinator.requestRename = onRenameSymbol
-        // A listener arriving is the one moment a scroll must be reported
-        // without a scroll having happened. Showing the Markdown preview over an
-        // already-scrolled document changes this editor's *frame*, not its clip
-        // view's bounds origin, so `clipViewBoundsChanged` never fires and the
-        // pane would open at the top of a file the editor is reading the middle
-        // of. Guarded on the transition, so the ordinary update — where the
-        // closure is merely refreshed — still reports nothing.
+        // A listener arriving is one of the two moments a scroll must be
+        // reported without a scroll having happened. Showing the Markdown
+        // preview over an already-scrolled document changes this editor's
+        // *frame*, not its clip view's bounds origin, so `clipViewBoundsChanged`
+        // never fires and the pane would open at the top of a file the editor is
+        // reading the middle of. Guarded on the transition, so the ordinary
+        // update — where the closure is merely refreshed — still reports nothing.
         //
-        // Deferred by a turn rather than sent here, because the retarget this
-        // line belongs to is `MarkdownPreviewPane.onAppear`'s and SwiftUI does
-        // not order that against this update: reported synchronously, it could
-        // land *before* the retarget, which nulls the pending line by design.
-        // After the turn drains, both have run whichever way round they were.
+        // A **switch between two previewed tabs** is the other, and it is not
+        // the transition above: the listener was already attached, so nothing
+        // here fires, while `restoreViewport(for:)` below posts the incoming
+        // tab's bounds change *synchronously* inside this update — reaching the
+        // preview while it still holds the outgoing tab's text, and then losing
+        // the line to the retarget that nulls it by design. Either way the pane
+        // opens at the top of a document the editor restored the middle of.
+        //
+        // Deferred by a turn rather than sent here, in both cases and for one
+        // reason: the retarget this line belongs to is
+        // `MarkdownPreviewPane`'s — `onAppear` for the first, `onChange(of:
+        // file.id)` for the second — and SwiftUI does not order either against
+        // this update. Reported synchronously it could land before the retarget,
+        // which nulls the pending line. After the turn drains, both have run
+        // whichever way round they were, the restore has settled the clip view,
+        // and the preview holds the incoming text the offset is a line of.
         let gainedScrollListener = context.coordinator.reportScrolled == nil && onScrolled != nil
         context.coordinator.reportScrolled = onScrolled
-        if gainedScrollListener {
+        if gainedScrollListener || (switchedFile && onScrolled != nil) {
             DispatchQueue.main.async { [weak coordinator = context.coordinator] in
                 coordinator?.reportScroll()
             }

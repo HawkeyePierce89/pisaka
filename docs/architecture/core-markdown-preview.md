@@ -101,9 +101,9 @@ renders, just unstyled and unhighlighted, with no build error anywhere.
 
 ### M4 — The app-scheme vocabulary lives in one Core file, and the mapping is a function in both directions
 
-The scheme (`pisaka-preview`), the host (`preview`), the shell path and the two
-path prefixes (`/assets/`, `/file/`) are constants of `MarkdownPreviewPage`, and
-**no app file spells any of them**. `MarkdownPreviewAsset` owns both directions:
+The scheme (`pisaka-preview`), the host (`preview`), the shell path and the
+three path prefixes (`/assets/`, `/file/`, `/unresolved/`) are constants of
+`MarkdownPreviewPage`, and **no app file spells any of them**. `MarkdownPreviewAsset` owns both directions:
 
 - forward, `assetURL(forTarget:context:)` — the renderer hands it a source's own
   spelling of an `src`/`href` and emits what it answers;
@@ -430,7 +430,12 @@ cmark's own flag rather than by reasoning from the spec:
   This is the one reading that needs the *source* and not just the tree, and it
   is Core that reads it: `MarkdownListTightness.blankLines(in:)`, over cmark's
   three line separators and deliberately not the editor-wide set, since the
-  numbers are compared against the ones cmark wrote onto the tree.
+  numbers are compared against the ones cmark wrote onto the tree — and over
+  cmark's **whitespace** for the same reason, spaces and tabs rather than
+  `Character.isWhitespace`, whose Unicode set holds `NBSP` and friends *and* the
+  very `NEL`/`LS`/`PS` the separator half refuses. A line carrying one pasted
+  `NBSP` is content to cmark; read as blank it would report a tight list loose
+  and trim a code block's span into its own content.
 
 **Two shapes are stated divergences, and the flag is the thing that is wrong in
 both.** cmark records "did this block end on a blank line" as it parses, and in
@@ -687,7 +692,25 @@ The scheme, the URLs, the document and the two entry points (M2, M3, M4, M7).
   part of the origin and retargeting is not a cross-origin navigation),
   `shellPath`, `bundledPathPrefix`, `filePathPrefix` (carrying a
   **project-relative** path, so the page never learns where the project sits on
-  disk) and `shellURL`.
+  disk), `unresolvedPathPrefix` and `shellURL`.
+- **`unresolvedPathPrefix` is what makes a refusal survive the base URL.**
+  "Emit the source's own spelling" is not, on its own, a refusal: the page's base
+  is `shellURL`, so a *scheme-less* spelling left verbatim is re-resolved by the
+  web view against `/index.html`, and any spelling normalizing under
+  `filePathPrefix` — `../file/logo.png`, or **every** relative target at all in
+  an unsaved buffer — lands back in the served project-file namespace naming a
+  *different* in-project file. Containment never broke (the inverse re-checks
+  against the root either way), but the answer was a wrong image and a wrong file
+  opened in the editor rather than the broken image and the dead link this
+  feature states it gives. `MarkdownPreviewAsset.unresolvedTarget(_:)` is the one
+  rule: a target carrying a scheme, and a fragment-only one, keep their own
+  spelling (already absolute, and the base has nothing to do to them); a
+  scheme-less one is carried under this prefix **percent-encoded down to
+  alphanumerics**, so the whole of it is one opaque segment that cannot normalize
+  into anything — an unencoded `../..` under the prefix would be the same bug one
+  level deeper. `classify(_:context:)` names the prefix outright rather than
+  letting it reach the same `.refused` by fall-through, so the 404 is the refusal
+  taking effect and not a path that happened to match nothing.
 - The bundled set: `bundledFileNames` in **load order** — stylesheet, the two
   third-party scripts, then `preview.js`, which touches `hljs` and `mermaid` at
   boot — as one list rather than four call sites, because the handler serves
@@ -801,11 +824,17 @@ that resource. Everything else goes through the inverse mapping, and a `nil` is
 `refused` — which also covers `javascript:`, `data:` and a `file:` URL the page
 had no business composing.
 
-A target the renderer could not resolve arrives here as whatever the page's base
-URL made of it: an `http` URL stays one and opens externally; a relative path
-resolves against the shell into an app-scheme URL naming a file that is either
-inside the root (opening it is right — the forward direction's refusal was about
-the *document's* directory, not about reach) or outside it, and refused here.
+A target the renderer could not resolve arrives here as
+`MarkdownPreviewAsset.unresolvedTarget(_:)` made of it. One carrying a scheme
+keeps its own spelling — an `http` one stays one and opens externally, a `file:`
+one is refused above — because a scheme is already absolute and the page's base
+URL has nothing to do to it. A **scheme-less** one arrives under
+`unresolvedPathPrefix` as a single opaque segment and is refused here for naming
+no project file, which is the forward direction's decision arriving intact. That
+indirection is the point (M4): left verbatim, a scheme-less spelling would be
+resolved by the web view against the shell, and one normalizing under
+`filePathPrefix` would be read here as `openInEditor` on a **different**
+in-project file.
 
 ### `MarkdownScrollRule.swift`
 
@@ -1219,14 +1248,24 @@ document that carries no targets.
   viewport, so an ordinary tab does not even capture one: `captureViewport()`
   asks the layout system for the character at a point, which is work worth
   skipping on every scroll frame. It carries an offset rather than a line
-  because that is what the editor has. **A listener arriving reports once by
-  itself**, on the `nil` → non-`nil` transition alone: showing the pane over an
+  because that is what the editor has. **Two moments report once by
+  themselves**, both being scrolls that never happened. A listener *arriving*
+  (the `nil` → non-`nil` transition) is one: showing the pane over an
   already-scrolled document changes the editor's *frame*, not its clip view's
   bounds origin, so `clipViewBoundsChanged` never fires and nothing would be
-  reported at all. Deferred by a turn rather than sent inside `updateNSView`,
-  because the retarget this line belongs to is `MarkdownPreviewPane.onAppear`'s
-  and SwiftUI orders neither against the other — sent synchronously it could
-  land ahead of the retarget, which nulls the pending line by design.
+  reported at all. A **switch between two previewed tabs** is the other, and it
+  is not that transition — the listener was already attached, so nothing fires
+  there, while `restoreViewport(for:)` posts the incoming tab's bounds change
+  *synchronously* inside the same update, reaching the preview while it still
+  holds the outgoing tab's text and then losing the line to the retarget that
+  nulls it. Either way the pane would open at the top of a document the editor
+  restored the middle of. Both are deferred by a turn rather than sent inside
+  `updateNSView`, for one reason: the retarget each belongs to is
+  `MarkdownPreviewPane`'s — `onAppear` for the first, `onChange(of: file.id)`
+  for the second — and SwiftUI orders neither against the other, so a
+  synchronous report could land ahead of the retarget, which nulls the pending
+  line by design. After the turn drains, the restore has settled the clip view
+  and the preview holds the text the offset is a line of.
 - `SyntaxTheme.swift` (`app-editor-overlays.md`) — `markdownPreviewTheme(prefersDark:)`
   (M10), resolving inside `performAsCurrentDrawingAppearance` so the answer is
   the one the caller asked for rather than the one the calling thread happens to

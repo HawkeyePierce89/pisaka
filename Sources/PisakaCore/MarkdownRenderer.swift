@@ -285,18 +285,25 @@ public enum MarkdownRenderer {
     }
 
     /// What a `src`/`href` is emitted as: the app-scheme URL when the asset rule
-    /// approves the target, and otherwise the source's own spelling.
+    /// approves the target, and otherwise the *unresolved* form of the target.
     ///
-    /// The unresolved spelling is deliberate and is the whole of the fallback: an
+    /// The unresolved form is deliberate and is the whole of the fallback: an
     /// out-of-project image renders as a broken image showing its alt text, and
     /// an out-of-project link is a target the navigation rule refuses. Both are
     /// visible; a dropped attribute would be silent.
+    ///
+    /// It is ``MarkdownPreviewAsset/unresolvedTarget(_:)`` rather than the raw
+    /// spelling because the raw spelling is not always a refusal: a scheme-less
+    /// one is re-resolved by the page against the shell's URL and can land back
+    /// in the served namespace as another project file. That rule is asked here
+    /// for the same reason the forward one is — this is the one place a
+    /// destination becomes an attribute, and neither answer is composed here.
     private static func target(_ destination: String?, context: MarkdownDocumentContext) -> String? {
         guard let destination else { return nil }
         if let url = MarkdownPreviewAsset.assetURL(forTarget: destination, context: context) {
             return url.absoluteString
         }
-        return destination
+        return MarkdownPreviewAsset.unresolvedTarget(destination)
     }
 
     /// One attribute, escaped, or nothing when the value is absent.

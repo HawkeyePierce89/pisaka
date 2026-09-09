@@ -403,21 +403,70 @@ final class MarkdownRendererTests: XCTestCase {
         )
     }
 
-    /// A target outside the root is emitted **unresolved** — the source's own
-    /// spelling, which renders as a broken image with its alt text and, for a
-    /// link, as a target the navigation rule refuses.
+    /// A target outside the root is emitted **unresolved** — which renders as a
+    /// broken image with its alt text and, for a link, as a target the
+    /// navigation rule refuses.
+    ///
+    /// A target carrying a scheme keeps its own spelling; a scheme-less one is
+    /// carried under the reserved prefix, since the page would otherwise resolve
+    /// it against the shell's URL (see the round trip below).
     func testTargetOutsideTheRootIsEmittedUnresolved() {
-        let escapes = [
-            "../../etc/passwd",
-            "/etc/passwd",
-            "file:///etc/passwd",
-        ]
-        for target in escapes {
+        for target in ["../../etc/passwd", "/etc/passwd"] {
             let rendered = body(.paragraph([.image(source: target, title: nil, children: [.text("alt")])]), projectContext)
             XCTAssertEqual(
                 rendered,
-                "<p><img src=\"\(MarkdownRenderer.escaped(target))\" alt=\"alt\"></p>",
+                "<p><img src=\"\(MarkdownRenderer.escaped(MarkdownPreviewAsset.unresolvedTarget(target)))\" alt=\"alt\"></p>",
                 target
+            )
+            XCTAssertTrue(rendered.contains(MarkdownPreviewPage.unresolvedPathPrefix), target)
+        }
+        let rendered = body(
+            .paragraph([.image(source: "file:///etc/passwd", title: nil, children: [.text("alt")])]),
+            projectContext
+        )
+        XCTAssertEqual(rendered, "<p><img src=\"file:///etc/passwd\" alt=\"alt\"></p>")
+    }
+
+    /// The refusal survives the page's base URL, which is the whole reason the
+    /// reserved prefix exists.
+    ///
+    /// A refused *scheme-less* spelling left verbatim would be re-resolved by
+    /// the web view against ``MarkdownPreviewPage/shellURL``; any spelling
+    /// normalizing under the project-file prefix would then name a **different**
+    /// in-project file — a wrong image, and a wrong file opened in the editor.
+    /// Containment never broke; the answer was simply not the one the forward
+    /// direction gave. So the emitted attribute is resolved the way the page
+    /// would resolve it, and the inverse must still refuse it.
+    func testARefusedRelativeTargetCannotReEnterTheServedNamespace() throws {
+        let context = MarkdownDocumentContext(
+            documentURL: URL(fileURLWithPath: "/p/root/a.md"),
+            projectRoot: URL(fileURLWithPath: "/p/root")
+        )
+        let escapes = [
+            "../file/logo.png",       // would have named /p/root/logo.png
+            "../assets/preview.css",  // would have named a bundled file
+            "../index.html",          // would have named the shell itself
+            "../file/../file/x.png",
+        ]
+        for target in escapes {
+            XCTAssertNil(
+                MarkdownPreviewAsset.assetURL(forTarget: target, context: context),
+                "\(target) is refused by the forward direction"
+            )
+            let emitted = MarkdownPreviewAsset.unresolvedTarget(target)
+            let url = try XCTUnwrap(
+                URL(string: emitted, relativeTo: MarkdownPreviewPage.shellURL)?.absoluteURL,
+                target
+            )
+            XCTAssertEqual(
+                MarkdownPreviewAsset.classify(url, context: context),
+                .refused,
+                "\(target) must stay refused after the page resolves it"
+            )
+            XCTAssertEqual(
+                MarkdownLinkRule.decision(for: url, context: context),
+                .refused,
+                "\(target) must open nothing"
             )
         }
     }
@@ -442,24 +491,31 @@ final class MarkdownRendererTests: XCTestCase {
     }
 
     /// With no document URL there is no base to resolve against, so a relative
-    /// target stays relative — an unsaved buffer's images are broken, honestly.
-    func testRelativeTargetWithoutADocumentURLStaysRelative() {
+    /// target is unresolved — an unsaved buffer's images are broken, honestly.
+    ///
+    /// Under the reserved prefix rather than verbatim, because *every* relative
+    /// target is refused in this context: `file/x.png` left as spelled would be
+    /// resolved by the page into the served project-file namespace, which is the
+    /// one shape where "broken, honestly" would have been false.
+    func testRelativeTargetWithoutADocumentURLIsUnresolved() {
         let context = MarkdownDocumentContext(documentURL: nil, projectRoot: URL(fileURLWithPath: "/p/root"))
         XCTAssertEqual(
             body(.paragraph([.image(source: "img/a.png", title: nil, children: [])]), context),
-            "<p><img src=\"img/a.png\" alt=\"\"></p>"
+            "<p><img src=\"\(MarkdownPreviewAsset.unresolvedTarget("img/a.png"))\" alt=\"\"></p>"
         )
+        let served = body(.paragraph([.image(source: "file/x.png", title: nil, children: [])]), context)
+        XCTAssertFalse(served.contains(MarkdownPreviewPage.filePathPrefix + "x.png"))
     }
 
     /// With no project root there is nothing to be inside of.
-    func testRelativeTargetWithoutAProjectRootStaysRelative() {
+    func testRelativeTargetWithoutAProjectRootIsUnresolved() {
         let context = MarkdownDocumentContext(
             documentURL: URL(fileURLWithPath: "/p/root/docs/guide.md"),
             projectRoot: nil
         )
         XCTAssertEqual(
             body(.paragraph([.image(source: "img/a.png", title: nil, children: [])]), context),
-            "<p><img src=\"img/a.png\" alt=\"\"></p>"
+            "<p><img src=\"\(MarkdownPreviewAsset.unresolvedTarget("img/a.png"))\" alt=\"\"></p>"
         )
     }
 
