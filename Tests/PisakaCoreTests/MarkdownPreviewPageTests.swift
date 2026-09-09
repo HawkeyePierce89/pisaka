@@ -300,9 +300,33 @@ final class MarkdownPreviewPageTests: XCTestCase {
         )
     }
 
-    func testBothEntryPointsCallThroughTheOneNamespace() {
+    func testTheAnchorSourceCarriesTheFragmentAsAValue() {
+        XCTAssertEqual(
+            MarkdownPreviewPage.scrollToAnchorSource(anchor: "section"),
+            "window.PisakaPreview.scrollToAnchor(\"section\");"
+        )
+    }
+
+    /// A fragment is author text — it arrives from an `href` in a document
+    /// nobody here wrote — so it is escaped by the same rule the body is, and a
+    /// fragment spelling a quote, a call terminator or a `</script>` produces one
+    /// call with one argument rather than a second statement.
+    func testAHostileFragmentStaysOneArgument() throws {
+        let anchor = "a\");alert(1);//</script>\u{2028}"
+        let source = MarkdownPreviewPage.scrollToAnchorSource(anchor: anchor)
+        let literal = try XCTUnwrap(argument(of: source, call: "scrollToAnchor"))
+        XCTAssertFalse(literal.contains("</script>"))
+        let decoded = try JSONSerialization.jsonObject(
+            with: Data(literal.utf8),
+            options: [.fragmentsAllowed]
+        ) as? String
+        XCTAssertEqual(decoded, anchor)
+    }
+
+    func testEveryEntryPointCallsThroughTheOneNamespace() {
         XCTAssertTrue(MarkdownPreviewPage.bodyUpdateSource(body: "x").hasPrefix("window.PisakaPreview."))
         XCTAssertTrue(MarkdownPreviewPage.scrollToLineSource(line: 1).hasPrefix("window.PisakaPreview."))
+        XCTAssertTrue(MarkdownPreviewPage.scrollToAnchorSource(anchor: "x").hasPrefix("window.PisakaPreview."))
         XCTAssertTrue(MarkdownPreviewPage.bootstrapSource.hasPrefix("window.PisakaPreview."))
     }
 }

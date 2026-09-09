@@ -1,8 +1,9 @@
 /*
  * The Markdown preview's one first-party script.
  *
- * Written in this repository. It defines the three members the page is driven
- * through — `boot`, `render`, `scrollToLine` — and nothing else reaches the
+ * Written in this repository. It defines the four members the page is driven
+ * through — `boot`, `render`, `scrollToLine`, `scrollToAnchor` — and nothing
+ * else reaches the
  * global scope: the shell's single inline line calls `boot`, and everything
  * after that arrives as an `evaluateJavaScript` of a source `MarkdownPreviewPage`
  * composed. This file therefore *decides* nothing. It has no opinion about when
@@ -175,9 +176,23 @@
         window.scrollTo(0, target.getBoundingClientRect().top + window.scrollY);
     }
 
+    /* Scroll to the element a fragment names, without animation, or do nothing.
+
+       An `id` lookup and nothing more: the fragment arrives as the document
+       spelled it, and no other reading of it — a heading's text, a slug derived
+       from one — is invented here. `MarkdownRenderer` emits no `id` today, so a
+       fragment lands on nothing and the page stays where it is, which is the
+       honest answer for a link into a document that carries no targets. */
+    function scrollToAnchor(name) {
+        var target = document.getElementById(name);
+        if (!target) { return; }
+        window.scrollTo(0, target.getBoundingClientRect().top + window.scrollY);
+    }
+
     window.PisakaPreview = {
         boot: boot,
         render: render,
         scrollToLine: scrollToLine,
+        scrollToAnchor: scrollToAnchor,
     };
 }());

@@ -116,7 +116,8 @@ package-level coverage check can see it.
 
 ## What was written here
 
-- `preview.js` — the page's three members (`boot`, `render`, `scrollToLine`) and
+- `preview.js` — the page's four members (`boot`, `render`, `scrollToLine`,
+  `scrollToAnchor`) and
   the whole of what the page does on its own: highlight the blocks the renderer
   gave a language to, render each diagram inside its own `try`/`catch`, and
   discard an answer from a superseded render. It decides nothing about *when* —

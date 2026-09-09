@@ -78,7 +78,7 @@ extension MarkdownPreviewPage {
     /// The bundled diagram renderer.
     public static let diagramScriptFileName = "mermaid.min.js"
 
-    /// The first-party script defining ``namespace``'s three members.
+    /// The first-party script defining ``namespace``'s four members.
     public static let previewScriptFileName = "preview.js"
 
     /// Every file the shell asks for, in the order it asks — the stylesheet
@@ -294,6 +294,22 @@ extension MarkdownPreviewPage {
         "window.\(namespace).render(\(javaScriptStringLiteral(body)));"
     }
 
+    /// The JavaScript that scrolls the page to the element a fragment names.
+    ///
+    /// The argument crosses as a **value**, escaped by the same rule the body
+    /// does, because a fragment is author text: it arrives from an `href` in a
+    /// document nobody in this app wrote, and a fragment spliced into source
+    /// would be a way to end the call and start a statement.
+    ///
+    /// The page answers this by an `id` lookup and does nothing when it finds
+    /// none — which is what an anchor into a document that carries no `id` at
+    /// all means today, `MarkdownRenderer` emitting none. The seam exists here
+    /// rather than in the navigation delegate for the reason every other one
+    /// does: the app passes a fragment, it does not compose a call.
+    public static func scrollToAnchorSource(anchor: String) -> String {
+        "window.\(namespace).scrollToAnchor(\(javaScriptStringLiteral(anchor)));"
+    }
+
     /// The JavaScript that scrolls the page to the last top-level block whose
     /// `data-line` is at or before `line`.
     ///
@@ -339,4 +355,45 @@ extension MarkdownPreviewPage {
         }
         return out + "\""
     }
+}
+
+// MARK: - The page seam
+
+/// The page, as the preview's model is allowed to see it: two verbs and no
+/// third.
+///
+/// The model owns *when* — every ordering decision, every token, the debounce —
+/// and the page owns nothing at all; this protocol is the line between them.
+/// Its production conformer is the app's one web view, and the tests' scripted
+/// one records what it was asked to do, which is what lets the whole ordering be
+/// asserted in `swift test` with no WebKit present.
+///
+/// Both verbs carry a string ``MarkdownPreviewPage`` composed — a JavaScript
+/// source and a shell document — because the conformer is not allowed to compose
+/// either. That is the same rule the parser seam states from the other side: the
+/// app layer supplies capability, Core supplies content.
+///
+/// `@MainActor`, because both verbs end in a `WKWebView` call and the model that
+/// makes them is a main-actor model; isolating the seam is what keeps that from
+/// being a convention every conformer has to remember.
+@MainActor
+public protocol MarkdownPreviewPageSink: AnyObject {
+
+    /// Run `source` in the page that is already loaded.
+    ///
+    /// The body update and both scrolls arrive this way. Nothing is returned:
+    /// the page answers no questions, so there is nothing to await and no
+    /// failure the model could act on — a source that lands before the document
+    /// does is lost, which is exactly what re-serving the shell then re-sending
+    /// the body already covers.
+    func evaluate(_ source: String)
+
+    /// Install `html` as the shell and load it, replacing whatever the page
+    /// held.
+    ///
+    /// The one navigation the feature performs. It is a *load*, not a string
+    /// load: `html` becomes what the app's scheme handler answers for the
+    /// shell's URL, and the page is then fetched from that URL, so the document
+    /// and every asset share one origin.
+    func reloadShell(html: String)
 }
