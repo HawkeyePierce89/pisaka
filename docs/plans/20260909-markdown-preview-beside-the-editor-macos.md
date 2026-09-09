@@ -104,11 +104,11 @@ Dependencies: `apple/swift-markdown` (transitively `swift-cmark`, plus DocC plug
 **Files:**
 - Create: `Sources/PisakaCore/MarkdownRenderer.swift`, `Tests/PisakaCoreTests/MarkdownRendererTests.swift`
 
-- [ ] Write `MarkdownRenderer.body(for:context:)` as a pure function of the tree and a `MarkdownDocumentContext` (document URL, project root): HTML escaping for text and attribute values, `data-line="N"` on every top-level block, task items as `<input type="checkbox" disabled>`, a fence with a language as `<pre><code class="language-…">`, a `mermaid` fence as `<pre class="mermaid">`, a fence without a language as plain `<pre><code>` (no auto-detection).
-- [ ] Rewrite every relative `src`/`href` through Task 7's asset rule — an approved target becomes an **app-scheme URL**, everything else is emitted unresolved so it renders as a broken image with its alt text and, for a link, is later refused. The renderer is therefore what puts an app-scheme URL into the page, which is what the navigation delegate will see (Task 7's inverse is the other half of the round trip).
-- [ ] Emit tables with per-column alignment, blockquotes, both list kinds with `start`, thematic breaks, strikethrough and autolinks.
-- [ ] Write per-kind tests: escaping of `<`, `&`, quotes in text *and* in attributes; `data-line` on top-level blocks only; the three fence variants; checkbox items; a table's alignment attributes; a document whose source contained raw HTML producing nothing for it; a relative image inside the root emitted as an app-scheme URL and one outside it emitted unresolved.
-- [ ] Run `swift test`.
+- [x] Write `MarkdownRenderer.body(for:context:)` as a pure function of the tree and a `MarkdownDocumentContext` (document URL, project root): HTML escaping for text and attribute values, `data-line="N"` on every top-level block, task items as `<input type="checkbox" disabled>`, a fence with a language as `<pre><code class="language-…">`, a `mermaid` fence as `<pre class="mermaid">`, a fence without a language as plain `<pre><code>` (no auto-detection).
+- [x] Rewrite every relative `src`/`href` through Task 7's asset rule — an approved target becomes an **app-scheme URL**, everything else is emitted unresolved so it renders as a broken image with its alt text and, for a link, is later refused. The renderer is therefore what puts an app-scheme URL into the page, which is what the navigation delegate will see (Task 7's inverse is the other half of the round trip).
+- [x] Emit tables with per-column alignment, blockquotes, both list kinds with `start`, thematic breaks, strikethrough and autolinks.
+- [x] Write per-kind tests: escaping of `<`, `&`, quotes in text *and* in attributes; `data-line` on top-level blocks only; the three fence variants; checkbox items; a table's alignment attributes; a document whose source contained raw HTML producing nothing for it; a relative image inside the root emitted as an app-scheme URL and one outside it emitted unresolved.
+- [x] Run `swift test`.
 
 ### Task 6: The page shell, the scheme and the CSP
 
