@@ -585,6 +585,15 @@ LS/PS), numbered from 1, so it means what the gutter means, and it meets
 Total by construction: a negative offset reads as the start and one past the end
 as the last line, both being things a scroll view reports during a live resize.
 
+**NEL/LS/PS are the feature's one stated limit here**, the same one
+`end_of_line` records in `core-editorconfig.md`: the parser breaks lines on
+LF/CR/CRLF alone, so the two numberings agree for those and only for those, and a
+document containing U+0085, U+2028 or U+2029 scrolls the page to a block slightly
+earlier than the editor's top — one line of drift per occurrence. The alternative
+is counting the sync line a second way, against a separator set that is neither
+the gutter's nor any other engine's, for a drift that costs a scroll position and
+never content.
+
 ### `MarkdownPreviewWidthRule.swift`
 
 `BottomPanelHeightRule`'s shape turned on its side and expressed as a
@@ -706,7 +715,16 @@ difference.
 `shellHTML` is `nil` before one is installed, which is a 404 rather than an empty
 page: the only way to reach the shell URL before the glue composed a document is
 a navigation the app did not ask for, and an empty `text/html` looks like a
-rendering failure. `bundledDirectory` ("MarkdownPreview") is the app's one piece
+rendering failure. The **four bundled files' bytes are read once each and kept**
+— a failed read is not cached, being the same 404 a refusal is — because the
+shell is re-served on every theme change and every code-font step (the pane is a
+`.code` zoom surface, so a held zoom chord is one reload per discrete step) and
+each reload re-fetches all four, of which `mermaid.min.js` alone is 3.3 MB, on
+the main actor where `WKURLSchemeHandler` calls this. A **project** file cannot
+be cached that way — it is whatever the document referenced, and it changes — so
+it is mapped rather than copied (`.mappedIfSafe`), which is what keeps a large
+one out of the heap on the same main-actor read.
+`bundledDirectory` ("MarkdownPreview") is the app's one piece
 of knowledge here — *where* the copy lands; the names inside it are Core's. MIME
 types come from `UTType`, so a project image of any format the system knows is
 served as itself, with `application/octet-stream` as the fallback every web

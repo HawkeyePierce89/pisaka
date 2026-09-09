@@ -29,7 +29,10 @@ import UniformTypeIdentifiers
 /// re-installed when the theme or the code font size changes (the page is then
 /// re-loaded from the same URL), and the document context is re-pointed on every
 /// selection change, so the containment check the classifier makes is always
-/// against the tab being shown now.
+/// against the tab being shown now. Its third piece of state is not retargetable
+/// and is not a decision either — the bundled files' bytes, read once each,
+/// since they cannot change while the app runs and the shell that asks for them
+/// is re-served on every theme change and every code-font step.
 ///
 /// It deliberately does **not** import WebKit. The `WKURLSchemeHandler`
 /// conformance is one adapter in `MarkdownPreviewWebView.swift` — the feature's
@@ -68,6 +71,18 @@ final class MarkdownPreviewSchemeHandler: NSObject {
         let textEncodingName: String?
     }
 
+    /// The bundled files' bytes, read once each.
+    ///
+    /// The shell is re-served on every theme change and on every code-font step
+    /// — the pane is a `.code` zoom surface, so a held zoom chord is one reload
+    /// per discrete step — and each of those reloads re-fetches all four files,
+    /// of which `mermaid.min.js` alone is 3.3 MB. This method is called on the
+    /// main actor by `WKURLSchemeHandler`, so re-reading them would be megabytes
+    /// off disk on the main thread per zoom step, for bytes that are immutable
+    /// for the life of the process. Keyed by the name Core asked for, which the
+    /// classifier has already checked membership in.
+    private var bundledData: [String: Data] = [:]
+
     /// The answer for `url`, or `nil` for the 404.
     ///
     /// A read that fails is `nil` too, and the two are one outcome deliberately:
@@ -81,21 +96,19 @@ final class MarkdownPreviewSchemeHandler: NSObject {
             return Answer(data: Data(html.utf8), mimeType: "text/html", textEncodingName: "utf-8")
 
         case .bundled(let name):
-            guard
-                let fileURL = Bundle.main.url(
-                    forResource: name,
-                    withExtension: nil,
-                    subdirectory: Self.bundledDirectory
-                ),
-                let data = try? Data(contentsOf: fileURL)
-            else { return nil }
+            guard let data = bundledFileData(named: name) else { return nil }
             // The two scripts and the stylesheet are UTF-8 by authorship, and
             // the page has no `<meta charset>` to fall back on for a
             // subresource.
             return Answer(data: data, mimeType: Self.mimeType(for: name), textEncodingName: "utf-8")
 
         case .asset(let fileURL):
-            guard let data = try? Data(contentsOf: fileURL) else { return nil }
+            // Mapped rather than copied: what a document may reference is any
+            // file inside the project root, and this read is on the main actor.
+            // Mapping keeps a large one from being pulled into the heap whole
+            // before the page has asked for a byte of it; a file too small or
+            // too odd to map is read the ordinary way by Foundation itself.
+            guard let data = try? Data(contentsOf: fileURL, options: .mappedIfSafe) else { return nil }
             // No encoding is claimed for a project file: these are images, and
             // naming an encoding for bytes that have none is a statement this
             // layer is in no position to make.
@@ -108,6 +121,25 @@ final class MarkdownPreviewSchemeHandler: NSObject {
         case .refused:
             return nil
         }
+    }
+
+    /// The bundled file `name`'s bytes, read from the app bundle on the first
+    /// ask and remembered afterwards.
+    ///
+    /// A failed read is *not* cached: it is the same 404 a refusal is, and
+    /// caching it would make one unlucky read permanent for the app's run.
+    private func bundledFileData(named name: String) -> Data? {
+        if let cached = bundledData[name] { return cached }
+        guard
+            let fileURL = Bundle.main.url(
+                forResource: name,
+                withExtension: nil,
+                subdirectory: Self.bundledDirectory
+            ),
+            let data = try? Data(contentsOf: fileURL, options: .mappedIfSafe)
+        else { return nil }
+        bundledData[name] = data
+        return data
     }
 
     /// The MIME type for a file name, from the system's own type table.

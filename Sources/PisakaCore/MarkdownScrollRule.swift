@@ -12,10 +12,20 @@ import Foundation
 /// set (LF, CR, CRLF, NEL, LS, PS) and numbered from 1, so it means the same
 /// thing as the number in the gutter beside the caret. It meets the page as a
 /// `data-line` attribute, which the renderer wrote from the parser's own
-/// 1-based source lines — the two numberings agree because both count the
-/// document's lines, and the page's own rule (scroll to the last top-level block
-/// at or before this line) is what absorbs the fact that most lines carry no
-/// block of their own.
+/// 1-based source lines, and the page's own rule (scroll to the last top-level
+/// block at or before this line) is what absorbs the fact that most lines carry
+/// no block of their own.
+///
+/// **NEL/LS/PS are this feature's one stated limit**, the same one
+/// `end_of_line` records: the two numberings agree for every separator the
+/// Markdown parser also breaks lines on — LF, CR and CRLF — and only for those.
+/// A document containing U+0085, U+2028 or U+2029 is numbered one line higher
+/// here per occurrence than in the tree the `data-line` values came from, so the
+/// page scrolls to a block slightly earlier than the editor's top. Correcting it
+/// would mean counting the sync line a *second* way, against a separator set
+/// that is neither the gutter's nor any other engine's; the drift is silent,
+/// bounded by the count of such characters, and costs a scroll position rather
+/// than content.
 public enum MarkdownScrollRule {
 
     /// The 1-based line containing `offset`.

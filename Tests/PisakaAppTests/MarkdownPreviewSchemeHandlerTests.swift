@@ -112,6 +112,30 @@ final class MarkdownPreviewSchemeHandlerTests: XCTestCase {
         XCTAssertTrue(js.mimeType.hasSuffix("javascript"), js.mimeType)
     }
 
+    /// The bundled bytes are read once each and kept, and the memory is keyed by
+    /// the name asked for.
+    ///
+    /// The saving itself is invisible from here — what a cache can get *wrong*
+    /// is not: one keyed by nothing, or by the wrong thing, answers the first
+    /// file's bytes for every later name, so `mermaid.min.js` would arrive as
+    /// the stylesheet. Two interleaved passes: every name keeps its own answer,
+    /// and no two names share one.
+    @MainActor
+    func testEachBundledFileKeepsItsOwnBytesAcrossRepeatedFetches() throws {
+        let handler = makeHandler()
+        let urls = MarkdownPreviewPage.bundledFileNames.map {
+            previewURL(path: MarkdownPreviewPage.bundledPath(forFileName: $0))
+        }
+        var first: [String: Data] = [:]
+        for (name, url) in zip(MarkdownPreviewPage.bundledFileNames, urls) {
+            first[name] = try XCTUnwrap(handler.answer(for: url)).data
+        }
+        for (name, url) in zip(MarkdownPreviewPage.bundledFileNames, urls) {
+            XCTAssertEqual(try XCTUnwrap(handler.answer(for: url)).data, first[name], name)
+        }
+        XCTAssertEqual(Set(first.values).count, first.count, "two bundled names answered the same bytes")
+    }
+
     /// The round trip: the URL the renderer would have put into the page for a
     /// relative image is the URL the handler serves that file's bytes for.
     @MainActor
