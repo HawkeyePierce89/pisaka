@@ -133,3 +133,113 @@ public enum MarkdownPreviewAsset {
         return url.url
     }
 }
+
+// MARK: - The inverse direction
+
+extension MarkdownPreviewAsset {
+
+    /// The project file an app-scheme URL names, or `nil` when the preview may
+    /// not reach it.
+    ///
+    /// The exact inverse of ``assetURL(forTarget:context:)``, and deliberately
+    /// **not** a lookup of what that function last produced: the page is a
+    /// document, and a document can navigate to a URL its Markdown source never
+    /// contained — one a script composed, one a stale body still holds, one a
+    /// crafted `href` in a file someone was asked to open. So this direction
+    /// re-derives the file from the URL and re-asks the containment question
+    /// from scratch, against the root it is handed now.
+    ///
+    /// `nil` — again one outcome for every refusal — covers a URL of another
+    /// scheme or another host, a path outside the project-file prefix (the shell
+    /// and the bundled files are *not* project files, whatever their bytes are),
+    /// an empty relative path, a `../` escape, a symlink leading out of the tree,
+    /// and every URL at all when no folder is open.
+    ///
+    /// The answer is spelled from the **root the caller gave**, not from its
+    /// canonical form, because that is the spelling the rest of the app opens
+    /// tabs under; only the containment *check* is canonical.
+    public static func projectFileURL(
+        forPreviewURL url: URL,
+        context: MarkdownDocumentContext
+    ) -> URL? {
+        guard let root = context.projectRoot else { return nil }
+        guard url.scheme == MarkdownPreviewPage.scheme, url.host == MarkdownPreviewPage.host else {
+            return nil
+        }
+        // `URL.path` is the percent-*decoded* path, which is the one reading that
+        // round-trips `previewURL(forRelativeComponents:)`: that function let
+        // Foundation encode the components once, so Foundation decodes them once
+        // here and a file whose name contains a space or a `%` survives both
+        // ways.
+        guard url.path.hasPrefix(MarkdownPreviewPage.filePathPrefix) else { return nil }
+        let relative = String(url.path.dropFirst(MarkdownPreviewPage.filePathPrefix.count))
+        guard !relative.isEmpty else { return nil }
+
+        // Appended, not resolved against the root as a base: a base URL that
+        // does not end in a slash names a *file*, and resolving against it would
+        // drop the root's own last component (`/p/root` + `docs/x` = `/p/docs/x`)
+        // — a path that is outside the root and would simply be refused, which
+        // is the kind of wrong answer that looks correct from the outside.
+        //
+        // `standardized`, not `standardizedFileURL`: the former removes `.` and
+        // `..` lexically and nothing else, while the latter also resolves the
+        // path against the file system — which would hand back a
+        // `/private`-stripped spelling of a root the caller spelled with it.
+        // Containment is still checked canonically below; only the *answer*
+        // keeps the caller's spelling.
+        let candidate = root.appendingPathComponent(relative).standardized
+        guard relativeComponents(of: candidate, under: root) != nil else { return nil }
+        return candidate
+    }
+}
+
+// MARK: - The handler's dispatch
+
+/// What an incoming preview-scheme request is for.
+///
+/// A closed answer so the app's scheme handler *dispatches* and decides nothing:
+/// it neither splits a path, nor compares a scheme, nor asks whether a file is
+/// inside the project — all four of those questions are settled here, in the
+/// same file that composed the URL in the first place. Anything not one of the
+/// three served kinds is ``refused``, which the handler answers as a plain 404:
+/// not an error, not a log line, and never a partial answer.
+public enum MarkdownPreviewRequest: Equatable, Sendable {
+
+    /// The shell document itself — the one thing served as HTML.
+    case shell
+
+    /// One of the bundled files, by its exact name. Only a name
+    /// ``MarkdownPreviewPage/bundledFileNames`` lists is ever answered, so the
+    /// handler cannot be asked for an arbitrary path inside the app bundle.
+    case bundled(name: String)
+
+    /// A project file, already resolved and already checked against the root by
+    /// ``MarkdownPreviewAsset/projectFileURL(forPreviewURL:context:)``.
+    case asset(fileURL: URL)
+
+    /// Everything else.
+    case refused
+}
+
+extension MarkdownPreviewAsset {
+
+    /// What the scheme handler should answer for `url`.
+    public static func classify(_ url: URL, context: MarkdownDocumentContext) -> MarkdownPreviewRequest {
+        guard url.scheme == MarkdownPreviewPage.scheme, url.host == MarkdownPreviewPage.host else {
+            return .refused
+        }
+        let path = url.path
+        if path == MarkdownPreviewPage.shellPath { return .shell }
+        if path.hasPrefix(MarkdownPreviewPage.bundledPathPrefix) {
+            let name = String(path.dropFirst(MarkdownPreviewPage.bundledPathPrefix.count))
+            // Membership, not existence: the set is fixed at build time, so a
+            // name outside it is refused without touching the bundle, and a
+            // nested path (`…/assets/../../secret`) is refused for being no
+            // member rather than for looking like an escape.
+            guard MarkdownPreviewPage.bundledFileNames.contains(name) else { return .refused }
+            return .bundled(name: name)
+        }
+        guard let fileURL = projectFileURL(forPreviewURL: url, context: context) else { return .refused }
+        return .asset(fileURL: fileURL)
+    }
+}
