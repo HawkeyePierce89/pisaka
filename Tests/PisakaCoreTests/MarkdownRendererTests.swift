@@ -101,8 +101,8 @@ final class MarkdownRendererTests: XCTestCase {
             .codeBlock(language: "swift", code: "c"),
             .codeBlock(language: "mermaid", code: "c"),
             .blockQuote([.paragraph([.text("q")])]),
-            .unorderedList([MarkdownListItem(blocks: [.paragraph([.text("i")])])]),
-            .orderedList(start: 1, items: [MarkdownListItem(blocks: [.paragraph([.text("i")])])]),
+            .unorderedList(isTight: true, items: [MarkdownListItem(blocks: [.paragraph([.text("i")])])]),
+            .orderedList(start: 1, isTight: true, items: [MarkdownListItem(blocks: [.paragraph([.text("i")])])]),
             .table(alignments: [.none], header: MarkdownTableRow(cells: [[.text("h")]]), body: []),
             .thematicBreak,
         ]
@@ -134,7 +134,7 @@ final class MarkdownRendererTests: XCTestCase {
     func testNestedBlocksCarryNoSourceLine() {
         let nested = MarkdownBlock.blockQuote([
             .paragraph([.text("q")]),
-            .unorderedList([MarkdownListItem(blocks: [.paragraph([.text("i")]), .thematicBreak])]),
+            .unorderedList(isTight: true, items: [MarkdownListItem(blocks: [.paragraph([.text("i")]), .thematicBreak])]),
         ])
         let rendered = body(nested, line: 4)
         // Exactly one occurrence, and it is the blockquote's own.
@@ -194,7 +194,7 @@ final class MarkdownRendererTests: XCTestCase {
     /// A task item draws a disabled checkbox; an ordinary item draws none at
     /// all, which is what distinguishes it from an unchecked one.
     func testTaskItemsAndOrdinaryItems() {
-        let rendered = body(.unorderedList([
+        let rendered = body(.unorderedList(isTight: true, items: [
             MarkdownListItem(checkbox: nil, blocks: [.paragraph([.text("plain")])]),
             MarkdownListItem(checkbox: .unchecked, blocks: [.paragraph([.text("todo")])]),
             MarkdownListItem(checkbox: .checked, blocks: [.paragraph([.text("done")])]),
@@ -208,7 +208,7 @@ final class MarkdownRendererTests: XCTestCase {
 
     /// Every checkbox is disabled: the preview is read-only and writes nothing.
     func testEveryCheckboxIsDisabled() {
-        let rendered = body(.unorderedList([
+        let rendered = body(.unorderedList(isTight: true, items: [
             MarkdownListItem(checkbox: .unchecked, blocks: [.paragraph([.text("a")])]),
             MarkdownListItem(checkbox: .checked, blocks: [.paragraph([.text("b")])]),
         ]))
@@ -221,17 +221,57 @@ final class MarkdownRendererTests: XCTestCase {
     /// An ordered list states its start, always — including `1`.
     func testOrderedListStatesItsStart() {
         let item = MarkdownListItem(blocks: [.paragraph([.text("a")])])
-        XCTAssertTrue(body(.orderedList(start: 3, items: [item])).hasPrefix("<ol start=\"3\">"))
-        XCTAssertTrue(body(.orderedList(start: 1, items: [item])).hasPrefix("<ol start=\"1\">"))
+        XCTAssertTrue(body(.orderedList(start: 3, isTight: true, items: [item])).hasPrefix("<ol start=\"3\">"))
+        XCTAssertTrue(body(.orderedList(start: 1, isTight: true, items: [item])).hasPrefix("<ol start=\"1\">"))
+    }
+
+    /// A loose list says so on the element; a tight one says nothing at all, so
+    /// the ordinary list renders exactly as it did before the distinction
+    /// existed.
+    func testOnlyALooseListCarriesTheClass() {
+        let item = MarkdownListItem(blocks: [.paragraph([.text("a")])])
+        XCTAssertEqual(body(.unorderedList(isTight: true, items: [item])), "<ul><li><p>a</p></li></ul>")
+        XCTAssertEqual(body(.unorderedList(isTight: false, items: [item])),
+                       "<ul class=\"loose\"><li><p>a</p></li></ul>")
+        XCTAssertEqual(body(.orderedList(start: 1, isTight: true, items: [item])),
+                       "<ol start=\"1\"><li><p>a</p></li></ol>")
+        XCTAssertEqual(body(.orderedList(start: 2, isTight: false, items: [item])),
+                       "<ol start=\"2\" class=\"loose\"><li><p>a</p></li></ol>")
+    }
+
+    /// The class and `data-line` are both attributes of the same element and
+    /// neither displaces the other — the regression a naive interpolation makes
+    /// is one swallowing the other's quote.
+    func testALooseListKeepsItsSourceLine() {
+        let item = MarkdownListItem(blocks: [.paragraph([.text("a")])])
+        XCTAssertEqual(body(.unorderedList(isTight: false, items: [item]), line: 4),
+                       "<ul class=\"loose\" data-line=\"4\"><li><p>a</p></li></ul>")
+    }
+
+    /// Looseness is a fact about the list, so it reaches a nested list only if
+    /// that list carries it: the outer one being loose says nothing about the
+    /// inner one, which is exactly what CommonMark decides separately.
+    func testANestedListsLoosenessIsItsOwn() {
+        let inner = MarkdownBlock.unorderedList(
+            isTight: true,
+            items: [MarkdownListItem(blocks: [.paragraph([.text("i")])])]
+        )
+        let rendered = body(.unorderedList(
+            isTight: false,
+            items: [MarkdownListItem(blocks: [.paragraph([.text("o")]), inner])]
+        ))
+        XCTAssertEqual(rendered.components(separatedBy: "class=\"loose\"").count - 1, 1)
+        XCTAssertTrue(rendered.hasPrefix("<ul class=\"loose\">"), rendered)
+        XCTAssertTrue(rendered.contains("<ul><li><p>i</p></li></ul>"), rendered)
     }
 
     /// A nested list is a block inside its item, rendered by the same code — and
     /// its checkboxes survive the nesting.
     func testNestedListWithCheckboxes() {
-        let rendered = body(.unorderedList([
+        let rendered = body(.unorderedList(isTight: true, items: [
             MarkdownListItem(checkbox: .checked, blocks: [
                 .paragraph([.text("outer")]),
-                .unorderedList([MarkdownListItem(checkbox: .unchecked, blocks: [.paragraph([.text("inner")])])]),
+                .unorderedList(isTight: true, items: [MarkdownListItem(checkbox: .unchecked, blocks: [.paragraph([.text("inner")])])]),
             ]),
         ]))
         XCTAssertTrue(rendered.contains("<input type=\"checkbox\" disabled checked><p>outer</p>"), rendered)

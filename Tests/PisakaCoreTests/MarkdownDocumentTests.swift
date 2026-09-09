@@ -95,31 +95,44 @@ final class MarkdownDocumentTests: XCTestCase {
 
     func testOrderedListCarriesItsStart() {
         let item = MarkdownListItem(blocks: [.paragraph([.text("one")])])
-        XCTAssertEqual(MarkdownBlock.orderedList(start: 3, items: [item]), .orderedList(start: 3, items: [item]))
-        XCTAssertNotEqual(MarkdownBlock.orderedList(start: 3, items: [item]), .orderedList(start: 1, items: [item]))
-        XCTAssertNotEqual(MarkdownBlock.orderedList(start: 1, items: [item]), .unorderedList([item]))
+        let third = MarkdownBlock.orderedList(start: 3, isTight: true, items: [item])
+        XCTAssertEqual(third, .orderedList(start: 3, isTight: true, items: [item]))
+        XCTAssertNotEqual(third, .orderedList(start: 1, isTight: true, items: [item]))
+        XCTAssertNotEqual(MarkdownBlock.orderedList(start: 1, isTight: true, items: [item]),
+                          .unorderedList(isTight: true, items: [item]))
+    }
+
+    /// Tightness is part of the value, not a hint beside it: two lists with the
+    /// same items and different spacing are different documents, which is what
+    /// keeps a re-render from being skipped when only the spacing changed.
+    func testTightnessParticipatesInEquality() {
+        let item = MarkdownListItem(blocks: [.paragraph([.text("one")])])
+        XCTAssertNotEqual(MarkdownBlock.unorderedList(isTight: true, items: [item]),
+                          .unorderedList(isTight: false, items: [item]))
+        XCTAssertNotEqual(MarkdownBlock.orderedList(start: 1, isTight: true, items: [item]),
+                          .orderedList(start: 1, isTight: false, items: [item]))
     }
 
     // MARK: - The two shapes the renderer is hardest on
 
     func testNestedListWithCheckboxes() {
-        let nested = MarkdownBlock.unorderedList([
+        let nested = MarkdownBlock.unorderedList(isTight: true, items: [
             MarkdownListItem(checkbox: .checked, blocks: [.paragraph([.text("done")])]),
             MarkdownListItem(checkbox: .unchecked, blocks: [
                 .paragraph([.text("todo")]),
-                .unorderedList([
+                .unorderedList(isTight: true, items: [
                     MarkdownListItem(checkbox: .unchecked, blocks: [.paragraph([.text("sub")])]),
                     MarkdownListItem(blocks: [.paragraph([.text("plain")])]),
                 ]),
             ]),
         ])
 
-        guard case let .unorderedList(items) = nested else { return XCTFail("expected an unordered list") }
+        guard case let .unorderedList(_, items) = nested else { return XCTFail("expected an unordered list") }
         XCTAssertEqual(items.count, 2)
         XCTAssertEqual(items[0].checkbox, .checked)
         XCTAssertEqual(items[1].checkbox, .unchecked)
 
-        guard case let .unorderedList(sub) = items[1].blocks[1] else { return XCTFail("expected a nested list") }
+        guard case let .unorderedList(_, sub) = items[1].blocks[1] else { return XCTFail("expected a nested list") }
         XCTAssertEqual(sub[0].checkbox, .unchecked)
         // An item with no checkbox is distinct from an unchecked one: one draws
         // a bullet, the other an empty box.
@@ -129,10 +142,10 @@ final class MarkdownDocumentTests: XCTestCase {
 
     func testNestedListEqualityReachesTheDeepestItem() {
         func list(_ deepest: String) -> MarkdownBlock {
-            .unorderedList([
+            .unorderedList(isTight: true, items: [
                 MarkdownListItem(blocks: [
                     .paragraph([.text("outer")]),
-                    .orderedList(start: 1, items: [
+                    .orderedList(start: 1, isTight: true, items: [
                         MarkdownListItem(checkbox: .checked, blocks: [.paragraph([.text(deepest)])])
                     ]),
                 ]),

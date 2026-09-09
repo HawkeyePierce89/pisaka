@@ -259,8 +259,9 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
 - `FoldController.swift` (app, macOS) — the 400 ms debounce, the generation token, the one publish; shift between answers, reconcile on one.
 - `FoldCommands.swift` (app, macOS) — *Fold* (⌘⌥←) / *Unfold* (⌘⌥→); the first responder, the one beep.
 
-`docs/architecture/core-markdown-preview.md` — the Markdown preview beside the editor (macOS; Core + app halves), incl. decisions M1–M13:
+`docs/architecture/core-markdown-preview.md` — the Markdown preview beside the editor (macOS; Core + app halves), incl. decisions M1–M14:
 - `MarkdownDocument.swift` — the document tree (no raw-HTML case at all) + the `MarkdownParsing` seam.
+- `MarkdownListTightness.swift` — CommonMark's tight/loose rule, read off line spans *and* the source's blank lines (a gap is only the precondition — a link reference definition leaves a hole that is not one); what the caller owes it, the blank-line reading a code block's span needs, and the two shapes where cmark's own flag departs from the sentence it implements.
 - `MarkdownPreviewTheme.swift` — the page's colours as CSS strings; one entry per `SyntaxTokenKind`, the chrome/code split.
 - `MarkdownHighlightClasses.swift` — the pinned highlight-scope vocabulary → the editor's kinds; the class-name rule specificity rides on.
 - `MarkdownRenderer.swift` — tree → HTML body: one escape, `data-line` on top-level blocks only, the three presentational decisions.

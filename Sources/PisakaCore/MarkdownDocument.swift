@@ -133,10 +133,14 @@ public indirect enum MarkdownBlock: Equatable, Sendable {
     /// language is emitted without a highlight class and never guessed at.
     case codeBlock(language: String?, code: String)
     case blockQuote([MarkdownBlock])
-    case unorderedList([MarkdownListItem])
+    /// A bullet list. `isTight` is CommonMark's own distinction, decided by
+    /// ``MarkdownListTightness``: a tight list draws its items as bare lines, a
+    /// loose one puts paragraph spacing between them.
+    case unorderedList(isTight: Bool, items: [MarkdownListItem])
     /// An ordered list. `start` is the first item's number, so `3.` renders as
-    /// `<ol start="3">` rather than silently restarting at one.
-    case orderedList(start: Int, items: [MarkdownListItem])
+    /// `<ol start="3">` rather than silently restarting at one; `isTight` is the
+    /// same distinction the bullet list carries.
+    case orderedList(start: Int, isTight: Bool, items: [MarkdownListItem])
     /// A GFM table. `alignments` is per column, in column order; `header` is the
     /// one header row and `body` the rest.
     case table(alignments: [MarkdownTableAlignment], header: MarkdownTableRow, body: [MarkdownTableRow])

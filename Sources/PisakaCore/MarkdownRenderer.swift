@@ -78,15 +78,16 @@ public enum MarkdownRenderer {
         case .blockQuote(let blocks):
             return "<blockquote\(attributes)>\(renderNested(blocks, context: context))</blockquote>"
 
-        case .unorderedList(let items):
-            return "<ul\(attributes)>\(renderItems(items, context: context))</ul>"
+        case .unorderedList(let isTight, let items):
+            return "<ul\(looseClass(isTight: isTight))\(attributes)>\(renderItems(items, context: context))</ul>"
 
-        case .orderedList(let start, let items):
+        case .orderedList(let start, let isTight, let items):
             // `start` is emitted always, including for `1`. One shape rather than
             // two: a conditional attribute is a branch whose "1" case is
             // untestable from the markup, and `<ol start="1">` is what the
             // default already means.
-            return "<ol start=\"\(start)\"\(attributes)>\(renderItems(items, context: context))</ol>"
+            let open = "<ol start=\"\(start)\"\(looseClass(isTight: isTight))\(attributes)>"
+            return "\(open)\(renderItems(items, context: context))</ol>"
 
         case .table(let alignments, let header, let body):
             return renderTable(alignments: alignments, header: header, body: body, attributes: attributes, context: context)
@@ -149,6 +150,19 @@ public enum MarkdownRenderer {
 
     /// The one language name that is not a highlight target but a diagram.
     private static let mermaidLanguage = "mermaid"
+
+    /// The class a **loose** list carries, and the empty string a tight one does.
+    ///
+    /// Marked in that direction on purpose. Tight is the ordinary list and the
+    /// stylesheet's ordinary case — an item's content is drawn as a bare line —
+    /// so it is the loose list, the one the source asked for spacing in, that
+    /// needs something to select on. The element carries the class rather than
+    /// each item, because looseness is a fact about the list: CommonMark draws
+    /// *every* item of a loose list loose, including the ones with no blank line
+    /// beside them.
+    private static func looseClass(isTight: Bool) -> String {
+        isTight ? "" : " class=\"loose\""
+    }
 
     /// Either list kind's items.
     ///

@@ -149,6 +149,68 @@ final class MarkdownPreviewAssetTests: XCTestCase {
         XCTAssertNil(MarkdownPreviewAsset.assetURL(forTarget: "../../secret.md#x", context: context))
     }
 
+    /// A query is read out the same way, and for the same reason: the cache-buster
+    /// a document copied from a web page names the file in front of it.
+    ///
+    /// The failure this pins is the fragment's own, one component along — the
+    /// whole string as a path produces a URL for a file called `logo.png?v=2`,
+    /// which resolves and which the handler then cannot read, so the image is
+    /// broken with no sign of why.
+    func testAQueryIsNotPartOfTheFileName() {
+        XCTAssertEqual(
+            MarkdownPreviewAsset.assetURL(forTarget: "img/logo.png?v=2", context: context)?.absoluteString,
+            "pisaka-preview://preview/file/docs/img/logo.png"
+        )
+        XCTAssertEqual(
+            MarkdownPreviewAsset.assetURL(forTarget: "../README.md?raw=1#install", context: context)?
+                .absoluteString,
+            "pisaka-preview://preview/file/README.md"
+        )
+    }
+
+    /// And it is dropped *before* decoding, so the one spelling that means a
+    /// literal `?` in a file name still reaches that file.
+    func testAPercentEncodedQuestionMarkStaysPartOfTheName() {
+        XCTAssertEqual(
+            MarkdownPreviewAsset.assetURL(forTarget: "why%3F.png", context: context)?.absoluteString,
+            "pisaka-preview://preview/file/docs/why%3F.png"
+        )
+    }
+
+    /// A query cannot smuggle a path out of the tree, and cannot stand in for
+    /// one either: with nothing in front of it there is no file being named.
+    func testAQueryCannotSmuggleOrStandInForAPath() {
+        XCTAssertNil(MarkdownPreviewAsset.assetURL(forTarget: "../../secret.md?x=1", context: context))
+        XCTAssertNil(MarkdownPreviewAsset.assetURL(forTarget: "?v=2", context: context))
+    }
+
+    /// A scheme is case-insensitive, and `URL.scheme` hands back the document's
+    /// own spelling — so `file:` must be recognised however it was written, the
+    /// same reading `MarkdownLinkRule` already makes.
+    ///
+    /// The failure is a false refusal: a perfectly valid in-project target
+    /// emitted unresolved and then refused by the navigation rule.
+    func testTheFileSchemeIsMatchedCaseInsensitively() {
+        for target in ["FILE:///p/root/img/logo.png", "File:///p/root/img/logo.png"] {
+            XCTAssertEqual(
+                MarkdownPreviewAsset.assetURL(forTarget: target, context: context)?.absoluteString,
+                "pisaka-preview://preview/file/img/logo.png",
+                "\(target) names img/logo.png"
+            )
+        }
+    }
+
+    /// Widening the reading does not widen what resolves: every other scheme is
+    /// still nothing, in any case it is spelled.
+    func testOtherSchemesResolveToNothingInAnyCase() {
+        for target in ["HTTPS://example.com/i.png", "JavaScript:alert(1)", "DATA:image/png;base64,AAAA"] {
+            XCTAssertNil(
+                MarkdownPreviewAsset.assetURL(forTarget: target, context: context),
+                "\(target) must not resolve to a project file"
+            )
+        }
+    }
+
     func testADocumentWithNoURLResolvesNothing() {
         let noDocument = MarkdownDocumentContext(
             documentURL: nil,

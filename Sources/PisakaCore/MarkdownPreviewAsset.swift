@@ -68,10 +68,11 @@ public enum MarkdownPreviewAsset {
     /// An **absolute** target inside the root does resolve: it is a file in the
     /// project the same way a relative one is, and refusing it would be a rule
     /// about spelling rather than about reach. So does a target carrying a
-    /// **fragment** (`other.md#section`), which resolves to the file alone — the
-    /// `#` opens a fragment in any reading of a URL, and refusing the link, or
-    /// naming a file whose name ends in `#section`, would both be answers to a
-    /// question the document did not ask.
+    /// **fragment** (`other.md#section`) or a **query** (`image.png?v=2`), each
+    /// of which resolves to the file alone — `#` opens a fragment and `?` a
+    /// query in any reading of a URL, and refusing the target, or naming a file
+    /// whose name ends in `#section`/`?v=2`, would both be answers to a question
+    /// the document did not ask.
     public static func assetURL(forTarget target: String, context: MarkdownDocumentContext) -> URL? {
         guard let documentURL = context.documentURL, let root = context.projectRoot else { return nil }
         guard let fileURL = fileURL(forTarget: target, documentURL: documentURL) else { return nil }
@@ -91,31 +92,43 @@ public enum MarkdownPreviewAsset {
         // `URL(string:)` is only consulted for the scheme: it is the component
         // Foundation reads the same way WebKit does, and reading the *path* back
         // out of it would re-encode a target that was never encoded to begin
-        // with.
-        if let scheme = URL(string: target)?.scheme, !scheme.isEmpty {
+        // with. Lowercased on comparison, since a scheme is case-insensitive and
+        // `URL.scheme` hands back whatever the document spelled — the same
+        // reading ``MarkdownLinkRule`` makes of the schemes it dispatches on.
+        if let scheme = URL(string: target)?.scheme?.lowercased(), !scheme.isEmpty {
             guard scheme == "file", let absolute = URL(string: target) else { return nil }
             return absolute.standardizedFileURL
         }
 
         // A scheme-less target is still a URL, so a `#` in it opens a fragment
-        // and does not belong to the file: `./other.md#usage` — the ordinary
-        // shape of a cross-file link in a documentation tree — names `other.md`
-        // and a place inside it. The fragment is dropped rather than carried,
-        // there being nothing to carry it to (the renderer emits no `id`, a
-        // stated limit), and the file is what the link is for. The `file:`
-        // branch above already answers this way, `URL` reading the fragment out
-        // for it; this is that same reading, by hand, for a target `URL(string:)`
-        // must not be asked to parse.
+        // and a `?` a query, and neither belongs to the file: `./other.md#usage`
+        // — the ordinary shape of a cross-file link in a documentation tree —
+        // names `other.md` and a place inside it, and `img/a.png?v=2` — the
+        // ordinary shape of a cache-busted image — names `img/a.png`. Both are
+        // dropped rather than carried, there being nothing to carry them to (the
+        // renderer emits no `id`, a stated limit, and the scheme handler answers
+        // a file, not a request with parameters), and the file is what the
+        // target is for. The `file:` branch above already answers this way,
+        // `URL` reading both components out for it; this is that same reading,
+        // by hand, for a target `URL(string:)` must not be asked to parse.
         //
-        // Split *before* decoding, so a literal `#` in a name — which a document
-        // has to spell `%23` for any renderer at all — survives as part of it.
-        let withoutFragment = String(target.prefix { $0 != "#" })
+        // Split *before* decoding, so a literal `#` or `?` in a name — which a
+        // document has to spell `%23`/`%3F` for any renderer at all — survives
+        // as part of it. One `prefix`, not two splits, because a query precedes
+        // a fragment in a URL and whichever comes first ends the path either way.
+        let pathPart = String(target.prefix { $0 != "#" && $0 != "?" })
+
+        // Nothing in front of them is the fragment-only case again (`?x=1`
+        // addresses this page, not a file), and is refused here rather than
+        // handed to `URL(fileURLWithPath:)`, which has no answer for an empty
+        // path.
+        guard !pathPart.isEmpty else { return nil }
 
         // A Markdown destination may be percent-encoded (`a%20b.png`) and may
         // equally contain a literal `%` that decodes to nothing. Decoding is
         // therefore attempted and the raw spelling kept when it fails, which is
         // the only reading under which both files are reachable.
-        let path = withoutFragment.removingPercentEncoding ?? withoutFragment
+        let path = pathPart.removingPercentEncoding ?? pathPart
         if path.hasPrefix("/") {
             return URL(fileURLWithPath: path).standardizedFileURL
         }

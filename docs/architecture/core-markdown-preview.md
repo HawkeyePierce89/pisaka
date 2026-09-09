@@ -350,6 +350,160 @@ literal-stripped matching rule, after `GitHubSourceGatingTests`' `gh` vocabulary
 and `ReleaseWorkflowTests`' build-output roots, and it is recorded in `CLAUDE.md`
 beside them.
 
+### M14 — Tight and loose are recovered from line numbers, and the rule lives in Core
+
+CommonMark distinguishes a **tight** list from a **loose** one, and the
+difference is visible: a loose list — one whose items are separated by blank
+lines, or one of whose items directly holds two blocks with a blank line between
+them — draws every item's content with paragraph spacing. cmark decides this
+while parsing and keeps the answer on its own node
+(`cmark_node_get_list_tight`); swift-markdown's `Markup` tree carries **no such
+flag and no way back to that node**, so the answer arrives here only if it is
+recovered.
+
+It is recovered, not approximated. The rule is stated entirely in terms of blank
+lines between blocks, and swift-markdown does expose every node's source range —
+so `MarkdownParser` reads the ranges and `MarkdownListTightness` reads the rule
+off them.
+
+**What separates two blocks is asked of the source, not of the distance between
+them.** Two spans one line apart enclose nothing and are adjacent; a wider gap is
+only a *precondition*, and it loosens the list when one of the lines strictly
+inside it is blank — `MarkdownListTightness.blankLines(in:)` deciding which are.
+The tempting shortcut, "a gap of two or more *is* a blank line", rests on a
+premise that does not hold: a **link reference definition** occupies a line of its
+own and leaves no node behind at all (cmark reads it into the document's link map
+and drops the paragraph that carried it), so `- heading` / `  ---` /
+`  [ref]: /x` / `  > quote` / `- b` puts a hole between the heading and the quote
+where the source wrote content. cmark calls that list tight; the shortcut called
+it loose, and spaced every later item for a line nobody left blank.
+
+Six readings make the recovery exact, and all six were found by comparing against
+cmark's own flag rather than by reasoning from the spec:
+
+- **A gap is a precondition, a blank line is the evidence** — the reading above,
+  and the one a link reference definition is the counter-example to. It is also
+  what makes the four span readings below *safe*: each of them exists to keep a
+  span from ending early, and a span that still ends a line early now costs
+  nothing unless the source wrote that line blank.
+- **A list's and a list item's own range is the wrong span.** cmark closes both
+  *after* the blank line that ended them, so an item's own `upperBound` swallows
+  the very blank line the rule is looking for and every list would read as tight.
+  The two therefore answer with the union of their children's spans; everything
+  else answers with its own range, which for a paragraph, a heading, a fence, a
+  table or a thematic break is exactly its content.
+- **A block quote's own range is the *right* span, and its children's is the
+  wrong one.** cmark extends a quote only on a line the quote itself matched, so
+  the range covers every `>` line — including a trailing `>` that is blank
+  *inside* the quote — and stops short of the truly blank line that ended it,
+  which the enclosing item's range absorbs instead. Its children stop at the last
+  line carrying content, so a union over them reads the `>` lines past it as a
+  gap in the list holding the quote, where cmark reads no blank line at all: a
+  blank line whose deepest container is a block quote loosens nothing. An item
+  holding an empty quote — `- a`, then `  >`, then `- b` — is cmark's tight list
+  and was this reading's smallest counter-example.
+- **An item always occupies its marker line.** The marker line carries content by
+  definition, so it can never be the blank line the rule is looking for: an
+  item's first span starts no later than its own `lowerBound`, and an item with
+  no children at all — `-` alone, or one holding only an empty nested list —
+  reports that line and nothing else. Without it, an item whose content is
+  written under the marker rather than beside it would have its neighbours
+  compared across a line that is not blank.
+- **The union is taken over blocks, not leaves.** A Setext heading's underline
+  belongs to the heading's range and to no child of it, so a leaf-only reading
+  would end the item a line early and read the next item as separated by a blank
+  line.
+- **A code block's range is read neither way round.** An *indented* block's
+  swallows the blank line that ended it — cmark strips trailing blanks from
+  indented code and closes the node past them — while a fenced block's
+  legitimately runs to its closing fence, and nothing on `CodeBlock` tells the
+  two apart. Rather than re-deciding the fence form from the source (the point at
+  which recovering the flag turns into re-parsing), the span is **trimmed of
+  trailing blank source lines, capped by the lines the range holds beyond the
+  code itself** — `MarkdownListTightness.codeBlockContentSpan(range:code:blankLines:)`.
+  Each half carries the other: the ceiling is what stops a fenced block whose own
+  content ends blank from being trimmed into that content, and the blankness test
+  is what stops the ceiling — two lines' worth for a closed fence — from eating
+  the fences. A line of `>` reads blank, because that is how a blank line inside
+  a block quote is written and it is the line an indented block inside a quoted
+  list ends on; the ceiling is what keeps such a line when it is the code's own.
+  This is the one reading that needs the *source* and not just the tree, and it
+  is Core that reads it: `MarkdownListTightness.blankLines(in:)`, over cmark's
+  three line separators and deliberately not the editor-wide set, since the
+  numbers are compared against the ones cmark wrote onto the tree.
+
+**Two shapes are stated divergences, and the flag is the thing that is wrong in
+both.** cmark records "did this block end on a blank line" as it parses, and in
+two places that record is bookkeeping rather than a reading of the source, so
+cmark's own flag departs from the sentence cmark implements. This reading follows
+the sentence, and `MarkdownParserTests`
+(`testTheShapesWhereCmarksOwnFlagDepartsFromTheRule`) pins both so a later run of
+the corpus measurement below recognises them as known rather than as regressions:
+
+- a **GFM table with no body rows** inside a non-final item. The table extension
+  consumes the delimiter row whole, which leaves the parser reading the rest of
+  that line as blank, and the list comes out loose with no blank line written
+  anywhere — `- a` / `  | h |` / `  | - |` / `- b`. Adding one body row makes
+  cmark itself answer tight again, which is what says the looseness is not in the
+  source.
+- a **blank line following a link reference definition**. The paragraph that
+  carried the definition is removed from the tree once the definition is read,
+  and cmark's record of the blank line goes with it, so `- # h` /
+  `  [ref]: /x` / *blank* / `  para` / `- b` reads tight where the source
+  separated two of the item's blocks with a blank line.
+
+Both are obscure enough to be worth naming rather than chasing: reproducing
+either would mean encoding a parser's bookkeeping into a rule stated about lines,
+and the answer this reading gives is the one CommonMark's sentence gives.
+
+Having the parser gather line numbers and Core apply the rule is what keeps the
+decision inside `swift test`: `MarkdownListTightnessTests` asserts the rule over
+spans, and `MarkdownParserTests` asserts the whole derivation over real Markdown,
+every expectation in it taken from cmark's own flag for that same text — bar the
+two divergences above, which are asserted the other way and say so.
+
+**The derivation was measured, not argued.** A generated corpus — every block
+kind this tree has as an item's content, in both list kinds, at three
+separations, and again inside a block quote — is run through the shipped parser
+and through `cmark_node_get_list_tight` on the same text. The measurement that
+produced the code-block reading covered 4,800 such documents (the two content
+shapes the reading turns on, an indented block and a fence whose content ends
+blank, are among them) and found **no disagreement**; the earlier run of 7,395
+disagreed on exactly one shape, the indented code block, which is what that
+reading closes. The two quote/marker readings came out of a second measurement
+of the same kind, run the other way round: 12,000 documents assembled at random
+from a vocabulary of pathological *lines* (bare markers, `>` on its own, indented
+code under a quote, lazy continuations) and compared against cmark's rendered
+HTML, where a loose list is the one whose items hold a `<p>`. That corpus
+disagreed on 435 documents before the two readings and on 14 after — the
+remainder being shapes with no `<li>` content to render either way, or
+lazy-continuation tangles four containers deep, which is the point at which
+recovering the flag turns into re-parsing.
+
+The alternative — the one this replaced — was to draw every list tight, which is
+the right *default* (the tree hands every item a paragraph either way, so
+honouring the paragraph's own margin would draw the short ordinary list as a
+loose one) and the wrong *answer* for a list the source wrote loose. The
+stylesheet keeps that default and the renderer marks the exception:
+`class="loose"`, on the list element, so a nested list's spacing is decided
+separately — which is what CommonMark does.
+
+**A task item takes that spacing on the item, not on its paragraph.** The
+checkbox is emitted ahead of the item's first block, so that block is drawn
+`display: inline` or it would sit under an empty box instead of beside it — and
+an inline box's vertical margins do not affect layout, which would leave the
+loose task list drawn exactly as its tight form. The `<li>` is the block-level
+element that can carry it, and its bottom margin collapses with its last block's,
+so an item that also ends in a paragraph or a nested list is spaced once and not
+twice; the last item is put back to the ordinary item margin, the list's own
+bottom margin already spacing it. That margin spaces the item from the *next
+item*, which leaves one gap unaccounted for: the one *inside* a task item
+holding more than one block, which is ordinarily the first block's bottom margin
+and cannot be, that block being the inlined one. The block following it carries
+the gap as a top margin instead — any block, since a nested list or a fence
+written under the checkbox is the same request — and the second and later blocks
+go on spacing themselves the ordinary way, so that is the only rule needed.
+
 ## `PisakaCore` — the decisions
 
 ### `MarkdownDocument.swift`
@@ -372,7 +526,8 @@ against a tree built by hand.
   `blockQuote`, `unorderedList`, `orderedList`, `table`, `thematicBreak`. A
   code block's `language` is `nil` for an indented block or a bare fence, which
   is the whole difference the renderer needs (M10). An ordered list carries its
-  `start`, so `3.` does not silently restart at one.
+  `start`, so `3.` does not silently restart at one. Both list kinds carry
+  `isTight`, CommonMark's own tight/loose distinction (M14).
 - `MarkdownTopLevelBlock` — a block *plus* the 1-based source line it started
   on. Nested blocks have nowhere to put one, not "carry `nil`": scroll sync only
   ever asks about top-level positions, and a nested line would be a second,
@@ -388,6 +543,54 @@ The closed set covers exactly what the preview renders — CommonMark plus the
 three GFM extensions it draws (tables, task items, strikethrough) — because an
 unrendered case is one no test can distinguish from a dropped one. **There is no
 raw-HTML case** (M1).
+
+### `MarkdownListTightness.swift`
+
+The tight/loose rule (M14), and the whole of it. CommonMark says a list is loose
+if any of its items are separated by blank lines, *or* if any item **directly
+contains** two block-level elements with a blank line between them; everything
+else is tight. A tight list draws its items as bare lines, a loose one gives
+every item's content the spacing of a paragraph — including the items with no
+blank line beside them, looseness being a fact about the list rather than about
+an item.
+
+The rule is stated entirely in terms of blank lines between blocks, which is a
+question about line numbers and nothing else — so this engine takes nothing but
+numbers: one entry per item, in source order, holding the 1-based inclusive line
+spans of that item's direct block children, plus the document's blank lines as
+`blankLines(in:)` reads them. It walks every span in order and answers `false` at
+the first pair of spans with a blank line strictly between them, which is the one
+arithmetic in the file. **A gap is not evidence; a blank line is.** Adjacent spans
+enclose no line at all, so a gap is the precondition — but a line between two of a
+list's blocks need not be blank: a link reference definition is written on a line
+of its own and leaves no node behind, so reading the distance alone would call
+that list loose where cmark calls it tight. Asking the source instead costs
+nothing and is literally what CommonMark says. It works inside a block quote too,
+where the blank line carries a `>` and `blankLines(in:)` reads it as blank — and
+where the mirror image, a quote's own trailing `>`, is inside the quote's span
+rather than strictly between two, so no `>` line is ever read as a separator by
+accident.
+
+Two obligations ride on the caller, both readings rather than decisions, and both
+discharged by `MarkdownParser`: a span must cover the block's **content** rather
+than the trailing blank line a container's own range absorbs, and an item with no
+blocks at all must report the one line it was written on. Total in every
+direction, with tight as the answer wherever there is no evidence of a gap — no
+items, one item, one block.
+
+Two more members are here for the one block kind whose content span cannot be
+read off its range at all (M14). `blankLines(in:)` answers which of the source's
+1-based lines hold nothing a block could be built from — whitespace and `>` only,
+because a blank line inside a block quote is written as a `>` — split on cmark's
+three separators (LF, CR, CRLF) and no others, since a `NEL`, `LS` or `PS` is
+ordinary text to cmark and counting one as a break would shift every line number
+below it away from the ones on the tree. `codeBlockContentSpan(range:code:blankLines:)`
+then trims a code block's range of its trailing blank lines, dropping at most as
+many as the range holds beyond the code's own line count: the ceiling keeps a
+closed fence's two fence lines and a fence whose content ends blank, while the
+blankness test drops the line an indented block was closed past. This is the one
+place the *source text* reaches Core, and it reaches it as a set of line numbers
+— the rule still lives here and the parser still decides nothing.
 
 ### `MarkdownPreviewTheme.swift`
 
@@ -463,7 +666,10 @@ nothing or writes to the worktree. Table alignment travels as
 `style="text-align: …"` (HTML5 removed the `align` attribute), `.none` emits
 nothing at all, and nothing pads or truncates a row. `<ol start>` is always
 emitted, including for `1`: one shape rather than a branch whose `1` case is
-untestable from the markup. An attribute with an absent value is omitted rather
+untestable from the markup. A **loose** list carries `class="loose"` and a tight
+one carries nothing, marked in that direction because tight is the ordinary list
+and the stylesheet's ordinary case; the class is on the list element, so a nested
+list's spacing is its own (M14). An attribute with an absent value is omitted rather
 than emitted empty — `<a>` with no `href` is not a link, while `href=""` would
 reload the shell. `alt` is the image's inline content flattened, since HTML's
 `alt` is a plain attribute value.
@@ -515,19 +721,31 @@ spelling), a fragment-only target, a `../` escape or a symlink pointing out of
 the tree, an absolute path landing outside the root, and every target at all
 when either half of the context is missing. An **absolute** target *inside* the
 root does resolve — refusing it would be a rule about spelling rather than about
-reach. So does one carrying a **fragment**: `other.md#usage` — the ordinary shape
-of a cross-file link in a documentation tree — resolves to `other.md`, the `#`
-opening a fragment in any reading of a URL. (The `file:` branch already answered
-this way, `URL` reading the fragment out for it; the scheme-less branch does it by
-hand, since `URL(string:)` must not be asked to parse that target's path.) The
-split happens **before** percent-decoding, so a literal `#` in a name — which a
-document has to spell `%23` for any renderer at all — stays part of it, and a
-fragment cannot smuggle a path past the containment check. The anchor itself is
-dropped: the renderer emits no `id`, so there is nothing to carry it to (a stated
-limit below), and the file is what the link was for.
+reach. So does one carrying a **fragment** or a **query**: `other.md#usage` — the
+ordinary shape of a cross-file link in a documentation tree — resolves to
+`other.md`, and `logo.png?v=2` — the ordinary shape of a cache-busted image, the
+spelling a document copied from a web page arrives with — resolves to `logo.png`;
+`#` opens a fragment and `?` a query in any reading of a URL. (The `file:` branch
+already answered this way, `URL` reading both components out for it; the
+scheme-less branch does it by hand, since `URL(string:)` must not be asked to
+parse that target's path. One `prefix` stops at either character, a query
+preceding a fragment in a URL and whichever comes first ending the path.) The
+split happens **before** percent-decoding, so a literal `#` or `?` in a name —
+which a document has to spell `%23`/`%3F` for any renderer at all — stays part of
+it, and neither can smuggle a path past the containment check. Nothing in front
+of them is the fragment-only case again, refused rather than handed to
+`URL(fileURLWithPath:)`, which has no answer for an empty path. The anchor and
+the query themselves are dropped: the renderer emits no `id`, so there is nothing
+to carry an anchor to (a stated limit below), and the handler answers a file
+rather than a request with parameters — the file is what the target was for.
 
 `URL(string:)` is consulted only for the **scheme** (the component Foundation
-reads the way WebKit does); reading the path back out of it would re-encode a
+reads the way WebKit does), and the answer is **lowercased before it is
+compared**: a URI scheme is case-insensitive, `URL.scheme` hands back whatever
+the document spelled, and `MarkdownLinkRule` already makes that reading of the
+schemes it dispatches on — so `FILE:///…` is the same target as `file:///…`
+rather than a valid in-project file emitted unresolved and then refused. Reading
+the path back out of it would re-encode a
 target that was never encoded. A destination may be percent-encoded (`a%20b.png`)
 or may contain a literal `%` that decodes to nothing, so decoding is attempted
 and the raw spelling kept when it fails — the only reading under which both files
@@ -690,10 +908,30 @@ text exactly as the source spelled it (smart punctuation would rewrite quotes an
 dashes, precisely the normalisation this file may not do), and source positions
 stay **on**, `sourceLine` being read from them. The GFM extensions the preview
 renders are attached unconditionally by swift-markdown and need no option;
-bare-URL autolinking is not among them, so `.autolink` arrives only from the
-`<https://…>` form. `link.isAutolink` is asked here — swift-markdown's own answer
-to "is this link's text its destination" — which is why the renderer never has
-to.
+bare-URL autolinking is not among them, so a URL written as bare text stays text.
+`link.isAutolink` is asked here — swift-markdown's own answer to "is this link's
+text its destination" — which is why the renderer never has to, and which is also
+what `.autolink` means in this tree: **any** untitled link whose one text child is
+its own destination, whether the source wrote `<https://x>` or
+`[https://x](https://x)`. The two spell the same thing, and the case is about
+what the link *is*, not which syntax produced it. It is asked **with `link.title == nil`**, because that answer considers only
+the children: `[https://x](https://x "Docs")` is an ordinary link that satisfies
+it, and `.autolink` has no field to keep a title in, so classifying it there
+would drop the title silently. An autolink's syntax has nowhere to write a title,
+so a title is proof the source wrote a link — and a link is the case that carries
+one.
+
+**One fact is read rather than mapped**: whether a list is tight or loose (M14).
+This file gathers the source lines the rule is stated in terms of — a block's
+content span, a list's and an item's through their children's, a block quote's
+through its own range, an item's marker line always — and hands them to
+`MarkdownListTightness`. The rule stays in Core, so the decision is still not
+made here; what is made here is the reading, and its five subtleties (the
+absorbed blank line, the Setext underline, the code block whose range is read
+neither way round, the quote whose range is read straight, the marker line) are
+recorded on `contentSpan(of:blankLines:)` and `spans(of:blankLines:)`. That last one is also why `parse(_:)` looks at the
+*text* at all: it asks `MarkdownListTightness.blankLines(in:)` which lines are
+blank and threads the answer down, so even that reading is Core's.
 
 ### `MarkdownPreviewSchemeHandler.swift`
 
@@ -973,6 +1211,7 @@ document that carries no targets.
 ## Tests
 
 - Core (`swift test`): `MarkdownDocumentTests`, `MarkdownRendererTests`,
+  `MarkdownListTightnessTests` (M14's rule, stated as spans),
   `MarkdownPreviewPageTests`, `MarkdownPreviewAssetTests`,
   `MarkdownLinkRuleTests`, `MarkdownScrollRuleTests`,
   `MarkdownPreviewThemeTests` (the two set-equality directions of M10),
@@ -994,7 +1233,8 @@ document that carries no targets.
   destination filter) and `ZoomSourceGatingTests` (the fifth code surface).
 - App bundle (`PisakaAppTests`, `xcodebuild … -destination 'platform=macOS' test`):
   `MarkdownParserTests` — the one place the real parser runs, over the
-  `every-element.md` fixture — `MarkdownPreviewSchemeHandlerTests`, which
+  `every-element.md` fixture, and the one that asserts M14's derivation end to
+  end against cmark's own answers — `MarkdownPreviewSchemeHandlerTests`, which
   asserts `answer(for:)` and the `WKURLSchemeTask` adapter without a web view,
   including the forged-URL and escape refusals, and
   `MarkdownPreviewNavigationTests`, the feature's **one gate that drives a real

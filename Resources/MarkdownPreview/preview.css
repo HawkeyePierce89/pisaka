@@ -118,18 +118,29 @@ li > ul, li > ol {
     margin-bottom: 0;
 }
 
-/* An item's text is a paragraph whether or not the source wrote the list loose:
-   the tree carries no tight/loose distinction, so every item arrives as a `<p>`
-   and the paragraph's own bottom margin would draw every list — the short,
-   ordinary one included — as a loose one. */
+/* An item's text is a paragraph either way — the renderer emits a `<p>` for a
+   tight item and a loose one alike — so the paragraph's own bottom margin would
+   draw the short, ordinary list as a loose one. Zeroed here, and put back below
+   for the list that asked for it. */
 li > p {
     margin: 0;
 }
 
-/* An item that really does hold several paragraphs keeps them apart, which is a
-   different fact from the one above: multi-block *item*, not multi-item list. */
-li > p + p {
-    margin-top: 1em;
+/* A list the source wrote loose, which the renderer marks as such: a blank line
+   between items is the author asking for the gap, and this is the only place
+   that request is honoured. The class is on the list, so a nested list of the
+   other kind is unaffected by its parent's. */
+ul.loose > li > p, ol.loose > li > p,
+ul.loose > li > ul, ul.loose > li > ol,
+ol.loose > li > ul, ol.loose > li > ol {
+    margin-bottom: 1em;
+}
+
+/* …except after the very last block of the last item, where the list's own
+   bottom margin already provides the spacing and a second one would read as a
+   paragraph break the source never wrote. */
+ul.loose > li:last-child > :last-child, ol.loose > li:last-child > :last-child {
+    margin-bottom: 0;
 }
 
 /* A task item's marker is the checkbox, so the list's own bullet goes. The
@@ -153,6 +164,35 @@ li.task-list-item > input[type="checkbox"] {
    nested list, a fenced block) inlines nothing it should not. */
 li.task-list-item > input[type="checkbox"] + p {
     display: inline;
+}
+
+/* …which is why a loose task list cannot take its spacing from that paragraph:
+   an inline box's vertical margins do not affect layout, so the rule above would
+   land on nothing and the loose task list would draw exactly as its tight form.
+   The item is the block-level element that can carry it. Its bottom margin
+   collapses with its last block's, so an item that also ends in a paragraph or a
+   nested list is spaced once and not twice. */
+ul.loose > li.task-list-item, ol.loose > li.task-list-item {
+    margin-bottom: 1em;
+}
+
+/* …and the last item takes the same exception as every other, the list's own
+   bottom margin already spacing it: back to the ordinary item margin, not to
+   zero, which is what the rule above overrode. */
+ul.loose > li.task-list-item:last-child, ol.loose > li.task-list-item:last-child {
+    margin-bottom: 0.2em;
+}
+
+/* The item's margin spaces it from the *next item*; the gap *inside* an item
+   holding more than one block is still the first block's bottom margin, and the
+   inlined paragraph cannot carry that one either. The block that follows it
+   carries it as a top margin instead — the second and later blocks space
+   themselves the ordinary way, so this is the one gap left. Any block, not just
+   a paragraph: a nested list or a fenced block written under the checkbox is
+   the same request. */
+ul.loose > li.task-list-item > input[type="checkbox"] + p + *,
+ol.loose > li.task-list-item > input[type="checkbox"] + p + * {
+    margin-top: 1em;
 }
 
 /* MARK: - Code */
