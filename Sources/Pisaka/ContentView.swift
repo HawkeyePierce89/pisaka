@@ -1012,8 +1012,12 @@ struct ContentView: View {
     /// the find bar and the editor itself. Lifted out of `editorZone` so the tab
     /// kind is routed on in one short expression rather than around a hundred
     /// lines of editor wiring.
+    ///
+    /// `onScrolled` is `nil` for every tab but a previewed one: the editor's
+    /// scroll reporting is opt-in (see `CodeEditorView.onScrolled`), so the
+    /// ordinary path costs nothing on the scroll frame.
     @ViewBuilder
-    private func textEditorZone(for file: OpenFile) -> some View {
+    private func textEditorZone(for file: OpenFile, onScrolled: ((Int) -> Void)? = nil) -> some View {
         // The consent banner (D15), between the breadcrumb and the find
         // bar so it is the topmost thing in the editor zone without
         // covering the file's own path. It renders nothing at all unless
@@ -1062,7 +1066,8 @@ struct ContentView: View {
             onGoToDefinition: onGoToDefinition,
             onViewDefinitionOutsideProject: onViewDefinitionOutsideProject,
             onFindUsages: onFindUsages,
-            onRenameSymbol: onRenameSymbol
+            onRenameSymbol: onRenameSymbol,
+            onScrolled: onScrolled
         )
     }
 
@@ -1107,7 +1112,15 @@ struct ContentView: View {
             // The editor's three strips stacked as `editorZone` stacks them —
             // this is the same content, given a width.
             VStack(spacing: 0) {
-                textEditorZone(for: file)
+                // The preview follows the editor and never the other way round,
+                // so this is the whole of scroll sync's wiring: an offset out of
+                // the editor, a line into the model. Neither the mapping nor the
+                // coalescing is here — see `MarkdownPreviewController` and
+                // `MarkdownPreviewModel`.
+                textEditorZone(
+                    for: file,
+                    onScrolled: { offset in markdownPreview.noteScrolled(topOffset: offset) }
+                )
             }
             .frame(width: CGFloat(editorWidth))
             markdownPreviewDivider(available: available)

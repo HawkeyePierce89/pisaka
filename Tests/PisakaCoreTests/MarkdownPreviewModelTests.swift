@@ -339,6 +339,65 @@ final class MarkdownPreviewModelTests: XCTestCase {
         XCTAssertEqual(sink.scrolledLines, [11, 2])
     }
 
+    /// A gesture's worth of bounds changes, as the editor actually delivers
+    /// them: one per frame, all inside a single turn of the main run loop.
+    ///
+    /// The editor reports an offset per frame and the glue maps each one, so
+    /// the model is what stands between a scroll gesture and sixty
+    /// `evaluateJavaScript` round trips. Sixty calls in, one call out, carrying
+    /// the line the gesture ended on.
+    func testAWholeScrollGestureIsOneCallCarryingTheLineItEndedOn() async {
+        let (model, _, sink) = makeModel()
+
+        model.retarget(to: documentContext, text: "alpha")
+        await waitFor("the first body") { sink.bodies.last == self.body(for: "alpha") }
+        sink.clearEvents()
+
+        for line in 1...60 {
+            model.noteScrolled(toLine: line)
+        }
+
+        await waitFor("the coalesced scroll") { !sink.scrolledLines.isEmpty }
+        await settle()
+        XCTAssertEqual(sink.scrolledLines, [60])
+        XCTAssertEqual(sink.evaluatedSources.count, 1)
+    }
+
+    /// A scroll that a retarget overtook in the same turn.
+    ///
+    /// The line described the outgoing document, and the page is about to be
+    /// showing another one, so it is dropped rather than sent — the alternative
+    /// is a new file opening scrolled to a position taken from the old one.
+    func testAPendingScrollIsDroppedByARetarget() async {
+        let (model, _, sink) = makeModel()
+
+        model.retarget(to: documentContext, text: "alpha")
+        await waitFor("the first body") { sink.bodies.last == self.body(for: "alpha") }
+        sink.clearEvents()
+
+        model.noteScrolled(toLine: 40)
+        model.retarget(to: otherContext, text: "beta")
+
+        await settle()
+        XCTAssertEqual(sink.scrolledLines, [])
+    }
+
+    /// The same, for the clear: a tab that is not Markdown became active, or the
+    /// preference went off, and the page is being emptied.
+    func testAPendingScrollIsDroppedByAClear() async {
+        let (model, _, sink) = makeModel()
+
+        model.retarget(to: documentContext, text: "alpha")
+        await waitFor("the first body") { sink.bodies.last == self.body(for: "alpha") }
+        sink.clearEvents()
+
+        model.noteScrolled(toLine: 40)
+        model.clear()
+
+        await settle()
+        XCTAssertEqual(sink.scrolledLines, [])
+    }
+
     func testAScrollBeforeAnyBodySendsNothing() async {
         let (model, _, sink) = makeModel()
 

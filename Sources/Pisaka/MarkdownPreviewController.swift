@@ -63,6 +63,18 @@ final class MarkdownPreviewController: ObservableObject {
         set { page.openInEditor = newValue }
     }
 
+    /// The buffer the scroll mapping is read against, and its line starts once
+    /// something has asked for them.
+    ///
+    /// Not a second copy of the document and not a decision: it is the very text
+    /// ``preview(_:projectRoot:)`` was just handed, kept so a scroll needs only
+    /// an offset. The line starts are computed on the first scroll after a
+    /// keystroke rather than on the keystroke itself — a burst of typing with
+    /// nobody scrolling then costs none of them — and dropped whenever the text
+    /// moves, which is the only place they can go stale.
+    private var scrollText: NSString = ""
+    private var scrollLineStarts: [Int]?
+
     /// The tab being previewed and the project it sits in, or `nil` when there
     /// is nothing to preview.
     ///
@@ -78,12 +90,29 @@ final class MarkdownPreviewController: ObservableObject {
     func preview(_ file: OpenFile?, projectRoot: URL?) {
         guard let file else {
             page.documentContext = .none
+            scrollText = ""
+            scrollLineStarts = nil
             model.clear()
             return
         }
         let context = MarkdownDocumentContext(documentURL: file.url, projectRoot: projectRoot)
         page.documentContext = context
+        scrollText = file.text as NSString
+        scrollLineStarts = nil
         model.retarget(to: context, text: file.text)
+    }
+
+    /// The editor scrolled, with the character offset now at the top of it.
+    ///
+    /// The one mapping this file performs, and — like the `nil`/document
+    /// translation above — not a decision: which line an offset is in is
+    /// ``MarkdownScrollRule``'s answer, and *when* that line reaches the page is
+    /// the model's, which coalesces a gesture's worth of them into one call per
+    /// turn of the main run loop. Nothing here holds a dirty flag or a timer.
+    func noteScrolled(topOffset: Int) {
+        let lineStarts = scrollLineStarts ?? LineStartIndex.offsets(in: scrollText)
+        scrollLineStarts = lineStarts
+        model.noteScrolled(toLine: MarkdownScrollRule.line(forTopOffset: topOffset, lineStarts: lineStarts))
     }
 
     /// The window's resolved theme and the code font size.

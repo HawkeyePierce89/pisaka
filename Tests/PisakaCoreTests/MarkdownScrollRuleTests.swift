@@ -64,6 +64,36 @@ final class MarkdownScrollRuleTests: XCTestCase {
         XCTAssertEqual(MarkdownScrollRule.line(forTopOffset: 42, lineStarts: []), 1)
     }
 
+    /// The scroll-sync path end to end, on the one thing that could quietly
+    /// disagree: the rule counts the *editor's* lines and the page matches
+    /// against `data-line`, which the renderer wrote from the parser's own
+    /// 1-based source lines. A document scrolled into its middle must therefore
+    /// answer the very number the block sitting there carries — otherwise the
+    /// page's "last block at or before this line" rule would land one block off
+    /// on every document.
+    func testAScrolledOffsetAnswersTheSourceLineOfTheBlockItIsIn() {
+        // "# Title" / "" / "A paragraph." / "" / "## Section" / "" / "Another."
+        let markdown = "# Title\n\nA paragraph.\n\n## Section\n\nAnother.\n" as NSString
+        let starts = LineStartIndex.offsets(in: markdown)
+
+        // The source lines the renderer emits as `data-line` for that document.
+        for sourceLine in [1, 3, 5, 7] {
+            XCTAssertEqual(
+                MarkdownScrollRule.line(forTopOffset: starts[sourceLine - 1], in: markdown),
+                sourceLine
+            )
+        }
+
+        // Scrolled to a blank line — one no block starts on — the answer is that
+        // line, and the page's own rule is what walks it back to the block above.
+        XCTAssertEqual(MarkdownScrollRule.line(forTopOffset: starts[3], in: markdown), 4)
+
+        // And mid-block: an offset inside the paragraph is still the paragraph's
+        // own line, so a slow scroll through it sends the same line every frame
+        // and the page does not twitch.
+        XCTAssertEqual(MarkdownScrollRule.line(forTopOffset: starts[2] + 5, in: markdown), 3)
+    }
+
     func testTheCachedAndUncachedFormsAgree() {
         let starts = LineStartIndex.offsets(in: text)
         for offset in -2...(text.length + 2) {

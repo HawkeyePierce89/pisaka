@@ -221,11 +221,11 @@ Dependencies: `apple/swift-markdown` (transitively `swift-cmark`, plus DocC plug
 **Files:**
 - Modify: `Sources/Pisaka/CodeEditorView.swift`, `Sources/Pisaka/MarkdownPreviewController.swift`, `Sources/Pisaka/ContentView.swift`
 
-- [ ] Add one optional callback to `CodeEditorView` that the coordinator calls from its existing clip-view bounds observer, carrying the top character offset it already captures.
-- [ ] Have the glue map that offset to a line through `MarkdownScrollRule` and hand the line to the model — the coalescing, the flush and the single `scrollToLine` per turn are the model's (Task 11), not the controller's.
-- [ ] Scroll the page without animation to the last top-level block whose `data-line` is at or before that line (`preview.js`); scrolling the preview sends nothing back.
-- [ ] Extend the Core tests: the rule's mapping at a scrolled offset, and the model's coalescing under a burst delivered in one turn, asserted by polling the scripted sink's record.
-- [ ] Run `swift test` and the macOS build.
+- [x] Add one optional callback to `CodeEditorView` that the coordinator calls from its existing clip-view bounds observer, carrying the top character offset it already captures. (`onScrolled` → `Coordinator.reportScrolled`, called from `clipViewBoundsChanged` through `reportScroll()`, which is guarded on the closure so an unwatched editor does not even capture a viewport.)
+- [x] Have the glue map that offset to a line through `MarkdownScrollRule` and hand the line to the model — the coalescing, the flush and the single `scrollToLine` per turn are the model's (Task 11), not the controller's. (`MarkdownPreviewController.noteScrolled(topOffset:)`; the line starts of the text it was already handed are memoised there and dropped on every forward, so a scroll frame costs no re-scan and a keystroke with nobody scrolling costs none at all.)
+- [x] Scroll the page without animation to the last top-level block whose `data-line` is at or before that line (`preview.js`); scrolling the preview sends nothing back. (`PisakaPreview.scrollToLine`, written with the page in Task 9/10: one `window.scrollTo`, no `behavior: "smooth"`, and the page installs no message handler at all, so there is no channel back.)
+- [x] Extend the Core tests: the rule's mapping at a scrolled offset, and the model's coalescing under a burst delivered in one turn, asserted by polling the scripted sink's record. (`MarkdownScrollRuleTests.testAScrolledOffsetAnswersTheSourceLineOfTheBlockItIsIn` — every block's `data-line`, a blank line between two, and mid-block; `MarkdownPreviewModelTests` gains a sixty-frame gesture collapsing to one call carrying line 60, plus a pending scroll dropped by a retarget and by a clear.)
+- [x] Run `swift test` and the macOS build. (5491 Core tests green; `swiftlint --strict` clean; `xcodebuild … -destination 'platform=macOS' build` green with a derived-data path outside the repository.)
 
 ### Task 15: The source-gating suite
 

@@ -215,6 +215,18 @@ struct CodeEditorView: NSViewRepresentable {
     /// default-constructed view (previews/tests) still compiles.
     var onRenameSymbol: (UsagesRequest) -> Void = { _ in }
 
+    /// The editor scrolled: the character offset now at the top of the visible
+    /// rectangle, the very number `captureViewport()` already reads for the
+    /// per-tab scroll anchor.
+    ///
+    /// Optional and `nil` for every editor nobody is watching, which is the
+    /// point: the only caller is the Markdown split, so an ordinary tab pays
+    /// nothing at all for this on the scroll path — not even the viewport
+    /// capture. It carries an *offset* rather than a line because that is what
+    /// the editor has; turning it into a line is `MarkdownScrollRule`'s, asked
+    /// by the glue that receives it.
+    var onScrolled: ((Int) -> Void)?
+
     func makeCoordinator() -> Coordinator {
         Coordinator(text: $text)
     }
@@ -485,6 +497,7 @@ struct CodeEditorView: NSViewRepresentable {
         context.coordinator.viewDefinitionOutsideProject = onViewDefinitionOutsideProject
         context.coordinator.requestUsages = onFindUsages
         context.coordinator.requestRename = onRenameSymbol
+        context.coordinator.reportScrolled = onScrolled
         // Seed the retarget comparison so the first update after creation does
         // not read as one: the immediate sync below already happened here.
         context.coordinator.syncedProjectRoot = projectRoot
@@ -910,6 +923,7 @@ struct CodeEditorView: NSViewRepresentable {
         context.coordinator.viewDefinitionOutsideProject = onViewDefinitionOutsideProject
         context.coordinator.requestUsages = onFindUsages
         context.coordinator.requestRename = onRenameSymbol
+        context.coordinator.reportScrolled = onScrolled
         if switchedFile || contentReplaced || retargetedBuffer {
             context.coordinator.reindexSymbols(
                 text: textView.string,
@@ -1474,6 +1488,24 @@ struct CodeEditorView: NSViewRepresentable {
         /// `CodeEditorView` on every update, like `requestUsages`, and for the
         /// same reason.
         var requestRename: (UsagesRequest) -> Void = { _ in }
+
+        // MARK: - Scroll reporting
+
+        /// Report the top visible character offset to whoever asked for it, or
+        /// `nil` when nobody did. Assigned from `CodeEditorView` on every
+        /// update, like the closures above and for the same reason.
+        var reportScrolled: ((Int) -> Void)?
+
+        /// Tell whoever asked where the top of the visible text now is.
+        ///
+        /// Guarded on the closure rather than on the viewport, so an editor with
+        /// no listener does not even capture one: `captureViewport()` asks the
+        /// layout system for the character at a point, which is work worth
+        /// skipping on every scroll frame of every ordinary tab.
+        func reportScroll() {
+            guard let reportScrolled, let offset = captureViewport()?.topCharacterOffset else { return }
+            reportScrolled(offset)
+        }
 
         /// The one place the caret's word becomes a question, shared by the two
         /// commands below so they can never disagree about what a name is or
@@ -3066,6 +3098,10 @@ struct CodeEditorView: NSViewRepresentable {
             refreshGeometry()
             bracketHighlight.refreshVisible()
             searchController.refreshVisibleHighlight()
+            // The Markdown preview follows the editor, and this is the one
+            // observation of a scroll the editor has. It costs nothing when
+            // nobody is listening (see `reportScroll`).
+            reportScroll()
         }
 
         /// The clip view resized or the document height changed: rebuild geometry.
