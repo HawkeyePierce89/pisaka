@@ -115,12 +115,12 @@ Dependencies: `apple/swift-markdown` (transitively `swift-cmark`, plus DocC plug
 **Files:**
 - Create: `Sources/PisakaCore/MarkdownPreviewPage.swift`, `Tests/PisakaCoreTests/MarkdownPreviewPageTests.swift`
 
-- [ ] Write `MarkdownPreviewPage`: the whole `<head>` (charset, `color-scheme`, the theme as CSS custom properties including one per `SyntaxTokenKind`, the code font size), the CSP meta, `<link>`/`<script>` tags for the four bundled files by fixed name, an empty body container, and the shell's one bootstrap call.
-- [ ] Spell the custom scheme name, the shell's URL, the host and the bundled-file path prefix **in this one Core file** as public constants; nothing in the app layer may spell any of them.
-- [ ] Compose the CSP so every network origin is forbidden: `default-src 'none'`, scripts and styles from the app scheme only, `'unsafe-inline'` for styles alone (mermaid inlines `<style>` into its SVG) and never for scripts, images from the app scheme and `data:`, `connect-src 'none'`.
-- [ ] Add the body-update and scroll entry points as Core-composed JavaScript: one function returning the `evaluateJavaScript` source that replaces the container's inner HTML with a JSON-encoded body string and re-runs highlight/mermaid, and one returning the `scrollToLine` call — both escaping their arguments here, so the app passes values, never fragments.
-- [ ] Test the CSP string verbatim, the presence and order of the script tags, that the shell names no `http`/`https` URL at all, that light and dark shells differ, that the code font size reaches the CSS, and that the body-update source round-trips a body containing quotes, backslashes, newlines and `</script>`.
-- [ ] Run `swift test`.
+- [x] Write `MarkdownPreviewPage`: the whole `<head>` (charset, `color-scheme`, the theme as CSS custom properties including one per `SyntaxTokenKind`, the code font size), the CSP meta, `<link>`/`<script>` tags for the four bundled files by fixed name, an empty body container, and the shell's one bootstrap call.
+- [x] Spell the custom scheme name, the shell's URL, the host and the bundled-file path prefix **in this one Core file** as public constants; nothing in the app layer may spell any of them.
+- [x] Compose the CSP so every network origin is forbidden: `default-src 'none'`, scripts and styles from the app scheme only, `'unsafe-inline'` for styles alone (mermaid inlines `<style>` into its SVG) and never for scripts, images from the app scheme and `data:`, `connect-src 'none'`.
+- [x] Add the body-update and scroll entry points as Core-composed JavaScript: one function returning the `evaluateJavaScript` source that replaces the container's inner HTML with a JSON-encoded body string and re-runs highlight/mermaid, and one returning the `scrollToLine` call — both escaping their arguments here, so the app passes values, never fragments.
+- [x] Test the CSP string verbatim, the presence and order of the script tags, that the shell names no `http`/`https` URL at all, that light and dark shells differ, that the code font size reaches the CSS, and that the body-update source round-trips a body containing quotes, backslashes, newlines and `</script>`.
+- [x] Run `swift test`.
 
 ### Task 7: The app-scheme mapping (both directions), the link rule and the scroll rule
 
