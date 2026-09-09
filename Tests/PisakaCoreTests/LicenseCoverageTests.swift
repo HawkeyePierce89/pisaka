@@ -41,10 +41,20 @@ import XCTest
 /// `testTextsCarryTheirBundledSubDependencyNotices`.
 final class LicenseCoverageTests: XCTestCase {
     /// Linked by the app but resolved *transitively* rather than declared in
-    /// `project.yml`: `SwiftTreeSitter` depends on the `tree-sitter` C runtime
-    /// and links it into the app, so it ships and must be acknowledged even
-    /// though no `packages:` entry names it.
-    private static let transitiveIdentities: Set<String> = ["tree-sitter"]
+    /// `project.yml`, so it ships and must be acknowledged even though no
+    /// `packages:` entry names it:
+    ///
+    ///  * `tree-sitter` — `SwiftTreeSitter` depends on the C runtime and links
+    ///    it into the app;
+    ///  * `swift-cmark` — `swift-markdown`'s `Markdown` target is built on the
+    ///    `cmark-gfm` and `cmark-gfm-extensions` products, so the C parser is
+    ///    compiled into the app as surely as if it were declared here.
+    ///
+    /// Both are the *linked* kind of transitive dependency. The kind that is
+    /// resolved and links nothing belongs in the manifest's `excluded` array
+    /// instead, with a reason — see
+    /// `testEveryResolvedIdentityIsAcknowledgedOrExplicitlyExcluded`.
+    private static let transitiveIdentities: Set<String> = ["tree-sitter", "swift-cmark"]
 
     /// The local package (`path: .`), which is this repository's own code.
     private static let localPackage = "PisakaCore"
@@ -110,6 +120,8 @@ final class LicenseCoverageTests: XCTestCase {
     /// plausible-looking invention, so a new one fails here until someone has
     /// checked it against spdx.org/licenses.
     private static let usedSPDXLicenseIDs: Set<String> = [
+        "Apache-2.0",
+        "BSD-2-Clause",
         "BSD-3-Clause",
         "LGPL-2.1-or-later",
         "MIT",
@@ -117,11 +129,17 @@ final class LicenseCoverageTests: XCTestCase {
         "Zlib",
     ]
 
-    /// SPDX *exception* ids (the right operand of `WITH`) this manifest uses —
-    /// empty, and deliberately so. The one dependency whose licence carries an
-    /// exception, libgit2, has no listed identifier for it, and `WITH` accepts
-    /// nothing else; it is therefore spelled as a `LicenseRef-` operand instead.
-    private static let usedSPDXExceptionIDs: Set<String> = []
+    /// SPDX *exception* ids (the right operand of `WITH`) this manifest uses.
+    ///
+    /// Exactly one, and the set exists to keep the distinction sharp rather than
+    /// to hold a list: `WITH` takes only ids from SPDX's own *exception* list, so
+    /// membership here is a claim that someone checked
+    /// spdx.org/licenses/exceptions-index.html. `Swift-exception` (the Swift
+    /// Runtime Library Exception, which swift-markdown's LICENSE.txt carries
+    /// below the Apache 2.0 text) is on that list. libgit2's linking exception,
+    /// by contrast, has no listed identifier at all — which is why it is spelled
+    /// as a `LicenseRef-` operand and does not appear here.
+    private static let usedSPDXExceptionIDs: Set<String> = ["Swift-exception"]
 
     /// `spdx` is documented as an SPDX expression, is shown under every
     /// dependency's name on both Acknowledgements screens, and is the app's only
@@ -344,6 +362,8 @@ final class LicenseCoverageTests: XCTestCase {
         "Rearrange": "Copyright (c) 2019, Chime Systems Inc.",
         "Sparkle": "Copyright (c) 2006-2013 Andy Matuschak.",
         "SwiftTerm": "Copyright (c) 2019-2022 Miguel de Icaza",
+        "swift-cmark": "Copyright (c) 2014, John MacFarlane",
+        "swift-markdown": "Copyright (c) 2021 Apple Inc. and the Swift project authors",
         "TreeSitterEditorconfig": "Copyright (c) 2024 Omar Valdez",
         "SwiftTreeSitter": "Copyright (c) 2021, Chime",
         "tree-sitter": "Copyright (c) 2018-2024 Max Brunsfeld",
@@ -473,6 +493,51 @@ final class LicenseCoverageTests: XCTestCase {
             XCTAssertTrue(sparkle.contains(holder), """
                 Sparkle.txt no longer names “\(holder)” — one of the EXTERNAL LICENSES entries was \
                 lost. Re-copy upstream's LICENSE at the pinned tag in full.
+                """)
+        }
+
+        // swift-markdown is the fourth case, and a fourth shape again: upstream's
+        // LICENSE.txt is the unmodified Apache 2.0 boilerplate, so it names no
+        // holder at all — its copyright line is the template's own
+        // `Copyright [yyyy] [name of copyright owner]`. The attribution lives in
+        // NOTICE.txt, which Apache §4(d) requires a redistribution to carry, and
+        // which SwiftPM never puts anywhere the app could read. So the shipped
+        // text is LICENSE.txt with NOTICE.txt appended, and both halves must
+        // survive a re-copy: the exception is what makes the Apache grant here
+        // the one the Swift project actually offers, and the notice is what
+        // names the holder `expectedCopyrightHolders` checks for.
+        let swiftMarkdown = try text(atRepositoryPath: "Resources/Licenses/swift-markdown.txt")
+        XCTAssertTrue(swiftMarkdown.contains("Runtime Library Exception to the Apache 2.0 License"), """
+            swift-markdown.txt must carry the Runtime Library Exception section that follows the \
+            Apache 2.0 text in upstream's LICENSE.txt — that section, not the boilerplate above it, \
+            is what the manifest's `Apache-2.0 WITH Swift-exception` names. Copy LICENSE.txt whole.
+            """)
+        XCTAssertTrue(swiftMarkdown.contains("The Swift Markdown Project"), """
+            swift-markdown.txt must carry upstream's NOTICE.txt appended below LICENSE.txt. The \
+            Apache License §4(d) requires a redistribution to carry it, and it is the only file in \
+            the package that names the copyright holder — LICENSE.txt is unmodified boilerplate.
+            """)
+
+        // swift-cmark is the case where upstream's own file is already the whole
+        // obligation, like Sparkle's — and where that is easy to doubt, because
+        // the file is named COPYING and reads as plain BSD-2 for its first
+        // twenty-five lines. It is not: the rest of it aggregates every
+        // third-party tree the package compiles (houdini, GitHub's buffer/chunk,
+        // utf8proc), and `swiftlang/swift-cmark`'s COPYING at the pinned revision
+        // is byte-identical to `github/cmark-gfm`'s, so the GFM extensions this
+        // app links are covered by it too and there is deliberately no appendix.
+        // What must be pinned is that the copy stays whole: a re-copy that
+        // grabbed only the BSD grant at the top would drop three attributions
+        // while staying present, non-empty and still naming John MacFarlane.
+        let swiftCmark = try text(atRepositoryPath: "Resources/Licenses/swift-cmark.txt")
+        for holder in ["Copyright (C) 2012 Vicent Martí",
+                       "are derived from code (C) 2012 Github, Inc.",
+                       "(C) 2009 Public Software Group e. V., Berlin, Germany.",
+        ] {
+            XCTAssertTrue(swiftCmark.contains(holder), """
+                swift-cmark.txt no longer names “\(holder)” — one of the notices upstream's COPYING \
+                aggregates for the third-party code it compiles (houdini, GitHub's buffer/chunk, \
+                utf8proc) was lost. Re-copy COPYING at the pinned revision in full.
                 """)
         }
 

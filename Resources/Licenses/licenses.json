@@ -172,6 +172,24 @@
       "file" : "TreeSitterSql.txt"
     },
     {
+      "id" : "swift-markdown",
+      "name" : "swift-markdown",
+      "origin" : "https://github.com/swiftlang/swift-markdown",
+      "version" : null,
+      "revision" : "3be4e1a09cef425602f11bdb4b4de252e4badd11",
+      "spdx" : "Apache-2.0 WITH Swift-exception",
+      "file" : "swift-markdown.txt"
+    },
+    {
+      "id" : "swift-cmark",
+      "name" : "swift-cmark",
+      "origin" : "https://github.com/swiftlang/swift-cmark.git",
+      "version" : null,
+      "revision" : "5d9bdaa4228b381639fff09403e39a04926e2dbe",
+      "spdx" : "BSD-2-Clause AND MIT",
+      "file" : "swift-cmark.txt"
+    },
+    {
       "id" : "SwiftTerm",
       "name" : "SwiftTerm",
       "origin" : "https://github.com/migueldeicaza/SwiftTerm",

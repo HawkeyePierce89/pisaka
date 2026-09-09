@@ -56,12 +56,12 @@ Dependencies: `apple/swift-markdown` (transitively `swift-cmark`, plus DocC plug
 - Modify: `project.yml`, `Pisaka.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved`, `Resources/Licenses/licenses.json`, `Tests/PisakaCoreTests/DependencyPinTests.swift`, `Tests/PisakaCoreTests/LicenseCoverageTests.swift`
 - Create: `Resources/Licenses/swift-markdown.txt`, `Resources/Licenses/swift-cmark.txt`
 
-- [ ] Add `SwiftMarkdown` to `project.yml`'s `packages:` (url `https://github.com/swiftlang/swift-markdown`, `revision:` the exact commit of the current release) and to the `Pisaka` target's `dependencies:` (product `Markdown`); write the comment block that explains the transitive `swift-cmark` branch requirement the way the SwiftTreeSitter block explains Neon's.
-- [ ] Regenerate the project and resolve (`xcodegen generate`, `xcodebuild -resolvePackageDependencies`), committing the regenerated v2 `Package.resolved` — never hand-edited.
-- [ ] Turn `DependencyPinTests`' branch-pin rule into a documented **set** of two (`swifttreesitter`, `swift-cmark`), each with its own recorded revision assertion and its own stated reason; update the suite's doc comment and the tests that read it so a *third* branch pin still fails.
-- [ ] Copy the verbatim `LICENSE` of swift-markdown and of swift-cmark at their resolved revisions into `Resources/Licenses/`, appending swift-cmark's bundled GFM-extension notice the way `libgit2.txt` carries its `LINKING EXCEPTION`; add both `licenses.json` notices with their resolved revisions and SPDX expressions.
-- [ ] Record `swift-cmark` as a transitive-but-linked identity in `LicenseCoverageTests` (the Neon/SwiftTreeSitter precedent), and add any DocC plugin identities that appear in `Package.resolved` to `licenses.json`'s `excluded` array with the reason "build-tool plugin, never linked".
-- [ ] Run `swift test` — `DependencyPinTests` and `LicenseCoverageTests` must be green — then the macOS build.
+- [x] Add `SwiftMarkdown` to `project.yml`'s `packages:` (url `https://github.com/swiftlang/swift-markdown`, `revision:` the exact commit of the current release) and to the `Pisaka` target's `dependencies:` (product `Markdown`); write the comment block that explains the transitive `swift-cmark` branch requirement the way the SwiftTreeSitter block explains Neon's.
+- [x] Regenerate the project and resolve (`xcodegen generate`, `xcodebuild -resolvePackageDependencies`), committing the regenerated v2 `Package.resolved` — never hand-edited.
+- [x] Turn `DependencyPinTests`' branch-pin rule into a documented **set** of two (`swifttreesitter`, `swift-cmark`), each with its own recorded revision assertion and its own stated reason; update the suite's doc comment and the tests that read it so a *third* branch pin still fails.
+- [x] Copy the verbatim `LICENSE` of swift-markdown and of swift-cmark at their resolved revisions into `Resources/Licenses/`, appending swift-cmark's bundled GFM-extension notice the way `libgit2.txt` carries its `LINKING EXCEPTION`; add both `licenses.json` notices with their resolved revisions and SPDX expressions.
+- [x] Record `swift-cmark` as a transitive-but-linked identity in `LicenseCoverageTests` (the Neon/SwiftTreeSitter precedent), and add any DocC plugin identities that appear in `Package.resolved` to `licenses.json`'s `excluded` array with the reason "build-tool plugin, never linked".
+- [x] Run `swift test` — `DependencyPinTests` and `LicenseCoverageTests` must be green — then the macOS build.
 
 ### Task 2: The Core document tree
 
