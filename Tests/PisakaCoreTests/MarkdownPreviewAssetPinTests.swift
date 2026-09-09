@@ -223,6 +223,126 @@ final class MarkdownPreviewAssetPinTests: XCTestCase {
             """)
     }
 
+    // MARK: - The two first-party files
+
+    /// The names `preview.js` is reached through are Core's, and nothing else in
+    /// the pipeline compares the two spellings.
+    ///
+    /// `MarkdownPreviewPageTests` asserts the shell's `<div id=…>` *through*
+    /// `containerElementID`, and the three source builders compose their calls
+    /// *through* `namespace` — so renaming either constant keeps every one of
+    /// those assertions green while the page silently renders nothing into an
+    /// element that no longer exists, or calls a member no script defines. The
+    /// script is data here, not code: `swift test` cannot execute it and no
+    /// build compiles it, so this reads it as text.
+    func testThePreviewScriptDefinesEverythingTheShellAndTheModelReachFor() throws {
+        let script = try text(forAsset: MarkdownPreviewPage.previewScriptFileName)
+
+        XCTAssertTrue(script.contains("\"\(MarkdownPreviewPage.containerElementID)\""), """
+            Resources/MarkdownPreview/\(MarkdownPreviewPage.previewScriptFileName) does not spell \
+            the container id “\(MarkdownPreviewPage.containerElementID)” the shell gives its one \
+            div. Every body update writes into that element; a rename on either side leaves the \
+            page blank with nothing to report it.
+            """)
+        XCTAssertTrue(script.contains("window.\(MarkdownPreviewPage.namespace)"), """
+            Resources/MarkdownPreview/\(MarkdownPreviewPage.previewScriptFileName) does not define \
+            window.\(MarkdownPreviewPage.namespace), which is the object every source Core \
+            composes calls through.
+            """)
+
+        let members = try Self.reachedMembers()
+        // Named, so a parse that silently found nothing cannot pass this test by
+        // iterating an empty set.
+        XCTAssertEqual(members, ["boot", "render", "scrollToLine", "scrollToAnchor"])
+
+        for member in members {
+            XCTAssertTrue(script.contains("function \(member)("), """
+                Resources/MarkdownPreview/\(MarkdownPreviewPage.previewScriptFileName) defines no \
+                `\(member)`, but MarkdownPreviewPage composes a call to it. The call is evaluated \
+                in the page, where a missing member is an exception nobody sees.
+                """)
+            XCTAssertTrue(script.contains("\(member): \(member),"), """
+                Resources/MarkdownPreview/\(MarkdownPreviewPage.previewScriptFileName) defines \
+                `\(member)` but does not expose it on window.\(MarkdownPreviewPage.namespace).
+                """)
+        }
+    }
+
+    /// The four members Core actually calls, read out of the sources it
+    /// composes rather than listed again here.
+    private static func reachedMembers() throws -> Set<String> {
+        let sources = [
+            MarkdownPreviewPage.bootstrapSource,
+            MarkdownPreviewPage.bodyUpdateSource(body: ""),
+            MarkdownPreviewPage.scrollToLineSource(line: 1),
+            MarkdownPreviewPage.scrollToAnchorSource(anchor: "x"),
+        ]
+        let prefix = "window.\(namespace)."
+        return Set(try sources.map { source in
+            let tail = try XCTUnwrap(source.range(of: prefix)).upperBound
+            return String(source[tail...].prefix { $0 != "(" })
+        })
+    }
+
+    private static let namespace = MarkdownPreviewPage.namespace
+
+    /// Every custom property `preview.css` reads is one the shell declares.
+    ///
+    /// The stylesheet is the only consumer of the `:root` block and the two are
+    /// in different languages in different files, so nothing else can notice a
+    /// property renamed on one side — the page simply draws with the browser's
+    /// initial value, which for a colour is black text on a transparent
+    /// background and looks like a theme that did not apply rather than like a
+    /// missing declaration.
+    func testTheStylesheetReadsOnlyPropertiesTheShellDeclares() throws {
+        let stylesheet = try text(forAsset: MarkdownPreviewPage.stylesheetFileName)
+        let page = MarkdownPreviewPage.html(theme: .light, fontSize: 13)
+
+        let declared = Set(try Self.matches(of: "^\\s*(--[a-z0-9-]+)\\s*:", in: page))
+        let used = Set(try Self.matches(of: "var\\((--[a-z0-9-]+)\\)", in: stylesheet))
+
+        XCTAssertFalse(declared.isEmpty, "the shell must declare custom properties at all")
+        XCTAssertFalse(used.isEmpty, "the stylesheet must read the shell's custom properties")
+        XCTAssertEqual(used.subtracting(declared), [], """
+            Resources/MarkdownPreview/\(MarkdownPreviewPage.stylesheetFileName) reads \
+            \(used.subtracting(declared).sorted()), which MarkdownPreviewPage's :root block does \
+            not declare. Either the stylesheet is stale or the property was renamed in Core.
+            """)
+    }
+
+    /// And it styles the container and the diagram states by the names the
+    /// script and the shell use for them.
+    func testTheStylesheetStylesTheContainerAndTheDiagramStates() throws {
+        let stylesheet = try text(forAsset: MarkdownPreviewPage.stylesheetFileName)
+        let script = try text(forAsset: MarkdownPreviewPage.previewScriptFileName)
+
+        XCTAssertTrue(stylesheet.contains("#\(MarkdownPreviewPage.containerElementID)"), """
+            Resources/MarkdownPreview/\(MarkdownPreviewPage.stylesheetFileName) styles no \
+            #\(MarkdownPreviewPage.containerElementID); the rendered body would be drawn with none \
+            of the page's own layout.
+            """)
+
+        // A diagram's source is hidden only while a render of it is in flight,
+        // which is one class named in two files: styled here, added and removed
+        // there. A rename on either side either hides a fence forever or flashes
+        // its source on every keystroke.
+        for name in ["mermaid-pending", "mermaid-error"] {
+            XCTAssertTrue(stylesheet.contains("pre.mermaid.\(name)"),
+                          "\(MarkdownPreviewPage.stylesheetFileName) does not style pre.mermaid.\(name)")
+            XCTAssertTrue(script.contains("\"\(name)\""),
+                          "\(MarkdownPreviewPage.previewScriptFileName) does not spell \(name)")
+        }
+    }
+
+    /// The capture of every match of `pattern` in `text`, first group only.
+    private static func matches(of pattern: String, in text: String) throws -> [String] {
+        let expression = try NSRegularExpression(pattern: pattern, options: [.anchorsMatchLines])
+        let range = NSRange(text.startIndex..., in: text)
+        return expression.matches(in: text, range: range).compactMap { match in
+            Range(match.range(at: 1), in: text).map { String(text[$0]) }
+        }
+    }
+
     // MARK: - Reading the repository
 
     private static let repositoryRoot = URL(fileURLWithPath: #filePath)

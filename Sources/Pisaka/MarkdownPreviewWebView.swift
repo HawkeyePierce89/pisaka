@@ -60,15 +60,24 @@ final class MarkdownPreviewWebView: NSObject, MarkdownPreviewPageSink {
     /// injected so this file neither knows nor decides what opening means.
     var openInEditor: ((URL) -> Void)?
 
-    /// Set immediately before this object's own load and consumed by the
-    /// navigation that follows it.
+    /// How many loads this object has asked for and not yet been asked to
+    /// decide a policy for.
     ///
     /// The shell's URL is *not* a usable test for "this is our load": a document
     /// can link to it — an `href="/index.html"`, a bare `href="#"` — and such a
     /// navigation would then be allowed into the main frame and would reload the
     /// page under the user. Recognising the load by *having just asked for it*
     /// is the precedent `LeetCodeStatementWebView` set, for that same reason.
-    private var isPerformingOwnLoad = false
+    ///
+    /// A **count** rather than a flag, because two reloads can be asked for
+    /// before the first one's decision arrives — two code-zoom steps in a row do
+    /// exactly that, each being an appearance change. A flag the first decision
+    /// consumed would leave the second navigation to be judged as a *link*, and
+    /// the shell's own fragment-less URL is `.refused` there, so the page's own
+    /// load would be cancelled and the preview would never appear. Every
+    /// `load(_:)` is answered by exactly one policy decision, so the count
+    /// returns to zero.
+    private var ownLoadsAwaitingDecision = 0
 
     /// Sources handed over while the shell is still loading, and whether that is
     /// the state this object is in.
@@ -82,6 +91,17 @@ final class MarkdownPreviewWebView: NSObject, MarkdownPreviewPageSink {
     /// page sees exactly the sequence the model sent.
     private var pendingSources: [String] = []
     private var isAwaitingShell = false
+
+    /// The load whose ending releases ``pendingSources`` — held by identity, and
+    /// the same reasoning as the count above read from the other side.
+    ///
+    /// A second reload supersedes the first, and WebKit ends the superseded one
+    /// with `didFailProvisionalNavigation`. Flushing on *that* ending would
+    /// evaluate the queued body in the outgoing document, where it is lost, and
+    /// the arriving shell would then be left empty with nothing able to re-send
+    /// it — the model has already recorded that body as the one the page is
+    /// showing, so nothing short of another keystroke would publish it again.
+    private var awaitedShellNavigation: WKNavigation?
 
     /// The handler is made here rather than injected: it is this page's own
     /// half — one handler per web view, retargeted with it — and nothing else in
@@ -129,16 +149,27 @@ final class MarkdownPreviewWebView: NSObject, MarkdownPreviewPageSink {
 
     func reloadShell(html: String) {
         handler.shellHTML = html
-        isPerformingOwnLoad = true
+        ownLoadsAwaitingDecision += 1
         isAwaitingShell = true
-        webView.load(URLRequest(url: MarkdownPreviewPage.shellURL))
+        awaitedShellNavigation = webView.load(URLRequest(url: MarkdownPreviewPage.shellURL))
     }
 
-    /// Deliver whatever arrived while the shell was loading, in the order it
-    /// arrived. Called on both endings of that load, because a shell that failed
-    /// to load leaves a page that will never take them and holding them forever
-    /// would silence the preview until the next theme change.
-    private func flushPendingSources() {
+    /// A navigation ended: deliver whatever arrived while the shell was loading,
+    /// in the order it arrived — but only when the load that ended is the one
+    /// being waited for.
+    ///
+    /// Called on all three endings, because a shell that failed to load leaves a
+    /// page that will never take the queue and holding it forever would silence
+    /// the preview until the next theme change. A load superseded by a newer
+    /// reload ends here too and is ignored: the newer one's ending is what
+    /// settles the queue.
+    private func shellLoadEnded(_ navigation: WKNavigation?) {
+        guard isAwaitingShell else { return }
+        // An unidentifiable ending — either side `nil` — is treated as the
+        // awaited one: a queue nobody ever drains is the worse failure of the
+        // two, and it is the behaviour every ending had before.
+        if let awaitedShellNavigation, let navigation, navigation !== awaitedShellNavigation { return }
+        awaitedShellNavigation = nil
         isAwaitingShell = false
         let sources = pendingSources
         pendingSources.removeAll()
@@ -157,9 +188,9 @@ extension MarkdownPreviewWebView: WKNavigationDelegate {
         decidePolicyFor navigationAction: WKNavigationAction,
         decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
     ) {
-        // The one allowed navigation: the document this object just asked for.
-        if isPerformingOwnLoad {
-            isPerformingOwnLoad = false
+        // The one allowed navigation: a document this object just asked for.
+        if ownLoadsAwaitingDecision > 0 {
+            ownLoadsAwaitingDecision -= 1
             decisionHandler(.allow)
             return
         }
@@ -184,11 +215,11 @@ extension MarkdownPreviewWebView: WKNavigationDelegate {
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        flushPendingSources()
+        shellLoadEnded(navigation)
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: any Error) {
-        flushPendingSources()
+        shellLoadEnded(navigation)
     }
 
     func webView(
@@ -196,7 +227,7 @@ extension MarkdownPreviewWebView: WKNavigationDelegate {
         didFailProvisionalNavigation navigation: WKNavigation!,
         withError error: any Error
     ) {
-        flushPendingSources()
+        shellLoadEnded(navigation)
     }
 }
 

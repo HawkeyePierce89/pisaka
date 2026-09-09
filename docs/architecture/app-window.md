@@ -6,14 +6,18 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     just `ProjectTreeView` (the old segmented "Project ⇄ Changes" toggle and
     `LeftPanelMode` are gone — Local Changes moved to the bottom dock), middle is
     the open-tabs list (`TabListView`), right zone is the `editorZone` — which
-    routes on the selected tab's `kind` and nothing else: a `.viewer` tab gets
-    `DatabaseViewerHost(file:)` (`core-database-viewer.md`), a `.text` tab the
-    `textEditorZone(for:)` described next, and no tab at all a "No file open"
-    placeholder (no
+    routes on the selected tab's `kind` and **one preference**: a `.viewer` tab
+    gets `DatabaseViewerHost(file:)` (`core-database-viewer.md`), a `.text` tab
+    whose language is Markdown while `markdownPreviewEnabled` is on gets
+    `markdownSplit(for:)` — the editor beside its preview, the third branch and
+    the only one that is not about the tab kind (`core-markdown-preview.md`) —
+    any other `.text` tab the `textEditorZone(for:onScrolled:)` described next
+    (with `nil` for every tab that is not being previewed), and no tab at all a
+    "No file open" placeholder (no
     inline diff — the old
     Changes-mode right-zone `DiffPane` branch and the `DiffPane` struct itself were
     removed; diffs open in a separate window on double-click). The `if let file`
-    branch of `textEditorZone(for:)` is a `VStack(spacing: 0) { PathBarView(fileURL:
+    branch of `textEditorZone(for:onScrolled:)` is a `VStack(spacing: 0) { PathBarView(fileURL:
     file.url, projectRoot: model.projectRoot).equatable(); Divider();
     LSPConsentBanner(provisioning:gopls:rust:language:hasProjectRoot:); <SearchBarView while
     search.isVisible>; CodeEditorView(…) }` — so the find bar

@@ -805,7 +805,8 @@ ci.yml's `lint` job, and the version-bump procedure.
   again in the inverse that consumes one. Nothing is fetched at run time: the
   highlighter and the diagram renderer are pinned offline assets (~3.4 MB,
   accepted, macOS-only by destination filter). The one thing it changes elsewhere
-  is focus: the six caret commands read `EditorCommandTarget.focusedEditor(in:)`,
+  is focus: the six caret-command call sites read
+  `EditorCommandTarget.focusedEditor(in:)`,
   the single definition of that lookup, whose fallback is granted to the preview's
   web view and its descendants alone, so every other responder keeps beeping.
   `MarkdownPreviewSourceGatingTests` pins all of it
@@ -837,8 +838,11 @@ Unit tests live in `Tests/PisakaCoreTests/` and cover `PisakaCore` only.
 automation) covering what `swift test` is blind to, mostly the macOS AppKit
 overlays:
 `BracketOverlayLayoutManager`/`FoldingTypesetter`, `LineNumberRulerView`,
-the layout seams, and the download collector's ceiling rule
-(`BoundedBodyCollectorTests`, `core-provisioning.md`). It exists because the folding launch-time trap
+the layout seams, the download collector's ceiling rule
+(`BoundedBodyCollectorTests`, `core-provisioning.md`), and the Markdown
+preview's three app-side suites — `MarkdownParserTests` (the pipeline's one
+*execution* of `import Markdown`, over a fixture), `MarkdownPreviewSchemeHandlerTests`
+and `EditorCommandTargetTests` (`core-markdown-preview.md`). It exists because the folding launch-time trap
 (`FoldingTypesetter.init()` re-entered through Objective-C) passed **every gate
 the pipeline had** — the Core suites *and* the smoke launch, measured to survive
 the pre-fix build — so it is the only net for that class (`core-folding.md`).
@@ -873,7 +877,7 @@ the `SUFeedURL` cross-file pairs and the Gatekeeper-workaround strings
 absent everywhere; **full inventory in that suite's doc comments and
 `docs/RELEASING.md`** — do not restate it here),
 `LicenseCoverageTests` (`licenses.json` vs.
-`project.yml`/`Package.resolved`/`Vendor/`), `LSPSourceGatingTests` (the LSP
+`project.yml`/`Package.resolved`/`Vendor/`/`Resources/MarkdownPreview/`), `LSPSourceGatingTests` (the LSP
 layer's platform split, by set equality over both sides),
 `LibGit2FetchSourceGatingTests` (the iOS fetch's redirect policy —
 `follow_redirects = GIT_REMOTE_REDIRECT_NONE` exactly once, ordered between the
@@ -961,7 +965,9 @@ Follow the pattern for anything that ships in the bundle with no Swift code
 behind it, and for any architectural rule `swift test` cannot otherwise see.
 Non-Swift test data lives in `Tests/PisakaCoreTests/Fixtures/<area>/`, read
 through `#filePath` the same way, and must be listed in the test target's
-`exclude:` (why, in `core-lsp.md`).
+`exclude:` (why, in `core-lsp.md`). The app bundle has its own
+`Tests/PisakaAppTests/Fixtures/`, read the same way but needing no `exclude:` —
+`Package.swift` does not see that bundle at all.
 
 **Performance bounds are charged, not timed.** A test pinning a pathological
 input asserts the *work* — a budget driven to exhaustion **plus** the work that
@@ -1008,7 +1014,14 @@ argument list `GitHubCommands` composes, a queue per key whose last step sticks,
 an unscripted call throws, every command logged in order — and a `Gate` per key,
 scopable to **one** call, which is what makes a generation-token test real: hold
 the key and both racers resume in call order, so the stale run always publishes
-first and the assertion passes with or without the guard). Reach for
+first and the assertion passes with or without the guard),
+`ScriptedMarkdownSeams` (the preview's two seams: a `MarkdownParsing` recording
+every text it was handed and holdable per text, so two parses can be staged in a
+chosen order, plus a `MarkdownPreviewPageSink` recording every evaluated source
+and every shell reload in order) and `MarkdownPreviewVendoredDoc` (the reader for
+`Resources/MarkdownPreview/VENDORED.md`, shared by the asset-pin and
+license-coverage suites so that document cannot satisfy one and drift from the
+other). Reach for
 these before writing a new stub. A fake standing in for a `nonisolated async`
 seam runs on the cooperative pool, so anything it writes into a `StubFileTree`
 must hop to the main actor first — two threads in one `Dictionary` is a
@@ -1113,7 +1126,13 @@ owed are documented in `docs/RELEASING.md`.
   `Sources/PisakaCore/LSPProvisioningManifest.swift`, pinned by URL + SHA-256 +
   byte count (nothing links them — they arrive over the network at the user's
   request or not at all), guarded by `LSPProvisioningManifestTests` and bumped
-  by the procedure in `docs/architecture/core-provisioning.md`. `PisakaCore` and
+  by the procedure in `docs/architecture/core-provisioning.md`. And a **third**,
+  shaped unlike either: the Markdown preview's page assets in
+  `Resources/MarkdownPreview/`, pinned by version + upstream commit + byte count
+  + SHA-256 in that directory's own `VENDORED.md` (nothing links them either —
+  they are copied into the bundle as a folder reference and served to a web
+  view), guarded by `MarkdownPreviewAssetPinTests` and bumped by the procedure in
+  that document. `PisakaCore` and
   the test target stay dependency-free and must never import
   Neon/SwiftTreeSitter/SwiftTerm/libgit2/AppKit/UIKit/CoreServices (the FSEvents
   watcher is view-layer only; its one decision lives in Core as
@@ -1133,8 +1152,14 @@ owed are documented in `docs/RELEASING.md`.
   two above do not cover: an artifact that publishes *no* notice at all is
   recorded as a named exception by destination in `LSPProvisioningManifestTests`
   (`@vscode/l10n` is the only one), never as a silent omission, so a second one
-  fails the suite. Rationale and procedures in
-  `docs/architecture/core-services.md` + `core-provisioning.md`.
+  fails the suite. **Third-party code that ships as *data* is the third source
+  class**: a file added under `Resources/MarkdownPreview/` needs a
+  `licenses.json` notice whose `origin` is its shipped repository path and whose
+  version/revision match that directory's `VENDORED.md`, and every file in that
+  directory must be either one of the three written here (`preview.js`,
+  `preview.css`, `VENDORED.md`) or the origin of exactly one notice — so an
+  unacknowledged bundle cannot ride in on the folder reference. Rationale and
+  procedures in `docs/architecture/core-services.md` + `core-provisioning.md`.
 - **Adding a language also ships its symbols query** —
   `Resources/Queries/<raw value>/symbols.scm` under the shared capture
   convention (captured node = the *name* node, capture name = the kind, optional

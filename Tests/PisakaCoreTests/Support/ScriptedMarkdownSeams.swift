@@ -1,4 +1,5 @@
 import Foundation
+import XCTest
 @testable import PisakaCore
 
 /// The Markdown preview's two seams, scripted: a parser that records what it was
@@ -68,15 +69,52 @@ final class ScriptedMarkdownParser: MarkdownParsing, @unchecked Sendable {
         return returned
     }
 
-    /// Spin the caller's actor until `text` has been entered, so a test never
-    /// stages a second parse before the first one is actually running.
-    func waitUntilParsing(_ text: String) async {
-        while !parsed.contains(text) { await Task.yield() }
+    /// Wait until `text` has been entered, so a test never stages a second parse
+    /// before the first one is actually running.
+    func waitUntilParsing(
+        _ text: String,
+        timeout: TimeInterval = 2,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async {
+        await wait(for: "the parse of \(text) to start", timeout: timeout, file: file, line: line) {
+            self.parsed.contains(text)
+        }
     }
 
-    /// Spin the caller's actor until the parse of `text` has returned.
-    func waitUntilParsed(_ text: String) async {
-        while !completedParses.contains(text) { await Task.yield() }
+    /// Wait until the parse of `text` has returned.
+    func waitUntilParsed(
+        _ text: String,
+        timeout: TimeInterval = 2,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async {
+        await wait(for: "the parse of \(text) to return", timeout: timeout, file: file, line: line) {
+            self.completedParses.contains(text)
+        }
+    }
+
+    /// The bounded form both waits above are: a condition that *must* become
+    /// true, with a deadline that reports its absence rather than hanging.
+    ///
+    /// A bare `while !condition { await Task.yield() }` is what these were, and
+    /// it is the shape the repository's async-staging rule forbids: a regression
+    /// that stops a parse from ever being entered would suspend the whole suite
+    /// — in CI, until the job's own timeout — instead of naming the assertion
+    /// that failed.
+    private func wait(
+        for description: String,
+        timeout: TimeInterval,
+        file: StaticString,
+        line: UInt,
+        until condition: () -> Bool
+    ) async {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if condition() { return }
+            await Task.yield()
+        }
+        XCTFail("Timed out waiting for \(description)", file: file, line: line)
     }
 
     /// The document one paragraph of `text` is, which is what an unscripted text

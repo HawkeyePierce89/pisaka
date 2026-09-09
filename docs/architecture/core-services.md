@@ -909,7 +909,8 @@ run in `swift test` rather than needing an Xcode build.
         `Sources/` and no matching symbol in either binary, not declared.
 
   - `Resources/Licenses/` — `licenses.json` plus one verbatim `<id>.txt` per
-    shipped dependency (21 today). Declared in `project.yml` as a **folder
+    shipped third-party component (27 today: the linked packages, the two
+    documented transitive trees, and the two bundled Markdown-preview assets). Declared in `project.yml` as a **folder
     reference** (`type: folder`), so the whole directory is copied into the
     bundle as `Licenses/` and adding a future text needs no project
     regeneration. That convenience is exactly why the directory's *contents* are
@@ -1049,8 +1050,10 @@ and must not start, so `project.yml` is read by a deliberately tiny,
 shape-specific line scanner) and asserts:
 
   - the manifest's id set **equals** the `Pisaka` target's linked package set
-    from `project.yml` (minus `PisakaCore`) plus the documented transitive
-    `tree-sitter` C runtime — *set* equality, so a new dependency fails the suite
+    from `project.yml` (minus `PisakaCore`), plus the documented transitive trees
+    (the `tree-sitter` C runtime, and `swift-cmark`, which swift-markdown links
+    and `project.yml` never names), plus the **bundled page assets** — the third
+    source class, below — *set* equality, so a new dependency fails the suite
     until its license is added, and a dropped one fails until its entry goes.
     **The set is destination-blind, deliberately, and Sparkle is the first entry
     where that shows.** `licenses.json` has no platform dimension and
@@ -1078,6 +1081,26 @@ shape-specific line scanner) and asserts:
     is dropped would otherwise keep shipping;
   - each vendored entry names a real `Vendor/<name>/LICENSE` and is
     byte-identical to it;
+  - **the bundled-asset class, checked from both ends.** Third-party code can
+    also ship as *data*: `Resources/MarkdownPreview/` holds highlight.js and
+    mermaid, which nothing compiles or links — they are copied in as a folder
+    reference and handed to a web view — so an entry for one carries a
+    repository path as its `origin` (a third origin shape beside remote and
+    vendored) rather than an upstream URL. From the manifest's end, that path
+    must name a file that exists and the entry's version/revision must equal
+    what `Resources/MarkdownPreview/VENDORED.md` records; from the directory's
+    end, every file in it must be either one of the three written in this
+    repository (`preview.js`, `preview.css`, `VENDORED.md`) or the origin of
+    exactly one notice — so an unacknowledged bundle cannot ride in on the folder
+    reference. `MarkdownPreviewAssetPinTests` and this suite read that document
+    through one shared reader (`MarkdownPreviewVendoredDoc`), so it cannot
+    satisfy one of them and drift from the other. The destination-blindness
+    above applies here twice over: `Resources/MarkdownPreview` itself carries
+    `destinationFilters: [macOS]`, so iOS's Acknowledgements lists two components
+    its bundle does not contain — over-attribution, for Sparkle's reason;
+  - the SPDX exception set is no longer empty: `Swift-exception` is on SPDX's
+    published exceptions list and is recorded as one, while libgit2's linking
+    exception is not on that list and stays part of its licence text;
   - each text names *its own* dependency's copyright holder, against a table
     (`expectedCopyrightHolders`) asserted by set equality against the manifest's
     ids. This is the only check that reads a *remote* text's bytes at all: every

@@ -22,7 +22,10 @@
  *    mermaid throws on a syntax error, so every diagram is rendered inside its
  *    own try/catch and a failure writes mermaid's own message into that block.
  *    An uncaught throw here would abandon the rest of the loop and leave the
- *    remaining diagrams as raw source.
+ *    remaining diagrams as raw source. A block whose render never arrives at all
+ *    — the bundle missing, an answer of an unknown shape — keeps its source: the
+ *    source is hidden only while a render of it is in flight, so no path through
+ *    this file can leave a fence showing nothing.
  *  * A render supersedes the one before it. Diagram rendering is asynchronous,
  *    so a keystroke landing mid-flight would otherwise write an old diagram into
  *    a new body. The generation counter is the same rule the Swift model applies
@@ -118,23 +121,45 @@
         diagramSequence += 1;
         var id = "pisaka-diagram-" + diagramSequence;
 
+        /* The block's source is hidden only while a render of it is in flight —
+           see `preview.css`. Every ending below reveals it again, which is what
+           keeps a block whose render never arrives readable rather than blank. */
+        block.classList.add("mermaid-pending");
+
+        /* True while this render is still the page's current one and its block
+           is still in the document. A superseded render writes nothing at all:
+           its block belongs to a body that has already been replaced. */
+        var isCurrent = function () {
+            return mine === generation && block.isConnected;
+        };
+
         var finish = function (svg) {
-            if (mine !== generation || !block.isConnected) { return; }
+            if (!isCurrent()) { return; }
             block.innerHTML = svg;
-            block.classList.add("mermaid-rendered");
+            block.classList.remove("mermaid-pending");
         };
 
         var fail = function (error) {
-            if (mine !== generation || !block.isConnected) { return; }
+            if (!isCurrent()) { return; }
             /* mermaid's own words, as text rather than markup: the source that
                produced them is the user's, and the page states what the renderer
                said about it without becoming a second thing that can fail. */
             block.textContent = String((error && error.message) || error);
+            block.classList.remove("mermaid-pending");
             block.classList.add("mermaid-error");
             /* mermaid leaves the temporary element it measured into behind when
                it throws; without this the page grows one orphan per bad edit. */
             var orphan = document.getElementById("d" + id);
             if (orphan && orphan.parentNode) { orphan.parentNode.removeChild(orphan); }
+        };
+
+        /* Nothing was drawn and nothing failed: mermaid answered a shape this
+           page does not know. There are no words to show — inventing some would
+           be the page saying something about a source it did not read — so the
+           block simply keeps the source it already holds. */
+        var abandon = function () {
+            if (!isCurrent()) { return; }
+            block.classList.remove("mermaid-pending");
         };
 
         try {
@@ -143,6 +168,8 @@
                 answer.then(function (result) { finish(result.svg); }, fail);
             } else if (answer && typeof answer.svg === "string") {
                 finish(answer.svg);
+            } else {
+                abandon();
             }
         } catch (error) {
             fail(error);

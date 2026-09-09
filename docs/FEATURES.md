@@ -1180,9 +1180,10 @@ user sees it.
   All six settings persist across launches. The Settings window's other tabs are **Language
   Servers** (what may be downloaded, and what is installed), **LeetCode** (the
   account, the solutions folder, and the language new solution files are seeded
-  in) and **Acknowledgements**, which lists every third-party dependency the app
-  ships — name, SPDX identifier, version/revision, and upstream origin — beside
-  its full license text, shown verbatim and selectable.
+  in) and **Acknowledgements**, which lists every third-party component the app
+  ships — the linked packages and the two bundled Markdown-preview page assets
+  alike, each with its name, SPDX identifier, version/revision and where it came
+  from — beside its full license text, shown verbatim and selectable.
 - LeetCode integration, in its own **LeetCode** menu. None of it needs an open
   project, and opening a problem never changes the project root — the solution
   file just opens as an ordinary tab.
@@ -1194,7 +1195,8 @@ user sees it.
     session it produces is kept in the Keychain; **Sign Out** clears both that
     item and the `leetcode.com` cookies. One account at a time — switching means
     signing out and back in.
-  - **Open Problem…** (Cmd+Shift+P) accepts a **problem number** (`1`), a
+  - **Open Problem…** (Cmd+Shift+P — on a Markdown tab this chord belongs to the
+    preview instead; see Known limitations) accepts a **problem number** (`1`), a
     **slug** (`two-sum`), or a **leetcode.com problem URL**, with a language
     picker offering Swift, Python 3, Go, Rust, TypeScript and JavaScript. The
     choice persists, so the next problem opens in the same language.

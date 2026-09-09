@@ -17,7 +17,7 @@ protocol EditorCommandFocusPassthrough: AnyObject {}
 
 /// Which editor a caret command belongs to.
 ///
-/// The six commands that act "at the caret" — Go to Definition, Find Usages,
+/// The commands that act "at the caret" — Go to Definition, Find Usages,
 /// Rename, Toggle Comment, Complete, and the four fold items through
 /// ``FoldCommands`` — are app-wide key equivalents that carry no state, so the
 /// **first responder** is the only honest answer to "which editor?". Each of

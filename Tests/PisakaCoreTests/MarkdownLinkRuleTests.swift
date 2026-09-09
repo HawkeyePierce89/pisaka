@@ -113,6 +113,40 @@ final class MarkdownLinkRuleTests: XCTestCase {
         XCTAssertEqual(CanonicalPath.canonical(fileURL), CanonicalPath.canonical(target))
     }
 
+    /// A link to another document *and a place inside it* opens that document.
+    ///
+    /// The whole round trip, because this is where the two halves could disagree
+    /// without either looking wrong on its own: the renderer must drop the
+    /// anchor when it composes the URL, and the rule must then read that URL as
+    /// a file rather than as an anchor on this page.
+    func testARenderedLinkCarryingAnAnchorOpensTheFileItNames() throws {
+        let dir = try makeTempDirectory()
+        let root = dir.appendingPathComponent("root")
+        let target = root.appendingPathComponent("docs/notes.md")
+        try write("# Notes", to: target)
+        try write("# Guide", to: root.appendingPathComponent("docs/guide.md"))
+
+        let context = MarkdownDocumentContext(
+            documentURL: root.appendingPathComponent("docs/guide.md"),
+            projectRoot: root
+        )
+        let document = MarkdownDocument(blocks: [
+            MarkdownTopLevelBlock(
+                block: .paragraph([
+                    .link(destination: "notes.md#the-rule", title: nil, children: [.text("Notes")]),
+                ]),
+                sourceLine: 1
+            ),
+        ])
+
+        let emitted = try href(in: MarkdownRenderer.body(for: document, context: context))
+        let navigation = try XCTUnwrap(URL(string: emitted))
+
+        guard case .openInEditor(let fileURL) = MarkdownLinkRule.decision(for: navigation, context: context)
+        else { return XCTFail("expected a link with an anchor to open the file it named") }
+        XCTAssertEqual(CanonicalPath.canonical(fileURL), CanonicalPath.canonical(target))
+    }
+
     // MARK: - External
 
     func testTheThreeExternalSchemesLeaveTheApp() throws {

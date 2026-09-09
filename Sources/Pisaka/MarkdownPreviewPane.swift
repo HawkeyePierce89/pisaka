@@ -89,6 +89,13 @@ struct MarkdownPreviewPane: View {
             // A selection change to another Markdown tab — the pane is not
             // rebuilt for it, so this is what retargets the one page.
             .onChange(of: file.id) { _ in forwardDocument() }
+            // The same tab, pointed at another file: a rename or move
+            // (`WorkspaceModel.applyRenamePlan`) and a Save As both rewrite a
+            // tab's `url` in place, keeping its id and its text — so neither of
+            // the two above fires, and without this the preview would go on
+            // resolving relative images and links against the file's *old*
+            // directory.
+            .onChange(of: file.url) { _ in forwardDocument() }
             // A folder switch that leaves this tab selected.
             .onChange(of: projectRoot) { _ in forwardDocument() }
             .onChange(of: appearanceKey) { _ in forwardAppearance() }

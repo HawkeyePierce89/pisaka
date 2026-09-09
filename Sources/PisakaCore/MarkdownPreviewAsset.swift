@@ -67,7 +67,11 @@ public enum MarkdownPreviewAsset {
     ///
     /// An **absolute** target inside the root does resolve: it is a file in the
     /// project the same way a relative one is, and refusing it would be a rule
-    /// about spelling rather than about reach.
+    /// about spelling rather than about reach. So does a target carrying a
+    /// **fragment** (`other.md#section`), which resolves to the file alone — the
+    /// `#` opens a fragment in any reading of a URL, and refusing the link, or
+    /// naming a file whose name ends in `#section`, would both be answers to a
+    /// question the document did not ask.
     public static func assetURL(forTarget target: String, context: MarkdownDocumentContext) -> URL? {
         guard let documentURL = context.documentURL, let root = context.projectRoot else { return nil }
         guard let fileURL = fileURL(forTarget: target, documentURL: documentURL) else { return nil }
@@ -93,11 +97,25 @@ public enum MarkdownPreviewAsset {
             return absolute.standardizedFileURL
         }
 
+        // A scheme-less target is still a URL, so a `#` in it opens a fragment
+        // and does not belong to the file: `./other.md#usage` — the ordinary
+        // shape of a cross-file link in a documentation tree — names `other.md`
+        // and a place inside it. The fragment is dropped rather than carried,
+        // there being nothing to carry it to (the renderer emits no `id`, a
+        // stated limit), and the file is what the link is for. The `file:`
+        // branch above already answers this way, `URL` reading the fragment out
+        // for it; this is that same reading, by hand, for a target `URL(string:)`
+        // must not be asked to parse.
+        //
+        // Split *before* decoding, so a literal `#` in a name — which a document
+        // has to spell `%23` for any renderer at all — survives as part of it.
+        let withoutFragment = String(target.prefix { $0 != "#" })
+
         // A Markdown destination may be percent-encoded (`a%20b.png`) and may
         // equally contain a literal `%` that decodes to nothing. Decoding is
         // therefore attempted and the raw spelling kept when it fails, which is
         // the only reading under which both files are reachable.
-        let path = target.removingPercentEncoding ?? target
+        let path = withoutFragment.removingPercentEncoding ?? withoutFragment
         if path.hasPrefix("/") {
             return URL(fileURLWithPath: path).standardizedFileURL
         }

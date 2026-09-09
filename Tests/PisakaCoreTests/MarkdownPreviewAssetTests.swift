@@ -112,6 +112,43 @@ final class MarkdownPreviewAssetTests: XCTestCase {
         XCTAssertNil(MarkdownPreviewAsset.assetURL(forTarget: "#section", context: context))
     }
 
+    /// A cross-file link carrying an anchor — the ordinary shape of a link
+    /// between two documents in a tree — names the *file*.
+    ///
+    /// The failure this pins is a silent one: the whole string treated as a path
+    /// produces a URL for a file called `other.md#usage`, which resolves, which
+    /// the inverse direction hands back, and which the app then fails to open —
+    /// a working link that beeps.
+    func testAFragmentOnAPathNamesTheFileAndNotTheFragment() {
+        for target in ["other.md#usage", "./other.md#usage"] {
+            XCTAssertEqual(
+                MarkdownPreviewAsset.assetURL(forTarget: target, context: context)?.absoluteString,
+                "pisaka-preview://preview/file/docs/other.md",
+                "\(target) names docs/other.md"
+            )
+        }
+        XCTAssertEqual(
+            MarkdownPreviewAsset.assetURL(forTarget: "../README.md#install", context: context)?
+                .absoluteString,
+            "pisaka-preview://preview/file/README.md"
+        )
+    }
+
+    /// And the fragment is dropped *before* decoding, so the one spelling that
+    /// means a literal `#` in a file name still reaches that file.
+    func testAPercentEncodedHashStaysPartOfTheName() {
+        XCTAssertEqual(
+            MarkdownPreviewAsset.assetURL(forTarget: "od%23d.png", context: context)?.absoluteString,
+            "pisaka-preview://preview/file/docs/od%23d.png"
+        )
+    }
+
+    /// The fragment cannot be used to leave the tree either: it is dropped, so
+    /// what is checked for containment is the path in front of it.
+    func testAFragmentCannotSmuggleAPathOutOfTheRoot() {
+        XCTAssertNil(MarkdownPreviewAsset.assetURL(forTarget: "../../secret.md#x", context: context))
+    }
+
     func testADocumentWithNoURLResolvesNothing() {
         let noDocument = MarkdownDocumentContext(
             documentURL: nil,

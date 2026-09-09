@@ -171,13 +171,20 @@ pre.mermaid {
     background: none;
     padding: 0;
     text-align: center;
-    /* Until `preview.js` has replaced it, the block still holds the diagram's
-       source; hiding it keeps a re-render from flashing the text. */
-    color: transparent;
 }
 
-pre.mermaid.mermaid-rendered {
-    color: inherit;
+/* Until `preview.js` has replaced it, the block still holds the diagram's
+   source; hiding it keeps a re-render from flashing the text.
+
+   Hiding is keyed on the class the script adds when it *starts* a render and
+   removes on either ending — not on `pre.mermaid` itself — so a block nobody is
+   rendering shows its source instead of vanishing. That is not a hypothetical
+   state: the diagram bundle can fail to load, and mermaid can answer a shape
+   this page does not recognise. Either way the fence is still content, and
+   content that disappears without a trace is indistinguishable from a document
+   that never had it. */
+pre.mermaid.mermaid-pending {
+    color: transparent;
 }
 
 /* A diagram that did not parse shows mermaid's own message, as text, in the

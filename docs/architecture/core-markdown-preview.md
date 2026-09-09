@@ -284,11 +284,13 @@ error in the document rather than as a guess by the viewer.
 
 ### M11 — The focus fallback is scoped to the preview and to nothing else
 
-Six app-wide chords act "at the caret" — Go to Definition, Find Usages, Rename,
-Toggle Comment, Complete, and `FoldCommands`' items — and each used to spell
-`NSApp.keyWindow?.firstResponder as? EditorTextView` itself. The preview is a
-**focusable** web view (selection and links must work), so clicking into it made
-all six beep.
+App-wide chords act "at the caret" — Go to Definition, Find Usages, Rename,
+Toggle Comment, Complete, and `FoldCommands`' four items — and each used to spell
+`NSApp.keyWindow?.firstResponder as? EditorTextView` itself. They ask from **six
+call sites**: five in `PisakaApp.swift`, one in `FoldCommands.swift`, which asks
+once for all four fold items. (Every count of "six" in this feature is a count of
+those sites, not of chords.) The preview is a **focusable** web view (selection
+and links must work), so clicking into it made all of them beep.
 
 `EditorCommandTarget.focusedEditor(in:)` is that expression's one definition, and
 the gating suite pins that no seventh site spells it. The fallback is granted to
@@ -513,7 +515,16 @@ spelling), a fragment-only target, a `../` escape or a symlink pointing out of
 the tree, an absolute path landing outside the root, and every target at all
 when either half of the context is missing. An **absolute** target *inside* the
 root does resolve — refusing it would be a rule about spelling rather than about
-reach.
+reach. So does one carrying a **fragment**: `other.md#usage` — the ordinary shape
+of a cross-file link in a documentation tree — resolves to `other.md`, the `#`
+opening a fragment in any reading of a URL. (The `file:` branch already answered
+this way, `URL` reading the fragment out for it; the scheme-less branch does it by
+hand, since `URL(string:)` must not be asked to parse that target's path.) The
+split happens **before** percent-decoding, so a literal `#` in a name — which a
+document has to spell `%23` for any renderer at all — stays part of it, and a
+fragment cannot smuggle a path past the containment check. The anchor itself is
+dropped: the renderer emits no `id`, so there is nothing to carry it to (a stated
+limit below), and the file is what the link was for.
 
 `URL(string:)` is consulted only for the **scheme** (the component Foundation
 reads the way WebKit does); reading the path back out of it would re-encode a
@@ -707,13 +718,27 @@ the page is showing.
   answer (M5).
 - `evaluate(_:)` / `reloadShell(html:)` — the seam, plus the pending-source queue
   (M7). `reloadShell` is the one `load(URLRequest` in the feature (M3).
-- Navigation: **every navigation is cancelled.** The one allowed load is
-  recognised by `isPerformingOwnLoad` — set immediately before this object's own
-  load and consumed by the navigation that follows it — because the shell's URL
-  is *not* a usable test: a document can link to it (`href="/index.html"`, a bare
-  `href="#"`) and would then reload the page under the user. That is
-  `LeetCodeStatementWebView`'s precedent. Everything else goes through
-  `MarkdownLinkRule` and ends in `.cancel`, whichever of the four answers it was.
+- Navigation: **every navigation is cancelled.** The allowed loads are
+  recognised by *having just been asked for* — `ownLoadsAwaitingDecision`,
+  raised immediately before this object's own load and spent by the next policy
+  decision — because the shell's URL is *not* a usable test: a document can link
+  to it (`href="/index.html"`, a bare `href="#"`) and would then reload the page
+  under the user. That is `LeetCodeStatementWebView`'s precedent. Everything else
+  goes through `MarkdownLinkRule` and ends in `.cancel`, whichever of the four
+  answers it was.
+- **Two reloads can be in flight, and both halves above are counted rather than
+  latched because of it.** Every code-zoom step is an appearance change, so two
+  presses in a row ask for two shells before the first one's policy decision has
+  arrived. A single `Bool` would be spent by the first decision and the second
+  navigation would be judged as a *link* — and the shell's own fragment-less URL
+  is `.refused` there, so the page would never load. Symmetrically, the queue is
+  released by `shellLoadEnded(_:)` only for the load it is **waiting on**, held
+  by `WKNavigation` identity: WebKit ends a superseded load with
+  `didFailProvisionalNavigation`, and flushing on that ending would evaluate the
+  queued body in the outgoing document — losing it, and leaving the arriving
+  shell empty with nothing able to re-send it, since the model has already
+  recorded that body as the one the page is showing. An unidentifiable ending
+  (either side `nil`) still flushes: a queue nobody drains is the worse failure.
 - The `WKURLSchemeHandler` adapter: every branch ends in `didFinish()`;
   `didFailWithError` appears once, for a request WebKit started without a URL.
   `stop` is empty — every answer is produced synchronously and finished before
@@ -754,6 +779,15 @@ this body is re-evaluated on every keystroke. `onAppear` forwards the appearance
 first — it installs the shell, and the body that follows is held by the page
 until that document has loaded (M7).
 
+The document is forwarded on **four** changes, not three: the text, the tab's
+`id`, the project root, and the tab's `url`. The last is there because a rename
+or move (`WorkspaceModel.applyRenamePlan`) and a Save As both rewrite a tab's
+`url` **in place**, keeping its id and its text — so none of the other three
+fires, and without it the preview would go on resolving relative images and links
+against the file's old directory. Forwarding is free when nothing moved:
+`retarget(to:text:)` compares the context and reads an unchanged one as a text
+change, which is then itself idempotent.
+
 It declares a **code** zoom surface (`ZoomSurfaceMarker(kind: .code)`): the
 page's body text and its fenced blocks are sized from `settings.fontSize`, so a
 zoom gesture over the preview must move the code zone, exactly as over the
@@ -777,8 +811,9 @@ this.
 source URL, byte count, SHA-256 and license, the pinned scope list (M10), and the
 by-hand update procedure; `MarkdownPreviewAssetPinTests` asserts the bytes, the
 self-stated versions, that the directory holds exactly the files the page asks
-for, that the diagram bundle is a single self-contained file and that the
-highlighter defines its global.
+for, that the diagram bundle is a single self-contained file, that the
+highlighter defines its global, and the first-party files' cross-file contracts
+(below).
 
 `preview.js` is the page's half of two seams and **decides nothing** — no opinion
 about when to render, what to render or which line is the top one. Three
@@ -792,6 +827,27 @@ supersedes the one before it (diagram rendering is asynchronous, so the script
 keeps the same generation counter the Swift model keeps, for the same reason —
 this is the one place in the page where two answers can be in flight at once).
 `mermaid` is initialized with `startOnLoad: false` and `securityLevel: "strict"`.
+
+**A fence never renders as nothing.** A diagram block still holds its own source
+until the script replaces it, and hiding that source is keyed on
+`mermaid-pending` — a class the script adds when it *starts* a render and removes
+on every ending — rather than on `pre.mermaid` itself. So the two paths where no
+render ever arrives (the bundle missing, and an answer of a shape the page does
+not recognise) leave the fence showing its source instead of blank. Blank was the
+worse answer twice over: it is indistinguishable from a document that never had
+the block, and it is the one failure the page has no words for — inventing some
+would be the page saying something about a source it did not read.
+
+Neither first-party file is byte-pinned (they are read and reviewed as source),
+but the **cross-file names** are asserted: `MarkdownPreviewAssetPinTests` checks
+that `preview.js` spells `containerElementID`, defines `window.<namespace>` and
+defines and exposes each of the four members Core composes calls to (read out of
+those sources, not listed again), that every `var(--…)` in `preview.css` is a
+property the shell's `:root` block declares, and that the stylesheet styles the
+container and both diagram-state classes the script spells. Nothing else in the
+pipeline compares the two sides — the page tests assert the shell *through* the
+same constants, so a rename would keep them green while the page rendered into an
+element that no longer exists.
 
 `scrollToLine` walks the container's **children** — `data-line` is on top-level
 blocks alone, so that is the whole candidate set — and takes the last one at or
@@ -812,9 +868,9 @@ document that carries no targets.
   because writing on every changed frame would put a `UserDefaults` write on the
   drag's per-frame path and republish the window sixty times a second.
 - `PisakaApp.swift` (`app-shell.md`) — the View-menu toggle (M8) and five of the
-  six caret commands now routed through `EditorCommandTarget` (M11).
-- `FoldCommands.swift` (`core-folding.md`) — the sixth caret command, same
-  routing.
+  six caret-command call sites now routed through `EditorCommandTarget` (M11).
+- `FoldCommands.swift` (`core-folding.md`) — the sixth site, same routing, asking
+  once for all four fold items.
 - `CodeEditorView.swift` (`app-editor.md`) — `onScrolled`, an **optional**
   callback carrying the top visible character offset. `nil` for every editor
   nobody is watching, and the guard is on the closure rather than on the
@@ -884,7 +940,9 @@ document that carries no targets.
   both fire, but with a Markdown tab active the LeetCode chord is unreachable.
   Picking a free chord for one of them is a product decision and has not been
   made.
-- The app-layer bundle's *execution* is owed a run in a normal desktop session:
-  the branch's CI-shaped runs compile `PisakaAppTests.xctest` on every build but
-  cannot launch the application-hosted runner, which fails identically for
-  pre-existing classes this feature does not touch.
+- ~~The app-layer bundle's *execution* is owed a run in a normal desktop
+  session.~~ Settled: `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka
+  -destination 'platform=macOS' test` ran the application-hosted runner on
+  2026-09-09 — 56 tests, 0 failures, including this feature's three suites. The
+  original note stands only as a record of why the branch's CI-shaped runs could
+  compile `PisakaAppTests.xctest` without ever launching it.

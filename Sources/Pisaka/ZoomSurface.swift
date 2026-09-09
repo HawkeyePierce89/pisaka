@@ -71,9 +71,12 @@ final class CodeScrollView: NSScrollView, ZoomSurfaceProviding {
 
 /// Marks a region of SwiftUI-drawn content as a zoom surface.
 ///
-/// Two surfaces in this app draw at the code font without an `NSTextView` behind
-/// them — the Find in Files result rows and the LeetCode statement's `WKWebView`
-/// body — so there is no AppKit class of ours to conform. This representable
+/// Several regions in this app draw at the code font without an `NSTextView`
+/// behind them — the Find in Files result rows, the LeetCode statement's
+/// `WKWebView` body, the commit dialog's unified diff and message editor, and
+/// the Markdown preview's page — so there is no AppKit class of ours to
+/// conform. (`ZoomSourceGatingTests` holds the authoritative list, by set
+/// equality; this sentence is not it.) This representable
 /// supplies one: an empty, non-drawing, hit-test-transparent `NSView` placed
 /// *behind* the content with `.background(...)`, so it inherits exactly that
 /// content's frame and nothing else about it.

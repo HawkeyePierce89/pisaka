@@ -225,7 +225,8 @@ entitlements.
 
 Pisaka is MIT-licensed — see [`LICENSE`](LICENSE).
 
-The app links third-party dependencies and ships each one's verbatim license
+The app links third-party dependencies (and bundles two page assets for the
+Markdown preview) and ships each one's verbatim license
 text in `Resources/Licenses/`, shown in-app under **Preferences →
 Acknowledgements**. libgit2 is used under GPL-2.0 with its linking exception
 (its bundled `xdiff` code is LGPL-2.1). Adding a dependency means adding its

@@ -8,8 +8,8 @@ import Foundation
 /// request, so the document, the four bundled files and every project image
 /// share one app-scheme origin. A string-loaded document has a null origin, and
 /// a null origin cannot be granted access to anything — every asset would have
-/// to be inlined, which for a 4.5 MB script bundle is not a page but a copy of
-/// one per keystroke.
+/// to be inlined, which for ~3.4 MB of script bundles means re-sending a copy of
+/// the whole page every time the shell is composed again.
 ///
 /// **The vocabulary is spelled once, here.** The scheme name, the host, the
 /// shell's URL and the two path prefixes are constants of this file and nothing
