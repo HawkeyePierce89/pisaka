@@ -26,7 +26,24 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     active state —
     all routed through one shared `togglePanel(_:)` handler (also wired to the
     bottom bar via `ContentView`'s `onTogglePanel` so a button and its matching menu
-    command behave identically). `togglePanel(.terminal)` creates the first session
+    command behave identically). Below those, after a `Divider()`, sits
+    the View menu's one item that is **not** a panel and not a `Button`:
+    *Markdown Preview*, a `Toggle` bound to `settings.markdownPreviewEnabled` at
+    **⌘⇧P** and the only place in the app that writes that preference
+    (`MarkdownPreviewSourceGatingTests` pins the single writer). A `Toggle`
+    rather than a Show/Hide `Button` because this is a setting that persists
+    across launches and across files, and the checkmark says what the next `.md`
+    file will do, which a verb in a label cannot; disabled unless the selected
+    tab's name resolves to `SyntaxLanguage.markdown`, because the item has no
+    effect anywhere else and an item that silently does nothing is worse than one
+    that says so. The tab *kind* is not asked here — no `.md` file opens as a
+    viewer tab, and the pane's own routing in `ContentView` asks it anyway. **The
+    chord is shared with LeetCode's "Open Problem…"**, which also spells ⌘⇧P; the
+    View item comes first in the menu bar and is disabled off a Markdown tab, so
+    which command a press reaches depends on the active tab — a collision recorded
+    rather than designed (`core-markdown-preview.md`). Nothing else about the
+    preview is in this file: the pane, the split and the divider are
+    `ContentView`'s, and every decision is Core's. `togglePanel(.terminal)` creates the first session
     (`terminalSessions.newSession(projectRoot: model.projectRoot)`) when none exists
     yet, then applies the pure `BottomPanel.toggled(bottomPanel, selecting:)` to flip
     the shown panel. It also exposes the Run File feature: a `CommandMenu("Run")`
@@ -391,7 +408,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     loop, `resyncOpenTabs` and the merge-apply reload — wherever they force-close a
     tab whose file the operation took away. Four `Find` menu items reach the focused editor through the responder
     chain rather than through any window-scoped state, because none of them
-    carries state to survive a tab switch: "Go to Definition" at **⌃⌘J** (Xcode's
+    carries state to survive a tab switch (each through
+    `EditorCommandTarget.focusedEditor(in: NSApp.keyWindow)` — the one definition
+    of that lookup, shared with Toggle Comment here and with the two fold items in
+    `FoldCommands.swift`, whose single fallback is the Markdown preview's own
+    region and nothing else, `core-markdown-preview.md`): "Go to Definition" at **⌃⌘J** (Xcode's
     binding, and free here — ⌘J and ⌃⌘F are AppKit's "center selection" and full
     screen), "Find Usages" at **⌃⌘U** and "Rename…" at **⌃⌘R** (deliberately
     *not* ⌘U and ⌘R, which are Run Test and Run File and stay untouched), and

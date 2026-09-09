@@ -349,6 +349,42 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     zone leaves the other two untouched), and — by counting `objectWillChange` —
     that a step or reset which cannot move the zone publishes nothing while one
     that can still does.
+    The macOS Markdown preview adds the **last two persisted values**, and
+    neither introduces a discipline of its own (`core-markdown-preview.md`).
+    `markdownPreviewEnabled` (`Keys.markdownPreviewEnabled =
+    "settings.markdownPreviewEnabled"`) is the editor's third `Bool` flag and the
+    first of them to default **off**: the pane takes half the window and starts a
+    web view, so it is a thing the user asks for (View → *Markdown Preview*,
+    ⌘⇧P) rather than one that appears the first time an `.md` file is opened, and
+    off costs the feature everything but the flag — no web view is constructed,
+    nothing is parsed and nothing is rendered. It is read through
+    `object(forKey:) as? Bool` like its two neighbours **even though absence and
+    the default agree here**, because the cast is what refuses a wrong-typed
+    value (an older build, a hand-edited domain) instead of coercing it, so a
+    stored string can never read as "on". Like them it is **one** flag rather
+    than one per tab or per platform: it is a preference about how Markdown is
+    edited, not a property of a file, so a user who turned the pane off does not
+    meet it again on the next `.md` they open, and iOS — which neither reads nor
+    writes it — is an absent surface, not a second preference. The one writer is
+    the View menu's toggle, which `MarkdownPreviewSourceGatingTests` pins.
+    `markdownPreviewFraction` (`Keys.markdownPreviewFraction =
+    "settings.markdownPreviewFraction"`, default an even split) is `fontSize`'s
+    write discipline verbatim, against `MarkdownPreviewWidthRule.clampFraction(_:)`:
+    clamped inside `didSet` with the re-entrant assignment reaching a fixed point
+    on the second pass, and read in `init` through `object(forKey:) as? Double`
+    so an absent key is told from a stored 0 and a non-finite or out-of-range
+    value collapses to the even split rather than surviving into a layout. Only
+    the **width-free** half of the rule applies here — at write time there is no
+    window, and the point minimums are re-applied by the layout, the only place
+    that knows how wide it is. A fraction and not a point width because the split
+    is remembered across windows and resizes, where a stored width would overflow
+    a narrower window and leave a gap in a wider one. The divider writes it
+    **once**, in the drag's `onEnded`: writing on every changed frame would put a
+    `UserDefaults` write on the per-frame path and republish the window sixty
+    times a second. `SettingsStoreTests` covers both defaults on a fresh store,
+    the round trip across a rebuilt store, wrong-typed stored values for both,
+    the fraction clamped on write and on load at both bounds, a non-finite stored
+    fraction, and the two key strings.
   - `EditorSession.swift` — the persisted editor session behind launch-time
     session restore and "Untitled" hot exit (macOS today; the iOS variant is a
     follow-up over this same model). Foundation-only: the value types, the pure

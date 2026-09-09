@@ -887,3 +887,26 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     search backgrounds, so every one of those has to stay legible on top of a
     tint — which is a third clause on `matchedPairBackground`'s own opacity, now
     that it can sit over an indent block as well as beside one.
+    The Markdown preview adds the one **reader of this whole table that is not a
+    drawing call**: `markdownPreviewTheme(prefersDark:)` (macOS), which resolves
+    every `SyntaxTokenKind` through `nsColor(for:)` and spells each as a
+    `#rrggbb` CSS string, then hands them to `MarkdownPreviewTheme.light`/`.dark`
+    through `withCodeColors(_:)` — Core keeps the chrome, this file supplies the
+    code palette. A fenced Swift block in the preview and the same block in the
+    text view beside it are the same code read twice, so the preview must carry no
+    palette of its own; deriving it here, where a kind already has a colour, is
+    what makes adding a kind reach the preview with no second edit
+    (`core-markdown-preview.md`). `prefersDark` is a parameter rather than
+    something read, because these are dynamic colours with no single component to
+    inspect: they resolve against whatever appearance is current at draw time, so
+    the read runs inside `performAsCurrentDrawingAppearance`, which is what makes
+    the answer the one the caller asked for rather than the one the calling thread
+    happens to be in — and the preview follows the *page's* colour scheme, which
+    the app resolves from `ThemePreference` and which may not be the window's. The
+    private `cssColorString(for:)` converts through `.sRGB` and answers `nil` when
+    a colour has no such representation, in which case the caller keeps Core's own
+    value for that kind rather than emitting an empty custom property that would
+    invalidate every rule reading it. Alpha is **dropped rather than emitted**:
+    nothing in this table is translucent except the indentation tints, which the
+    preview does not draw, so a four-component form would be a shape no caller can
+    produce.

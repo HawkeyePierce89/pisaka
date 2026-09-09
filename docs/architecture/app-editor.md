@@ -617,6 +617,16 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     It exists because one `NSTextView` serves every tab, so the `textView.string =
     text` swap above destroys the outgoing tab's position; nothing else in the app
     records it. Three coordinator methods are the whole AppKit half.
+    `captureViewport()` has a **second reader** since the Markdown preview: the
+    coordinator's `reportScroll()`, called from `clipViewBoundsChanged`, hands the
+    top visible character offset to the optional `onScrolled` closure — the one
+    observation of a scroll this editor has, and the whole of scroll sync's wiring
+    on this side (which line that offset is, and when it reaches the page, are
+    Core's, `core-markdown-preview.md`). The closure is `nil` for every editor
+    nobody is watching, and the guard is on the **closure** rather than on the
+    viewport, so an ordinary tab does not even capture one: the hit test below is
+    work worth skipping on every scroll frame. It carries an *offset* rather than a
+    line because that is what the editor has.
     `captureViewport()` reads `textView.selectedRange()` and resolves the top
     visible character by handing the clip view's `documentVisibleRect` top-left to
     `NSTextView.characterIndexForInsertion(at:)`; it answers `nil` only when the
@@ -1669,10 +1679,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     whole menu surface of folding is this file**, and `PisakaApp` names the type
     exactly once. The items carry no state: like ⌘D and Toggle Comment they reach
     whatever editor holds the focus through the **first responder**
-    (`NSApp.keyWindow?.firstResponder as? EditorTextView`, plus `isEditable` and
-    `!hasMarkedText()` — a read-only viewer is not this command's editor, and a
-    keystroke arriving mid-composition belongs to the input method), which is the
-    only honest answer with several windows open or the terminal focused. **One
+    (`EditorCommandTarget.focusedEditor(in: NSApp.keyWindow)`, plus `isEditable`
+    and `!hasMarkedText()` — a read-only viewer is not this command's editor, and
+    a keystroke arriving mid-composition belongs to the input method), which is
+    the only honest answer with several windows open or the terminal focused; the
+    lookup is `EditorCommandTarget`'s one definition, whose only fallback is the
+    Markdown preview's own region (`core-markdown-preview.md`). **One
     beep, two reasons**: a focus that is not an editor and an editor answering
     `false` (no collapsible block at the caret, no folded block at the caret, or a
     selection reaching past the block) are the same event to the person pressing the

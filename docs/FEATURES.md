@@ -650,6 +650,63 @@ user sees it.
   it touches any of them, so each one can be restored individually
   (Cmd+Shift+H). There is no preview of what will change and no way to opt one file
   out — the rename is applied as the server described it.
+- **Markdown preview (macOS).** Open a `.md` file and, with the preview on, it
+  renders beside its editor: editor left, preview right, a draggable divider
+  between them. **View → Markdown Preview (Cmd+Shift+P)** shows and hides it; the
+  item is a checkmark, not a verb, because it is one setting for all Markdown
+  files that survives a relaunch — it starts **off**, and while it is off the
+  feature costs nothing at all. The menu item is greyed out on any tab that is not
+  Markdown. That chord is also LeetCode's *Open Problem…*: with a Markdown tab
+  active the preview takes it, and with anything else active the LeetCode sheet
+  does. Drag the divider to change the split — each half keeps a minimum width, and
+  where you left it is remembered across windows and relaunches, as a proportion,
+  so it survives resizing the window too.
+
+  Typing updates the preview in place, about a third of a second after you stop:
+  the page is not reloaded, so it does not flash and does not lose its scroll
+  position. Scrolling the *editor* scrolls the preview to the matching place; the
+  preview never scrolls the editor. Switching to another Markdown tab re-points the
+  same preview rather than opening a second one, and switching to a non-Markdown
+  tab clears it.
+
+  What it renders: paragraphs, all six heading levels, emphasis, strong,
+  strikethrough, inline code, links, images, blockquotes, ordered and unordered
+  lists (nested), task-list checkboxes (shown ticked or empty, and **not
+  clickable** — the preview is read-only), thematic breaks, tables with their
+  column alignment, and fenced code. A fence with a language is coloured with the
+  **editor's own palette**, so the same block reads identically on both sides of
+  the divider; a fence without one stays plain rather than being guessed at, and a
+  language the bundled highlighter does not carry stays plain too. A ` ```mermaid `
+  fence is rendered as a diagram; a diagram that fails to parse shows the
+  renderer's own error message in place of that one block and leaves the rest of
+  the page intact.
+
+  Light and dark follow your theme preference live, and the code font size follows
+  the editor's — zooming with the pointer over the preview zooms the code zone, the
+  same zone the editor is in. Clicking into the preview to select text does not
+  break the editor's keyboard commands: Cmd+S, Cmd+/, Cmd+F, Go to Definition and
+  the fold commands all still act on the file the preview is showing.
+
+  Links: an `http`, `https` or `mailto` link opens in your browser. A relative link
+  to a file inside the opened project opens that file as a tab — a `.md` target
+  gets its own preview, a `.sqlite` target opens as a database viewer tab. Anything
+  else — a `javascript:` link, a `data:` URL, a path pointing out of the project —
+  does nothing at all. Images work the same way: an image file inside the project
+  is shown, and an image anywhere else (an `http(s)` URL, a `../` path leaving the
+  project, a symlink pointing out of it) shows as a broken image with its alt text
+  rather than being fetched. **Nothing is ever fetched from the network**: the
+  syntax highlighter and the diagram renderer are bundled with the app, and the
+  page is not allowed to make a request of any kind.
+
+  Three deliberate limits, all of them things some other Markdown viewer does:
+  **raw HTML in the source renders nothing** (a `<div>`, an `<img>` tag or an HTML
+  table written by hand simply does not appear — Markdown's own syntax does, and
+  that is all the preview reads); **images outside the opened project are not
+  loaded**, including every `http(s)` one; and **there is no formula rendering** —
+  a `$…$` or `$$…$$` span is text. There is also no table of contents, no heading
+  anchors (so a `#section` link inside the document lands nowhere), no footnotes,
+  and no way to print or export the rendered page. macOS only: there is no preview
+  on iPhone or iPad.
 - **Code folding (macOS).** Collapse a block behind its first line and expand it
   again. A chevron appears in the gutter beside every line that starts a
   collapsible block; click it to fold, click it again to unfold. A folded block
@@ -1397,6 +1454,14 @@ and iPhone. The feature scope landed so far:
   `README.md`). The update signing key is a single EdDSA
   pair — if it is ever lost, installed copies will reject every future update
   and can only be moved forward by downloading a new build by hand.
+- The Markdown preview is **macOS-only**, and it renders **Markdown and nothing
+  else**: raw HTML in the source produces nothing where it was written, images
+  outside the opened project (every `http(s)` one included) show as broken images
+  with their alt text, and there is no formula rendering. It has no table of
+  contents, no heading anchors — so an intra-document `#section` link lands
+  nowhere — no footnotes, and no print or export. Scroll sync runs one way only,
+  editor to preview. Its Cmd+Shift+P is shared with LeetCode's *Open Problem…*,
+  which is reachable on any tab that is not Markdown and not while one is active.
 - Code folding is **macOS-only**. There is no folding on iPhone or iPad: no
   gutter chevron, no placeholder and no Fold/Unfold commands.
 - The **minimap shows every line regardless of folds**. It is drawn from the text

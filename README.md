@@ -93,6 +93,15 @@ do — is in [`docs/FEATURES.md`](docs/FEATURES.md).
   hidden on screen only, and a jump into a folded block opens it first. Blocks come
   from a language server when one is running and from brackets and indentation
   otherwise; folds last for the session and are not saved.
+- **Markdown preview** (macOS) — a `.md` tab renders beside its editor, live: a
+  draggable divider between the two, View → Markdown Preview (Cmd+Shift+P) to show
+  and hide it, the editor's own colours in fenced code, `mermaid` diagrams, and
+  the preview following the editor as you scroll. Links to files in the project
+  open as tabs, everything else opens in your browser, and nothing is fetched from
+  the network — the highlighter and the diagram renderer ship with the app. It is
+  read-only and writes nothing. Three deliberate limits: **raw HTML in the source
+  is not rendered**, **images outside the opened project are not loaded**, and
+  **there is no formula rendering**.
 - **Syntax highlighting** (tree-sitter via Neon) for Swift, JavaScript,
   TypeScript, JSON, Markdown, Python, Go, Rust, HTML, CSS, YAML, SQL,
   Dockerfiles, `.env`, `.editorconfig` and dot-prefixed ignore files.
@@ -162,7 +171,7 @@ server fetching JSON schemas while it runs.
 | Cmd+K       | Commit…                                    |
 | Cmd+R       | Run the active file                        |
 | Cmd+U       | Run the active test file                   |
-| Cmd+Shift+P | Open a LeetCode problem                    |
+| Cmd+Shift+P | Show/Hide the Markdown preview (on a Markdown tab); Open a LeetCode problem otherwise |
 | Cmd+Shift+B | Browse LeetCode problems                   |
 | Cmd+Shift+L | Show/Hide the Git Log panel                |
 | Cmd+Shift+T | Show/Hide the terminal panel               |

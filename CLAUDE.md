@@ -28,20 +28,26 @@ The app target is built through the XcodeGen-generated Xcode project, *not*
   by-hand update procedure. Each builds in isolation
   (`swift build --package-path Vendor/<name>`); the root `Package.swift` does
   not reference them, so `swift test` stays dependency-free.
-- `Resources/` — data bundled into the app on both destinations: the partial
+- `Resources/` — data bundled into the app: the partial
   `Info.plist`, the `PrivacyInfo.xcprivacy` manifest, `Licenses/`
-  (`licenses.json` + one verbatim license text per shipped dependency) and
-  `Queries/<language>/symbols.scm` (both folder references). All four are
+  (`licenses.json` + one verbatim license text per shipped dependency),
+  `Queries/<language>/symbols.scm` and — the one entry copied on **macOS only**,
+  through a `destinationFilters:` on the source entry rather than on a
+  dependency — `MarkdownPreview/` (the preview page's four assets); the last
+  three are folder references. All five are
   verified statically by `swift test` (`ReleaseMetadataTests`,
-  `LicenseCoverageTests`, `SymbolQueryTests`); rationale in
-  `docs/architecture/core-services.md` + `core-intelligence.md`. Release
+  `LicenseCoverageTests`, `SymbolQueryTests`, `MarkdownPreviewAssetPinTests`);
+  rationale in
+  `docs/architecture/core-services.md` + `core-intelligence.md` +
+  `core-markdown-preview.md`. Release
   versioning and the build-number override are in `docs/RELEASING.md`.
 - `Package.swift` builds *only* the platform-agnostic `PisakaCore` library and
   its test target, so `swift test` stays the fast, dependency-free gate for the
   domain logic — compiled for the host and source-compatible with iOS. All
   external dependencies and their pins live in `project.yml`.
 - Per-platform dependency split: Neon/SwiftTreeSitter/Rearrange + the grammars
-  link on all platforms; **SwiftTerm** is used only by macOS-gated code and
+  link on all platforms; **SwiftTerm** and **swift-markdown** (with its
+  transitive swift-cmark) are used only by macOS-gated code and
   **libgit2** only by iOS-gated code (each links unused on the other
   destination); **Sparkle** is macOS-only *by declaration* and is the one
   dependency carrying `destinationFilters: [macOS]` (see Conventions). The real
@@ -252,6 +258,24 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
 - `FoldShift.swift` — `DiagnosticShift`'s rule applied to fold regions; what the edit touches unfolds, inconsistent input is `[]`.
 - `FoldController.swift` (app, macOS) — the 400 ms debounce, the generation token, the one publish; shift between answers, reconcile on one.
 - `FoldCommands.swift` (app, macOS) — *Fold* (⌘⌥←) / *Unfold* (⌘⌥→); the first responder, the one beep.
+
+`docs/architecture/core-markdown-preview.md` — the Markdown preview beside the editor (macOS; Core + app halves), incl. decisions M1–M13:
+- `MarkdownDocument.swift` — the document tree (no raw-HTML case at all) + the `MarkdownParsing` seam.
+- `MarkdownPreviewTheme.swift` — the page's colours as CSS strings; one entry per `SyntaxTokenKind`, the chrome/code split.
+- `MarkdownHighlightClasses.swift` — the pinned highlight-scope vocabulary → the editor's kinds; the class-name rule specificity rides on.
+- `MarkdownRenderer.swift` — tree → HTML body: one escape, `data-line` on top-level blocks only, the three presentational decisions.
+- `MarkdownPreviewPage.swift` — the app scheme's whole vocabulary, the shell, the CSP and its pinned bootstrap hash, the two entry points + `MarkdownPreviewPageSink`.
+- `MarkdownPreviewAsset.swift` — the document context; target ↔ app-scheme URL in both directions (canonical containment) + the handler's four-case dispatch.
+- `MarkdownLinkRule.swift` — what a click does: four answers, no fifth.
+- `MarkdownScrollRule.swift` — the editor's top offset → the one line the page is given; one-directional by design.
+- `MarkdownPreviewWidthRule.swift` — the split as a fraction: the two bounds twice over, the degenerate case.
+- `MarkdownPreviewModel.swift` — the whole ordering behind two seams: the token, the debounce, the retarget/clear rules, the once-per-turn scroll flush.
+- `MarkdownParser.swift` (app, macOS) — the feature's one `import Markdown`; a mapping that decides nothing.
+- `MarkdownPreviewSchemeHandler.swift` (app, macOS) — the three served kinds, everything else a 404; no WebKit import.
+- `MarkdownPreviewWebView.swift` (app, macOS) — the one `import WebKit`: the served shell, the pending-source queue, every navigation cancelled.
+- `MarkdownPreviewController.swift` (app, macOS) — glue with no logic; one page per window, built lazily.
+- `MarkdownPreviewPane.swift` (app, macOS) — the pane's lifetime and the four forwarded facts; the fifth code zoom surface.
+- `EditorCommandTarget.swift` (app, macOS) — the one definition of "which editor is this keystroke for" + the preview's scoped passthrough marker.
 
 `docs/architecture/core-zoom.md` — the three macOS zoom zones (Core + app halves):
 - `ZoomZone.swift` — zone/surface vocabulary; the deepest-candidate pointer rule.
@@ -755,6 +779,37 @@ ci.yml's `lint` job, and the version-bump procedure.
   undo stack and viewport. The one buffer rewrite that *does* drop them through the
   live view is a Local History **restore**: it substitutes another revision, so
   there is nothing for a fold to travel through. `FoldingSourceGatingTests` pins all of it (`core-folding.md`).
+- **The Markdown preview is a reader that writes nothing at all** (macOS only): a
+  Markdown tab renders beside its editor in a `WKWebView`, and the feature never
+  raises `autosave.suspend()` / `localChanges.beginRevert()`, is never gated by
+  them, and adds no write of any kind — not the worktree, not a cache, not the
+  session. Its **only persisted state is two `SettingsStore` preferences** (is the
+  pane shown, where does the divider sit), and the first is written from one app
+  site, the View menu's ⌘⇧P toggle. Every decision is Core's — the tree, the
+  markup, the page, the CSP, the app-scheme mapping *in both directions*, the link
+  rule, the scroll line, the width arithmetic **and the whole update ordering**
+  (`MarkdownPreviewModel`: the generation token, the debounce, the retarget and
+  clear rules, the once-per-turn scroll flush) — while the app layer supplies two
+  capabilities behind one-method seams and no judgement: a parser
+  (`MarkdownParser`, the feature's one `import Markdown`) and a page
+  (`MarkdownPreviewWebView`, its one `import WebKit`). **Raw HTML is dropped
+  structurally**, the tree having no case to map it onto, which is the same
+  property the page's CSP states from the other side — `default-src 'none'`, no
+  network origin anywhere, scripts limited to the app scheme plus one hash of the
+  shell's own bootstrap line. The page is **served, never string-loaded**
+  (`loadHTMLString` is spelled nowhere), so the document, the four bundled files
+  and every project image share one app-scheme origin; a keystroke is an
+  `innerHTML` assignment into the document already loaded, and only a theme or
+  code-font change reloads the shell. A file is reachable only inside the opened
+  project root, checked **canonically** in the direction that composes a URL and
+  again in the inverse that consumes one. Nothing is fetched at run time: the
+  highlighter and the diagram renderer are pinned offline assets (~3.4 MB,
+  accepted, macOS-only by destination filter). The one thing it changes elsewhere
+  is focus: the six caret commands read `EditorCommandTarget.focusedEditor(in:)`,
+  the single definition of that lookup, whose fallback is granted to the preview's
+  web view and its descendants alone, so every other responder keeps beeping.
+  `MarkdownPreviewSourceGatingTests` pins all of it
+  (`core-markdown-preview.md`).
 - **Open-tab resync** after an operation rewrites the worktree: buffers are
   snapshotted before the hop; a clean, unchanged tab gets `reloadFromDisk`, an
   edited one `reconcileSavedBaseline` + beep, a deleted file force-closes
@@ -870,7 +925,16 @@ controller's zero), the caret rule in one file with three named non-callers, no
 view re-deriving what `FoldState` decides, the app-side files macOS-gated and
 unnamed by the iOS layer, and the reader rule — neither `autosave` nor
 `localChanges` named anywhere in the feature; inventory in that suite's doc
-comments and `core-folding.md`) and `LintConfigurationTests`
+comments and `core-folding.md`), `MarkdownPreviewSourceGatingTests` (the
+Markdown preview's cross-layer rules — the parser and the web view each in one
+file, the page served and updated in place (`loadHTMLString` nowhere), the app
+scheme's vocabulary spelled in one Core file with no app file of the feature
+splitting a preview URL or composing HTML, the one preference writer, the focus
+helper's one definition and its six call sites, the app-side files macOS-gated
+and unnamed by the iOS layer, and the reader rule; inventory in that suite's doc
+comments and `core-markdown-preview.md`), `MarkdownPreviewAssetPinTests` (the
+bundled page assets by byte count and SHA-256, each bundle's self-stated version,
+and `VENDORED.md` recording exactly the pinned set) and `LintConfigurationTests`
 (both `.swiftlint.yml` files — the version pin, `mandatory_comma`, the root and
 child disabled-rule sets by set equality, every measured threshold ceiling,
 every in-file disable counted by path/rule — plus `.githooks/pre-commit`'s gate
@@ -879,7 +943,7 @@ in that suite's doc comments).
 **Every one of these suites matches against comment- and literal-stripped
 text** — load-bearing, not tidy: these files quote their own settings in
 comments, so a raw `contains` stays green when the setting it names is deleted.
-**Two stated exceptions**, both the same argument read the other way:
+**Three stated exceptions**, all the same argument read the other way:
 `GitHubSourceGatingTests`' `gh`-vocabulary rule strips comments *only*, because
 the tokens it forbids in the app layer (`--json`, `"pr", "list"`) **are** string
 literals, and the usual scanner would delete the very thing that rule checks
@@ -887,7 +951,12 @@ literals, and the usual scanner would delete the very thing that rule checks
 *active* workflow line whole — comments dropped, literals kept — because a
 `run:` block's printed prose sits in a string on a line whose other half is a
 live command, so no `::error::` sentence in either workflow may spell
-`-derivedDataPath`/`-archivePath` (said at the one site, in `release.yml`).
+`-derivedDataPath`/`-archivePath` (said at the one site, in `release.yml`); and
+`MarkdownPreviewSourceGatingTests`' two rules whose subject **is** a literal —
+the HTML shapes no app file of the preview may compose and the four spellings of
+the app scheme's vocabulary — which read the literal-keeping scanner for
+`GitHubSourceGatingTests`' own reason, the ordinary one deleting exactly the text
+they are about (`core-markdown-preview.md`).
 Follow the pattern for anything that ships in the bundle with no Swift code
 behind it, and for any architectural rule `swift test` cannot otherwise see.
 Non-Swift test data lives in `Tests/PisakaCoreTests/Fixtures/<area>/`, read
@@ -1021,15 +1090,23 @@ owed are documented in `docs/RELEASING.md`.
   schema (a commit that rewrites it into the legacy v1 shape is format churn
   hiding the real pin change; re-generate it instead). `DependencyPinTests`
   closes the loop both ways: every `project.yml` requirement must equal the
-  recorded pin, every pin needs a 40-hex revision, and `swifttreesitter` must
-  stay the *only* branch pin — Neon's own manifest forces it to `branch: main`,
-  so its pin *is* the recorded revision; the full story is in that suite's doc
+  recorded pin, every pin needs a 40-hex revision, and the branch pins must stay
+  the documented **set of two** — `swifttreesitter` (Neon's own manifest forces
+  it to `branch: main`) and `swift-cmark` (swift-markdown's forces it to
+  `branch: release/6.2`, and nothing in `project.yml` declares it at all) — each
+  carrying its own recorded revision and its own reason, because for both the pin
+  *is* the whole requirement; a **third** one fails the suite until it is
+  documented with a reason of its own. The full story is in that suite's doc
   comment. The remote set: ChimeHQ's Neon (bringing
   `SwiftTreeSitter`/`Rearrange`) plus one tree-sitter grammar per language;
   SwiftTerm (the macOS terminal); libgit2 (`ibrahimcetin/libgit2`, built from C
-  source, the iOS `GitServicing`); and Sparkle (the macOS auto-update — the one
+  source, the iOS `GitServicing`); swift-markdown (the macOS Markdown preview's
+  parser, pinned by revision because the repository publishes no semantic
+  versions, and the second dependency dragging a branch requirement in with it);
+  and Sparkle (the macOS auto-update — the one
   SwiftPM `binaryTarget`, the one embedded framework, and the one
-  `destinationFilters: [macOS]` dependency; its peculiarities are recorded in
+  `destinationFilters: [macOS]` *dependency* — the preview's assets folder is
+  the only other filtered entry in the file, and it is a source entry; its peculiarities are recorded in
   `project.yml`'s comments and `docs/architecture/core-services.md`). A
   **second, differently-shaped pin set** deliberately lives nowhere near these:
   the downloadable language servers in
@@ -1103,9 +1180,14 @@ owed are documented in `docs/RELEASING.md`.
   *unless the dependency carries a `destinationFilters:`* — which works
   (`platformFilters` on the generated build file, iOS build green), correcting
   an earlier note here that claimed package-product deps were all-or-nothing.
-  Only Sparkle uses it, because its macOS-only manifest would otherwise fail the
-  iOS build; SwiftTerm and libgit2 stay unfiltered dead weight on the other
-  destination (an explicitly out-of-scope follow-up). The actual platform
+  Only Sparkle uses it *as a dependency*, because its macOS-only manifest would
+  otherwise fail the iOS build; SwiftTerm, libgit2 and swift-markdown stay
+  unfiltered dead weight on the other destination (an explicitly out-of-scope
+  follow-up). The same key also works on a `type: folder` **source** entry —
+  attempted rather than assumed, and green on `generic/platform=iOS` — which is
+  what keeps the Markdown preview's ~3.4 MB of page assets off the iOS bundle;
+  copying a directory is not linking, which is why that one was in scope and the
+  three above are not. The actual platform
   restriction stays the source-level `#if os(macOS)` / `#if os(iOS)` gating.
 - The iOS branch-switcher's network fetch is **HTTPS-only** (libgit2 over the
   built-in Apple TLS backend, PAT from the Keychain). SSH is out on iOS: this

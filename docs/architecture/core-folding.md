@@ -633,11 +633,18 @@ file where a fold command is spelled.
 
 The items carry no state and are wired to nothing: like ⌘D and Toggle Comment they
 reach whatever editor holds the focus through the **first responder**
-(`NSApp.keyWindow?.firstResponder as? EditorTextView`, further requiring
+(`EditorCommandTarget.focusedEditor(in: NSApp.keyWindow)`, further requiring
 `isEditable` and `!hasMarkedText()` — a read-only viewer is not this command's
 editor, and a keystroke arriving mid-composition belongs to the input method).
 That is what keeps them correct with several windows open and with the terminal or
-the project tree focused.
+the project tree focused. The lookup itself is no longer spelled here: this is the
+sixth and last of the caret commands routed through `EditorCommandTarget`, the one
+definition of "which editor is this keystroke for", which answers the key window's
+editor when the first responder is *the Markdown preview's web view or a
+descendant of it* and `nil` for every other responder — so the terminal and the
+project tree keep beeping byte for byte, and clicking into the preview to select a
+sentence does not make ⌘⌥← beep at the file it is showing
+(`core-markdown-preview.md`).
 
 **One beep, two reasons.** The editor answers whether it folded anything, and a
 `false` — no collapsible block at the caret, no folded block at the caret, or a

@@ -333,6 +333,32 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `.onHover`, from the gesture's first `onChanged`, from `onEnded`, and from
     `.onDisappear`, which is what keeps ⌘-toggling the dock with the pointer on the
     divider from leaking a push that outlives the view that made it.
+    **The Markdown preview's divider is that divider turned on its side, with a
+    second flag of its own** (`core-markdown-preview.md`). A previewed tab is
+    routed by `isMarkdownPreviewShown(for:)` — the third branch beside the tab
+    kind, and a branch rather than an always-present trailing pane (the LeetCode
+    statement's shape) because the split needs the available width and a
+    `GeometryReader` around every editor would erase the editor column's minimum
+    widths; the price is the dock's own, that toggling the preview re-creates the
+    text view. `markdownSplitContent(for:size:)` spends the divider's 5 scaled
+    points first and hands what is left to `MarkdownPreviewWidthRule`, so the two
+    frames sum to no more than the area, and pins/clips the pair for `mainArea`'s
+    reason. The gesture is measured in `markdownSplitSpace` — the split's own
+    frame, which cannot move while the divider does, `panelColumnSpace`'s reason
+    on the horizontal axis — with `minimumDistance: 0`, an opening
+    zero-translation frame that writes nothing (a bare click must change no
+    preference) and a base captured once so a cumulative translation does not
+    compound. Two differences from the dock's, both stated where they happen: the
+    base is the fraction being *rendered* rather than the stored one, since the
+    stored value is a remembered proposal that the point minimums re-clamp at
+    layout time; and the fraction is **persisted, exactly once, in `onEnded`**,
+    because a `UserDefaults` write on the per-frame path would republish this
+    window sixty times a second. The cursor pair is the same rule off a *second*
+    flag (`markdownDividerCursorPushed`), because the two dividers can be hovered
+    independently and each must balance its own push, and `.onDisappear` clears
+    the hover, the drag and the base for the dock's two reasons — ⌘⇧P can take the
+    divider away with the pointer on it, and the same removal can land mid-drag,
+    where no `onEnded` arrives either.
     `bottomPanel: Binding<BottomPanel?>` (`nil` = none,
     owned by `PisakaApp`) selects the panel; `panelContent(_:)` renders `.terminal`
     → `TerminalPanelView(model: terminalSessions, projectRoot: model.projectRoot)`

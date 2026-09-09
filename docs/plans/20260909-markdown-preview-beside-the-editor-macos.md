@@ -255,13 +255,18 @@ Dependencies: `apple/swift-markdown` (transitively `swift-cmark`, plus DocC plug
 - Create: `docs/architecture/core-markdown-preview.md`
 - Modify: `CLAUDE.md`, `docs/FEATURES.md`, `README.md`, plus the architecture entries of every file whose behaviour changed (`core-editor.md`, `core-services.md`, `app-window.md`, `app-shell.md`, `app-editor.md`, `app-editor-overlays.md`, `core-folding.md`)
 
-- [ ] Write `core-markdown-preview.md` covering both halves file by file, with numbered decisions: raw HTML dropped, the CSP, the page served through the handler under one origin (no `loadHTMLString`), the app-scheme ↔ file mapping owned in one Core file in both directions, one web view per window, the ordering owned by the Core model behind two seams, the global preference, the offline pins and the accepted ~4.5 MB, the in-place body update, the scoped focus fallback, the second documented branch pin, and the gating suite's literal-keeping exception.
-- [ ] Add one index line per new file to `CLAUDE.md` under the new doc — including `MarkdownPreviewModel.swift` — plus one cross-cutting invariant paragraph stating the reader rule (writes nothing, never raises the writer gate, never gated by it; two preferences its only persisted state), and extend the Tests section's "two stated exceptions" sentence to name this suite's literal-keeping rule as the third.
-- [ ] Add the feature to `docs/FEATURES.md` and a one-line summary to `README.md`, naming ⌘⇧P and the three stated limits (no raw HTML, no external images, no formulas).
-- [ ] Update the entries of the touched existing files: the divider precedent (`app-window.md`), the two new settings (`core-services.md`), the focus helper and the six command sites (`app-shell.md`, `core-folding.md`), the editor's scroll callback (`app-editor.md`), the theme derivation (`app-editor-overlays.md`).
+- [x] Write `core-markdown-preview.md` covering both halves file by file, with numbered decisions: raw HTML dropped, the CSP, the page served through the handler under one origin (no `loadHTMLString`), the app-scheme ↔ file mapping owned in one Core file in both directions, one web view per window, the ordering owned by the Core model behind two seams, the global preference, the offline pins and the accepted ~4.5 MB, the in-place body update, the scoped focus fallback, the second documented branch pin, and the gating suite's literal-keeping exception.
+- [x] Add one index line per new file to `CLAUDE.md` under the new doc — including `MarkdownPreviewModel.swift` — plus one cross-cutting invariant paragraph stating the reader rule (writes nothing, never raises the writer gate, never gated by it; two preferences its only persisted state), and extend the Tests section's "two stated exceptions" sentence to name this suite's literal-keeping rule as the third.
+- [x] Add the feature to `docs/FEATURES.md` and a one-line summary to `README.md`, naming ⌘⇧P and the three stated limits (no raw HTML, no external images, no formulas).
+- [x] Update the entries of the touched existing files: the divider precedent (`app-window.md`), the two new settings (`core-services.md`), the focus helper and the six command sites (`app-shell.md`, `core-folding.md`), the editor's scroll callback (`app-editor.md`), the theme derivation (`app-editor-overlays.md`).
 
 ## Post-Completion (manual verification by the user)
 
+- **⌘⇧P is bound twice** — View → *Markdown Preview* and LeetCode → *Open
+  Problem…*. The View item is disabled off a Markdown tab, so confirm which
+  command each press reaches with a Markdown tab active and with any other tab
+  active; picking a free chord for one of them is a product decision this plan did
+  not make (recorded in `core-markdown-preview.md`, "What is still owed").
 - Open a `.md` file with the preference on: side-by-side layout, typing updates within roughly a third of a second with no visible reload and no lost scroll position; ⌘⇧P hides and shows; the divider drags within bounds and its position survives a relaunch.
 - A `bash`, `c` and `java` fence is coloured with the editor's palette; a `mermaid` fence renders; a broken diagram shows its error in place and the rest of the page stays intact.
 - A relative image inside the project shows; `../`, a symlink out of the root and `http(s)` show as broken images with alt text.
