@@ -196,7 +196,7 @@ public final class LeetCodeModel: ObservableObject {
     /// Separate from `isBusy` because the two answer different questions and the
     /// entry sheets bind their controls to this one. A statement refresh raises
     /// `isBusy` too, and it is started by *switching tabs* — so a single counter
-    /// meant that selecting a LeetCode tab on a slow link and then pressing ⌘⇧P
+    /// meant that selecting a LeetCode tab on a slow link and then pressing ⌘⌥P
     /// produced a sheet with a disabled field and a dead Open button, waiting on
     /// a request that has nothing to do with what the user is trying to do.
     @Published public private(set) var isOpening = false

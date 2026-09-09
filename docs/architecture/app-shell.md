@@ -39,7 +39,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     that says so. The tab *kind* is not asked here — no `.md` file opens as a
     viewer tab, and the pane's own routing in `ContentView` asks it anyway. **⌘⇧P
     names this command and no other**: LeetCode's "Open Problem…" once shared it
-    and now spells ⌘⌥P (`core-markdown-preview.md`). Nothing else about the
+    and now spells ⌘⌥P (`core-markdown-preview.md`). That collision was invisible
+    to every gate the pipeline had — two commands declaring one chord compile,
+    link and launch, and AppKit simply gives it to one of them — so
+    `MenuShortcutUniquenessTests` now reads every character key equivalent in
+    `Sources/Pisaka` and refuses a repeat. Nothing else about the
     preview is in this file: the pane, the split and the divider are
     `ContentView`'s, and every decision is Core's. `togglePanel(.terminal)` creates the first session
     (`terminalSessions.newSession(projectRoot: model.projectRoot)`) when none exists

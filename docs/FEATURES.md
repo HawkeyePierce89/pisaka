@@ -681,7 +681,9 @@ user sees it.
 
   Light and dark follow your theme preference live, and the code font size follows
   the editor's — zooming with the pointer over the preview zooms the code zone, the
-  same zone the editor is in. Clicking into the preview to select text does not
+  same zone the editor is in. The size changes **in place**: your position in the
+  document and any rendered diagram stay exactly as they were, where switching the
+  theme does re-render the page. Clicking into the preview to select text does not
   break the editor's keyboard commands: Cmd+S, Cmd+/, Cmd+F, Go to Definition and
   the fold commands all still act on the file the preview is showing.
 

@@ -264,9 +264,9 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
 - `MarkdownListTightness.swift` — CommonMark's tight/loose rule, read off line spans *and* the source's blank lines (a gap is only the precondition — a link reference definition leaves a hole that is not one); what the caller owes it, the blank-line reading a code block's span needs, and the two shapes where cmark's own flag departs from the sentence it implements.
 - `MarkdownPreviewTheme.swift` — the page's colours as CSS strings; one entry per `SyntaxTokenKind`, the chrome/code split.
 - `MarkdownHighlightClasses.swift` — the pinned highlight-scope vocabulary → the editor's kinds; the class-name rule specificity rides on.
-- `MarkdownHeadingSlug.swift` — the heading `id`: the GFM slug rule (a tab removed, not folded; letter and digit Unicode's) + the document-ordered duplicate allocator; the renderer is its only caller.
+- `MarkdownHeadingSlug.swift` — the heading `id`: the GFM slug rule (a tab removed, not folded; letter and digit Unicode's; `_` kept) + the document-ordered duplicate allocator and what it is seeded with; the renderer is its only caller.
 - `MarkdownRenderer.swift` — tree → HTML body: one escape, `data-line` on top-level blocks only, the heading's `id` (nothing else carries one), the three presentational decisions.
-- `MarkdownPreviewPage.swift` — the app scheme's whole vocabulary, the shell, the CSP and its pinned bootstrap hash, the three entry points + the one size helper both readings share + `MarkdownPreviewPageSink`.
+- `MarkdownPreviewPage.swift` — the app scheme's whole vocabulary, the shell, the CSP and its pinned bootstrap hash, the four entry points + the one size helper both readings share + `MarkdownPreviewPageSink`.
 - `MarkdownPreviewAsset.swift` — the document context; target ↔ app-scheme URL in both directions (canonical containment) + the handler's four-case dispatch.
 - `MarkdownLinkRule.swift` — what a click does: four answers, no fifth.
 - `MarkdownScrollRule.swift` — the editor's top offset → the one line the page is given; one-directional by design.
@@ -900,7 +900,11 @@ surface, that the hover popover passes mouse events through and declares none,
 and the Preferences stepper reading its grid from `ZoomScaleRule` — the first
 three by set equality), `BottomPanelSourceGatingTests` (the bottom dock panel's
 four view-layer rules; inventory in that suite's doc comments and
-`app-window.md`), `MainWindowFrameSourceGatingTests` (the main window's
+`app-window.md`), `MenuShortcutUniquenessTests` (every character key
+equivalent declared in `Sources/Pisaka`, by chord, asserted distinct — two
+commands sharing one compile and launch, and AppKit hands it to exactly one of
+them; the semantic and `KeyEquivalent`-constant forms are outside the matched
+set on purpose), `MainWindowFrameSourceGatingTests` (the main window's
 by-hand frame persistence: one persistence site, observers only after the
 final restore), `LocalHistorySourceGatingTests` (Local History's app-layer
 rules — capture sites, the autosave report, the one restore funnel, the reader

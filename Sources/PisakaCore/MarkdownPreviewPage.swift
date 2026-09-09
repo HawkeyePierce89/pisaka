@@ -152,6 +152,19 @@ extension MarkdownPreviewPage {
     /// call cannot name three different objects.
     public static let namespace = "PisakaPreview"
 
+    /// The two custom properties the page draws its text at.
+    ///
+    /// Named constants rather than literals because they have **three** writers
+    /// and readers in two languages: the shell's `:root` block writes them,
+    /// `preview.css` reads them, and `preview.js`'s `setFontSize` writes them
+    /// again on a size step. A rename spelled in only two of the three leaves
+    /// the shell correct and every step silently inert, which is exactly what
+    /// `MarkdownPreviewAssetPinTests` exists to refuse.
+    public static let bodyFontSizeProperty = "--font-size"
+
+    /// The code face's size — see ``bodyFontSizeProperty``.
+    public static let codeFontSizeProperty = "--code-font-size"
+
     /// The shell's one inline script: the call that starts the page.
     ///
     /// It is inline — not a fifth bundled file — because it is the *document's*
@@ -298,8 +311,8 @@ extension MarkdownPreviewPage {
             "  --code-background: \(theme.codeBackground);",
             "  --border: \(theme.border);",
             "  --table-border: \(theme.tableBorder);",
-            "  --font-size: \(css(sizes.body))px;",
-            "  --code-font-size: \(css(sizes.code))px;",
+            "  \(bodyFontSizeProperty): \(css(sizes.body))px;",
+            "  \(codeFontSizeProperty): \(css(sizes.code))px;",
         ]
         for kind in SyntaxTokenKind.allCases {
             lines.append("  \(MarkdownPreviewTheme.cssVariableName(for: kind)): \(theme.color(for: kind));")

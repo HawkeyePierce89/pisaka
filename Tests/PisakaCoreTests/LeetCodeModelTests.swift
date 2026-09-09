@@ -1002,7 +1002,7 @@ final class LeetCodeModelTests: XCTestCase {
     /// refresh must not raise it.
     ///
     /// A single flag meant that selecting a LeetCode tab on a slow link and then
-    /// pressing ⌘⇧P produced a sheet with a disabled field and a dead Open
+    /// pressing ⌘⌥P produced a sheet with a disabled field and a dead Open
     /// button, waiting on a request for a different tab.
     func testAStatementRefreshIsBusyButNotOpening() async throws {
         let tree = makeTree([twoSumPath: "solution"])

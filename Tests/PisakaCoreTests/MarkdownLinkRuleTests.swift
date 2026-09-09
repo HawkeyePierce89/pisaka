@@ -235,6 +235,67 @@ final class MarkdownLinkRuleTests: XCTestCase {
         )
     }
 
+    /// A non-English heading, which is the case the encoding decides.
+    ///
+    /// The `id` in the markup is the slug's own characters; the URL the web view
+    /// resolves the `href` to carries them percent-encoded. Reading the fragment
+    /// as the URL spells it would hand the page `%D0%BF…`, `getElementById`
+    /// would find nothing, and every anchor in a Russian, Greek or German
+    /// document would be silently dead. An ASCII slug encodes to itself, so the
+    /// two cases above cannot see this at all.
+    func testANonASCIIHeadingIsReachedByItsOwnLink() throws {
+        let rendered = MarkdownRenderer.body(
+            for: document(headingsAndLinks: [("Привет мир", "привет-мир"), ("Größe", "größe")]),
+            context: context
+        )
+
+        let ids = try ids(in: rendered)
+        XCTAssertEqual(ids, ["привет-мир", "größe"])
+
+        for (index, href) in try hrefs(in: rendered).enumerated() {
+            let url = try navigationURL(for: href)
+            XCTAssertNotEqual(url.absoluteString, href, "the web view is expected to encode \(href)")
+            XCTAssertEqual(MarkdownLinkRule.decision(for: url, context: context), .anchor(ids[index]), href)
+        }
+    }
+
+    /// An underscored heading, which is the case the character class decides:
+    /// GFM keeps `_`, so an anchor an author copied from a rendered README has
+    /// to land here too.
+    func testAnUnderscoredHeadingIsReachedByItsOwnLink() throws {
+        let rendered = MarkdownRenderer.body(
+            for: document(headingsAndLinks: [("snake_case", "snake_case")]),
+            context: context
+        )
+
+        XCTAssertEqual(try ids(in: rendered), ["snake_case"])
+        let href = try XCTUnwrap(try hrefs(in: rendered).first)
+        XCTAssertEqual(
+            MarkdownLinkRule.decision(for: try navigationURL(for: href), context: context),
+            .anchor("snake_case")
+        )
+    }
+
+    /// A heading named after the shell's own container does not take its id.
+    ///
+    /// `getElementById` answers the *first* element in document order, and the
+    /// container is the heading's ancestor: sharing the id would scroll the page
+    /// to the top of the container rather than to the heading, which is the same
+    /// silent wrong-target the suffixing exists to prevent.
+    func testAHeadingNamedAfterTheContainerDoesNotTakeItsID() throws {
+        let rendered = MarkdownRenderer.body(
+            for: document(headingsAndLinks: [(MarkdownPreviewPage.containerElementID, "content-1")]),
+            context: context
+        )
+
+        XCTAssertEqual(try ids(in: rendered), ["content-1"])
+        let href = try XCTUnwrap(try hrefs(in: rendered).first)
+        XCTAssertEqual(
+            MarkdownLinkRule.decision(for: try navigationURL(for: href), context: context),
+            .anchor("content-1")
+        )
+    }
+
     /// A fragment naming a heading the document does not have still resolves to
     /// an anchor — the page's own lookup is what finds nothing, and the rule has
     /// no business knowing which ids exist.

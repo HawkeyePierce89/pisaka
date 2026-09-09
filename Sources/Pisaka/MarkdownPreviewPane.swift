@@ -19,7 +19,8 @@ import SwiftUI
 ///
 /// **The facts, and why each is watched separately.** The document (this tab's
 /// text, its URL and the project root) re-parses; the appearance (the resolved
-/// theme and the code font size) re-writes the shell. They travel on different
+/// theme and the code font size) is two halves — a theme change re-writes the
+/// shell, a size change alone is one call into the loaded document. They travel on different
 /// paths in the model, so they are forwarded through different `onChange`
 /// modifiers rather than through one composite — and the appearance is keyed on
 /// its *inputs* rather than on the theme itself, because deriving the theme

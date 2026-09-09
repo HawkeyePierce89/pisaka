@@ -192,7 +192,7 @@ survive a keystroke.
 reloads the shell and re-renders the body from the last tree, because every
 colour in the page lives in the shell's own stylesheet; the parser is not asked
 again. A change of the **font size alone** is one call into the document already
-loaded — `PisakaPreview.setFontSize(…)`, the third and last entry point — since
+loaded — `PisakaPreview.setFontSize(…)`, the fourth and last entry point — since
 the two sizes are custom properties on `:root` and setting them is the whole
 change, which leaves the body, the scroll offset and the rendered diagrams
 exactly as they were. Both readings of "what a size is" go through one Core
@@ -521,20 +521,36 @@ go on spacing themselves the ordinary way, so that is the only rule needed.
 
 A heading carries an `id` and an intra-document `[x](#a-heading)` reaches it.
 The slug rule is **GFM's** — the heading's inline content flattened, lowercased,
-every character that is not a letter, a digit, a space or a hyphen removed,
-spaces turned into hyphens — with two readings stated where a reader would
-otherwise assume the opposite: a **tab is removed, not folded to a hyphen**
-("space" is the ASCII space and nothing else), and **letter and digit are
-Unicode's**, so `## Привет мир` slugs to `привет-мир` rather than to nothing.
+every character that is not a letter, a digit, a space, a hyphen or an
+underscore removed, spaces turned into hyphens — with three readings stated
+where a reader would otherwise assume the opposite: a **tab is removed, not
+folded to a hyphen** ("space" is the ASCII space and nothing else); **letter and
+digit are Unicode's**, so `## Привет мир` slugs to `привет-мир` rather than to
+nothing; and **an underscore survives**, GFM's punctuation set not containing
+one, so `## snake_case` is `#snake_case` here as it is on a rendered README.
 A heading whose text leaves nothing — one made only of punctuation, or empty —
 carries **no `id` at all** rather than `id=""`, which is an attribute no
 fragment can name while still looking like a target.
 
 Repeats are suffixed `-1`, `-2`, … **in document order**, searched forward past
-everything already handed out: a document spelling `## Notes` twice and
-`## Notes 1` once produces `notes`, `notes-1` and `notes-2` with no two the
-same. A silent collision here would not be a wrong-looking page — it would be
-the second link scrolling to the first heading.
+everything already taken: a document spelling `## Notes`, `## Notes 1` and
+`## Notes` in that order produces `notes`, `notes-1` and `notes-2` with no two
+the same. A silent collision here would not be a wrong-looking page — it would
+be the second link scrolling to the first heading. (Order is part of the
+sentence: spelled `## Notes`, `## Notes` and `## Notes 1`, the third id is
+`notes-1-1`, which is the same rule read from the other side.)
+
+**Two ids come from outside the walk, and both are handled where they arise.**
+The renderer seeds the allocator with the shell's own container id, because
+`getElementById` answers the *first* element in document order and a `##
+Content` heading emitted inside `<div id="content">` would send its link to the
+top of the container rather than to itself — the same silent wrong target,
+arriving from outside the document's headings. And `MarkdownLinkRule` reads the
+clicked fragment **decoded**: the `id` in the markup is the slug's own
+characters while the URL the web view resolved carries them percent-encoded, so
+comparing the encoded form would make every anchor in a non-English document
+dead. An ASCII slug encodes to itself, which is why neither is visible until it
+matters.
 
 **The rule lives in Core, beside the renderer, because an anchor is a round trip
 between two decisions this package already owns**: `MarkdownRenderer` writes the
@@ -698,10 +714,14 @@ spelling, the one decision about reach belonging to `MarkdownPreviewAsset` (M4).
 so `## The **rule**` and `## The rule` answer the same — and the attribute is
 emitted through `attribute(_:_:)`, so it takes the one escape like every other.
 The `MarkdownHeadingSlug.Allocator` is threaded through `body(for:context:)` and
-every nested path (`renderNested`, `renderItems`, the table rows) as `inout`, so
+every nested path that can hold a block (`renderNested`, `renderItems`) as
+`inout` — a table cell holds inlines alone and so has no heading to number — so
 a heading inside a block quote or a list item is numbered on the same terms as a
 top-level one and document order *is* the allocation order. A heading the rule
-leaves nothing of carries no `id`.
+leaves nothing of carries no `id`. It is created here **holding
+`MarkdownPreviewPage.containerElementID`**, the one `id` the page carries that
+this file did not write — reserved at the renderer rather than inside the
+allocator, the page being this file's dependency and not the slug rule's.
 
 Three presentational decisions the tree deliberately leaves open, each because
 HTML has no way to express the alternative:
@@ -742,14 +762,17 @@ nothing while not folding them in an attribute is an injected attribute), with
 The `id` a rendered heading carries, and the rule that keeps two headings from
 carrying the same one (M15). Two members and nothing else: `slug(forText:)`, the
 pure GFM rule, and `Allocator`, the per-document, document-ordered duplicate
-suffixer. `MarkdownRenderer` is the only caller; the file's doc comment carries
-the four steps of the rule, the two readings a reader assumes the other way (a
-tab is removed rather than folded; letter and digit are Unicode's) and why the
-allocator is a value threaded through the walk rather than static state.
+suffixer — which takes the ids the caller **reserves** at `init` and keeps one
+store, `used`, so there is one rule to check rather than a memo to keep in step
+with it. `MarkdownRenderer` is the only caller; the file's doc comment carries
+the four steps of the rule, the three readings a reader assumes the other way (a
+tab is removed rather than folded; letter and digit are Unicode's; `_` survives)
+and why the allocator is a value threaded through the walk rather than static
+state.
 
 ### `MarkdownPreviewPage.swift`
 
-The scheme, the URLs, the document and the two entry points (M2, M3, M4, M7).
+The scheme, the URLs, the document and the four entry points (M2, M3, M4, M7).
 
 - The vocabulary: `scheme`, `host` (fixed, so a document's *path* never becomes
   part of the origin and retargeting is not a cross-origin navigation),
@@ -788,8 +811,11 @@ The scheme, the URLs, the document and the two entry points (M2, M3, M4, M7).
   gets its rule for free. The `<link>` precedes the generated block: the theme
   is what must win, so it is written last.
 - The entry points: `bodyUpdateSource(body:)`, `scrollToAnchorSource(anchor:)`,
-  `scrollToLineSource(line:)` and `fontSizeUpdateSource(fontSize:)` — the third
+  `scrollToLineSource(line:)` and `fontSizeUpdateSource(fontSize:)` — the fourth
   and last, added for the size step — plus `javaScriptStringLiteral(_:)` (M7).
+  `bodyFontSizeProperty`/`codeFontSizeProperty` name the two custom properties
+  the shell writes, `preview.css` reads and `setFontSize` writes again, since a
+  rename spelled in only two of the three would leave every step inert.
   The fragment is escaped for the same reason the body is: it arrives from an
   `href` in a document nobody in this app wrote. The size source interpolates
   **two numbers** rather than one, `fontSizes(for:)`'s body and code sizes, so
@@ -832,9 +858,12 @@ which a document has to spell `%23`/`%3F` for any renderer at all — stays part
 it, and neither can smuggle a path past the containment check. Nothing in front
 of them is the fragment-only case again, refused rather than handed to
 `URL(fileURLWithPath:)`, which has no answer for an empty path. The anchor and
-the query themselves are dropped: the renderer emits no `id`, so there is nothing
-to carry an anchor to (a stated limit below), and the handler answers a file
-rather than a request with parameters — the file is what the target was for.
+the query themselves are dropped: the handler answers a file rather than a
+request with parameters — the file is what the target was for — and a fragment
+on *another* file has nothing to name, the answer being `openInEditor` and the
+editor having no notion of a place inside a file an anchor could point at. A
+fragment on **this** document never reaches here at all: it is
+`MarkdownLinkRule`'s `.anchor`, and M15's ids are what it finds.
 
 The **scheme is read lexically**, by `lexicalScheme(of:)`, and not through
 `URL(string:)`. The question the branch asks is only *does this destination name
@@ -1021,7 +1050,7 @@ The four facts the glue forwards:
   — an appearance change or a recovery — re-offers it as pending, which is the
   same argument read at the other end of the document's life: the reloaded
   container is empty and scrolled to the top, and the editor says nothing about
-  it, a theme switch and a zoom step moving no clip view, so a reader who
+  it, a theme switch moving no clip view, so a reader who
   stepped into dark mode halfway down would be thrown to the first line and left
   there until they happened to scroll again — which for a file being read rather
   than edited may be never. The memory describes *this* document, so the
@@ -1106,8 +1135,9 @@ page: the only way to reach the shell URL before the glue composed a document is
 a navigation the app did not ask for, and an empty `text/html` looks like a
 rendering failure. The **four bundled files' bytes are read once each and kept**
 — a failed read is not cached, being the same 404 a refusal is — because the
-shell is re-served on every theme change and every code-font step (the pane is a
-`.code` zoom surface, so a held zoom chord is one reload per discrete step) and
+shell is re-served on every theme change and on a recovery from a dead page (a
+code-font step is *not* one of those: it sets two properties on the document
+already loaded) and
 each reload re-fetches all four, of which `mermaid.min.js` alone is 3.3 MB, on
 the main actor where `WKURLSchemeHandler` calls this. A **project** file cannot
 be cached that way — it is whatever the document referenced, and it changes — so
@@ -1187,9 +1217,10 @@ the page is showing.
   page that died, no keystroke, no ⌘⇧P and no tab switch would send anything at
   all, and the blank pane would last the window's life.
 - **Two reloads can be in flight, and both halves above are counted rather than
-  latched because of it.** Every code-zoom step is an appearance change, so two
-  presses in a row ask for two shells before the first one's policy decision has
-  arrived. A single `Bool` would be spent by the first decision and the second
+  latched because of it.** Two theme changes in a row ask for two shells before
+  the first one's policy decision has arrived, as does one arriving while a
+  recovery from a dead page is still in flight. (A code-zoom step is no longer
+  one of them — it asks for no shell at all.) A single `Bool` would be spent by the first decision and the second
   navigation would be judged as a *link* — and the shell's own fragment-less URL
   is `.refused` there, so the page would never load. Symmetrically, the queue is
   released by `shellLoadEnded(_:)` only for the load it is **waiting on**, held
@@ -1325,9 +1356,11 @@ would be the page saying something about a source it did not read.
 Neither first-party file is byte-pinned (they are read and reviewed as source),
 but the **cross-file names** are asserted: `MarkdownPreviewAssetPinTests` checks
 that `preview.js` spells `containerElementID`, defines `window.<namespace>` and
-defines and exposes each of the four members Core composes calls to (read out of
+defines and exposes each of the five members Core composes calls to (read out of
 those sources, not listed again), that every `var(--…)` in `preview.css` is a
-property the shell's `:root` block declares, and that the stylesheet styles the
+property the shell's `:root` block declares, that the two font-size properties
+are spelled on all three sides — the shell writes them, the stylesheet reads
+them, `setFontSize` writes them again — and that the stylesheet styles the
 container and both diagram-state classes the script spells. Nothing else in the
 pipeline compares the two sides — the page tests assert the shell *through* the
 same constants, so a rename would keep them green while the page rendered into an
@@ -1336,9 +1369,10 @@ element that no longer exists.
 `scrollToLine` walks the container's **children** — `data-line` is on top-level
 blocks alone, so that is the whole candidate set — and takes the last one at or
 before the line, falling back to the top. `scrollToAnchor` is an `id` lookup and
-nothing more; the renderer emits no `id` today, so a fragment lands on nothing
-and the page stays where it is, which is the honest answer for a link into a
-document that carries no targets.
+nothing more; the ids it finds are the ones `MarkdownRenderer` put on the
+headings through `MarkdownHeadingSlug` (M15), and a fragment naming nothing *in
+this document* lands on nothing and the page stays where it is, which is the
+honest answer for a link to a section the document does not have.
 
 ## The touched hosts
 
@@ -1396,9 +1430,13 @@ document that carries no targets.
 ## Tests
 
 - Core (`swift test`): `MarkdownDocumentTests`, `MarkdownRendererTests`,
-  `MarkdownHeadingSlugTests` (M15's rule and its allocator; the anchor's round
+  `MarkdownHeadingSlugTests` (M15's rule and its allocator, including a reserved
+  id; the anchor's round
   trip — render, read the `href` back, resolve it the way the web view does and
-  feed it to `MarkdownLinkRule` — is asserted in `MarkdownLinkRuleTests`),
+  feed it to `MarkdownLinkRule` — is asserted in `MarkdownLinkRuleTests`, whose
+  cases carry the three spellings the two halves can disagree on without any
+  single-sided test noticing: a non-ASCII heading, whose fragment arrives
+  percent-encoded; an underscored one; and one named after the container),
   `MarkdownListTightnessTests` (M14's rule, stated as spans),
   `MarkdownPreviewPageTests`, `MarkdownPreviewAssetTests`,
   `MarkdownLinkRuleTests`, `MarkdownScrollRuleTests`,

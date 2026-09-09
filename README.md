@@ -96,7 +96,8 @@ do — is in [`docs/FEATURES.md`](docs/FEATURES.md).
 - **Markdown preview** (macOS) — a `.md` tab renders beside its editor, live: a
   draggable divider between the two, View → Markdown Preview (Cmd+Shift+P) to show
   and hide it, the editor's own colours in fenced code, `mermaid` diagrams, and
-  the preview following the editor as you scroll. Links to files in the project
+  the preview following the editor as you scroll. A link to a heading in the same
+  document scrolls the preview to it, links to files in the project
   open as tabs, everything else opens in your browser, and nothing is fetched from
   the network — the highlighter and the diagram renderer ship with the app. It is
   read-only and writes nothing. Three deliberate limits: **raw HTML in the source

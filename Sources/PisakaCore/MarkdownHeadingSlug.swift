@@ -19,23 +19,29 @@ import Foundation
 ///   over `plainText(_:)`, the same flattening an image's `alt` uses, so
 ///   `## The **rule**` and `## The rule` slug identically);
 /// * lowercased;
-/// * every character that is not a letter, a digit, a space or a hyphen
-///   removed;
+/// * every character that is not a letter, a digit, a space, a hyphen or an
+///   underscore removed;
 /// * spaces turned into hyphens.
 ///
-/// Two details of that middle step are worth stating, both being the kind of
+/// Three details of that middle step are worth stating, each being the kind of
 /// thing a reader assumes the other way:
 ///
 /// * **A tab is removed, not folded to a hyphen.** "Space" here is the ASCII
 ///   space and nothing else, so a tab, a newline and a non-breaking space are
-///   dropped like any other character outside the four classes. Folding them
+///   dropped like any other character outside the five classes. Folding them
 ///   would be a second, invisible rule about whitespace, and the character that
 ///   actually reaches a heading from a soft break is already a space.
 /// * **Letter and digit are Unicode's, not ASCII's.** `## Привет мир` slugs to
 ///   `привет-мир` rather than to nothing, which is the only answer that lets a
 ///   non-English document have anchors at all. A URL fragment carries those
 ///   characters fine; percent-encoding is the transport's business, and both
-///   sides of the round trip go through `URL`.
+///   sides of the round trip go through `URL` —
+///   ``MarkdownLinkRule`` reads the fragment *decoded* for exactly this.
+/// * **An underscore survives, like a hyphen.** GFM strips a punctuation set
+///   that does not contain `_`, so `## snake_case` is `#snake_case` there and
+///   must be here: an underscore is ordinary in the headings technical
+///   documents carry (`indent_style`, `__init__`), and dropping it would send
+///   every anchor an author copied from a rendered README to nothing at all.
 ///
 /// An empty result is `nil` rather than the empty string: a heading made only of
 /// punctuation has no honest anchor, and `id=""` is an attribute no fragment can
@@ -48,7 +54,7 @@ public enum MarkdownHeadingSlug {
         for character in text.lowercased() {
             if character == " " {
                 slug.append("-")
-            } else if character.isLetter || character.isNumber || character == "-" {
+            } else if character.isLetter || character.isNumber || character == "-" || character == "_" {
                 slug.append(character)
             }
         }
@@ -67,34 +73,41 @@ public enum MarkdownHeadingSlug {
     ///
     /// Repeats are suffixed `-1`, `-2`, … in that order, so the first `## Notes`
     /// keeps `notes` and the second gets `notes-1`. The suffix is searched
-    /// forward from the last one handed out **past anything already allocated**,
-    /// which is what keeps a document that spells both `## Notes` twice and
-    /// `## Notes 1` from producing two `notes-1`s: a collision here would be
-    /// silent in the page and would send the second link to the first heading.
+    /// forward **past anything already taken**, which is what keeps a document
+    /// that spells both `## Notes` twice and `## Notes 1` from producing two
+    /// `notes-1`s: a collision here would be silent in the page and would send
+    /// the second link to the first heading.
+    ///
+    /// "Taken" includes the ids the caller **reserves** at `init`, and the
+    /// renderer reserves the one the shell itself ships. `getElementById` answers
+    /// the *first* element in document order, so a `## Content` heading emitted
+    /// inside `<div id="content">` would take an id an ancestor already carries
+    /// and send its link to the top of the page — the same silent wrong-target
+    /// failure the suffixing exists to prevent, arriving from outside the walk.
     public struct Allocator {
 
-        /// Every `id` handed out so far — the set the search below must miss.
-        private var used: Set<String> = []
+        /// Every `id` taken so far — reserved or handed out — and therefore the
+        /// set the search below must miss. The one store, so there is one rule.
+        private var used: Set<String>
 
-        /// Per base slug, the last suffix handed out for it, so a document with
-        /// many repeats of one heading does not rescan from `1` each time.
-        private var lastSuffix: [String: Int] = [:]
-
-        public init() {}
+        /// - Parameter reserved: ids the document already carries from outside
+        ///   the walk, which no heading may be given.
+        public init(reserving reserved: Set<String> = []) {
+            used = reserved
+        }
 
         /// The `id` for a heading whose flattened text is `text`, or `nil` when
         /// the rule leaves nothing to name it by.
         public mutating func allocate(forText text: String) -> String? {
             guard let base = MarkdownHeadingSlug.slug(forText: text) else { return nil }
 
-            var suffix = lastSuffix[base] ?? 0
+            var suffix = 0
             var candidate = base
             while used.contains(candidate) {
                 suffix += 1
                 candidate = "\(base)-\(suffix)"
             }
 
-            lastSuffix[base] = suffix
             used.insert(candidate)
             return candidate
         }

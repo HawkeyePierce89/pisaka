@@ -311,6 +311,36 @@ final class MarkdownPreviewAssetPinTests: XCTestCase {
             """)
     }
 
+    /// The two font-size properties are spelled in all three places that touch
+    /// them, which is the one name a *step* depends on.
+    ///
+    /// The shell writes them, `preview.css` reads them, and `preview.js` writes
+    /// them again on an in-place size step. The existing property test only
+    /// checks that the stylesheet reads nothing the shell fails to declare — a
+    /// rename carried through Core and the stylesheet but not the script would
+    /// pass it, and every ⌘+/⌘− over the preview would silently stop changing
+    /// the text with all four gates green.
+    func testTheTwoFontSizePropertiesAreSpelledOnAllThreeSides() throws {
+        let script = try text(forAsset: MarkdownPreviewPage.previewScriptFileName)
+        let stylesheet = try text(forAsset: MarkdownPreviewPage.stylesheetFileName)
+        let page = MarkdownPreviewPage.html(theme: .light, fontSize: 13)
+
+        for property in [MarkdownPreviewPage.bodyFontSizeProperty, MarkdownPreviewPage.codeFontSizeProperty] {
+            XCTAssertTrue(page.contains("\(property):"), """
+                MarkdownPreviewPage's :root block does not declare \(property).
+                """)
+            XCTAssertTrue(stylesheet.contains("var(\(property))"), """
+                Resources/MarkdownPreview/\(MarkdownPreviewPage.stylesheetFileName) reads no \
+                var(\(property)); nothing on the page would be sized by it.
+                """)
+            XCTAssertTrue(script.contains("\"\(property)\""), """
+                Resources/MarkdownPreview/\(MarkdownPreviewPage.previewScriptFileName) does not \
+                spell \(property), which setFontSize sets on the loaded document. A step would \
+                write a property nothing reads and the text would never resize.
+                """)
+        }
+    }
+
     /// And it styles the container and the diagram states by the names the
     /// script and the shell use for them.
     func testTheStylesheetStylesTheContainerAndTheDiagramStates() throws {

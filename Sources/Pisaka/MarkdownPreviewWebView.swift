@@ -75,8 +75,10 @@ final class MarkdownPreviewWebView: NSObject, MarkdownPreviewPageSink {
     /// is the precedent `LeetCodeStatementWebView` set, for that same reason.
     ///
     /// A **count** rather than a flag, because two reloads can be asked for
-    /// before the first one's decision arrives — two code-zoom steps in a row do
-    /// exactly that, each being an appearance change. A flag the first decision
+    /// before the first one's decision arrives — two theme changes in a row do
+    /// exactly that, as does one arriving while a recovery from a dead page is
+    /// still in flight. (A code-zoom step is no longer one of them: it sets two
+    /// properties on the loaded document and asks for no shell.) A flag the first decision
     /// consumed would leave the second navigation to be judged as a *link*, and
     /// the shell's own fragment-less URL is `.refused` there, so the page's own
     /// load would be cancelled and the preview would never appear. Every

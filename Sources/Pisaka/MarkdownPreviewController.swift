@@ -161,8 +161,9 @@ final class MarkdownPreviewController: ObservableObject {
 
     /// The window's resolved theme and the code font size.
     ///
-    /// Forwarded on every appearance the pane computes; the model compares and
-    /// reloads the shell only when one of the two actually moved.
+    /// Forwarded on every appearance the pane computes; the model compares, and
+    /// acts only when one of the two actually moved — reloading the shell for a
+    /// theme change, setting the two sizes in place for a size change alone.
     func updateAppearance(theme: MarkdownPreviewTheme, fontSize: Double) {
         model.updateAppearance(theme: theme, fontSize: fontSize)
     }

@@ -44,6 +44,16 @@ final class MarkdownHeadingSlugTests: XCTestCase {
         XCTAssertEqual(MarkdownHeadingSlug.slug(forText: "Größe 2"), "größe-2")
     }
 
+    /// An underscore survives, like a hyphen: GFM's punctuation set does not
+    /// contain `_`, so `## snake_case` is `#snake_case` there and must be here.
+    /// Dropping it would send every anchor copied from a rendered README — and
+    /// every one an author typed by reading the heading — to nothing at all.
+    func testUnderscoresSurvive() {
+        XCTAssertEqual(MarkdownHeadingSlug.slug(forText: "snake_case"), "snake_case")
+        XCTAssertEqual(MarkdownHeadingSlug.slug(forText: "__init__"), "__init__")
+        XCTAssertEqual(MarkdownHeadingSlug.slug(forText: "The indent_style property"), "the-indent_style-property")
+    }
+
     /// A heading with nothing nameable in it answers `nil` — not `""`, which
     /// would be an `id` no fragment can name while still looking like a target.
     func testAHeadingWithNothingNameableHasNoSlug() {
@@ -124,5 +134,22 @@ final class MarkdownHeadingSlugTests: XCTestCase {
         XCTAssertEqual(first.allocate(forText: "x"), "x")
         var second = MarkdownHeadingSlug.Allocator()
         XCTAssertEqual(second.allocate(forText: "x"), "x")
+    }
+
+    // MARK: - Reserved ids
+
+    /// A reserved id is taken before the walk begins, so the heading that would
+    /// have had it is suffixed instead. This is how the renderer keeps a heading
+    /// off the container id the shell itself ships.
+    func testAReservedIDIsNotHandedOut() {
+        var slugs = MarkdownHeadingSlug.Allocator(reserving: ["content"])
+        XCTAssertEqual(slugs.allocate(forText: "Content"), "content-1")
+        XCTAssertEqual(slugs.allocate(forText: "Content"), "content-2")
+    }
+
+    /// Reserving something the document never names changes nothing.
+    func testAReservationNoHeadingWantsIsInert() {
+        var slugs = MarkdownHeadingSlug.Allocator(reserving: ["content"])
+        XCTAssertEqual(slugs.allocate(forText: "Notes"), "notes")
     }
 }

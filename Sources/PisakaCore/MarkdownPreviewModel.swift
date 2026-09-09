@@ -95,9 +95,11 @@ public final class MarkdownPreviewModel {
 
     /// The last tree parsed for ``text``.
     ///
-    /// Held precisely so a theme or font change can re-render without asking the
-    /// parser again: the tree does not depend on the appearance, and re-parsing
-    /// a large document to change a colour is work the page can see.
+    /// Held precisely so a theme change — and a recovery from a dead page — can
+    /// re-render without asking the parser again: the tree does not depend on the
+    /// appearance, and re-parsing a large document to change a colour is work the
+    /// page can see. (A font size change re-renders nothing at all; it sets two
+    /// properties on the document already loaded.)
     private var lastDocument: MarkdownDocument?
 
     /// The body the page is currently showing, or `nil` when it is showing none

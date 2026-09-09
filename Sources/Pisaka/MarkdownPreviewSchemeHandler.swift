@@ -26,13 +26,14 @@ import UniformTypeIdentifiers
 ///
 /// **Its two pieces of state are retargetable**, because there is one handler
 /// and one web view per window while there are many Markdown tabs: the shell is
-/// re-installed when the theme or the code font size changes (the page is then
-/// re-loaded from the same URL), and the document context is re-pointed on every
+/// re-installed when the **theme** changes (the page is then re-loaded from the
+/// same URL; a code font size change is set on the loaded document instead and
+/// re-serves nothing), and the document context is re-pointed on every
 /// selection change, so the containment check the classifier makes is always
 /// against the tab being shown now. Its third piece of state is not retargetable
 /// and is not a decision either — the bundled files' bytes, read once each,
 /// since they cannot change while the app runs and the shell that asks for them
-/// is re-served on every theme change and every code-font step.
+/// is re-served on every theme change.
 ///
 /// It deliberately does **not** import WebKit. The `WKURLSchemeHandler`
 /// conformance is one adapter in `MarkdownPreviewWebView.swift` — the feature's
@@ -73,14 +74,14 @@ final class MarkdownPreviewSchemeHandler: NSObject {
 
     /// The bundled files' bytes, read once each.
     ///
-    /// The shell is re-served on every theme change and on every code-font step
-    /// — the pane is a `.code` zoom surface, so a held zoom chord is one reload
-    /// per discrete step — and each of those reloads re-fetches all four files,
-    /// of which `mermaid.min.js` alone is 3.3 MB. This method is called on the
-    /// main actor by `WKURLSchemeHandler`, so re-reading them would be megabytes
-    /// off disk on the main thread per zoom step, for bytes that are immutable
-    /// for the life of the process. Keyed by the name Core asked for, which the
-    /// classifier has already checked membership in.
+    /// The shell is re-served on every theme change and on a recovery from a
+    /// dead page, and each of those reloads re-fetches all four files, of which
+    /// `mermaid.min.js` alone is 3.3 MB. This method is called on the main actor
+    /// by `WKURLSchemeHandler`, so re-reading them would be megabytes off disk on
+    /// the main thread, for bytes that are immutable for the life of the process.
+    /// (A code-font step is *not* one of those moments: it sets two properties on
+    /// the document already loaded and asks for nothing.) Keyed by the name Core
+    /// asked for, which the classifier has already checked membership in.
     private var bundledData: [String: Data] = [:]
 
     /// The answer for `url`, or `nil` for the 404.

@@ -266,7 +266,10 @@ final class MarkdownPreviewModelTests: XCTestCase {
         XCTAssertEqual(sink.shellReloads.count, 1)
         XCTAssertTrue(sink.shellReloads[0].contains("--font-size: 16px"))
         XCTAssertTrue(sink.shellReloads[0].contains(MarkdownPreviewTheme.dark.background))
+        // Both halves: `fontSizeCalls` drops anything it cannot read as two
+        // numbers, so on its own it would call a *malformed* step "no step".
         XCTAssertEqual(sink.fontSizeCalls, [])
+        XCTAssertEqual(sink.evaluatedSources, [], "nothing at all is evaluated into the page")
     }
 
     /// The step is *from* the shell it followed: the size it recorded is what a

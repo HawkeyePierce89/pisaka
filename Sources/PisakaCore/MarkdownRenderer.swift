@@ -38,9 +38,16 @@ public enum MarkdownRenderer {
     /// block-level element and the whitespace between them collapses.
     public static func body(for document: MarkdownDocument, context: MarkdownDocumentContext) -> String {
         // The one allocator of the render, created here and threaded down: it is
-        // *this document's* heading ids, so it begins empty on every call and a
-        // second render of the same tree produces the same markup.
-        var slugs = MarkdownHeadingSlug.Allocator()
+        // *this document's* heading ids, so it begins the same way on every call
+        // and a second render of the same tree produces the same markup.
+        //
+        // It begins holding the shell's own container id, which is the one `id`
+        // the page carries that this file did not write: `getElementById` answers
+        // the first element in document order, so a `## Content` heading taking
+        // that id would send its link to the top of the container instead of to
+        // itself. Reserved here rather than inside the allocator because the page
+        // is this file's dependency, not the slug rule's.
+        var slugs = MarkdownHeadingSlug.Allocator(reserving: [MarkdownPreviewPage.containerElementID])
         return document.blocks
             .map { render($0.block, attributes: lineAttribute($0.sourceLine), context: context, slugs: &slugs) }
             .joined(separator: "\n")
@@ -127,15 +134,9 @@ public enum MarkdownRenderer {
         context: MarkdownDocumentContext,
         slugs: inout MarkdownHeadingSlug.Allocator
     ) -> String {
-        // Not `map`, which cannot borrow an `inout` across its closure: the walk
-        // is sequential anyway, and being sequential is what makes the order the
-        // ids are handed out in the document's own.
-        var rendered: [String] = []
-        rendered.reserveCapacity(blocks.count)
-        for block in blocks {
-            rendered.append(render(block, attributes: "", context: context, slugs: &slugs))
-        }
-        return rendered.joined(separator: "\n")
+        blocks
+            .map { render($0, attributes: "", context: context, slugs: &slugs) }
+            .joined(separator: "\n")
     }
 
     /// A fenced or indented code block.
@@ -209,20 +210,18 @@ public enum MarkdownRenderer {
         context: MarkdownDocumentContext,
         slugs: inout MarkdownHeadingSlug.Allocator
     ) -> String {
-        var rendered: [String] = []
-        rendered.reserveCapacity(items.count)
-        for item in items {
+        items.map { item in
             let content = renderNested(item.blocks, context: context, slugs: &slugs)
             switch item.checkbox {
             case nil:
-                rendered.append("<li>\(content)</li>")
+                return "<li>\(content)</li>"
             case .unchecked:
-                rendered.append("<li class=\"task-list-item\"><input type=\"checkbox\" disabled>\(content)</li>")
+                return "<li class=\"task-list-item\"><input type=\"checkbox\" disabled>\(content)</li>"
             case .checked:
-                rendered.append("<li class=\"task-list-item\"><input type=\"checkbox\" disabled checked>\(content)</li>")
+                return "<li class=\"task-list-item\"><input type=\"checkbox\" disabled checked>\(content)</li>"
             }
         }
-        return rendered.joined(separator: "\n")
+        .joined(separator: "\n")
     }
 
     /// A GFM table.
