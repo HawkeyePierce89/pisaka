@@ -68,11 +68,11 @@ Dependencies: `apple/swift-markdown` (transitively `swift-cmark`, plus DocC plug
 **Files:**
 - Create: `Sources/PisakaCore/MarkdownDocument.swift`, `Tests/PisakaCoreTests/MarkdownDocumentTests.swift`
 
-- [ ] Define `MarkdownBlock` and `MarkdownInline` as `Equatable, Sendable` value types covering CommonMark plus the GFM extensions this feature renders: paragraph, heading(level), fenced/indented code (language, code), blockquote, ordered/unordered list, list item (with an optional checkbox state), table (alignment per column, header row, body rows), thematic break, and inline text, emphasis, strong, strikethrough, inline code, link, image, autolink, line break.
-- [ ] Give every **top-level** block a `sourceLine: Int?` (1-based, the block's first source line) — the value `data-line` is rendered from; nested blocks carry none.
-- [ ] Define `MarkdownDocument` as the ordered top-level block list, with no parsing, no HTML and no platform types anywhere in the file; state in the doc comment that the tree has **no raw-HTML case at all**, which is what makes the drop rule structural.
-- [ ] Write construction/equality tests covering each case, including a nested list with checkboxes and a table with mixed alignment.
-- [ ] Run `swift test`.
+- [x] Define `MarkdownBlock` and `MarkdownInline` as `Equatable, Sendable` value types covering CommonMark plus the GFM extensions this feature renders: paragraph, heading(level), fenced/indented code (language, code), blockquote, ordered/unordered list, list item (with an optional checkbox state), table (alignment per column, header row, body rows), thematic break, and inline text, emphasis, strong, strikethrough, inline code, link, image, autolink, line break.
+- [x] Give every **top-level** block a `sourceLine: Int?` (1-based, the block's first source line) — the value `data-line` is rendered from; nested blocks carry none.
+- [x] Define `MarkdownDocument` as the ordered top-level block list, with no parsing, no HTML and no platform types anywhere in the file; state in the doc comment that the tree has **no raw-HTML case at all**, which is what makes the drop rule structural.
+- [x] Write construction/equality tests covering each case, including a nested list with checkboxes and a table with mixed alignment.
+- [x] Run `swift test`.
 
 ### Task 3: The parser bridge (the one `import Markdown`)
 
