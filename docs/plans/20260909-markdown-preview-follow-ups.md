@@ -135,14 +135,14 @@ gains exactly one setter and decides nothing.
 **Files:**
 - Modify: `Sources/Pisaka/LeetCodeOpenProblemSheet.swift`
 
-- [ ] Move LeetCode → *Open Problem…* to
+- [x] Move LeetCode → *Open Problem…* to
       `.keyboardShortcut("p", modifiers: [.command, .option])` and rewrite the
       comment above it: ⌘⌥P is free, ⌘⇧P now names one command, and the reason the
       two were ever shared is not restated as a live condition.
-- [ ] Confirm no other site spells the LeetCode chord in code (`Sources/` grep for
+- [x] Confirm no other site spells the LeetCode chord in code (`Sources/` grep for
       `keyboardShortcut("p"`), and that ⌘⌥P collides with nothing — the app's
       other ⌘⌥ chords are ⌘⌥F and the four folding arrow chords.
-- [ ] Tests: this is a SwiftUI menu declaration, which is untested by convention,
+- [x] Tests: this is a SwiftUI menu declaration, which is untested by convention,
       so the gate here is the documentation task and a build. Run `swift test`
       (unchanged, must stay green); the two chords themselves are exercised by
       hand in the Post-Completion checks.
