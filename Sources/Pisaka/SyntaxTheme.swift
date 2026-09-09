@@ -196,6 +196,71 @@ struct SyntaxTheme {
     var nsCurrentSearchMatchBackground: NSColor { currentSearchMatchBackground }
     #endif
 
+    // MARK: - Markdown preview
+
+    #if os(macOS)
+    /// This exact palette, resolved for one appearance and spelled as the CSS
+    /// colour strings the Markdown preview's page is built from.
+    ///
+    /// The preview highlights a fenced block with highlight.js while the text
+    /// view beside it highlights the same block with tree-sitter. They are the
+    /// same code read twice, so the preview must not carry a palette of its own —
+    /// it carries *this* one, derived here, at the one place where a
+    /// `SyntaxTokenKind` already has a colour. `MarkdownPreviewTheme.light`/`.dark`
+    /// keep only the chrome (background, body text, links, borders); every code
+    /// colour is overwritten from `table` through `withCodeColors(_:)`, so adding
+    /// a token kind reaches the preview with no second edit.
+    ///
+    /// `prefersDark` is passed rather than read because the entries are dynamic
+    /// colours with no single component to inspect: they resolve against whatever
+    /// appearance is current at draw time. Resolving them inside
+    /// `performAsCurrentDrawingAppearance` is what makes the answer the one the
+    /// caller asked for instead of the one the calling thread happens to be in —
+    /// and the preview's theme follows the *page's* colour scheme, which the app
+    /// resolves from `ThemePreference` and may not be the window's.
+    func markdownPreviewTheme(prefersDark: Bool) -> MarkdownPreviewTheme {
+        let base = prefersDark ? MarkdownPreviewTheme.dark : MarkdownPreviewTheme.light
+        var resolved: [SyntaxTokenKind: String] = [:]
+        let appearance = NSAppearance(named: prefersDark ? .darkAqua : .aqua)
+
+        let readAll = {
+            for kind in SyntaxTokenKind.allCases {
+                resolved[kind] = SyntaxTheme.cssColorString(for: self.nsColor(for: kind))
+                    ?? base.color(for: kind)
+            }
+        }
+        if let appearance {
+            appearance.performAsCurrentDrawingAppearance(readAll)
+        } else {
+            readAll()
+        }
+
+        return base.withCodeColors(resolved)
+    }
+
+    /// An `NSColor` as a `#rrggbb` CSS string, or `nil` when it has no sRGB
+    /// representation — the caller then keeps Core's own value for that kind
+    /// rather than emitting an empty custom property, which would invalidate
+    /// every rule reading it.
+    ///
+    /// Alpha is dropped rather than emitted: nothing in `table` is translucent
+    /// (the one alpha in this file belongs to the indentation tints, which the
+    /// preview does not draw), so a four-component form would be a shape no
+    /// caller can produce.
+    private static func cssColorString(for color: NSColor) -> String? {
+        guard let srgb = color.usingColorSpace(.sRGB) else { return nil }
+        let component = { (value: CGFloat) -> Int in
+            Int((max(0, min(1, value)) * 255).rounded())
+        }
+        return String(
+            format: "#%02x%02x%02x",
+            component(srgb.redComponent),
+            component(srgb.greenComponent),
+            component(srgb.blueComponent)
+        )
+    }
+    #endif
+
     /// Depth → color, cycled. Gold, purple, blue, teal, green.
     private static let bracketPalette: [PlatformColor] = [
         .dynamic(light: 0x9A6400, dark: 0xFFD479),

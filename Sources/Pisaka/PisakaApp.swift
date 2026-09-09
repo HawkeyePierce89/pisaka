@@ -1426,6 +1426,23 @@ struct PisakaApp: App {
                     togglePanel(.pullRequests)
                 }
                 .keyboardShortcut("r", modifiers: [.command, .shift])
+
+                Divider()
+
+                // The Markdown preview's one global preference, and the only
+                // place anything writes it. A `Toggle` rather than a
+                // Show/Hide `Button` because this is a setting that persists
+                // across launches and across files — the checkmark says what
+                // the next `.md` file will do, which a verb in a label cannot.
+                //
+                // Disabled unless the active tab is Markdown: the item has no
+                // effect anywhere else, and an item that silently does nothing
+                // is worse than one that says so. The tab *kind* is not asked
+                // here — no `.md` file opens as a viewer tab — and the pane's
+                // own routing asks it anyway.
+                Toggle("Markdown Preview", isOn: $settings.markdownPreviewEnabled)
+                    .keyboardShortcut("p", modifiers: [.command, .shift])
+                    .disabled(SyntaxLanguage(forFileName: model.selectedFile?.displayName ?? "") != .markdown)
             }
 
             CommandMenu("Find") {
@@ -3004,8 +3021,12 @@ struct PisakaApp: App {
     /// one view that can answer. The responder chain already names that view.
     /// Anything else focused (the project tree, the terminal, a text field) has no
     /// definition to go to and beeps.
+    ///
+    /// The responder is read through ``EditorCommandTarget``, the one definition
+    /// of that lookup, which also carries the Markdown preview's scoped
+    /// exception — and only that one.
     private func goToDefinitionAtCaret() {
-        guard let editor = NSApp.keyWindow?.firstResponder as? EditorTextView else {
+        guard let editor = EditorCommandTarget.focusedEditor(in: NSApp.keyWindow) else {
             PlatformFeedback.warning()
             return
         }
@@ -3022,7 +3043,7 @@ struct PisakaApp: App {
     /// one view that can answer. Anything else focused has no caret in code and
     /// beeps.
     private func findUsagesAtCaret() {
-        guard let editor = NSApp.keyWindow?.firstResponder as? EditorTextView else {
+        guard let editor = EditorCommandTarget.focusedEditor(in: NSApp.keyWindow) else {
             PlatformFeedback.warning()
             return
         }
@@ -3033,7 +3054,7 @@ struct PisakaApp: App {
     /// identifier under its caret. Routed and refused exactly as
     /// `findUsagesAtCaret()` is.
     private func renameAtCaret() {
-        guard let editor = NSApp.keyWindow?.firstResponder as? EditorTextView else {
+        guard let editor = EditorCommandTarget.focusedEditor(in: NSApp.keyWindow) else {
             PlatformFeedback.warning()
             return
         }
@@ -3595,7 +3616,7 @@ struct PisakaApp: App {
     /// key equivalent (Cmd+/) takes the shortcut from the terminal and the project
     /// tree, so with either focused it beeps rather than editing.
     private func toggleCommentAtCaret() {
-        guard let editor = NSApp.keyWindow?.firstResponder as? EditorTextView,
+        guard let editor = EditorCommandTarget.focusedEditor(in: NSApp.keyWindow),
               editor.isEditable,
               !editor.hasMarkedText()
         else {
@@ -3618,7 +3639,7 @@ struct PisakaApp: App {
     /// no partial word to complete, and beeps rather than opening a popup
     /// somewhere the user is not typing.
     private func completeAtCaret() {
-        guard let editor = NSApp.keyWindow?.firstResponder as? EditorTextView else {
+        guard let editor = EditorCommandTarget.focusedEditor(in: NSApp.keyWindow) else {
             PlatformFeedback.warning()
             return
         }

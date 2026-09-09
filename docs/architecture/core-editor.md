@@ -263,8 +263,19 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     needs "the pointer is over a real character" to mean what TextKit's layout means
     (`app-editor.md`).
   - `SyntaxTokenKind.swift` — semantic, color-free token classification
-    (`Equatable`: keyword, string, comment, number, type, function, variable,
-    constant, `operator`, punctuation, property, parameter, label, plain). Its
+    (`CaseIterable, Hashable, Sendable`: keyword, string, comment, number, type,
+    function, variable, constant, `operator`, punctuation, property, parameter,
+    label, plain). **The conformances are load-bearing, not decoration**, and are
+    written down for that reason: `CaseIterable` is what lets the Markdown
+    preview's highlight-class table be checked for coverage by *set equality*
+    rather than against a hand-kept list that would rot the moment a kind is added
+    — the new kind then fails that suite instead of silently rendering uncoloured
+    — and the preview's page emits one CSS custom property per case by walking
+    `allCases`; `Hashable` is what the two colour tables (`SyntaxTheme`'s and
+    `MarkdownPreviewTheme`'s) are keyed on and `Sendable` what lets one of them
+    cross an actor boundary. Both were already true of a payload-free enum, and
+    `Hashable` refines `Equatable`, which is why that spelling is gone rather than
+    dropped (`core-markdown-preview.md`). Its
     `init(captureName:)` splits a dotted tree-sitter capture name and matches the
     longest known prefix (`keyword.control` → `.keyword`), falling back to
     `.plain`. Color stays out of Core (semantic only, like `FileIconColor`).

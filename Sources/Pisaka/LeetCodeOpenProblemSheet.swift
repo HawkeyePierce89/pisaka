@@ -240,7 +240,12 @@ struct LeetCodeCommands: View {
     var onChooseFolder: () -> Void
 
     var body: some View {
-        // ⌘⇧P — free on macOS and beside the other ⌘⇧ panel/window commands.
+        // ⌘⇧P — shared with View → Markdown Preview since the preview landed.
+        // That item is disabled off a Markdown tab and the View menu is declared
+        // first, so the two never both fire; but with a Markdown tab active this
+        // command is unreachable. Picking a free chord for one of the two is an
+        // unmade product decision (core-markdown-preview.md, "What is still
+        // owed").
         Button("Open Problem…") { onOpenProblem() }
             .keyboardShortcut("p", modifiers: [.command, .shift])
 

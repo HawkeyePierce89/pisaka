@@ -330,6 +330,41 @@ struct ContentView: View {
     /// window root ever gains chrome above `mainArea`.
     private static let panelColumnSpace = "pisaka.bottomPanelColumn"
 
+    /// The window's one Markdown preview — its web view, its scheme handler and
+    /// the Core model that orders everything they show.
+    ///
+    /// A `@StateObject` here rather than in the scene, so the lifetime is the
+    /// *window's*: one page per window is the feature's shape, and a second
+    /// window previews its own tab. It publishes nothing, so holding it costs
+    /// this view no invalidation; it builds nothing until the pane is shown, so
+    /// it costs a window with the preference off nothing at all.
+    @StateObject private var markdownPreview = MarkdownPreviewController()
+
+    /// The fraction the preview divider has been dragged to, while it is being
+    /// dragged. `nil` otherwise, in which case the split is drawn at the
+    /// persisted preference — which is written once, when the drag ends.
+    @State private var markdownDragFraction: Double?
+
+    /// The fraction captured at the start of a preview-divider drag, so the
+    /// cumulative translation applies to a fixed base rather than compounding
+    /// frame to frame. `nil` when not dragging, so it is also the one answer to
+    /// "is a drag in flight" — the bottom dock's rule, and the cursor needs that
+    /// answer for the reason stated there.
+    @State private var markdownDragBaseFraction: Double?
+
+    /// Whether the pointer is inside the preview divider's hit strip.
+    @State private var markdownDividerHovering = false
+
+    /// Whether *this view* currently holds a pushed cursor for the preview
+    /// divider. Separate from the bottom dock's flag because the two dividers
+    /// can be hovered independently and each must balance its own push.
+    @State private var markdownDividerCursorPushed = false
+
+    /// The name of the coordinate space the preview divider's drag is measured
+    /// in — the split itself, whose frame does not move while the divider does.
+    /// `panelColumnSpace`'s reason, on the horizontal axis.
+    private static let markdownSplitSpace = "pisaka.markdownPreviewSplit"
+
     /// The interface zone's metrics. Computed from the store rather than read
     /// from the environment because this view is the *root* that injects it (see
     /// `SettingsStore.interfaceMetrics`); every view below reads the environment.
@@ -951,7 +986,20 @@ struct ContentView: View {
                 if file.kind == .viewer {
                     DatabaseViewerHost(file: file)
                 } else {
-                    textEditorZone(for: file)
+                    // **Every text tab takes this one branch**, previewed or
+                    // not, and that is load-bearing rather than tidy: a
+                    // `ViewBuilder` `if` is a structural identity, so a second
+                    // branch here would put `CodeEditorView` at two different
+                    // positions in the tree and SwiftUI would tear the text view
+                    // — and its `Coordinator` — down on every switch between a
+                    // Markdown tab and any other one. The coordinator is where
+                    // *all* tabs' undo managers, the viewport memory and the
+                    // fold memory live (see `CodeEditorView.Coordinator`), so
+                    // that teardown would silently drop every open file's undo
+                    // stack, remembered scroll position and folds. The split
+                    // decides *inside* instead: same editor, given a width when
+                    // there is a preview beside it.
+                    markdownSplit(for: file)
                 }
             }
         } else {
@@ -966,8 +1014,12 @@ struct ContentView: View {
     /// the find bar and the editor itself. Lifted out of `editorZone` so the tab
     /// kind is routed on in one short expression rather than around a hundred
     /// lines of editor wiring.
+    ///
+    /// `onScrolled` is `nil` for every tab but a previewed one: the editor's
+    /// scroll reporting is opt-in (see `CodeEditorView.onScrolled`), so the
+    /// ordinary path costs nothing on the scroll frame.
     @ViewBuilder
-    private func textEditorZone(for file: OpenFile) -> some View {
+    private func textEditorZone(for file: OpenFile, onScrolled: ((Int) -> Void)? = nil) -> some View {
         // The consent banner (D15), between the breadcrumb and the find
         // bar so it is the topmost thing in the editor zone without
         // covering the file's own path. It renders nothing at all unless
@@ -1016,7 +1068,216 @@ struct ContentView: View {
             onGoToDefinition: onGoToDefinition,
             onViewDefinitionOutsideProject: onViewDefinitionOutsideProject,
             onFindUsages: onFindUsages,
-            onRenameSymbol: onRenameSymbol
+            onRenameSymbol: onRenameSymbol,
+            onScrolled: onScrolled
+        )
+    }
+
+    // MARK: - The Markdown preview split
+
+    /// Whether this tab is previewed beside its editor: a text tab whose
+    /// language is Markdown, while the one global preference is on.
+    ///
+    /// The tab kind is asked as well as the language because the two are
+    /// independent questions and only `.text` has a buffer to preview; today no
+    /// `.md` file can become a viewer tab, and this does not rely on that
+    /// staying true.
+    private func isMarkdownPreviewShown(for file: OpenFile) -> Bool {
+        settings.markdownPreviewEnabled
+            && file.kind == .text
+            && SyntaxLanguage(forFileName: file.displayName) == .markdown
+    }
+
+    /// The editor, and beside it the preview when this tab is previewed — with a
+    /// draggable divider between them.
+    ///
+    /// Reached for **every** text tab, previewed or not (see `editorZone`), so
+    /// the `GeometryReader` now wraps every editor. That costs the editor column
+    /// nothing: its 320pt floor is stated explicitly on `editorZone` at both of
+    /// `editorSplit`'s call sites, not derived from the text view's intrinsic
+    /// width, and a `GeometryReader` is greedy in exactly the way that frame
+    /// already asks for.
+    ///
+    /// The reader is here for the one input `MarkdownPreviewWidthRule` needs —
+    /// the width the two halves share — exactly as `mainArea`'s is there for the
+    /// bottom dock's height.
+    private func markdownSplit(for file: OpenFile) -> some View {
+        GeometryReader { geo in
+            markdownSplitContent(for: file, size: geo.size)
+        }
+    }
+
+    /// Lifted out of the `GeometryReader` so the widths are plain arithmetic on
+    /// a size rather than declarations inside a view builder.
+    private func markdownSplitContent(for file: OpenFile, size: CGSize) -> some View {
+        // Whether there is a second half at all. Everything below is written so
+        // that the *first* half — the editor — is the same view in the same
+        // position either way: the preview is a trailing element that comes and
+        // goes, and the width is an optional constraint rather than a second
+        // branch.
+        let isPreviewed = isMarkdownPreviewShown(for: file)
+        // The divider is spent before either half gets anything, so the rule
+        // divides what is left — which is what keeps the two frames summing to
+        // no more than the area.
+        let available = max(0, size.width - metrics.scaled(5))
+        let editorWidth = markdownPreviewWidthRule.editorWidth(
+            fraction: markdownPreviewFraction,
+            available: Double(available)
+        )
+        return HStack(spacing: 0) {
+            // The editor's three strips stacked as `editorZone` stacks them —
+            // this is the same content, given a width when it is sharing the
+            // area and none when it has all of it.
+            VStack(spacing: 0) {
+                // The preview follows the editor and never the other way round,
+                // so this is the whole of scroll sync's wiring: an offset out of
+                // the editor, a line into the model. Neither the mapping nor the
+                // coalescing is here — see `MarkdownPreviewController` and
+                // `MarkdownPreviewModel`.
+                //
+                // `nil` for an unpreviewed tab, which is what keeps the scroll
+                // path free (see `CodeEditorView.onScrolled`); it is a stored
+                // property re-assigned on every update, so it costs no identity.
+                textEditorZone(
+                    for: file,
+                    onScrolled: isPreviewed
+                        ? { offset in markdownPreview.noteScrolled(topOffset: offset) }
+                        : nil
+                )
+            }
+            // Two frames, both always applied, because the editor half is a
+            // fixed width beside a preview and a greedy one without: a single
+            // `maxWidth: .infinity` would swallow the whole area in the split,
+            // and a single fixed width would leave the unpreviewed editor
+            // painting at whatever the text view asks for.
+            .frame(width: isPreviewed ? CGFloat(editorWidth) : nil, alignment: .topLeading)
+            .frame(
+                maxWidth: isPreviewed ? nil : .infinity,
+                maxHeight: .infinity,
+                alignment: .topLeading
+            )
+            if isPreviewed {
+                markdownPreviewDivider(available: available)
+                MarkdownPreviewPane(
+                    controller: markdownPreview,
+                    settings: settings,
+                    file: file,
+                    projectRoot: model.projectRoot,
+                    onOpenFile: onOpenFile
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        // Pinned and clipped for `mainArea`'s reason: a fixed-width frame
+        // reports the width it was given, so a half that refuses its proposal
+        // would otherwise paint over the other one. The coordinate space is
+        // published on the pinned rect, which cannot move while the divider
+        // does.
+        .frame(width: size.width, height: size.height, alignment: .topLeading)
+        .coordinateSpace(name: Self.markdownSplitSpace)
+        .clipped()
+    }
+
+    /// The draggable divider between the editor and its preview. Drag right to
+    /// grow the editor, left to grow the preview.
+    ///
+    /// The bottom dock's divider, turned on its side and with one difference:
+    /// the fraction it reaches is *persisted*, and it is written to
+    /// `SettingsStore` exactly once, in `onEnded`. Writing on every changed
+    /// frame would put a `UserDefaults` write on the drag's per-frame path and
+    /// would republish the store — and therefore this window — sixty times a
+    /// second.
+    ///
+    /// Everything else is the dock's, for the reasons written there:
+    /// `minimumDistance: 0` so the first frame does not arrive with ten points
+    /// already accumulated, the opening zero-translation frame writing nothing
+    /// so a bare click changes no preference, a base captured once so the
+    /// cumulative translation does not compound, the drag measured in a space
+    /// the divider does not move, and the resize cursor following the *drag*
+    /// rather than the pointer.
+    private func markdownPreviewDivider(available: CGFloat) -> some View {
+        Rectangle()
+            .fill(Color(NSColor.separatorColor))
+            .frame(width: metrics.scaled(5))
+            .contentShape(Rectangle())
+            .onHover { hovering in
+                markdownDividerHovering = hovering
+                syncMarkdownDividerCursor()
+            }
+            .gesture(
+                DragGesture(minimumDistance: 0, coordinateSpace: .named(Self.markdownSplitSpace))
+                    .onChanged { value in
+                        // The base is the fraction being *rendered*: the stored
+                        // one is a remembered proposal that the point minimums
+                        // re-clamp at layout time, so a base taken from it would
+                        // start the gesture outside the bounds it is clamped
+                        // against.
+                        let beginning = markdownDragBaseFraction == nil
+                        let base = markdownDragBaseFraction ?? markdownPreviewWidthRule.fraction(
+                            proposed: settings.markdownPreviewFraction,
+                            available: Double(available)
+                        )
+                        if beginning {
+                            markdownDragBaseFraction = base
+                            syncMarkdownDividerCursor()
+                        }
+                        guard !beginning || value.translation.width != 0 else { return }
+                        markdownDragFraction = markdownPreviewWidthRule.fraction(
+                            base: base,
+                            dragTranslation: Double(value.translation.width),
+                            available: Double(available)
+                        )
+                    }
+                    .onEnded { _ in
+                        // The one write. `nil` is a click that never became a
+                        // drag, which must leave the preference exactly as it
+                        // found it.
+                        if let fraction = markdownDragFraction {
+                            settings.markdownPreviewFraction = fraction
+                        }
+                        markdownDragBaseFraction = nil
+                        markdownDragFraction = nil
+                        syncMarkdownDividerCursor()
+                    }
+            )
+            .onDisappear {
+                // ⌘⇧P with the pointer on the divider takes the divider away
+                // without an `onHover(false)`, and the same removal can land
+                // mid-drag, where no `onEnded` arrives either — the dock's two
+                // reasons, both of which apply here.
+                markdownDividerHovering = false
+                markdownDragBaseFraction = nil
+                markdownDragFraction = nil
+                syncMarkdownDividerCursor()
+            }
+    }
+
+    /// Pushes or pops the resize cursor so exactly one push of ours is on
+    /// `NSCursor`'s stack while this divider is hovered or dragged, and none
+    /// otherwise — the bottom dock's rule, with its own flag.
+    private func syncMarkdownDividerCursor() {
+        let wanted = markdownDividerHovering || markdownDragBaseFraction != nil
+        guard wanted != markdownDividerCursorPushed else { return }
+        if wanted { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() }
+        markdownDividerCursorPushed = wanted
+    }
+
+    /// The fraction the split is drawn at: the live one while a drag is in
+    /// flight, the persisted one otherwise. Both are re-clamped by the rule
+    /// against the width actually available.
+    private var markdownPreviewFraction: Double {
+        markdownDragFraction ?? settings.markdownPreviewFraction
+    }
+
+    /// The one authority on what the split may be — the drag, the rendered
+    /// widths and the persisted preference all go through it.
+    ///
+    /// The pane minimum is scaled here and handed over as a plain number, so
+    /// Core stays scale-agnostic: at 200% two panes need twice the points, and
+    /// the degenerate case where the window cannot hold both is the rule's.
+    private var markdownPreviewWidthRule: MarkdownPreviewWidthRule {
+        MarkdownPreviewWidthRule(
+            paneMinimum: Double(metrics.scaled(CGFloat(MarkdownPreviewWidthRule.defaultPaneMinimum)))
         )
     }
 

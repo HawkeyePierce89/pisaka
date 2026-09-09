@@ -6,14 +6,15 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     just `ProjectTreeView` (the old segmented "Project ⇄ Changes" toggle and
     `LeftPanelMode` are gone — Local Changes moved to the bottom dock), middle is
     the open-tabs list (`TabListView`), right zone is the `editorZone` — which
-    routes on the selected tab's `kind` and nothing else: a `.viewer` tab gets
-    `DatabaseViewerHost(file:)` (`core-database-viewer.md`), a `.text` tab the
-    `textEditorZone(for:)` described next, and no tab at all a "No file open"
-    placeholder (no
+    routes on the selected tab's `kind` and **on nothing else**: a `.viewer` tab
+    gets `DatabaseViewerHost(file:)` (`core-database-viewer.md`), **every** `.text`
+    tab gets `markdownSplit(for:)` — the editor, and beside it the preview when
+    that tab is previewed (`core-markdown-preview.md`) — and no tab at all a
+    "No file open" placeholder (no
     inline diff — the old
     Changes-mode right-zone `DiffPane` branch and the `DiffPane` struct itself were
     removed; diffs open in a separate window on double-click). The `if let file`
-    branch of `textEditorZone(for:)` is a `VStack(spacing: 0) { PathBarView(fileURL:
+    branch of `textEditorZone(for:onScrolled:)` is a `VStack(spacing: 0) { PathBarView(fileURL:
     file.url, projectRoot: model.projectRoot).equatable(); Divider();
     LSPConsentBanner(provisioning:gopls:rust:language:hasProjectRoot:); <SearchBarView while
     search.isVisible>; CodeEditorView(…) }` — so the find bar
@@ -333,6 +334,44 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `.onHover`, from the gesture's first `onChanged`, from `onEnded`, and from
     `.onDisappear`, which is what keeps ⌘-toggling the dock with the pointer on the
     divider from leaking a push that outlives the view that made it.
+    **The Markdown preview's divider is that divider turned on its side, with a
+    second flag of its own** (`core-markdown-preview.md`). `markdownSplit(for:)`
+    is reached for **every** text tab, previewed or not, and that is
+    load-bearing rather than tidy: a `ViewBuilder` `if` *is* a structural
+    identity, so routing previewed and unpreviewed tabs down two branches would
+    put `CodeEditorView` at two positions in the tree and SwiftUI would tear the
+    text view — and its `Coordinator` — down on every switch between a Markdown
+    tab and any other one. That coordinator is where **all** open tabs' undo
+    managers, `EditorViewportMemory` and `FoldStateMemory` live, so the teardown
+    would silently drop every open file's undo stack, remembered scroll position
+    and folds. `isMarkdownPreviewShown(for:)` is therefore asked *inside*
+    `markdownSplitContent(for:size:)`, where it decides a trailing element and a
+    width rather than a branch: the editor half carries two always-applied
+    frames, a fixed `editorWidth` beside a preview and `maxWidth: .infinity`
+    without one, and `onScrolled` is `nil` for an unpreviewed tab — a stored
+    property re-assigned on every update, so it costs no identity. The
+    `GeometryReader` consequently wraps every editor, which costs the editor
+    column nothing: its 320pt floor is stated explicitly on `editorZone` at both
+    of `editorSplit`'s call sites rather than derived from the text view's
+    intrinsic width. `markdownSplitContent(for:size:)` spends the divider's 5 scaled
+    points first and hands what is left to `MarkdownPreviewWidthRule`, so the two
+    frames sum to no more than the area, and pins/clips the pair for `mainArea`'s
+    reason. The gesture is measured in `markdownSplitSpace` — the split's own
+    frame, which cannot move while the divider does, `panelColumnSpace`'s reason
+    on the horizontal axis — with `minimumDistance: 0`, an opening
+    zero-translation frame that writes nothing (a bare click must change no
+    preference) and a base captured once so a cumulative translation does not
+    compound. Two differences from the dock's, both stated where they happen: the
+    base is the fraction being *rendered* rather than the stored one, since the
+    stored value is a remembered proposal that the point minimums re-clamp at
+    layout time; and the fraction is **persisted, exactly once, in `onEnded`**,
+    because a `UserDefaults` write on the per-frame path would republish this
+    window sixty times a second. The cursor pair is the same rule off a *second*
+    flag (`markdownDividerCursorPushed`), because the two dividers can be hovered
+    independently and each must balance its own push, and `.onDisappear` clears
+    the hover, the drag and the base for the dock's two reasons — ⌘⇧P can take the
+    divider away with the pointer on it, and the same removal can land mid-drag,
+    where no `onEnded` arrives either.
     `bottomPanel: Binding<BottomPanel?>` (`nil` = none,
     owned by `PisakaApp`) selects the panel; `panelContent(_:)` renders `.terminal`
     → `TerminalPanelView(model: terminalSessions, projectRoot: model.projectRoot)`

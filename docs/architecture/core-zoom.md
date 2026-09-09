@@ -285,10 +285,13 @@ items, and applies the three scales to views.
 
     `ZoomSurfaceMarker` is the `NSViewRepresentable` for the surfaces that
     draw at the code font with no `NSTextView` behind them — the Find in Files
-    result rows, the LeetCode statement's `WKWebView` body, and the commit
+    result rows, the LeetCode statement's `WKWebView` body, the commit
     dialog's unified diff and message editor (both drawn at `settings.fontSize`,
     so targeting the interface zone from them while the text under the pointer
-    followed the code size would be the same incoherence): an empty,
+    followed the code size would be the same incoherence), and the Markdown
+    preview's page (`MarkdownPreviewPane`, whose body text and fenced blocks are
+    sized from `settings.fontSize`, so the pointer over it is over the code zone
+    for the LeetCode statement's reason — `core-markdown-preview.md`): an empty,
     non-drawing, hit-test-transparent `NSView` placed *behind* the content with
     `.background(...)`, so it inherits exactly that content's frame and nothing
     else about it. Zero-cost is meant literally — it draws nothing, `hitTest`
@@ -491,8 +494,10 @@ pass while the code it describes was deleted) and asserts:
     check above cannot see, because it counts files and both of those files
     already appear in it for their roots.
   - **The set of files declaring a zoom surface** (by conformance or by
-    `ZoomSurfaceMarker`) equals the list under `ZoomSurface.swift`. This is the
-    rule that has already gone wrong once, and the sibling trap makes it silent.
+    `ZoomSurfaceMarker`) equals the table in that suite — the surfaces described
+    under `ZoomSurface.swift` above, of which the SwiftUI-drawn ones are five
+    since the Markdown preview landed. This is the rule that has already gone
+    wrong once, and the sibling trap makes it silent.
   - **The hover popover passes every mouse event through and declares no
     surface.** `ignoresMouseEvents = true` and the `canBecomeKey` override are one
     line each and invisible to every other check here: delete either and the panel

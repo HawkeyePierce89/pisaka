@@ -349,6 +349,42 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     zone leaves the other two untouched), and — by counting `objectWillChange` —
     that a step or reset which cannot move the zone publishes nothing while one
     that can still does.
+    The macOS Markdown preview adds the **last two persisted values**, and
+    neither introduces a discipline of its own (`core-markdown-preview.md`).
+    `markdownPreviewEnabled` (`Keys.markdownPreviewEnabled =
+    "settings.markdownPreviewEnabled"`) is the editor's third `Bool` flag and the
+    first of them to default **off**: the pane takes half the window and starts a
+    web view, so it is a thing the user asks for (View → *Markdown Preview*,
+    ⌘⇧P) rather than one that appears the first time an `.md` file is opened, and
+    off costs the feature everything but the flag — no web view is constructed,
+    nothing is parsed and nothing is rendered. It is read through
+    `object(forKey:) as? Bool` like its two neighbours **even though absence and
+    the default agree here**, because the cast is what refuses a wrong-typed
+    value (an older build, a hand-edited domain) instead of coercing it, so a
+    stored string can never read as "on". Like them it is **one** flag rather
+    than one per tab or per platform: it is a preference about how Markdown is
+    edited, not a property of a file, so a user who turned the pane off does not
+    meet it again on the next `.md` they open, and iOS — which neither reads nor
+    writes it — is an absent surface, not a second preference. The one writer is
+    the View menu's toggle, which `MarkdownPreviewSourceGatingTests` pins.
+    `markdownPreviewFraction` (`Keys.markdownPreviewFraction =
+    "settings.markdownPreviewFraction"`, default an even split) is `fontSize`'s
+    write discipline verbatim, against `MarkdownPreviewWidthRule.clampFraction(_:)`:
+    clamped inside `didSet` with the re-entrant assignment reaching a fixed point
+    on the second pass, and read in `init` through `object(forKey:) as? Double`
+    so an absent key is told from a stored 0 and a non-finite or out-of-range
+    value collapses to the even split rather than surviving into a layout. Only
+    the **width-free** half of the rule applies here — at write time there is no
+    window, and the point minimums are re-applied by the layout, the only place
+    that knows how wide it is. A fraction and not a point width because the split
+    is remembered across windows and resizes, where a stored width would overflow
+    a narrower window and leave a gap in a wider one. The divider writes it
+    **once**, in the drag's `onEnded`: writing on every changed frame would put a
+    `UserDefaults` write on the per-frame path and republish the window sixty
+    times a second. `SettingsStoreTests` covers both defaults on a fresh store,
+    the round trip across a rebuilt store, wrong-typed stored values for both,
+    the fraction clamped on write and on load at both bounds, a non-finite stored
+    fraction, and the two key strings.
   - `EditorSession.swift` — the persisted editor session behind launch-time
     session restore and "Untitled" hot exit (macOS today; the iOS variant is a
     follow-up over this same model). Foundation-only: the value types, the pure
@@ -873,7 +909,8 @@ run in `swift test` rather than needing an Xcode build.
         `Sources/` and no matching symbol in either binary, not declared.
 
   - `Resources/Licenses/` — `licenses.json` plus one verbatim `<id>.txt` per
-    shipped dependency (21 today). Declared in `project.yml` as a **folder
+    shipped third-party component (27 today: the linked packages, the two
+    documented transitive trees, and the two bundled Markdown-preview assets). Declared in `project.yml` as a **folder
     reference** (`type: folder`), so the whole directory is copied into the
     bundle as `Licenses/` and adding a future text needs no project
     regeneration. That convenience is exactly why the directory's *contents* are
@@ -1013,8 +1050,10 @@ and must not start, so `project.yml` is read by a deliberately tiny,
 shape-specific line scanner) and asserts:
 
   - the manifest's id set **equals** the `Pisaka` target's linked package set
-    from `project.yml` (minus `PisakaCore`) plus the documented transitive
-    `tree-sitter` C runtime — *set* equality, so a new dependency fails the suite
+    from `project.yml` (minus `PisakaCore`), plus the documented transitive trees
+    (the `tree-sitter` C runtime, and `swift-cmark`, which swift-markdown links
+    and `project.yml` never names), plus the **bundled page assets** — the third
+    source class, below — *set* equality, so a new dependency fails the suite
     until its license is added, and a dropped one fails until its entry goes.
     **The set is destination-blind, deliberately, and Sparkle is the first entry
     where that shows.** `licenses.json` has no platform dimension and
@@ -1042,6 +1081,26 @@ shape-specific line scanner) and asserts:
     is dropped would otherwise keep shipping;
   - each vendored entry names a real `Vendor/<name>/LICENSE` and is
     byte-identical to it;
+  - **the bundled-asset class, checked from both ends.** Third-party code can
+    also ship as *data*: `Resources/MarkdownPreview/` holds highlight.js and
+    mermaid, which nothing compiles or links — they are copied in as a folder
+    reference and handed to a web view — so an entry for one carries a
+    repository path as its `origin` (a third origin shape beside remote and
+    vendored) rather than an upstream URL. From the manifest's end, that path
+    must name a file that exists and the entry's version/revision must equal
+    what `Resources/MarkdownPreview/VENDORED.md` records; from the directory's
+    end, every file in it must be either one of the three written in this
+    repository (`preview.js`, `preview.css`, `VENDORED.md`) or the origin of
+    exactly one notice — so an unacknowledged bundle cannot ride in on the folder
+    reference. `MarkdownPreviewAssetPinTests` and this suite read that document
+    through one shared reader (`MarkdownPreviewVendoredDoc`), so it cannot
+    satisfy one of them and drift from the other. The destination-blindness
+    above applies here twice over: `Resources/MarkdownPreview` itself carries
+    `destinationFilters: [macOS]`, so iOS's Acknowledgements lists two components
+    its bundle does not contain — over-attribution, for Sparkle's reason;
+  - the SPDX exception set is no longer empty: `Swift-exception` is on SPDX's
+    published exceptions list and is recorded as one, while libgit2's linking
+    exception is not on that list and stays part of its licence text;
   - each text names *its own* dependency's copyright holder, against a table
     (`expectedCopyrightHolders`) asserted by set equality against the manifest's
     ids. This is the only check that reads a *remote* text's bytes at all: every

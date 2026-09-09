@@ -308,6 +308,21 @@ final class ReleaseMetadataTests: XCTestCase {
                     type: folder
             """,
                        "Resources/Queries as a folder reference")
+        // The third folder reference, matched as the *three*-line group it is:
+        // the path, the folder type, and the destination filter that keeps
+        // ~3.4 MB of page assets off the iOS bundle. The filter is part of the
+        // needle rather than a check of its own because dropping it is silent
+        // in exactly the way the other two are — the macOS build stays green,
+        // the preview still works, and only the iOS app grows. The two failure
+        // modes of losing the entry itself are quieter still: the page loads
+        // with no stylesheet, no highlighter and no diagram renderer, which is
+        // a 404 per file and no build error at all.
+        assertDeclares("""
+            - path: Resources/MarkdownPreview
+                    type: folder
+                    destinationFilters: [macOS]
+            """,
+                       "Resources/MarkdownPreview as a macOS-only folder reference")
     }
 
     /// The launch screen is the one App Store requirement in this area that no

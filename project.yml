@@ -13,6 +13,9 @@ name: Pisaka
 #   - libgit2 ................. iOS `GitServicing`; used only by iOS-gated code
 #   - Sparkle ................. auto-update; macOS-only *by declaration*, and the
 #                               one dependency carrying a `destinationFilters:`
+#   - swift-markdown .......... the Markdown preview's parser; used only by
+#                               macOS-gated code, and the second dependency
+#                               whose own manifest pins something by branch
 #
 # Per-destination linking: a package-product dependency on a multiplatform target
 # **can** be filtered per destination. `destinationFilters: [macOS]` emits
@@ -229,6 +232,53 @@ packages:
   Sparkle:
     url: https://github.com/sparkle-project/Sparkle
     exactVersion: "2.9.5"
+  # The Markdown parser behind the macOS preview pane, and the second dependency
+  # that drags a *branch* requirement into this project — the same shape as
+  # SwiftTreeSitter above, for the same reason and with the same answer.
+  #
+  # Three things about this pin are not guessable from the two lines below:
+  #
+  #   * **It is pinned by revision, not by version, because the repository
+  #     publishes no semantic versions at all.** Its tags are the Swift
+  #     toolchain's own (`swift-6.2.2-RELEASE`) plus a daily
+  #     `swift-DEVELOPMENT-SNAPSHOT-…` series, and `exactVersion:` matches none
+  #     of them. The revision below is tag `swift-6.2.2-RELEASE`.
+  #
+  #   * **It is deliberately not the newest release.** `swift-6.3-RELEASE` and
+  #     later raise the manifest to `// swift-tools-version:6.2`, which the
+  #     SwiftPM in CI's pinned Xcode 16.4 refuses to read — resolution fails
+  #     before a single file compiles. `swift-6.2.2-RELEASE` is the newest
+  #     revision whose manifest is still `swift-tools-version:5.7`. Moving past
+  #     it means moving CI's Xcode first; the two are one change, not two.
+  #
+  #   * **Its manifest requires swift-cmark by branch**, and that requirement
+  #     reaches this project the way Neon's SwiftTreeSitter requirement does:
+  #       .package(url: ".../swift-cmark.git", branch: "release/6.2")
+  #     `release/6.2` is a frozen release branch rather than a moving `main`, but
+  #     it is still a branch requirement, so `swift-cmark` records a `branch:` in
+  #     Package.resolved and its *pin* is the whole pin. `DependencyPinTests`
+  #     therefore knows two branch-pinned identities — `swifttreesitter` and
+  #     `swift-cmark` — each with its own recorded revision and its own reason,
+  #     and a third one still fails the suite.
+  #
+  # The same manifest also asks for `swift-docc-plugin` — a documentation
+  # build-tool plugin, which brings `swift-docc-symbolkit`. Neither reaches the
+  # committed `Package.resolved`: SwiftPM prunes a non-root package's
+  # plugin-only dependencies exactly as it prunes its test-only ones (the same
+  # pruning the `tree-sitter-go` and `tree-sitter-rust` comments above rely on
+  # for SwiftTreeSitter). So there is nothing to acknowledge and nothing to
+  # exclude — `licenses.json` names neither, and `LicenseCoverageTests`' rule
+  # that every resolved identity is acknowledged or explicitly excluded would
+  # say so if a resolve ever did record them.
+  #
+  # The key is spelled as SwiftPM's own identity (`swift-markdown`) rather than
+  # in the `SwiftMarkdown` style, because `LicenseCoverageTests` matches a
+  # `licenses.json` id against this key *and* against the Package.resolved
+  # identity (lowercased) — the two only meet when the key is the identity, as
+  # every `tree-sitter-*` entry above already is.
+  swift-markdown:
+    url: https://github.com/swiftlang/swift-markdown
+    revision: 3be4e1a09cef425602f11bdb4b4de252e4badd11
 
 targets:
   Pisaka:
@@ -276,6 +326,35 @@ targets:
       # themselves by `SymbolQueryTests`.
       - path: Resources/Queries
         type: folder
+      # The Markdown preview pane's page assets — the two pinned third-party
+      # bundles (highlight.js, mermaid) plus the first-party `preview.js` and
+      # `preview.css` — declared as a *folder reference* for the third time and
+      # for the same reason as `Licenses/` and `Queries/`: the directory is
+      # copied verbatim, so the four files land as `MarkdownPreview/<name>` and
+      # `MarkdownPreviewSchemeHandler` resolves each one through `Bundle.main`
+      # under the fixed name `MarkdownPreviewPage` spells. A file that does not
+      # reach the bundle is a 404 the page answers by rendering unstyled and
+      # unhighlighted — no build error, so `ReleaseMetadataTests` asserts this
+      # entry and `MarkdownPreviewAssetPinTests` asserts the bytes.
+      #
+      # Filtered to macOS, and it is the *second* place in this file a
+      # destination filter appears — Sparkle's is on a package dependency, this
+      # one is on a source entry. It was attempted rather than assumed: XcodeGen
+      # accepts `destinationFilters:` on a `type: folder` source and emits
+      # `platformFilters = (macos, )` on the generated resource `PBXBuildFile`,
+      # and `generic/platform=iOS` builds green with it. So the preview's ~3.4 MB
+      # is copied on the destination that reads it and nowhere else, unlike
+      # SwiftTerm and libgit2, which stay unfiltered dead weight for the reason
+      # this file's header records (they are *linked*, and changing what links
+      # into the shipping app is a separate change with its own verification —
+      # copying a directory is not).
+      #
+      # The filter is a bundle-size decision, never the restriction: the feature
+      # is confined to macOS by the source-level `#if os(macOS)` on every app
+      # file of it, which `MarkdownPreviewSourceGatingTests` pins.
+      - path: Resources/MarkdownPreview
+        type: folder
+        destinationFilters: [macOS]
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: ws.karmanov.pisaka
@@ -450,6 +529,13 @@ targets:
       - package: Sparkle
         product: Sparkle
         destinationFilters: [macOS]
+      # Unfiltered, like SwiftTerm and libgit2: swift-markdown declares no
+      # platform restriction, so it links into the iOS destination as unused
+      # dead weight rather than breaking the build. Everything that imports it
+      # (`MarkdownParser.swift`, the feature's one `import Markdown`) is inside
+      # `#if os(macOS)`.
+      - package: swift-markdown
+        product: Markdown
     # Wires this clone's git hooks in, on the one action every builder performs.
     #
     # Git never enables a repository's hooks by itself — `.git/hooks` is not

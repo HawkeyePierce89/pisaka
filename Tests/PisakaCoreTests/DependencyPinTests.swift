@@ -6,17 +6,32 @@ import XCTest
 ///
 /// `project.yml` states each dependency's *requirement*; `Package.resolved`
 /// records the *pin* SwiftPM resolved it to, and only the pin is reproducible.
-/// The distinction matters for exactly one package. Every other dependency
-/// carries an `exactVersion:`/`revision:` requirement, so its pin cannot move
-/// without a visible `project.yml` change; `SwiftTreeSitter` is required as
-/// `branch: main` because *Neon's own manifest* requires it that way (the pinned
-/// Neon revision 484d6fb declares `.package(url: …/SwiftTreeSitter,
-/// branch: "main")`, and SwiftPM refuses a package "required using two different
-/// revision-based requirements", so a root `revision:` makes
-/// `xcodebuild -resolvePackageDependencies` fail outright — see the comment on
-/// that entry in `project.yml`). For that one package the committed revision in
-/// this file is the *whole* pin, and nothing in the requirement would flag a
-/// drift to a newer `main`.
+/// The distinction matters for exactly two packages, and for the same structural
+/// reason both times: **another package's own manifest asked for something by
+/// branch**, so the requirement that reaches this project is a branch and the
+/// recorded revision is the whole pin. Every other dependency carries an
+/// `exactVersion:`/`revision:` requirement, so its pin cannot move without a
+/// visible `project.yml` change.
+///
+/// The two, each with its own reason, are `branchPinnedDependencies` below:
+///
+///  * `swifttreesitter` — required `branch: main` because *Neon's own manifest*
+///    requires it that way (the pinned Neon revision 484d6fb declares
+///    `.package(url: …/SwiftTreeSitter, branch: "main")`, and SwiftPM refuses a
+///    package "required using two different revision-based requirements", so a
+///    root `revision:` makes `xcodebuild -resolvePackageDependencies` fail
+///    outright — see the comment on that entry in `project.yml`).
+///  * `swift-cmark` — never declared in `project.yml` at all: it arrives
+///    transitively, and *swift-markdown's own manifest* asks for it as
+///    `.package(url: …/swift-cmark.git, branch: "release/6.2")`. A frozen release
+///    branch rather than a moving `main`, which makes a drift slower but not
+///    impossible, and there is no `project.yml` line that would show one.
+///
+/// For both, the committed revision in this file is the *whole* pin, and nothing
+/// in the requirement would flag a drift. A **third** branch pin is not a third
+/// instance of the same argument — it is a dependency that stopped being
+/// reproducible without anyone saying so, so it fails the suite until it is
+/// added here with a reason of its own.
 ///
 /// So this suite reads the resolved file itself, in the
 /// `VendoredGrammarQueryTests` style (through `#filePath`, Foundation only), and
@@ -28,10 +43,11 @@ import XCTest
 ///    format churn it is rather than reviewed as a pin change;
 ///  * every pin resolves to a non-empty 40-hex revision, so no dependency is
 ///    left floating;
-///  * `swifttreesitter` is the *only* branch-based pin — a second one creeping
+///  * the branch-based pins are exactly the documented two — a third one creeping
 ///    in means another dependency became unpinnable without anyone saying so;
-///  * `swifttreesitter`'s revision is exactly the one that has been building and
-///    testing all along, so an unnoticed jump to a newer `main` fails here.
+///  * each of those two is pinned to exactly the revision that has been building
+///    and testing all along, so an unnoticed jump to a newer branch head fails
+///    here.
 ///
 /// A practical note on producing that v2 file, learned while adding the Sparkle
 /// pin: which schema `xcodebuild -resolvePackageDependencies` *writes* depends on
@@ -45,13 +61,39 @@ import XCTest
 /// re-emit them in the v2 shape rather than committing the churn or hand-typing
 /// a revision — the assertions below are what catch getting either half wrong.
 final class DependencyPinTests: XCTestCase {
-    /// The SwiftTreeSitter revision the project builds against: 3 commits past
-    /// upstream tag `0.10.0`. Updating it is a deliberate act — change this
-    /// constant in the same commit that changes `Package.resolved`.
-    private static let swiftTreeSitterRevision = "0f40435cdb41673ce4194d731571cf2a2f7c3285"
+    /// A dependency whose *requirement* is a branch, so its recorded revision is
+    /// the whole pin: the revision the project builds against, and the reason
+    /// there is no version or revision requirement holding it still instead.
+    private struct BranchPin {
+        let revision: String
+        let reason: String
+    }
 
-    /// The one package allowed to be pinned by branch, and why (see the type doc).
-    private static let branchPinnedIdentity = "swifttreesitter"
+    /// The packages allowed to be pinned by branch, keyed by SwiftPM identity.
+    ///
+    /// Both entries exist because *another package's manifest* asked for them by
+    /// branch (see the type doc); neither is a choice made in `project.yml`.
+    /// Updating a revision here is a deliberate act — change the constant in the
+    /// same commit that changes `Package.resolved`. Adding a *third* entry is a
+    /// bigger act than that: it says a third dependency has become unpinnable,
+    /// which needs its own reason written down rather than a line appended.
+    private static let branchPinnedDependencies: [String: BranchPin] = [
+        "swifttreesitter": BranchPin(
+            revision: "0f40435cdb41673ce4194d731571cf2a2f7c3285",
+            reason: """
+                required `branch: main` by Neon's own manifest at the pinned Neon revision; this \
+                revision is 3 commits past upstream tag 0.10.0 and is what has been building all along
+                """
+        ),
+        "swift-cmark": BranchPin(
+            revision: "5d9bdaa4228b381639fff09403e39a04926e2dbe",
+            reason: """
+                pulled in transitively by swift-markdown, whose manifest requires it as \
+                `branch: "release/6.2"`; nothing in project.yml declares it, so this revision is the \
+                only record of which cmark the app compiles
+                """
+        ),
+    ]
 
     func testResolvedFileUsesTheV2Schema() throws {
         let resolved = try loadResolved()
@@ -77,30 +119,32 @@ final class DependencyPinTests: XCTestCase {
         }
     }
 
-    func testSwiftTreeSitterIsTheOnlyBranchPinnedDependency() throws {
+    func testTheDocumentedPairAreTheOnlyBranchPinnedDependencies() throws {
         let branched = try loadResolved().pins
             .filter { $0.branch != nil }
             .map(\.identity)
             .sorted()
-        XCTAssertEqual(branched, [Self.branchPinnedIdentity],
+        XCTAssertEqual(branched, Self.branchPinnedDependencies.keys.sorted(),
                        """
-                       Only \(Self.branchPinnedIdentity) may be pinned by branch, and only because Neon's \
-                       own manifest requires it that way. A new branch-based pin means a dependency \
-                       stopped being reproducible — pin it in project.yml or document it here.
+                       Exactly \(Self.branchPinnedDependencies.keys.sorted().joined(separator: ", ")) may \
+                       be pinned by branch, and each only because another package's own manifest requires \
+                       it that way. A new branch-based pin means a dependency stopped being reproducible — \
+                       pin it in project.yml, or add it to branchPinnedDependencies with its own reason.
                        """)
     }
 
-    func testSwiftTreeSitterIsPinnedToTheExpectedRevision() throws {
-        let pin = try XCTUnwrap(
-            try loadResolved().pins.first { $0.identity == Self.branchPinnedIdentity },
-            "no \(Self.branchPinnedIdentity) pin in Package.resolved"
-        )
-        XCTAssertEqual(pin.revision, Self.swiftTreeSitterRevision,
-                       """
-                       SwiftTreeSitter moved off the revision this project builds against. It is required \
-                       as `branch: main` (Neon's manifest, not our choice), so this revision is the only \
-                       thing holding it still. If the move is intentional, update this constant too.
-                       """)
+    func testEveryBranchPinnedDependencyIsPinnedToTheExpectedRevision() throws {
+        let pins = try loadResolved().pins
+        for (identity, expected) in Self.branchPinnedDependencies {
+            let pin = try XCTUnwrap(pins.first { $0.identity == identity },
+                                    "no \(identity) pin in Package.resolved")
+            XCTAssertEqual(pin.revision, expected.revision,
+                           """
+                           \(identity) moved off the revision this project builds against — it is \
+                           \(expected.reason). A branch requirement means this revision is the only thing \
+                           holding it still. If the move is intentional, update this constant too.
+                           """)
+        }
     }
 
     /// The pin and the *requirement* must agree.
@@ -168,9 +212,10 @@ final class DependencyPinTests: XCTestCase {
                     the project.yml change.
                     """)
             case .branch(let branch):
-                XCTAssertEqual(package.name.lowercased(), Self.branchPinnedIdentity, """
-                    \(package.name) is required by branch. Only \(Self.branchPinnedIdentity) may \
-                    be, and only because Neon's own manifest requires it that way.
+                XCTAssertNotNil(Self.branchPinnedDependencies[package.name.lowercased()], """
+                    \(package.name) is required by branch in project.yml. Only \
+                    \(Self.branchPinnedDependencies.keys.sorted().joined(separator: ", ")) may be, and \
+                    each only because another package's own manifest requires it that way.
                     """)
                 XCTAssertEqual(pin.branch, branch,
                                "\(package.name) is required on branch \(branch) but pinned to \(pin.branch ?? "no branch")")

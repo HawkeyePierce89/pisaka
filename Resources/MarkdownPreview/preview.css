@@ -1,0 +1,286 @@
+/*
+ * The Markdown preview's one first-party stylesheet.
+ *
+ * Written in this repository. It carries the page's *shape* — spacing, weights,
+ * borders, the table and code-block rules — and **no colour of its own**: every
+ * colour here is a `var(--…)` the shell wrote out of `MarkdownPreviewTheme`, and
+ * every syntax colour is a rule the shell generated from
+ * `MarkdownHighlightClasses`. That is what makes the pane a preview of *this*
+ * editor rather than a second opinion about it: change the editor's theme and
+ * this file does not move.
+ *
+ * The shell links this file *before* its own `<style>` block, so the generated
+ * theme wins wherever the two touch the same property.
+ */
+
+:root {
+    /* Every custom property this file reads is written by the shell
+       (`MarkdownPreviewPage.customProperties`). A fallback here would be a
+       second answer to what the colours are, and it would be the one that
+       shipped whenever the two drifted — so there is none. */
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+}
+
+html {
+    background: var(--background);
+}
+
+body {
+    margin: 0;
+    padding: 16px 20px 64px;
+    background: var(--background);
+    color: var(--text);
+    font-size: var(--font-size);
+    line-height: 1.55;
+    /* The pane is narrow and the divider is draggable, so a long token — a URL,
+       a path, an identifier — must wrap rather than widen the document and give
+       the whole page a horizontal scroller. Code blocks opt back out below. */
+    overflow-wrap: break-word;
+}
+
+/* MARK: - Headings */
+
+h1, h2, h3, h4, h5, h6 {
+    margin: 1.4em 0 0.5em;
+    line-height: 1.25;
+    font-weight: 600;
+}
+
+h1 { font-size: 1.7em; }
+h2 { font-size: 1.4em; }
+h3 { font-size: 1.2em; }
+h4 { font-size: 1.05em; }
+h5 { font-size: 1em; }
+h6 { font-size: 1em; color: var(--secondary-text); }
+
+/* The first block carries the document's top margin, which would otherwise
+   push the whole page down by a heading's worth of space. */
+#content > :first-child {
+    margin-top: 0;
+}
+
+h1, h2 {
+    padding-bottom: 0.3em;
+    border-bottom: 1px solid var(--border);
+}
+
+/* MARK: - Text */
+
+p {
+    margin: 0 0 1em;
+}
+
+a {
+    color: var(--link);
+    text-decoration: none;
+}
+
+a:hover {
+    text-decoration: underline;
+}
+
+del {
+    color: var(--secondary-text);
+}
+
+hr {
+    height: 1px;
+    margin: 1.6em 0;
+    border: 0;
+    background: var(--border);
+}
+
+blockquote {
+    margin: 0 0 1em;
+    padding: 0.1em 1em;
+    border-left: 3px solid var(--border);
+    color: var(--secondary-text);
+}
+
+img {
+    max-width: 100%;
+}
+
+/* MARK: - Lists */
+
+ul, ol {
+    margin: 0 0 1em;
+    padding-left: 1.6em;
+}
+
+li {
+    margin: 0.2em 0;
+}
+
+/* Nested lists close up: the outer list's paragraph spacing between items would
+   otherwise read as a gap between levels. */
+li > ul, li > ol {
+    margin-bottom: 0;
+}
+
+/* An item's text is a paragraph either way — the renderer emits a `<p>` for a
+   tight item and a loose one alike — so the paragraph's own bottom margin would
+   draw the short, ordinary list as a loose one. Zeroed here, and put back below
+   for the list that asked for it. */
+li > p {
+    margin: 0;
+}
+
+/* A list the source wrote loose, which the renderer marks as such: a blank line
+   between items is the author asking for the gap, and this is the only place
+   that request is honoured. The class is on the list, so a nested list of the
+   other kind is unaffected by its parent's. */
+ul.loose > li > p, ol.loose > li > p,
+ul.loose > li > ul, ul.loose > li > ol,
+ol.loose > li > ul, ol.loose > li > ol {
+    margin-bottom: 1em;
+}
+
+/* …except after the very last block of the last item, where the list's own
+   bottom margin already provides the spacing and a second one would read as a
+   paragraph break the source never wrote. */
+ul.loose > li:last-child > :last-child, ol.loose > li:last-child > :last-child {
+    margin-bottom: 0;
+}
+
+/* A task item's marker is the checkbox, so the list's own bullet goes. The
+   negative indent is what puts the box where the bullet was. */
+li.task-list-item {
+    list-style: none;
+    margin-left: -1.35em;
+}
+
+li.task-list-item > input[type="checkbox"] {
+    margin: 0 0.4em 0 0;
+    vertical-align: middle;
+}
+
+/* The renderer emits the checkbox *ahead of* the item's first block, so that
+   block has to join it on the line: a block-level `<p>` gets an anonymous block
+   box of its own and draws the text under an empty box instead of beside it —
+   and `vertical-align` above cannot bridge that, there being no shared line box
+   to align within. Matched as the checkbox's adjacent sibling rather than as the
+   item's first paragraph, so an item whose first block is not a paragraph (a
+   nested list, a fenced block) inlines nothing it should not. */
+li.task-list-item > input[type="checkbox"] + p {
+    display: inline;
+}
+
+/* …which is why a loose task list cannot take its spacing from that paragraph:
+   an inline box's vertical margins do not affect layout, so the rule above would
+   land on nothing and the loose task list would draw exactly as its tight form.
+   The item is the block-level element that can carry it. Its bottom margin
+   collapses with its last block's, so an item that also ends in a paragraph or a
+   nested list is spaced once and not twice. */
+ul.loose > li.task-list-item, ol.loose > li.task-list-item {
+    margin-bottom: 1em;
+}
+
+/* …and the last item takes the same exception as every other, the list's own
+   bottom margin already spacing it: back to the ordinary item margin, not to
+   zero, which is what the rule above overrode. */
+ul.loose > li.task-list-item:last-child, ol.loose > li.task-list-item:last-child {
+    margin-bottom: 0.2em;
+}
+
+/* The item's margin spaces it from the *next item*; the gap *inside* an item
+   holding more than one block is still the first block's bottom margin, and the
+   inlined paragraph cannot carry that one either. The block that follows it
+   carries it as a top margin instead — the second and later blocks space
+   themselves the ordinary way, so this is the one gap left. Any block, not just
+   a paragraph: a nested list or a fenced block written under the checkbox is
+   the same request. */
+ul.loose > li.task-list-item > input[type="checkbox"] + p + *,
+ol.loose > li.task-list-item > input[type="checkbox"] + p + * {
+    margin-top: 1em;
+}
+
+/* MARK: - Code */
+
+code {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: var(--code-font-size);
+}
+
+/* Inline code only: a fenced block is a `code` inside a `pre` and takes the
+   block's own background instead, or the two would nest. */
+:not(pre) > code {
+    padding: 0.15em 0.35em;
+    border-radius: 4px;
+    background: var(--code-background);
+}
+
+pre {
+    margin: 0 0 1em;
+    padding: 10px 12px;
+    border-radius: 6px;
+    background: var(--code-background);
+    /* Code is the one thing that must not be re-wrapped: a broken line changes
+       what the code says. It scrolls instead. */
+    overflow-x: auto;
+    overflow-wrap: normal;
+}
+
+pre > code {
+    display: block;
+    white-space: pre;
+    background: none;
+    padding: 0;
+}
+
+/* MARK: - Diagrams */
+
+pre.mermaid {
+    /* A diagram is drawn, not typeset: it takes the page background so the SVG
+       mermaid produces is not sitting on a code slab. */
+    background: none;
+    padding: 0;
+    text-align: center;
+}
+
+/* Until `preview.js` has replaced it, the block still holds the diagram's
+   source; hiding it keeps a re-render from flashing the text.
+
+   Hiding is keyed on the class the script adds when it *starts* a render and
+   removes on either ending — not on `pre.mermaid` itself — so a block nobody is
+   rendering shows its source instead of vanishing. That is not a hypothetical
+   state: the diagram bundle can fail to load, and mermaid can answer a shape
+   this page does not recognise. Either way the fence is still content, and
+   content that disappears without a trace is indistinguishable from a document
+   that never had it. */
+pre.mermaid.mermaid-pending {
+    color: transparent;
+}
+
+/* A diagram that did not parse shows mermaid's own message, as text, in the
+   shape a code block already has — it is the source that was wrong. */
+pre.mermaid.mermaid-error {
+    background: var(--code-background);
+    padding: 10px 12px;
+    text-align: left;
+    white-space: pre-wrap;
+    color: var(--secondary-text);
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: var(--code-font-size);
+}
+
+/* MARK: - Tables */
+
+table {
+    margin: 0 0 1em;
+    border-collapse: collapse;
+    display: block;
+    width: max-content;
+    max-width: 100%;
+    overflow-x: auto;
+}
+
+th, td {
+    padding: 5px 11px;
+    border: 1px solid var(--table-border);
+}
+
+th {
+    font-weight: 600;
+    background: var(--code-background);
+}

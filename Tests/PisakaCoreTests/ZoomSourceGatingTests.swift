@@ -170,7 +170,7 @@ final class ZoomSourceGatingTests: XCTestCase {
     /// document of (a content-sized text view answers only for its text, not for
     /// the pane around it), the three views that draw *beside* them (two rulers
     /// and the minimap — siblings of a text view, so unreachable through it),
-    /// SwiftTerm's terminal view, and the four SwiftUI-drawn code regions that
+    /// SwiftTerm's terminal view, and the five SwiftUI-drawn code regions that
     /// carry `ZoomSurfaceMarker`.
     ///
     /// Set equality rather than a subset check, because both directions are the
@@ -195,6 +195,10 @@ final class ZoomSourceGatingTests: XCTestCase {
         "LeetCodeDescriptionView.swift",
         "CommitUnifiedDiffView.swift",
         "CommitDialogView.swift",
+        // The Markdown preview: its body text and its fenced blocks are sized
+        // from the code font, so the pointer is over the code zone there for the
+        // reason the LeetCode statement is.
+        "MarkdownPreviewPane.swift",
         // Interactive popups.
         "CompletionPanel.swift",
     ]
