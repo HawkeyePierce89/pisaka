@@ -184,9 +184,22 @@ and that could disagree with the page itself.
 ### M7 — A keystroke is an `innerHTML` assignment, not a page load
 
 The shell ships its container element empty; the body arrives afterwards through
-`PisakaPreview.render(…)`, and only a **theme or code-font-size change** reloads
-the shell. That is what makes typing cost no navigation and the preview's scroll
-position survive a keystroke.
+`PisakaPreview.render(…)`, and only an **appearance change** reloads the shell.
+That is what makes typing cost no navigation and the preview's scroll position
+survive a keystroke.
+
+**Appearance is two halves, and only one of them is a load.** A **theme** change
+reloads the shell and re-renders the body from the last tree, because every
+colour in the page lives in the shell's own stylesheet; the parser is not asked
+again. A change of the **font size alone** is one call into the document already
+loaded — `PisakaPreview.setFontSize(…)`, the third and last entry point — since
+the two sizes are custom properties on `:root` and setting them is the whole
+change, which leaves the body, the scroll offset and the rendered diagrams
+exactly as they were. Both readings of "what a size is" go through one Core
+helper, `MarkdownPreviewPage.fontSizes(for:)` (the clamp plus the code face's
+one-point offset), so a reloaded shell and an in-place step cannot disagree.
+Both numbers are interpolated as **numbers**, not escaped as strings, for the
+scroll line's reason below; the page appends `px` and performs no arithmetic.
 
 The body crosses the seam as a **JavaScript string literal Core escapes**
 (`javaScriptStringLiteral(_:)`), never as a fragment spliced into source: a
@@ -223,11 +236,6 @@ rather than a Show/Hide button because a checkmark says what the next `.md` file
 will do, and disabled unless the active tab is Markdown, because an item that
 silently does nothing is worse than one that says so.
 `MarkdownPreviewSourceGatingTests` pins the single writer.
-
-**The chord is shared with LeetCode's *Open Problem…*.** Both spell ⌘⇧P; the
-View item is the one AppKit meets first and is disabled off a Markdown tab, so
-which command a press reaches depends on the active tab. That is a collision
-recorded rather than designed — see “What is still owed” below.
 
 ### M9 — What may be shown offline is pinned, and the ~3.4 MB is accepted
 
@@ -509,6 +517,41 @@ the gap as a top margin instead — any block, since a nested list or a fence
 written under the checkbox is the same request — and the second and later blocks
 go on spacing themselves the ordinary way, so that is the only rule needed.
 
+### M15 — A heading's `id` is Core's rule, so the round trip is assertable
+
+A heading carries an `id` and an intra-document `[x](#a-heading)` reaches it.
+The slug rule is **GFM's** — the heading's inline content flattened, lowercased,
+every character that is not a letter, a digit, a space or a hyphen removed,
+spaces turned into hyphens — with two readings stated where a reader would
+otherwise assume the opposite: a **tab is removed, not folded to a hyphen**
+("space" is the ASCII space and nothing else), and **letter and digit are
+Unicode's**, so `## Привет мир` slugs to `привет-мир` rather than to nothing.
+A heading whose text leaves nothing — one made only of punctuation, or empty —
+carries **no `id` at all** rather than `id=""`, which is an attribute no
+fragment can name while still looking like a target.
+
+Repeats are suffixed `-1`, `-2`, … **in document order**, searched forward past
+everything already handed out: a document spelling `## Notes` twice and
+`## Notes 1` once produces `notes`, `notes-1` and `notes-2` with no two the
+same. A silent collision here would not be a wrong-looking page — it would be
+the second link scrolling to the first heading.
+
+**The rule lives in Core, beside the renderer, because an anchor is a round trip
+between two decisions this package already owns**: `MarkdownRenderer` writes the
+`id` and `MarkdownLinkRule` reads the fragment a click resolved to. Deriving the
+slug in `preview.js` instead would put the two halves in different languages
+with different string semantics and nothing in `swift test` able to assert that
+the link reaches the heading; the page keeps doing an `id` lookup and nothing
+more. The renderer is the rule's **only** caller — nothing else in the tree
+gains an `id` — and the allocator is a **value threaded through the walk** as
+`inout` rather than static state, so the renderer stays a pure function of tree
+and context (a shared counter would make a second render of the same document
+suffix its headings by the first render's) and a heading nested in a block quote
+or a list item is numbered where it sits.
+
+The attribute goes out through the renderer's one `attribute(_:_:)` escape, like
+every other: an `id` is not a second escaping path.
+
 ## `PisakaCore` — the decisions
 
 ### `MarkdownDocument.swift`
@@ -650,6 +693,16 @@ top-level blocks carry `data-line`, because the line lives on
 string; and a file target is either an app-scheme URL or the source's own
 spelling, the one decision about reach belonging to `MarkdownPreviewAsset` (M4).
 
+**A heading carries an `id`, and it is the only thing in the tree that does**
+(M15). The text slugged is `plainText(_:)`'s — the same flattening `alt` uses,
+so `## The **rule**` and `## The rule` answer the same — and the attribute is
+emitted through `attribute(_:_:)`, so it takes the one escape like every other.
+The `MarkdownHeadingSlug.Allocator` is threaded through `body(for:context:)` and
+every nested path (`renderNested`, `renderItems`, the table rows) as `inout`, so
+a heading inside a block quote or a list item is numbered on the same terms as a
+top-level one and document order *is* the allocation order. A heading the rule
+leaves nothing of carries no `id`.
+
 Three presentational decisions the tree deliberately leaves open, each because
 HTML has no way to express the alternative:
 
@@ -684,6 +737,16 @@ two differ only in whether quotes are folded, and folding them in text costs
 nothing while not folding them in an attribute is an injected attribute), with
 `&` replaced first so it cannot re-escape what the later replacements introduce.
 
+### `MarkdownHeadingSlug.swift`
+
+The `id` a rendered heading carries, and the rule that keeps two headings from
+carrying the same one (M15). Two members and nothing else: `slug(forText:)`, the
+pure GFM rule, and `Allocator`, the per-document, document-ordered duplicate
+suffixer. `MarkdownRenderer` is the only caller; the file's doc comment carries
+the four steps of the rule, the two readings a reader assumes the other way (a
+tab is removed rather than folded; letter and digit are Unicode's) and why the
+allocator is a value threaded through the walk rather than static state.
+
 ### `MarkdownPreviewPage.swift`
 
 The scheme, the URLs, the document and the two entry points (M2, M3, M4, M7).
@@ -716,17 +779,28 @@ The scheme, the URLs, the document and the two entry points (M2, M3, M4, M7).
   boot — as one list rather than four call sites, because the handler serves
   exactly this set and nothing else.
 - The document: `html(theme:fontSize:)`, a pure function of the two inputs a
-  change in which re-writes the shell. Everything else about the page reaches it
+  change in which re-writes the shell — a *theme* change, that is: a size alone
+  is set on the shell already loaded (M7). Everything else about the page reaches it
   through JavaScript instead. `themeStylesheet` generates both halves — the
   custom properties `preview.css` reads (including `--code-font-size`, a point
   smaller than the body for the statement panel's reason) and one colour rule
   per highlight scope, emitted by walking the class table so a scope added there
   gets its rule for free. The `<link>` precedes the generated block: the theme
   is what must win, so it is written last.
-- The entry points: `bodyUpdateSource(body:)`, `scrollToAnchorSource(anchor:)`
-  and `scrollToLineSource(line:)`, plus `javaScriptStringLiteral(_:)` (M7). The
-  fragment is escaped for the same reason the body is — it arrives from an
-  `href` in a document nobody in this app wrote.
+- The entry points: `bodyUpdateSource(body:)`, `scrollToAnchorSource(anchor:)`,
+  `scrollToLineSource(line:)` and `fontSizeUpdateSource(fontSize:)` — the third
+  and last, added for the size step — plus `javaScriptStringLiteral(_:)` (M7).
+  The fragment is escaped for the same reason the body is: it arrives from an
+  `href` in a document nobody in this app wrote. The size source interpolates
+  **two numbers** rather than one, `fontSizes(for:)`'s body and code sizes, so
+  the one-point offset stays a Swift subtraction and the page decides nothing;
+  neither is escaped as a string, a number having no spelling that could end the
+  call and start a statement.
+- `fontSizes(for:)`: the clamp (`SettingsStore`'s, so the editor's own zoom zone
+  is read once rather than second-guessed) and the code face's one-point offset,
+  in one place — read by the shell's `:root` block and by the size source alike,
+  because the whole point of the second is that it means what the first would
+  have.
 - The seam: `MarkdownPreviewPageSink`, `@MainActor`, two verbs and no third
   (M6). Neither returns anything: the page answers no questions, so there is
   nothing to await and no failure the model could act on.
@@ -901,10 +975,23 @@ pending scroll line.
 
 The four facts the glue forwards:
 
-- `updateAppearance(theme:fontSize:)` — unchanged is a no-op; changed reloads the
-  shell and re-renders the body from the last tree. `lastBody` is cleared first,
-  because the reloaded document ships its container empty, which is what lets a
-  byte-identical body be re-sent.
+- `updateAppearance(theme:fontSize:)` — unchanged is a no-op; changed is **two
+  paths, and the theme picks which** (M7). A theme change — with or without a
+  size change — and the first call of all, which has no shell to step, reload:
+  `lastBody` is cleared first, because the reloaded document ships its container
+  empty, which is what lets a byte-identical body be re-sent, the remembered
+  line is re-offered as pending, and the body is re-rendered from the last tree.
+  A **font-size-only** change records the new appearance and sends one evaluated
+  `fontSizeUpdateSource(fontSize:)`, touching neither `lastBody`, the pending
+  line, the tree nor the parser — nothing about what the page is showing became
+  false. It needs **no scroll restore**, and that is the same argument rather
+  than an omission: the reload's restore exists because a fresh document starts
+  at the top of an empty container, and here the document is not replaced, so
+  re-sending the remembered line would move a reader who did not ask to be
+  moved. The shell goes on embedding the size it was composed with, and the
+  appearance recorded here is what a later reload — a theme switch, a dead page
+  — is composed from, so the step is a step *from* that shell and not a second
+  source of truth.
 - `retarget(to:text:)` — a *different* context clears the body, forgets the tree
   and parses **immediately** rather than after the debounce: 300 ms of the
   previous tab's content beside the new tab's editor is worse than a blank pane
@@ -1309,6 +1396,9 @@ document that carries no targets.
 ## Tests
 
 - Core (`swift test`): `MarkdownDocumentTests`, `MarkdownRendererTests`,
+  `MarkdownHeadingSlugTests` (M15's rule and its allocator; the anchor's round
+  trip — render, read the `href` back, resolve it the way the web view does and
+  feed it to `MarkdownLinkRule` — is asserted in `MarkdownLinkRuleTests`),
   `MarkdownListTightnessTests` (M14's rule, stated as spans),
   `MarkdownPreviewPageTests`, `MarkdownPreviewAssetTests`,
   `MarkdownLinkRuleTests`, `MarkdownScrollRuleTests`,
@@ -1352,22 +1442,6 @@ document that carries no targets.
   a broken image with its alt text (M2, M4). A document with no file yet, or a
   window with no folder open, resolves nothing at all.
 - **No formulas.** There is no math rendering of any kind; a `$…$` span is text.
-- No table of contents, no heading anchors (the renderer emits no `id`, so an
-  intra-document `#fragment` lands on nothing), no footnotes, no printing and no
-  export.
+- No table of contents, no footnotes, no printing and no export.
 - Scroll sync is **editor → preview only** (M6/`MarkdownScrollRule`).
 - macOS only.
-
-## What is still owed
-
-- **⌘⇧P is bound twice** — View → *Markdown Preview* and LeetCode → *Open
-  Problem…* (M8). The View item is disabled off a Markdown tab, so the two do not
-  both fire, but with a Markdown tab active the LeetCode chord is unreachable.
-  Picking a free chord for one of them is a product decision and has not been
-  made.
-- ~~The app-layer bundle's *execution* is owed a run in a normal desktop
-  session.~~ Settled: `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka
-  -destination 'platform=macOS' test` ran the application-hosted runner on
-  2026-09-09 — 56 tests, 0 failures, including this feature's three suites. The
-  original note stands only as a record of why the branch's CI-shaped runs could
-  compile `PisakaAppTests.xctest` without ever launching it.

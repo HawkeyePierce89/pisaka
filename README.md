@@ -162,6 +162,7 @@ server fetching JSON schemas while it runs.
 | Cmd+F       | Find in the current file                   |
 | Cmd+G / Cmd+Shift+G | Find Next / Previous               |
 | Cmd+Option+F| Replace in the current file                |
+| Cmd+Option+P| Open a LeetCode problem                    |
 | Cmd+Shift+F | Find in Files (project-wide)               |
 | Ctrl+Cmd+J  | Go to Definition (Cmd+click does the same) |
 | Ctrl+Cmd+U  | Find Usages of the name under the caret    |
@@ -171,7 +172,7 @@ server fetching JSON schemas while it runs.
 | Cmd+K       | Commit…                                    |
 | Cmd+R       | Run the active file                        |
 | Cmd+U       | Run the active test file                   |
-| Cmd+Shift+P | Show/Hide the Markdown preview (on a Markdown tab); Open a LeetCode problem otherwise |
+| Cmd+Shift+P | Show/Hide the Markdown preview (macOS)     |
 | Cmd+Shift+B | Browse LeetCode problems                   |
 | Cmd+Shift+L | Show/Hide the Git Log panel                |
 | Cmd+Shift+T | Show/Hide the terminal panel               |

@@ -259,13 +259,14 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
 - `FoldController.swift` (app, macOS) — the 400 ms debounce, the generation token, the one publish; shift between answers, reconcile on one.
 - `FoldCommands.swift` (app, macOS) — *Fold* (⌘⌥←) / *Unfold* (⌘⌥→); the first responder, the one beep.
 
-`docs/architecture/core-markdown-preview.md` — the Markdown preview beside the editor (macOS; Core + app halves), incl. decisions M1–M14:
+`docs/architecture/core-markdown-preview.md` — the Markdown preview beside the editor (macOS; Core + app halves), incl. decisions M1–M15:
 - `MarkdownDocument.swift` — the document tree (no raw-HTML case at all) + the `MarkdownParsing` seam.
 - `MarkdownListTightness.swift` — CommonMark's tight/loose rule, read off line spans *and* the source's blank lines (a gap is only the precondition — a link reference definition leaves a hole that is not one); what the caller owes it, the blank-line reading a code block's span needs, and the two shapes where cmark's own flag departs from the sentence it implements.
 - `MarkdownPreviewTheme.swift` — the page's colours as CSS strings; one entry per `SyntaxTokenKind`, the chrome/code split.
 - `MarkdownHighlightClasses.swift` — the pinned highlight-scope vocabulary → the editor's kinds; the class-name rule specificity rides on.
-- `MarkdownRenderer.swift` — tree → HTML body: one escape, `data-line` on top-level blocks only, the three presentational decisions.
-- `MarkdownPreviewPage.swift` — the app scheme's whole vocabulary, the shell, the CSP and its pinned bootstrap hash, the two entry points + `MarkdownPreviewPageSink`.
+- `MarkdownHeadingSlug.swift` — the heading `id`: the GFM slug rule (a tab removed, not folded; letter and digit Unicode's) + the document-ordered duplicate allocator; the renderer is its only caller.
+- `MarkdownRenderer.swift` — tree → HTML body: one escape, `data-line` on top-level blocks only, the heading's `id` (nothing else carries one), the three presentational decisions.
+- `MarkdownPreviewPage.swift` — the app scheme's whole vocabulary, the shell, the CSP and its pinned bootstrap hash, the three entry points + the one size helper both readings share + `MarkdownPreviewPageSink`.
 - `MarkdownPreviewAsset.swift` — the document context; target ↔ app-scheme URL in both directions (canonical containment) + the handler's four-case dispatch.
 - `MarkdownLinkRule.swift` — what a click does: four answers, no fifth.
 - `MarkdownScrollRule.swift` — the editor's top offset → the one line the page is given; one-directional by design.
@@ -800,8 +801,9 @@ ci.yml's `lint` job, and the version-bump procedure.
   shell's own bootstrap line. The page is **served, never string-loaded**
   (`loadHTMLString` is spelled nowhere), so the document, the four bundled files
   and every project image share one app-scheme origin; a keystroke is an
-  `innerHTML` assignment into the document already loaded, and only a theme or
-  code-font change reloads the shell. A file is reachable only inside the opened
+  `innerHTML` assignment into the document already loaded, a code-font step is one
+  call setting two custom properties on it, and only a theme change reloads the
+  shell. A file is reachable only inside the opened
   project root, checked **canonically** in the direction that composes a URL and
   again in the inverse that consumes one. Nothing is fetched at run time: the
   highlighter and the diagram renderer are pinned offline assets (~3.4 MB,

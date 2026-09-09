@@ -229,7 +229,7 @@ gains exactly one setter and decides nothing.
   `docs/architecture/app-shell.md`, `docs/architecture/core-leetcode.md`,
   `docs/FEATURES.md`, `README.md`, `CLAUDE.md`
 
-- [ ] `core-markdown-preview.md`: add the slug rule to the decision list (its own
+- [x] `core-markdown-preview.md`: add the slug rule to the decision list (its own
       decision, stating the flattening, the character classes, the duplicate
       suffix and the empty-heading answer, and that the renderer is its only
       caller); extend M7 so the reload rule names its two halves — a theme change
@@ -241,23 +241,23 @@ gains exactly one setter and decides nothing.
       Stated limits; delete the "What is still owed" section (its ⌘⇧P entry
       removed rather than struck through, the settled app-bundle note going with
       it), leaving no empty heading behind.
-- [ ] `docs/FEATURES.md`: the preview bullet drops the shared-chord sentence; the
+- [x] `docs/FEATURES.md`: the preview bullet drops the shared-chord sentence; the
       Known-limitations entry drops "no heading anchors — so an intra-document
       `#section` link lands nowhere" and the shared-chord sentence, and gains
       nothing else; the LeetCode *Open Problem…* row becomes Cmd+Option+P with no
       cross-reference to the preview.
-- [ ] `README.md`: the preview bullet keeps Cmd+Shift+P; the shortcut table's
+- [x] `README.md`: the preview bullet keeps Cmd+Shift+P; the shortcut table's
       Cmd+Shift+P row names the preview alone and a Cmd+Option+P row names *Open a
       LeetCode problem*, placed with the other Cmd+Option rows.
-- [ ] `docs/architecture/app-shell.md`: the View-menu paragraph drops the
+- [x] `docs/architecture/app-shell.md`: the View-menu paragraph drops the
       shared-chord sentence, and the LeetCode menu inventory names ⌘⌥P.
-- [ ] `docs/architecture/core-leetcode.md`: update the chord wherever the LeetCode
+- [x] `docs/architecture/core-leetcode.md`: update the chord wherever the LeetCode
       menu's *Open Problem…* is named (the two ⌘⇧P mentions there are about a *tab
       switch*, not the menu item — leave those, and re-read them before editing).
-- [ ] `CLAUDE.md`: the Markdown-preview invariant paragraph names the reload rule
+- [x] `CLAUDE.md`: the Markdown-preview invariant paragraph names the reload rule
       ("only a theme or code-font change reloads the shell") — correct it to the
       two halves, in one sentence, without growing the paragraph.
-- [ ] Re-run `swift test` (`LintConfigurationTests` and the doc-reading suites)
+- [x] Re-run `swift test` (`LintConfigurationTests` and the doc-reading suites)
       and `swiftlint --strict`.
 
 ## Post-Completion Checks (manual)

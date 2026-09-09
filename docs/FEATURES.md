@@ -656,9 +656,7 @@ user sees it.
   item is a checkmark, not a verb, because it is one setting for all Markdown
   files that survives a relaunch — it starts **off**, and while it is off the
   feature costs nothing at all. The menu item is greyed out on any tab that is not
-  Markdown. That chord is also LeetCode's *Open Problem…*: with a Markdown tab
-  active the preview takes it, and with anything else active the LeetCode sheet
-  does. Drag the divider to change the split — each half keeps a minimum width, and
+  Markdown. Drag the divider to change the split — each half keeps a minimum width, and
   where you left it is remembered across windows and relaunches, as a proportion,
   so it survives resizing the window too.
 
@@ -687,7 +685,11 @@ user sees it.
   break the editor's keyboard commands: Cmd+S, Cmd+/, Cmd+F, Go to Definition and
   the fold commands all still act on the file the preview is showing.
 
-  Links: an `http`, `https` or `mailto` link opens in your browser. A relative link
+  Links: a link to a heading in the same document (`[x](#a-heading)`) scrolls the
+  preview to it — every heading gets an anchor from its own text, lowercased with
+  spaces turned into hyphens, and two identical headings get distinct ones so the
+  second link reaches the second heading. An `http`, `https` or `mailto` link
+  opens in your browser. A relative link
   to a file inside the opened project opens that file as a tab — a `.md` target
   gets its own preview, a `.sqlite` target opens as a database viewer tab. Anything
   else — a `javascript:` link, a `data:` URL, a path pointing out of the project —
@@ -703,9 +705,8 @@ user sees it.
   table written by hand simply does not appear — Markdown's own syntax does, and
   that is all the preview reads); **images outside the opened project are not
   loaded**, including every `http(s)` one; and **there is no formula rendering** —
-  a `$…$` or `$$…$$` span is text. There is also no table of contents, no heading
-  anchors (so a `#section` link inside the document lands nowhere), no footnotes,
-  and no way to print or export the rendered page. macOS only: there is no preview
+  a `$…$` or `$$…$$` span is text. There is also no table of contents, no
+  footnotes, and no way to print or export the rendered page. macOS only: there is no preview
   on iPhone or iPad.
 - **Code folding (macOS).** Collapse a block behind its first line and expand it
   again. A chevron appears in the gutter beside every line that starts a
@@ -1195,8 +1196,7 @@ user sees it.
     session it produces is kept in the Keychain; **Sign Out** clears both that
     item and the `leetcode.com` cookies. One account at a time — switching means
     signing out and back in.
-  - **Open Problem…** (Cmd+Shift+P — on a Markdown tab this chord belongs to the
-    preview instead; see Known limitations) accepts a **problem number** (`1`), a
+  - **Open Problem…** (Cmd+Option+P) accepts a **problem number** (`1`), a
     **slug** (`two-sum`), or a **leetcode.com problem URL**, with a language
     picker offering Swift, Python 3, Go, Rust, TypeScript and JavaScript. The
     choice persists, so the next problem opens in the same language.
@@ -1460,10 +1460,8 @@ and iPhone. The feature scope landed so far:
   else**: raw HTML in the source produces nothing where it was written, images
   outside the opened project (every `http(s)` one included) show as broken images
   with their alt text, and there is no formula rendering. It has no table of
-  contents, no heading anchors — so an intra-document `#section` link lands
-  nowhere — no footnotes, and no print or export. Scroll sync runs one way only,
-  editor to preview. Its Cmd+Shift+P is shared with LeetCode's *Open Problem…*,
-  which is reachable on any tab that is not Markdown and not while one is active.
+  contents, no footnotes, and no print or export. Scroll sync runs one way only,
+  editor to preview.
 - Code folding is **macOS-only**. There is no folding on iPhone or iPad: no
   gutter chevron, no placeholder and no Fold/Unfold commands.
 - The **minimap shows every line regardless of folds**. It is drawn from the text
