@@ -30,8 +30,9 @@ import WebKit
 /// position survives a keystroke.
 ///
 /// **Every navigation is cancelled.** The preview never navigates itself: it
-/// loads the shell once per theme or font change and is otherwise updated in
-/// place, so a navigation is always a link and is always one of
+/// loads the shell once per theme change — and on a recovery from a dead page —
+/// and is otherwise updated in place (a code-zoom step included), so a
+/// navigation is always a link and is always one of
 /// ``MarkdownLinkDecision``'s four answers. Three of them carry a side effect —
 /// the system opens it, the app opens a tab, the page scrolls — and all four end
 /// in `.cancel`, because none of them is "let the web view go there".

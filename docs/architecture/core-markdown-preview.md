@@ -997,7 +997,8 @@ an injectable `sleep`, so the ordering — including a second edit landing while
 the first parse runs — is deterministic in `swift test` and adds no wall clock.
 
 State: the `context`, the last forwarded `text`, `lastDocument` (held precisely
-so a theme or font change re-renders **without re-parsing**), `lastBody` (so an
+so a theme change — and a recovery from a dead page — re-renders **without
+re-parsing**; a font-size change re-renders nothing at all), `lastBody` (so an
 update that would change nothing sends nothing), the `appearance` the installed
 shell was composed from, the generation token, the in-flight `renderTask` and the
 pending scroll line.
