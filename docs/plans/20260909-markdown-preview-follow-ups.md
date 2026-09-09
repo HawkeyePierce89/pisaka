@@ -88,47 +88,47 @@ gains exactly one setter and decides nothing.
   list)
 - Create tests: `Tests/PisakaCoreTests/MarkdownHeadingSlugTests.swift`
 
-- [ ] Write `MarkdownHeadingSlug` in Core: one pure `slug(forText:)` — lowercased,
+- [x] Write `MarkdownHeadingSlug` in Core: one pure `slug(forText:)` — lowercased,
       every character that is not a letter, a digit, a space or a hyphen removed
       (a tab is removed, not folded to a hyphen; state that), spaces turned into
       hyphens, an empty result answering `nil` — plus a small `mutating` allocator
       value that suffixes `-1`, `-2`, … per repeat of a slug in document order.
       Document why the rule lives beside the renderer and why the allocator is a
       value threaded through the walk rather than static state.
-- [ ] Thread the allocator through `MarkdownRenderer.body(for:context:)` and every
+- [x] Thread the allocator through `MarkdownRenderer.body(for:context:)` and every
       nested path (`renderNested`, `renderItems`, table rows) as `inout`, so a
       heading inside a blockquote or a list item gets an `id` on the same terms as
       a top-level one, and document order is the allocation order.
       `plainText(_:)` — the flattening `alt` already uses — is the heading's text;
       nothing else in the tree gains an `id`.
-- [ ] Emit the attribute through the existing `attribute(_:_:)` escape (nothing
+- [x] Emit the attribute through the existing `attribute(_:_:)` escape (nothing
       bypasses the one escape), with a heading whose text is empty carrying no
       `id` at all.
-- [ ] Update the three comments that state "the renderer emits no `id`" as a
+- [x] Update the three comments that state "the renderer emits no `id`" as a
       reason: `MarkdownPreviewAsset.fileURL(forTarget:documentURL:)` (a
       *cross-file* fragment is still dropped, and now for its own reason — the
       link opens that file in the editor),
       `MarkdownPreviewPage.scrollToAnchorSource(anchor:)`, and `preview.js`'s
       `scrollToAnchor` comment. `preview.js` gains no code in this task.
-- [ ] Tests for the rule itself: lowercasing, punctuation removal, spaces, a
+- [x] Tests for the rule itself: lowercasing, punctuation removal, spaces, a
       heading with inline markup, a heading that is only punctuation or only
       whitespace (no id, stated), duplicates in document order (`x`, `x-1`,
       `x-2`), and that a slug that already ends in `-1` does not collide silently.
-- [ ] Tests for the renderer: headings at every level carry their id; the two
+- [x] Tests for the renderer: headings at every level carry their id; the two
       existing assertions (`<h6>t</h6>`, the `data-line` case) updated to the new
       markup; a heading nested in a blockquote and one in a list item carry ids; a
       heading whose children are an image alone slugs its alt text.
-- [ ] The round trip, end to end in `swift test`: render a document whose body has
+- [x] The round trip, end to end in `swift test`: render a document whose body has
       a heading and a link `[x](#…)` to it, read the `href` the renderer emitted,
       resolve it against `MarkdownPreviewPage.shellURL` the way the web view does,
       feed the result to `MarkdownLinkRule.decision(for:context:)`, and assert
       `.anchor(f)` where `f` equals the `id` the same render put on that heading —
       for the plain case, the punctuation case and the duplicate case (the second
       link reaching the second heading).
-- [ ] Add `MarkdownHeadingSlug.swift` to
+- [x] Add `MarkdownHeadingSlug.swift` to
       `MarkdownPreviewSourceGatingTests.coreFileNames` so the suite's file-set
       rule covers it.
-- [ ] Run `swift test` — must be green before Task 2.
+- [x] Run `swift test` — must be green before Task 2.
 
 ### Task 2: The ⌘⇧P collision
 

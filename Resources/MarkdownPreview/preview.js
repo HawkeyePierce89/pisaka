@@ -207,9 +207,12 @@
 
        An `id` lookup and nothing more: the fragment arrives as the document
        spelled it, and no other reading of it — a heading's text, a slug derived
-       from one — is invented here. `MarkdownRenderer` emits no `id` today, so a
-       fragment lands on nothing and the page stays where it is, which is the
-       honest answer for a link into a document that carries no targets. */
+       from one — is invented here. The ids it finds are the ones
+       `MarkdownRenderer` put on the headings, by a slug rule that lives in Core
+       so that both halves of the round trip are asserted in one language; a
+       fragment naming nothing in the document lands on nothing and the page
+       stays where it is, which is the honest answer for a link to a section
+       this document does not have. */
     function scrollToAnchor(name) {
         var target = document.getElementById(name);
         if (!target) { return; }

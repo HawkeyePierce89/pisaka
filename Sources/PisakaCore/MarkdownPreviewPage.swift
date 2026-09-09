@@ -335,10 +335,14 @@ extension MarkdownPreviewPage {
     /// would be a way to end the call and start a statement.
     ///
     /// The page answers this by an `id` lookup and does nothing when it finds
-    /// none — which is what an anchor into a document that carries no `id` at
-    /// all means today, `MarkdownRenderer` emitting none. The seam exists here
-    /// rather than in the navigation delegate for the reason every other one
-    /// does: the app passes a fragment, it does not compose a call.
+    /// none. What it finds are the heading anchors `MarkdownRenderer` emits
+    /// through `MarkdownHeadingSlug` — the whole reading of a heading's text
+    /// happens in Core, so this seam carries a name, never a rule — and a
+    /// fragment naming nothing in the document leaves the page where it is,
+    /// which is the honest answer for a link to a section that is not there. The
+    /// seam exists here rather than in the navigation delegate for the reason
+    /// every other one does: the app passes a fragment, it does not compose a
+    /// call.
     public static func scrollToAnchorSource(anchor: String) -> String {
         "window.\(namespace).scrollToAnchor(\(javaScriptStringLiteral(anchor)));"
     }

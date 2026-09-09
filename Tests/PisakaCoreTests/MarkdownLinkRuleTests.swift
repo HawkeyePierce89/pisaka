@@ -147,6 +147,109 @@ final class MarkdownLinkRuleTests: XCTestCase {
         XCTAssertEqual(CanonicalPath.canonical(fileURL), CanonicalPath.canonical(target))
     }
 
+    // MARK: - The round trip: a heading and a link to it
+
+    /// Every `href` in `html`, in document order.
+    private func hrefs(in html: String) throws -> [String] {
+        try values(of: "href", in: html)
+    }
+
+    /// Every `id` in `html`, in document order.
+    private func ids(in html: String) throws -> [String] {
+        try values(of: "id", in: html)
+    }
+
+    private func values(of name: String, in html: String) throws -> [String] {
+        let pattern = try NSRegularExpression(pattern: "\\b\(name)=\"([^\"]*)\"")
+        let range = NSRange(html.startIndex..., in: html)
+        return try pattern.matches(in: html, range: range).map { match in
+            let captured = try XCTUnwrap(Range(match.range(at: 1), in: html))
+            return String(html[captured])
+        }
+    }
+
+    /// What the *web view* does with an `href`: resolve it against the one URL
+    /// the page was ever loaded from.
+    private func navigationURL(for href: String) throws -> URL {
+        try XCTUnwrap(URL(string: href, relativeTo: MarkdownPreviewPage.shellURL)).absoluteURL
+    }
+
+    /// A document whose body is `## <heading>` followed by `[x](#<link>)`, for
+    /// each pair given, rendered in that order.
+    private func document(headingsAndLinks pairs: [(String, String)]) -> MarkdownDocument {
+        MarkdownDocument(blocks: pairs.flatMap { heading, link in
+            [
+                MarkdownTopLevelBlock(block: .heading(level: 2, children: [.text(heading)]), sourceLine: nil),
+                MarkdownTopLevelBlock(
+                    block: .paragraph([.link(destination: "#\(link)", title: nil, children: [.text("x")])]),
+                    sourceLine: nil
+                ),
+            ]
+        })
+    }
+
+    /// A link an author spelled by hand reaches the heading it names.
+    ///
+    /// The whole round trip in one assertion, and the only place the two halves
+    /// meet: `MarkdownHeadingSlug` decides what the `id` is, the renderer emits
+    /// both it and the `href`, the web view resolves the fragment-only spelling
+    /// against the shell, and `MarkdownLinkRule` reads it back. Either half
+    /// changing its idea of what a slug is fails here — nothing else in the
+    /// pipeline compares the two.
+    func testAFragmentLinkReachesTheHeadingItNames() throws {
+        let rendered = MarkdownRenderer.body(
+            for: document(headingsAndLinks: [("A Heading", "a-heading"), ("What’s new?", "whats-new")]),
+            context: context
+        )
+
+        let ids = try ids(in: rendered)
+        XCTAssertEqual(ids, ["a-heading", "whats-new"])
+
+        for (index, href) in try hrefs(in: rendered).enumerated() {
+            let decision = MarkdownLinkRule.decision(for: try navigationURL(for: href), context: context)
+            XCTAssertEqual(decision, .anchor(ids[index]), href)
+        }
+    }
+
+    /// The duplicate case: two headings that slug alike, and the second link
+    /// reaching the second heading rather than the first.
+    ///
+    /// This is what the allocator is *for*, and it is invisible from either side
+    /// alone — the ids are distinct in the markup and the fragments are distinct
+    /// in the URLs, and only pairing them says the second link lands on the
+    /// second heading.
+    func testTheSecondOfTwoIdenticalHeadingsIsReachedByItsOwnLink() throws {
+        let rendered = MarkdownRenderer.body(
+            for: document(headingsAndLinks: [("Notes", "notes"), ("Notes", "notes-1")]),
+            context: context
+        )
+
+        let ids = try ids(in: rendered)
+        XCTAssertEqual(ids, ["notes", "notes-1"])
+
+        let hrefs = try hrefs(in: rendered)
+        XCTAssertEqual(hrefs, ["#notes", "#notes-1"])
+        XCTAssertEqual(
+            MarkdownLinkRule.decision(for: try navigationURL(for: hrefs[1]), context: context),
+            .anchor("notes-1")
+        )
+    }
+
+    /// A fragment naming a heading the document does not have still resolves to
+    /// an anchor — the page's own lookup is what finds nothing, and the rule has
+    /// no business knowing which ids exist.
+    func testAFragmentNamingNoHeadingIsStillAnAnchor() throws {
+        let rendered = MarkdownRenderer.body(
+            for: document(headingsAndLinks: [("A Heading", "not-here")]),
+            context: context
+        )
+        let href = try XCTUnwrap(try hrefs(in: rendered).first)
+        XCTAssertEqual(
+            MarkdownLinkRule.decision(for: try navigationURL(for: href), context: context),
+            .anchor("not-here")
+        )
+    }
+
     // MARK: - External
 
     func testTheThreeExternalSchemesLeaveTheApp() throws {

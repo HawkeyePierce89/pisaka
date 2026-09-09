@@ -97,6 +97,7 @@ final class MarkdownPreviewSourceGatingTests: XCTestCase {
         "MarkdownPreviewTheme.swift",
         "MarkdownHighlightClasses.swift",
         "MarkdownRenderer.swift",
+        "MarkdownHeadingSlug.swift",
         "MarkdownPreviewPage.swift",
         "MarkdownPreviewAsset.swift",
         "MarkdownLinkRule.swift",

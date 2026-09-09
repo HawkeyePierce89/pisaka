@@ -105,10 +105,16 @@ public enum MarkdownPreviewAsset {
         // — the ordinary shape of a cross-file link in a documentation tree —
         // names `other.md` and a place inside it, and `img/a.png?v=2` — the
         // ordinary shape of a cache-busted image — names `img/a.png`. Both are
-        // dropped rather than carried, there being nothing to carry them to (the
-        // renderer emits no `id`, a stated limit, and the scheme handler answers
-        // a file, not a request with parameters), and the file is what the
-        // target is for. The `file:` branch above already answers this way,
+        // dropped rather than carried, there being nothing to carry them to, and
+        // the file is what the target is for. That reason is now different for
+        // each of the two: a query is dropped because the scheme handler answers
+        // a file, not a request with parameters; a *cross-file* fragment is
+        // dropped because the link's answer is `openInEditor` — the target opens
+        // as a tab in the editor, which has no notion of a place inside it that
+        // an anchor could name. (Headings do carry an `id` now, and a fragment on
+        // *this* document reaches one — that is `MarkdownLinkRule`'s `.anchor`
+        // case, and it never comes through here, a fragment-only target being
+        // refused above.) The `file:` branch above already answers this way,
         // `URL` reading both components out for it; this is that same reading,
         // by hand, for a target `URL(string:)` must not be asked to parse.
         //

@@ -325,10 +325,120 @@ final class MarkdownRendererTests: XCTestCase {
     /// HTML has no seventh heading.
     func testHeadingLevelsAreClamped() {
         for level in 1...6 {
-            XCTAssertEqual(body(.heading(level: level, children: [.text("t")])), "<h\(level)>t</h\(level)>")
+            XCTAssertEqual(
+                body(.heading(level: level, children: [.text("t")])),
+                "<h\(level) id=\"t\">t</h\(level)>"
+            )
         }
-        XCTAssertEqual(body(.heading(level: 9, children: [.text("t")])), "<h6>t</h6>")
-        XCTAssertEqual(body(.heading(level: 0, children: [.text("t")])), "<h1>t</h1>")
+        XCTAssertEqual(body(.heading(level: 9, children: [.text("t")])), "<h6 id=\"t\">t</h6>")
+        XCTAssertEqual(body(.heading(level: 0, children: [.text("t")])), "<h1 id=\"t\">t</h1>")
+    }
+
+    // MARK: - Heading anchors
+
+    /// Every level carries its `id`, ahead of the `data-line` a top-level block
+    /// also gets. The rule itself is `MarkdownHeadingSlugTests`; what is
+    /// asserted here is that the renderer asks it and where the answer lands.
+    func testHeadingsCarryTheirAnchor() {
+        for level in 1...6 {
+            XCTAssertEqual(
+                body(.heading(level: level, children: [.text("A Heading!")]), line: 3),
+                "<h\(level) id=\"a-heading\" data-line=\"3\">A Heading!</h\(level)>"
+            )
+        }
+    }
+
+    /// The anchor is named after the heading's *words*, the same flattening an
+    /// image's `alt` gets: markup inside a heading is how it is drawn, never
+    /// part of what a link to it spells.
+    func testAnAnchorIsNamedAfterTheFlattenedText() {
+        XCTAssertEqual(
+            body(.heading(level: 2, children: [.text("The "), .strong([.text("one")]), .code("rule")])),
+            "<h2 id=\"the-onerule\">The <strong>one</strong><code>rule</code></h2>"
+        )
+    }
+
+    /// A heading whose only child is an image slugs that image's alt text —
+    /// `plainText(_:)` reaching through the image the same way it reaches
+    /// through an emphasis.
+    func testAHeadingOfAnImageAloneSlugsItsAltText() {
+        let rendered = body(.heading(level: 1, children: [
+            .image(source: nil, title: nil, children: [.text("The Logo")]),
+        ]))
+        XCTAssertEqual(rendered, "<h1 id=\"the-logo\"><img alt=\"The Logo\"></h1>")
+    }
+
+    /// A heading the slug rule leaves unnamed carries no `id` at all — not
+    /// `id=""`, which is a target a reader would take for one.
+    func testAHeadingWithNothingNameableCarriesNoAnchor() {
+        XCTAssertEqual(body(.heading(level: 2, children: [.text("!?")])), "<h2>!?</h2>")
+        XCTAssertEqual(body(.heading(level: 2, children: []), line: 4), "<h2 data-line=\"4\"></h2>")
+    }
+
+    /// Repeats are numbered in the order the *walk* reaches them, which is
+    /// document order.
+    func testRepeatedHeadingsAreNumberedInDocumentOrder() {
+        let rendered = body([
+            MarkdownTopLevelBlock(block: .heading(level: 1, children: [.text("Notes")]), sourceLine: nil),
+            MarkdownTopLevelBlock(block: .heading(level: 2, children: [.text("notes")]), sourceLine: nil),
+            MarkdownTopLevelBlock(block: .heading(level: 3, children: [.text("NOTES")]), sourceLine: nil),
+        ])
+        XCTAssertEqual(rendered, """
+            <h1 id="notes">Notes</h1>
+            <h2 id="notes-1">notes</h2>
+            <h3 id="notes-2">NOTES</h3>
+            """)
+    }
+
+    /// A heading nested in a blockquote or a list item is a heading: it gets an
+    /// `id` on the same terms, numbered where it sits rather than after every
+    /// top-level one. The allocator travels the whole walk, which is the only
+    /// way the second `Notes` here can be `notes-1` and the third `notes-2`.
+    func testNestedHeadingsCarryAnchorsInWalkOrder() {
+        let rendered = body([
+            MarkdownTopLevelBlock(block: .heading(level: 1, children: [.text("Notes")]), sourceLine: nil),
+            MarkdownTopLevelBlock(
+                block: .blockQuote([.heading(level: 2, children: [.text("Notes")])]),
+                sourceLine: nil
+            ),
+            MarkdownTopLevelBlock(
+                block: .unorderedList(isTight: true, items: [
+                    MarkdownListItem(blocks: [.heading(level: 3, children: [.text("Notes")])]),
+                ]),
+                sourceLine: nil
+            ),
+        ])
+        XCTAssertEqual(rendered, """
+            <h1 id="notes">Notes</h1>
+            <blockquote><h2 id="notes-1">Notes</h2></blockquote>
+            <ul><li><h3 id="notes-2">Notes</h3></li></ul>
+            """)
+    }
+
+    /// The same tree rendered twice is the same markup: the allocator is a value
+    /// created per render, not state that survives one.
+    func testRenderingTheSameDocumentTwiceProducesTheSameAnchors() {
+        let blocks = [
+            MarkdownTopLevelBlock(block: .heading(level: 1, children: [.text("Notes")]), sourceLine: nil),
+            MarkdownTopLevelBlock(block: .heading(level: 1, children: [.text("Notes")]), sourceLine: nil),
+        ]
+        XCTAssertEqual(body(blocks), body(blocks))
+    }
+
+    /// Nothing but a heading gains an `id`.
+    func testNoOtherBlockGainsAnAnchor() {
+        let cases: [MarkdownBlock] = [
+            .paragraph([.text("p")]),
+            .codeBlock(language: "swift", code: "c"),
+            .blockQuote([.paragraph([.text("q")])]),
+            .unorderedList(isTight: true, items: [MarkdownListItem(blocks: [.paragraph([.text("i")])])]),
+            .orderedList(start: 1, isTight: true, items: [MarkdownListItem(blocks: [.paragraph([.text("i")])])]),
+            .table(alignments: [.none], header: MarkdownTableRow(cells: [[.text("h")]]), body: []),
+            .thematicBreak,
+        ]
+        for block in cases {
+            XCTAssertFalse(body(block, line: 7).contains(" id=\""), "\(block)")
+        }
     }
 
     func testInlineKinds() {
@@ -373,7 +483,7 @@ final class MarkdownRendererTests: XCTestCase {
             MarkdownTopLevelBlock(block: .heading(level: 1, children: [.text("A")]), sourceLine: 1),
             MarkdownTopLevelBlock(block: .paragraph([.text("B ")]), sourceLine: 5),
         ])
-        XCTAssertEqual(rendered, "<h1 data-line=\"1\">A</h1>\n<p data-line=\"5\">B </p>")
+        XCTAssertEqual(rendered, "<h1 id=\"a\" data-line=\"1\">A</h1>\n<p data-line=\"5\">B </p>")
         XCTAssertFalse(rendered.contains("div"))
         XCTAssertFalse(rendered.contains("onclick"))
         XCTAssertFalse(rendered.contains("<b>"))
