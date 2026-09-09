@@ -480,4 +480,71 @@ final class MarkdownPreviewModelTests: XCTestCase {
         XCTAssertEqual(sink.shellReloads.count, 1, "the shell survives a clear")
         XCTAssertEqual(parser.parsed, ["alpha", "alpha"])
     }
+
+    // MARK: - A page that died
+
+    /// The web content process dies: both halves of the document are installed
+    /// again, and the parser is not asked.
+    ///
+    /// The assertion that matters is the *body*, not the shell. Every method on
+    /// this model is a no-op for a fact that did not move, so the page's memory
+    /// — `lastBody` — is exactly what makes a blank pane unrecoverable: the body
+    /// that must be re-sent is byte-for-byte the one already recorded as shown,
+    /// which is why re-typing it, hiding the pane or switching back to the tab
+    /// would all send nothing. Recovery is therefore only real if the same body
+    /// crosses the seam a second time.
+    func testAPageThatDiedIsInstalledAgainWithoutReParsing() async {
+        let (model, parser, sink) = makeModel()
+        model.updateAppearance(theme: .dark, fontSize: 15)
+        model.retarget(to: documentContext, text: "alpha")
+        await waitFor("the body") { sink.bodies.last == self.body(for: "alpha") }
+
+        sink.clearEvents()
+        model.pageIsGone()
+        await waitFor("the body, sent again") { sink.bodies.last == self.body(for: "alpha") }
+
+        XCTAssertEqual(
+            sink.shellReloads.count,
+            1,
+            "the shell is composed again from the appearance already forwarded: the reloaded page ships "
+                + "its container empty, so a body with no shell under it would have nowhere to land"
+        )
+        XCTAssertEqual(
+            parser.parsed,
+            ["alpha"],
+            "the buffer did not change — only the page did — so the tree in hand is re-rendered rather "
+                + "than re-parsed, exactly as an appearance change is"
+        )
+    }
+
+    /// A death before the first appearance was forwarded: nothing is installed,
+    /// because there is no shell to compose and nothing was ever shown.
+    func testAPageThatDiedBeforeAnyShellInstallsNothing() async {
+        let (model, parser, sink) = makeModel()
+
+        model.pageIsGone()
+        await settle()
+
+        XCTAssertEqual(sink.events, [])
+        XCTAssertEqual(parser.parsed, [])
+    }
+
+    /// The next keystroke after a recovery still reaches the page.
+    ///
+    /// The recovery re-sends a body the model had already recorded, so this is
+    /// the check that it re-*recorded* it too: a memory left cleared would make
+    /// the following edit's body look new when it is not, and one left holding
+    /// the pre-death value would be the same trap read from the other side.
+    func testEditingAfterARecoveryStillPublishes() async {
+        let (model, _, sink) = makeModel()
+        model.updateAppearance(theme: .dark, fontSize: 15)
+        model.retarget(to: documentContext, text: "alpha")
+        await waitFor("the body") { sink.bodies.last == self.body(for: "alpha") }
+
+        model.pageIsGone()
+        await waitFor("the body, sent again") { sink.bodies.last == self.body(for: "alpha") }
+
+        model.noteTextChanged("beta")
+        await waitFor("the edit's body") { sink.bodies.last == self.body(for: "beta") }
+    }
 }

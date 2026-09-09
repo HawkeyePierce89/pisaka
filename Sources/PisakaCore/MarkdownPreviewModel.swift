@@ -160,6 +160,36 @@ public final class MarkdownPreviewModel {
         publishBody()
     }
 
+    /// The page is gone: the document this model was driving no longer exists,
+    /// and whatever the page was showing went with it.
+    ///
+    /// **The one fact only the app half can observe, and the one recovery only
+    /// this half can perform.** A web content process can die — a crash, or the
+    /// system reclaiming it — and WebKit puts nothing back on its own; but the
+    /// shell is a string this model composed and the body is one only this model
+    /// still remembers, so the page half has nothing to reload *from*. It
+    /// therefore reports the fact and the shell and the body are installed
+    /// again, from the tree already parsed. The parser is not asked: the buffer
+    /// did not change, only the page did.
+    ///
+    /// Not doing this leaves a blank pane for the rest of the window's life.
+    /// Every method above is deliberately a no-op for a fact that did not move
+    /// — ``updateAppearance(theme:fontSize:)`` returns early on an unchanged
+    /// appearance, ``publish(body:)`` on an unchanged body — so nothing the user
+    /// can do would send anything: typing re-renders markup already recorded as
+    /// shown, and hiding and showing the pane re-forwards facts that did not
+    /// change. Those early returns are right; what was missing is the one event
+    /// that makes the memory they compare against false.
+    ///
+    /// Before the first ``updateAppearance(theme:fontSize:)`` there is no shell
+    /// to reinstall and nothing to recover, which is what the guard says.
+    public func pageIsGone() {
+        guard let appearance else { return }
+        lastBody = nil
+        sink.reloadShell(html: MarkdownPreviewPage.html(theme: appearance.theme, fontSize: appearance.fontSize))
+        publishBody()
+    }
+
     /// The document the preview is pointed at, with the text it holds.
     ///
     /// A **retarget** clears the body, forgets the tree and parses immediately

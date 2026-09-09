@@ -840,8 +840,11 @@ overlays:
 `BracketOverlayLayoutManager`/`FoldingTypesetter`, `LineNumberRulerView`,
 the layout seams, the download collector's ceiling rule
 (`BoundedBodyCollectorTests`, `core-provisioning.md`), and the Markdown
-preview's three app-side suites — `MarkdownParserTests` (the pipeline's one
-*execution* of `import Markdown`, over a fixture), `MarkdownPreviewSchemeHandlerTests`
+preview's four app-side suites — `MarkdownParserTests` (the pipeline's one
+*execution* of `import Markdown`, over a fixture), `MarkdownPreviewSchemeHandlerTests`,
+`MarkdownPreviewNavigationTests` (the one gate that drives a real `WKWebView`:
+the shell the page asks for is *allowed and loads*, a policy resting on three of
+WebKit's own answers that no Core test can reach)
 and `EditorCommandTargetTests` (`core-markdown-preview.md`). It exists because the folding launch-time trap
 (`FoldingTypesetter.init()` re-entered through Objective-C) passed **every gate
 the pipeline had** — the Core suites *and* the smoke launch, measured to survive

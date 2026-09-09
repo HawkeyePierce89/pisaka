@@ -649,6 +649,19 @@ The four facts the glue forwards:
   `scrollToLine` carrying the last line. Nothing is sent while the page shows no
   body — there is no element to scroll to, and the position will be part of the
   next scroll anyway.
+- `pageIsGone()` — the page's web content process died and took the document
+  with it. The shell is composed again from the appearance already forwarded and
+  the body re-sent **from the tree already parsed**: the buffer did not change,
+  only the page did, so this costs a render and not a parse — exactly as an
+  appearance change does. It is the one method whose *purpose* is to falsify the
+  memory the others compare against: `lastBody` and `appearance` describe a page
+  that no longer exists, and while they stand every method above is correctly a
+  no-op, so no keystroke, no ⌘⇧P and no tab switch would put anything back and
+  the blank pane would last the window's life. Before the first
+  `updateAppearance(theme:fontSize:)` there is no shell to reinstall and nothing
+  was ever shown, which is the guard. The fact is observable only in the app
+  half (`webViewWebContentProcessDidTerminate(_:)`); the recovery is possible
+  only here.
 
 The parse runs in a detached task at `.userInitiated` and the token is re-checked
 on return; cancellation is a courtesy, not the mechanism.
@@ -726,6 +739,37 @@ the page is showing.
   under the user. That is `LeetCodeStatementWebView`'s precedent. Everything else
   goes through `MarkdownLinkRule` and ends in `.cancel`, whichever of the four
   answers it was.
+- **The count is a discriminator, never the whole test**, and three conditions
+  stand beside it: the main frame, `MarkdownPreviewPage.shellURL`, and
+  `navigationType == .other`, which is what `load(_:)` produces. The count is
+  what separates this from a document linking to the shell's own path — that one
+  is `.linkActivated` and fails the type test on its own — while the three are
+  what bound a count that *leaked* (a page whose process dies while a load is
+  still provisional decides no policy for it) to the page's own shell. Without
+  them a leak hands the next navigation an unconditional `.allow` into the main
+  frame: one click on an `http` link in a rendered document and the pane is a
+  live remote page, outside the shell's CSP, with no back gesture and nothing
+  that reloads the shell.
+- **Only a click carries a side effect.** Three of the rule's four answers act
+  outside the page — the system opens a URL, the app opens a tab, the page
+  scrolls — so anything that is not `.linkActivated` is cancelled before the
+  rule is asked. Same refusal, same reason, as the LeetCode delegate's: a
+  `<meta http-equiv="refresh">` would otherwise launch a browser at an arbitrary
+  URL the moment the pane rendered, with no click and no confirmation. That this
+  page's tree has **no raw-HTML case** to author one with is a second property
+  (M1), not a reason to rest the first on it.
+- **A page can die, and it is the model that puts it back.**
+  `webViewWebContentProcessDidTerminate(_:)` drops the state describing a page
+  that no longer exists — the dead process decides no policy and ends no
+  navigation, so the count, the awaited navigation and the pending queue would
+  otherwise be held forever — and calls `pageIsGone`, the second injected
+  closure. It reloads nothing itself: the shell is a string the model composed
+  and the body one only the model remembers, so the app half has nothing to
+  reload *from*. Recovery is therefore
+  `MarkdownPreviewModel.pageIsGone()`'s, and it is what keeps the model's early
+  returns honest — with `lastBody` and `appearance` both still describing the
+  page that died, no keystroke, no ⌘⇧P and no tab switch would send anything at
+  all, and the blank pane would last the window's life.
 - **Two reloads can be in flight, and both halves above are counted rather than
   latched because of it.** Every code-zoom step is an appearance change, so two
   presses in a row ask for two shells before the first one's policy decision has
@@ -754,6 +798,13 @@ four facts, and holds no token, no debounce and no dirty flag. It has no tests o
 its own because there is nothing here `MarkdownPreviewModelTests` does not
 already assert; its *shape* — one `import Markdown` away, one `import WebKit`
 away, naming no writer gate — is pinned by the gating suite.
+
+It makes **one wire** rather than forwarding it, and that is still not a
+decision of its own: the model is built in a `lazy` that also hands the page its
+`pageIsGone` closure, so the pair cannot exist unjoined. A page that died is a
+fact only the web view can observe and a recovery only the model can perform;
+this is simply where both are already owned. The model is captured weakly — it
+holds the page as its sink, and the closure travels the other way.
 
 Two translations, neither a decision: `preview(_:projectRoot:)` turns "no
 previewable tab" into `clear()` and otherwise sets the context on the page **and**
@@ -915,9 +966,17 @@ document that carries no targets.
   destination filter) and `ZoomSourceGatingTests` (the fifth code surface).
 - App bundle (`PisakaAppTests`, `xcodebuild … -destination 'platform=macOS' test`):
   `MarkdownParserTests` — the one place the real parser runs, over the
-  `every-element.md` fixture — and `MarkdownPreviewSchemeHandlerTests`, which
+  `every-element.md` fixture — `MarkdownPreviewSchemeHandlerTests`, which
   asserts `answer(for:)` and the `WKURLSchemeTask` adapter without a web view,
-  including the forged-URL and escape refusals.
+  including the forged-URL and escape refusals, and
+  `MarkdownPreviewNavigationTests`, the feature's **one gate that drives a real
+  `WKWebView`**: the shell the page asks for is allowed and loads. Three of the
+  four facts the own-load policy reads are WebKit's answers rather than this
+  repository's, and a wrong reading of any of them compiles, breaks no Core
+  test, and cancels the one load the feature performs — leaving the pane blank
+  for the app's life. Asserted end to end (the shell's container element exists
+  in the loaded document) rather than by standing a probe in for the delegate,
+  so the real object is the one deciding.
 
 ## Stated limits
 

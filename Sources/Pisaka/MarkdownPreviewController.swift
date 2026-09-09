@@ -49,7 +49,20 @@ final class MarkdownPreviewController: ObservableObject {
 
     /// The ordering. Built over the page above, which is why it is `lazy` too —
     /// touching it is what builds the web view.
-    private lazy var model = MarkdownPreviewModel(parser: parser, sink: page)
+    ///
+    /// The one wire this file makes rather than forwards, and it is still not a
+    /// decision of its own: a page that died is a fact the web view alone can
+    /// observe and a recovery only the model can perform, so the two are joined
+    /// here, where both are owned, and what happens next is entirely
+    /// ``MarkdownPreviewModel/pageIsGone()``'s. Joined in the `lazy` that builds
+    /// the model rather than in `init`, because that is the moment the pair
+    /// first exists — so it cannot exist unjoined. The model is captured weakly:
+    /// it holds the page as its sink, and the closure travels the other way.
+    private lazy var model: MarkdownPreviewModel = {
+        let model = MarkdownPreviewModel(parser: parser, sink: page)
+        page.pageIsGone = { [weak model] in model?.pageIsGone() }
+        return model
+    }()
 
     init(parser: any MarkdownParsing = MarkdownParser()) {
         self.parser = parser

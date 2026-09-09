@@ -60,6 +60,11 @@ final class MarkdownPreviewWebView: NSObject, MarkdownPreviewPageSink {
     /// injected so this file neither knows nor decides what opening means.
     var openInEditor: ((URL) -> Void)?
 
+    /// What to do when the page dies under this object — injected for the same
+    /// reason as the closure above: the fact is observable only here, and what
+    /// to put back is known only to the model.
+    var pageIsGone: (() -> Void)?
+
     /// How many loads this object has asked for and not yet been asked to
     /// decide a policy for.
     ///
@@ -77,6 +82,18 @@ final class MarkdownPreviewWebView: NSObject, MarkdownPreviewPageSink {
     /// load would be cancelled and the preview would never appear. Every
     /// `load(_:)` is answered by exactly one policy decision, so the count
     /// returns to zero.
+    ///
+    /// **The count is a discriminator, never the whole test.** It says only
+    /// that a load was asked for and not yet decided — it cannot say that the
+    /// navigation now being judged *is* that load. A count that leaks (a page
+    /// whose process dies while a load is still provisional decides no policy
+    /// for it) would otherwise hand the exemption to whatever navigates next,
+    /// and that exemption is unconditional `.allow` into the main frame: one
+    /// click on an `http` link in a rendered document and the pane is a live
+    /// remote page, outside the shell's CSP, with no back gesture and nothing
+    /// that reloads the shell. The three conditions beside the count in
+    /// ``webView(_:decidePolicyFor:decisionHandler:)`` bound what a leak can
+    /// authorise to the page's own shell.
     private var ownLoadsAwaitingDecision = 0
 
     /// Sources handed over while the shell is still loading, and whether that is
@@ -188,13 +205,41 @@ extension MarkdownPreviewWebView: WKNavigationDelegate {
         decidePolicyFor navigationAction: WKNavigationAction,
         decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
     ) {
-        // The one allowed navigation: a document this object just asked for.
-        if ownLoadsAwaitingDecision > 0 {
+        // **The one allowed navigation: a document this object just asked for.**
+        //
+        // Recognised by *having just asked for it* — see the count — and by the
+        // three facts that are true of every such load and of nothing a document
+        // can author: it is the main frame, it is the shell's own URL, and it is
+        // `.other`, which is what `load(_:)` produces. The count is what
+        // separates this from a document linking to the shell's path, which is
+        // `.linkActivated` and fails the last test on its own; the three are
+        // what keep a leaked count from authorising a destination of the page's
+        // choosing rather than of this object's.
+        let isMainFrame = navigationAction.targetFrame?.isMainFrame ?? true
+        if ownLoadsAwaitingDecision > 0,
+            isMainFrame,
+            navigationAction.navigationType == .other,
+            navigationAction.request.url == MarkdownPreviewPage.shellURL {
             ownLoadsAwaitingDecision -= 1
             decisionHandler(.allow)
             return
         }
         guard let url = navigationAction.request.url else {
+            decisionHandler(.cancel)
+            return
+        }
+
+        // **Only a click carries a side effect.** Three of the rule's four
+        // answers act on the world outside the page — the system opens a URL,
+        // the app opens a tab, the page scrolls — and a navigation that nobody
+        // clicked is not a request for any of them. The precedent is
+        // `LeetCodeDescriptionView`'s delegate, which refuses the same way and
+        // for the same reason: a `<meta http-equiv="refresh">` would otherwise
+        // launch a browser at an arbitrary URL the moment the pane rendered,
+        // with no click and no confirmation. That this page's tree has no
+        // raw-HTML case to author one with is a second property, not a reason to
+        // rest the first on it.
+        guard navigationAction.navigationType == .linkActivated else {
             decisionHandler(.cancel)
             return
         }
@@ -228,6 +273,23 @@ extension MarkdownPreviewWebView: WKNavigationDelegate {
         withError error: any Error
     ) {
         shellLoadEnded(navigation)
+    }
+
+    /// The page's web content process died and took the document with it.
+    ///
+    /// WebKit leaves a blank view and reloads nothing on its own, and nothing
+    /// this object holds can put the document back: the shell is a string the
+    /// model composed and the body one only the model remembers. So the state
+    /// that describes a page which no longer exists is dropped — the dead
+    /// process decides no policy and ends no navigation, so every one of these
+    /// would otherwise be held forever — and the model is told, from where both
+    /// halves of the document can be installed again.
+    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        ownLoadsAwaitingDecision = 0
+        isAwaitingShell = false
+        awaitedShellNavigation = nil
+        pendingSources.removeAll()
+        pageIsGone?()
     }
 }
 
