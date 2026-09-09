@@ -118,6 +118,20 @@ li > ul, li > ol {
     margin-bottom: 0;
 }
 
+/* An item's text is a paragraph whether or not the source wrote the list loose:
+   the tree carries no tight/loose distinction, so every item arrives as a `<p>`
+   and the paragraph's own bottom margin would draw every list — the short,
+   ordinary one included — as a loose one. */
+li > p {
+    margin: 0;
+}
+
+/* An item that really does hold several paragraphs keeps them apart, which is a
+   different fact from the one above: multi-block *item*, not multi-item list. */
+li > p + p {
+    margin-top: 1em;
+}
+
 /* A task item's marker is the checkbox, so the list's own bullet goes. The
    negative indent is what puts the box where the bullet was. */
 li.task-list-item {
@@ -128,6 +142,17 @@ li.task-list-item {
 li.task-list-item > input[type="checkbox"] {
     margin: 0 0.4em 0 0;
     vertical-align: middle;
+}
+
+/* The renderer emits the checkbox *ahead of* the item's first block, so that
+   block has to join it on the line: a block-level `<p>` gets an anonymous block
+   box of its own and draws the text under an empty box instead of beside it —
+   and `vertical-align` above cannot bridge that, there being no shared line box
+   to align within. Matched as the checkbox's adjacent sibling rather than as the
+   item's first paragraph, so an item whose first block is not a paragraph (a
+   nested list, a fenced block) inlines nothing it should not. */
+li.task-list-item > input[type="checkbox"] + p {
+    display: inline;
 }
 
 /* MARK: - Code */
