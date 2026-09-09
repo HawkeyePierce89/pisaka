@@ -210,11 +210,11 @@ Dependencies: `apple/swift-markdown` (transitively `swift-cmark`, plus DocC plug
 - Create: `Sources/Pisaka/EditorCommandTarget.swift`
 - Modify: `Sources/Pisaka/PisakaApp.swift`, `Sources/Pisaka/FoldCommands.swift`
 
-- [ ] Write the one helper: the key window's first responder when it is an `EditorTextView`; otherwise, **only when the first responder is the preview web view or a descendant of it**, the editor text view in that window's hierarchy; otherwise `nil` — so every existing beep is preserved byte for byte.
-- [ ] Route all six sites through it (`goToDefinitionAtCaret`, `findUsagesAtCaret`, `renameAtCaret`, `toggleCommentAtCaret`, `completeAtCaret`, `FoldCommands.focusedEditor()`), each keeping its own extra guards (`isEditable`, `hasMarkedText()`).
-- [ ] Document on the helper why the fallback is scoped to the preview rather than being a general search.
-- [ ] Add a `PisakaAppTests` case over a constructed window hierarchy: the helper answers the editor when the responder is the preview web view, and answers `nil` for an unrelated responder.
-- [ ] Run `swift test` and the macOS app-layer test bundle.
+- [x] Write the one helper: the key window's first responder when it is an `EditorTextView`; otherwise, **only when the first responder is the preview web view or a descendant of it**, the editor text view in that window's hierarchy; otherwise `nil` — so every existing beep is preserved byte for byte. (`EditorCommandTarget.focusedEditor(in:)`; the preview region is recognised through the `EditorCommandFocusPassthrough` marker its one conformer `MarkdownPreviewWKWebView` carries, walked up from the responder, so the helper needs no WebKit import and the preview keeps its one WebKit file.)
+- [x] Route all six sites through it (`goToDefinitionAtCaret`, `findUsagesAtCaret`, `renameAtCaret`, `toggleCommentAtCaret`, `completeAtCaret`, `FoldCommands.focusedEditor()`), each keeping its own extra guards (`isEditable`, `hasMarkedText()`).
+- [x] Document on the helper why the fallback is scoped to the preview rather than being a general search.
+- [x] Add a `PisakaAppTests` case over a constructed window hierarchy: the helper answers the editor when the responder is the preview web view, and answers `nil` for an unrelated responder. (`EditorCommandTargetTests` — five cases: the editor itself, the preview, a descendant of the preview, an unrelated responder, and no window.)
+- [x] Run `swift test` and the macOS app-layer test bundle. (5487 Core tests green; `swiftlint --strict` clean; `xcodebuild … -destination 'platform=macOS' build` and `build-for-testing` both green with a derived-data path outside the repository. The app-layer *test action* still cannot execute in this environment — "The test runner hung before establishing connection" — and does so identically for the pre-existing, untouched `BoundedBodyCollectorTests`, so it is environmental, as Task 10 recorded. The new suite compiles as part of `build-for-testing`.)
 
 ### Task 14: Scroll sync
 

@@ -35,6 +35,15 @@ import WebKit
 /// ``MarkdownLinkDecision``'s four answers. Three of them carry a side effect —
 /// the system opens it, the app opens a tab, the page scrolls — and all four end
 /// in `.cancel`, because none of them is "let the web view go there".
+/// The preview's web view, as a type the caret commands can recognise.
+///
+/// The subclass exists for its conformance alone — it overrides nothing and adds
+/// nothing. Focus landing inside the preview is still focus on the file the
+/// editor beside it is holding, so ⌘/ and its five siblings look past it to that
+/// editor; ``EditorCommandTarget`` documents why that permission is granted to
+/// this one region and to nothing else.
+final class MarkdownPreviewWKWebView: WKWebView, EditorCommandFocusPassthrough {}
+
 @MainActor
 final class MarkdownPreviewWebView: NSObject, MarkdownPreviewPageSink {
 
@@ -88,7 +97,7 @@ final class MarkdownPreviewWebView: NSObject, MarkdownPreviewPageSink {
         // store would keep a copy of it in caches and local storage that no
         // part of this app would ever clean up.
         configuration.websiteDataStore = .nonPersistent()
-        webView = WKWebView(frame: .zero, configuration: configuration)
+        webView = MarkdownPreviewWKWebView(frame: .zero, configuration: configuration)
         // There is nothing to go back to — the page is loaded once and updated
         // in place — so a swipe would only ever leave the preview blank.
         webView.allowsBackForwardNavigationGestures = false

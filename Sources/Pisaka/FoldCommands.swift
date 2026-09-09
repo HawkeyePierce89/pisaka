@@ -12,7 +12,7 @@ import SwiftUI
 ///
 /// The two items carry no state and are wired to nothing: like ⌘D and Toggle
 /// Comment, they reach whatever editor holds the focus through the **first
-/// responder** (`NSApp.keyWindow?.firstResponder as? EditorTextView`) and beep
+/// responder** (`EditorCommandTarget.focusedEditor(in: NSApp.keyWindow)`) and beep
 /// through `PlatformFeedback.warning()` otherwise. That is what keeps the
 /// commands correct with several windows open and with the terminal or the
 /// project tree focused: an app-wide key equivalent fires wherever the keystroke
@@ -77,9 +77,11 @@ struct FoldCommands: Commands {
     ///
     /// `isEditable` and `hasMarkedText()` are asked for `toggleCommentAtCaret`'s
     /// reasons: a read-only viewer is not this command's editor, and a keystroke
-    /// arriving mid-composition belongs to the input method.
+    /// arriving mid-composition belongs to the input method. The responder
+    /// itself is read through ``EditorCommandTarget``, the one definition of
+    /// that lookup, which carries the Markdown preview's scoped exception.
     private func focusedEditor() -> EditorTextView? {
-        guard let editor = NSApp.keyWindow?.firstResponder as? EditorTextView,
+        guard let editor = EditorCommandTarget.focusedEditor(in: NSApp.keyWindow),
               editor.isEditable,
               !editor.hasMarkedText()
         else { return nil }
