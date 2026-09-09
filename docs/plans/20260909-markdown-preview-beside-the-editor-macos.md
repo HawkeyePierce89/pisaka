@@ -142,12 +142,12 @@ Dependencies: `apple/swift-markdown` (transitively `swift-cmark`, plus DocC plug
 - Create: `Sources/PisakaCore/MarkdownPreviewWidthRule.swift`, `Tests/PisakaCoreTests/MarkdownPreviewWidthRuleTests.swift`
 - Modify: `Sources/PisakaCore/SettingsStore.swift`, `Tests/PisakaCoreTests/SettingsStoreTests.swift`
 
-- [ ] Write `MarkdownPreviewWidthRule` beside `BottomPanelHeightRule` and in its shape: a fraction clamped to `[0.2, 0.8]`, a 240 pt minimum for each half, half the width when the window cannot fit both minimums, and the same non-finite/non-positive guards.
-- [ ] Give it the drag form too — `fraction(base:dragTranslation:available:)` applied to a fixed base, matching the divider's fixed-base scheme.
-- [ ] Add `markdownPreviewEnabled` (default `false`) and `markdownPreviewFraction` (default `0.5`) to `SettingsStore` with the file's existing write discipline: clamped inside `didSet`, clamped again on read at `init`.
-- [ ] Test the clamps at both ends, both minimums, the degenerate narrow window, the drag mapping's one-to-one behaviour inside the bounds, and the non-finite guards.
-- [ ] Test the settings defaults, that a corrupt stored fraction is clamped on read, and that the enabled flag round-trips.
-- [ ] Run `swift test`.
+- [x] Write `MarkdownPreviewWidthRule` beside `BottomPanelHeightRule` and in its shape: a fraction clamped to `[0.2, 0.8]`, a 240 pt minimum for each half, half the width when the window cannot fit both minimums, and the same non-finite/non-positive guards.
+- [x] Give it the drag form too — `fraction(base:dragTranslation:available:)` applied to a fixed base, matching the divider's fixed-base scheme.
+- [x] Add `markdownPreviewEnabled` (default `false`) and `markdownPreviewFraction` (default `0.5`) to `SettingsStore` with the file's existing write discipline: clamped inside `didSet`, clamped again on read at `init`.
+- [x] Test the clamps at both ends, both minimums, the degenerate narrow window, the drag mapping's one-to-one behaviour inside the bounds, and the non-finite guards.
+- [x] Test the settings defaults, that a corrupt stored fraction is clamped on read, and that the enabled flag round-trips.
+- [x] Run `swift test`.
 
 ### Task 9: The bundled assets, their pins and their licenses
 

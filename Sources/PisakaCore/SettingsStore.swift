@@ -5,7 +5,9 @@ import Foundation
 /// second setting — the terminal font size and the interface scale), and
 /// whether the editor offers completions at all
 /// (`completionEnabled`) and whether it tints leading whitespace by
-/// indentation level (`indentLevelHighlightingEnabled`).
+/// indentation level (`indentLevelHighlightingEnabled`), plus the Markdown
+/// preview's two — whether the pane is shown (`markdownPreviewEnabled`) and
+/// where its divider sits (`markdownPreviewFraction`).
 /// A plain Foundation-only `ObservableObject` (the `WorkspaceModel`
 /// precedent) so it stays testable and free of any SwiftUI/AppKit dependency —
 /// the Preferences UI and the act of applying each setting are thin view-layer
@@ -96,6 +98,25 @@ public final class SettingsStore: ObservableObject {
         /// paddings, frames, icon sizes and row heights at once; there is no one
         /// number to store, only the factor every one of them is derived from.
         public static let interfaceScale = "settings.interfaceScale"
+
+        /// Whether a Markdown tab shows the preview pane beside the editor.
+        ///
+        /// **One** flag rather than one per tab, for the reason
+        /// `completionEnabled` is one flag rather than one per platform: it is a
+        /// preference about how Markdown is edited, not a property of a
+        /// particular file, so a user who turned the pane off does not meet it
+        /// again on the next `.md` they open. Only macOS draws anything for it;
+        /// iOS neither reads nor writes it, which is an absent surface rather
+        /// than a second preference.
+        public static let markdownPreviewEnabled = "settings.markdownPreviewEnabled"
+        /// Where the divider between editor and preview sits, as the *editor's*
+        /// share of the pair's width.
+        ///
+        /// A fraction and not a point width, for the reason written on
+        /// `MarkdownPreviewWidthRule`: the split is remembered across windows and
+        /// across resizes, and a stored point width would overflow a narrower
+        /// window and leave a gap in a wider one.
+        public static let markdownPreviewFraction = "settings.markdownPreviewFraction"
     }
 
     public static let minFontSize: Double = ZoomScaleRule.editorFont.minimum
@@ -195,6 +216,38 @@ public final class SettingsStore: ObservableObject {
     @Published public var indentLevelHighlightingEnabled: Bool {
         didSet {
             defaults.set(indentLevelHighlightingEnabled, forKey: Keys.indentLevelHighlightingEnabled)
+        }
+    }
+
+    /// Whether Markdown tabs show the preview pane. Default **off**.
+    ///
+    /// Off by default and not on, unlike the two editor flags above: the pane
+    /// takes half the window and starts a web view, so it is a thing the user
+    /// asks for (View > Markdown Preview, ⌘⇧P) rather than a thing that appears
+    /// the first time an `.md` file is opened. Off costs the feature everything
+    /// but the flag — no web view is constructed, nothing is parsed and nothing
+    /// is rendered — which is what makes the toggle free while it is off.
+    @Published public var markdownPreviewEnabled: Bool {
+        didSet { defaults.set(markdownPreviewEnabled, forKey: Keys.markdownPreviewEnabled) }
+    }
+
+    /// The editor's share of the editor+preview width. Default an even split.
+    ///
+    /// The `fontSize` write discipline, verbatim: clamped inside `didSet` through
+    /// `MarkdownPreviewWidthRule.clampFraction(_:)`, with the re-entrant
+    /// assignment reaching a fixed point on the second pass, so neither a divider
+    /// drag nor a corrupt persisted value can store a fraction outside the
+    /// rule's proportional bounds. Only the *width-free* half of the rule applies
+    /// here — at write time there is no window; the point minimums are re-applied
+    /// by the layout, which is the only place that knows how wide it is.
+    @Published public var markdownPreviewFraction: Double {
+        didSet {
+            let clamped = MarkdownPreviewWidthRule.clampFraction(markdownPreviewFraction)
+            if clamped != markdownPreviewFraction {
+                markdownPreviewFraction = clamped
+                return
+            }
+            defaults.set(markdownPreviewFraction, forKey: Keys.markdownPreviewFraction)
         }
     }
 
@@ -305,6 +358,18 @@ public final class SettingsStore: ObservableObject {
         // never asked, a feature that ships on.
         let storedIndentLevels =
             (defaults.object(forKey: Keys.indentLevelHighlightingEnabled) as? Bool) ?? true
+        // Read through `object(forKey:)` like the two flags above even though
+        // absence and the default agree here: the cast is what refuses a
+        // wrong-typed value (an older build, a hand-edited domain) instead of
+        // coercing it, so a stored string can never read as "on".
+        let storedPreview = (defaults.object(forKey: Keys.markdownPreviewEnabled) as? Bool) ?? false
+        // The stored split, read exactly like a zoom scale: `object(forKey:)` so
+        // an absent key is told from a stored 0, the cast so a wrong-typed value
+        // falls back rather than reading as zero, and the rule's clamp so a
+        // non-finite or out-of-range value collapses to the even split rather
+        // than surviving into the layout.
+        let storedPreviewFraction = (defaults.object(forKey: Keys.markdownPreviewFraction) as? Double)
+            .map(MarkdownPreviewWidthRule.clampFraction) ?? MarkdownPreviewWidthRule.defaultFraction
         // Read entry by entry rather than as a whole `[String: String]` cast: a
         // single value of the wrong type — or a raw value this app version does
         // not know — must cost that one server its answer and nothing else. A
@@ -337,6 +402,8 @@ public final class SettingsStore: ObservableObject {
         self.interfaceScale = storedInterfaceScale
         self.completionEnabled = storedCompletion
         self.indentLevelHighlightingEnabled = storedIndentLevels
+        self.markdownPreviewEnabled = storedPreview
+        self.markdownPreviewFraction = storedPreviewFraction
         self.lspServerConsent = storedConsent
         self.leetCodeFolderPath = storedFolderIsBlank ? nil : storedFolder
         self.leetCodeFolderBookmark = (storedBookmark?.isEmpty ?? true) ? nil : storedBookmark

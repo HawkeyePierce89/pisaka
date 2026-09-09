@@ -753,4 +753,104 @@ final class SettingsStoreTests: XCTestCase {
         XCTAssertTrue(reloaded.completionEnabled)
         XCTAssertFalse(reloaded.indentLevelHighlightingEnabled)
     }
+
+    // MARK: - Markdown preview
+
+    func testMarkdownPreviewDefaultsOnAFreshStore() {
+        let store = SettingsStore(defaults: makeDefaults())
+
+        // Default *off*, unlike the two editor switches: the pane takes half the
+        // window and starts a web view, so it is asked for rather than met.
+        XCTAssertFalse(store.markdownPreviewEnabled)
+        XCTAssertEqual(store.markdownPreviewFraction, MarkdownPreviewWidthRule.defaultFraction)
+        XCTAssertEqual(store.markdownPreviewFraction, 0.5)
+    }
+
+    func testMarkdownPreviewSettingsRoundTrip() {
+        let defaults = makeDefaults()
+
+        let first = SettingsStore(defaults: defaults)
+        first.markdownPreviewEnabled = true
+        first.markdownPreviewFraction = 0.35
+
+        let second = SettingsStore(defaults: defaults)
+        XCTAssertTrue(second.markdownPreviewEnabled)
+        XCTAssertEqual(second.markdownPreviewFraction, 0.35, accuracy: 0.0001)
+
+        // And back off again — the round trip has to work in both directions,
+        // which is exactly what a coercing read of a stored `false` would break.
+        second.markdownPreviewEnabled = false
+        XCTAssertFalse(SettingsStore(defaults: defaults).markdownPreviewEnabled)
+    }
+
+    /// A wrong-typed stored flag (an older build, a hand-edited domain) must fall
+    /// back to the default rather than being coerced: `bool(forKey:)` reads
+    /// `"yes"`/`"1"` as `true` and would show a pane nobody asked for. Every
+    /// fixture here is one a coercing read gets wrong.
+    func testAWrongTypedStoredMarkdownPreviewFlagFallsBackToOff() {
+        let wrongTypedValues: [Any] = ["yes", "1", "true", Date(timeIntervalSince1970: 0)]
+        for (index, wrongTyped) in wrongTypedValues.enumerated() {
+            let defaults = makeDefaults("markdownPreviewWrongType\(index)")
+            defaults.set(wrongTyped, forKey: SettingsStore.Keys.markdownPreviewEnabled)
+            XCTAssertFalse(
+                SettingsStore(defaults: defaults).markdownPreviewEnabled,
+                "a stored \(wrongTyped) must not turn the pane on"
+            )
+        }
+    }
+
+    /// The write discipline: the clamp lives in `didSet`, so what reaches disk is
+    /// already legal and the property never holds a value the layout would have
+    /// to correct.
+    func testOutOfRangeMarkdownPreviewFractionWritesReachDiskClamped() {
+        let defaults = makeDefaults()
+        let store = SettingsStore(defaults: defaults)
+
+        store.markdownPreviewFraction = 0.01
+        XCTAssertEqual(store.markdownPreviewFraction, MarkdownPreviewWidthRule.minimumFraction)
+        XCTAssertEqual(
+            defaults.object(forKey: SettingsStore.Keys.markdownPreviewFraction) as? Double,
+            MarkdownPreviewWidthRule.minimumFraction
+        )
+
+        store.markdownPreviewFraction = 12
+        XCTAssertEqual(store.markdownPreviewFraction, MarkdownPreviewWidthRule.maximumFraction)
+        XCTAssertEqual(
+            defaults.object(forKey: SettingsStore.Keys.markdownPreviewFraction) as? Double,
+            MarkdownPreviewWidthRule.maximumFraction
+        )
+
+        store.markdownPreviewFraction = .nan
+        XCTAssertEqual(store.markdownPreviewFraction, MarkdownPreviewWidthRule.defaultFraction)
+    }
+
+    /// And the same clamp on the *read*, so a value written by a build with other
+    /// bounds — or by hand — cannot survive into the layout.
+    func testACorruptPersistedMarkdownPreviewFractionIsClampedOnLoad() {
+        let cases: [(Any, Double)] = [
+            (0.0, MarkdownPreviewWidthRule.minimumFraction),
+            (-4.0, MarkdownPreviewWidthRule.minimumFraction),
+            (0.99, MarkdownPreviewWidthRule.maximumFraction),
+            (Double.nan, MarkdownPreviewWidthRule.defaultFraction),
+            (Double.infinity, MarkdownPreviewWidthRule.defaultFraction),
+            // Wrong-typed and absent both fall back rather than reading as zero,
+            // which is what `object(forKey:)` plus the cast buys.
+            ("0.4", MarkdownPreviewWidthRule.defaultFraction),
+        ]
+        for (index, testCase) in cases.enumerated() {
+            let (stored, expected) = testCase
+            let defaults = makeDefaults("markdownPreviewFraction\(index)")
+            defaults.set(stored, forKey: SettingsStore.Keys.markdownPreviewFraction)
+            XCTAssertEqual(
+                SettingsStore(defaults: defaults).markdownPreviewFraction,
+                expected,
+                "stored \(stored)"
+            )
+        }
+    }
+
+    func testMarkdownPreviewKeysAreStable() {
+        XCTAssertEqual(SettingsStore.Keys.markdownPreviewEnabled, "settings.markdownPreviewEnabled")
+        XCTAssertEqual(SettingsStore.Keys.markdownPreviewFraction, "settings.markdownPreviewFraction")
+    }
 }
