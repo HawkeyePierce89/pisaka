@@ -229,7 +229,7 @@ final class MarkdownPreviewAssetPinTests: XCTestCase {
     /// the pipeline compares the two spellings.
     ///
     /// `MarkdownPreviewPageTests` asserts the shell's `<div id=…>` *through*
-    /// `containerElementID`, and the three source builders compose their calls
+    /// `containerElementID`, and the four source builders compose their calls
     /// *through* `namespace` — so renaming either constant keeps every one of
     /// those assertions green while the page silently renders nothing into an
     /// element that no longer exists, or calls a member no script defines. The
@@ -253,7 +253,7 @@ final class MarkdownPreviewAssetPinTests: XCTestCase {
         let members = try Self.reachedMembers()
         // Named, so a parse that silently found nothing cannot pass this test by
         // iterating an empty set.
-        XCTAssertEqual(members, ["boot", "render", "scrollToLine", "scrollToAnchor"])
+        XCTAssertEqual(members, ["boot", "render", "scrollToLine", "scrollToAnchor", "setFontSize"])
 
         for member in members {
             XCTAssertTrue(script.contains("function \(member)("), """
@@ -268,7 +268,7 @@ final class MarkdownPreviewAssetPinTests: XCTestCase {
         }
     }
 
-    /// The four members Core actually calls, read out of the sources it
+    /// The five members Core actually calls, read out of the sources it
     /// composes rather than listed again here.
     private static func reachedMembers() throws -> Set<String> {
         let sources = [
@@ -276,6 +276,7 @@ final class MarkdownPreviewAssetPinTests: XCTestCase {
             MarkdownPreviewPage.bodyUpdateSource(body: ""),
             MarkdownPreviewPage.scrollToLineSource(line: 1),
             MarkdownPreviewPage.scrollToAnchorSource(anchor: "x"),
+            MarkdownPreviewPage.fontSizeUpdateSource(fontSize: 13),
         ]
         let prefix = "window.\(namespace)."
         return Set(try sources.map { source in

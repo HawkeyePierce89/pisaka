@@ -1,9 +1,9 @@
 /*
  * The Markdown preview's one first-party script.
  *
- * Written in this repository. It defines the four members the page is driven
- * through — `boot`, `render`, `scrollToLine`, `scrollToAnchor` — and nothing
- * else reaches the
+ * Written in this repository. It defines the five members the page is driven
+ * through — `boot`, `render`, `scrollToLine`, `scrollToAnchor`, `setFontSize` —
+ * and nothing else reaches the
  * global scope: the shell's single inline line calls `boot`, and everything
  * after that arrives as an `evaluateJavaScript` of a source `MarkdownPreviewPage`
  * composed. This file therefore *decides* nothing. It has no opinion about when
@@ -219,10 +219,27 @@
         window.scrollTo(0, target.getBoundingClientRect().top + window.scrollY);
     }
 
+    /* Set the two font sizes the page draws with, on the document that is
+       already loaded.
+
+       Both numbers are Core's — the clamp and the code face's one-point offset
+       are decided by `MarkdownPreviewPage.fontSizes(for:)`, exactly as the
+       shell's own `:root` block was written from them. This function performs no
+       arithmetic on them at all: it appends the unit and sets the two properties
+       the stylesheet reads, which is the whole of it. A step therefore changes
+       the text without replacing the document, so the scroll position stays
+       where it was and no diagram is rendered a second time. */
+    function setFontSize(bodySize, codeSize) {
+        var root = document.documentElement;
+        root.style.setProperty("--font-size", bodySize + "px");
+        root.style.setProperty("--code-font-size", codeSize + "px");
+    }
+
     window.PisakaPreview = {
         boot: boot,
         render: render,
         scrollToLine: scrollToLine,
         scrollToAnchor: scrollToAnchor,
+        setFontSize: setFontSize,
     };
 }());

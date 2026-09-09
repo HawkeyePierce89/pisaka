@@ -159,20 +159,20 @@ gains exactly one setter and decides nothing.
   `Tests/PisakaCoreTests/MarkdownPreviewAssetPinTests.swift`,
   `Tests/PisakaCoreTests/MarkdownPreviewSourceGatingTests.swift`
 
-- [ ] Factor the shell's two size values out of
+- [x] Factor the shell's two size values out of
       `customProperties(theme:fontSize:)` into one Core helper (the clamp plus the
       one-point code offset), and have both the `:root` block and the new source
       read it — so a reloaded shell and an in-place step can never disagree about
       what a size is.
-- [ ] Add `MarkdownPreviewPage.fontSizeUpdateSource(fontSize:)` composing
+- [x] Add `MarkdownPreviewPage.fontSizeUpdateSource(fontSize:)` composing
       `window.PisakaPreview.setFontSize(<body>, <code>);` — both interpolated as
       numbers, neither escaped as a string, documented as the third and last entry
       point.
-- [ ] Add `setFontSize` to `preview.js`: set `--font-size` and `--code-font-size`
+- [x] Add `setFontSize` to `preview.js`: set `--font-size` and `--code-font-size`
       on `document.documentElement`, appending the unit and nothing else, and
       expose it on the namespace object beside the other three. Its comment states
       that the values are Core's and that the page performs no arithmetic on them.
-- [ ] Split `MarkdownPreviewModel.updateAppearance(theme:fontSize:)` in two:
+- [x] Split `MarkdownPreviewModel.updateAppearance(theme:fontSize:)` in two:
       unchanged appearance sends nothing; no shell installed yet, or a theme
       change (with or without a size change), takes today's reload path **byte for
       byte** — `lastBody = nil`, the pending-line restore, `reloadShell`,
@@ -181,28 +181,28 @@ gains exactly one setter and decides nothing.
       line, the tree nor the parser. Document why the in-place path needs no
       scroll restore (the document is not replaced) and why the shell still embeds
       the size it was composed with.
-- [ ] Extend `ScriptedMarkdownPageSink` with a `setFontSize` accessor decoding
+- [x] Extend `ScriptedMarkdownPageSink` with a `setFontSize` accessor decoding
       both numeric arguments in order, alongside
       `bodies`/`scrolledLines`/`scrolledAnchors`.
-- [ ] Page tests: the source's exact shape, both arguments numeric (no quotes,
+- [x] Page tests: the source's exact shape, both arguments numeric (no quotes,
       decodable as numbers), the clamp applied, the code size one point below the
       body size, and the same values as the shell composed for the same input.
-- [ ] Model tests with the scripted seams: a font-size-only change records exactly
+- [x] Model tests with the scripted seams: a font-size-only change records exactly
       one evaluated source, no shell reload and no parse; a theme-only change
       still reloads, re-renders from the last tree and does not parse; a change of
       both records exactly one reload and no `setFontSize`; an unchanged
       appearance records nothing; and a font-size step after a scroll leaves the
       scroll memory alone (no `scrollToLine` is re-sent).
-- [ ] Update `MarkdownPreviewAssetPinTests`: the reached-member set becomes the
+- [x] Update `MarkdownPreviewAssetPinTests`: the reached-member set becomes the
       five Core actually calls, with `fontSizeUpdateSource` added to the sources
       the set is read out of, so the script must define and expose `setFontSize`.
-- [ ] Extend
+- [x] Extend
       `MarkdownPreviewSourceGatingTests.testThePageIsServedAndUpdatedInPlace()`:
       the new entry point is an `evaluate`, not a load — pin that Core's
       `reloadShell` call sites stay the two that exist (the appearance reload and
       the page-death recovery), so a size step cannot grow a third one, and that
       the app layer still composes none of the three sources.
-- [ ] Run `swift test` — must be green before Task 4.
+- [x] Run `swift test` — must be green before Task 4.
 
 ### Task 4: Verify the acceptance criteria
 

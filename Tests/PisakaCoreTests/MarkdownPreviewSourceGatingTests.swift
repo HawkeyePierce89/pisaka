@@ -392,6 +392,47 @@ final class MarkdownPreviewSourceGatingTests: XCTestCase {
             "Core never evaluates anything. It hands the source across the sink seam, which is why the "
                 + "ordering is assertable against a scripted sink."
         )
+
+        // **A font-size step is an evaluate, not a load** — and the way to pin
+        // that is to count the loads rather than the step. The shell is
+        // installed from exactly two places in Core, and both are events that
+        // make the document itself false: an appearance change that moved the
+        // *theme*, and a page that died. A third would mean something had grown
+        // a reload of its own, which is precisely what a code zoom used to be:
+        // a whole page load, a re-rendered body and a re-run of the diagram
+        // renderer, per step of ⌘+.
+        let model = try code(ofFileNamed: "MarkdownPreviewModel.swift", under: "Sources/PisakaCore")
+        XCTAssertEqual(
+            try occurrences(of: "\\.reloadShell\\(", in: model),
+            2,
+            "MarkdownPreviewModel installs the shell from two sites: the theme change and the page-death "
+                + "recovery. Any third is a load where an evaluate would do."
+        )
+        XCTAssertEqual(
+            try fileNames(matching: "\\.reloadShell\\(", under: "Sources/PisakaCore"),
+            ["MarkdownPreviewModel.swift"],
+            "And those two are Core's only ones: the page is reloaded by the model that owns the ordering, "
+                + "never by the file that composes the document."
+        )
+        XCTAssertEqual(
+            try occurrences(of: "fontSizeUpdateSource\\(", in: model),
+            1,
+            "The size step is one call site, beside the two loads it exists instead of."
+        )
+
+        // The app layer composes none of the sources the *model* sends. The one
+        // exception is deliberate and is named rather than matched: the web
+        // view's navigation delegate composes `scrollToAnchorSource`, because a
+        // fragment is observed there and nowhere else.
+        XCTAssertEqual(
+            try fileNames(
+                matching: "MarkdownPreviewPage\\.(bodyUpdateSource|scrollToLineSource|fontSizeUpdateSource)\\(",
+                under: "Sources/Pisaka"
+            ),
+            [],
+            "The body, the scroll line and the font size are composed by Core and delivered by the app. An "
+                + "app file composing one of them is a second decision about what the page is told."
+        )
     }
 
     /// The page's *only* fetch is the one the handler answers.
