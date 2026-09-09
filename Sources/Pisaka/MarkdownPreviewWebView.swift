@@ -61,6 +61,19 @@ final class MarkdownPreviewWebView: NSObject, MarkdownPreviewPageSink {
     /// is the precedent `LeetCodeStatementWebView` set, for that same reason.
     private var isPerformingOwnLoad = false
 
+    /// Sources handed over while the shell is still loading, and whether that is
+    /// the state this object is in.
+    ///
+    /// **Capability, not a decision.** The model composes the body immediately
+    /// after asking for a reload — that ordering is Core's and is asserted there
+    /// — but `evaluateJavaScript` reaches whatever document is loaded *now*, so
+    /// a source sent in that window would run in the outgoing page and be lost
+    /// with it. Holding them here is what makes the seam's contract ("run this
+    /// in the page") true; nothing is reordered, coalesced or dropped, so the
+    /// page sees exactly the sequence the model sent.
+    private var pendingSources: [String] = []
+    private var isAwaitingShell = false
+
     /// The handler is made here rather than injected: it is this page's own
     /// half — one handler per web view, retargeted with it — and nothing else in
     /// the app has a use for one.
@@ -98,13 +111,31 @@ final class MarkdownPreviewWebView: NSObject, MarkdownPreviewPageSink {
     // MARK: - MarkdownPreviewPageSink
 
     func evaluate(_ source: String) {
+        guard !isAwaitingShell else {
+            pendingSources.append(source)
+            return
+        }
         webView.evaluateJavaScript(source, completionHandler: nil)
     }
 
     func reloadShell(html: String) {
         handler.shellHTML = html
         isPerformingOwnLoad = true
+        isAwaitingShell = true
         webView.load(URLRequest(url: MarkdownPreviewPage.shellURL))
+    }
+
+    /// Deliver whatever arrived while the shell was loading, in the order it
+    /// arrived. Called on both endings of that load, because a shell that failed
+    /// to load leaves a page that will never take them and holding them forever
+    /// would silence the preview until the next theme change.
+    private func flushPendingSources() {
+        isAwaitingShell = false
+        let sources = pendingSources
+        pendingSources.removeAll()
+        for source in sources {
+            webView.evaluateJavaScript(source, completionHandler: nil)
+        }
     }
 }
 
@@ -141,6 +172,22 @@ extension MarkdownPreviewWebView: WKNavigationDelegate {
             break
         }
         decisionHandler(.cancel)
+    }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        flushPendingSources()
+    }
+
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: any Error) {
+        flushPendingSources()
+    }
+
+    func webView(
+        _ webView: WKWebView,
+        didFailProvisionalNavigation navigation: WKNavigation!,
+        withError error: any Error
+    ) {
+        flushPendingSources()
     }
 }
 
