@@ -184,6 +184,13 @@ public final class LeetCodeBrowserModel: ObservableObject {
     /// must not blank a list somebody is reading, so the typed error is published
     /// *beside* the rows. With no rows anywhere, the error stands alone.
     public func load() async {
+        // **Before `update(forced:)` captures the token, not after.** Resolution
+        // publishes the account state, whose observer on the owner calls
+        // ``sessionDidChange()`` here — which bumps the very generation this
+        // model is about to capture. Resolving after the capture would have the
+        // browser's first load discard its own rows as superseded. The one
+        // non-obvious ordering in this file.
+        owner.resolveAccount()
         await update(forced: false)
     }
 
@@ -191,6 +198,8 @@ public final class LeetCodeBrowserModel: ObservableObject {
     /// automatic staleness rule, and the only way a solved mark from five minutes
     /// ago reaches the screen.
     public func refresh() async {
+        // Before the token capture, for the reason spelled out on ``load()``.
+        owner.resolveAccount()
         await update(forced: true)
     }
 
@@ -274,7 +283,7 @@ public final class LeetCodeBrowserModel: ObservableObject {
     /// well — the rule the model and the judge both follow: any response that says
     /// logged-out flips the state, wherever it arrives.
     ///
-    /// The order matters. `markSessionRejected()` runs the owner's `isSignedIn`
+    /// The order matters. `markSessionRejected()` runs the owner's `account`
     /// observer, which calls ``sessionDidChange()`` here and clears `lastError`
     /// with the rows, so the sentence has to be set *after* it or it would be
     /// wiped by the very thing it is reporting.
@@ -306,7 +315,7 @@ public final class LeetCodeBrowserModel: ObservableObject {
     /// The session changed: everything in flight is answering for one that no
     /// longer exists.
     ///
-    /// Called from `LeetCodeModel.isSignedIn`'s observer, beside the judge's — one
+    /// Called from `LeetCodeModel.account`'s observer, beside the judge's — one
     /// writer, one hook.
     ///
     /// **The rows are cleared, and that is the point.** The status column is
@@ -336,8 +345,8 @@ public final class LeetCodeBrowserModel: ObservableObject {
     /// `LeetCodeModel.invalidateInFlightWork()` calls beside the judge's.
     ///
     /// **The observer above cannot be the only hook**, which is why the judge has
-    /// two and this now does as well. `isSignedIn`'s `didSet` is guarded on the
-    /// flag actually moving, so a `signIn(with:)` under a flag already `true`
+    /// two and this now does as well. `account`'s `didSet` is guarded on the
+    /// signed-in flag actually moving, so a `signIn(with:)` under a flag already `true`
     /// reaches nothing here — and that is an ordinary shape rather than a corner:
     /// `markSessionAccepted()` puts a rejected session back the moment any
     /// authenticated request answers, so a sign-in completing in the sheet the

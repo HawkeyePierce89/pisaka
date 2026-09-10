@@ -139,10 +139,13 @@ final class LeetCodeModelTests: XCTestCase {
         )
         XCTAssertTrue(contents.hasSuffix("\n"))
         // The number resolved through the catalog, the detail through GraphQL —
-        // one of each, and nothing else.
+        // one of each — plus the **one** user-status confirmation that opening a
+        // problem, being a first use, resolved the account with. Awaited rather
+        // than raced, so the count is a fact rather than a timing.
+        await model.awaitAccountResolution()
         XCTAssertEqual(transport.count(for: .problemList), 1)
         XCTAssertEqual(transport.count(for: .question(slug: "two-sum")), 1)
-        XCTAssertEqual(transport.count(for: .userStatus), 0)
+        XCTAssertEqual(transport.count(for: .userStatus), 1)
     }
 
     /// A slug is already the key the detail request is made by, so opening one
@@ -360,6 +363,10 @@ final class LeetCodeModelTests: XCTestCase {
             }
             XCTAssertFalse(reason.isEmpty)
         }
+        XCTAssertEqual(solutionWrites(tree), [])
+        // The open's own work is done; the confirmation its resolution started is
+        // work too, so `isBusy` is asserted once nothing at all is in flight.
+        await model.awaitAccountResolution()
         XCTAssertEqual(solutionWrites(tree), [])
         XCTAssertFalse(model.isBusy)
     }
@@ -608,6 +615,143 @@ final class LeetCodeModelTests: XCTestCase {
         XCTAssertEqual(store.loadCount, 1)
         XCTAssertEqual(transport.sent.count, 0)
         XCTAssertEqual(model.account, .signedOut)
+    }
+
+    // MARK: - First use resolves for itself
+
+    /// No view has to remember to ask, because the entries ask. Opening a problem
+    /// reaches the account through `requireCredentials()`, which resolves.
+    func testOpeningAProblemResolvesForItself() async throws {
+        let tree = makeTree()
+        let transport = makeTransport()
+        let store = InMemoryLeetCodeCredentialStore(credentials)
+        let model = makeModel(tree: tree, transport: transport, store: store)
+
+        _ = try await model.openProblem(input: .slug("two-sum"), language: swift)
+        await model.awaitAccountResolution()
+
+        XCTAssertEqual(store.loadCount, 1)
+        XCTAssertEqual(model.account, .signedIn)
+        XCTAssertEqual(transport.count(for: .userStatus), 1)
+    }
+
+    /// A solution file becoming the active tab is a use — the statement refresh
+    /// resolves once it has established the file is one of ours.
+    func testAStatementRefreshResolvesForItself() async throws {
+        let tree = makeTree([twoSumPath: "solution"])
+        let transport = makeTransport()
+        let store = InMemoryLeetCodeCredentialStore(credentials)
+        let model = makeModel(tree: tree, transport: transport, store: store)
+
+        _ = await model.statement(
+            forFileAt: treeRoot.appendingPathComponent(twoSumPath),
+            in: solutionsFolder
+        )
+        await model.awaitAccountResolution()
+
+        XCTAssertEqual(store.loadCount, 1)
+        XCTAssertEqual(model.account, .signedIn)
+    }
+
+    /// The judge reaches the session through the same funnel, so it inherits
+    /// resolution rather than repeating it.
+    func testTheJudgeContextResolvesForItself() async throws {
+        let tree = makeTree()
+        let transport = makeTransport()
+        let store = InMemoryLeetCodeCredentialStore(credentials)
+        let model = makeModel(tree: tree, transport: transport, store: store)
+
+        _ = try await model.judgeContext(forSlug: "two-sum")
+        await model.awaitAccountResolution()
+
+        XCTAssertEqual(store.loadCount, 1)
+        XCTAssertEqual(model.account, .signedIn)
+    }
+
+    /// Whichever entry is first pays for it, and **no later one pays again** —
+    /// the idempotence rule read through the entries rather than through
+    /// `resolveAccount()` directly.
+    func testTheSecondAndThirdEntriesResolveNothing() async throws {
+        let tree = makeTree([twoSumPath: "solution"])
+        let transport = makeTransport()
+        let store = InMemoryLeetCodeCredentialStore(credentials)
+        let model = makeModel(tree: tree, transport: transport, store: store)
+
+        _ = try await model.openProblem(input: .slug("two-sum"), language: swift)
+        await model.awaitAccountResolution()
+        XCTAssertEqual(store.loadCount, 1)
+
+        _ = await model.statement(
+            forFileAt: treeRoot.appendingPathComponent(twoSumPath),
+            in: solutionsFolder
+        )
+        _ = try await model.judgeContext(forSlug: "two-sum")
+        _ = await model.refreshUserStatus()
+        await model.awaitAccountResolution()
+
+        XCTAssertEqual(store.loadCount, 1, "a later entry resolved a second time")
+        XCTAssertEqual(
+            transport.count(for: .userStatus), 2,
+            "one confirmation from resolution, one from the explicit refresh"
+        )
+    }
+
+    /// The placement that makes the whole rule true by construction: the
+    /// resolution sits **after** the association guard, so working in an ordinary
+    /// file — the project tree, the editor, a tab switch — reads no secret and
+    /// makes no request.
+    func testAnOrdinaryTabSwitchResolvesNothing() async throws {
+        let tree = makeTree(["Notes/todo.md": "x"])
+        let transport = makeTransport()
+        let store = InMemoryLeetCodeCredentialStore(credentials)
+        let model = makeModel(tree: tree, transport: transport, store: store)
+
+        _ = await model.statement(
+            forFileAt: treeRoot.appendingPathComponent("Notes/todo.md"),
+            in: solutionsFolder
+        )
+        _ = await model.statement(forFileAt: nil, in: solutionsFolder)
+
+        XCTAssertEqual(store.loadCount, 0, "an ordinary tab read the credential store")
+        XCTAssertEqual(transport.sent.count, 0)
+        XCTAssertEqual(model.account, .unresolved)
+    }
+
+    /// Signing out **declares** rather than consults: the answer is already known,
+    /// so the store is never read for one that is about to be discarded. The
+    /// `clear()` still runs, as it always did.
+    func testSigningOutBeforeAnyResolutionReadsNothing() async throws {
+        let tree = makeTree()
+        let transport = makeTransport()
+        let store = InMemoryLeetCodeCredentialStore(credentials)
+        let model = makeModel(tree: tree, transport: transport, store: store)
+
+        model.signOut()
+
+        XCTAssertEqual(store.loadCount, 0, "signing out read the credential store")
+        XCTAssertEqual(model.account, .signedOut)
+        XCTAssertEqual(transport.sent.count, 0)
+        XCTAssertNil(store.stored, "the pair was not cleared")
+
+        // And the discarded session stays discarded: a later first use resolves to
+        // signed out without a request, whatever the Keychain still holds.
+        await model.awaitAccountResolution()
+        XCTAssertEqual(model.account, .signedOut)
+        XCTAssertEqual(transport.sent.count, 0)
+    }
+
+    /// Signing in declares too — the state is the pair that just arrived, not one
+    /// re-read from the store.
+    func testSigningInDeclaresTheStateWithoutReadingTheStore() async throws {
+        let tree = makeTree()
+        let transport = makeTransport()
+        let store = InMemoryLeetCodeCredentialStore()
+        let model = makeModel(tree: tree, transport: transport, store: store)
+
+        _ = try await model.signIn(with: credentials)
+
+        XCTAssertEqual(store.loadCount, 0, "signing in read the credential store")
+        XCTAssertEqual(model.account, .signedIn)
     }
 
     // MARK: - Being signed out

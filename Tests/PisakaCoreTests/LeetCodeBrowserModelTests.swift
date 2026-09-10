@@ -111,6 +111,23 @@ final class LeetCodeBrowserModelTests: XCTestCase {
         return model
     }
 
+    /// The same world, left **unresolved** — the state a freshly launched app is
+    /// in, and the one the browser's own ordering rule is about.
+    private func makeUnresolvedModel(
+        tree: StubFileTree,
+        transport: ScriptedLeetCodeTransport,
+        signedIn: Bool = true
+    ) -> LeetCodeModel {
+        LeetCodeModel(
+            transport: transport,
+            credentialStore: InMemoryLeetCodeCredentialStore(signedIn ? credentials : nil),
+            fileService: tree,
+            cacheLayout: LeetCodeCacheLayout(base: cacheBase),
+            solutionsFolder: solutionsFolder,
+            now: { self.now }
+        )
+    }
+
     /// A cache file in the documented on-disk shape, hand-written for the same
     /// reason `LeetCodeCatalogTests` writes one: the format is pinned by something
     /// other than the code that writes it.
@@ -207,6 +224,56 @@ final class LeetCodeBrowserModelTests: XCTestCase {
 
         await model.browser.load()
         XCTAssertEqual(transport.count(for: .problemList), 1)
+    }
+
+    /// **The one non-obvious ordering in the browser.** Opening it on a model
+    /// nobody has used yet is a first use, so `load()` resolves — and resolution
+    /// reaches `sessionDidChange()` through the owner's account observer, which
+    /// bumps the very token this load is about to capture. Resolving after the
+    /// capture would have the browser discard its own rows as superseded, which is
+    /// exactly what this asserts it does not.
+    func testTheFirstLoadOnAnUnresolvedModelPublishesItsOwnRows() async {
+        let tree = makeTree()
+        let transport = makeTransport()
+        let model = makeUnresolvedModel(tree: tree, transport: transport)
+
+        await model.browser.load()
+
+        let browser = model.browser
+        XCTAssertEqual(browser.problems.map(\.slug), recordedSlugs)
+        XCTAssertEqual(browser.visibleProblems.map(\.slug), recordedSlugs)
+        XCTAssertEqual(browser.availability, .ready)
+        XCTAssertNil(browser.lastError)
+        XCTAssertFalse(browser.isLoading)
+        XCTAssertEqual(model.account, .signedIn)
+    }
+
+    /// The same rule on the other entry point.
+    func testTheFirstRefreshOnAnUnresolvedModelPublishesItsOwnRows() async {
+        let tree = makeTree(warmCache())
+        let transport = makeTransport()
+        let model = makeUnresolvedModel(tree: tree, transport: transport)
+
+        await model.browser.refresh()
+
+        XCTAssertEqual(model.browser.problems.map(\.slug), recordedSlugs)
+        XCTAssertFalse(model.browser.isLoading)
+    }
+
+    /// Signed out is still an answer the browser resolves for itself: the offer,
+    /// no request, and no rows discarded behind a token nobody moved.
+    func testTheFirstLoadOnAnUnresolvedSignedOutModelPublishesTheOffer() async {
+        let tree = makeTree()
+        let transport = makeTransport()
+        let model = makeUnresolvedModel(tree: tree, transport: transport, signedIn: false)
+
+        await model.browser.load()
+
+        XCTAssertEqual(model.browser.availability, .notSignedIn)
+        XCTAssertEqual(model.account, .signedOut)
+        XCTAssertEqual(transport.count(for: .problemList), 0)
+        XCTAssertNil(model.browser.lastError)
+        XCTAssertFalse(model.browser.isLoading)
     }
 
     /// The explicit affordance: Refresh fetches whatever the age, which is the

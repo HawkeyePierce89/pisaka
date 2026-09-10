@@ -197,11 +197,11 @@ Intent: no view can forget to ask, because the model asks for itself.
   becomes `1` for exactly this reason, and that is the behaviour the ticket asks
   for.
 
-- [ ] add the resolve call to `requireCredentials`, `refreshUserStatus`,
+- [x] add the resolve call to `requireCredentials`, `refreshUserStatus`,
       `statement(forFileAt:in:)`, `LeetCodeBrowserModel.load()`/`refresh()`
-- [ ] have `signIn`/`signOut`/`markSessionAccepted`/`markSessionRejected` publish
+- [x] have `signIn`/`signOut`/`markSessionAccepted`/`markSessionRejected` publish
       `account` instead of `isSignedIn`
-- [ ] tests: each entry resolves on its own (one load), the next entry adds none;
+- [x] tests: each entry resolves on its own (one load), the next entry adds none;
       an ordinary tab switch to a non-solution file performs zero loads and zero
       requests; a sign-out before any resolution performs **zero loads** and leaves
       the state `.signedOut` (the `clear()` still runs, as today — the rule is that
@@ -209,8 +209,8 @@ Intent: no view can forget to ask, because the model asks for itself.
       the browser's first `load()` publishes rows rather than discarding them
       behind its own token; `invalidateInFlightWork`'s existing guarantees still
       hold
-- [ ] re-point the existing tests that relied on `init` resolving
-- [ ] run `swift test` — must pass before Task 3
+- [x] re-point the existing tests that relied on `init` resolving
+- [x] run `swift test` — must pass before Task 3
 
 ### Task 3: The macOS surfaces
 

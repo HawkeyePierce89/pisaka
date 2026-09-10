@@ -84,7 +84,8 @@ final class LeetCodeJudgeModelTests: XCTestCase {
     private func makeWorld(
         fileName: String = "0001-two-sum.swift",
         savedText: String = "class Solution {}\n",
-        signedIn: Bool = true
+        signedIn: Bool = true,
+        resolved: Bool = true
     ) throws -> World {
         let path = "Solutions/\(fileName)"
         let tree = StubFileTree(root: treeRoot, files: [path: savedText])
@@ -104,8 +105,9 @@ final class LeetCodeJudgeModelTests: XCTestCase {
         // Constructing a model resolves nothing (`LeetCodeModelTests` is where that
         // is asserted), so the account this suite's subject reads is declared here
         // — the state every test below starts from is "the feature has been used
-        // once already".
-        model.resolveAccount()
+        // once already". `resolved: false` is the one test that starts before
+        // that moment.
+        if resolved { model.resolveAccount() }
         let workspace = WorkspaceModel(fileService: tree)
         let url = solutionsFolder.appendingPathComponent(fileName)
         try workspace.open(url: url)
@@ -687,6 +689,29 @@ final class LeetCodeJudgeModelTests: XCTestCase {
         let body = try payload(world, .interpret(slug: "two-sum"))
         XCTAssertEqual(body["question_id"] as? String, "1")
         XCTAssertEqual(world.judge.lastRun?.verdict, .accepted)
+    }
+
+    /// The same hole, entered from the *other* side: not a sign-in, but the first
+    /// resolution of an account that was there all along.
+    ///
+    /// An unresolved model reads as not signed in, so a solution file prepared
+    /// before anything has used the feature leaves the box empty — and then the
+    /// first use resolves, `account` moves unresolved→signed-in, and that flip has
+    /// to reach `sessionDidChange()` exactly as a sign-in's does. It does, because
+    /// the observer is guarded on the *signed-in* half of the state moving, which
+    /// this transition moves.
+    func testResolvingAnAccountPrefillsTheBoxThePreparedSurfaceCouldNotFill() async throws {
+        let world = try makeWorld(resolved: false)
+        await world.judge.prepare(forFileAt: world.url, in: solutionsFolder)
+        XCTAssertEqual(world.judge.testInput, "")
+        XCTAssertFalse(world.judge.availability.isReady, "an unresolved account read as ready")
+
+        world.model.resolveAccount()
+        await world.judge.awaitSessionResolution()
+
+        XCTAssertTrue(world.judge.availability.isReady)
+        XCTAssertEqual(world.judge.testInput, "[2,7,11,15]\n9\n[3,2,4]\n6\n[3,3]\n6")
+        XCTAssertEqual(world.transport.count(for: .question(slug: "two-sum")), 1)
     }
 
     /// **The box is filled in by the sign-in, not left empty.**

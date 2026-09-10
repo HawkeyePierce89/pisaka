@@ -875,6 +875,13 @@ public final class LeetCodeModel: ObservableObject {
             return nil
         }
 
+        // **After the association guard, never before it.** A solution file
+        // becoming the active tab is a use of this feature; every other tab is
+        // not, and this placement is what makes "the project tree, the editor and
+        // an ordinary tab switch resolve nothing" true by construction rather
+        // than by nobody having called it yet.
+        resolveAccount()
+
         let slug = parts.slug
         var published: LeetCodeStatement?
         if let fragment = statementCache.fragment(forSlug: slug) {
@@ -1084,7 +1091,14 @@ public final class LeetCodeModel: ObservableObject {
 
     /// The session, or the error every operation reports without one — the
     /// judge's included, which is why this is internal.
+    ///
+    /// **Resolves first.** Needing the session *is* first use, so every operation
+    /// that reaches the account through here — opening a problem, the judge's
+    /// Run/Submit and its context resolution, the browser's own lookup — asks for
+    /// itself, and no view has to remember to. `resolveAccount()` is idempotent,
+    /// so on every call but the first this costs a comparison.
     func requireCredentials() throws -> LeetCodeCredentials {
+        resolveAccount()
         if let cachedCredentials { return cachedCredentials }
         guard let stored = storedCredentials() else { throw LeetCodeError.notLoggedIn }
         cachedCredentials = stored
