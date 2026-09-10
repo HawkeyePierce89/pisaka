@@ -137,6 +137,12 @@ struct LeetCodeSettingsView: View {
         // The tab's fixed width scales with its content: a 200% path row in a
         // 460pt column would be truncated to the point of naming no folder at all.
         .frame(width: metrics.scaled(460))
+        // This pane renders the account row, so it resolves the account on appear
+        // (L27). Stated limit: macOS may build a `Settings` tab before the user
+        // selects it, so opening Preferences for some other tab can be what
+        // resolves. Acceptable — opening Preferences is an explicit act, and the
+        // confirmation resolution starts is made at most once per run.
+        .onAppear { model.resolveAccount() }
         .sheet(isPresented: $isSigningIn) {
             LeetCodeLoginView(
                 model: model,
@@ -150,8 +156,9 @@ struct LeetCodeSettingsView: View {
     }
 
     /// "Signed in as …" once LeetCode has named the account, "Signed in" while
-    /// the launch-time confirmation is still out (the model is optimistic about
-    /// a stored session on purpose), and "Not signed in" otherwise.
+    /// the confirmation first use started is still out (the model is optimistic
+    /// about a stored session on purpose), and "Not signed in" otherwise — which
+    /// is also what an account nobody has resolved yet reads as.
     private var accountDescription: String {
         guard model.isSignedIn else { return "Not signed in" }
         guard let username = model.signedInUsername else { return "Signed in" }

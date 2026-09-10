@@ -716,10 +716,10 @@ struct PisakaApp: App {
     /// first `openProblem` captures it; `LeetCodeFolderChooser` writes both halves
     /// whenever the user changes it.
     ///
-    /// Building one talks to nothing: `URLSession` opens no connection until a
-    /// request is made, and the Keychain is read exactly once, in
-    /// `LeetCodeModel.init`, to decide whether to show "signed in" before the
-    /// launch-time confirmation lands.
+    /// Building one touches nothing at all: `URLSession` opens no connection
+    /// until a request is made, and `LeetCodeModel.init` reads no Keychain item
+    /// — the stored session is looked up at first use and not before (L27), so
+    /// a run that never opens a LeetCode surface never asks for it.
     static func makeLeetCode(settings: SettingsStore = SettingsStore()) -> LeetCodeModel {
         LeetCodeModel(
             transport: LeetCodeURLSessionTransport(),
@@ -1155,13 +1155,13 @@ struct PisakaApp: App {
                     lspInstallEngine.sweepStaging()
                     Task { await lspProvisioning.refresh() }
 
-                    // Ask LeetCode who the stored session belongs to, once.
-                    // Non-throwing and silent by contract: the menu already says
-                    // "signed in" optimistically from the Keychain item, and an
-                    // unreachable LeetCode at launch is not a sign-out. All this
-                    // fills in is the account name — and, when the session has
-                    // actually expired, the correction.
-                    Task { await leetCode.refreshUserStatus() }
+                    // Nothing LeetCode here on purpose: the account resolves at
+                    // first use, never at launch (L27). Reading the stored
+                    // session and confirming it is `LeetCodeModel`'s own moment,
+                    // started by the surfaces that render account state and by
+                    // every entry that needs a session — so a run that never
+                    // touches the feature reads no Keychain item and makes no
+                    // request.
                 }
 
                 // Terminate every shell on app quit so no PTY-backed processes

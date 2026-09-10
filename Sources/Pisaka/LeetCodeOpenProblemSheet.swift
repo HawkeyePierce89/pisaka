@@ -99,6 +99,11 @@ struct LeetCodeOpenProblemSheet: View {
         // The field holds a whole problem URL, so the sheet's fixed width has to
         // grow with the text inside it or a 200% sheet shows the middle of one.
         .frame(width: metrics.scaled(440))
+        // This sheet renders account state — the signed-out notice above the
+        // field — so it is one of the four surfaces that resolve the account on
+        // appear (L27). Idempotent and synchronous: the second and every later
+        // appearance read nothing and ask nothing.
+        .onAppear { model.resolveAccount() }
         // Every closing path — the Cancel button, Esc, and the presenter taking
         // the sheet down after a successful open — comes through here, so this is
         // the one place the in-flight open has to be cancelled. Straight-line work
@@ -235,6 +240,8 @@ struct LeetCodeCommands: View {
 
     var onOpenProblem: () -> Void
     var onBrowseProblems: () -> Void
+    /// Raise the login sheet. Called only once this view has decided one is
+    /// needed — see `signIn()`, which is where that decision lives.
     var onSignIn: () -> Void
     var onSignOut: () -> Void
     var onChooseFolder: () -> Void
@@ -260,10 +267,38 @@ struct LeetCodeCommands: View {
         if model.isSignedIn {
             Button(signOutTitle) { onSignOut() }
         } else {
-            Button("Sign In…") { onSignIn() }
+            // Under `.unresolved` this is the entry the menu draws, and it is the
+            // neutral one on purpose: nothing has been read yet, so the item that
+            // *asks* is the honest one. What it does about that is `signIn()`.
+            Button("Sign In…") { signIn() }
         }
 
         Button("Choose LeetCode Folder…") { onChooseFolder() }
+    }
+
+    /// "Sign In…": resolve the account, **await the confirmation**, and raise the
+    /// login sheet only when there is still no session.
+    ///
+    /// The one place outside the four surfaces that render account state that
+    /// touches resolution (L27), and the one that has to *await* it. A menu
+    /// cannot observe its own opening — there is no `.onAppear` for a menu item —
+    /// so it renders the neutral entry and the decision lands here, in the item's
+    /// own action, where the model is asked at the moment the user asks.
+    ///
+    /// Deciding off the *optimistic* state would be wrong twice over:
+    /// `resolveAccount()` publishes `.signedIn` from a stored pair before LeetCode
+    /// has answered, so a session that has since expired would raise no sheet,
+    /// flip to `.signedOut` a moment later, and leave the user reaching for the
+    /// same item again. After the await, a stored and confirmed session lands in
+    /// the ordinary signed-in state with no sheet at all; an absent or rejected
+    /// one raises the sheet exactly as before; and a confirmation that could not
+    /// be made (offline, throttled) keeps the optimistic `.signedIn` and raises
+    /// nothing — the standing rule that only a rejection is an answer.
+    private func signIn() {
+        Task {
+            await model.awaitAccountResolution()
+            if model.account != .signedIn { onSignIn() }
+        }
     }
 
     /// "Sign Out" until LeetCode has told us who this session is, and then the

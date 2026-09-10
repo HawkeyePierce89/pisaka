@@ -250,11 +250,29 @@ No unit tests here: SwiftUI glue is untested by convention; the model half of th
 rule is Task 1's two awaitable-entry tests, and Task 5's repository-file suite is
 the net for where the calls live.
 
-- [ ] remove the launch call; resolve from the sheet and the Preferences tab
-- [ ] make `onSignIn` resolve, await the confirmation, then open the sheet only
-      when the state is not `.signedIn`
-- [ ] correct the `makeLeetCode` comment
-- [ ] run `swift test` and `swiftlint --strict` — must pass before Task 4
+**Where the menu's await landed, and why it is not `PisakaApp.swift`.** The
+decision is `LeetCodeCommands`' own — the Sign In… item's action calls a private
+`signIn()` next to it in `LeetCodeOpenProblemSheet.swift`, which awaits
+`awaitAccountResolution()` and calls `onSignIn()` (still "raise the login sheet",
+the presenter's) only when `account != .signedIn`. Same rule, same await, same
+two failure shapes; only the file differs. `PisakaApp.swift` sits **exactly at**
+its measured `file_length`/`type_body_length` ceiling (1890/1874), and Task 7
+forbids raising a threshold — a seven-line helper there is a 6-line violation.
+That ceiling's own comment states the convention this follows: a feature's share
+in that file is the wiring line and nothing else (`FoldCommands()` is the
+precedent, one line, "not the opening of a budget"). So this file's share stays
+the `onSignIn:` line it already had, unchanged.
+
+This changes Task 5's second rule: resolution is reachable from exactly the
+**four** rendering surfaces, by set equality, with **no** `PisakaApp.swift` count
+pin — the app tree spelling resolution in four files and nowhere else is the same
+regression net, read straight. Task 5 below is amended accordingly.
+
+- [x] remove the launch call; resolve from the sheet and the Preferences tab
+- [x] make `onSignIn` resolve, await the confirmation, then open the sheet only
+      when the state is not `.signedIn` (as `LeetCodeCommands.signIn()`, above)
+- [x] correct the `makeLeetCode` comment
+- [x] run `swift test` and `swiftlint --strict` — must pass before Task 4
 
 ### Task 4: The iOS surfaces
 
@@ -297,19 +315,17 @@ The rules:
   The confirmation is Core's to start, so the app layer having no caller at all is
   the stronger and more durable statement of "no launch-time site".
 - Resolution — `resolveAccount(` and `awaitAccountResolution(` together — is
-  reachable from exactly five app files: the **four that render account state**,
-  pinned by **set equality** (`LeetCodeOpenProblemSheet.swift`,
-  `SettingsView.swift`, `iOS/LeetCodeRoute_iOS.swift`,
-  `iOS/SettingsView_iOS.swift`), plus `PisakaApp.swift`, pinned **by count** —
-  exactly one spelling in the whole file, the menu's `onSignIn`. The count rather
-  than membership is the point, `DatabaseViewerSourceGatingTests`' way:
-  `PisakaApp.swift` renders no account state and is precisely the file the
-  launch-time `onAppear` used to live in, so admitting it to the set by name would
-  retire the regression the rule exists to catch, while a count of one lets the
-  menu's site stand and still fails the moment a second, launch-shaped one appears
-  beside it.
+  reachable from exactly **four** app files, pinned by **set equality**:
+  `LeetCodeOpenProblemSheet.swift`, `SettingsView.swift`,
+  `iOS/LeetCodeRoute_iOS.swift`, `iOS/SettingsView_iOS.swift`. Three of them
+  render account state and resolve on appear; the first also holds the menu's
+  await-then-decide (`LeetCodeCommands.signIn()`), which Task 3 put there rather
+  than in `PisakaApp.swift` for that file's measured line ceiling. The set is the
+  whole rule: `PisakaApp.swift` — the file the launch-time `onAppear` used to live
+  in — spelling resolution at all is the regression, so its **absence** is what is
+  asserted, and no count pin is needed.
 - The doc comment carries the inventory, as the other gating suites do, and says
-  why `PisakaApp.swift` is counted rather than listed.
+  why `PisakaApp.swift` is excluded outright.
 
 - [ ] write the suite with both rules, the count pin and its inventory comment
 - [ ] run `swift test` — must pass before Task 6
