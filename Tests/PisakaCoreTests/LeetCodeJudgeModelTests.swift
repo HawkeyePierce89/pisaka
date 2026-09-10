@@ -101,6 +101,11 @@ final class LeetCodeJudgeModelTests: XCTestCase {
             solutionsFolder: solutionsFolder,
             now: { Date(timeIntervalSince1970: 1_786_000_000) }
         )
+        // Constructing a model resolves nothing (`LeetCodeModelTests` is where that
+        // is asserted), so the account this suite's subject reads is declared here
+        // — the state every test below starts from is "the feature has been used
+        // once already".
+        model.resolveAccount()
         let workspace = WorkspaceModel(fileService: tree)
         let url = solutionsFolder.appendingPathComponent(fileName)
         try workspace.open(url: url)

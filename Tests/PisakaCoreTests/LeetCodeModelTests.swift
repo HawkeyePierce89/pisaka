@@ -456,6 +456,160 @@ final class LeetCodeModelTests: XCTestCase {
         )
     }
 
+    // MARK: - Resolving the account
+
+    /// The property the whole change exists for: building a model touches
+    /// nothing.
+    ///
+    /// Asserted on the *store* as well as on the transport, because the store is
+    /// the expensive half — on a build the login keychain cannot recognise, one
+    /// read is one confirmation dialog, charged to every launch for a feature most
+    /// of them never open.
+    func testConstructingAModelReadsNothingAndAsksNothing() throws {
+        let tree = makeTree()
+        let transport = makeTransport()
+        let store = InMemoryLeetCodeCredentialStore(credentials)
+
+        let model = makeModel(tree: tree, transport: transport, store: store)
+
+        XCTAssertEqual(store.loadCount, 0, "construction read the credential store")
+        XCTAssertEqual(transport.sent.count, 0, "construction put a request on the wire")
+        XCTAssertEqual(model.account, .unresolved)
+        XCTAssertFalse(model.isSignedIn, "an unresolved account must not read as signed in")
+    }
+
+    /// One first use: one read, one confirmation.
+    func testResolvingReadsTheStoreOnceAndConfirmsOnce() async throws {
+        let tree = makeTree()
+        let transport = makeTransport()
+        let store = InMemoryLeetCodeCredentialStore(credentials)
+        let model = makeModel(tree: tree, transport: transport, store: store)
+
+        model.resolveAccount()
+        XCTAssertEqual(store.loadCount, 1)
+        XCTAssertEqual(model.account, .signedIn)
+
+        await model.awaitAccountResolution()
+        XCTAssertEqual(transport.count(for: .userStatus), 1)
+        XCTAssertEqual(model.signedInUsername, "pisaka_tester")
+    }
+
+    /// Idempotent, because none of its callers can know whether it is the first:
+    /// four rendering surfaces plus every credential-needing entry.
+    func testResolvingAgainReadsNothingAndAsksNothing() async throws {
+        let tree = makeTree()
+        let transport = makeTransport()
+        let store = InMemoryLeetCodeCredentialStore(credentials)
+        let model = makeModel(tree: tree, transport: transport, store: store)
+
+        model.resolveAccount()
+        await model.awaitAccountResolution()
+        model.resolveAccount()
+        model.resolveAccount()
+        await model.awaitAccountResolution()
+
+        XCTAssertEqual(store.loadCount, 1, "resolution is not idempotent")
+        XCTAssertEqual(transport.count(for: .userStatus), 1)
+    }
+
+    /// No stored pair is an answer, and it is one nothing has to be asked for.
+    func testResolvingWithNoStoredPairAsksNothing() async throws {
+        let tree = makeTree()
+        let transport = makeTransport()
+        let store = InMemoryLeetCodeCredentialStore()
+        let model = makeModel(tree: tree, transport: transport, store: store)
+
+        model.resolveAccount()
+
+        XCTAssertEqual(store.loadCount, 1)
+        XCTAssertEqual(model.account, .signedOut)
+        await model.awaitAccountResolution()
+        XCTAssertEqual(transport.sent.count, 0)
+    }
+
+    /// The state resolution publishes is **optimistic**: it is there before
+    /// LeetCode has said anything, which is what keeps a signed-in user from
+    /// reading "signed out" for the length of a round trip.
+    ///
+    /// Staged on the transport's gate rather than on a delay: the confirmation is
+    /// held mid-flight, and the assertion is made while it is held.
+    func testTheStoredSessionIsPublishedBeforeTheConfirmationReturns() async throws {
+        let tree = makeTree()
+        let transport = makeTransport()
+        let gate = Gate()
+        transport.hold(.userStatus, on: gate)
+        let model = makeModel(tree: tree, transport: transport)
+
+        model.resolveAccount()
+        await gate.waitUntilReached()
+
+        XCTAssertTrue(model.isSignedIn, "the stored pair was not published optimistically")
+        XCTAssertEqual(model.account, .signedIn)
+        XCTAssertNil(model.signedInUsername, "nobody has been named yet")
+
+        gate.release()
+        await model.awaitAccountResolution()
+        XCTAssertEqual(model.signedInUsername, "pisaka_tester")
+    }
+
+    /// An explicit refresh on an unresolved model resolves *without* starting a
+    /// second one — one question, one request.
+    func testAnExplicitRefreshOnAnUnresolvedModelAsksOnce() async throws {
+        let tree = makeTree()
+        let transport = makeTransport()
+        let store = InMemoryLeetCodeCredentialStore(credentials)
+        let model = makeModel(tree: tree, transport: transport, store: store)
+
+        _ = await model.refreshUserStatus()
+        await model.awaitAccountResolution()
+
+        XCTAssertEqual(store.loadCount, 1)
+        XCTAssertEqual(transport.count(for: .userStatus), 1, "resolution spawned a second refresh")
+        XCTAssertEqual(model.account, .signedIn)
+    }
+
+    /// The awaitable entry settles on the *confirmed* answer — the property the
+    /// menu's await-then-decide rule rests on, in its rejecting half.
+    func testAwaitingResolutionSettlesOnARejectedSession() async throws {
+        let tree = makeTree()
+        let transport = makeTransport()
+        transport.serve(.userStatus, body: Self.fixture("user-status-signed-out.json"))
+        let model = makeModel(tree: tree, transport: transport)
+
+        await model.awaitAccountResolution()
+
+        XCTAssertEqual(model.account, .signedOut)
+        XCTAssertNil(model.signedInUsername)
+    }
+
+    /// …and in its confirming half, which is the one that must **not** open a
+    /// login surface.
+    func testAwaitingResolutionSettlesOnAConfirmedSession() async throws {
+        let tree = makeTree()
+        let transport = makeTransport()
+        let model = makeModel(tree: tree, transport: transport)
+
+        await model.awaitAccountResolution()
+
+        XCTAssertEqual(model.account, .signedIn)
+        XCTAssertEqual(model.signedInUsername, "pisaka_tester")
+    }
+
+    /// Awaiting a resolution that had nothing to confirm returns at once, having
+    /// asked nothing.
+    func testAwaitingResolutionWithNoStoredPairAsksNothing() async throws {
+        let tree = makeTree()
+        let transport = makeTransport()
+        let store = InMemoryLeetCodeCredentialStore()
+        let model = makeModel(tree: tree, transport: transport, store: store)
+
+        await model.awaitAccountResolution()
+
+        XCTAssertEqual(store.loadCount, 1)
+        XCTAssertEqual(transport.sent.count, 0)
+        XCTAssertEqual(model.account, .signedOut)
+    }
+
     // MARK: - Being signed out
 
     func testOpeningWhileSignedOutReportsNotLoggedInAndAsksNothing() async throws {
@@ -482,7 +636,7 @@ final class LeetCodeModelTests: XCTestCase {
         let store = InMemoryLeetCodeCredentialStore(credentials)
         let model = makeModel(tree: tree, transport: transport, store: store)
 
-        XCTAssertTrue(model.isSignedIn)
+        XCTAssertEqual(model.account, .unresolved)
         model.signOut()
         XCTAssertFalse(model.isSignedIn)
         XCTAssertNil(store.stored, "sign-out left the session in the store")
@@ -503,6 +657,9 @@ final class LeetCodeModelTests: XCTestCase {
             body: Self.fixture("errors-not-authenticated.json")
         )
         let model = makeModel(tree: tree, transport: transport)
+        // Confirmed rather than merely resolved, so the state the rejection has to
+        // flip is one LeetCode itself put there.
+        await model.awaitAccountResolution()
         XCTAssertTrue(model.isSignedIn)
 
         await assertThrows(.notLoggedIn) {
@@ -722,11 +879,12 @@ final class LeetCodeModelTests: XCTestCase {
         let model = makeModel(tree: tree, transport: transport)
 
         // A stored session is optimistically "signed in" before anything is
-        // confirmed; the name arrives with the refresh.
+        // confirmed; the name arrives with the refresh resolution starts.
+        model.resolveAccount()
         XCTAssertTrue(model.isSignedIn)
         XCTAssertNil(model.signedInUsername)
 
-        _ = await model.refreshUserStatus()
+        await model.awaitAccountResolution()
         XCTAssertEqual(model.signedInUsername, "pisaka_tester")
 
         transport.serve(.userStatus, body: Self.fixture("user-status-signed-out.json"))
@@ -1366,6 +1524,9 @@ final class LeetCodeModelTests: XCTestCase {
         let gate = Gate()
         transport.hold(.question(slug: "two-sum"), on: gate)
         let model = makeModel(tree: tree, transport: transport)
+        // Confirmed first, so "says nothing about the session" is a statement
+        // about a session LeetCode has already vouched for.
+        await model.awaitAccountResolution()
 
         let refresh = Task {
             await model.statement(
@@ -1402,6 +1563,10 @@ final class LeetCodeModelTests: XCTestCase {
         let gate = Gate()
         transport.hold(.question(slug: "two-sum"), on: gate)
         let model = makeModel(tree: tree, transport: transport)
+        // As with the statement refresh above: the session is confirmed before the
+        // request nobody waits for, so what must survive the cancellation is an
+        // answer LeetCode itself gave.
+        await model.awaitAccountResolution()
 
         let opening = Task {
             try? await model.openProblem(input: .slug("two-sum"), language: self.swift)
@@ -1447,11 +1612,14 @@ final class LeetCodeModelTests: XCTestCase {
             transport.serve(.userStatus, json: "{}", statusCode: status)
             let model = makeModel(tree: tree, transport: transport)
 
-            XCTAssertTrue(model.isSignedIn)
-            let answer = await model.refreshUserStatus()
-            XCTAssertNil(answer)
+            model.resolveAccount()
+            XCTAssertTrue(model.isSignedIn, "the stored pair reads as signed in until it is judged")
+            await model.awaitAccountResolution()
             XCTAssertFalse(model.isSignedIn, "HTTP \(status) left the session looking alive")
             XCTAssertNil(model.signedInUsername)
+
+            let answer = await model.refreshUserStatus()
+            XCTAssertNil(answer)
         }
     }
 

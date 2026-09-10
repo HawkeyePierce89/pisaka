@@ -95,7 +95,7 @@ final class LeetCodeBrowserModelTests: XCTestCase {
         transport: ScriptedLeetCodeTransport,
         signedIn: Bool = true
     ) -> LeetCodeModel {
-        LeetCodeModel(
+        let model = LeetCodeModel(
             transport: transport,
             credentialStore: InMemoryLeetCodeCredentialStore(signedIn ? credentials : nil),
             fileService: tree,
@@ -103,6 +103,12 @@ final class LeetCodeBrowserModelTests: XCTestCase {
             solutionsFolder: solutionsFolder,
             now: { self.now }
         )
+        // Constructing a model resolves nothing (`LeetCodeModelTests` is where
+        // that is asserted), so the account this suite's subject reads is declared
+        // here — the state every test below starts from is "the feature has been
+        // used once already".
+        model.resolveAccount()
+        return model
     }
 
     /// A cache file in the documented on-disk shape, hand-written for the same

@@ -136,13 +136,13 @@ Design decisions to implement as stated:
 - `markSessionRejected()` publishes `.signedOut`; `markSessionAccepted()`
   publishes `.signedIn` under its existing credentials guard.
 
-- [ ] add `LeetCodeAccountState`, the published `account`, the computed
+- [x] add `LeetCodeAccountState`, the published `account`, the computed
       `isSignedIn` and the relocated `didSet`
-- [ ] extract `init`'s store read into `resolveAccount(startingConfirmation:)` +
+- [x] extract `init`'s store read into `resolveAccount(startingConfirmation:)` +
       public `resolveAccount()`; `init` is left touching nothing
-- [ ] retain the confirmation task and expose the public `awaitAccountResolution()`
-- [ ] add `loadCount` to `InMemoryLeetCodeCredentialStore`
-- [ ] tests: constructing a model performs zero loads and zero transport calls;
+- [x] retain the confirmation task and expose the public `awaitAccountResolution()`
+- [x] add `loadCount` to `InMemoryLeetCodeCredentialStore`
+- [x] tests: constructing a model performs zero loads and zero transport calls;
       one `resolveAccount()` with a stored pair performs exactly one load and
       exactly one user-status request; a second and third `resolveAccount()`
       perform neither; with no stored pair, one load, no request, state
@@ -150,13 +150,13 @@ Design decisions to implement as stated:
       route held on the transport's `Gate`, `isSignedIn` asserted true while it is
       held); an explicit `refreshUserStatus()` on an unresolved model is one load
       and one request, not two
-- [ ] tests for the awaitable entry, which are also what Task 3's app rule rests
+- [x] tests for the awaitable entry, which are also what Task 3's app rule rests
       on: a stored pair the transport **rejects** with `notLoggedIn` leaves
       `account == .signedOut` after `awaitAccountResolution()`; a stored pair the
       transport **confirms** leaves `account == .signedIn` with the username
       published; `awaitAccountResolution()` on a model with no stored pair returns
       without a request and leaves `.signedOut`
-- [ ] run `swift test` — must pass before Task 2
+- [x] run `swift test` — must pass before Task 2
 
 ### Task 2: Every credential-needing entry resolves first
 

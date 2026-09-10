@@ -88,6 +88,35 @@ public struct LeetCodeStatement: Equatable, Sendable {
     }
 }
 
+/// What this app knows about the account, including **that it has not looked**.
+///
+/// A closed vocabulary rather than a boolean beside an `isAccountResolved` flag,
+/// for the reason every published vocabulary in this repository is closed: the
+/// two-property spelling admits the meaningless pair (not resolved, signed in),
+/// and a view reading only the boolean would render "signed out" for a session
+/// nobody has asked about yet. Here the third answer is a value a surface can see.
+///
+/// `unresolved` is the state a freshly constructed `LeetCodeModel` is in, and the
+/// only one that is not an answer: nothing has read the credential store and
+/// nothing has been asked of LeetCode. `LeetCodeModel.resolveAccount()` leaves it
+/// for one of the other two — optimistically, from the stored pair alone; see
+/// `LeetCodeModel.account`.
+public enum LeetCodeAccountState: Equatable, Sendable {
+    /// Nothing has been read and nothing has been asked. Not "signed out".
+    case unresolved
+    /// A session is believed to exist — either a stored pair was found, or
+    /// LeetCode answered an authenticated request.
+    case signedIn
+    /// There is no session: none was stored, LeetCode rejected the one there was,
+    /// or the user signed out.
+    case signedOut
+
+    /// Whether this app believes it has a usable session. `unresolved` is
+    /// deliberately `false`: a surface that only asks this question must not draw
+    /// signed-in chrome for an account nobody has looked up.
+    public var isSignedIn: Bool { self == .signedIn }
+}
+
 /// The one `@MainActor ObservableObject` the LeetCode integration is driven
 /// through: who is signed in, opening a problem, and the statement for the active
 /// tab.
@@ -163,28 +192,47 @@ public final class LeetCodeModel: ObservableObject {
 
     /// The account name LeetCode last confirmed, or `nil` when signed out or not
     /// yet confirmed. A stored session with an unconfirmed name is the ordinary
-    /// state at launch — the name arrives with `refreshUserStatus()`.
+    /// state at first use — the name arrives with `refreshUserStatus()`.
     @Published public private(set) var signedInUsername: String?
 
-    /// Whether this app believes it has a usable session.
+    /// What this app knows about the account — including that it has not looked.
     ///
-    /// Optimistic at launch: a stored credential pair sets it before anything has
-    /// been confirmed, because the alternative is showing "signed out" for the
-    /// duration of a network round trip to somebody who is signed in. LeetCode's
-    /// own `isSignedIn == false`, wherever it appears, is what clears it.
+    /// **`unresolved` until the feature is first used.** Constructing a model
+    /// touches neither the credential store nor the network; `resolveAccount()` is
+    /// what leaves this state, and it is called from the surfaces that render the
+    /// account and from every entry that needs a session. See `resolveAccount()`.
+    ///
+    /// Optimistic once resolved: a stored credential pair publishes `.signedIn`
+    /// before anything has been confirmed, because the alternative is showing
+    /// "signed out" for the duration of a network round trip to somebody who is
+    /// signed in. LeetCode's own `isSignedIn == false`, wherever it appears, is
+    /// what clears it.
     ///
     /// The observer is how the judge's buttons and the browser's list hear about a
-    /// session change. It is here rather than at the three places that write this
+    /// session change. It is here rather than at the places that write this
     /// property because two of them
     /// (`markSessionRejected()`/`markSessionAccepted()`) are reached from
     /// arbitrary request paths, including the judge's own — one writer, one hook.
-    @Published public private(set) var isSignedIn: Bool {
+    /// It is guarded on the *believed session* rather than on the state, so
+    /// resolving to `.signedOut` reaches nobody (exactly as the old `false` →
+    /// `false` did) while resolving to `.signedIn` reaches the judge and the
+    /// browser the same way a sign-in does.
+    @Published public private(set) var account: LeetCodeAccountState = .unresolved {
         didSet {
-            guard oldValue != isSignedIn else { return }
+            guard oldValue.isSignedIn != account.isSignedIn else { return }
             judge.sessionDidChange()
             browser.sessionDidChange()
         }
     }
+
+    /// Whether this app believes it has a usable session.
+    ///
+    /// Computed off `account`, so every reader written against the old boolean —
+    /// the menu, the sheet, both Settings surfaces, the iOS account screen, the
+    /// judge's availability table, the browser — keeps meaning what it meant. An
+    /// unresolved model answers `false`, which is what a surface that never
+    /// triggered resolution should see.
+    public var isSignedIn: Bool { account.isSignedIn }
 
     /// Whether any LeetCode operation is running — a count under the hood, so two
     /// overlapping operations do not have the first one's completion switch the
@@ -337,6 +385,15 @@ public final class LeetCodeModel: ObservableObject {
     /// question", and re-asking it after a sign-in would only re-publish `nil`.
     private var lastStatementRequest: (url: URL, folder: URL)?
 
+    /// The confirmation `resolveAccount()` started, when it started one.
+    ///
+    /// Held so it can be *waited for* rather than raced. Two kinds of caller need
+    /// that (see `awaitAccountResolution()`): the suites, and the one app site
+    /// that must decide off the confirmed answer rather than off the optimistic
+    /// one. `nil` whenever resolution found no stored pair, since then there is
+    /// nothing on the wire.
+    private var accountResolution: Task<Void, Never>?
+
     private var openGeneration = 0
     private var statementGeneration = 0
     private var accountGeneration = 0
@@ -365,19 +422,79 @@ public final class LeetCodeModel: ObservableObject {
             now: now
         )
         self.solutionsFolder = solutionsFolder
-        let stored = credentialStore.load()
-        self.cachedCredentials = stored
-        self.isSignedIn = stored != nil
+        // Deliberately nothing else. Building one of these reads no secret, makes
+        // no request and declares nothing to the catalog — the account is resolved
+        // the first time something needs to know it. See `resolveAccount()`.
+    }
+
+    // MARK: - The account
+
+    /// Look the account up, once, the first time anything needs to know it.
+    ///
+    /// This is what `init` used to do, moved to the moment the feature is actually
+    /// used. The trigger: on a build whose signature the login keychain cannot
+    /// remember, reading the store costs a confirmation dialog — and paying it at
+    /// launch charges every session for a feature most of them never open. So
+    /// construction touches nothing and this is the whole of the account's
+    /// resolution: the store is read once, the pair is cached, the state is
+    /// published, and the catalog is told who it is holding rows for.
+    ///
+    /// **Idempotent and synchronous.** Idempotent because it is called from
+    /// wherever the account is first needed — four rendering surfaces and every
+    /// credential-needing entry — and none of them can know whether it is the
+    /// first; synchronous because the callers that matter are `onAppear` bodies
+    /// and a generation-token capture, neither of which may suspend.
+    ///
+    /// The state it publishes is **optimistic**: a stored pair reads as signed in
+    /// before LeetCode has confirmed anything, exactly as it did at launch before.
+    /// The confirmation that corrects it is the `refreshUserStatus()` started here.
+    public func resolveAccount() {
+        resolveAccount(startingConfirmation: true)
+    }
+
+    /// - Parameter startingConfirmation: whether to start the one
+    ///   `refreshUserStatus()` that turns the optimistic answer into a confirmed
+    ///   one. True for every caller but one: `refreshUserStatus()` itself resolves
+    ///   with `false`, because an explicit refresh on an unresolved model would
+    ///   otherwise spawn a second refresh and put two user-status requests on the
+    ///   wire for one question.
+    private func resolveAccount(startingConfirmation: Bool) {
+        guard account == .unresolved else { return }
+        // Through the accessor, so an explicit sign-out this run still answers
+        // `nil` without a read — see `storedCredentials()`.
+        let stored = storedCredentials()
+        cachedCredentials = stored
+        account = stored == nil ? .signedOut : .signedIn
         // The catalog's rows carry a per-account `status`, and it cannot tell on
         // its own which account is the current one — so it is told, here and from
         // `invalidateInFlightWork()`. **Only when there is something to tell:** an
         // undeclared catalog is unconstrained, and a session the Keychain hands
-        // back later (locked at launch is the ordinary way that happens) must not
-        // be mistaken for one this app has superseded.
-        if let stored { catalog.sessionDidChange(to: stored) }
+        // back later (locked at first use is the ordinary way that happens) must
+        // not be mistaken for one this app has superseded.
+        guard let stored else { return }
+        catalog.sessionDidChange(to: stored)
+        guard startingConfirmation else { return }
+        accountResolution = Task { [weak self] in
+            await self?.refreshUserStatus()
+        }
     }
 
-    // MARK: - The account
+    /// Resolve the account and wait for whatever confirmation that started.
+    ///
+    /// Returns as soon as resolution is done when there is nothing on the wire —
+    /// no stored pair, or an already-resolved model whose confirmation has
+    /// finished.
+    ///
+    /// Public, unlike `LeetCodeJudgeModel.awaitSessionResolution()` whose shape it
+    /// follows, because it has a caller outside the suites: the one app site that
+    /// must not decide off the *optimistic* state. A menu item cannot observe its
+    /// own opening, so it resolves when chosen — and a stored-but-dead session
+    /// would read as signed in for the length of a round trip, which is exactly
+    /// long enough to make the wrong decision with.
+    public func awaitAccountResolution() async {
+        resolveAccount()
+        await accountResolution?.value
+    }
 
     /// Make the gate one login surface will decide with.
     ///
@@ -430,7 +547,7 @@ public final class LeetCodeModel: ObservableObject {
         judgeContexts.removeAll()
         cachedCredentials = credentials
         storedCredentialsAreDiscarded = false
-        isSignedIn = true
+        account = .signedIn
         signedInUsername = nil
         lastError = nil
         do {
@@ -450,7 +567,7 @@ public final class LeetCodeModel: ObservableObject {
                 lastError = .notLoggedIn
                 throw LeetCodeError.notLoggedIn
             }
-            isSignedIn = true
+            account = .signedIn
             signedInUsername = status.username
             // The panel the signed-out session left empty. Nothing else will
             // re-ask: the view's key is the tab and the folder, and neither
@@ -482,11 +599,16 @@ public final class LeetCodeModel: ObservableObject {
 
     /// Ask LeetCode who this session is, updating the published state.
     ///
-    /// Non-throwing: this is what the app calls at launch, and a failure there
-    /// must not produce an alert. A rejection still flips `isSignedIn`, because
-    /// that one *is* an answer.
+    /// Non-throwing: this is the confirmation resolution starts, and a failure
+    /// there must not produce an alert. A rejection still flips the account state,
+    /// because that one *is* an answer.
+    ///
+    /// Resolves **without** starting a confirmation, being one: resolving with one
+    /// would have an explicit refresh on an unresolved model spawn a second
+    /// refresh and put two user-status requests on the wire for one question.
     @discardableResult
     public func refreshUserStatus() async -> LeetCodeAPI.UserStatus? {
+        resolveAccount(startingConfirmation: false)
         accountGeneration += 1
         let generation = accountGeneration
         guard let credentials = cachedCredentials ?? storedCredentials() else {
@@ -505,7 +627,7 @@ public final class LeetCodeModel: ObservableObject {
             // on: swallowing it with the rest would leave a dead session reading
             // as signed in — with the account name in the menu — until the user
             // tried to open something. Everything else (offline, throttled) is
-            // still silent, which is what "the launch-time call raises no alert"
+            // still silent, which is what "the confirmation raises no alert"
             // means.
             guard generation == accountGeneration else { return nil }
             markSessionRejected()
@@ -515,7 +637,7 @@ public final class LeetCodeModel: ObservableObject {
         }
         guard generation == accountGeneration else { return status }
         if status.isSignedIn {
-            isSignedIn = true
+            account = .signedIn
             signedInUsername = status.username
         } else {
             markSessionRejected()
@@ -548,7 +670,7 @@ public final class LeetCodeModel: ObservableObject {
         slugsFetchedThisRun.removeAll()
         slugsKnownAbsent.removeAll()
         judgeContexts.removeAll()
-        isSignedIn = false
+        account = .signedOut
         signedInUsername = nil
         lastError = nil
     }
@@ -971,7 +1093,8 @@ public final class LeetCodeModel: ObservableObject {
 
     /// The persisted session — unless the user has signed out this run, in which
     /// case there is none as far as this app is concerned, whatever the Keychain
-    /// still holds. The one place the store is read after `init`.
+    /// still holds. **The one place the store is read at all**, `resolveAccount()`
+    /// included: nothing else in this file names `credentialStore.load()`.
     private func storedCredentials() -> LeetCodeCredentials? {
         guard !storedCredentialsAreDiscarded else { return nil }
         return credentialStore.load()
@@ -993,7 +1116,7 @@ public final class LeetCodeModel: ObservableObject {
     /// into a mandatory re-login through a web view. Signing out is the explicit
     /// act that forgets them.
     func markSessionRejected() {
-        isSignedIn = false
+        account = .signedOut
         signedInUsername = nil
     }
 
@@ -1004,8 +1127,8 @@ public final class LeetCodeModel: ObservableObject {
     /// rejection deliberately keeps the credentials, because a 403 from an
     /// unofficial endpoint is as often a throttle in disguise as a dead session —
     /// but until this, nothing ever put the state back: `refreshUserStatus()` is
-    /// the only other writer and the app calls it exactly once, at launch. One
-    /// throttled response therefore left every surface saying "Not signed in" for
+    /// the only other writer and resolution starts it exactly once, at first use.
+    /// One throttled response therefore left every surface saying "Not signed in" for
     /// the rest of the run while `requireCredentials()` went on opening problems
     /// from the same cached pair — and, worst of it, the macOS menu renders Sign
     /// Out only under `isSignedIn`, so signing out became unreachable. A response
@@ -1022,7 +1145,7 @@ public final class LeetCodeModel: ObservableObject {
     /// when the user signed out finds no session here to confirm.
     func markSessionAccepted() {
         guard !storedCredentialsAreDiscarded, cachedCredentials != nil else { return }
-        isSignedIn = true
+        account = .signedIn
     }
 
     /// Adopt a freshly fetched detail as the published statement, and cache it.
