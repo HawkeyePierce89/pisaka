@@ -1072,6 +1072,42 @@ final class LeetCodeModelTests: XCTestCase {
         }
     }
 
+    /// A confirmation the sign-in **cancelled** never runs, and so cannot
+    /// supersede the sign-in that cancelled it.
+    ///
+    /// The window is one main-actor turn wide: `resolveAccount()` spawns the
+    /// confirmation as an unstructured task, and cancelling a task that has not
+    /// begun does not stop its body — so without the guard the dropped
+    /// confirmation enters `refreshUserStatus()`, bumps `accountGeneration`, and
+    /// the sign-in's own token is stale by the time LeetCode rejects the pair.
+    /// The rejection is then discarded by the sign-in's guard: nothing is
+    /// thrown, the sheet reads the attempt as successful and the pair it just
+    /// wrote to the Keychain is left there.
+    func testACancelledConfirmationDoesNotSupersedeTheSignIn() async throws {
+        let tree = makeTree()
+        let transport = makeTransport()
+        transport.serve(.userStatus, body: Self.fixture("user-status-signed-out.json"))
+        let store = InMemoryLeetCodeCredentialStore(credentials)
+        let model = makeModel(tree: tree, transport: transport, store: store)
+        let other = LeetCodeCredentials(session: "other-session", csrfToken: "other-csrf")
+
+        // Both in one turn, which is what stages the race: the confirmation
+        // resolution started has not reached the transport when `signIn`
+        // captures its token, cancels it, and suspends.
+        model.resolveAccount()
+        await assertThrows(.notLoggedIn) {
+            _ = try await model.signIn(with: other)
+        }
+
+        XCTAssertFalse(model.isSignedIn)
+        XCTAssertNil(model.signedInUsername)
+        XCTAssertNil(store.stored, "a session LeetCode rejected was left in the store")
+        XCTAssertEqual(model.lastError, .notLoggedIn)
+        // The sign-in's own confirmation, and nothing else: a cancelled
+        // resolution asks nothing.
+        XCTAssertEqual(transport.count(for: .userStatus), 1)
+    }
+
     /// …and a failure that is *not* a rejection leaves the session alone: the
     /// cookies came out of a browser that had just signed in, and being offline
     /// says nothing about them.

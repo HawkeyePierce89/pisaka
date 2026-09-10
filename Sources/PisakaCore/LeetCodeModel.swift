@@ -483,6 +483,17 @@ public final class LeetCodeModel: ObservableObject {
         catalog.sessionDidChange(to: stored)
         guard startingConfirmation else { return }
         accountResolution = Task { [weak self] in
+            // A confirmation the two declaring writers dropped must not *run*.
+            // Cancelling an unstructured task that has not begun does not stop
+            // its body from executing, and `refreshUserStatus()` bumps
+            // `accountGeneration` on its way in — so a confirmation cancelled
+            // between `signIn(with:)`'s token capture and its first suspension
+            // would supersede the very sign-in that cancelled it, and the
+            // rejection LeetCode answers that sign-in with would be dropped by
+            // its own generation guard. The guard below is what makes
+            // `discardAccountResolution()` mean what it says: nothing is left
+            // that wants the answer, so nothing asks the question.
+            guard !Task.isCancelled else { return }
             await self?.refreshUserStatus()
         }
     }

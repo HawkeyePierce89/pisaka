@@ -2501,6 +2501,16 @@ means, what a file is named, when a fetch happens, and what gets written.
   and clear it (`discardAccountResolution()`): a *declared* account has nothing
   left worth waiting for. Asserted with the confirmation held mid-flight on the
   transport's gate, so the await has to return with the request unanswered.
+  **The cancellation is read where the confirmation starts, not only where it
+  lands.** Cancelling an unstructured task that has not begun does not stop its
+  body, and `refreshUserStatus()` bumps `accountGeneration` on its way in — so a
+  confirmation dropped inside the one main-actor turn between `signIn(with:)`'s
+  token capture and its first suspension would supersede the sign-in that
+  dropped it, leaving LeetCode's rejection discarded by the sign-in's own guard,
+  nothing thrown for the sheet to show, and the rejected pair in the Keychain
+  with every surface reading "signed in". The spawned task therefore checks
+  `Task.isCancelled` before it asks anything, which is also what keeps a dropped
+  confirmation from putting a second user-status request on the wire.
   The app layer therefore spells `refreshUserStatus(` nowhere at all and reaches
   resolution from exactly four files; `LeetCodeAccountSourceGatingTests` pins both
   by set equality, since a re-added launch-time call is invisible to every other

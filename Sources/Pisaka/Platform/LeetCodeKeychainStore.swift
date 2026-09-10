@@ -42,8 +42,9 @@ import Security
 /// `.entitlements`.
 ///
 /// `@unchecked Sendable` over an immutable `let`: there is no mutable state, and
-/// the Keychain is thread-safe. `LeetCodeModel` reads it on the main actor at
-/// launch, but the protocol is not main-actor-bound and nothing here needs it.
+/// the Keychain is thread-safe. `LeetCodeModel` reads it on the main actor, at
+/// the first use of the feature rather than at launch (L27), but the protocol is
+/// not main-actor-bound and nothing here needs it.
 final class LeetCodeKeychainStore: LeetCodeCredentialStore, @unchecked Sendable {
     /// The Keychain service every LeetCode session is stored under. Distinct
     /// from the git PAT store's service, so "sign out of LeetCode" cannot reach
