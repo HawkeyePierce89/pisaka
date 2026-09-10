@@ -363,13 +363,15 @@ The rules:
 
 ### Task 7: Verify acceptance criteria
 
-- [ ] `swift test` green
-- [ ] `swiftlint --strict` from the repository root clean, with no threshold
-      raised and no new in-file disable
-- [ ] the macOS app-test bundle green (`xcodebuild -project Pisaka.xcodeproj
+- [x] `swift test` green — 5626 tests, 0 failures
+- [x] `swiftlint --strict` from the repository root clean — 0 violations in 561
+      files, with no threshold raised and no new in-file disable (the branch
+      touches neither `.swiftlint.yml` and adds no `swiftlint:disable`)
+- [x] the macOS app-test bundle green (`xcodebuild -project Pisaka.xcodeproj
       -scheme Pisaka -destination 'platform=macOS' test`, into a derived-data path
-      outside the repository)
-- [ ] the macOS and iOS builds green (`generic/platform=iOS` for the device arch)
+      outside the repository) — 72 tests, 0 failures
+- [x] the macOS and iOS builds green (`generic/platform=iOS` for the device arch)
+      — macOS Release and iOS device-arch Debug both **BUILD SUCCEEDED**
 
 ## Post-Completion (manual, by the reviewer)
 
