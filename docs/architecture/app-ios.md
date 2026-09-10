@@ -227,8 +227,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     solutions folder is only writable inside its grant while the container cache
     simply finds no covering scope and falls through. `SettingsStore` moved into
     `init` for the macOS app's reason — the folder has to be readable before the
-    model is built, so `isSignedIn` and `solutionsFolder` are right from the first
-    frame — and the model is a plain stored property, never `@StateObject`, for the
+    model is built, so `solutionsFolder` is right from the first frame; the
+    account deliberately is not, reading `.unresolved` until first use (L27) — and the model is a plain stored property, never `@StateObject`, for the
     same reason the index pair is.
   - `iOS/RootView_iOS.swift` — adaptive root: `NavigationSplitView` (iPad/regular
     width: project-tree sidebar + editor detail) vs `NavigationStack`
@@ -339,8 +339,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `displayLabel` strings the macOS `NSMenu` shows.
     **LeetCode** (LC-1; full entry in `core-leetcode.md`) is wired here the way the
     macOS window wires it, adjusted for iOS's navigation: `leetCode` is a plain
-    `let` (never observed at the root), `LeetCodeFolder_iOS.publish` and one
-    unawaited `refreshUserStatus()` run in the launch `.task`, and the statement is
+    `let` (never observed at the root), `LeetCodeFolder_iOS.publish` runs in the
+    launch `.task` and **nothing else does** — pointing the model at a folder reads
+    no secret and makes no request, while the account is resolved at first use by
+    the two iOS surfaces that render it and by every credential-needing entry
+    (L27) — and the statement is
     a `.task(id:)` keyed on **(selected tab path, LeetCode folder)** — the folder
     read from `settings`, which this view observes, rather than from the model,
     which it does not. `editorArea` was split into itself plus `tabbedEditor` so the

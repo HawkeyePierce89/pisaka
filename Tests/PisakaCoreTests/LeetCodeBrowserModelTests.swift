@@ -90,10 +90,19 @@ final class LeetCodeBrowserModelTests: XCTestCase {
         return transport
     }
 
+    /// - Parameter resolved: whether the account has already been resolved.
+    ///   `true` for every test but the ordering ones — constructing a model
+    ///   resolves nothing (`LeetCodeModelTests` is where that is asserted), so the
+    ///   account this suite's subject reads is declared here and the state those
+    ///   tests start from is "the feature has been used once already". `false`
+    ///   leaves the freshly launched state the browser's own ordering rule is
+    ///   about. One parameter rather than a second factory, as
+    ///   `LeetCodeJudgeModelTests.makeWorld` spells the same need.
     private func makeModel(
         tree: StubFileTree,
         transport: ScriptedLeetCodeTransport,
-        signedIn: Bool = true
+        signedIn: Bool = true,
+        resolved: Bool = true
     ) -> LeetCodeModel {
         let model = LeetCodeModel(
             transport: transport,
@@ -103,29 +112,8 @@ final class LeetCodeBrowserModelTests: XCTestCase {
             solutionsFolder: solutionsFolder,
             now: { self.now }
         )
-        // Constructing a model resolves nothing (`LeetCodeModelTests` is where
-        // that is asserted), so the account this suite's subject reads is declared
-        // here — the state every test below starts from is "the feature has been
-        // used once already".
-        model.resolveAccount()
+        if resolved { model.resolveAccount() }
         return model
-    }
-
-    /// The same world, left **unresolved** — the state a freshly launched app is
-    /// in, and the one the browser's own ordering rule is about.
-    private func makeUnresolvedModel(
-        tree: StubFileTree,
-        transport: ScriptedLeetCodeTransport,
-        signedIn: Bool = true
-    ) -> LeetCodeModel {
-        LeetCodeModel(
-            transport: transport,
-            credentialStore: InMemoryLeetCodeCredentialStore(signedIn ? credentials : nil),
-            fileService: tree,
-            cacheLayout: LeetCodeCacheLayout(base: cacheBase),
-            solutionsFolder: solutionsFolder,
-            now: { self.now }
-        )
     }
 
     /// A cache file in the documented on-disk shape, hand-written for the same
@@ -235,7 +223,7 @@ final class LeetCodeBrowserModelTests: XCTestCase {
     func testTheFirstLoadOnAnUnresolvedModelPublishesItsOwnRows() async {
         let tree = makeTree()
         let transport = makeTransport()
-        let model = makeUnresolvedModel(tree: tree, transport: transport)
+        let model = makeModel(tree: tree, transport: transport, resolved: false)
 
         await model.browser.load()
 
@@ -252,7 +240,7 @@ final class LeetCodeBrowserModelTests: XCTestCase {
     func testTheFirstRefreshOnAnUnresolvedModelPublishesItsOwnRows() async {
         let tree = makeTree(warmCache())
         let transport = makeTransport()
-        let model = makeUnresolvedModel(tree: tree, transport: transport)
+        let model = makeModel(tree: tree, transport: transport, resolved: false)
 
         await model.browser.refresh()
 
@@ -265,7 +253,7 @@ final class LeetCodeBrowserModelTests: XCTestCase {
     func testTheFirstLoadOnAnUnresolvedSignedOutModelPublishesTheOffer() async {
         let tree = makeTree()
         let transport = makeTransport()
-        let model = makeUnresolvedModel(tree: tree, transport: transport, signedIn: false)
+        let model = makeModel(tree: tree, transport: transport, signedIn: false, resolved: false)
 
         await model.browser.load()
 

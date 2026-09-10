@@ -1197,7 +1197,13 @@ user sees it.
     once LeetCode has confirmed the session — the cookies alone are not one. The
     session it produces is kept in the Keychain; **Sign Out** clears both that
     item and the `leetcode.com` cookies. One account at a time — switching means
-    signing out and back in.
+    signing out and back in. Nothing about your account is read or requested
+    until you first use a LeetCode surface in a run (Open Problem…, Browse
+    Problems…, the Preferences LeetCode tab, or making a solution file the active
+    tab), so until then the menu reads **Sign In…** whether or not you are signed
+    in. Choosing it looks the account up: a session that is still valid simply
+    lands you signed in and opens nothing, while none — or one that has expired —
+    opens the login page as usual.
   - **Open Problem…** (Cmd+Option+P) accepts a **problem number** (`1`), a
     **slug** (`two-sum`), or a **leetcode.com problem URL**, with a language
     picker offering Swift, Python 3, Go, Rust, TypeScript and JavaScript. The

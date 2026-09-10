@@ -485,6 +485,15 @@ public final class LeetCodeModel: ObservableObject {
     /// no stored pair, or an already-resolved model whose confirmation has
     /// finished.
     ///
+    /// What it awaits is the confirmation **resolution** started, which is the
+    /// only one there is: `refreshUserStatus()` is the single entry that resolves
+    /// without recording one (it *is* a confirmation), so a model first resolved
+    /// by a bare call to it would leave this returning on the optimistic answer
+    /// while that request is still out. That is not reachable from the app — no
+    /// file under `Sources/Pisaka` names `refreshUserStatus`, which
+    /// `LeetCodeAccountSourceGatingTests` pins by set equality — and inside Core
+    /// resolution is its only caller.
+    ///
     /// Public, unlike `LeetCodeJudgeModel.awaitSessionResolution()` whose shape it
     /// follows, because it has a caller outside the suites: the one app site that
     /// must not decide off the *optimistic* state. A menu item cannot observe its
@@ -1109,6 +1118,15 @@ public final class LeetCodeModel: ObservableObject {
     /// case there is none as far as this app is concerned, whatever the Keychain
     /// still holds. **The one place the store is read at all**, `resolveAccount()`
     /// included: nothing else in this file names `credentialStore.load()`.
+    ///
+    /// One *place*, deliberately not one *read*: the three
+    /// `cachedCredentials ?? storedCredentials()` sites are still consulted after
+    /// resolution has cached `nil`, and that is the retry the resolution comment
+    /// anticipates. A Keychain locked at first use answers `nil` without there
+    /// being no session, and asking again on the next entry that actually needs
+    /// one is how that run recovers — where caching the `nil` as final would
+    /// strand it signed out until relaunch. A stored pair costs one read either
+    /// way, which is the read the whole rule is about.
     private func storedCredentials() -> LeetCodeCredentials? {
         guard !storedCredentialsAreDiscarded else { return nil }
         return credentialStore.load()

@@ -1434,7 +1434,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     **LeetCode** (LC-1; the layer's full entry is in `core-leetcode.md`) adds
     `makeLeetCode(settings:)` — the stack composed once from the three
     cross-platform seams, with the folder read out of `SettingsStore` *before* the
-    model exists, so `isSignedIn` and the folder are right from the first frame —
+    model exists, so the folder is right from the first frame; the account
+    deliberately is not, reading `.unresolved` until first use (L27) —
     held as a **non-observed `let`** beside `commitDialog`/`symbolIndex`, since the
     surfaces that show its state (`LeetCodeCommands`, the Open Problem sheet, the
     login sheet, the Preferences tab and the description pane) each observe it
@@ -1461,10 +1462,15 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     selection did not change, so `ContentView`'s `.task(id:)` would not re-run
     (`core-leetcode.md` carries the full rule). Sign Out always goes through
     `LeetCodeWebSession.signOut(model:)` (never `model.signOut()` alone, which
-    would clear the Keychain and leave the cookies), and the launch-time
-    `refreshUserStatus()` joins the one-shot `.onAppear` block beside
-    `sweepStaging()`/`lspProvisioning.refresh()` — unawaited and silent, since the
-    menu already says "signed in" optimistically from the Keychain item. The scene also attaches the `MainWindowFrameAutosave` marker to its content, before the sheet modifiers, so exactly one window adopts the name; it must not move into `ContentView` because the marker must sit in the scene's own content to avoid being pulled into a presentation or duplicated.
+    would clear the Keychain and leave the cookies). **Nothing about the account
+    happens at launch** (L27): the one-shot `.onAppear` block beside
+    `sweepStaging()`/`lspProvisioning.refresh()` says nothing about LeetCode, and
+    the model resolves the first time a surface renders the account or an
+    operation needs a session. Sign In… is correspondingly no longer a plain
+    presenter call — `LeetCodeCommands.signIn()` awaits
+    `awaitAccountResolution()` and raises the login sheet only when the settled
+    state is not signed in, because the optimistic one would have a stored-but-dead
+    session open nothing (`core-leetcode.md`, L27). The scene also attaches the `MainWindowFrameAutosave` marker to its content, before the sheet modifiers, so exactly one window adopts the name; it must not move into `ContentView` because the marker must sit in the scene's own content to avoid being pulled into a presentation or duplicated.
   - `MainWindowFrameAutosave.swift` — the main window's frame persistence, done by
     hand because the standard window-frame autosave is unusable here twice over
     (both halves verified live in the preferences domain): the framework-derived

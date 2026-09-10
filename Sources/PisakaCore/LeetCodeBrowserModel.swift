@@ -190,6 +190,15 @@ public final class LeetCodeBrowserModel: ObservableObject {
         // model is about to capture. Resolving after the capture would have the
         // browser's first load discard its own rows as superseded. The one
         // non-obvious ordering in this file.
+        //
+        // The same hook moves `sessionEpoch` and `availability`, both halves of
+        // ``loadKey`` — so on the very first open both surfaces re-key their
+        // `.task(id:)` and call this a second time. That is one thrown-away cycle
+        // and no more: the second pass owns the token, the catalog coalesces the
+        // fetch behind it, and the rows it publishes are the ones the assertion in
+        // `LeetCodeBrowserModelTests` reads. Resolution stays an ordinary session
+        // change here on purpose — the judge and the browser must hear
+        // unresolved → signed in exactly as they hear a sign-in.
         owner.resolveAccount()
         await update(forced: false)
     }

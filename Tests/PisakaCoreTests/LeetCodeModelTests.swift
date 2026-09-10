@@ -126,6 +126,10 @@ final class LeetCodeModelTests: XCTestCase {
         XCTAssertEqual(outcome.solution?.problem.title, "Two Sum")
         XCTAssertEqual(outcome.solution?.language, swift)
         XCTAssertNil(model.lastError)
+        // The open's own work is done, but the confirmation its resolution
+        // started is work too — awaited rather than raced, so "nothing is in
+        // flight" is a fact rather than an assumption about hop counts.
+        await model.awaitAccountResolution()
         XCTAssertFalse(model.isBusy)
 
         let contents = try XCTUnwrap(tree.files[twoSumPath])
@@ -140,9 +144,8 @@ final class LeetCodeModelTests: XCTestCase {
         XCTAssertTrue(contents.hasSuffix("\n"))
         // The number resolved through the catalog, the detail through GraphQL —
         // one of each — plus the **one** user-status confirmation that opening a
-        // problem, being a first use, resolved the account with. Awaited rather
-        // than raced, so the count is a fact rather than a timing.
-        await model.awaitAccountResolution()
+        // problem, being a first use, resolved the account with. Counted after
+        // the await above, so the count is a fact rather than a timing.
         XCTAssertEqual(transport.count(for: .problemList), 1)
         XCTAssertEqual(transport.count(for: .question(slug: "two-sum")), 1)
         XCTAssertEqual(transport.count(for: .userStatus), 1)
@@ -600,6 +603,25 @@ final class LeetCodeModelTests: XCTestCase {
 
         XCTAssertEqual(model.account, .signedIn)
         XCTAssertEqual(model.signedInUsername, "pisaka_tester")
+    }
+
+    /// …and in its third half, the one the other two do not cover: a confirmation
+    /// that could not be **made** is not an answer, so the optimistic state stands
+    /// and the menu opens nothing. Without this, a resolution task that cleared
+    /// the account on any failure — rather than on a rejection alone — would turn
+    /// every network hiccup into a login sheet in front of somebody who is signed
+    /// in, with every other gate green.
+    func testAwaitingResolutionKeepsTheOptimisticAnswerWhenTheConfirmationFails() async throws {
+        let tree = makeTree()
+        let transport = makeTransport()
+        transport.fail(.userStatus)
+        let model = makeModel(tree: tree, transport: transport)
+
+        await model.awaitAccountResolution()
+
+        XCTAssertEqual(model.account, .signedIn, "only a rejection is an answer")
+        XCTAssertNil(model.signedInUsername, "nobody was named, so nobody is shown")
+        XCTAssertEqual(transport.count(for: .userStatus), 1)
     }
 
     /// Awaiting a resolution that had nothing to confirm returns at once, having

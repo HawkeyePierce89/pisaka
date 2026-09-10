@@ -540,7 +540,9 @@ ci.yml's `lint` job, and the version-bump procedure.
   the network, `refreshUserStatus(` is spelled in no app file, and the account
   resolves — a closed tri-state whose third value is "not asked yet" — from the
   four surfaces that render it plus every credential-needing entry, which resolves
-  for itself so no view has to remember (`core-leetcode.md`).
+  for itself so no view has to remember, plus the one app site that must **await**
+  the confirmation rather than read the optimistic answer: the macOS menu's Sign
+  In…, which cannot observe its own opening (`core-leetcode.md`).
 - **Local History is a reader with a store of its own** (macOS only): it snapshots
   every buffer the app writes and, under a label, every file the **nine** gated
   operations are about to overwrite, into
@@ -918,6 +920,12 @@ by-hand frame persistence: one persistence site, observers only after the
 final restore), `LocalHistorySourceGatingTests` (Local History's app-layer
 rules — capture sites, the autosave report, the one restore funnel, the reader
 rule; inventory in that suite's doc comments and `core-local-history.md`),
+`LeetCodeAccountSourceGatingTests` (where the LeetCode account is resolved —
+`refreshUserStatus(` spelled in no app file at all, `resolveAccount(` in exactly
+the four that render account state and `awaitAccountResolution(` in exactly the
+one that must await, the last two pinned apart by set equality because read
+together they cannot see either regression, and `PisakaApp.swift`'s absence as
+the whole point; inventory in that suite's doc comments and `core-leetcode.md`),
 `DatabaseViewerSourceGatingTests` (the viewer's cross-layer rules — SQLite
 imported in one app file and never in Core, the app-side files macOS-gated,
 `viewerTabsEnabled` spelled in `PisakaApp.swift` alone while the iOS app's

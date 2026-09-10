@@ -1277,7 +1277,15 @@ the limits the design carries.
     — it goes through `catalog.loadIfNeeded`, so re-entering the browser inside the
     staleness window costs **no request at all**. `refresh()` is the explicit
     affordance, through `catalog.refresh`, and is the only way a solved mark from
-    five minutes ago reaches the screen (L24). Both share one private `update`,
+    five minutes ago reaches the screen (L24). Both call `owner.resolveAccount()`
+    as their **first statement, before the token is captured**: a browser nobody
+    has opened yet is a first use, and resolution reaches `sessionDidChange()`
+    through the owner's `account` observer, which bumps the very token the load is
+    about to capture — so resolving after the capture would have the first load
+    discard its own rows (L27). The same hook moves `sessionEpoch` and
+    `availability`, both halves of `loadKey`, so the first open re-keys the
+    surfaces' `.task(id:)` and runs one thrown-away cycle; the second pass owns the
+    token and publishes. Both share one private `update`,
     which resolves the session **synchronously before anything suspends**: no
     session publishes `.notSignedIn`, clears no rows and records no error.
     **A failure with rows in hand keeps them** — `resolveSlug`'s degradation rule
@@ -1286,7 +1294,8 @@ the limits the design carries.
     guarded on the catalog holding anything at all, so a failed refresh can still
     surface rows the disk read produced and can never blank a populated list.
     `publish(_:)` runs `markSessionRejected()` **before** setting the sentence,
-    because that flips `isSignedIn`, which calls `sessionDidChange()` here, which
+    because that flips the believed session, whose observer calls
+    `sessionDidChange()` here, which
     clears `lastError` — the reverse order would wipe the very sentence it is
     reporting. `currentCredentials()` asks *both* halves (`isSignedIn` and the
     store), so the browser cannot go on fetching under a session every other
@@ -1316,7 +1325,9 @@ the limits the design carries.
     keeps the browser's teardown from failing somebody else's open, and that keeps
     somebody else's Esc from failing the browser's load.
     *The session hooks — two of them, like the judge's.* `sessionDidChange()` is
-    called from `LeetCodeModel`'s `isSignedIn` observer beside the judge's, and it
+    called from `LeetCodeModel`'s `account` observer beside the judge's — guarded
+    on the *believed session* moving, so an unresolved model resolving to signed in
+    reaches here exactly as a sign-in does (L27) — and it
     bumps the token, recomputes `availability`, clears the error and **clears the
     rows**. That last is the point: the status column is per-account, so leaving one
     account's solved marks standing under another's name is the single wrong thing
@@ -1842,8 +1853,8 @@ the limits the design carries.
     entries in `app-shell.md` and `app-window.md`) — the orchestration.
     `makeLeetCode(settings:)` composes the stack once (transport, Keychain store,
     `FileService`, the cache layout, and the folder read out of `SettingsStore`
-    *before* the model is built, so `isSignedIn` and the folder are right from the
-    first frame); the model is a **non-observed `let`**, and the two sheets are one
+    *before* the model is built, so the folder is right from the first frame — the
+    account deliberately is not, reading `.unresolved` until first use, L27); the model is a **non-observed `let`**, and the two sheets are one
     `.sheet(item:)` over an enum attached **outside** `ContentView` — they are
     mutually exclusive by nature (the sign-in sheet exists because an open needs a
     session), and attaching them in the scene keeps `ContentView` free of both the
