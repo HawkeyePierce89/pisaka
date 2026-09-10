@@ -101,6 +101,13 @@ struct SettingsView_iOS: View {
             .onAppear {
                 storedHosts = credentialStore.storedHosts()
                 if let prefillHost, newHost.isEmpty { newHost = prefillHost }
+                // This screen renders account state — `leetCodeSection`'s account
+                // row — so it is one of the four surfaces that resolve the account
+                // on appear (L27). Idempotent and synchronous: the second and
+                // every later appearance read nothing and ask nothing. Attached
+                // to the screen rather than to the section because iOS Preferences
+                // here is one `Form`: reaching any of it is reaching that row.
+                leetCode.resolveAccount()
             }
             .fullScreenCover(isPresented: $isSigningInToLeetCode) {
                 LeetCodeLoginView_iOS(
@@ -212,9 +219,10 @@ struct SettingsView_iOS: View {
         }
     }
 
-    /// "Signed in as …" once LeetCode has named the account, "Signed in" while the
-    /// launch-time confirmation is still out (the model is optimistic about a
-    /// stored session on purpose), and "Not signed in" otherwise.
+    /// "Signed in as …" once LeetCode has named the account, "Signed in" while
+    /// the confirmation first use started is still out (the model is optimistic
+    /// about a stored session on purpose), and "Not signed in" otherwise — which
+    /// is also what an account nobody has resolved yet reads as.
     private var leetCodeAccountDescription: String {
         guard leetCode.isSignedIn else { return "Not signed in" }
         guard let username = leetCode.signedInUsername else { return "Signed in" }

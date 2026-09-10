@@ -146,17 +146,16 @@ struct RootView_iOS: View {
                 installDefinitionOpener()
                 // Point the LeetCode model at the configured folder before
                 // anything can ask it to open or to associate a tab — nothing is
-                // created here (see `LeetCodeFolder_iOS.publish`) — and ask
-                // LeetCode who the stored session belongs to, once. The latter is
-                // unawaited and silent on purpose: the screen already says
-                // "signed in" optimistically from the Keychain item, and an
-                // unreachable LeetCode at launch is not a sign-out.
+                // created here (see `LeetCodeFolder_iOS.publish`): pointing the
+                // model at a folder reads no secret and makes no request. Who the
+                // stored session belongs to is *not* asked here — the account is
+                // resolved at first use, by the surfaces that render it and by
+                // every entry that needs a session (L27).
                 LeetCodeFolder_iOS.publish(
                     settings: settings,
                     model: leetCode,
                     scopedService: scopedService
                 )
-                Task { await leetCode.refreshUserStatus() }
             }
             // Ask the model what statement — if any — belongs to the tab the user
             // is looking at. Attached to the root rather than to the pane because

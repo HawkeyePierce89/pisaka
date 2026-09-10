@@ -292,10 +292,10 @@ regression net, read straight. Task 5 below is amended accordingly.
 - The comments on both platforms' `accountDescription` helpers that say "while the
   launch-time confirmation is still out" are corrected to name first use.
 
-- [ ] remove the launch call; resolve from the two iOS surfaces that render the
+- [x] remove the launch call; resolve from the two iOS surfaces that render the
       account
-- [ ] correct the two comments
-- [ ] run `swift test` and `swiftlint --strict` — must pass before Task 5
+- [x] correct the two comments
+- [x] run `swift test` and `swiftlint --strict` — must pass before Task 5
 
 ### Task 5: The repository-file assertion
 
