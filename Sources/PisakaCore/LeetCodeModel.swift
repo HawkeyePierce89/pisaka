@@ -392,6 +392,14 @@ public final class LeetCodeModel: ObservableObject {
     /// that must decide off the confirmed answer rather than off the optimistic
     /// one. `nil` whenever resolution found no stored pair, since then there is
     /// nothing on the wire.
+    ///
+    /// **Dropped by the two writers that declare the account** (`signIn(with:)`,
+    /// `signOut()`). They already bump `accountGeneration`, so the confirmation's
+    /// answer is discarded when it lands — but the *handle* outliving them would
+    /// leave `awaitAccountResolution()` blocking on a round trip whose verdict is
+    /// guaranteed to be thrown away, which on a slow or unreachable network is a
+    /// login sheet that does not appear for the length of a request timeout.
+    /// A declared account has nothing left worth waiting for.
     private var accountResolution: Task<Void, Never>?
 
     private var openGeneration = 0
@@ -505,6 +513,19 @@ public final class LeetCodeModel: ObservableObject {
         await accountResolution?.value
     }
 
+    /// Let go of a confirmation the account no longer depends on.
+    ///
+    /// Called by the two writers that *declare* the account rather than consult
+    /// it. The generation guard already discards what the request answers; this
+    /// discards the *wait* for it, so the one caller that awaits — the menu's
+    /// Sign In… — is never held by a round trip about a session that has since
+    /// been replaced or forgotten. Cancelled as well as dropped, since nothing is
+    /// left that wants the answer.
+    private func discardAccountResolution() {
+        accountResolution?.cancel()
+        accountResolution = nil
+    }
+
     /// Make the gate one login surface will decide with.
     ///
     /// **One per login surface**, built in the representable's
@@ -543,6 +564,7 @@ public final class LeetCodeModel: ObservableObject {
     public func signIn(with credentials: LeetCodeCredentials) async throws -> String? {
         accountGeneration += 1
         let generation = accountGeneration
+        discardAccountResolution()
         invalidateInFlightWork(newSession: credentials)
         // The same clearing `signOut()` does, and for the same reason: these two
         // sets are this *session's* conclusions about slugs, so a session change
@@ -669,6 +691,7 @@ public final class LeetCodeModel: ObservableObject {
     /// would re-ask the question until they switched tabs and back.
     public func signOut() {
         accountGeneration += 1
+        discardAccountResolution()
         invalidateInFlightWork(newSession: nil)
         cachedCredentials = nil
         // Raised whether or not the delete succeeded — see the flag's own note:
@@ -1248,7 +1271,8 @@ public final class LeetCodeModel: ObservableObject {
     /// question id came from is emptied by the same two callers.
     ///
     /// **The browser's is bumped here for the reason the observer below is not
-    /// enough.** `isSignedIn`'s `didSet` only fires when the flag *moves*, and
+    /// enough.** `account`'s `didSet` only fires when the *believed session*
+    /// moves, and
     /// `signIn(with:)` is reached with it already `true` whenever
     /// `markSessionAccepted()` has put a rejected session back — so that path
     /// alone would leave one account's rows and solved marks standing under the

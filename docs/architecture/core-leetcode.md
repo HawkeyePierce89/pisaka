@@ -2492,6 +2492,15 @@ means, what a file is named, when a fetch happens, and what gets written.
   opens the login sheet iff the settled state is not signed in. A confirmation
   that could not be made keeps the optimistic answer and opens nothing, which is
   L26's "only an answer rejects" read here.
+  **The two declaring writers drop the confirmation, not just its verdict.**
+  `signIn(with:)` and `signOut()` already bump `accountGeneration`, so what the
+  request answers is discarded when it lands — but the retained handle would leave
+  the menu's await suspended for the rest of a round trip about a session that has
+  been replaced or forgotten, which on a slow or unreachable network is a login
+  sheet that does not appear until the transport times out. Both therefore cancel
+  and clear it (`discardAccountResolution()`): a *declared* account has nothing
+  left worth waiting for. Asserted with the confirmation held mid-flight on the
+  transport's gate, so the await has to return with the request unanswered.
   The app layer therefore spells `refreshUserStatus(` nowhere at all and reaches
   resolution from exactly four files; `LeetCodeAccountSourceGatingTests` pins both
   by set equality, since a re-added launch-time call is invisible to every other

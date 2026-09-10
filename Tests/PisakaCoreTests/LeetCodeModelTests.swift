@@ -562,6 +562,77 @@ final class LeetCodeModelTests: XCTestCase {
         XCTAssertEqual(model.signedInUsername, "pisaka_tester")
     }
 
+    /// A sign-out drops the confirmation the menu would otherwise wait for.
+    ///
+    /// `signOut()` *declares* the account, so the round trip still on the wire is
+    /// answering a question nobody asks any more — its verdict is already
+    /// discarded by `accountGeneration`. Keeping the *handle* would leave
+    /// `awaitAccountResolution()` — the macOS menu's Sign In… — suspended for the
+    /// rest of that request, which on a slow or unreachable network is a login
+    /// sheet that does not appear until the transport times out.
+    ///
+    /// Staged on the transport's gate, and the assertion is made **while it is
+    /// still held**: the await has to return with the request unanswered.
+    func testSigningOutDropsTheConfirmationTheMenusAwaitWouldWaitFor() async throws {
+        let tree = makeTree()
+        let transport = makeTransport()
+        let gate = Gate()
+        transport.hold(.userStatus, on: gate)
+        // Released only on the way out, so nothing in the body can be satisfied by
+        // the confirmation completing.
+        defer { gate.release() }
+        let model = makeModel(tree: tree, transport: transport)
+
+        model.resolveAccount()
+        await gate.waitUntilReached()
+        model.signOut()
+
+        let returned = expectation(description: "the menu's await returned")
+        Task {
+            await model.awaitAccountResolution()
+            returned.fulfill()
+        }
+        await fulfillment(of: [returned], timeout: 2)
+
+        XCTAssertEqual(model.account, .signedOut)
+        XCTAssertFalse(model.isSignedIn)
+    }
+
+    /// The other declaring writer, for the same reason.
+    ///
+    /// A successful `signIn(with:)` replaces the session outright, so the
+    /// confirmation resolution started is about an account that is gone.
+    func testSigningInDropsTheConfirmationTheMenusAwaitWouldWaitFor() async throws {
+        let tree = makeTree()
+        let transport = makeTransport()
+        let held = Gate()
+        transport.hold(.userStatus, on: held)
+        defer { held.release() }
+        let model = makeModel(tree: tree, transport: transport)
+
+        model.resolveAccount()
+        await held.waitUntilReached()
+
+        // `signIn(with:)` confirms for itself on the same route, so it needs a
+        // gate that is already open — one `release()` ahead of the one `wait()`
+        // it will run into. The first request stays held on `held`.
+        let passThrough = Gate()
+        passThrough.release()
+        transport.hold(.userStatus, on: passThrough)
+
+        let newSession = LeetCodeCredentials(session: "second", csrfToken: "second-csrf")
+        _ = try await model.signIn(with: newSession)
+
+        let returned = expectation(description: "the menu's await returned")
+        Task {
+            await model.awaitAccountResolution()
+            returned.fulfill()
+        }
+        await fulfillment(of: [returned], timeout: 2)
+
+        XCTAssertEqual(model.account, .signedIn)
+    }
+
     /// An explicit refresh on an unresolved model resolves *without* starting a
     /// second one — one question, one request.
     func testAnExplicitRefreshOnAnUnresolvedModelAsksOnce() async throws {
