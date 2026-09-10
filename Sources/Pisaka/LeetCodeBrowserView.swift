@@ -17,7 +17,7 @@ import SwiftUI
 /// `let`, held for two things that are not rendering: the nested
 /// `LeetCodeLoginView` needs it, and that sheet observes it itself. Whether this
 /// view shows a list or a sign-in offer comes from `browser.availability`, which
-/// the owner's `isSignedIn` observer keeps current — so nothing here has to watch
+/// the owner's `account` observer keeps current — so nothing here has to watch
 /// the model to stay right.
 ///
 /// Thin and untested like the rest of `Sources/Pisaka`. Every decision is Core's:

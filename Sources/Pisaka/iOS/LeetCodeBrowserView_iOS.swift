@@ -19,7 +19,7 @@ import SwiftUI
 /// **The owning model arrives non-observed**, a plain `let`, held for one thing
 /// that is not rendering: the nested sign-in cover needs it, and that cover
 /// observes it itself. Whether this screen shows a list or a sign-in offer comes
-/// from `browser.availability`, which the owner's `isSignedIn` observer keeps
+/// from `browser.availability`, which the owner's `account` observer keeps
 /// current.
 ///
 /// **No cap and no truncation.** `List` is lazy, the rows are plain text, and

@@ -1585,7 +1585,18 @@ struct PisakaApp: App {
                     model: leetCode,
                     onOpenProblem: { leetCodeSheet = .openProblem },
                     onBrowseProblems: { openLeetCodeBrowser() },
-                    onSignIn: { leetCodeSheet = .signIn },
+                    // Deferred by a round trip: `LeetCodeCommands.signIn()`
+                    // awaits the confirmation before deciding, so this can land
+                    // after the user has raised the *other* sheet in the
+                    // meantime (nothing is up while that await is out, so
+                    // ⌘⌥P is reachable the whole time). Swapping the slot from
+                    // `.openProblem` to `.signIn` takes that sheet down and
+                    // never brings it back — see the note on `.openProblem`
+                    // above — so an occupied slot is left alone. Nothing is
+                    // lost by that: the open sheet presents the login web view
+                    // over itself, which is the whole reason it carries no
+                    // sign-in hook of its own.
+                    onSignIn: { if leetCodeSheet == nil { leetCodeSheet = .signIn } },
                     onSignOut: { signOutOfLeetCode() },
                     onChooseFolder: {
                         LeetCodeFolderChooser.choose(settings: settings, model: leetCode)

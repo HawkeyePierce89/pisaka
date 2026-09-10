@@ -1625,6 +1625,15 @@ the limits the design carries.
     a feature's share of the scene is the wiring line and nothing else. Sign Out
     stays reachable only from a resolved signed-in state, as before.
 
+    **The awaited decision lands late, so the wiring line refuses an occupied
+    slot.** Nothing is presented while that round trip is out, so ⌘⌥P is
+    reachable for its whole length: the scene's `onSignIn` would otherwise
+    replace an `.openProblem` sheet the user raised meanwhile, and swapping that
+    slot takes the open sheet down and never brings it back (the reason
+    `.openProblem` carries no sign-in hook of its own). So the scene assigns only
+    into `nil`, and nothing is lost by it — the open sheet presents the login web
+    view over *itself*, keeping the typed problem.
+
     `LeetCodeFolderChooser` is **a plain persisted path with no security-scoped
     bookmark**, because this app ships no `.entitlements` and `project.yml` enables
     no App Sandbox — the macOS build is unsandboxed and reaches any path the user
