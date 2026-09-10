@@ -535,7 +535,12 @@ ci.yml's `lint` job, and the version-bump procedure.
   browser filters the catalog already in hand and opens rows through
   `openProblem`, so there is no second create path. All schema knowledge is in
   one Core file, every operation requires a login, and opening a problem never
-  changes the project root (`core-leetcode.md`).
+  changes the project root. **Nothing is read or requested until the feature is
+  first used** (L27): building the model touches neither the credential store nor
+  the network, `refreshUserStatus(` is spelled in no app file, and the account
+  resolves — a closed tri-state whose third value is "not asked yet" — from the
+  four surfaces that render it plus every credential-needing entry, which resolves
+  for itself so no view has to remember (`core-leetcode.md`).
 - **Local History is a reader with a store of its own** (macOS only): it snapshots
   every buffer the app writes and, under a label, every file the **nine** gated
   operations are about to overwrite, into

@@ -356,10 +356,10 @@ The rules:
 - `CLAUDE.md`'s cross-cutting LeetCode bullet gains the clause: the store is not
   read and no request is made until the first use of the feature.
 
-- [ ] update the four paragraphs and the two app-surfaces entries
-- [ ] write L27 and bump the "decisions L1–L26" range line
-- [ ] extend the `CLAUDE.md` bullet
-- [ ] run `swift test` — must pass before Task 7
+- [x] update the four paragraphs and the two app-surfaces entries
+- [x] write L27 and bump the "decisions L1–L26" range line
+- [x] extend the `CLAUDE.md` bullet
+- [x] run `swift test` — must pass before Task 7
 
 ### Task 7: Verify acceptance criteria
 
