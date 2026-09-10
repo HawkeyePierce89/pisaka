@@ -1285,7 +1285,9 @@ the limits the design carries.
     discard its own rows (L27). The same hook moves `sessionEpoch` and
     `availability`, both halves of `loadKey`, so the first open re-keys the
     surfaces' `.task(id:)` and runs one thrown-away cycle; the second pass owns the
-    token and publishes. Both share one private `update`,
+    token and publishes. **Both surfaces call this unguarded**, which is
+    what makes the browser a first use rather than a surface waiting on one
+    (L27). Both share one private `update`,
     which resolves the session **synchronously before anything suspends**: no
     session publishes `.notSignedIn`, clears no rows and records no error.
     **A failure with rows in hand keeps them** — `resolveSlug`'s degradation rule
@@ -2451,6 +2453,20 @@ means, what a file is named, when a fetch happens, and what gets written.
   generation token, the one non-obvious ordering here: resolution can reach
   `sessionDidChange()` through the owner's observer, which bumps that same token,
   so resolving after the capture would have the browser discard its own load.
+  **That also makes the two browser views' `.task(id: browser.loadKey)` the one
+  trigger in the app layer that may not be guarded.** The browser is the surface
+  that resolves through Core rather than through an `.onAppear` of its own, and
+  `LeetCodeBrowserModel.init` reads `owner.isSignedIn` — `false` on an unresolved
+  model — so it starts `.notSignedIn`; a `guard browser.availability.isReady` in
+  front of `load()` therefore tests the very value that call was going to
+  publish, and ⌘⇧B on a cold run renders the sign-in offer for a session in the
+  Keychain it never read, with Refresh disabled on the same value and no second
+  trigger in the window. The signed-out case is `update(forced:)`'s to answer and
+  it answers it without a request, which is what makes the guard unnecessary as
+  well as wrong. `LeetCodeAccountSourceGatingTests` pins it as its one negative
+  rule — nothing else in the pipeline can see it, since the Core suites call
+  `load()` directly and the guard was correct until the account stopped being
+  resolved in `init`.
   `signIn(with:)` and `signOut()` **declare** a resolved state rather than
   consulting the store — the same rule read from the other side, and what keeps a
   sign-out from reading the Keychain for an answer it is about to discard, since

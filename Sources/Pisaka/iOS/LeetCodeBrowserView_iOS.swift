@@ -82,8 +82,12 @@ struct LeetCodeBrowserView_iOS: View {
             // while leaving `availability` where it was — the case availability
             // alone cannot see. Inside the catalog's staleness window a `load()`
             // costs no request at all.
+            // Unconditional, for the reason spelled out on the macOS window:
+            // `load()` is what resolves the account, so gating it on the
+            // availability an unresolved model reports would deadlock the only
+            // path that can lift it. `update(forced:)` owns that test and
+            // answers the signed-out case without a request.
             .task(id: browser.loadKey) {
-                guard browser.availability.isReady else { return }
                 await browser.load()
             }
             // The refusal from the last open ("that one is Premium") is about a

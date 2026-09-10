@@ -46,6 +46,14 @@ import XCTest
 ///    `.onAppear` resolve, which the file's remaining `awaitAccountResolution`
 ///    would go on covering. Read apart, each rule fails on its own regression.
 ///
+/// 4. The two browser views — `LeetCodeBrowserView.swift` and
+///    `iOS/LeetCodeBrowserView_iOS.swift` — reach `browser.load()` with **no
+///    guard between the trigger and the call**. This is the suite's one negative
+///    rule, and the only view-layer condition that can cancel resolution
+///    outright: the browser resolves through Core's `load()` rather than an
+///    `.onAppear` of its own, so a `guard browser.availability.isReady` in front
+///    of it tests the very value that call was going to publish.
+///
 /// **Why the compiler cannot see any of this:** a launch-time
 /// `refreshUserStatus()`, or a `resolveAccount()` in the scene's `onAppear`,
 /// compiles and runs perfectly. Its only symptom is a Keychain read and a
@@ -144,6 +152,53 @@ final class LeetCodeAccountSourceGatingTests: XCTestCase {
                 + "PisakaApp.swift is excluded outright: it is where the launch-time confirmation used to "
                 + "live, so resolution appearing there is the regression."
         )
+    }
+
+    // MARK: - The browser's load is what resolves it, so nothing may gate it
+
+    /// The two browser views reach `browser.load()` **unconditionally**.
+    ///
+    /// The one rule in this suite about a call site that must *not* be guarded,
+    /// and the only place a view-layer condition can cancel resolution outright.
+    /// `LeetCodeBrowserModel.init` reads `owner.isSignedIn`, which an unresolved
+    /// model answers `false`, so a browser built before any other LeetCode
+    /// surface has been used starts `.notSignedIn`; `load()` is what resolves the
+    /// account and lifts it. A `guard browser.availability.isReady` in front of
+    /// that call therefore deadlocks: ⌘⇧B on a cold run renders the sign-in offer
+    /// for a session sitting in the Keychain, never read, with Refresh disabled
+    /// on the same value and no second trigger anywhere in the window.
+    ///
+    /// Invisible to every other gate: it compiles, it runs, the Core suites call
+    /// `load()` directly and pass, and the guard was *correct* until the account
+    /// stopped being resolved in `init`. Only reading the trigger itself sees it.
+    func testTheBrowserViewsReachLoadWithoutGatingIt() throws {
+        let views = ["LeetCodeBrowserView.swift", "iOS/LeetCodeBrowserView_iOS.swift"]
+        let files = try appFiles()
+        for name in views {
+            guard let file = files.first(where: { $0.name == name }) else {
+                XCTFail("\(name) must exist in the app tree; if it moved, this rule is passing vacuously.")
+                continue
+            }
+            guard let task = file.code.range(of: ".task(id: browser.loadKey)"),
+                  let load = file.code.range(of: "browser.load()", range: task.upperBound..<file.code.endIndex)
+            else {
+                XCTFail(
+                    "\(name) must load the browser from a .task keyed on browser.loadKey; the trigger this "
+                        + "rule is about is gone, and with it the surface's only resolution."
+                )
+                continue
+            }
+            XCTAssertFalse(
+                LSPSourceGatingTests.containsToken(
+                    "guard",
+                    in: String(file.code[task.upperBound..<load.lowerBound])
+                ),
+                "\(name) must reach browser.load() unconditionally: load() is what resolves the account, so a "
+                    + "guard in front of it — on availability above all, which an unresolved model reports as "
+                    + "not-signed-in — cancels the only path that can lift the value it is testing. The "
+                    + "signed-out case is update(forced:)'s to answer, and it answers it without a request."
+            )
+        }
     }
 
     /// The await is pinned **apart** from the four on-appear calls above: read as
