@@ -17,7 +17,7 @@ import SwiftUI
 /// `let`, held for two things that are not rendering: the nested
 /// `LeetCodeLoginView` needs it, and that sheet observes it itself. Whether this
 /// view shows a list or a sign-in offer comes from `browser.availability`, which
-/// the owner's `isSignedIn` observer keeps current — so nothing here has to watch
+/// the owner's `account` observer keeps current — so nothing here has to watch
 /// the model to stay right.
 ///
 /// Thin and untested like the rest of `Sources/Pisaka`. Every decision is Core's:
@@ -102,8 +102,16 @@ struct LeetCodeBrowserView: View {
         // alone cannot see, and the reason that key is a pair. Inside the
         // catalog's staleness window a `load()` costs no request at all, which is
         // what makes re-entering the window free.
+        // **Unconditional on purpose: the availability test belongs to
+        // `update(forced:)`, not here.** A model built before the account is
+        // resolved starts `.notSignedIn` (`LeetCodeBrowserModel.init` reads
+        // `owner.isSignedIn`, which an unresolved model answers `false`), and
+        // `load()` is what resolves it — so a guard on `availability.isReady`
+        // deadlocks the one path that could lift it, leaving ⌘⇧B on a cold run
+        // showing the sign-in offer for a stored session it never read. Core
+        // already answers the signed-out case without a request: `update`
+        // publishes `.notSignedIn` and returns before it suspends.
         .task(id: browser.loadKey) {
-            guard browser.availability.isReady else { return }
             await browser.load()
         }
         // **The selection has to be pruned, because SwiftUI keeps one whose row is

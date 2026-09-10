@@ -90,12 +90,21 @@ final class LeetCodeBrowserModelTests: XCTestCase {
         return transport
     }
 
+    /// - Parameter resolved: whether the account has already been resolved.
+    ///   `true` for every test but the ordering ones — constructing a model
+    ///   resolves nothing (`LeetCodeModelTests` is where that is asserted), so the
+    ///   account this suite's subject reads is declared here and the state those
+    ///   tests start from is "the feature has been used once already". `false`
+    ///   leaves the freshly launched state the browser's own ordering rule is
+    ///   about. One parameter rather than a second factory, as
+    ///   `LeetCodeJudgeModelTests.makeWorld` spells the same need.
     private func makeModel(
         tree: StubFileTree,
         transport: ScriptedLeetCodeTransport,
-        signedIn: Bool = true
+        signedIn: Bool = true,
+        resolved: Bool = true
     ) -> LeetCodeModel {
-        LeetCodeModel(
+        let model = LeetCodeModel(
             transport: transport,
             credentialStore: InMemoryLeetCodeCredentialStore(signedIn ? credentials : nil),
             fileService: tree,
@@ -103,6 +112,8 @@ final class LeetCodeBrowserModelTests: XCTestCase {
             solutionsFolder: solutionsFolder,
             now: { self.now }
         )
+        if resolved { model.resolveAccount() }
+        return model
     }
 
     /// A cache file in the documented on-disk shape, hand-written for the same
@@ -201,6 +212,56 @@ final class LeetCodeBrowserModelTests: XCTestCase {
 
         await model.browser.load()
         XCTAssertEqual(transport.count(for: .problemList), 1)
+    }
+
+    /// **The one non-obvious ordering in the browser.** Opening it on a model
+    /// nobody has used yet is a first use, so `load()` resolves — and resolution
+    /// reaches `sessionDidChange()` through the owner's account observer, which
+    /// bumps the very token this load is about to capture. Resolving after the
+    /// capture would have the browser discard its own rows as superseded, which is
+    /// exactly what this asserts it does not.
+    func testTheFirstLoadOnAnUnresolvedModelPublishesItsOwnRows() async {
+        let tree = makeTree()
+        let transport = makeTransport()
+        let model = makeModel(tree: tree, transport: transport, resolved: false)
+
+        await model.browser.load()
+
+        let browser = model.browser
+        XCTAssertEqual(browser.problems.map(\.slug), recordedSlugs)
+        XCTAssertEqual(browser.visibleProblems.map(\.slug), recordedSlugs)
+        XCTAssertEqual(browser.availability, .ready)
+        XCTAssertNil(browser.lastError)
+        XCTAssertFalse(browser.isLoading)
+        XCTAssertEqual(model.account, .signedIn)
+    }
+
+    /// The same rule on the other entry point.
+    func testTheFirstRefreshOnAnUnresolvedModelPublishesItsOwnRows() async {
+        let tree = makeTree(warmCache())
+        let transport = makeTransport()
+        let model = makeModel(tree: tree, transport: transport, resolved: false)
+
+        await model.browser.refresh()
+
+        XCTAssertEqual(model.browser.problems.map(\.slug), recordedSlugs)
+        XCTAssertFalse(model.browser.isLoading)
+    }
+
+    /// Signed out is still an answer the browser resolves for itself: the offer,
+    /// no request, and no rows discarded behind a token nobody moved.
+    func testTheFirstLoadOnAnUnresolvedSignedOutModelPublishesTheOffer() async {
+        let tree = makeTree()
+        let transport = makeTransport()
+        let model = makeModel(tree: tree, transport: transport, signedIn: false, resolved: false)
+
+        await model.browser.load()
+
+        XCTAssertEqual(model.browser.availability, .notSignedIn)
+        XCTAssertEqual(model.account, .signedOut)
+        XCTAssertEqual(transport.count(for: .problemList), 0)
+        XCTAssertNil(model.browser.lastError)
+        XCTAssertFalse(model.browser.isLoading)
     }
 
     /// The explicit affordance: Refresh fetches whatever the age, which is the

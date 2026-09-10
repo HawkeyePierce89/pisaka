@@ -128,8 +128,8 @@ public final class LeetCodeCatalog {
     /// about sessions — every test that is about the caching policy, and any caller
     /// that only ever has one — behaves exactly as it did before. A declared `nil`
     /// (a sign-out) is the opposite and lets nothing publish, which is why the
-    /// owner declares at launch only when it *has* a session: a session the
-    /// Keychain hands back later, having been locked at launch, must not be
+    /// owner declares at resolution only when it *has* a session: a session the
+    /// Keychain hands back later, having been locked at first use, must not be
     /// mistaken for a superseded one.
     private var declaredSession: LeetCodeCredentials?
     private var sessionHasBeenDeclared = false

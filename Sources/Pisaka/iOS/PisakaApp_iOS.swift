@@ -112,9 +112,9 @@ struct PisakaApp_iOS: App {
         // both halves whenever the user changes it.
         //
         // Building one talks to nothing: `URLSession` opens no connection until a
-        // request is made, and the Keychain is read exactly once, in
-        // `LeetCodeModel.init`, to decide whether to show "signed in" before the
-        // launch-time confirmation lands.
+        // request is made, and `LeetCodeModel.init` reads no Keychain item — the
+        // stored session is looked up at first use and not before (L27), so a run
+        // that never opens a LeetCode surface never asks for it.
         self.leetCode = LeetCodeModel(
             transport: LeetCodeURLSessionTransport(),
             credentialStore: LeetCodeKeychainStore(),

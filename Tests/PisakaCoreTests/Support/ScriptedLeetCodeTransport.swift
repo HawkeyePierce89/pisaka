@@ -278,12 +278,24 @@ final class InMemoryLeetCodeCredentialStore: LeetCodeCredentialStore {
     var clearFails = false
     private(set) var saveCount = 0
     private(set) var clearCount = 0
+    /// How many times the store was *read*.
+    ///
+    /// The assertion behind "nothing is read until the feature is used": on a
+    /// build the login keychain cannot recognise, one read is one confirmation
+    /// dialog, so the question the model has to answer is not "does it end up
+    /// signed in" but "how many times did it ask". Counted rather than latched,
+    /// because the interesting failures are a second read (resolution that is not
+    /// idempotent) as much as a first one (a read at construction).
+    private(set) var loadCount = 0
 
     init(_ stored: LeetCodeCredentials? = nil) {
         self.stored = stored
     }
 
-    func load() -> LeetCodeCredentials? { stored }
+    func load() -> LeetCodeCredentials? {
+        loadCount += 1
+        return stored
+    }
 
     func save(_ credentials: LeetCodeCredentials) throws {
         saveCount += 1

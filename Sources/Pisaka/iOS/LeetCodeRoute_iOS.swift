@@ -274,6 +274,11 @@ struct LeetCodeRoute_iOS: View {
                 LeetCodeLoginView_iOS(model: model, onDismiss: { isSigningIn = false })
             }
         }
+        // This screen renders account state — the "Account" section above — so it
+        // is one of the four surfaces that resolve the account on appear (L27).
+        // Idempotent and synchronous: the second and every later appearance read
+        // nothing and ask nothing.
+        .onAppear { model.resolveAccount() }
         // Every closing path — Done, the swipe-down, and the presenter taking the
         // screen down after a successful open — comes through here, so this is the
         // one place the in-flight open has to be cancelled. Straight-line work
@@ -403,9 +408,10 @@ struct LeetCodeRoute_iOS: View {
         }
     }
 
-    /// "Signed in as …" once LeetCode has named the account, "Signed in" while the
-    /// launch-time confirmation is still out (the model is optimistic about a
-    /// stored session on purpose), and "Not signed in" otherwise.
+    /// "Signed in as …" once LeetCode has named the account, "Signed in" while
+    /// the confirmation first use started is still out (the model is optimistic
+    /// about a stored session on purpose), and "Not signed in" otherwise — which
+    /// is also what an account nobody has resolved yet reads as.
     private var accountDescription: String {
         guard model.isSignedIn else { return "Not signed in" }
         guard let username = model.signedInUsername else { return "Signed in" }

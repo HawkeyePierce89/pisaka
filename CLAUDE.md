@@ -171,7 +171,7 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
 - `LSPInstallEngine.swift` — download → verify → unpack → one rename (D12–D14).
 - `LSPProvisioning.swift` — consent, the row/prompt values (incl. the runtime-network note), `LSPProvisioningModel`.
 
-`docs/architecture/core-leetcode.md` — the LeetCode integration, incl. decisions L1–L26:
+`docs/architecture/core-leetcode.md` — the LeetCode integration, incl. decisions L1–L27:
 - `LeetCodeTransport.swift` — the one app/Core boundary seam.
 - `LeetCodeCredentials.swift` — the cookie pair; absence ≡ signed out, presence ≡ candidate (L26).
 - `LeetCodeLoginGate.swift` — the login-confirmation gate: candidate → session, the one latch (L26).
@@ -535,7 +535,14 @@ ci.yml's `lint` job, and the version-bump procedure.
   browser filters the catalog already in hand and opens rows through
   `openProblem`, so there is no second create path. All schema knowledge is in
   one Core file, every operation requires a login, and opening a problem never
-  changes the project root (`core-leetcode.md`).
+  changes the project root. **Nothing is read or requested until the feature is
+  first used** (L27): building the model touches neither the credential store nor
+  the network, `refreshUserStatus(` is spelled in no app file, and the account
+  resolves — a closed tri-state whose third value is "not asked yet" — from the
+  four surfaces that render it plus every credential-needing entry, which resolves
+  for itself so no view has to remember, plus the one app site that must **await**
+  the confirmation rather than read the optimistic answer: the macOS menu's Sign
+  In…, which cannot observe its own opening (`core-leetcode.md`).
 - **Local History is a reader with a store of its own** (macOS only): it snapshots
   every buffer the app writes and, under a label, every file the **nine** gated
   operations are about to overwrite, into
@@ -913,6 +920,12 @@ by-hand frame persistence: one persistence site, observers only after the
 final restore), `LocalHistorySourceGatingTests` (Local History's app-layer
 rules — capture sites, the autosave report, the one restore funnel, the reader
 rule; inventory in that suite's doc comments and `core-local-history.md`),
+`LeetCodeAccountSourceGatingTests` (where the LeetCode account is resolved —
+`refreshUserStatus(` spelled in no app file at all, `resolveAccount(` in exactly
+the four that render account state and `awaitAccountResolution(` in exactly the
+one that must await, the last two pinned apart by set equality because read
+together they cannot see either regression, and `PisakaApp.swift`'s absence as
+the whole point; inventory in that suite's doc comments and `core-leetcode.md`),
 `DatabaseViewerSourceGatingTests` (the viewer's cross-layer rules — SQLite
 imported in one app file and never in Core, the app-side files macOS-gated,
 `viewerTabsEnabled` spelled in `PisakaApp.swift` alone while the iOS app's

@@ -96,7 +96,7 @@ the catalog's one file, on the catalog's schedule, but reachable from a button
 where before LC-3 only an open could reach it. Neither the write nor the gate
 changes: the file is under `Application Support`, not in the worktree.
 
-The decisions L1–L26 are written out at the end of this document, together with
+The decisions L1–L27 are written out at the end of this document, together with
 the limits the design carries.
 
 ## Files
@@ -583,7 +583,8 @@ the limits the design carries.
     cannot open the coalescing window while the newer download is still running.
     **Start order is not session currency, though, so the catalog is *told* which
     session is the current one** (`sessionDidChange(to:)`/`declaredSession`), from
-    `LeetCodeModel.invalidateInFlightWork(newSession:)` and at launch. The
+    `LeetCodeModel.invalidateInFlightWork(newSession:)` and from
+    `resolveAccount()`. The
     generation orders refreshes by the moment they *start*, and a caller holding a
     replaced session can start one **last**: every door into this type suspends
     before it fetches (the disk read, and the browser's catalog work is deliberately
@@ -614,9 +615,9 @@ the limits the design carries.
     that nothing outliving the process may be written for a session this app has
     left. **Undeclared means unconstrained**, deliberately — a catalog
     nobody has told about sessions behaves exactly as it did before — which is why
-    the owner declares at launch only when it *has* a stored session: one the
-    Keychain hands back later, having been locked at launch, must not be mistaken
-    for one this app has superseded.
+    the owner declares at resolution only when it *has* a stored session: one the
+    Keychain hands back later, having been locked at first use, must not be
+    mistaken for one this app has superseded.
     That task is unstructured, so the wait for it is
     wrapped in `withTaskCancellationHandler`: `Task { }` inherits no cancellation
     and `task.value` does not observe the *awaiting* task's either, so pressing Esc
@@ -868,11 +869,19 @@ the limits the design carries.
     counter meant selecting a LeetCode tab on a slow link and then pressing ⌘⌥P
     produced a sheet with a disabled field and a dead Open button — Return silently
     swallowed — waiting on a request for some other tab.
-    *The account.* `isSignedIn` is **optimistic at launch**: a stored pair sets it
+    *The account.* The published state is a **tri-state**,
+    `LeetCodeAccountState` — `unresolved`/`signedIn`/`signedOut` — because until
+    the feature is first used this model has not looked, and "has not looked" is
+    not "signed out" (L27); `isSignedIn` is the computed reading of it that every
+    surface already had. `init` touches nothing at all: the store read, the
+    publish and the catalog's declaration are `resolveAccount()`, which the four
+    surfaces that *render* an account call on appear and which every
+    credential-needing entry calls for itself. Past that moment `isSignedIn` is
+    **optimistic at first use**: a stored pair sets it
     before anything is confirmed, rather than showing "signed out" for the duration
     of a round trip. `refreshUserStatus()` is non-throwing and silent on failure —
-    it is what the app calls at launch, and an unreachable LeetCode is not a
-    sign-out — **but a rejection is not a failure, it is an answer**, so
+    it is the one confirmation resolution starts, and an unreachable LeetCode is not
+    a sign-out — **but a rejection is not a failure, it is an answer**, so
     `notLoggedIn` is caught by name and flips the state through
     `markSessionRejected()` while everything else (offline, throttled) stays quiet.
     Swallowing it with the rest left a dead session reading as signed in, with the
@@ -901,7 +910,7 @@ the limits the design carries.
     `markSessionAccepted()` on every successfully parsed detail response: keeping
     the credentials only makes sense if the state can come back, and until that
     existed nothing ever put it back — `refreshUserStatus()` is the only other
-    writer and the app calls it once, at launch. One throttled response therefore
+    writer and it runs once, at first use. One throttled response therefore
     left every surface saying "Not signed in" for the rest of the run while
     `requireCredentials()` went on opening problems from the same pair, and the
     macOS menu renders Sign Out only under `isSignedIn`, so signing out became
@@ -1097,9 +1106,12 @@ the limits the design carries.
     error and the `.network` it would have folded into take the same branch — which
     is why `makeLoginGate()` hands it the transport rather than this model, and what
     keeps the gate constructible and testable without one.
-    `isSignedIn` gained a `didSet` that tells
-    the judge its buttons' answer moved — placed on the property rather than at the
-    three sites that write it, because two of those (`markSessionRejected()`/
+    `account` carries a `didSet` that tells
+    the judge its buttons' answer moved — guarded on `isSignedIn` *moving*, so
+    resolving to signed-out reaches nobody (exactly as the `false` → `false` it
+    replaced) while resolving to signed-in reaches both companions the way a
+    sign-in does. Placed on the property rather than at the
+    sites that write it, because two of those (`markSessionRejected()`/
     `markSessionAccepted()`) are reached from arbitrary request paths including the
     judge's own: one writer, one hook. `invalidateInFlightWork()` bumps the judge's
     token with the other two (L17), since a poll in flight is invalidated by a
@@ -1110,7 +1122,7 @@ the limits the design carries.
     both doors: this one for a replacement, the observer for a change.
     **The catalog is *told the new session* rather than merely invalidated**
     (`invalidateInFlightWork(newSession:)` → `catalog.sessionDidChange(to:)`, and
-    the stored session at launch): everything else here is superseded by start
+    the stored session at resolution): everything else here is superseded by start
     order, but the catalog's callers all suspend before they reach it, so one
     holding the replaced session can start its fetch after the new one and be the
     newest by that measure. Which session's rows may still land is a question only
@@ -1265,7 +1277,17 @@ the limits the design carries.
     — it goes through `catalog.loadIfNeeded`, so re-entering the browser inside the
     staleness window costs **no request at all**. `refresh()` is the explicit
     affordance, through `catalog.refresh`, and is the only way a solved mark from
-    five minutes ago reaches the screen (L24). Both share one private `update`,
+    five minutes ago reaches the screen (L24). Both call `owner.resolveAccount()`
+    as their **first statement, before the token is captured**: a browser nobody
+    has opened yet is a first use, and resolution reaches `sessionDidChange()`
+    through the owner's `account` observer, which bumps the very token the load is
+    about to capture — so resolving after the capture would have the first load
+    discard its own rows (L27). The same hook moves `sessionEpoch` and
+    `availability`, both halves of `loadKey`, so the first open re-keys the
+    surfaces' `.task(id:)` and runs one thrown-away cycle; the second pass owns the
+    token and publishes. **Both surfaces call this unguarded**, which is
+    what makes the browser a first use rather than a surface waiting on one
+    (L27). Both share one private `update`,
     which resolves the session **synchronously before anything suspends**: no
     session publishes `.notSignedIn`, clears no rows and records no error.
     **A failure with rows in hand keeps them** — `resolveSlug`'s degradation rule
@@ -1274,7 +1296,8 @@ the limits the design carries.
     guarded on the catalog holding anything at all, so a failed refresh can still
     surface rows the disk read produced and can never blank a populated list.
     `publish(_:)` runs `markSessionRejected()` **before** setting the sentence,
-    because that flips `isSignedIn`, which calls `sessionDidChange()` here, which
+    because that flips the believed session, whose observer calls
+    `sessionDidChange()` here, which
     clears `lastError` — the reverse order would wipe the very sentence it is
     reporting. `currentCredentials()` asks *both* halves (`isSignedIn` and the
     store), so the browser cannot go on fetching under a session every other
@@ -1304,7 +1327,9 @@ the limits the design carries.
     keeps the browser's teardown from failing somebody else's open, and that keeps
     somebody else's Esc from failing the browser's load.
     *The session hooks — two of them, like the judge's.* `sessionDidChange()` is
-    called from `LeetCodeModel`'s `isSignedIn` observer beside the judge's, and it
+    called from `LeetCodeModel`'s `account` observer beside the judge's — guarded
+    on the *believed session* moving, so an unresolved model resolving to signed in
+    reaches here exactly as a sign-in does (L27) — and it
     bumps the token, recomputes `availability`, clears the error and **clears the
     rows**. That last is the point: the status column is per-account, so leaving one
     account's solved marks standing under another's name is the single wrong thing
@@ -1582,6 +1607,33 @@ the limits the design carries.
     divider because the two are the same action reached two ways: type a problem
     you know, or find one you do not. The shortcut was free in this app's audit.
 
+    **The menu is the one app site that must *await* resolution** (L27). It cannot
+    observe its own opening, so under `.unresolved` it renders the neutral entry
+    (Sign In…) and the decision moves into the item's action, a private `signIn()`
+    next to it in this file: `await model.awaitAccountResolution()`, then raise the
+    login sheet **iff `account != .signedIn`**. Deciding off the state
+    `resolveAccount()` publishes would be wrong in the one case that matters — a
+    stored-but-dead session reads as signed in for the length of a round trip, so
+    the item would open nothing, flip to signed out a moment later, and leave the
+    user pressing Sign In… again. Awaiting gives the three answers the rule owes: a
+    confirmed session lands signed in with no sheet, an absent or rejected one
+    opens the sheet exactly as before, and a confirmation that could not be *made*
+    (offline, throttled) keeps the optimistic answer and opens nothing — the
+    existing rule that only a rejection is an answer, read here too. It lives in
+    this file rather than in `PisakaApp.swift` for that file's measured
+    `file_length`/`type_body_length` ceiling and the convention its comment states:
+    a feature's share of the scene is the wiring line and nothing else. Sign Out
+    stays reachable only from a resolved signed-in state, as before.
+
+    **The awaited decision lands late, so the wiring line refuses an occupied
+    slot.** Nothing is presented while that round trip is out, so ⌘⌥P is
+    reachable for its whole length: the scene's `onSignIn` would otherwise
+    replace an `.openProblem` sheet the user raised meanwhile, and swapping that
+    slot takes the open sheet down and never brings it back (the reason
+    `.openProblem` carries no sign-in hook of its own). So the scene assigns only
+    into `nil`, and nothing is lost by it — the open sheet presents the login web
+    view over *itself*, keeping the typed problem.
+
     `LeetCodeFolderChooser` is **a plain persisted path with no security-scoped
     bookmark**, because this app ships no `.entitlements` and `project.yml` enables
     no App Sandbox — the macOS build is unsandboxed and reaches any path the user
@@ -1812,8 +1864,8 @@ the limits the design carries.
     entries in `app-shell.md` and `app-window.md`) — the orchestration.
     `makeLeetCode(settings:)` composes the stack once (transport, Keychain store,
     `FileService`, the cache layout, and the folder read out of `SettingsStore`
-    *before* the model is built, so `isSignedIn` and the folder are right from the
-    first frame); the model is a **non-observed `let`**, and the two sheets are one
+    *before* the model is built, so the folder is right from the first frame — the
+    account deliberately is not, reading `.unresolved` until first use, L27); the model is a **non-observed `let`**, and the two sheets are one
     `.sheet(item:)` over an enum attached **outside** `ContentView` — they are
     mutually exclusive by nature (the sign-in sheet exists because an open needs a
     session), and attaching them in the scene keeps `ContentView` free of both the
@@ -1857,8 +1909,9 @@ the limits the design carries.
     the browser and leaves the editor where it was. It is excluded by the
     identifier SwiftUI gives that scene, and a future SwiftUI that stops setting it
     costs this one cosmetic re-order, nothing else.
-    The launch-time `refreshUserStatus()` joins the existing one-shot `.onAppear`
-    block beside `sweepStaging()`/`lspProvisioning.refresh()`, unawaited and silent.
+    **Nothing about the account happens at launch** (L27): the one-shot `.onAppear`
+    block beside `sweepStaging()`/`lspProvisioning.refresh()` says nothing about
+    LeetCode, and `refreshUserStatus()` is spelled in no app file at all.
     `ContentView` drives the statement from a `.task(id:)` keyed on **(selected tab,
     LeetCode folder)** — both halves, because the association needs both, and the
     folder is read from `settings` (which the view observes) rather than from
@@ -2011,9 +2064,9 @@ the limits the design carries.
     service is the **scoped** one, since a picked folder is only writable inside its
     grant and the container cache simply finds no covering scope and falls through.
     `SettingsStore` moved into `init` for the macOS app's reason, so the folder can
-    be read before the model is built. `RootView_iOS` publishes the folder and calls
-    `refreshUserStatus()` once at launch, keys the same `(tab, folder)` statement
-    `.task`, and routes the open exactly as macOS does (sentence to the screen,
+    be read before the model is built. `RootView_iOS` publishes the folder — which reads no secret and makes no
+    request, so it stays at launch where it was (L27) — keys the same
+    `(tab, folder)` statement `.task`, and routes the open exactly as macOS does (sentence to the screen,
     alert only for the tab open — with the same re-ask of the statement question
     in that catch path, for the same reason — and no tab at all once the screen's held open
     `Task` has been cancelled — `LeetCodeRoute_iOS` cancels it on disappear for the
@@ -2377,6 +2430,91 @@ means, what a file is named, when a fetch happens, and what gets written.
   pair out, once. The gate is also the *only* latch — the observers lost their
   `hasCaptured` — because when a login succeeded is a decision, and decisions live
   in Core where `swift test` can see them.
+- **L27 — nothing is read or requested until the feature is used.** Building a
+  `LeetCodeModel` used to read the Keychain in `init`, and both app layers fired
+  `refreshUserStatus()` from a launch-time `onAppear` — so every launch cost a
+  credential-store read and a network round trip for a feature the user might
+  never open, and on an ad-hoc-signed build it cost a Keychain confirmation
+  dialog on top, because the login keychain cannot remember a signature that
+  changes with every build. (Whether such a build *should* be signed differently
+  is a separate question, deliberately out of scope: the rule below is worth
+  having on its own terms, on both platforms, for a signed release too.) So
+  construction became inert and the account is resolved **the first time any code
+  path needs to know whether there is a session**, never before.
+  That needs a third published value: `LeetCodeAccountState` is
+  `unresolved`/`signedIn`/`signedOut`, closed like every other vocabulary here
+  and an enum rather than a second boolean beside `isSignedIn`, since a separate
+  "is it resolved yet" flag admits the meaningless pair (unresolved, signed in)
+  that a view can read without noticing. `isSignedIn` survives as the computed
+  reading, so every existing surface keeps compiling and keeps meaning what it
+  meant, and the fan-out `didSet` moved to `account` guarded on that reading
+  *moving* — unresolved → signed out reaches nobody, unresolved → signed in
+  reaches the judge and the browser exactly as a sign-in does.
+  **Where the resolution point sits is the whole rule.** Views trigger it only
+  where they *render* account state — the Open Problem sheet, the macOS
+  Preferences tab, the iOS account screen, the iOS Settings section — while every
+  credential-needing entry (`requireCredentials`, `refreshUserStatus`,
+  `statement(forFileAt:in:)`) resolves for itself, so no view has to remember and
+  no future one can forget. `statement(forFileAt:in:)` resolves **after** the
+  association guard, which is what makes "the project tree, the editor and an
+  ordinary tab switch resolve nothing" true by construction rather than by luck.
+  `LeetCodeBrowserModel.load()`/`refresh()` resolve **before** they bump their
+  generation token, the one non-obvious ordering here: resolution can reach
+  `sessionDidChange()` through the owner's observer, which bumps that same token,
+  so resolving after the capture would have the browser discard its own load.
+  **That also makes the two browser views' `.task(id: browser.loadKey)` the one
+  trigger in the app layer that may not be guarded.** The browser is the surface
+  that resolves through Core rather than through an `.onAppear` of its own, and
+  `LeetCodeBrowserModel.init` reads `owner.isSignedIn` — `false` on an unresolved
+  model — so it starts `.notSignedIn`; a `guard browser.availability.isReady` in
+  front of `load()` therefore tests the very value that call was going to
+  publish, and ⌘⇧B on a cold run renders the sign-in offer for a session in the
+  Keychain it never read, with Refresh disabled on the same value and no second
+  trigger in the window. The signed-out case is `update(forced:)`'s to answer and
+  it answers it without a request, which is what makes the guard unnecessary as
+  well as wrong. `LeetCodeAccountSourceGatingTests` pins it as its one negative
+  rule — nothing else in the pipeline can see it, since the Core suites call
+  `load()` directly and the guard was correct until the account stopped being
+  resolved in `init`.
+  `signIn(with:)` and `signOut()` **declare** a resolved state rather than
+  consulting the store — the same rule read from the other side, and what keeps a
+  sign-out from reading the Keychain for an answer it is about to discard, since
+  `storedCredentialsAreDiscarded` already makes any later resolution answer `nil`
+  without a read.
+  **The menu is the one app site that must await.** `resolveAccount()` is
+  synchronous and optimistic by design (its callers are `onAppear` bodies and a
+  token capture, none of which may suspend), but a menu item cannot observe its
+  own opening, so it resolves when *chosen* — and a stored-but-dead session reads
+  as signed in for exactly the length of the round trip that would correct it.
+  Deciding there off the optimistic state opens no sheet, then flips to signed
+  out, leaving the user pressing Sign In… again. So `awaitAccountResolution()` is
+  public: it resolves, waits for whatever confirmation that started, and the menu
+  opens the login sheet iff the settled state is not signed in. A confirmation
+  that could not be made keeps the optimistic answer and opens nothing, which is
+  L26's "only an answer rejects" read here.
+  **The two declaring writers drop the confirmation, not just its verdict.**
+  `signIn(with:)` and `signOut()` already bump `accountGeneration`, so what the
+  request answers is discarded when it lands — but the retained handle would leave
+  the menu's await suspended for the rest of a round trip about a session that has
+  been replaced or forgotten, which on a slow or unreachable network is a login
+  sheet that does not appear until the transport times out. Both therefore cancel
+  and clear it (`discardAccountResolution()`): a *declared* account has nothing
+  left worth waiting for. Asserted with the confirmation held mid-flight on the
+  transport's gate, so the await has to return with the request unanswered.
+  **The cancellation is read where the confirmation starts, not only where it
+  lands.** Cancelling an unstructured task that has not begun does not stop its
+  body, and `refreshUserStatus()` bumps `accountGeneration` on its way in — so a
+  confirmation dropped inside the one main-actor turn between `signIn(with:)`'s
+  token capture and its first suspension would supersede the sign-in that
+  dropped it, leaving LeetCode's rejection discarded by the sign-in's own guard,
+  nothing thrown for the sheet to show, and the rejected pair in the Keychain
+  with every surface reading "signed in". The spawned task therefore checks
+  `Task.isCancelled` before it asks anything, which is also what keeps a dropped
+  confirmation from putting a second user-status request on the wire.
+  The app layer therefore spells `refreshUserStatus(` nowhere at all and reaches
+  resolution from exactly four files; `LeetCodeAccountSourceGatingTests` pins both
+  by set equality, since a re-added launch-time call is invisible to every other
+  gate.
 
 ## Known limits
 

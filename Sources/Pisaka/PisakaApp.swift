@@ -492,9 +492,9 @@ struct PisakaApp: App {
         // writes both halves whenever the user changes it.
         //
         // Building one talks to nothing: `URLSession` opens no connection until a
-        // request is made, and the Keychain is read exactly once, in
-        // `LeetCodeModel.init`, to decide whether to show "signed in" before the
-        // launch-time confirmation lands.
+        // request is made, and `LeetCodeModel.init` reads no Keychain item — the
+        // stored session is looked up at first use and not before (L27), so a run
+        // that never opens a LeetCode surface never asks for it.
         self.leetCode = PisakaApp.makeLeetCode(settings: settings)
 
         // Local History, composed once. Building one touches no disk at all: the
@@ -716,10 +716,10 @@ struct PisakaApp: App {
     /// first `openProblem` captures it; `LeetCodeFolderChooser` writes both halves
     /// whenever the user changes it.
     ///
-    /// Building one talks to nothing: `URLSession` opens no connection until a
-    /// request is made, and the Keychain is read exactly once, in
-    /// `LeetCodeModel.init`, to decide whether to show "signed in" before the
-    /// launch-time confirmation lands.
+    /// Building one touches nothing at all: `URLSession` opens no connection
+    /// until a request is made, and `LeetCodeModel.init` reads no Keychain item
+    /// — the stored session is looked up at first use and not before (L27), so
+    /// a run that never opens a LeetCode surface never asks for it.
     static func makeLeetCode(settings: SettingsStore = SettingsStore()) -> LeetCodeModel {
         LeetCodeModel(
             transport: LeetCodeURLSessionTransport(),
@@ -1155,13 +1155,13 @@ struct PisakaApp: App {
                     lspInstallEngine.sweepStaging()
                     Task { await lspProvisioning.refresh() }
 
-                    // Ask LeetCode who the stored session belongs to, once.
-                    // Non-throwing and silent by contract: the menu already says
-                    // "signed in" optimistically from the Keychain item, and an
-                    // unreachable LeetCode at launch is not a sign-out. All this
-                    // fills in is the account name — and, when the session has
-                    // actually expired, the correction.
-                    Task { await leetCode.refreshUserStatus() }
+                    // Nothing LeetCode here on purpose: the account resolves at
+                    // first use, never at launch (L27). Reading the stored
+                    // session and confirming it is `LeetCodeModel`'s own moment,
+                    // started by the surfaces that render account state and by
+                    // every entry that needs a session — so a run that never
+                    // touches the feature reads no Keychain item and makes no
+                    // request.
                 }
 
                 // Terminate every shell on app quit so no PTY-backed processes
@@ -1585,7 +1585,18 @@ struct PisakaApp: App {
                     model: leetCode,
                     onOpenProblem: { leetCodeSheet = .openProblem },
                     onBrowseProblems: { openLeetCodeBrowser() },
-                    onSignIn: { leetCodeSheet = .signIn },
+                    // Deferred by a round trip: `LeetCodeCommands.signIn()`
+                    // awaits the confirmation before deciding, so this can land
+                    // after the user has raised the *other* sheet in the
+                    // meantime (nothing is up while that await is out, so
+                    // ⌘⌥P is reachable the whole time). Swapping the slot from
+                    // `.openProblem` to `.signIn` takes that sheet down and
+                    // never brings it back — see the note on `.openProblem`
+                    // above — so an occupied slot is left alone. Nothing is
+                    // lost by that: the open sheet presents the login web view
+                    // over itself, which is the whole reason it carries no
+                    // sign-in hook of its own.
+                    onSignIn: { if leetCodeSheet == nil { leetCodeSheet = .signIn } },
                     onSignOut: { signOutOfLeetCode() },
                     onChooseFolder: {
                         LeetCodeFolderChooser.choose(settings: settings, model: leetCode)
