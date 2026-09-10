@@ -327,8 +327,8 @@ The rules:
 - The doc comment carries the inventory, as the other gating suites do, and says
   why `PisakaApp.swift` is excluded outright.
 
-- [ ] write the suite with both rules, the count pin and its inventory comment
-- [ ] run `swift test` — must pass before Task 6
+- [x] write the suite with both rules, the count pin and its inventory comment
+- [x] run `swift test` — must pass before Task 6
 
 ### Task 6: Documentation
 
