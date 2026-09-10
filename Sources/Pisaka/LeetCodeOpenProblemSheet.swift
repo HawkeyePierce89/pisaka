@@ -240,14 +240,13 @@ struct LeetCodeCommands: View {
     var onChooseFolder: () -> Void
 
     var body: some View {
-        // ⌘⇧P — shared with View → Markdown Preview since the preview landed.
-        // That item is disabled off a Markdown tab and the View menu is declared
-        // first, so the two never both fire; but with a Markdown tab active this
-        // command is unreachable. Picking a free chord for one of the two is an
-        // unmade product decision (core-markdown-preview.md, "What is still
-        // owed").
+        // ⌘⌥P — free on macOS, and verified against every `keyboardShortcut` in
+        // the app: the only other ⌘⌥ chords are ⌘⌥F (Find in Files) and the four
+        // folding arrows. ⌘⇧P names View → Markdown Preview and nothing else, so
+        // each of the two commands is reachable on every tab. Gated on nothing: a
+        // LeetCode problem needs no open project.
         Button("Open Problem…") { onOpenProblem() }
-            .keyboardShortcut("p", modifiers: [.command, .shift])
+            .keyboardShortcut("p", modifiers: [.command, .option])
 
         // ⌘⇧B — free on macOS, and beside "Open Problem…" because the two are the
         // same action reached two ways: type a problem you know, or find one you

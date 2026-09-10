@@ -41,7 +41,9 @@ import Foundation
 @MainActor
 public final class MarkdownPreviewModel {
 
-    /// The two inputs a change in which re-writes the shell.
+    /// The two facts the shell is composed from — and, since a size is also
+    /// settable on a page already loaded, the pair a change *within* which
+    /// decides whether the page is reloaded or merely told a number.
     ///
     /// A value, so "did the appearance change" is one comparison rather than
     /// two, and so the *un*set state — no shell has been installed yet — is
@@ -93,9 +95,11 @@ public final class MarkdownPreviewModel {
 
     /// The last tree parsed for ``text``.
     ///
-    /// Held precisely so a theme or font change can re-render without asking the
-    /// parser again: the tree does not depend on the appearance, and re-parsing
-    /// a large document to change a colour is work the page can see.
+    /// Held precisely so a theme change — and a recovery from a dead page — can
+    /// re-render without asking the parser again: the tree does not depend on the
+    /// appearance, and re-parsing a large document to change a colour is work the
+    /// page can see. (A font size change re-renders nothing at all; it sets two
+    /// properties on the document already loaded.)
     private var lastDocument: MarkdownDocument?
 
     /// The body the page is currently showing, or `nil` when it is showing none
@@ -132,10 +136,12 @@ public final class MarkdownPreviewModel {
     /// The line last *sent* to the page, for the current document.
     ///
     /// A reloaded shell ships its container empty and its scroll position at the
-    /// top, so a reader who switched to dark mode or stepped the code zoom
-    /// mid-document would be thrown back to the first line — and the editor has
-    /// nothing to say about it, its clip view's bounds not having moved, so
-    /// nothing would put them back until they happened to scroll again. That is
+    /// top, so a reader who switched to dark mode mid-document would be thrown
+    /// back to the first line — and the editor has nothing to say about it, its
+    /// clip view's bounds not having moved, so nothing would put them back until
+    /// they happened to scroll again. (A code-zoom step is no longer one of the
+    /// moves that can do this: it sets two properties on the document already
+    /// loaded and never reaches this memory at all.) That is
     /// the argument ``noteScrolled(toLine:)`` already makes for holding a line
     /// reported before a body exists, read at the other end of the document's
     /// life: the memory is what a reload re-offers as pending.
@@ -153,18 +159,46 @@ public final class MarkdownPreviewModel {
 
     /// The window's theme and code font size.
     ///
-    /// A change in either **reloads the shell and re-renders the body from the
-    /// last tree**, because the appearance lives in the shell's own stylesheet
-    /// and the tree does not depend on it. The parser is not asked again — the
-    /// scripted parser's record is what pins that — which is the difference
-    /// between switching to dark and re-opening the file.
+    /// **Two halves, and which one runs is decided by the theme.** A theme
+    /// change **reloads the shell and re-renders the body from the last tree**,
+    /// because every colour in the page lives in the shell's own stylesheet and
+    /// the tree does not depend on any of them; the parser is not asked again —
+    /// the scripted parser's record is what pins that — which is the difference
+    /// between switching to dark and re-opening the file. A change of the **font
+    /// size alone** is one call into the document already loaded: the two sizes
+    /// are custom properties, so setting them is the whole change, and a code
+    /// zoom step therefore costs neither a page load, nor a re-render, nor a
+    /// second pass of the diagram renderer.
+    ///
+    /// The in-place path needs **no scroll restore**, and that is not an
+    /// omission: the reload's one exists because a fresh document starts at the
+    /// top of an empty container, and here the document is not replaced — the
+    /// page keeps its body, its scroll offset and its rendered diagrams, and
+    /// re-sending the remembered line would move a reader who had not asked to
+    /// be moved. For the same reason it touches neither ``lastBody``, the
+    /// pending line, the tree nor the parser: nothing about what the page is
+    /// showing became false.
+    ///
+    /// The shell still embeds the size it was composed with, so this is a step
+    /// *from* that shell rather than a second source of truth: the appearance
+    /// recorded here is what a later reload — a theme switch, a dead page — is
+    /// composed from, and both readings go through
+    /// ``MarkdownPreviewPage/fontSizes(for:)``.
     ///
     /// The first call installs the shell: before it there is no document at all,
-    /// which is why the comparison is against an optional and not against a
-    /// default pair.
+    /// so there is nothing for a size to be set *on* — which is why the
+    /// comparison is against an optional and why an absent appearance takes the
+    /// reload path whatever moved.
     public func updateAppearance(theme: MarkdownPreviewTheme, fontSize: Double) {
         let next = Appearance(theme: theme, fontSize: fontSize)
         guard appearance != next else { return }
+
+        if let current = appearance, current.theme == next.theme {
+            appearance = next
+            sink.evaluate(MarkdownPreviewPage.fontSizeUpdateSource(fontSize: next.fontSize))
+            return
+        }
+
         appearance = next
 
         // The reloaded document ships its container empty, so whatever the page

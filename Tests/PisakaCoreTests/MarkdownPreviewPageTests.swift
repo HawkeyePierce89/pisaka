@@ -2,8 +2,8 @@ import XCTest
 @testable import PisakaCore
 
 /// The preview's shell document: its policy, its four bundled files, its theme
-/// as CSS, and the two JavaScript entry points everything after page load goes
-/// through.
+/// as CSS, and the JavaScript entry points everything after page load goes
+/// through — the body, the two scrolls and the font size.
 ///
 /// Four properties are worth asserting on their own, and each of them is silent
 /// when it breaks — which is why they are asserted here rather than left to a
@@ -214,7 +214,7 @@ final class MarkdownPreviewPageTests: XCTestCase {
         XCTAssertTrue(dark.contains("data-color-scheme=\"dark\""))
     }
 
-    // MARK: - The two entry points
+    // MARK: - The entry points
 
     /// The argument of a one-argument call, or `nil` when the source is not that
     /// shape. Deliberately parsed rather than pattern-matched, so the assertion
@@ -327,6 +327,74 @@ final class MarkdownPreviewPageTests: XCTestCase {
         XCTAssertTrue(MarkdownPreviewPage.bodyUpdateSource(body: "x").hasPrefix("window.PisakaPreview."))
         XCTAssertTrue(MarkdownPreviewPage.scrollToLineSource(line: 1).hasPrefix("window.PisakaPreview."))
         XCTAssertTrue(MarkdownPreviewPage.scrollToAnchorSource(anchor: "x").hasPrefix("window.PisakaPreview."))
+        XCTAssertTrue(MarkdownPreviewPage.fontSizeUpdateSource(fontSize: 13).hasPrefix("window.PisakaPreview."))
         XCTAssertTrue(MarkdownPreviewPage.bootstrapSource.hasPrefix("window.PisakaPreview."))
+    }
+
+    // MARK: - The font size, set in place
+
+    func testTheFontSizeSourceCarriesBothSizes() {
+        XCTAssertEqual(
+            MarkdownPreviewPage.fontSizeUpdateSource(fontSize: 17),
+            "window.PisakaPreview.setFontSize(17, 16);"
+        )
+    }
+
+    /// Both arguments are numbers, and that is asserted by *decoding* them
+    /// rather than by reading the source: a size quoted as a string still looks
+    /// right in the call and sets `--font-size: "17"px`, which is not a length —
+    /// the declaration is dropped and the page silently keeps the size its shell
+    /// was composed with, with nothing anywhere to report it.
+    func testBothArgumentsCrossAsNumbers() throws {
+        let source = MarkdownPreviewPage.fontSizeUpdateSource(fontSize: 15)
+        let arguments = try XCTUnwrap(argument(of: source, call: "setFontSize"))
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+
+        XCTAssertEqual(arguments.count, 2)
+        for argument in arguments {
+            XCTAssertFalse(argument.contains("\""), "\(argument) crossed as a string literal")
+            XCTAssertNotNil(Double(argument), "\(argument) does not read as a number")
+        }
+        XCTAssertEqual(arguments.compactMap(Double.init), [15, 14])
+    }
+
+    /// The clamp is the shell's own, so a size the setting could never hold is
+    /// refused on both paths rather than on one.
+    func testAnAbsurdFontSizeIsClampedInTheSourceToo() throws {
+        let source = MarkdownPreviewPage.fontSizeUpdateSource(fontSize: .nan)
+        XCTAssertFalse(source.lowercased().contains("nan"))
+
+        let clamped = SettingsStore.clampFontSize(.nan)
+        let arguments = try XCTUnwrap(argument(of: source, call: "setFontSize"))
+            .split(separator: ",")
+            .compactMap { Double($0.trimmingCharacters(in: .whitespaces)) }
+        XCTAssertEqual(arguments, [clamped, clamped - 1])
+    }
+
+    /// The whole reason the two sizes are one helper: a step and a shell
+    /// composed for the same input must be the same two numbers. Asserted
+    /// against the shell's `:root` block rather than against a second copy of
+    /// the arithmetic, so a change to either side that does not move the other
+    /// fails here.
+    func testAStepAndAShellAgreeAboutWhatASizeIs() throws {
+        for size in [9.0, 13, 15.5, 17, 96, .nan] as [Double] {
+            let page = MarkdownPreviewPage.html(theme: .light, fontSize: size)
+            let arguments = try XCTUnwrap(
+                argument(of: MarkdownPreviewPage.fontSizeUpdateSource(fontSize: size), call: "setFontSize")
+            )
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+
+            XCTAssertEqual(arguments.count, 2)
+            XCTAssertTrue(
+                page.contains("--font-size: \(arguments[0])px;"),
+                "the shell for \(size) does not carry --font-size: \(arguments[0])px"
+            )
+            XCTAssertTrue(
+                page.contains("--code-font-size: \(arguments[1])px;"),
+                "the shell for \(size) does not carry --code-font-size: \(arguments[1])px"
+            )
+        }
     }
 }

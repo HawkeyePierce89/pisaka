@@ -259,13 +259,14 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
 - `FoldController.swift` (app, macOS) — the 400 ms debounce, the generation token, the one publish; shift between answers, reconcile on one.
 - `FoldCommands.swift` (app, macOS) — *Fold* (⌘⌥←) / *Unfold* (⌘⌥→); the first responder, the one beep.
 
-`docs/architecture/core-markdown-preview.md` — the Markdown preview beside the editor (macOS; Core + app halves), incl. decisions M1–M14:
+`docs/architecture/core-markdown-preview.md` — the Markdown preview beside the editor (macOS; Core + app halves), incl. decisions M1–M15:
 - `MarkdownDocument.swift` — the document tree (no raw-HTML case at all) + the `MarkdownParsing` seam.
 - `MarkdownListTightness.swift` — CommonMark's tight/loose rule, read off line spans *and* the source's blank lines (a gap is only the precondition — a link reference definition leaves a hole that is not one); what the caller owes it, the blank-line reading a code block's span needs, and the two shapes where cmark's own flag departs from the sentence it implements.
 - `MarkdownPreviewTheme.swift` — the page's colours as CSS strings; one entry per `SyntaxTokenKind`, the chrome/code split.
 - `MarkdownHighlightClasses.swift` — the pinned highlight-scope vocabulary → the editor's kinds; the class-name rule specificity rides on.
-- `MarkdownRenderer.swift` — tree → HTML body: one escape, `data-line` on top-level blocks only, the three presentational decisions.
-- `MarkdownPreviewPage.swift` — the app scheme's whole vocabulary, the shell, the CSP and its pinned bootstrap hash, the two entry points + `MarkdownPreviewPageSink`.
+- `MarkdownHeadingSlug.swift` — the heading `id`: the GFM slug rule (a tab removed, not folded; letter and digit Unicode's; `_` kept) + the document-ordered duplicate allocator and what it is seeded with; the renderer is its only caller.
+- `MarkdownRenderer.swift` — tree → HTML body: one escape, `data-line` on top-level blocks only, the heading's `id` (nothing else carries one), the three presentational decisions.
+- `MarkdownPreviewPage.swift` — the app scheme's whole vocabulary, the shell, the CSP and its pinned bootstrap hash, the four entry points + the one size helper both readings share + `MarkdownPreviewPageSink`.
 - `MarkdownPreviewAsset.swift` — the document context; target ↔ app-scheme URL in both directions (canonical containment) + the handler's four-case dispatch.
 - `MarkdownLinkRule.swift` — what a click does: four answers, no fifth.
 - `MarkdownScrollRule.swift` — the editor's top offset → the one line the page is given; one-directional by design.
@@ -800,8 +801,9 @@ ci.yml's `lint` job, and the version-bump procedure.
   shell's own bootstrap line. The page is **served, never string-loaded**
   (`loadHTMLString` is spelled nowhere), so the document, the four bundled files
   and every project image share one app-scheme origin; a keystroke is an
-  `innerHTML` assignment into the document already loaded, and only a theme or
-  code-font change reloads the shell. A file is reachable only inside the opened
+  `innerHTML` assignment into the document already loaded, a code-font step is one
+  call setting two custom properties on it, and only a theme change reloads the
+  shell. A file is reachable only inside the opened
   project root, checked **canonically** in the direction that composes a URL and
   again in the inverse that consumes one. Nothing is fetched at run time: the
   highlighter and the diagram renderer are pinned offline assets (~3.4 MB,
@@ -841,11 +843,15 @@ overlays:
 `BracketOverlayLayoutManager`/`FoldingTypesetter`, `LineNumberRulerView`,
 the layout seams, the download collector's ceiling rule
 (`BoundedBodyCollectorTests`, `core-provisioning.md`), and the Markdown
-preview's four app-side suites — `MarkdownParserTests` (the pipeline's one
+preview's five app-side suites — `MarkdownParserTests` (the pipeline's one
 *execution* of `import Markdown`, over a fixture), `MarkdownPreviewSchemeHandlerTests`,
-`MarkdownPreviewNavigationTests` (the one gate that drives a real `WKWebView`:
-the shell the page asks for is *allowed and loads*, a policy resting on three of
-WebKit's own answers that no Core test can reach)
+`MarkdownPreviewNavigationTests` (the first of the two gates that drive a real
+`WKWebView`: the shell the page asks for is *allowed and loads*, a policy resting
+on three of WebKit's own answers that no Core test can reach),
+`MarkdownPreviewDiagramIDTests` (the second, and the one that *executes the
+bundled mermaid*: a heading whose slug names a diagram id survives that
+diagram's render — mermaid deletes whatever element already carries the id it is
+handed, so the two id families must stay in disjoint alphabets)
 and `EditorCommandTargetTests` (`core-markdown-preview.md`). It exists because the folding launch-time trap
 (`FoldingTypesetter.init()` re-entered through Objective-C) passed **every gate
 the pipeline had** — the Core suites *and* the smoke launch, measured to survive
@@ -898,7 +904,11 @@ surface, that the hover popover passes mouse events through and declares none,
 and the Preferences stepper reading its grid from `ZoomScaleRule` — the first
 three by set equality), `BottomPanelSourceGatingTests` (the bottom dock panel's
 four view-layer rules; inventory in that suite's doc comments and
-`app-window.md`), `MainWindowFrameSourceGatingTests` (the main window's
+`app-window.md`), `MenuShortcutUniquenessTests` (every character key
+equivalent declared in `Sources/Pisaka`, by chord, asserted distinct — two
+commands sharing one compile and launch, and AppKit hands it to exactly one of
+them; the semantic and `KeyEquivalent`-constant forms are outside the matched
+set on purpose), `MainWindowFrameSourceGatingTests` (the main window's
 by-hand frame persistence: one persistence site, observers only after the
 final restore), `LocalHistorySourceGatingTests` (Local History's app-layer
 rules — capture sites, the autosave report, the one restore funnel, the reader

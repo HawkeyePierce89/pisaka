@@ -865,7 +865,7 @@ the limits the design carries.
     counter, raised by `openProblem` alone, and it is the one the entry sheets bind
     their controls to. The two answer different questions and conflating them was a
     real defect: a statement refresh is started by *switching tabs*, so a single
-    counter meant selecting a LeetCode tab on a slow link and then pressing ⌘⇧P
+    counter meant selecting a LeetCode tab on a slow link and then pressing ⌘⌥P
     produced a sheet with a disabled field and a dead Open button — Return silently
     swallowed — waiting on a request for some other tab.
     *The account.* `isSignedIn` is **optimistic at launch**: a stored pair sets it

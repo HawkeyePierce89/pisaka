@@ -30,8 +30,9 @@ import WebKit
 /// position survives a keystroke.
 ///
 /// **Every navigation is cancelled.** The preview never navigates itself: it
-/// loads the shell once per theme or font change and is otherwise updated in
-/// place, so a navigation is always a link and is always one of
+/// loads the shell once per theme change — and on a recovery from a dead page —
+/// and is otherwise updated in place (a code-zoom step included), so a
+/// navigation is always a link and is always one of
 /// ``MarkdownLinkDecision``'s four answers. Three of them carry a side effect —
 /// the system opens it, the app opens a tab, the page scrolls — and all four end
 /// in `.cancel`, because none of them is "let the web view go there".
@@ -75,8 +76,10 @@ final class MarkdownPreviewWebView: NSObject, MarkdownPreviewPageSink {
     /// is the precedent `LeetCodeStatementWebView` set, for that same reason.
     ///
     /// A **count** rather than a flag, because two reloads can be asked for
-    /// before the first one's decision arrives — two code-zoom steps in a row do
-    /// exactly that, each being an appearance change. A flag the first decision
+    /// before the first one's decision arrives — two theme changes in a row do
+    /// exactly that, as does one arriving while a recovery from a dead page is
+    /// still in flight. (A code-zoom step is no longer one of them: it sets two
+    /// properties on the loaded document and asks for no shell.) A flag the first decision
     /// consumed would leave the second navigation to be judged as a *link*, and
     /// the shell's own fragment-less URL is `.refused` there, so the page's own
     /// load would be cancelled and the preview would never appear. Every

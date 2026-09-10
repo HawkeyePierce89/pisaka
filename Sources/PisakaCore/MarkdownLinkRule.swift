@@ -76,8 +76,19 @@ public enum MarkdownLinkRule {
         // one URL the page was ever loaded from. A fragment on any other path is
         // not an anchor but a navigation to another resource that happens to
         // carry one, and is judged as that resource.
+        //
+        // Read **decoded**, which is the other half of `MarkdownHeadingSlug`
+        // keeping Unicode letters: the `id` in the document is the slug's own
+        // characters, while the URL the web view resolved an `href` to carries
+        // them percent-encoded, and `URL.fragment` hands back what the URL
+        // spells. Comparing the encoded form against the raw `id` would make
+        // every anchor in a non-English document dead — silently, a fragment
+        // naming nothing being a deliberate no-op. An ASCII slug encodes to
+        // itself, which is why the difference is invisible until it matters.
         if url.path == MarkdownPreviewPage.shellPath {
-            guard let fragment = url.fragment, !fragment.isEmpty else { return .refused }
+            guard let fragment = url.fragment(percentEncoded: false), !fragment.isEmpty else {
+                return .refused
+            }
             return .anchor(fragment)
         }
 

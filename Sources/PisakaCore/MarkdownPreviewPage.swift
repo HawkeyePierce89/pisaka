@@ -99,7 +99,7 @@ extension MarkdownPreviewPage {
     /// The bundled diagram renderer.
     public static let diagramScriptFileName = "mermaid.min.js"
 
-    /// The first-party script defining ``namespace``'s four members.
+    /// The first-party script defining ``namespace``'s five members.
     public static let previewScriptFileName = "preview.js"
 
     /// Every file the shell asks for, in the order it asks — the stylesheet
@@ -147,10 +147,49 @@ extension MarkdownPreviewPage {
     /// and is why the scroll position survives typing.
     public static let containerElementID = "content"
 
+    /// The prefix every id `preview.js` hands mermaid carries — the second
+    /// family of `id`s the page holds that the renderer did not write.
+    ///
+    /// mermaid is given an id per diagram render and **removes whatever element
+    /// already carries it** before it measures its own (`removeExistingElements`
+    /// in the bundle), so an id family that a heading slug could also produce
+    /// would delete that heading from the page the moment any fence rendered —
+    /// silently, and taking its anchor with it. The container id is reserved in
+    /// ``MarkdownRenderer`` for the same class of failure; this one cannot be
+    /// reserved that way because the sequence has no end, so it is kept out of
+    /// reach by its *alphabet* instead.
+    ///
+    /// An ASCII capital is what does it: ``MarkdownHeadingSlug/slug(forText:)``
+    /// lowercases before it filters, so no slug it can ever answer carries one —
+    /// which makes "no heading is a diagram id" a property of the two spellings
+    /// rather than of anyone remembering. `MarkdownHeadingSlugTests` asserts
+    /// both halves, and `MarkdownPreviewAssetPinTests` pins the script's own
+    /// spelling of it, the two files being in different languages with nothing
+    /// else able to notice a rename on one side.
+    ///
+    /// The rest of the id is a decimal counter `preview.js` owns, so the whole
+    /// id stays a CSS identifier: mermaid builds `#\(id)`, `#d\(id)` and
+    /// `#i\(id)` selectors from it, and anything needing an escape there would
+    /// throw inside the bundle.
+    public static let diagramElementIDPrefix = "PisakaDiagram"
+
     /// The JavaScript global `preview.js` defines and everything else calls
     /// through. Spelled once so the bootstrap, the body update and the scroll
     /// call cannot name three different objects.
     public static let namespace = "PisakaPreview"
+
+    /// The two custom properties the page draws its text at.
+    ///
+    /// Named constants rather than literals because they have **three** writers
+    /// and readers in two languages: the shell's `:root` block writes them,
+    /// `preview.css` reads them, and `preview.js`'s `setFontSize` writes them
+    /// again on a size step. A rename spelled in only two of the three leaves
+    /// the shell correct and every step silently inert, which is exactly what
+    /// `MarkdownPreviewAssetPinTests` exists to refuse.
+    public static let bodyFontSizeProperty = "--font-size"
+
+    /// The code face's size — see ``bodyFontSizeProperty``.
+    public static let codeFontSizeProperty = "--code-font-size"
 
     /// The shell's one inline script: the call that starts the page.
     ///
@@ -207,13 +246,15 @@ extension MarkdownPreviewPage {
 
     /// The whole shell document: everything the page is before a body arrives.
     ///
-    /// A pure function of the theme and the code font size — the two inputs a
-    /// change in which re-writes the shell. Everything else about the page (the
-    /// document being previewed, its text, its scroll position) reaches it
-    /// through JavaScript instead, which is why typing does not reload.
+    /// A pure function of the theme and the code font size. The theme is the
+    /// only one of the two a change in which re-writes it: a size is also
+    /// settable on a loaded page through ``fontSizeUpdateSource(fontSize:)``,
+    /// and is embedded here so that a shell composed later says what the page
+    /// was already showing. Everything else about the page (the document being
+    /// previewed, its text, its scroll position) reaches it through JavaScript
+    /// instead, which is why typing does not reload.
     public static func html(theme: MarkdownPreviewTheme, fontSize: Double) -> String {
-        let size = SettingsStore.clampFontSize(fontSize)
-        return """
+        """
             <!DOCTYPE html>
             <html lang="en" data-color-scheme="\(theme.colorScheme)">
             <head>
@@ -223,7 +264,7 @@ extension MarkdownPreviewPage {
             <title>Preview</title>
             <link rel="stylesheet" href="\(bundledPath(forFileName: stylesheetFileName))">
             <style>
-            \(themeStylesheet(theme: theme, fontSize: size))
+            \(themeStylesheet(theme: theme, fontSize: fontSize))
             </style>
             </head>
             <body>
@@ -257,15 +298,36 @@ extension MarkdownPreviewPage {
         """
     }
 
+    /// The two sizes the page draws with, derived from the one number the
+    /// window forwards: the clamp, and the code face's one-point offset.
+    ///
+    /// **One helper rather than two arithmetic sites**, because a size now
+    /// reaches the page two ways — embedded in a shell the handler serves, and
+    /// set on the document already loaded by
+    /// ``fontSizeUpdateSource(fontSize:)`` — and the whole point of the second
+    /// is that it means exactly what the first would have. Two spellings of
+    /// "a point smaller" would be a preview whose code font changed size when
+    /// the theme did.
+    ///
+    /// The clamp is `SettingsStore`'s, so this is the editor's own zoom zone
+    /// read once rather than a second opinion about what a font size may be;
+    /// `code` is a point smaller than `body` for the reason the statement panel
+    /// states: a monospace face at the editor's own size reads visibly larger
+    /// than the proportional text beside it.
+    static func fontSizes(for fontSize: Double) -> (body: Double, code: Double) {
+        let body = SettingsStore.clampFontSize(fontSize)
+        return (body: body, code: body - 1)
+    }
+
     /// The custom properties, one declaration per line.
     ///
     /// The chrome names are spelled here and read by `preview.css`; the code
     /// names come from ``MarkdownPreviewTheme/cssVariableName(for:)``, so the
-    /// stylesheet and the palette cannot drift. `--code-font-size` is a point
-    /// smaller than the body, for the reason the statement panel states: a
-    /// monospace face at the editor's own size reads visibly larger than the
-    /// proportional text beside it.
+    /// stylesheet and the palette cannot drift. The two sizes are
+    /// ``fontSizes(for:)``'s, which is what a font-size step later sets on this
+    /// same `:root` from the other side.
     private static func customProperties(theme: MarkdownPreviewTheme, fontSize: Double) -> String {
+        let sizes = fontSizes(for: fontSize)
         var lines = [
             "  color-scheme: \(theme.colorScheme);",
             "  --background: \(theme.background);",
@@ -275,8 +337,8 @@ extension MarkdownPreviewPage {
             "  --code-background: \(theme.codeBackground);",
             "  --border: \(theme.border);",
             "  --table-border: \(theme.tableBorder);",
-            "  --font-size: \(css(fontSize))px;",
-            "  --code-font-size: \(css(fontSize - 1))px;",
+            "  \(bodyFontSizeProperty): \(css(sizes.body))px;",
+            "  \(codeFontSizeProperty): \(css(sizes.code))px;",
         ]
         for kind in SyntaxTokenKind.allCases {
             lines.append("  \(MarkdownPreviewTheme.cssVariableName(for: kind)): \(theme.color(for: kind));")
@@ -309,7 +371,7 @@ extension MarkdownPreviewPage {
     }
 }
 
-// MARK: - The two entry points
+// MARK: - The entry points
 
 extension MarkdownPreviewPage {
 
@@ -335,10 +397,14 @@ extension MarkdownPreviewPage {
     /// would be a way to end the call and start a statement.
     ///
     /// The page answers this by an `id` lookup and does nothing when it finds
-    /// none — which is what an anchor into a document that carries no `id` at
-    /// all means today, `MarkdownRenderer` emitting none. The seam exists here
-    /// rather than in the navigation delegate for the reason every other one
-    /// does: the app passes a fragment, it does not compose a call.
+    /// none. What it finds are the heading anchors `MarkdownRenderer` emits
+    /// through `MarkdownHeadingSlug` — the whole reading of a heading's text
+    /// happens in Core, so this seam carries a name, never a rule — and a
+    /// fragment naming nothing in the document leaves the page where it is,
+    /// which is the honest answer for a link to a section that is not there. The
+    /// seam exists here rather than in the navigation delegate for the reason
+    /// every other one does: the app passes a fragment, it does not compose a
+    /// call.
     public static func scrollToAnchorSource(anchor: String) -> String {
         "window.\(namespace).scrollToAnchor(\(javaScriptStringLiteral(anchor)));"
     }
@@ -354,6 +420,27 @@ extension MarkdownPreviewPage {
     /// scrolls to the nearest one it does.
     public static func scrollToLineSource(line: Int) -> String {
         "window.\(namespace).scrollToLine(\(line));"
+    }
+
+    /// The JavaScript that sets the page's two font sizes on the document
+    /// already loaded — the last of the sources composed here, and the reason a
+    /// code-zoom step is no longer a page load.
+    ///
+    /// Both arguments cross as **numbers**, spelled by the same `css(_:)` rule
+    /// the shell's `:root` block uses and read out of the one
+    /// ``fontSizes(for:)`` helper, so an in-place step and a shell composed a
+    /// moment later cannot disagree about what a size is. A number needs no
+    /// escaping for the reason the scroll line needs none: there is no spelling
+    /// of one that could end the call and start a statement — which is the
+    /// safety property the body and the anchor buy with a string literal.
+    ///
+    /// **Two arguments rather than one**, because the page draws with two sizes
+    /// and the second is a point below the first. Sending one and subtracting
+    /// there would put an arithmetic decision in `preview.js`, which decides
+    /// nothing; the page appends the unit and sets the two properties.
+    public static func fontSizeUpdateSource(fontSize: Double) -> String {
+        let sizes = fontSizes(for: fontSize)
+        return "window.\(namespace).setFontSize(\(css(sizes.body)), \(css(sizes.code)));"
     }
 
     /// `value` as a JavaScript string literal, quotes included.

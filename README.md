@@ -96,7 +96,8 @@ do — is in [`docs/FEATURES.md`](docs/FEATURES.md).
 - **Markdown preview** (macOS) — a `.md` tab renders beside its editor, live: a
   draggable divider between the two, View → Markdown Preview (Cmd+Shift+P) to show
   and hide it, the editor's own colours in fenced code, `mermaid` diagrams, and
-  the preview following the editor as you scroll. Links to files in the project
+  the preview following the editor as you scroll. A link to a heading in the same
+  document scrolls the preview to it, links to files in the project
   open as tabs, everything else opens in your browser, and nothing is fetched from
   the network — the highlighter and the diagram renderer ship with the app. It is
   read-only and writes nothing. Three deliberate limits: **raw HTML in the source
@@ -162,6 +163,7 @@ server fetching JSON schemas while it runs.
 | Cmd+F       | Find in the current file                   |
 | Cmd+G / Cmd+Shift+G | Find Next / Previous               |
 | Cmd+Option+F| Replace in the current file                |
+| Cmd+Option+P| Open a LeetCode problem                    |
 | Cmd+Shift+F | Find in Files (project-wide)               |
 | Ctrl+Cmd+J  | Go to Definition (Cmd+click does the same) |
 | Ctrl+Cmd+U  | Find Usages of the name under the caret    |
@@ -171,7 +173,7 @@ server fetching JSON schemas while it runs.
 | Cmd+K       | Commit…                                    |
 | Cmd+R       | Run the active file                        |
 | Cmd+U       | Run the active test file                   |
-| Cmd+Shift+P | Show/Hide the Markdown preview (on a Markdown tab); Open a LeetCode problem otherwise |
+| Cmd+Shift+P | Show/Hide the Markdown preview (macOS)     |
 | Cmd+Shift+B | Browse LeetCode problems                   |
 | Cmd+Shift+L | Show/Hide the Git Log panel                |
 | Cmd+Shift+T | Show/Hide the terminal panel               |

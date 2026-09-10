@@ -195,6 +195,32 @@ final class ScriptedMarkdownPageSink: MarkdownPreviewPageSink {
         }
     }
 
+    /// The two sizes of a `setFontSize` call, in the order the call carries
+    /// them.
+    struct FontSizeCall: Equatable {
+        var body: Double
+        var code: Double
+    }
+
+    /// Every `setFontSize` call, with both arguments **decoded as numbers**.
+    ///
+    /// The decode is the assertion, the way the body's is: a size that crossed
+    /// as a quoted string would still read as the right size to a `contains`,
+    /// and would set `--font-size: "13"px` in the page — which is not a length,
+    /// so the declaration is dropped and the text silently keeps the size the
+    /// shell was composed with. `Double(_:)` refuses the quotes, so a call that
+    /// is not two numbers is not counted here at all.
+    var fontSizeCalls: [FontSizeCall] {
+        evaluatedSources.compactMap { source in
+            guard let arguments = Self.argument(of: source, calling: "setFontSize") else { return nil }
+            let numbers = arguments.split(separator: ",").compactMap {
+                Double($0.trimmingCharacters(in: .whitespaces))
+            }
+            guard numbers.count == 2 else { return nil }
+            return FontSizeCall(body: numbers[0], code: numbers[1])
+        }
+    }
+
     func clearEvents() {
         events.removeAll()
     }

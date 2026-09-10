@@ -1,9 +1,9 @@
 /*
  * The Markdown preview's one first-party script.
  *
- * Written in this repository. It defines the four members the page is driven
- * through — `boot`, `render`, `scrollToLine`, `scrollToAnchor` — and nothing
- * else reaches the
+ * Written in this repository. It defines the five members the page is driven
+ * through — `boot`, `render`, `scrollToLine`, `scrollToAnchor`, `setFontSize` —
+ * and nothing else reaches the
  * global scope: the shell's single inline line calls `boot`, and everything
  * after that arrives as an `evaluateJavaScript` of a source `MarkdownPreviewPage`
  * composed. This file therefore *decides* nothing. It has no opinion about when
@@ -42,6 +42,13 @@
     /* Incremented by every `render`. A diagram whose generation is no longer the
        current one is discarded rather than written. */
     var generation = 0;
+
+    /* The prefix every id below carries, spelled in Core as
+       `MarkdownPreviewPage.diagramElementIDPrefix`. Its capital is load-bearing:
+       mermaid removes whatever element already carries the id it is handed, and
+       a heading slug — lowercased before it is filtered — can never contain one,
+       so no `id` the renderer writes can be taken for a diagram's. */
+    var DIAGRAM_ID_PREFIX = "PisakaDiagram";
 
     /* Distinct per diagram *and* per render, because mermaid keys its internal
        definitions by the id it is given and a repeated id re-uses the previous
@@ -119,7 +126,7 @@
     function renderDiagram(block, mine) {
         var source = block.textContent;
         diagramSequence += 1;
-        var id = "pisaka-diagram-" + diagramSequence;
+        var id = DIAGRAM_ID_PREFIX + diagramSequence;
 
         /* The block's source is hidden only while a render of it is in flight —
            see `preview.css`. Every ending below reveals it again, which is what
@@ -207,13 +214,32 @@
 
        An `id` lookup and nothing more: the fragment arrives as the document
        spelled it, and no other reading of it — a heading's text, a slug derived
-       from one — is invented here. `MarkdownRenderer` emits no `id` today, so a
-       fragment lands on nothing and the page stays where it is, which is the
-       honest answer for a link into a document that carries no targets. */
+       from one — is invented here. The ids it finds are the ones
+       `MarkdownRenderer` put on the headings, by a slug rule that lives in Core
+       so that both halves of the round trip are asserted in one language; a
+       fragment naming nothing in the document lands on nothing and the page
+       stays where it is, which is the honest answer for a link to a section
+       this document does not have. */
     function scrollToAnchor(name) {
         var target = document.getElementById(name);
         if (!target) { return; }
         window.scrollTo(0, target.getBoundingClientRect().top + window.scrollY);
+    }
+
+    /* Set the two font sizes the page draws with, on the document that is
+       already loaded.
+
+       Both numbers are Core's — the clamp and the code face's one-point offset
+       are decided by `MarkdownPreviewPage.fontSizes(for:)`, exactly as the
+       shell's own `:root` block was written from them. This function performs no
+       arithmetic on them at all: it appends the unit and sets the two properties
+       the stylesheet reads, which is the whole of it. A step therefore changes
+       the text without replacing the document, so the scroll position stays
+       where it was and no diagram is rendered a second time. */
+    function setFontSize(bodySize, codeSize) {
+        var root = document.documentElement;
+        root.style.setProperty("--font-size", bodySize + "px");
+        root.style.setProperty("--code-font-size", codeSize + "px");
     }
 
     window.PisakaPreview = {
@@ -221,5 +247,6 @@
         render: render,
         scrollToLine: scrollToLine,
         scrollToAnchor: scrollToAnchor,
+        setFontSize: setFontSize,
     };
 }());

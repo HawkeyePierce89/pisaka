@@ -11,9 +11,11 @@ import XCTest
 ///   their own gate and resumed in call order, so the stale one finishes *first*
 ///   and would overwrite the newer body if the token were not checked. That is
 ///   what makes the assertion real rather than a coincidence of scheduling.
-/// - **An appearance change re-renders without re-parsing.** The evidence is the
-///   scripted parser's record being byte-for-byte unchanged across a theme
-///   switch, and the page still receiving the body.
+/// - **An appearance change re-renders without re-parsing — and a size change
+///   does not even re-render.** The evidence for the first is the scripted
+///   parser's record being byte-for-byte unchanged across a theme switch, and
+///   the page still receiving the body; for the second it is the scripted
+///   page's, which records one evaluated call and no load at all.
 /// - **The first render after a retarget does not wait.** The debounce is held
 ///   open for the whole test, and the retarget's body arrives anyway while the
 ///   text change behind it does not.
@@ -213,23 +215,120 @@ final class MarkdownPreviewModelTests: XCTestCase {
         XCTAssertEqual(sink.bodies, ["", body(for: "alpha"), body(for: "alpha")])
     }
 
-    func testAFontSizeChangeReloadsTheShellToo() async {
-        let (model, _, sink) = makeModel()
+    /// The other half of the rule above: a size moves without the theme, and the
+    /// page is *not* replaced.
+    ///
+    /// Everything the reload path does is work a code-zoom step does not need —
+    /// the two sizes are custom properties, so setting them is the whole change
+    /// — and all of it is visible: a load blanks the container, so the body is
+    /// re-sent and every diagram in it is rendered again, and the reader is
+    /// scrolled back rather than left where they were.
+    func testAFontSizeChangeIsSetInPlaceRatherThanReloaded() async {
+        let (model, parser, sink) = makeModel()
         model.updateAppearance(theme: .light, fontSize: 13)
+        model.retarget(to: documentContext, text: "alpha")
+        await waitFor("the first body") { sink.bodies.last == self.body(for: "alpha") }
+        let parsedBefore = parser.parsed
+        sink.clearEvents()
+
         model.updateAppearance(theme: .light, fontSize: 16)
         await settle()
 
-        XCTAssertEqual(sink.shellReloads.count, 2)
-        XCTAssertTrue(sink.shellReloads[1].contains("--font-size: 16px"))
+        XCTAssertEqual(sink.fontSizeCalls, [.init(body: 16, code: 15)])
+        XCTAssertEqual(sink.evaluatedSources.count, 1, "the one call is the whole step")
+        XCTAssertEqual(sink.shellReloads, [], "no load: the document the page holds is kept")
+        XCTAssertEqual(sink.bodies, [], "and the body it is showing is not re-sent")
+        XCTAssertEqual(parser.parsed, parsedBefore, "nor is anything parsed again")
     }
 
-    func testAnUnchangedAppearanceReloadsNothing() async {
+    /// A step before any shell exists has no document to set a property on, so
+    /// it is the install it always was.
+    func testTheFirstAppearanceStillInstallsTheShell() async {
         let (model, _, sink) = makeModel()
-        model.updateAppearance(theme: .light, fontSize: 13)
-        model.updateAppearance(theme: .light, fontSize: 13)
+        model.updateAppearance(theme: .light, fontSize: 16)
         await settle()
 
         XCTAssertEqual(sink.shellReloads.count, 1)
+        XCTAssertTrue(sink.shellReloads[0].contains("--font-size: 16px"))
+        XCTAssertEqual(sink.fontSizeCalls, [], "there is nothing loaded to set it on")
+    }
+
+    /// A theme change carrying a new size too is one reload and no step: the
+    /// shell it composes already says what the size is.
+    func testAThemeAndSizeChangeTogetherIsOneReloadAndNoStep() async {
+        let (model, _, sink) = makeModel()
+        model.updateAppearance(theme: .light, fontSize: 13)
+        sink.clearEvents()
+
+        model.updateAppearance(theme: .dark, fontSize: 16)
+        await settle()
+
+        XCTAssertEqual(sink.shellReloads.count, 1)
+        XCTAssertTrue(sink.shellReloads[0].contains("--font-size: 16px"))
+        XCTAssertTrue(sink.shellReloads[0].contains(MarkdownPreviewTheme.dark.background))
+        // Both halves: `fontSizeCalls` drops anything it cannot read as two
+        // numbers, so on its own it would call a *malformed* step "no step".
+        XCTAssertEqual(sink.fontSizeCalls, [])
+        XCTAssertEqual(sink.evaluatedSources, [], "nothing at all is evaluated into the page")
+    }
+
+    /// The step is *from* the shell it followed: the size it recorded is what a
+    /// later reload — a theme switch, a dead page — is composed with, so the two
+    /// paths cannot drift apart over a sequence of steps.
+    func testAReloadAfterAStepCarriesTheSteppedSize() async {
+        let (model, _, sink) = makeModel()
+        model.updateAppearance(theme: .light, fontSize: 13)
+        model.updateAppearance(theme: .light, fontSize: 18)
+        sink.clearEvents()
+
+        model.updateAppearance(theme: .dark, fontSize: 18)
+        await settle()
+
+        XCTAssertEqual(sink.shellReloads.count, 1)
+        XCTAssertTrue(sink.shellReloads[0].contains("--font-size: 18px"))
+        XCTAssertTrue(sink.shellReloads[0].contains("--code-font-size: 17px"))
+    }
+
+    /// A step leaves the scroll memory alone, because there is nothing to
+    /// restore: the document is not replaced, so the page is still where the
+    /// reader left it and re-sending the line would move someone who did not ask
+    /// to be moved.
+    func testAFontSizeStepLeavesTheScrollAlone() async {
+        let (model, _, sink) = makeModel()
+        model.updateAppearance(theme: .light, fontSize: 13)
+        model.retarget(to: documentContext, text: "alpha")
+        await waitFor("the first body") { sink.bodies.last == self.body(for: "alpha") }
+
+        model.noteScrolled(toLine: 42)
+        await waitFor("the scroll") { sink.scrolledLines == [42] }
+        sink.clearEvents()
+
+        model.updateAppearance(theme: .light, fontSize: 16)
+        await settle()
+
+        XCTAssertEqual(sink.scrolledLines, [], "no line is re-sent")
+        XCTAssertEqual(sink.fontSizeCalls.count, 1)
+
+        // And the memory itself survives, so the *next* reload still lands the
+        // reader back on the line they were on.
+        sink.clearEvents()
+        model.updateAppearance(theme: .dark, fontSize: 16)
+        await waitFor("the restored scroll") { !sink.scrolledLines.isEmpty }
+        await settle()
+        XCTAssertEqual(sink.scrolledLines, [42])
+    }
+
+    func testAnUnchangedAppearanceSendsNothing() async {
+        let (model, _, sink) = makeModel()
+        model.updateAppearance(theme: .light, fontSize: 13)
+        sink.clearEvents()
+
+        model.updateAppearance(theme: .light, fontSize: 13)
+        await settle()
+
+        // Neither half runs: not the reload, and not the step the size half
+        // would otherwise make out of a number that did not move.
+        XCTAssertEqual(sink.events, [])
     }
 
     // MARK: - Retarget and clear

@@ -37,11 +37,13 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     tab's name resolves to `SyntaxLanguage.markdown`, because the item has no
     effect anywhere else and an item that silently does nothing is worse than one
     that says so. The tab *kind* is not asked here — no `.md` file opens as a
-    viewer tab, and the pane's own routing in `ContentView` asks it anyway. **The
-    chord is shared with LeetCode's "Open Problem…"**, which also spells ⌘⇧P; the
-    View item comes first in the menu bar and is disabled off a Markdown tab, so
-    which command a press reaches depends on the active tab — a collision recorded
-    rather than designed (`core-markdown-preview.md`). Nothing else about the
+    viewer tab, and the pane's own routing in `ContentView` asks it anyway. **⌘⇧P
+    names this command and no other**: LeetCode's "Open Problem…" once shared it
+    and now spells ⌘⌥P (`core-markdown-preview.md`). That collision was invisible
+    to every gate the pipeline had — two commands declaring one chord compile,
+    link and launch, and AppKit simply gives it to one of them — so
+    `MenuShortcutUniquenessTests` now reads every character key equivalent in
+    `Sources/Pisaka` and refuses a repeat. Nothing else about the
     preview is in this file: the pane, the split and the divider are
     `ContentView`'s, and every decision is Core's. `togglePanel(.terminal)` creates the first session
     (`terminalSessions.newSession(projectRoot: model.projectRoot)`) when none exists
@@ -1437,7 +1439,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     surfaces that show its state (`LeetCodeCommands`, the Open Problem sheet, the
     login sheet, the Preferences tab and the description pane) each observe it
     themselves. A `CommandMenu("LeetCode")` hosts `LeetCodeCommands` (Open
-    Problem… ⌘⇧P, state-dependent Sign In…/Sign Out, Choose LeetCode Folder…),
+    Problem… ⌘⌥P, state-dependent Sign In…/Sign Out, Choose LeetCode Folder…),
     gated on nothing — a problem is written into the user's LeetCode folder and
     opened as a tab whether or not a project is open. The two sheets are one
     `.sheet(item:)` over an enum attached **outside** `ContentView` (they are

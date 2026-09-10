@@ -37,8 +37,26 @@ public enum MarkdownRenderer {
     /// for tests that read like the markup, never for layout: every block is a
     /// block-level element and the whitespace between them collapses.
     public static func body(for document: MarkdownDocument, context: MarkdownDocumentContext) -> String {
-        document.blocks
-            .map { render($0.block, attributes: lineAttribute($0.sourceLine), context: context) }
+        // The one allocator of the render, created here and threaded down: it is
+        // *this document's* heading ids, so it begins the same way on every call
+        // and a second render of the same tree produces the same markup.
+        //
+        // It begins holding the shell's own container id, which is the one `id`
+        // the page carries that this file did not write: `getElementById` answers
+        // the first element in document order, so a `## Content` heading taking
+        // that id would send its link to the top of the container instead of to
+        // itself. Reserved here rather than inside the allocator because the page
+        // is this file's dependency, not the slug rule's.
+        //
+        // It is the only id reserved here because it is the only one that *can*
+        // be: the page's other id family — the one `preview.js` hands mermaid
+        // per diagram render, which mermaid removes an existing element for
+        // before it draws — is an unbounded sequence, and is kept out of reach
+        // by carrying a capital instead (`MarkdownPreviewPage
+        // .diagramElementIDPrefix`), which a lowercasing slug rule cannot spell.
+        var slugs = MarkdownHeadingSlug.Allocator(reserving: [MarkdownPreviewPage.containerElementID])
+        return document.blocks
+            .map { render($0.block, attributes: lineAttribute($0.sourceLine), context: context, slugs: &slugs) }
             .joined(separator: "\n")
     }
 
@@ -57,7 +75,8 @@ public enum MarkdownRenderer {
     private static func render(
         _ block: MarkdownBlock,
         attributes: String,
-        context: MarkdownDocumentContext
+        context: MarkdownDocumentContext,
+        slugs: inout MarkdownHeadingSlug.Allocator
     ) -> String {
         switch block {
         case .paragraph(let children):
@@ -70,16 +89,27 @@ public enum MarkdownRenderer {
             // hint that it was a heading — so the deepest heading HTML has is a
             // truer answer than a working `<h7>` that does not exist.
             let clamped = min(max(level, 1), 6)
-            return "<h\(clamped)\(attributes)>\(render(children, context: context))</h\(clamped)>"
+            // The heading's *text* is what the anchor is named after, which is
+            // the same flattening an image's `alt` gets: markup inside a heading
+            // is how it is drawn, never part of what a link to it spells. The
+            // attribute goes through `attribute(_:_:)` like every other one — a
+            // slug carries nothing that needs escaping, and bypassing the one
+            // escape to say so would make that a fact about the slug rule rather
+            // than about this file. A heading the rule leaves unnamed carries no
+            // `id` at all.
+            let anchor = attribute("id", slugs.allocate(forText: plainText(children)))
+            return "<h\(clamped)\(anchor)\(attributes)>\(render(children, context: context))</h\(clamped)>"
 
         case .codeBlock(let language, let code):
             return renderCodeBlock(language: language, code: code, attributes: attributes)
 
         case .blockQuote(let blocks):
-            return "<blockquote\(attributes)>\(renderNested(blocks, context: context))</blockquote>"
+            let content = renderNested(blocks, context: context, slugs: &slugs)
+            return "<blockquote\(attributes)>\(content)</blockquote>"
 
         case .unorderedList(let isTight, let items):
-            return "<ul\(looseClass(isTight: isTight))\(attributes)>\(renderItems(items, context: context))</ul>"
+            let content = renderItems(items, context: context, slugs: &slugs)
+            return "<ul\(looseClass(isTight: isTight))\(attributes)>\(content)</ul>"
 
         case .orderedList(let start, let isTight, let items):
             // `start` is emitted always, including for `1`. One shape rather than
@@ -87,7 +117,7 @@ public enum MarkdownRenderer {
             // untestable from the markup, and `<ol start="1">` is what the
             // default already means.
             let open = "<ol start=\"\(start)\"\(looseClass(isTight: isTight))\(attributes)>"
-            return "\(open)\(renderItems(items, context: context))</ol>"
+            return "\(open)\(renderItems(items, context: context, slugs: &slugs))</ol>"
 
         case .table(let alignments, let header, let body):
             return renderTable(alignments: alignments, header: header, body: body, attributes: attributes, context: context)
@@ -102,8 +132,18 @@ public enum MarkdownRenderer {
     /// The attribute is empty at every nesting level, which is the *only* way
     /// this function is called: `data-line` reaches a block from its top-level
     /// wrapper and there is no path by which a nested one receives one.
-    private static func renderNested(_ blocks: [MarkdownBlock], context: MarkdownDocumentContext) -> String {
-        blocks.map { render($0, attributes: "", context: context) }.joined(separator: "\n")
+    ///
+    /// The slug allocator, by contrast, travels *all* the way down: a heading
+    /// inside a blockquote or a list item is a heading, and gets its `id` on the
+    /// same terms and in the same document order as a top-level one.
+    private static func renderNested(
+        _ blocks: [MarkdownBlock],
+        context: MarkdownDocumentContext,
+        slugs: inout MarkdownHeadingSlug.Allocator
+    ) -> String {
+        blocks
+            .map { render($0, attributes: "", context: context, slugs: &slugs) }
+            .joined(separator: "\n")
     }
 
     /// A fenced or indented code block.
@@ -172,9 +212,13 @@ public enum MarkdownRenderer {
     /// feature writes nothing. Where the box sits relative to the item's first
     /// paragraph is the stylesheet's business, not the renderer's; the class is
     /// emitted so the stylesheet has something to select.
-    private static func renderItems(_ items: [MarkdownListItem], context: MarkdownDocumentContext) -> String {
+    private static func renderItems(
+        _ items: [MarkdownListItem],
+        context: MarkdownDocumentContext,
+        slugs: inout MarkdownHeadingSlug.Allocator
+    ) -> String {
         items.map { item in
-            let content = renderNested(item.blocks, context: context)
+            let content = renderNested(item.blocks, context: context, slugs: &slugs)
             switch item.checkbox {
             case nil:
                 return "<li>\(content)</li>"
@@ -183,7 +227,8 @@ public enum MarkdownRenderer {
             case .checked:
                 return "<li class=\"task-list-item\"><input type=\"checkbox\" disabled checked>\(content)</li>"
             }
-        }.joined(separator: "\n")
+        }
+        .joined(separator: "\n")
     }
 
     /// A GFM table.
@@ -197,6 +242,11 @@ public enum MarkdownRenderer {
     /// the header and says what it means (missing cells are empty, extra ones are
     /// dropped by the *parser*); a renderer that invented cells would be
     /// disagreeing with a tree that already decided.
+    ///
+    /// This is the one nested path the slug allocator does **not** travel, and
+    /// not by omission: a cell is `[MarkdownInline]`, which has no heading case
+    /// at all, so there is nothing here to name. Threading it anyway would be a
+    /// parameter no line reads, claiming a possibility the tree does not have.
     private static func renderTable(
         alignments: [MarkdownTableAlignment],
         header: MarkdownTableRow,
