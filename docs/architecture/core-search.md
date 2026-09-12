@@ -1,4 +1,4 @@
-# PisakaCore — Find in Files (gitignore matching + project search)
+# PisakaCore — Find in Files (gitignore matching + project search) + the shared search query history
 
 Design documentation moved verbatim from the root `CLAUDE.md` (which now holds only a one-line-per-file index). Each entry records a file's contract, invariants and the reasoning behind non-obvious decisions — read the relevant entry before modifying that file, and update it when behavior changes.
 
@@ -320,3 +320,76 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     rewrites precisely what matched — and ICU offers no option to exclude VT/FF
     alone, so it is recorded and pinned by a test
     (`testRegexAnchorsFollowICUTerminatorsIncludingFormFeed`) rather than fixed.
+  - `SearchQueryHistory.swift` — the recently-searched queries, newest first:
+    **one** list shared by the find bar (⌘F) and the Find in Files window,
+    because the engine behind them is one (`TextSearch.swift`) and so is the
+    question "what did I search for". `public static let capacity = 20`,
+    `public private(set) var entries: [SearchQuery]`, `isEmpty`, `clear()`, and
+    a `record(_:)` that is the **one** place an entry can enter.
+    An entry is a whole `SearchQuery` and not a string on purpose: the three
+    toggles are part of what was searched for, so a pattern offered back without
+    them would run a *different* search than the one the row is offering to
+    repeat — `\bfoo\b` picked back without `.*` finds nothing, and picking with
+    the flags is what makes the menu a repeat rather than a re-type.
+    **The recording rule, entire**: a pattern that is empty or whitespace-only
+    once trimmed is refused outright — blankness is judged here and nowhere
+    else, which is why every app-layer site records unconditionally and no
+    surface restates the test (`TextSearchEngine` reads an empty field the same
+    way, `.emptyPattern`: "no query", not a search for spaces); an entry whose
+    pattern matches one already held — compared **exactly**, case-sensitively
+    and untrimmed, since two patterns differing only in case find different
+    things under `Aa` and are two searches — removes the older value and
+    inserts the new one at the front, so the **newer flags win** and the
+    patterns stay unique (which is what lets the menu key its rows on the
+    pattern); the list is then truncated to `capacity`, dropping the oldest.
+    "No change" is expressed as an **unchanged value**, never as a return flag:
+    the type is `Equatable` and `SettingsStore.recordSearchQuery(_:)` compares
+    the next value against the held one to decide whether to publish at all
+    (`core-services.md`), so a flag would be a second spelling of the same fact
+    — and the one a caller could ignore.
+    **Persistence** is one opaque JSON `Data` value, encoded from the
+    file-private `SearchQueryHistoryEntry` DTO with explicit `CodingKeys`
+    (`pattern`, `isRegex`, `caseSensitive`, `wholeWord`) rather than from
+    `SearchQuery`, which deliberately stays **non-`Codable`**: the search
+    engine's value type is free to be renamed or extended without silently
+    changing what is on disk, and the stored shape is this file's decision, in
+    this file, where a test can read it. (The DTO is top-level and file-private
+    rather than nested: its `CodingKeys` — the whole reason it exists — would
+    otherwise sit two levels deep, which the style authority refuses and no
+    in-file disable may buy back.) `init(persistedData:)` answers an **empty**
+    history for *every* failure — the key absent, bytes that are not JSON, a
+    JSON object where an array belongs, an element missing a key or mistyping
+    one — and `persistedData` is `nil` while the history is empty, so the store
+    removes the key instead of writing an empty array and "nothing recorded"
+    keeps one spelling on disk.
+    **Failure is whole-value, not per-entry**, which is the deliberate opposite
+    of `SettingsStore.lspServerConsent`'s element-by-element read, and the two
+    differ because what an absence costs differs: a consent map that drops one
+    unreadable entry costs one server its answer and nothing else — the user is
+    asked again — while a history that drops *some* entries is a list whose gaps
+    are invisible, so the user cannot tell "never searched for that" from "the
+    file was half-readable" and quietly stops trusting the menu. An empty list
+    is honest; a partial one is not.
+    The invariants are enforced on **read** as well as on write: both
+    `init(persistedData:)` and `init(entries:)` replay their input oldest-first
+    through `record(_:)`, so a stored blank, a duplicate or an over-long list —
+    from an older build, a hand-edited defaults domain, anywhere — reads back as
+    a list this type could itself have produced. There is no door into `entries`
+    that skips the rule.
+    `menuLabel(for:maxPatternLength: = 60)` is the row's text, decided here
+    rather than left to a menu item's own eliding so it is deterministic and can
+    be asserted: the pattern middle-truncated with a single `…` that is *counted
+    against* the budget (the result is never longer than asked for), then a
+    space-separated suffix naming only the flags that are on — `Aa` (case), `ab`
+    (whole word), `.*` (regular expression), in the toggles' own left-to-right
+    order, so a row reads like the bar it came from. The budget is honoured down
+    to its degenerate values, since it is a parameter a caller picks: `0` leaves
+    the pattern out entirely, `1` leaves the `…` alone, and the flag suffix —
+    which is not the pattern — is appended either way. `SearchQueryHistoryTests`
+    covers the blank refusals (including tabs and spaces), dedupe-and-promote
+    with the newer flags winning, a differently-cased pattern being a different
+    entry, the front no-op leaving the value `==`, the cap dropping the oldest,
+    `clear()`, `init(entries:)` normalizing a dirty list, both round trips, each
+    decode-failure shape, and `menuLabel` for a short pattern, a 200-character
+    one and every flag combination. The two surfaces that record into it and the
+    one menu view that draws it are in `app-editor.md`.

@@ -21,14 +21,29 @@ final class ProjectSearchWindowController {
     private var hosting: NSHostingController<ProjectSearchView>?
     private var delegate: WindowDelegate?
 
+    /// What to run as the window goes away, wired by the caller.
+    ///
+    /// The controller **records nothing itself**: it owns no model and no query,
+    /// so it cannot know what was searched for. It only guarantees that every
+    /// close path fires this hook exactly once — the user closing the window, and
+    /// the termination sweep below, which invokes it explicitly before it drops
+    /// the delegate that would otherwise have.
+    private var onWillClose: () -> Void = {}
+
     /// Show the Find in Files window, creating it on first use and focusing it
     /// afterwards.
     ///
     /// An existing window has its root view *replaced* rather than reused as-is:
     /// the content carries the app's current closures (and, through them, whatever
     /// the app now considers the project root), so a window left open across a
-    /// folder switch picks the new one up on the next ⌘⇧F.
-    func show(content: ProjectSearchView) {
+    /// folder switch picks the new one up on the next ⌘⇧F. `onWillClose` is
+    /// replaced on every call for the same reason, and from the same source.
+    ///
+    /// The hook has no default: the one caller wires it, and a window shown
+    /// without one would drop the dismissal recording silently.
+    func show(content: ProjectSearchView, onWillClose: @escaping () -> Void) {
+        self.onWillClose = onWillClose
+
         if let window, let hosting {
             hosting.rootView = content
             window.makeKeyAndOrderFront(nil)
@@ -43,7 +58,10 @@ final class ProjectSearchWindowController {
         window.setContentSize(NSSize(width: 760, height: 520))
         window.center()
 
-        let delegate = WindowDelegate { [weak self] in self?.release() }
+        let delegate = WindowDelegate { [weak self] in
+            self?.onWillClose()
+            self?.release()
+        }
         window.delegate = delegate
 
         self.window = window
@@ -54,8 +72,13 @@ final class ProjectSearchWindowController {
     }
 
     /// Close the window if it is open (app-termination path).
+    ///
+    /// The delegate is dropped before the close, so the hook is invoked here by
+    /// hand: a query left in an open window is recorded when the app quits, just
+    /// as it is when the user closes the window.
     func closeAll() {
         guard let window else { return }
+        onWillClose()
         window.delegate = nil
         window.close()
         release()
@@ -66,9 +89,10 @@ final class ProjectSearchWindowController {
         window = nil
         hosting = nil
         delegate = nil
+        onWillClose = {}
     }
 
-    /// Forwards `windowWillClose` to the controller's release hook.
+    /// Forwards `windowWillClose` to the controller's close hook and its release.
     private final class WindowDelegate: NSObject, NSWindowDelegate {
         private let onClose: () -> Void
 

@@ -134,13 +134,21 @@ line_length:
 # share in it: a `Divider()` and the three-line View menu item that toggles the
 # one global preference. Everything else — the pane, the split, the divider and
 # the ordering — lives in `MarkdownPreviewPane.swift`, `ContentView.swift` and
-# Core. The number tracks
-# the one file that approaches
-# it — measured, never rounded up for room — and is not a licence to grow the
-# others.
+# Core. And 1893 with the shared search-query history, for the **four**
+# lines that are this file's whole share in it: three for Find in Files' close
+# hook, which turns `show(content:)` into a trailing closure recording the
+# model's dispatched query, and one for the ⌘F bar's — the `_search =
+# StateObject(...)` statement in `init()`, where the state now needs the
+# `settings` instance and so can no longer be initialized inline on its
+# declaration. Every decision, including what a blank pattern does, lives in
+# `SearchQueryHistory`. The measured value moved 1889 → 1893 while the ceiling
+# moved 1890 → 1893: the Markdown preview's number was one line above what it
+# measured, which is the slack this change spent rather than a fourth line it
+# did not cost. The number tracks the one file that approaches it — measured,
+# never rounded up for room — and is not a licence to grow the others.
 file_length:
-  warning: 1890
-  error: 1890
+  warning: 1893
+  error: 1893
   ignore_comment_only_lines: true
 
 # Same reasoning as file_length, and one number behind it again: the viewer's
@@ -162,10 +170,15 @@ file_length:
 # struct body too, so it moves by exactly what `file_length` did once more — and
 # to 1874 with the Markdown preview's four, which land inside the `.commands`
 # builder and therefore inside the struct body like all of them, so it moves by
-# exactly what `file_length` did yet again.
+# exactly what `file_length` did yet again — and to 1877 with the search-query
+# history's four — three in `openProjectSearch()` for the Find in Files close
+# hook and one in `init()` for the ⌘F bar's, all four inside the struct body like
+# every line before them, so it moves by exactly what `file_length` did one more
+# time (from a measured 1873, the previous 1874 having carried the same one line
+# of slack).
 type_body_length:
-  warning: 1874
-  error: 1874
+  warning: 1877
+  error: 1877
 
 function_body_length:
   warning: 140

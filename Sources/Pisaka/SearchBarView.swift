@@ -1,6 +1,7 @@
 #if os(macOS)
 import SwiftUI
 import AppKit
+import PisakaCore
 
 /// The JetBrains-style find/replace bar shown directly above the editor.
 ///
@@ -17,6 +18,12 @@ import AppKit
 /// on `EditorSearchController` for that decision and its known headroom.
 struct SearchBarView: View {
     @ObservedObject var search: EditorSearchState
+
+    /// Shared preferences, held only for the query history the clock menu lists
+    /// and clears. The bar never *records* through this: recording is the state's
+    /// injected hook, wired once in `PisakaApp`, so the committing gestures stay
+    /// the state's own business.
+    @ObservedObject var settings: SettingsStore
 
     /// Focus for the query field, driven by `EditorSearchState.focusRequest` so a
     /// repeated ⌘F while the bar is already open re-focuses it (and selects its
@@ -93,6 +100,13 @@ struct SearchBarView: View {
                 // Enter steps to the next match, matching every other editor's
                 // find bar; the bar stays open and focused.
                 .onSubmit { search.findNext() }
+
+            SearchHistoryMenu(
+                entries: settings.searchQueryHistory.entries,
+                metrics: metrics,
+                onPick: pick,
+                onClear: { settings.clearSearchQueryHistory() }
+            )
 
             toggle("Aa", isOn: $search.caseSensitive, help: "Match case")
             toggle("ab", isOn: $search.wholeWord, help: "Words")
@@ -193,6 +207,26 @@ struct SearchBarView: View {
         guard search.matchCount > 0 else { return "No results" }
         guard let index = search.currentIndex else { return "\(search.matchCount)" }
         return "\(index + 1)/\(search.matchCount)"
+    }
+
+    // MARK: - Picking from the history
+
+    /// Put a remembered query back into the bar.
+    ///
+    /// The re-run is implicit: `pattern` and the three flags are `@Published` on
+    /// the state, so writing them invalidates `CodeEditorView` and reaches the
+    /// controller exactly as typing does.
+    ///
+    /// Focus is taken through this view's own `@FocusState` rather than through
+    /// `EditorSearchState.open()`, whose focus request also *selects* the field's
+    /// contents — right for ⌘F, wrong right after a pick, where the next
+    /// keystroke would wipe what was just chosen.
+    private func pick(_ query: SearchQuery) {
+        search.pattern = query.pattern
+        search.isRegex = query.isRegex
+        search.caseSensitive = query.caseSensitive
+        search.wholeWord = query.wholeWord
+        isQueryFocused = true
     }
 
     // MARK: - Focus

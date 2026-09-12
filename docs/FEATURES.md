@@ -314,8 +314,10 @@ user sees it.
   search, so Cmd+G and Cmd+Shift+G do nothing until you reopen the bar. The bar's
   pattern and toggles survive switching tabs. All five commands also live in a
   Find menu (Find…, Replace…, Find Next, Find Previous, Find in Files…), where
-  the first four need an open file. There is no query history and no "replace in
-  selection" yet, and the bar is macOS-only.
+  the first four need an open file. The recent-searches menu has no shortcut of
+  its own and its rows carry no key equivalents, so the list is reachable by
+  pointer only, and single entries cannot be deleted (only the whole list). There
+  is no "replace in selection" yet, and the bar is macOS-only.
 - Find in Files (macOS): Cmd+Shift+F (or Find > Find in Files…, which needs an
   open folder since the search *is* a walk of the project) opens a separate,
   non-modal project-wide
@@ -345,6 +347,35 @@ user sees it.
   new project: whatever was already written stands, the report says the folder
   changed, and the rest is left untouched. Afterwards the summary is shown and the
   search re-runs.
+- Recent searches (macOS): a clock button sits beside the query field in **both**
+  the find bar and the Find in Files window and drops down the queries you have
+  searched for, newest first. The list is **one list shared by the two**: a query
+  typed in the find bar is offered in Find in Files straight away, and the other
+  way round, with no relaunch in between. Each row shows the pattern (long ones
+  cut in the middle) followed by the toggles that were on — `Aa`, `ab`, `.*` —
+  because the toggles travel *with* the text: picking a row restores the pattern
+  and all three, and focuses the field without selecting it, so the query you get
+  back is the query you ran and your next keystroke extends it instead of wiping
+  it. A row remembers the pattern and those three toggles and nothing else — in
+  Find in Files the **file mask** is not part of it, so picking a row repeats the
+  query and leaves whatever mask is in the field. The search then re-runs exactly as if you had typed it (immediately in the
+  find bar, after the usual short delay in Find in Files). A query is remembered
+  when you actually **use** it: pressing Enter or ▲/▼, replacing, replacing all,
+  clicking a result in Find in Files — and also when you close the bar or the
+  window, so typing and reading the highlights without ever pressing Enter still
+  leaves the query in the list. Half-typed prefixes do not pile up: type `f`,
+  `fo`, `foo` and close the bar and only `foo` is kept. An empty or
+  whitespace-only field is never recorded, searching for something already in the
+  list moves it back to the top (with whatever toggles you used this time), and
+  the list holds the last 20, the oldest falling off. It survives quitting the
+  app and it is **not per project**: the queries you typed in the folder you had
+  open before are still offered after you switch, and only **Clear History** — at
+  the bottom of the menu, emptying it for both surfaces at once — removes them.
+  While the list is empty the button is greyed out. Two edges worth knowing:
+  Cmd+G and Cmd+Shift+G record nothing while the bar is closed, since they do
+  nothing then either; and quitting with the find bar still open does not record
+  its query (quitting with the Find in Files window open does record the query it
+  had searched for).
 - Go to Definition: Cmd+click an identifier — put the caret in it and press
   Ctrl+Cmd+J (Find > Go to Definition), or right-click it and choose Go to
   Definition, which acts on the word under the *click* rather than under the caret
@@ -1522,9 +1553,11 @@ and iPhone. The feature scope landed so far:
   you click back into the window; the relative timestamps on the rows keep up on
   their own, to the minute.
 - Find/replace (per-file and project-wide) is macOS-only: iOS has neither the
-  search bar nor the Find in Files window. There is no query history, no "replace
+  search bar nor the Find in Files window, and so no query history either. There
+  is no "replace
   in selection", and the project search reads tree `.gitignore` files only (not
-  `core.excludesFile` or `.git/info/exclude`).
+  `core.excludesFile` or `.git/info/exclude`). The recent-searches list cannot be
+  filtered, pruned entry by entry, or scoped to one project.
 - The project tree supports create, rename, and delete (via a row context menu)
   and, on macOS, a move by drag and drop. That drag is intra-tree only — its
   payload carries a private type identifier, so nothing can be dragged to or from

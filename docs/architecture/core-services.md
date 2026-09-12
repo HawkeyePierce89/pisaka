@@ -349,7 +349,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     zone leaves the other two untouched), and — by counting `objectWillChange` —
     that a step or reset which cannot move the zone publishes nothing while one
     that can still does.
-    The macOS Markdown preview adds the **last two persisted values**, and
+    The macOS Markdown preview adds two more persisted values, and
     neither introduces a discipline of its own (`core-markdown-preview.md`).
     `markdownPreviewEnabled` (`Keys.markdownPreviewEnabled =
     "settings.markdownPreviewEnabled"`) is the editor's third `Bool` flag and the
@@ -385,6 +385,56 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     the round trip across a rebuilt store, wrong-typed stored values for both,
     the fraction clamped on write and on load at both bounds, a non-finite stored
     fraction, and the two key strings.
+    The shared search query history adds the **last persisted value**, and it is
+    the first that is neither a number, a flag nor an enum: `searchQueryHistory`
+    (`Keys.searchQueryHistory = "settings.searchQueryHistory"`, stable like the
+    rest), a whole `SearchQueryHistory` (`core-search.md`). It is **one** history
+    for both macOS search surfaces — the find bar and the Find in Files window —
+    because the engine behind them is one and so is the question "what did I
+    search for"; a query typed in either is offered back in the other without a
+    relaunch, which is the point of storing it here rather than in either
+    surface's own state (neither of which survives a quit, and one of which does
+    not survive a tab switch). It is also **not per project**: this store is one
+    `UserDefaults` domain for the whole app, so — deliberately unlike
+    `EditorSession`'s per-project catalog and unlike the fold memory, which a
+    folder switch clears — the queries offered are the last twenty from
+    *whatever* project they were typed in, and nothing empties them on a switch
+    but *Clear History*. One engine, one question, one list, read the same way
+    across a folder switch as across a relaunch.
+    The stored value is **opaque JSON `Data`**, read in `init` through
+    `data(forKey:)` into `SearchQueryHistory(persistedData:)` — the same
+    `object(forKey:)`-with-a-cast discipline as every other preference here, so a
+    wrong-typed stored value falls back instead of coercing — and written back
+    through `didSet`, which writes `persistedData` or **removes the key** when it
+    is `nil` (the empty history), so "nothing recorded" has one spelling on disk.
+    Its failure mode is **whole-value**: anything short of a fully readable array
+    reads as an empty history, never a partial one, which is the deliberate
+    opposite of `lspServerConsent` above and is argued where the rule lives.
+    Two writers, both `public`, with the property `private(set)` for
+    `lspServerConsent`'s reason — a value bound straight into a view would let a
+    surface record without going through the one rule that decides what a
+    recording *means*. `recordSearchQuery(_:)` builds the next value and
+    `guard next != searchQueryHistory else { return }` before assigning, citing
+    `setConsent(_:for:)` verbatim and for a sharper reason than the consent map
+    had: this store is observed by `ContentView`, so a no-op publish re-evaluates
+    the project tree, the tab list and the editor — and the find bar records on
+    **every** Find Next, which is a keystroke that repeats as fast as ⌘G is held,
+    while both surfaces also record a dismissal that usually repeats the query
+    already at the front. An equality guard suffices because nothing invalid can
+    be held: `record(_:)` refuses blanks, dedupes and truncates, so every value
+    this property ever takes is one the type could have produced.
+    `clearSearchQueryHistory()` is the *Clear History* menu item's writer,
+    guarded on `isEmpty` for the same reason. `SettingsStoreTests` covers the
+    empty default on a fresh store, the round trip across a rebuilt store
+    (including at the cap), that clearing removes the key so a fresh store reads
+    empty, **one table-driven test over the six decode-failure shapes** — key
+    absent, a `String` under the
+    key, `Data` that is not JSON, a JSON object instead of an array, an element
+    missing `pattern`, an element whose `isRegex` is a string — carrying a
+    readable-array control case beside them, which is the load-bearing half: it
+    is what proves the six read empty for their own reason rather than because
+    the read is broken for every value. And, by counting
+    `objectWillChange`, that a redundant `recordSearchQuery` publishes nothing.
   - `EditorSession.swift` — the persisted editor session behind launch-time
     session restore and "Untitled" hot exit (macOS today; the iOS variant is a
     follow-up over this same model). Foundation-only: the value types, the pure

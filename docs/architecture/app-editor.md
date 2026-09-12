@@ -1713,6 +1713,49 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     re-runs on every keystroke and every editor update, and each `@Published` write
     invalidates `ContentView` → `updateNSView` → another refresh, so skipping the
     no-op write is what makes that loop settle after one pass.
+    It is also the ⌘F half of the **shared search query history**
+    (`SearchQueryHistory`, `core-search.md`), and it holds that history the way
+    it holds everything else: not at all. An injected
+    `private let recordQuery: (SearchQuery) -> Void`, defaulted to "do nothing"
+    by `init(recordQuery:)`, is the whole seam — the state knows no
+    `SettingsStore`, persists nothing and cannot answer what the history
+    contains, and the default keeps it constructible on its own (a preview, a
+    test, a second bar) with no store to hand it. There are **five recording
+    sites**: the four committing gestures — `findNext`, `findPrevious`,
+    `replaceCurrent`, `replaceAll`, each recording `currentQuery` immediately
+    before forwarding the command — and `close()`, *after* its `isVisible`
+    guard, so a dismissal records exactly once whichever of the three paths got
+    there (Esc in the bar, Esc in the editor, the close button) rather than
+    once per redundant close; the Find menu only ever *opens* the bar, so it is
+    not a dismissal path at all. All five are guarded on `isVisible` — the four
+    gestures through one private `recordCommittingQuery()`, `close()` through
+    its own guard — because ⌘G / ⌘⇧G stay enabled for any text tab and are
+    inert with the bar closed (the controller clears instead of searching, so
+    there is no match list to step) while `pattern` survives the close: without
+    the guard a keystroke with no visible effect would promote the last query
+    back to the front of the list both menus draw and rewrite the stored value.
+    The two replace gestures are reachable from the open bar alone, so the guard
+    costs them nothing and they take it for one spelling of the rule. None of
+    the five tests the *pattern*: Core's one
+    rule refuses a blank, and the forwarded command is a no-op against an empty
+    field anyway, so the two agree without either consulting the other. **The
+    bar's own dismissal is the only one termination does not reach**: the
+    `willTerminateNotification` observer sweeps the *windows*
+    (`projectSearchWindows.closeAll()`), and nothing calls `close()` on this
+    state, so quitting with the bar open records nothing — accepted, the bar's
+    query being one keystroke from being re-typed, unlike the window's
+    dispatched one. The
+    **one** wiring site is `PisakaApp.init()`, where the `StateObject` is built
+    with `{ [weak settings] in settings?.recordSearchQuery($0) }` over the
+    `SettingsStore` instance already local there — captured weakly like the
+    neighbouring closures, since the bar is window-scoped and nothing here
+    should pin the store if a scene goes away first.
+    The five sites are **not** untested glue: which gesture records, that it
+    records `currentQuery` whole, that a dismissal records once however many
+    close paths overlap, and that a navigation command inert with the bar closed
+    records nothing are all sequencing rules `swift test` cannot compile, so they
+    are asserted headlessly in `EditorSearchStateTests` (app bundle) against a
+    stub `EditorSearchActions` and a recording closure.
   - `EditorSearchController.swift` — the execution side of the find bar: it runs
     `TextSearchEngine` against the live buffer, keeps the current match near the
     caret (`currentIndex(forCaretAt:in:)` from the selection — the *current-match*
@@ -1827,6 +1870,19 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     block is not ordered after SwiftUI's focus pass, so the responder it finds may
     still be the code editor's `NSTextView`, where `selectAll` would select the
     whole document.)
+    It also draws the history menu: `@ObservedObject var settings: SettingsStore`
+    feeds a `SearchHistoryMenu` placed in `findRow` immediately **after** the
+    query field and **before** the three toggles, so the clock sits where the
+    same menu sits in Find in Files and the two rows read alike. `onClear` is
+    `settings.clearSearchQueryHistory()`; `onPick` writes `pattern` and the
+    three flags into the state and sets this view's own `isQueryFocused` —
+    deliberately **not** `EditorSearchState.open()`, whose focus request also
+    *selects* the field's contents, which is right for ⌘F and wrong right after
+    a pick, where the next keystroke would wipe what was just chosen. The re-run
+    is implicit and needs no call: those four properties are `@Published`, so
+    writing them reaches the controller exactly as typing does. Picking is not a
+    committing gesture and records nothing — the Find Next, the Replace or the
+    dismissal that follows records it like any other.
   - `EditorRevealState.swift` — a one-shot "show me *this* range of *this* tab"
     request, produced when a Find in Files result row is activated. Window-scoped
     and owned by `PisakaApp` for the same reason as `EditorSearchState`: activating
@@ -1879,6 +1935,29 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     truncation signal, so afterwards a partial batch reads as complete). It then
     shows the summary and re-searches
     automatically (`results` describes pre-replacement text by construction).
+    It is the Find in Files half of the **shared search query history**, and it
+    needs no seam for it: `settings` is already an `@ObservedObject` here, so the
+    view records and reads directly. Both activation paths — a result row's
+    button and `activateFirstResult()`'s *success* branch, never the branch that
+    dispatches the pending search instead — funnel through one private
+    `activate(url:range:)` that records before calling `onActivate`, and
+    `confirmReplaceAll()` records once the alert is accepted. All three record
+    **`model.query`, not the controls' `currentQuery`**: the rows being opened
+    (or rewritten) were produced by the *dispatched* query, and inside the
+    debounce window the two disagree — so recording the controls would remember
+    a search that never ran and, at the cap, push out the one that did. It is
+    also the value the window's close hook can reach, which is what makes both
+    of this feature's Find in Files recordings the same value. The **file mask
+    is deliberately outside** what is recorded: an entry is a `SearchQuery`,
+    which carries the pattern and the three toggles and nothing else, so a
+    picked row repeats the query and leaves whatever mask is in the field —
+    remembering a mask would mean a second stored shape and a row that silently
+    narrows the next search to a directory the reader cannot see in it. The menu is the
+    same `SearchHistoryMenu` in the same position (after the query field, before
+    the toggles); its `onPick` writes the four `@State` values and takes focus,
+    leaving the existing `onChange` handlers to schedule the ordinary debounced
+    search — a pick costs exactly what typing the same thing would — and records
+    nothing, picking being no committing gesture.
   - `ProjectSearchWindowController.swift` — owns the single, non-modal Find in
     Files window: the `DiffWindowController` shape (a retained `EscClosableWindow`
     hosting a SwiftUI root through an `NSHostingController`, released on close by a
@@ -1891,3 +1970,45 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     window left open across a folder switch picks the new root up on the next ⌘⇧F.
     `closeAll()` is wired into the app's `willTerminateNotification` observer
     alongside the diff/merge controllers.
+    `show(content:onWillClose:)` carries the search history's dismissal hook: a
+    stored `onWillClose` with **no default** (the one caller wires it, and a
+    window shown without one would drop the dismissal recording silently),
+    replaced on every call for the same reason and from the
+    same source as `rootView`, invoked by the window delegate's `windowWillClose`
+    before `release()` **and** invoked explicitly by `closeAll()` before it drops
+    the delegate — so a query left in an open window is recorded when the app
+    quits exactly as when the user closes the window. The controller **records
+    nothing itself**: it owns no model and no query, so it cannot know what was
+    searched for; it only guarantees that every close path fires the hook once.
+    The hook's one wiring site is `PisakaApp.openProjectSearch()`, which records
+    `projectSearch.query` — the model's dispatched query, since the controls are
+    in the view and are gone by then — with both collaborators captured weakly,
+    the closure outliving the window it is handed to. A window closed before
+    anything was searched carries an empty pattern, which Core's one rule
+    refuses, so "only while a search has been dispatched" needs no second test
+    here. The sequence itself is asserted in `ProjectSearchWindowControllerTests`
+    (app bundle, since it is `NSWindow` teardown): the delegate path fires once,
+    the sweep fires once and only while a window is open, a sweep after a user
+    close fires nothing, a second `show(...)` replaces the hook, and a reopened
+    window records again.
+  - `SearchHistoryMenu.swift` (macOS) — the clock menu beside a query field: the
+    **one** view both search surfaces render, so the history reads identically in
+    each. `entries: [SearchQuery]`, `metrics: InterfaceMetrics`, `onPick`,
+    `onClear`. A `Menu` labelled with `clock.arrow.circlepath` at
+    `metrics.scaledFont(.body)`, `.menuStyle(.borderlessButton)` with the
+    indicator hidden and `.fixedSize()` so it sits in the row like the three
+    toggles rather than claiming the row's spare width, `.help("Recent
+    searches")`, and `.disabled(entries.isEmpty)`. Rows are
+    `ForEach(entries, id: \.pattern)` — patterns are unique by the recording
+    rule — drawing `SearchQueryHistory.menuLabel(for:)`, then a `Divider()` and
+    one `Button("Clear History")`. Thin and untested like the rest of
+    `Sources/Pisaka`: every decision it draws is Core's, including the row's
+    text, so the truncation and the flag suffix are computed and asserted there
+    rather than left to a menu item's own eliding. The metrics are **passed in**
+    rather than read from the environment because the Find in Files window is its
+    own SwiftUI root and injects its own. It declares no zoom surface: it is
+    chrome beside the field, not a code surface (`core-zoom.md`). And it carries
+    **no key equivalents at all**, deliberately — a history is a list whose
+    contents change under the user, so a shortcut on row *n* would name a
+    different query tomorrow — which is also why `MenuShortcutUniquenessTests` is
+    untouched by it.

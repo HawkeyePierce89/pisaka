@@ -83,6 +83,21 @@ final class EditorSearchState: ObservableObject {
     /// no-op rather than a crash.
     private weak var actions: EditorSearchActions?
 
+    /// Where a committing gesture's query goes — the injected half of the shared
+    /// search-query history.
+    ///
+    /// The state deliberately does not know `SettingsStore`: it holds no
+    /// preference, persists nothing and cannot answer what the history contains.
+    /// The hook is wired once, in `PisakaApp.init()`, over the same store
+    /// instance every other surface reads, and the default of "do nothing" keeps
+    /// this type constructible on its own (a preview, a test, a second bar) with
+    /// no store to hand it.
+    private let recordQuery: (SearchQuery) -> Void
+
+    init(recordQuery: @escaping (SearchQuery) -> Void = { _ in }) {
+        self.recordQuery = recordQuery
+    }
+
     /// The query the toggles and the pattern field currently describe.
     var currentQuery: SearchQuery {
         SearchQuery(
@@ -114,9 +129,16 @@ final class EditorSearchState: ObservableObject {
     /// `isVisible` on the next view update: the clear must land whether or not a
     /// SwiftUI pass follows (there may be no editor update scheduled), and the
     /// controller's own `isVisible` check keeps the two paths idempotent.
+    ///
+    /// Dismissal is the fifth recording site, and it sits *after* the `isVisible`
+    /// guard so the bar records exactly once whichever of the three paths got
+    /// here — Esc in the bar, Esc in the editor, the close button — rather than
+    /// once per redundant close. The Find menu only ever *opens* the bar, so it
+    /// is not one of them.
     func close() {
         guard isVisible else { return }
         isVisible = false
+        recordQuery(currentQuery)
         actions?.clearHighlight()
     }
 
@@ -134,10 +156,48 @@ final class EditorSearchState: ObservableObject {
 
     // MARK: - Commands (forwarded to the editor)
 
-    func findNext() { actions?.findNext() }
-    func findPrevious() { actions?.findPrevious() }
-    func replaceCurrent() { actions?.replaceCurrent() }
-    func replaceAll() { actions?.replaceAll() }
+    // The four committing gestures, each recording the query it is about to run.
+    // Nothing here tests the *pattern*: `SearchQueryHistory.record(_:)` is the one
+    // rule that refuses a blank, so a gesture fired against an empty field costs
+    // a call and changes nothing. The forwarded command is a no-op in that case
+    // too, so the two agree without either consulting the other.
+
+    /// Record a committing gesture's query — but only while the bar is open.
+    ///
+    /// ⌘G / ⌘⇧G stay enabled for any text tab and are deliberately **inert with
+    /// the bar closed**: `EditorSearchController.refresh()` clears instead of
+    /// searching, leaving no match list to step. A command that visibly does
+    /// nothing must not reorder the list both menus draw (or rewrite the stored
+    /// value), which is exactly what an unguarded record would do — the pattern
+    /// survives `close()`, so the query the user finished with would be promoted
+    /// back to the front by a keystroke that had no other effect.
+    ///
+    /// The two replace gestures are reachable from the open bar alone, so the
+    /// guard costs them nothing and they take it for one spelling of the rule.
+    private func recordCommittingQuery() {
+        guard isVisible else { return }
+        recordQuery(currentQuery)
+    }
+
+    func findNext() {
+        recordCommittingQuery()
+        actions?.findNext()
+    }
+
+    func findPrevious() {
+        recordCommittingQuery()
+        actions?.findPrevious()
+    }
+
+    func replaceCurrent() {
+        recordCommittingQuery()
+        actions?.replaceCurrent()
+    }
+
+    func replaceAll() {
+        recordCommittingQuery()
+        actions?.replaceAll()
+    }
 
     // MARK: - Results (published by the controller)
 

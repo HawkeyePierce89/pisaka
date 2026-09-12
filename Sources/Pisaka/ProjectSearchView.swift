@@ -123,6 +123,13 @@ struct ProjectSearchView: View {
                     .onSubmit { activateFirstResult() }
                     .onChange(of: pattern) { _ in scheduleSearch() }
 
+                SearchHistoryMenu(
+                    entries: settings.searchQueryHistory.entries,
+                    metrics: metrics,
+                    onPick: pick,
+                    onClear: { settings.clearSearchQueryHistory() }
+                )
+
                 toggle("Aa", isOn: $caseSensitive, help: "Match case")
                 toggle("ab", isOn: $wholeWord, help: "Words")
                 toggle(".*", isOn: $isRegex, help: "Regular expression")
@@ -188,6 +195,25 @@ struct ProjectSearchView: View {
         .onChange(of: isRegex) { _ in scheduleSearch() }
     }
 
+    /// Put a remembered query back into the controls.
+    ///
+    /// Picking is **not** a committing gesture and records nothing: it only
+    /// restates a query, and the activation, the Replace All or the window's
+    /// close that follows records it like any other. The search itself is left to
+    /// the existing `onChange` handlers, which schedule the ordinary debounced
+    /// dispatch — a pick costs exactly what typing the same thing would.
+    ///
+    /// Focus is taken here rather than by re-seeding through `onAppear`, and
+    /// without selecting the field: the next keystroke should extend what was
+    /// just chosen, not replace it.
+    private func pick(_ query: SearchQuery) {
+        pattern = query.pattern
+        isRegex = query.isRegex
+        caseSensitive = query.caseSensitive
+        wholeWord = query.wholeWord
+        isQueryFocused = true
+    }
+
     /// One of the three query-mode toggles (`Aa`, `ab`, `.*`), matching the
     /// editor bar's so the two read as the same control.
     private func toggle(_ label: String, isOn: Binding<Bool>, help: String) -> some View {
@@ -247,7 +273,7 @@ struct ProjectSearchView: View {
     /// highlighted. A `Button` so a click activates it and keyboard focus can too.
     private func row(result: FileSearchResult, index: Int) -> some View {
         Button {
-            onActivate(result.fileURL, result.matches[index].range)
+            activate(url: result.fileURL, range: result.matches[index].range)
         } label: {
             // Everything in this row is sized by the *code* zone, deliberately:
             // both `Text`s below read `settings.fontSize`, so the gutter width
@@ -401,7 +427,21 @@ struct ProjectSearchView: View {
             return
         }
         guard let first = model.results.first, let match = first.matches.first else { return }
-        onActivate(first.fileURL, match.range)
+        activate(url: first.fileURL, range: match.range)
+    }
+
+    /// Open one result — the single funnel both activation paths reach, so the
+    /// gesture that *uses* a search is also the one that records it.
+    ///
+    /// The recorded value is `model.query`, not the controls' `currentQuery`: the
+    /// rows being opened were produced by the dispatched query, and in the
+    /// debounce window the two disagree. It is also the value the window's close
+    /// path can reach, so both surfaces of this feature record the same thing.
+    /// Nothing here tests the pattern — `SearchQueryHistory`'s one rule refuses a
+    /// blank.
+    private func activate(url: URL, range: NSRange) {
+        settings.recordSearchQuery(model.query)
+        onActivate(url, range)
     }
 
     // MARK: - Replace All
@@ -444,6 +484,11 @@ struct ProjectSearchView: View {
         alert.addButton(withTitle: "Replace All")
         alert.addButton(withTitle: "Cancel")
         guard alert.runModal() == .alertFirstButtonReturn else { return }
+
+        // A confirmed batch is a committing gesture, recorded like an activation
+        // and for the same reason: `model.query` is the query these rows — and
+        // therefore this replacement — belong to.
+        settings.recordSearchQuery(model.query)
 
         isReplacing = true
         let template = template

@@ -7,7 +7,8 @@ import Foundation
 /// (`completionEnabled`) and whether it tints leading whitespace by
 /// indentation level (`indentLevelHighlightingEnabled`), plus the Markdown
 /// preview's two — whether the pane is shown (`markdownPreviewEnabled`) and
-/// where its divider sits (`markdownPreviewFraction`).
+/// where its divider sits (`markdownPreviewFraction`) — and the one search
+/// query history (`searchQueryHistory`) both macOS search surfaces share.
 /// A plain Foundation-only `ObservableObject` (the `WorkspaceModel`
 /// precedent) so it stays testable and free of any SwiftUI/AppKit dependency —
 /// the Preferences UI and the act of applying each setting are thin view-layer
@@ -117,6 +118,23 @@ public final class SettingsStore: ObservableObject {
         /// across resizes, and a stored point width would overflow a narrower
         /// window and leave a gap in a wider one.
         public static let markdownPreviewFraction = "settings.markdownPreviewFraction"
+
+        /// The recently-searched queries, newest first.
+        ///
+        /// **One** history rather than one per surface: the engine behind the
+        /// find bar and Find in Files is one `TextSearch`, and so is the question
+        /// "what did I search for" — a query typed into either belongs in both
+        /// menus, without a relaunch.
+        ///
+        /// The value is **opaque JSON `Data`**, not an array of plist
+        /// dictionaries, and its failure mode is **whole-value**: anything short
+        /// of a fully readable array reads back as an empty history rather than
+        /// as the entries that happened to survive. That is the deliberate
+        /// opposite of `lspServerConsent` above, and the reason is written on
+        /// `SearchQueryHistory` — a consent map that drops one entry costs one
+        /// server its answer, while a history that drops some entries is a list
+        /// whose absences the user cannot see and therefore cannot trust.
+        public static let searchQueryHistory = "settings.searchQueryHistory"
     }
 
     public static let minFontSize: Double = ZoomScaleRule.editorFont.minimum
@@ -251,6 +269,23 @@ public final class SettingsStore: ObservableObject {
         }
     }
 
+    /// The recently-searched queries, shared by both macOS search surfaces.
+    ///
+    /// `private(set)` so every write goes through `recordSearchQuery(_:)` or
+    /// `clearSearchQueryHistory()` and the one recording rule stays
+    /// `SearchQueryHistory`'s alone. The `didSet` writes the encoded value, or
+    /// **removes** the key when the history is empty — `persistedData` is `nil`
+    /// there on purpose, so "nothing recorded" keeps one spelling on disk.
+    @Published public private(set) var searchQueryHistory: SearchQueryHistory {
+        didSet {
+            if let data = searchQueryHistory.persistedData {
+                defaults.set(data, forKey: Keys.searchQueryHistory)
+            } else {
+                defaults.removeObject(forKey: Keys.searchQueryHistory)
+            }
+        }
+    }
+
     /// What the user has answered about each downloadable language server
     /// (D15), keyed by `LSPDownloadableServer.id`. An id with no entry is
     /// `unasked` — which is why `.unasked` is never *stored*: absence already
@@ -377,6 +412,15 @@ public final class SettingsStore: ObservableObject {
         // every server the user has already answered for.
         let storedConsent = (defaults.dictionary(forKey: Keys.lspServerConsent) ?? [:])
             .compactMapValues { ($0 as? String).flatMap(LSPServerConsent.init(rawValue:)) }
+        // `data(forKey:)` answers `nil` for both an absent key and a value of the
+        // wrong type, which is the same fall back every preference above buys
+        // with `object(forKey:)` plus a cast; `init(persistedData:)` then reads
+        // every remaining failure — bytes that are not JSON, a JSON object where
+        // an array belongs, an element missing or mistyping a key — as an empty
+        // history rather than a partial one.
+        let storedSearchHistory = SearchQueryHistory(
+            persistedData: defaults.data(forKey: Keys.searchQueryHistory)
+        )
 
         // Blank is absent, in both directions: a key holding `""` (an older build,
         // a hand-edited domain) must read back as "not configured" rather than as
@@ -405,6 +449,7 @@ public final class SettingsStore: ObservableObject {
         self.markdownPreviewEnabled = storedPreview
         self.markdownPreviewFraction = storedPreviewFraction
         self.lspServerConsent = storedConsent
+        self.searchQueryHistory = storedSearchHistory
         self.leetCodeFolderPath = storedFolderIsBlank ? nil : storedFolder
         self.leetCodeFolderBookmark = (storedBookmark?.isEmpty ?? true) ? nil : storedBookmark
         self.leetCodeLanguage = storedLanguage
@@ -439,6 +484,33 @@ public final class SettingsStore: ObservableObject {
     public func setConsent(_ consent: LSPServerConsent, for serverID: String) {
         guard self.consent(for: serverID) != consent else { return }
         lspServerConsent[serverID] = consent == .unasked ? nil : consent
+    }
+
+    /// Record a search query. Callers record **unconditionally**: blankness, the
+    /// dedupe and the cap are `SearchQueryHistory.record(_:)`'s alone, so no
+    /// surface restates any of them.
+    ///
+    /// A query that changes nothing writes nothing, for the reason
+    /// `setConsent(_:for:)` states one screen up: assigning into a `@Published`
+    /// property republishes the *whole* store — which `ContentView` observes —
+    /// and re-runs the `didSet` that writes `UserDefaults`. That is not a corner
+    /// case here: the find bar records on **every** Find Next, so holding ⌘G
+    /// through a file would otherwise re-evaluate the project tree, the tab list
+    /// and the editor once per match, and a blank field records on every
+    /// dismissal of a bar nobody typed into.
+    public func recordSearchQuery(_ query: SearchQuery) {
+        var next = searchQueryHistory
+        next.record(query)
+        guard next != searchQueryHistory else { return }
+        searchQueryHistory = next
+    }
+
+    /// Forget every recorded query — the menu's *Clear History* item, from either
+    /// surface. Guarded on emptiness for the reason above; the item stays
+    /// reachable while a history exists and costs nothing once it does not.
+    public func clearSearchQueryHistory() {
+        guard !searchQueryHistory.isEmpty else { return }
+        searchQueryHistory = SearchQueryHistory()
     }
 
     /// Step the font size by `delta` whole steps (positive = larger), clamped to

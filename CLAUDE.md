@@ -119,9 +119,10 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
 - `SaveTransform.swift` — the pure on-save engine: the three transforms, the spared line, the position remap.
 - `SaveTransformController.swift` (app, macOS) — the one save funnel; through the editor when it holds the buffer; also the two non-save buffer rewrites (restore, rename).
 
-`docs/architecture/core-search.md` — Find in Files:
+`docs/architecture/core-search.md` — Find in Files & the search query history:
 - `GitignoreMatcher.swift` — gitignore(5) matching; oracle-tested against `git check-ignore`.
 - `ProjectSearchModel.swift` — project search / Replace All: streaming, caps, staleness re-checks, two generation tokens.
+- `SearchQueryHistory.swift` — the one recently-searched list both macOS search surfaces share: the recording rule, the cap, the whole-value encoding, the menu row's text.
 
 `docs/architecture/core-intelligence.md` — code intelligence (index, definition, completion):
 - `Symbol.swift` — `SymbolKind` + `Symbol` value types.
@@ -426,6 +427,7 @@ headlessly in `Tests/PisakaAppTests`.
 - `LSPGoToolchainService.swift` — the Go seams: discovery, `go install` with `GOBIN` staged.
 - `LSPRustToolchainService.swift` — the Rust seam: `cargo`/`rust-analyzer` discovery, `--version`-probed.
 - `ProjectSearchView.swift` / `ProjectSearchWindowController.swift` — Find in Files window (single window).
+- `SearchHistoryMenu.swift` — the clock menu both search surfaces render over the shared history.
 
 `docs/architecture/app-editor-overlays.md` — editor overlays (macOS):
 - `BracketOverlayLayoutManager.swift` — temporary-attribute overlay merge; both halves of fold hiding (`.null` glyphs + `FoldingTypesetter`) + the `…` placeholder.
@@ -859,7 +861,10 @@ on three of WebKit's own answers that no Core test can reach),
 bundled mermaid*: a heading whose slug names a diagram id survives that
 diagram's render — mermaid deletes whatever element already carries the id it is
 handed, so the two id families must stay in disjoint alphabets)
-and `EditorCommandTargetTests` (`core-markdown-preview.md`). It exists because the folding launch-time trap
+and `EditorCommandTargetTests` (`core-markdown-preview.md`), plus the search
+history's two app-side sequencing suites — `EditorSearchStateTests` (the ⌘F
+bar's five recording sites) and `ProjectSearchWindowControllerTests` (the Find
+in Files close hook, `app-editor.md`). It exists because the folding launch-time trap
 (`FoldingTypesetter.init()` re-entered through Objective-C) passed **every gate
 the pipeline had** — the Core suites *and* the smoke launch, measured to survive
 the pre-fix build — so it is the only net for that class (`core-folding.md`).

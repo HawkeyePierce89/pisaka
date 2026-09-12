@@ -853,4 +853,129 @@ final class SettingsStoreTests: XCTestCase {
         XCTAssertEqual(SettingsStore.Keys.markdownPreviewEnabled, "settings.markdownPreviewEnabled")
         XCTAssertEqual(SettingsStore.Keys.markdownPreviewFraction, "settings.markdownPreviewFraction")
     }
+
+    // MARK: - Search query history
+
+    func testFreshStoreHasAnEmptySearchQueryHistory() {
+        let store = SettingsStore(defaults: makeDefaults())
+        XCTAssertTrue(store.searchQueryHistory.isEmpty)
+        XCTAssertEqual(store.searchQueryHistory.entries, [])
+    }
+
+    /// The round trip: what one store records, the next store over the same
+    /// domain reads back — same entries, same newest-first order.
+    func testRecordedQueriesSurviveANewStoreOverTheSameSuite() {
+        let defaults = makeDefaults()
+        let store = SettingsStore(defaults: defaults)
+
+        store.recordSearchQuery(SearchQuery(pattern: "alpha"))
+        store.recordSearchQuery(
+            SearchQuery(pattern: "beta", isRegex: true, caseSensitive: true, wholeWord: true)
+        )
+
+        let reloaded = SettingsStore(defaults: defaults)
+        XCTAssertEqual(
+            reloaded.searchQueryHistory.entries,
+            [
+                SearchQuery(pattern: "beta", isRegex: true, caseSensitive: true, wholeWord: true),
+                SearchQuery(pattern: "alpha"),
+            ]
+        )
+    }
+
+    func testTheCapSurvivesTheRoundTrip() {
+        let defaults = makeDefaults()
+        let store = SettingsStore(defaults: defaults)
+
+        for index in 0..<(SearchQueryHistory.capacity + 5) {
+            store.recordSearchQuery(SearchQuery(pattern: "q\(index)"))
+        }
+
+        let reloaded = SettingsStore(defaults: defaults)
+        XCTAssertEqual(reloaded.searchQueryHistory.entries.count, SearchQueryHistory.capacity)
+        XCTAssertEqual(reloaded.searchQueryHistory.entries.first?.pattern, "q24")
+        XCTAssertEqual(reloaded.searchQueryHistory.entries.last?.pattern, "q5")
+    }
+
+    /// Clearing *removes* the key rather than storing an empty array, so
+    /// "nothing recorded" keeps one spelling on disk.
+    func testClearingRemovesTheStoredKey() {
+        let defaults = makeDefaults()
+        let store = SettingsStore(defaults: defaults)
+        store.recordSearchQuery(SearchQuery(pattern: "alpha"))
+        XCTAssertNotNil(defaults.object(forKey: SettingsStore.Keys.searchQueryHistory))
+
+        store.clearSearchQueryHistory()
+        XCTAssertTrue(store.searchQueryHistory.isEmpty)
+        XCTAssertNil(defaults.object(forKey: SettingsStore.Keys.searchQueryHistory))
+        XCTAssertTrue(SettingsStore(defaults: defaults).searchQueryHistory.isEmpty)
+    }
+
+    /// Every failure shape is the *same* answer — an empty history, never a
+    /// partial one. The deliberate opposite of `lspServerConsent`'s per-entry
+    /// read; the reason is on `SearchQueryHistory`.
+    func testEveryUnreadableStoredValueReadsAsAnEmptyHistory() {
+        let entry = #"{"pattern":"alpha","isRegex":false,"caseSensitive":false,"wholeWord":false}"#
+        let cases: [(String, Any?)] = [
+            ("key absent", nil),
+            ("a String under the key", "alpha"),
+            ("Data that is not JSON", Data([0xFF, 0x00, 0xFF])),
+            ("a JSON object instead of an array", Data(#"{"pattern":"alpha"}"#.utf8)),
+            (
+                "an element missing pattern",
+                Data(#"[{"isRegex":false,"caseSensitive":false,"wholeWord":false}]"#.utf8)
+            ),
+            (
+                "an element whose isRegex is a String",
+                Data(#"[{"pattern":"a","isRegex":"yes","caseSensitive":false,"wholeWord":false}]"#.utf8)
+            ),
+            // The control: a fully readable array is the one that does read back,
+            // so the six above are failing for their own reason and not because
+            // nothing can be decoded at all.
+            ("a readable array", Data("[\(entry)]".utf8)),
+        ]
+
+        for (index, testCase) in cases.enumerated() {
+            let (name, stored) = testCase
+            let defaults = makeDefaults("searchQueryHistory\(index)")
+            if let stored {
+                defaults.set(stored, forKey: SettingsStore.Keys.searchQueryHistory)
+            }
+            let history = SettingsStore(defaults: defaults).searchQueryHistory
+            if name == "a readable array" {
+                XCTAssertEqual(history.entries, [SearchQuery(pattern: "alpha")], name)
+            } else {
+                XCTAssertTrue(history.isEmpty, name)
+            }
+        }
+    }
+
+    /// The find bar records on **every** Find Next, so a query equal to the one
+    /// already at the front must not republish the store — `ContentView` observes
+    /// it, and a held ⌘G would otherwise re-evaluate the tree once per match.
+    func testRecordingAQueryThatChangesNothingPublishesNothing() {
+        let store = SettingsStore(defaults: makeDefaults())
+        store.recordSearchQuery(SearchQuery(pattern: "alpha"))
+
+        var notifications = 0
+        let subscription = store.objectWillChange.sink { _ in notifications += 1 }
+        defer { subscription.cancel() }
+
+        for _ in 0..<5 { store.recordSearchQuery(SearchQuery(pattern: "alpha")) }
+        XCTAssertEqual(notifications, 0, "a redundant record republished the store")
+
+        // A blank one is refused by the one rule, so it is a no-op here too.
+        store.recordSearchQuery(SearchQuery(pattern: "   "))
+        XCTAssertEqual(notifications, 0, "a blank record republished the store")
+
+        // And clearing an already-empty history.
+        store.clearSearchQueryHistory()
+        XCTAssertEqual(notifications, 1, "the first clear should publish")
+        store.clearSearchQueryHistory()
+        XCTAssertEqual(notifications, 1, "clearing an empty history republished the store")
+    }
+
+    func testSearchQueryHistoryKeyIsStable() {
+        XCTAssertEqual(SettingsStore.Keys.searchQueryHistory, "settings.searchQueryHistory")
+    }
 }
