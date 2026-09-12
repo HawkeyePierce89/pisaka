@@ -294,24 +294,24 @@ engine, the debounce or either generation-token scheme.
 - Modify: `docs/architecture/core-search.md`, `docs/architecture/core-services.md`,
   `docs/architecture/app-editor.md`, `CLAUDE.md`, `docs/FEATURES.md`
 
-- [ ] `core-search.md`: a full entry for `SearchQueryHistory.swift` — the one
+- [x] `core-search.md`: a full entry for `SearchQueryHistory.swift` — the one
       recording rule, the cap, why an entry is a whole `SearchQuery` rather than
       a string, the explicit-key encoding and why `SearchQuery` stays
       non-`Codable`, the whole-value failure mode and how it differs on purpose
       from the consent map's per-entry one, the read-side replay, and
       `menuLabel`'s two halves.
-- [ ] `core-services.md`: extend the `SettingsStore` entry with the new
+- [x] `core-services.md`: extend the `SettingsStore` entry with the new
       preference — the key, the two writers, the equality guard and its cost
       argument, and that the value is shared by both surfaces.
-- [ ] `app-editor.md`: record the recording sites and the menu for
+- [x] `app-editor.md`: record the recording sites and the menu for
       `EditorSearchState` (the injected hook, the five sites, the one wiring
       site), `SearchBarView`, `ProjectSearchView` (why `model.query` is what is
       recorded) and `ProjectSearchWindowController` (the close hook and why it
       records nothing itself), plus a new entry for `SearchHistoryMenu.swift`.
-- [ ] `CLAUDE.md`: one index line under `core-search.md` for
+- [x] `CLAUDE.md`: one index line under `core-search.md` for
       `SearchQueryHistory.swift` and one under `app-editor.md` for
       `SearchHistoryMenu.swift` — one line each, no essays.
-- [ ] `docs/FEATURES.md`: describe the feature under find/replace (the clock
+- [x] `docs/FEATURES.md`: describe the feature under find/replace (the clock
       menu beside both fields, what a committing gesture is, the cap, that flags
       travel with the text, that the list is shared and survives a relaunch, and
       Clear History); drop "no query history" from the find/replace
@@ -319,7 +319,7 @@ engine, the debounce or either generation-token scheme.
       sentences intact, and from the same phrase in the find-bar feature
       paragraph. The SQL console's own "no query history" sentence is a different
       feature and stays.
-- [ ] Run `swift test` (the documentation-reading suites) and `swiftlint
+- [x] Run `swift test` (the documentation-reading suites) and `swiftlint
       --strict` once more.
 
 ## Post-Completion Verification (manual, Debug build)
