@@ -108,10 +108,10 @@ engine, the debounce or either generation-token scheme.
 - Create: `Sources/PisakaCore/SearchQueryHistory.swift`
 - Create: `Tests/PisakaCoreTests/SearchQueryHistoryTests.swift`
 
-- [ ] Add `public struct SearchQueryHistory: Equatable` with
+- [x] Add `public struct SearchQueryHistory: Equatable` with
       `public static let capacity = 20`, `public private(set) var entries:
       [SearchQuery]` (newest first), `public init()`, `public var isEmpty: Bool`.
-- [ ] Add the one recording rule as `public mutating func record(_ query:
+- [x] Add the one recording rule as `public mutating func record(_ query:
       SearchQuery)`: a pattern that is empty or whitespace-only when trimmed is
       refused outright; an entry whose pattern matches an existing one exactly
       (case-sensitive, untrimmed comparison) is removed and the new value
@@ -120,23 +120,23 @@ engine, the debounce or either generation-token scheme.
       comment, including that "no change" is expressed as an unchanged value
       rather than as a return flag — `Equatable` is what the store's writer
       guards on.
-- [ ] Add `public mutating func clear()`.
-- [ ] Add `public init(entries: [SearchQuery])`, which replays the given
+- [x] Add `public mutating func clear()`.
+- [x] Add `public init(entries: [SearchQuery])`, which replays the given
       newest-first list oldest-first through `record(_:)`, so blanks, duplicates
       and over-long lists cannot enter by this door either.
-- [ ] Add the persistence pair, keeping `SearchQuery` free of any `Codable`
+- [x] Add the persistence pair, keeping `SearchQuery` free of any `Codable`
       conformance: a private nested `Entry: Codable` with explicit `CodingKeys`,
       `public init(persistedData: Data?)` (any failure — absent, not JSON, a JSON
       object rather than an array, an element missing or mistyping a key — reads
       as an empty history, never a partial one) and `public var persistedData:
       Data?` (`nil` while empty, so the store removes the key rather than writing
       an empty array).
-- [ ] Add `public static func menuLabel(for query: SearchQuery,
+- [x] Add `public static func menuLabel(for query: SearchQuery,
       maxPatternLength: Int = 60) -> String`: the pattern middle-truncated with a
       single `…` to at most `maxPatternLength` characters, then a space-separated
       suffix of the flags that are on — `Aa` (case), `ab` (whole word), `.*`
       (regular expression) — in the toggles' own order.
-- [ ] Write `SearchQueryHistoryTests` covering: the empty/whitespace refusal
+- [x] Write `SearchQueryHistoryTests` covering: the empty/whitespace refusal
       (including a tab-and-space pattern); dedupe-and-promote by pattern with the
       newer flags winning; that a differently-cased pattern is a *different*
       entry; the front no-op (recording the front entry with identical flags
@@ -144,7 +144,7 @@ engine, the debounce or either generation-token scheme.
       `init(entries:)` normalizing a dirty list; `menuLabel` for a short pattern,
       a 200-character pattern (exactly `maxPatternLength` characters out, `…`
       present) and each flag combination.
-- [ ] Run `swift test` — must pass before Task 2.
+- [x] Run `swift test` — must pass before Task 2.
 
 ### Task 2: The persisted preference
 
