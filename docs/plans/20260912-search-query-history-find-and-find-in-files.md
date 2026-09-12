@@ -268,21 +268,25 @@ engine, the debounce or either generation-token scheme.
 
 ### Task 6: Verify the gates
 
-- [ ] `swift test` green.
-- [ ] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination
+- [x] `swift test` green.
+- [x] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination
       'platform=macOS' -derivedDataPath
       ~/Library/Developer/Xcode/DerivedData/pisaka-searchhistory test` — the
       app-layer bundle green.
-- [ ] `xcodebuild … -destination 'generic/platform=iOS' build` green (Core builds
+- [x] `xcodebuild … -destination 'generic/platform=iOS' build` green (Core builds
       the new type; no iOS surface uses it).
-- [ ] `swiftlint --strict` clean from the repository root against the committed
+- [x] `swiftlint --strict` clean from the repository root against the committed
       configuration.
-- [ ] If — and only if — `PisakaApp.swift` crosses `file_length` (1890) or
+- [x] If — and only if — `PisakaApp.swift` crosses `file_length` (1890) or
       `type_body_length` (1874), move the crossed ceiling to the *measured* new
       value, extend that rule's existing comment in `.swiftlint.yml` with the one
       sentence naming this change, and update the matching pin in
       `LintConfigurationTests`; re-run `swift test` and the linter. Otherwise
-      leave both untouched.
+      leave both untouched. — Both were crossed and were moved where they arose,
+      with Task 4's wiring: `file_length` 1890 → the measured 1893 and
+      `type_body_length` 1874 → the measured 1877, that rule's comment naming
+      the Find in Files close hook's three lines inside `openProjectSearch()`,
+      and `LintConfigurationTests`' pin updated to the same pair.
 
 ### Task 7: Documentation
 
