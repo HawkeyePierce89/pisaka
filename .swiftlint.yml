@@ -134,13 +134,19 @@ line_length:
 # share in it: a `Divider()` and the three-line View menu item that toggles the
 # one global preference. Everything else — the pane, the split, the divider and
 # the ordering — lives in `MarkdownPreviewPane.swift`, `ContentView.swift` and
-# Core. The number tracks
+# Core. And 1893 with the shared search-query history, for the **three** lines
+# that are the whole of this file's share in Find in Files' half of it: the
+# window's close hook, which turns `show(content:)` into a trailing closure that
+# records the model's dispatched query. The ⌘F half costs this file nothing —
+# its hook is one argument on a line that already existed — and every decision,
+# including what a blank pattern does, lives in `SearchQueryHistory`. The number
+# tracks
 # the one file that approaches
 # it — measured, never rounded up for room — and is not a licence to grow the
 # others.
 file_length:
-  warning: 1890
-  error: 1890
+  warning: 1893
+  error: 1893
   ignore_comment_only_lines: true
 
 # Same reasoning as file_length, and one number behind it again: the viewer's
@@ -162,10 +168,13 @@ file_length:
 # struct body too, so it moves by exactly what `file_length` did once more — and
 # to 1874 with the Markdown preview's four, which land inside the `.commands`
 # builder and therefore inside the struct body like all of them, so it moves by
-# exactly what `file_length` did yet again.
+# exactly what `file_length` did yet again — and to 1877 with the search-query
+# history's three, the Find in Files close hook, which land inside
+# `openProjectSearch()` and therefore inside the struct body as well, so it
+# moves by exactly what `file_length` did one more time.
 type_body_length:
-  warning: 1874
-  error: 1874
+  warning: 1877
+  error: 1877
 
 function_body_length:
   warning: 140

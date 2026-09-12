@@ -212,13 +212,13 @@ engine, the debounce or either generation-token scheme.
 - Modify: `Sources/Pisaka/ProjectSearchView.swift`
 - Modify: `Sources/Pisaka/PisakaApp.swift`
 
-- [ ] Give `ProjectSearchWindowController.show(content:onWillClose:)` a stored
+- [x] Give `ProjectSearchWindowController.show(content:onWillClose:)` a stored
       `onWillClose: () -> Void`, replaced on every call like `rootView` already
       is, invoked from the window delegate's `windowWillClose` before `release()`
       and invoked explicitly by `closeAll()` before it drops the delegate, so the
       termination sweep records too. Document that the controller records nothing
       itself: it owns no model and no query.
-- [ ] In `ProjectSearchView`, funnel both activation paths through one private
+- [x] In `ProjectSearchView`, funnel both activation paths through one private
       `activate(url:range:)` that records `model.query` — the query that actually
       produced the rows — and then calls `onActivate`; use it from the row button
       and from `activateFirstResult()`'s success branch (not from the branch that
@@ -226,12 +226,12 @@ engine, the debounce or either generation-token scheme.
       `confirmReplaceAll()` once the alert is accepted. Document why it is
       `model.query` and not the controls' `currentQuery`: the dispatched query is
       the one the user ran, and it is what the close path can reach.
-- [ ] In `PisakaApp.openProjectSearch()`, pass `onWillClose: { [weak settings,
+- [x] In `PisakaApp.openProjectSearch()`, pass `onWillClose: { [weak settings,
       weak projectSearch] ... }`-shaped wiring that records `projectSearch.query`
       — a window closed before anything was searched carries an empty pattern,
       which Core's rule refuses, so "while a search has been dispatched" needs no
       second test here.
-- [ ] Run `swift test` and the macOS build — both must pass before Task 5.
+- [x] Run `swift test` and the macOS build — both must pass before Task 5.
 
 ### Task 5: The menu in both surfaces
 

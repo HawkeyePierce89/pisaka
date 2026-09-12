@@ -2988,7 +2988,17 @@ struct PisakaApp: App {
                 await replaceAllInProject(template: template, originGeneration: origin)
             }
         )
-        projectSearchWindows.show(content: content)
+        // The **one** site wiring Find in Files' dismissal to the shared
+        // search-query history, the peer of the ⌘F bar's hook in `init()`. The
+        // recorded value is the model's dispatched query — the controls live in
+        // the view and are gone by now, and a window closed before anything was
+        // searched carries an empty pattern, which Core's one rule refuses. Both
+        // collaborators are captured weakly: this closure outlives the window it
+        // is handed to.
+        projectSearchWindows.show(content: content) { [weak settings, weak projectSearch] in
+            guard let settings, let projectSearch else { return }
+            settings.recordSearchQuery(projectSearch.query)
+        }
     }
 
     /// Open the file a search result names and select the match inside it.

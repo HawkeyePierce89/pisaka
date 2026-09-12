@@ -247,7 +247,7 @@ struct ProjectSearchView: View {
     /// highlighted. A `Button` so a click activates it and keyboard focus can too.
     private func row(result: FileSearchResult, index: Int) -> some View {
         Button {
-            onActivate(result.fileURL, result.matches[index].range)
+            activate(url: result.fileURL, range: result.matches[index].range)
         } label: {
             // Everything in this row is sized by the *code* zone, deliberately:
             // both `Text`s below read `settings.fontSize`, so the gutter width
@@ -401,7 +401,21 @@ struct ProjectSearchView: View {
             return
         }
         guard let first = model.results.first, let match = first.matches.first else { return }
-        onActivate(first.fileURL, match.range)
+        activate(url: first.fileURL, range: match.range)
+    }
+
+    /// Open one result — the single funnel both activation paths reach, so the
+    /// gesture that *uses* a search is also the one that records it.
+    ///
+    /// The recorded value is `model.query`, not the controls' `currentQuery`: the
+    /// rows being opened were produced by the dispatched query, and in the
+    /// debounce window the two disagree. It is also the value the window's close
+    /// path can reach, so both surfaces of this feature record the same thing.
+    /// Nothing here tests the pattern — `SearchQueryHistory`'s one rule refuses a
+    /// blank.
+    private func activate(url: URL, range: NSRange) {
+        settings.recordSearchQuery(model.query)
+        onActivate(url, range)
     }
 
     // MARK: - Replace All
@@ -444,6 +458,11 @@ struct ProjectSearchView: View {
         alert.addButton(withTitle: "Replace All")
         alert.addButton(withTitle: "Cancel")
         guard alert.runModal() == .alertFirstButtonReturn else { return }
+
+        // A confirmed batch is a committing gesture, recorded like an activation
+        // and for the same reason: `model.query` is the query these rows — and
+        // therefore this replacement — belong to.
+        settings.recordSearchQuery(model.query)
 
         isReplacing = true
         let template = template
