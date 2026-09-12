@@ -186,23 +186,23 @@ engine, the debounce or either generation-token scheme.
 - Modify: `Sources/Pisaka/EditorSearchState.swift`
 - Modify: `Sources/Pisaka/PisakaApp.swift`
 
-- [ ] Give `EditorSearchState` an injected `private let recordQuery:
+- [x] Give `EditorSearchState` an injected `private let recordQuery:
       (SearchQuery) -> Void` with an `init(recordQuery: @escaping (SearchQuery)
       -> Void = { _ in })`, documenting that the state deliberately does not know
       `SettingsStore` — the hook is wired once, in the app, and a default of "do
       nothing" keeps the type constructible on its own.
-- [ ] Call `recordQuery(currentQuery)` at the committing gestures — `findNext`,
+- [x] Call `recordQuery(currentQuery)` at the committing gestures — `findNext`,
       `findPrevious`, `replaceCurrent`, `replaceAll` — and in `close()` after its
       `isVisible` guard, so the bar's dismissal records exactly once whichever
       path (Esc in the bar, Esc in the editor, the close button, the menu) got
       there. Note in the comment that nothing here tests the pattern: Core's one
       rule refuses a blank.
-- [ ] In `PisakaApp.init()`, build the state with the hook over the local
+- [x] In `PisakaApp.init()`, build the state with the hook over the local
       `settings` instance, captured weakly like the neighbouring closures:
       `_search = StateObject(wrappedValue: EditorSearchState(recordQuery:
       { [weak settings] in settings?.recordSearchQuery($0) }))`, with a comment
       naming this as the one wiring site.
-- [ ] Run `swift test`, then `xcodegen generate` and the macOS build into the
+- [x] Run `swift test`, then `xcodegen generate` and the macOS build into the
       out-of-repo derived-data path — both must pass before Task 4.
 
 ### Task 4: Recording from Find in Files

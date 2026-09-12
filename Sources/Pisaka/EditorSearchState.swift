@@ -83,6 +83,21 @@ final class EditorSearchState: ObservableObject {
     /// no-op rather than a crash.
     private weak var actions: EditorSearchActions?
 
+    /// Where a committing gesture's query goes — the injected half of the shared
+    /// search-query history.
+    ///
+    /// The state deliberately does not know `SettingsStore`: it holds no
+    /// preference, persists nothing and cannot answer what the history contains.
+    /// The hook is wired once, in `PisakaApp.init()`, over the same store
+    /// instance every other surface reads, and the default of "do nothing" keeps
+    /// this type constructible on its own (a preview, a test, a second bar) with
+    /// no store to hand it.
+    private let recordQuery: (SearchQuery) -> Void
+
+    init(recordQuery: @escaping (SearchQuery) -> Void = { _ in }) {
+        self.recordQuery = recordQuery
+    }
+
     /// The query the toggles and the pattern field currently describe.
     var currentQuery: SearchQuery {
         SearchQuery(
@@ -114,9 +129,15 @@ final class EditorSearchState: ObservableObject {
     /// `isVisible` on the next view update: the clear must land whether or not a
     /// SwiftUI pass follows (there may be no editor update scheduled), and the
     /// controller's own `isVisible` check keeps the two paths idempotent.
+    ///
+    /// Dismissal is the fifth recording site, and it sits *after* the `isVisible`
+    /// guard so the bar records exactly once whichever path got here — Esc in the
+    /// bar, Esc in the editor, the close button or the Find menu — rather than
+    /// once per redundant close.
     func close() {
         guard isVisible else { return }
         isVisible = false
+        recordQuery(currentQuery)
         actions?.clearHighlight()
     }
 
@@ -134,10 +155,31 @@ final class EditorSearchState: ObservableObject {
 
     // MARK: - Commands (forwarded to the editor)
 
-    func findNext() { actions?.findNext() }
-    func findPrevious() { actions?.findPrevious() }
-    func replaceCurrent() { actions?.replaceCurrent() }
-    func replaceAll() { actions?.replaceAll() }
+    // The four committing gestures, each recording the query it is about to run.
+    // Nothing here tests the pattern: `SearchQueryHistory.record(_:)` is the one
+    // rule that refuses a blank, so a gesture fired against an empty field costs
+    // a call and changes nothing. The forwarded command is a no-op in that case
+    // too, so the two agree without either consulting the other.
+
+    func findNext() {
+        recordQuery(currentQuery)
+        actions?.findNext()
+    }
+
+    func findPrevious() {
+        recordQuery(currentQuery)
+        actions?.findPrevious()
+    }
+
+    func replaceCurrent() {
+        recordQuery(currentQuery)
+        actions?.replaceCurrent()
+    }
+
+    func replaceAll() {
+        recordQuery(currentQuery)
+        actions?.replaceAll()
+    }
 
     // MARK: - Results (published by the controller)
 

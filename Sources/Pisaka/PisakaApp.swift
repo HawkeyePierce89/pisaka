@@ -102,7 +102,11 @@ struct PisakaApp: App {
     /// toggles survive a tab switch, while `CodeEditorView`'s coordinator is
     /// rebuilt with the view. The Find menu below drives this state; the editor's
     /// `EditorSearchController` registers itself as its executor on attach.
-    @StateObject private var search = EditorSearchState()
+    ///
+    /// Built in `init()` rather than inline because it carries the search-query
+    /// history's recording hook, which needs the `settings` instance this scene
+    /// composes there.
+    @StateObject private var search: EditorSearchState
 
     /// Pending "select this range" request for the editor, produced when a Find in
     /// Files result is activated. Window-scoped for the same reason as `search`:
@@ -459,6 +463,13 @@ struct PisakaApp: App {
         // Core's and is unit-tested without a network or a `tar`.
         let settings = SettingsStore()
         _settings = StateObject(wrappedValue: settings)
+        // The **one** site wiring the ⌘F bar to the shared search-query history.
+        // `EditorSearchState` knows nothing of `SettingsStore`; it calls this hook
+        // at its five recording sites and Core's single rule decides what is kept.
+        // Captured weakly like the neighbouring closures: the store outlives the
+        // state in practice, but the bar is window-scoped and nothing here should
+        // pin the store if a scene ever goes away first.
+        _search = StateObject(wrappedValue: EditorSearchState(recordQuery: { [weak settings] in settings?.recordSearchQuery($0) }))
         // The zoom controller over that very store. Constructing it installs
         // nothing — the event monitor goes up in `.onAppear` and comes down in the
         // termination observer, beside the other app-lifecycle wiring.
