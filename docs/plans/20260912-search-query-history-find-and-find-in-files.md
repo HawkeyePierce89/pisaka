@@ -152,24 +152,24 @@ engine, the debounce or either generation-token scheme.
 - Modify: `Sources/PisakaCore/SettingsStore.swift`
 - Modify: `Tests/PisakaCoreTests/SettingsStoreTests.swift`
 
-- [ ] Add `Keys.searchQueryHistory = "settings.searchQueryHistory"` with a doc
+- [x] Add `Keys.searchQueryHistory = "settings.searchQueryHistory"` with a doc
       comment recording that it is **one** history shared by both surfaces (the
       engine is one, and so is the question "what did I search for"), and that
       the value is opaque JSON whose failure mode is whole-value.
-- [ ] Add `@Published public private(set) var searchQueryHistory:
+- [x] Add `@Published public private(set) var searchQueryHistory:
       SearchQueryHistory`, whose `didSet` writes `persistedData` or removes the
       key when it is `nil`.
-- [ ] Read it in `init(defaults:)` through `data(forKey:)` into
+- [x] Read it in `init(defaults:)` through `data(forKey:)` into
       `SearchQueryHistory(persistedData:)`, so a wrong-typed stored value falls
       back like every other preference here.
-- [ ] Add the two writers: `public func recordSearchQuery(_ query: SearchQuery)`
+- [x] Add the two writers: `public func recordSearchQuery(_ query: SearchQuery)`
       — build the next value, and `guard next != searchQueryHistory else
       { return }` before assigning, citing `setConsent(_:for:)`'s reason (this
       store is observed by `ContentView`; a no-op publish re-evaluates the tree,
       the tab list and the editor, and the ⌘F bar records on *every* Find Next)
       — and `public func clearSearchQueryHistory()`, guarded on `isEmpty`.
-- [ ] Update the type-level doc comment's list of what this store holds.
-- [ ] Extend `SettingsStoreTests`: a fresh store reads an empty history; record
+- [x] Update the type-level doc comment's list of what this store holds.
+- [x] Extend `SettingsStoreTests`: a fresh store reads an empty history; record
       → new store over the same suite sees the same entries in the same order
       (the round trip); the cap survives the round trip; `clearSearchQueryHistory`
       removes the key so a fresh store is empty; and one test per decode-failure
@@ -178,7 +178,7 @@ engine, the debounce or either generation-token scheme.
       `pattern`, an array element whose `isRegex` is a string — each reading as
       empty. Add a publish test (Combine, as the file already imports it) that a
       redundant `recordSearchQuery` emits nothing.
-- [ ] Run `swift test` — must pass before Task 3.
+- [x] Run `swift test` — must pass before Task 3.
 
 ### Task 3: Recording from the ⌘F bar
 
