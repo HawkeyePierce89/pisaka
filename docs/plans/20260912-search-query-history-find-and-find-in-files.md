@@ -241,7 +241,7 @@ engine, the debounce or either generation-token scheme.
 - Modify: `Sources/Pisaka/ProjectSearchView.swift`
 - Modify: `Sources/Pisaka/ContentView.swift`
 
-- [ ] Add `SearchHistoryMenu` (macOS-gated, thin): `entries: [SearchQuery]`,
+- [x] Add `SearchHistoryMenu` (macOS-gated, thin): `entries: [SearchQuery]`,
       `metrics: InterfaceMetrics`, `onPick`, `onClear`. A `Menu` labelled with
       `Image(systemName: "clock.arrow.circlepath")` at `metrics.scaledFont(.body)`,
       borderless with the indicator hidden and `.fixedSize()` so it sits in the
@@ -251,20 +251,20 @@ engine, the debounce or either generation-token scheme.
       `SearchQueryHistory.menuLabel(for:)`, then a `Divider()` and one
       `Button("Clear History")`. No key equivalents at all, so
       `MenuShortcutUniquenessTests` is untouched.
-- [ ] In `SearchBarView`, add `@ObservedObject var settings: SettingsStore`,
+- [x] In `SearchBarView`, add `@ObservedObject var settings: SettingsStore`,
       place the menu in `findRow` immediately after the query field and before
       the three toggles, and wire `onPick` to write `pattern`, `isRegex`,
       `caseSensitive`, `wholeWord` into the state and set `isQueryFocused = true`
       — the re-run follows from the published pattern change, exactly as typing
       does. Wire `onClear` to `settings.clearSearchQueryHistory()`. Update the
       one call site in `ContentView.swift` to pass `settings`.
-- [ ] In `ProjectSearchView`, place the same menu in the same position (after the
+- [x] In `ProjectSearchView`, place the same menu in the same position (after the
       query field, before the toggles), reading `settings.searchQueryHistory`;
       `onPick` writes the four `@State` values and sets `isQueryFocused = true`,
       leaving the existing `onChange` handlers to schedule the ordinary debounced
       search; `onClear` calls `settings.clearSearchQueryHistory()`. Note in the
       comment that picking is not a committing gesture and records nothing.
-- [ ] Run `swift test` and the macOS build — both must pass before Task 6.
+- [x] Run `swift test` and the macOS build — both must pass before Task 6.
 
 ### Task 6: Verify the gates
 

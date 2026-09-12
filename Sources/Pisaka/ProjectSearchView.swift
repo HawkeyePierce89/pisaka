@@ -123,6 +123,13 @@ struct ProjectSearchView: View {
                     .onSubmit { activateFirstResult() }
                     .onChange(of: pattern) { _ in scheduleSearch() }
 
+                SearchHistoryMenu(
+                    entries: settings.searchQueryHistory.entries,
+                    metrics: metrics,
+                    onPick: pick,
+                    onClear: { settings.clearSearchQueryHistory() }
+                )
+
                 toggle("Aa", isOn: $caseSensitive, help: "Match case")
                 toggle("ab", isOn: $wholeWord, help: "Words")
                 toggle(".*", isOn: $isRegex, help: "Regular expression")
@@ -186,6 +193,25 @@ struct ProjectSearchView: View {
         .onChange(of: caseSensitive) { _ in scheduleSearch() }
         .onChange(of: wholeWord) { _ in scheduleSearch() }
         .onChange(of: isRegex) { _ in scheduleSearch() }
+    }
+
+    /// Put a remembered query back into the controls.
+    ///
+    /// Picking is **not** a committing gesture and records nothing: it only
+    /// restates a query, and the activation, the Replace All or the window's
+    /// close that follows records it like any other. The search itself is left to
+    /// the existing `onChange` handlers, which schedule the ordinary debounced
+    /// dispatch — a pick costs exactly what typing the same thing would.
+    ///
+    /// Focus is taken here rather than by re-seeding through `onAppear`, and
+    /// without selecting the field: the next keystroke should extend what was
+    /// just chosen, not replace it.
+    private func pick(_ query: SearchQuery) {
+        pattern = query.pattern
+        isRegex = query.isRegex
+        caseSensitive = query.caseSensitive
+        wholeWord = query.wholeWord
+        isQueryFocused = true
     }
 
     /// One of the three query-mode toggles (`Aa`, `ab`, `.*`), matching the

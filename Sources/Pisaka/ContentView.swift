@@ -1042,7 +1042,7 @@ struct ContentView: View {
         // closing it also drops the match highlight, which the state's
         // `close()` asks the controller to do directly.
         if search.isVisible {
-            SearchBarView(search: search)
+            SearchBarView(search: search, settings: settings)
             Divider()
         }
         CodeEditorView(
