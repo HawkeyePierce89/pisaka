@@ -382,7 +382,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     against* the budget (the result is never longer than asked for), then a
     space-separated suffix naming only the flags that are on — `Aa` (case), `ab`
     (whole word), `.*` (regular expression), in the toggles' own left-to-right
-    order, so a row reads like the bar it came from. `SearchQueryHistoryTests`
+    order, so a row reads like the bar it came from. The budget is honoured down
+    to its degenerate values, since it is a parameter a caller picks: `0` leaves
+    the pattern out entirely, `1` leaves the `…` alone, and the flag suffix —
+    which is not the pattern — is appended either way. `SearchQueryHistoryTests`
     covers the blank refusals (including tabs and spaces), dedupe-and-promote
     with the newer flags winning, a differently-cased pattern being a different
     entry, the front no-op leaving the value `==`, the cap dropping the oldest,

@@ -661,9 +661,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     one. Unit-tested in `TextSearchTests`, including a walk that steps with
     `index(nearestTo:forward:)` and re-derives the current index from the resulting
     caret, so the selection and the counter can never drift apart by one again.
-    **Boundaries** (deliberate, not omissions): no query history, no "replace in
+    **Boundaries** (deliberate, not omissions): no "replace in
     selection", no incremental/streaming search, and no string/comment awareness —
-    the same raw-scan boundary the rest of the editor's engines draw.
+    the same raw-scan boundary the rest of the editor's engines draw. The engine
+    itself still remembers nothing: the recently-searched list is a separate type
+    over this one's `SearchQuery` (`SearchQueryHistory`, `core-search.md`), which
+    is what keeps this file free of any state at all.
   - `EditorViewport.swift` — "where was this tab left?", as a pure value plus the
     per-file store the macOS editor keeps it in. The macOS editor reuses **one**
     `NSTextView` for every tab, so `CodeEditorView.updateNSView`'s wholesale

@@ -108,7 +108,10 @@ do — is in [`docs/FEATURES.md`](docs/FEATURES.md).
   Dockerfiles, `.env`, `.editorconfig` and dot-prefixed ignore files.
 - **Find & replace** — an in-file search bar (regex, whole word, match case)
   and a project-wide **Find in Files** window that honors your `.gitignore`
-  and can Replace All across the project.
+  and can Replace All across the project. Both share one **recent-searches**
+  menu (the clock beside the query field): the last 20 queries you actually ran,
+  each with the toggles it ran under, picked back in either surface, kept across
+  projects and relaunches until **Clear History**.
 - **Projects** — open a folder (Cmd+Shift+O), create/rename/move/delete right
   in the tree, or switch between recent projects from the bottom bar; external
   changes show up on their own via FSEvents. If you attempt to switch to a

@@ -131,9 +131,10 @@ final class EditorSearchState: ObservableObject {
     /// controller's own `isVisible` check keeps the two paths idempotent.
     ///
     /// Dismissal is the fifth recording site, and it sits *after* the `isVisible`
-    /// guard so the bar records exactly once whichever path got here — Esc in the
-    /// bar, Esc in the editor, the close button or the Find menu — rather than
-    /// once per redundant close.
+    /// guard so the bar records exactly once whichever of the three paths got
+    /// here — Esc in the bar, Esc in the editor, the close button — rather than
+    /// once per redundant close. The Find menu only ever *opens* the bar, so it
+    /// is not one of them.
     func close() {
         guard isVisible else { return }
         isVisible = false
@@ -156,28 +157,45 @@ final class EditorSearchState: ObservableObject {
     // MARK: - Commands (forwarded to the editor)
 
     // The four committing gestures, each recording the query it is about to run.
-    // Nothing here tests the pattern: `SearchQueryHistory.record(_:)` is the one
+    // Nothing here tests the *pattern*: `SearchQueryHistory.record(_:)` is the one
     // rule that refuses a blank, so a gesture fired against an empty field costs
     // a call and changes nothing. The forwarded command is a no-op in that case
     // too, so the two agree without either consulting the other.
 
-    func findNext() {
+    /// Record a committing gesture's query — but only while the bar is open.
+    ///
+    /// ⌘G / ⌘⇧G stay enabled for any text tab and are deliberately **inert with
+    /// the bar closed**: `EditorSearchController.refresh()` clears instead of
+    /// searching, leaving no match list to step. A command that visibly does
+    /// nothing must not reorder the list both menus draw (or rewrite the stored
+    /// value), which is exactly what an unguarded record would do — the pattern
+    /// survives `close()`, so the query the user finished with would be promoted
+    /// back to the front by a keystroke that had no other effect.
+    ///
+    /// The two replace gestures are reachable from the open bar alone, so the
+    /// guard costs them nothing and they take it for one spelling of the rule.
+    private func recordCommittingQuery() {
+        guard isVisible else { return }
         recordQuery(currentQuery)
+    }
+
+    func findNext() {
+        recordCommittingQuery()
         actions?.findNext()
     }
 
     func findPrevious() {
-        recordQuery(currentQuery)
+        recordCommittingQuery()
         actions?.findPrevious()
     }
 
     func replaceCurrent() {
-        recordQuery(currentQuery)
+        recordCommittingQuery()
         actions?.replaceCurrent()
     }
 
     func replaceAll() {
-        recordQuery(currentQuery)
+        recordCommittingQuery()
         actions?.replaceAll()
     }
 

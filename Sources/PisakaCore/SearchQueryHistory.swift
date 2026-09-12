@@ -130,6 +130,11 @@ public struct SearchQueryHistory: Equatable {
     ///
     /// Decided here rather than left to a menu item's own truncation so the
     /// string is deterministic and can be asserted.
+    ///
+    /// The budget is honoured down to its degenerate values, since it is a
+    /// parameter a caller picks: `0` leaves the pattern out entirely and `1`
+    /// leaves the `…` alone (the flag suffix, which is not the pattern, is
+    /// appended either way).
     public static func menuLabel(for query: SearchQuery, maxPatternLength: Int = 60) -> String {
         var label = truncatedMiddle(query.pattern, maxLength: maxPatternLength)
         if query.caseSensitive { label += " Aa" }
@@ -150,7 +155,9 @@ public struct SearchQueryHistory: Equatable {
         let headCount = (keep + 1) / 2
         let tailCount = keep - headCount
         let head = text.prefix(headCount)
-        let tail = tailCount > 0 ? text.suffix(tailCount) : ""
+        // `tailCount` is `0` at `maxLength == 2` — the one budget that buys a head
+        // and the ellipsis and nothing else — and `suffix(0)` is already "".
+        let tail = text.suffix(tailCount)
         return "\(head)…\(tail)"
     }
 }

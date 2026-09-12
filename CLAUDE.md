@@ -861,7 +861,10 @@ on three of WebKit's own answers that no Core test can reach),
 bundled mermaid*: a heading whose slug names a diagram id survives that
 diagram's render — mermaid deletes whatever element already carries the id it is
 handed, so the two id families must stay in disjoint alphabets)
-and `EditorCommandTargetTests` (`core-markdown-preview.md`). It exists because the folding launch-time trap
+and `EditorCommandTargetTests` (`core-markdown-preview.md`), plus the search
+history's two app-side sequencing suites — `EditorSearchStateTests` (the ⌘F
+bar's five recording sites) and `ProjectSearchWindowControllerTests` (the Find
+in Files close hook, `app-editor.md`). It exists because the folding launch-time trap
 (`FoldingTypesetter.init()` re-entered through Objective-C) passed **every gate
 the pipeline had** — the Core suites *and* the smoke launch, measured to survive
 the pre-fix build — so it is the only net for that class (`core-folding.md`).

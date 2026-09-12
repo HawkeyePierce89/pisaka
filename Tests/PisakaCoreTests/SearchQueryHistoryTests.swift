@@ -240,6 +240,35 @@ final class SearchQueryHistoryTests: XCTestCase {
         )
     }
 
+    /// The degenerate budgets, which the guards in `truncatedMiddle` are the whole
+    /// of: `maxPatternLength` is a parameter a caller picks, and the promise that
+    /// the pattern is never longer than asked for has to hold at 0, 1 and 2 too —
+    /// 2 being the one budget that buys a head character and the ellipsis and no
+    /// tail at all.
+    func testMenuLabelHonoursDegenerateBudgets() {
+        let query = SearchQuery(pattern: "abcdef")
+
+        XCTAssertEqual(SearchQueryHistory.menuLabel(for: query, maxPatternLength: 0), "")
+        XCTAssertEqual(SearchQueryHistory.menuLabel(for: query, maxPatternLength: 1), "…")
+        XCTAssertEqual(SearchQueryHistory.menuLabel(for: query, maxPatternLength: 2), "a…")
+
+        for budget in 0...6 {
+            let label = SearchQueryHistory.menuLabel(for: query, maxPatternLength: budget)
+            XCTAssertLessThanOrEqual(label.count, budget, "budget \(budget)")
+        }
+    }
+
+    /// The flag suffix is not the pattern, so it is appended even when the budget
+    /// leaves no room for the pattern itself — a row that says only "…" still says
+    /// which toggles it was searched under.
+    func testMenuLabelKeepsTheFlagsUnderADegenerateBudget() {
+        let label = SearchQueryHistory.menuLabel(
+            for: SearchQuery(pattern: "abcdef", isRegex: true, caseSensitive: true, wholeWord: true),
+            maxPatternLength: 1
+        )
+        XCTAssertEqual(label, "… Aa ab .*")
+    }
+
     func testMenuLabelTruncatesThePatternOnlyAndKeepsTheFlags() {
         let pattern = String(repeating: "z", count: 200)
         let label = SearchQueryHistory.menuLabel(

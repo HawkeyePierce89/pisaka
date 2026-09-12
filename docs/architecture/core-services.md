@@ -394,7 +394,13 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     search for"; a query typed in either is offered back in the other without a
     relaunch, which is the point of storing it here rather than in either
     surface's own state (neither of which survives a quit, and one of which does
-    not survive a tab switch).
+    not survive a tab switch). It is also **not per project**: this store is one
+    `UserDefaults` domain for the whole app, so — deliberately unlike
+    `EditorSession`'s per-project catalog and unlike the fold memory, which a
+    folder switch clears — the queries offered are the last twenty from
+    *whatever* project they were typed in, and nothing empties them on a switch
+    but *Clear History*. One engine, one question, one list, read the same way
+    across a folder switch as across a relaunch.
     The stored value is **opaque JSON `Data`**, read in `init` through
     `data(forKey:)` into `SearchQueryHistory(persistedData:)` — the same
     `object(forKey:)`-with-a-cast discipline as every other preference here, so a
@@ -421,9 +427,13 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     guarded on `isEmpty` for the same reason. `SettingsStoreTests` covers the
     empty default on a fresh store, the round trip across a rebuilt store
     (including at the cap), that clearing removes the key so a fresh store reads
-    empty, one test per decode-failure shape — key absent, a `String` under the
+    empty, **one table-driven test over the six decode-failure shapes** — key
+    absent, a `String` under the
     key, `Data` that is not JSON, a JSON object instead of an array, an element
-    missing `pattern`, an element whose `isRegex` is a string — and, by counting
+    missing `pattern`, an element whose `isRegex` is a string — carrying a
+    readable-array control case beside them, which is the load-bearing half: it
+    is what proves the six read empty for their own reason rather than because
+    the read is broken for every value. And, by counting
     `objectWillChange`, that a redundant `recordSearchQuery` publishes nothing.
   - `EditorSession.swift` — the persisted editor session behind launch-time
     session restore and "Untitled" hot exit (macOS today; the iOS variant is a

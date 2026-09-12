@@ -1724,16 +1724,38 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     sites**: the four committing gestures — `findNext`, `findPrevious`,
     `replaceCurrent`, `replaceAll`, each recording `currentQuery` immediately
     before forwarding the command — and `close()`, *after* its `isVisible`
-    guard, so a dismissal records exactly once whichever path got there (Esc in
-    the bar, Esc in the editor, the close button, the Find menu) rather than
-    once per redundant close. None of the five tests the pattern: Core's one
+    guard, so a dismissal records exactly once whichever of the three paths got
+    there (Esc in the bar, Esc in the editor, the close button) rather than
+    once per redundant close; the Find menu only ever *opens* the bar, so it is
+    not a dismissal path at all. All five are guarded on `isVisible` — the four
+    gestures through one private `recordCommittingQuery()`, `close()` through
+    its own guard — because ⌘G / ⌘⇧G stay enabled for any text tab and are
+    inert with the bar closed (the controller clears instead of searching, so
+    there is no match list to step) while `pattern` survives the close: without
+    the guard a keystroke with no visible effect would promote the last query
+    back to the front of the list both menus draw and rewrite the stored value.
+    The two replace gestures are reachable from the open bar alone, so the guard
+    costs them nothing and they take it for one spelling of the rule. None of
+    the five tests the *pattern*: Core's one
     rule refuses a blank, and the forwarded command is a no-op against an empty
-    field anyway, so the two agree without either consulting the other. The
+    field anyway, so the two agree without either consulting the other. **The
+    bar's own dismissal is the only one termination does not reach**: the
+    `willTerminateNotification` observer sweeps the *windows*
+    (`projectSearchWindows.closeAll()`), and nothing calls `close()` on this
+    state, so quitting with the bar open records nothing — accepted, the bar's
+    query being one keystroke from being re-typed, unlike the window's
+    dispatched one. The
     **one** wiring site is `PisakaApp.init()`, where the `StateObject` is built
     with `{ [weak settings] in settings?.recordSearchQuery($0) }` over the
     `SettingsStore` instance already local there — captured weakly like the
     neighbouring closures, since the bar is window-scoped and nothing here
     should pin the store if a scene goes away first.
+    The five sites are **not** untested glue: which gesture records, that it
+    records `currentQuery` whole, that a dismissal records once however many
+    close paths overlap, and that a navigation command inert with the bar closed
+    records nothing are all sequencing rules `swift test` cannot compile, so they
+    are asserted headlessly in `EditorSearchStateTests` (app bundle) against a
+    stub `EditorSearchActions` and a recording closure.
   - `EditorSearchController.swift` — the execution side of the find bar: it runs
     `TextSearchEngine` against the live buffer, keeps the current match near the
     caret (`currentIndex(forCaretAt:in:)` from the selection — the *current-match*
@@ -1925,7 +1947,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     debounce window the two disagree — so recording the controls would remember
     a search that never ran and, at the cap, push out the one that did. It is
     also the value the window's close hook can reach, which is what makes both
-    of this feature's Find in Files recordings the same value. The menu is the
+    of this feature's Find in Files recordings the same value. The **file mask
+    is deliberately outside** what is recorded: an entry is a `SearchQuery`,
+    which carries the pattern and the three toggles and nothing else, so a
+    picked row repeats the query and leaves whatever mask is in the field —
+    remembering a mask would mean a second stored shape and a row that silently
+    narrows the next search to a directory the reader cannot see in it. The menu is the
     same `SearchHistoryMenu` in the same position (after the query field, before
     the toggles); its `onPick` writes the four `@State` values and takes focus,
     leaving the existing `onChange` handlers to schedule the ordinary debounced
@@ -1944,7 +1971,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `closeAll()` is wired into the app's `willTerminateNotification` observer
     alongside the diff/merge controllers.
     `show(content:onWillClose:)` carries the search history's dismissal hook: a
-    stored `onWillClose`, replaced on every call for the same reason and from the
+    stored `onWillClose` with **no default** (the one caller wires it, and a
+    window shown without one would drop the dismissal recording silently),
+    replaced on every call for the same reason and from the
     same source as `rootView`, invoked by the window delegate's `windowWillClose`
     before `release()` **and** invoked explicitly by `closeAll()` before it drops
     the delegate — so a query left in an open window is recorded when the app
@@ -1957,7 +1986,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     the closure outliving the window it is handed to. A window closed before
     anything was searched carries an empty pattern, which Core's one rule
     refuses, so "only while a search has been dispatched" needs no second test
-    here.
+    here. The sequence itself is asserted in `ProjectSearchWindowControllerTests`
+    (app bundle, since it is `NSWindow` teardown): the delegate path fires once,
+    the sweep fires once and only while a window is open, a sweep after a user
+    close fires nothing, a second `show(...)` replaces the hook, and a reopened
+    window records again.
   - `SearchHistoryMenu.swift` (macOS) — the clock menu beside a query field: the
     **one** view both search surfaces render, so the history reads identically in
     each. `entries: [SearchQuery]`, `metrics: InterfaceMetrics`, `onPick`,

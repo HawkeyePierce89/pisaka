@@ -38,7 +38,10 @@ final class ProjectSearchWindowController {
     /// the app now considers the project root), so a window left open across a
     /// folder switch picks the new one up on the next ⌘⇧F. `onWillClose` is
     /// replaced on every call for the same reason, and from the same source.
-    func show(content: ProjectSearchView, onWillClose: @escaping () -> Void = {}) {
+    ///
+    /// The hook has no default: the one caller wires it, and a window shown
+    /// without one would drop the dismissal recording silently.
+    func show(content: ProjectSearchView, onWillClose: @escaping () -> Void) {
         self.onWillClose = onWillClose
 
         if let window, let hosting {
