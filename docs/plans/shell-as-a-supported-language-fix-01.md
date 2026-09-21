@@ -254,18 +254,18 @@ this divergence as something only a test prevents. Cosmetic, contained to the
 tree and tab icon, and no regression: these names had neither a language nor an
 icon before.
 
-- [ ] Add the ten names — `.bashrc`, `.bash_profile`, `.bash_logout`, `.zshrc`,
+- [x] Add the ten names — `.bashrc`, `.bash_profile`, `.bash_logout`, `.zshrc`,
       `.zprofile`, `.zshenv`, `.zlogin`, `.zlogout`, `.profile`, `.envrc` — to
       the special-name map, answering the same symbol and colour the `sh`/`bash`/
       `zsh` extensions already answer.
-- [ ] `ksh` and `command` are a **stated, accepted cost** recorded in the
+- [x] `ksh` and `command` are a **stated, accepted cost** recorded in the
       original plan. Leave them on the fallback icon and do not quietly add them;
       if the task judges that inconsistent, say so in the report rather than
       acting on it.
-- [ ] **Sweep:** the construct is *a name `SyntaxLanguage` claims that `FileIcon`
+- [x] **Sweep:** the construct is *a name `SyntaxLanguage` claims that `FileIcon`
       does not answer for*. Compare the two tables in both directions and report
       every divergence found, fixing only the ten above.
-- [ ] A test that would have caught it: assert each of the ten resolves to the
+- [x] A test that would have caught it: assert each of the ten resolves to the
       shell icon rather than the fallback, and — the rule rather than the
       instances — that every name in `SyntaxLanguage`'s exact-name map has a
       `FileIcon` answer that is not the fallback, with the two accepted

@@ -52,7 +52,28 @@ public struct FileIcon: Equatable {
         "makefile": FileIcon(symbolName: "hammer", color: .gray),
         "dockerfile": FileIcon(symbolName: "shippingbox", color: .blue),
         ".editorconfig": FileIcon(symbolName: "slider.horizontal.3", color: .gray),
+        // The shell startup dot-files. `SyntaxLanguage` claims all ten by exact
+        // name, so they already highlight, index and comment as shell; without
+        // an entry here they would still draw the fallback document icon,
+        // because a dot-file's `pathExtension` is empty and the extension phase
+        // never runs. They answer the same symbol and colour as the `sh`/`bash`/
+        // `zsh` extensions rather than one of their own: the icon names the
+        // language, not the startup file's role.
+        ".bashrc": shellIcon,
+        ".bash_profile": shellIcon,
+        ".bash_logout": shellIcon,
+        ".zshrc": shellIcon,
+        ".zprofile": shellIcon,
+        ".zshenv": shellIcon,
+        ".zlogin": shellIcon,
+        ".zlogout": shellIcon,
+        ".profile": shellIcon,
+        ".envrc": shellIcon,
     ]
+
+    /// The one shell icon, written once so the ten startup dot-files and the
+    /// `sh`/`bash`/`zsh` extensions cannot drift apart.
+    private static let shellIcon = FileIcon(symbolName: "terminal", color: .green)
 
     /// Lowercased file extension → icon.
     ///
@@ -86,9 +107,9 @@ public struct FileIcon: Equatable {
         "cpp": FileIcon(symbolName: "chevron.left.forwardslash.chevron.right", color: .blue),
         "java": FileIcon(symbolName: "cup.and.saucer", color: .red),
         "kt": FileIcon(symbolName: "chevron.left.forwardslash.chevron.right", color: .purple),
-        "sh": FileIcon(symbolName: "terminal", color: .green),
-        "bash": FileIcon(symbolName: "terminal", color: .green),
-        "zsh": FileIcon(symbolName: "terminal", color: .green),
+        "sh": shellIcon,
+        "bash": shellIcon,
+        "zsh": shellIcon,
 
         // Markup / styles
         "html": FileIcon(symbolName: "chevron.left.forwardslash.chevron.right", color: .orange),

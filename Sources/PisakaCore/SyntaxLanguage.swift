@@ -150,6 +150,14 @@ public enum SyntaxLanguage: String, CaseIterable, Equatable, Hashable, Sendable 
         ".envrc": .shell,
     ]
 
+    /// The exact-name phase's keys and the extension phase's keys, exposed as
+    /// `internal` seams (the tables themselves stay `private`) solely so the
+    /// tests can hold this table against `FileIcon`'s own: the two maps are
+    /// separate by design — a language is not an icon — and nothing but a test
+    /// keeps a name that highlights as shell from drawing the grey fallback.
+    static var exactFileNames: [String] { Array(exactFileNameMap.keys) }
+    static var fileExtensions: [String] { Array(extensionMap.keys) }
+
     /// Lowercased file-name prefix → language, for the variant-suffixed forms.
     /// Each prefix ends in the dot that separates the variant, so `Dockerfileish`
     /// and `.environment` are not matched.

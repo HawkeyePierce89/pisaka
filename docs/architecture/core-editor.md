@@ -137,7 +137,23 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     entry per `DatabaseFileRule.recognizedExtensions` member
     (`cylinder.split.1x2.fill`/`.green`), derived rather than restated so a
     recognized database file cannot gain the viewer routing and keep a plain
-    document icon; `FileIconTests` asserts the two agree. `FileIconColor` is a semantic enum so the library stays free
+    document icon; `FileIconTests` asserts the two agree. The special-name table
+    also carries the **ten shell startup dot-files** (`.bashrc`,
+    `.bash_profile`, `.bash_logout`, `.zshrc`, `.zprofile`, `.zshenv`,
+    `.zlogin`, `.zlogout`, `.profile`, `.envrc`), answering the one
+    `terminal`/`.green` icon the `sh`/`bash`/`zsh` extensions answer — written
+    once as `shellIcon` so the two halves cannot drift. They need an entry of
+    their own because a dot-file's `pathExtension` is empty, so the extension
+    phase never runs for them: without it they would highlight, index and
+    comment as shell while drawing the grey fallback. `SyntaxLanguage`'s table
+    and this one are **separate by design** — a language is not an icon — so
+    `FileIconTests` holds them together as a rule rather than as instances:
+    every name in `SyntaxLanguage`'s exact-name phase must have a non-fallback
+    icon, and every extension resolving to `.shell` must carry the shell icon.
+    Three exemptions are named in the assertions rather than left implicit:
+    `.env` (dotenv, still on the fallback — a separate decision), and the
+    extensions `ksh` and `command`, a stated, accepted cost from the shell plan.
+    `FileIconColor` is a semantic enum so the library stays free
     of any SwiftUI/AppKit dependency.
   - `SyntaxLanguage.swift` — pure, testable
     `String`/`CaseIterable`/`Equatable`/`Hashable`/`Sendable`
