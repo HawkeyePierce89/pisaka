@@ -315,16 +315,16 @@ compiles the query against the real grammar and asserts the extracted symbol set
 by equality. The plan must say so rather than sit in `completed/` with an
 unperformed mandatory item.
 
-- [ ] Rewrite that section to record the decision and its date: the automated
+- [x] Rewrite that section to record the decision and its date: the automated
       app-layer suite is accepted as the runtime verification; name what it
       asserts (the grammar loads, the query compiles, and the fixture's symbol set
       matches exactly, including the four exclusions) and name what it does **not**
       cover — the tail from the index to the picker UI, and the by-eye checks on
       highlighting, ⌘/ and the minimap.
-- [ ] Do not delete the section and do not silently tick it. The value is the
+- [x] Do not delete the section and do not silently tick it. The value is the
       record that a mandatory gate was consciously converted, not that the
       document looks finished.
-- [ ] Change nothing else in the archived plan.
+- [x] Change nothing else in the archived plan.
 
 ### Task 8: Run the gates
 

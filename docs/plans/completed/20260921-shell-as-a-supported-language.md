@@ -517,15 +517,51 @@ Recorded outcome of this pass (2026-09-21):
 - `git status` clean; the ignored `build/` and `DerivedData/` directories in the
   tree pre-date this work (7–8 September) and nothing was written into them.
 
-## Post-Completion (manual, by the user — mandatory, not optional)
+## Post-Completion (mandatory gate — discharged by the automated suite, 2026-09-21)
 
-- In the DEBUG build launched above, open the fixture shell script and press
-  ⌃⌘J. **Report which file was opened and exactly what the picker listed** — the
-  functions must appear, the top-level assignments must appear, and the
-  assignments made inside function bodies must not. This confirms the end-to-end
-  path (bundle → catalog → extractor → index → picker); the query's own
-  compilation and its four anchoring decisions are already gated by Task 3, so
-  this is a confirmation rather than the only evidence.
-- Open the same script and confirm by eye that it is highlighted, that ⌘/
-  comments and uncomments a selection with `#`, and that the minimap draws token
-  runs for it.
+This section was written as a manual gate: a DEBUG build, ⌃⌘J on a fixture
+script, a report of exactly what the picker listed, and by-eye checks on
+highlighting, ⌘/ and the minimap. **It was never performed** — the execution log
+above says outright that the remaining post-completion items were left to the
+user — and the plan was nonetheless moved into `completed/`.
+
+**The decision (user, 2026-09-21): the gate is discharged by
+`Tests/PisakaAppTests/ShellSymbolQueryTests.swift`**, which is accepted as the
+runtime verification in its place. The section is kept, and kept honest, rather
+than deleted or silently ticked: the record that a mandatory gate was
+consciously converted is the point.
+
+**What that suite actually asserts**, by execution rather than by reading, in
+the app-host bundle (`xcodebuild … -destination 'platform=macOS' test`):
+
+- the pinned `tree-sitter-bash` grammar **loads** and its bundled highlight
+  query resolves (`SyntaxLanguageConfiguration.configuration(for: .shell)`),
+  asserted first so a grammar failure cannot be misreported as a query failure;
+- the shipped `Resources/Queries/shell/symbols.scm` **compiles** against that
+  grammar (`SymbolQueryCatalog.query(for: .shell)`) — and, the scheme building
+  Debug, a query that fails to compile trips `SymbolQueryCatalog`'s own
+  assertion first, naming the language and quoting tree-sitter's error;
+- the fixture's symbol set matches **exactly**, by set equality over
+  `(kind, name, line)` — both function spellings at any depth, and the top-level
+  assignments in the captured shapes — so the **four exclusions** are assertions
+  and not readings: nothing declared inside a function body (`local
+  salutation`, `GREETING_SEEN`), nothing inside a loop (`attempt`,
+  `LAST_REGION`), `arr[2]=x`, and a valueless `export PATH`;
+- the `variable_assignments` caveat, as a characterisation test: `A=1 B=2`
+  followed by an ordinary command indexes neither name, while the same pair with
+  nothing after it indexes both — so the declared `["command",
+  "variable_assignments"]` grammar conflict is pinned rather than described.
+
+**What it does not cover**, stated so the conversion is not read as wider than
+it is:
+
+- the tail from the index to the UI — `SymbolIndexModel`, the debounces, and the
+  ⌃⌘J picker itself. The suite stops at `SymbolExtractor`; that everything
+  downstream of it is language-agnostic is an argument, not a measurement.
+- the three by-eye checks: that a shell file is **highlighted**, that ⌘/
+  comments and uncomments a selection with `#`, and that the **minimap** draws
+  token runs for it. Each has its own Core-level gate (`SyntaxLanguage`,
+  `CommentStyle`, `MinimapTokenizer`), and none of those gates renders anything.
+
+Nothing above is a new obligation on this plan; it is the record of which
+evidence was accepted for a gate the plan declared mandatory.
