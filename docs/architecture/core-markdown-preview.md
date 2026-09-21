@@ -269,9 +269,14 @@ highlight.js classifies a token by writing a *scope* into a `class`;
 `MarkdownHighlightClasses.scopeKinds` maps every scope of the bundled standard
 build onto a `SyntaxTokenKind`, and `SyntaxTheme.markdownPreviewTheme(prefersDark:)`
 resolves that vocabulary against an `NSAppearance` and hands Core the colours as
-`#rrggbb` strings. `MarkdownPreviewTheme.light`/`.dark` keep only the chrome;
-every code colour is overwritten through `withCodeColors(_:)`, so adding a token
-kind reaches the preview with no second edit.
+`#rrggbb` strings. Of `MarkdownPreviewTheme.light`/`.dark` only the chrome
+survives on macOS: every code colour is overwritten through
+`withCodeColors(_:)`, which replaces the block wholesale. Those two themes still
+*carry* a full `codeColors` block, so the domain layer has a complete theme to
+test and to fall back on — a second copy macOS never reads. Adding a token kind
+is therefore two edits, a row in each table, and
+`SyntaxThemeTests.testTheDomainLayersRestatedCodeColoursEqualTheEditorTable`
+fails until the second one lands.
 
 Coverage is asserted by **set equality in both directions** — every scope maps to
 a kind, every kind is reached by at least one scope — which is what `CaseIterable`

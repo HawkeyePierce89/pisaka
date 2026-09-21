@@ -195,8 +195,8 @@ at least two suites. The wording pre-dates this branch, but this branch writes t
 opposite a few lines away and leaves the stale half on the one function a
 maintainer reads when asking whether the Core tables matter.
 
-- [ ] Rewrite both clauses to match what the code and the new tests state.
-- [ ] Confirm no other doc comment in the branch's diff repeats either clause.
+- [x] Rewrite both clauses to match what the code and the new tests state.
+- [x] Confirm no other doc comment in the branch's diff repeats either clause.
 
 ### Task 6: Gates
 

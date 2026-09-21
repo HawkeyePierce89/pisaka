@@ -1028,11 +1028,16 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     drawing call**: `markdownPreviewTheme(prefersDark:)` (macOS), which resolves
     every `SyntaxTokenKind` through `nsColor(for:)` and spells each as a
     `#rrggbb` CSS string, then hands them to `MarkdownPreviewTheme.light`/`.dark`
-    through `withCodeColors(_:)` — Core keeps the chrome, this file supplies the
+    through `withCodeColors(_:)` — Core's chrome survives, this file supplies the
     code palette. A fenced Swift block in the preview and the same block in the
     text view beside it are the same code read twice, so the preview must carry no
-    palette of its own; deriving it here, where a kind already has a colour, is
-    what makes adding a kind reach the preview with no second edit
+    palette *of its own on screen*; deriving it here, where a kind already has a
+    colour, is what makes the page show the editor's values. Core's own
+    `codeColors` block is not that palette but a second copy, restated so the
+    domain layer has a complete theme to test and to fall back on, and never read
+    on macOS — so adding a kind is two edits, one in each table, the second of
+    them pinned by
+    `SyntaxThemeTests.testTheDomainLayersRestatedCodeColoursEqualTheEditorTable`
     (`core-markdown-preview.md`). `prefersDark` is a parameter rather than
     something read, because these are dynamic colours with no single component to
     inspect: they resolve against whatever appearance is current at draw time, so
