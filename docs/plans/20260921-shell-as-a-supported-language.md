@@ -346,7 +346,7 @@ The gate for decision 9: the only place in this pipeline where the new query is
 compiled against its grammar and run. `swift test` cannot reach it (Core does not
 link tree-sitter) and neither build executes it; the app-host bundle does both.
 
-- [ ] Write the fixture script under `Tests/PisakaAppTests/Fixtures/`, read
+- [x] Write the fixture script under `Tests/PisakaAppTests/Fixtures/`, read
       through `#filePath` the way `MarkdownParserTests` reads its own. It must
       contain, deliberately and in one file: several functions in both spellings
       (`name() { … }` and `function name { … }`), top-level assignments in all
@@ -356,16 +356,16 @@ link tree-sitter) and neither build executes it; the app-host bundle does both.
       `export PATH` with no value, an array subscript assignment `arr[2]=x`, and
       a `#` comment plus a quoted `#` so the fixture is a plausible script rather
       than a list of patterns.
-- [ ] `ShellSymbolQueryTests` — `#if os(macOS)`, `@testable import Pisaka`, with
+- [x] `ShellSymbolQueryTests` — `#if os(macOS)`, `@testable import Pisaka`, with
       a doc comment stating why it exists (the silent failure mode, and that the
       two types it drives are structurally out of `swift test`'s reach):
-      - [ ] `SyntaxLanguageConfiguration.configuration(for: .shell)` is
+      - [x] `SyntaxLanguageConfiguration.configuration(for: .shell)` is
             non-`nil` — the grammar loads and its bundled highlight query
             resolves.
-      - [ ] `SymbolQueryCatalog.query(for: .shell)` is non-`nil` — the shipped
+      - [x] `SymbolQueryCatalog.query(for: .shell)` is non-`nil` — the shipped
             `.scm` compiles against the pinned grammar. This is the assertion the
             ticket calls silent today.
-      - [ ] `SymbolExtractor.symbols(in:language:fileURL:)` over the fixture,
+      - [x] `SymbolExtractor.symbols(in:language:fileURL:)` over the fixture,
             with the result reduced to a comparison shape that carries no
             absolute path (the `(kind, name, line)` triple) and asserted **by set
             equality** against the expected set written out in full. The four
@@ -374,7 +374,7 @@ link tree-sitter) and neither build executes it; the app-host bundle does both.
             present under the variable kind; **no** assignment made inside a
             function body or a loop appears; and neither `arr[2]=x` nor the
             valueless `export PATH` appears.
-- [ ] Run
+- [x] Run
       `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination
       'platform=macOS' -derivedDataPath
       ~/Library/Developer/Xcode/DerivedData/pisaka-shell test` — the whole
