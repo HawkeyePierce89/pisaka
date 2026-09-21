@@ -187,13 +187,18 @@ struct LSPConsentBanner: View {
     /// same question and must answer it with the same button — and `.plain`
     /// rather than a bordered style because a system-drawn button beside an
     /// accent-filled one is precisely the mixed look this sweep removes.
+    ///
+    /// The vertical padding is the strip's own bare number, not a token divided
+    /// down: a button's height is this surface's measurement, and writing it as
+    /// half a *horizontal* row-padding token would tie the two together where
+    /// nothing says they are related.
     private func acceptButton(_ title: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
                 .font(metrics.scaledFont(.body))
                 .foregroundStyle(theme.color(.onAccent))
                 .padding(.horizontal, metrics.scaled(ChromeGeometry.rowPaddingX))
-                .padding(.vertical, metrics.scaled(ChromeGeometry.rowPaddingX / 2))
+                .padding(.vertical, metrics.scaled(4))
                 .background(
                     RoundedRectangle(cornerRadius: metrics.scaled(ChromeGeometry.cornerRadiusMax))
                         .fill(theme.color(.accent))
@@ -211,7 +216,7 @@ struct LSPConsentBanner: View {
                 .font(metrics.scaledFont(.body))
                 .foregroundStyle(theme.color(.textSecondary))
                 .padding(.horizontal, metrics.scaled(ChromeGeometry.rowPaddingX))
-                .padding(.vertical, metrics.scaled(ChromeGeometry.rowPaddingX / 2))
+                .padding(.vertical, metrics.scaled(4))
         }
         .buttonStyle(.plain)
     }

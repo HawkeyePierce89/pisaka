@@ -41,6 +41,10 @@ import XCTest
 ///   worth what its call site spends: the regression this branch exists to fix
 ///   was one line in a drawing method, and every other gate stayed green while
 ///   it painted the editor out.
+/// - **No gated view derives a geometry value by arithmetic on a token.** A
+///   padding written as half of another token reads as a measurement and is
+///   really a coupling: nothing misrenders, and nothing names the relationship
+///   either, so the day the other token moves this one moves with it.
 final class ChromeThemeSourceGatingTests: XCTestCase {
 
     // MARK: - The gated set
@@ -354,6 +358,52 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
             index = code.index(after: index)
         }
         return nil
+    }
+
+    // MARK: - Rule seven: no geometry token is derived by arithmetic
+
+    /// `ChromeGeometry`'s first rule says it in words: every token is scaled at
+    /// its use site, and **no view multiplies one of these numbers by anything
+    /// itself**. This is the rule as something a suite can see.
+    ///
+    /// What it forbids is a chrome surface *deriving a design value locally* —
+    /// a token combined with a number, as in a vertical padding written as half
+    /// a horizontal row-padding token. Nothing misrenders when it happens: the
+    /// tokens are `Double`s, so the arithmetic is exact and the scale is still
+    /// applied once. The cost is the coupling, which nothing names: a later
+    /// change to a horizontal row-padding token would move an unrelated vertical
+    /// padding with it, and the reader of either line has no way to know. A
+    /// surface's own measurement is a bare local number — which the sweep guide
+    /// permits, and which the same call sites already use for their other
+    /// spacings.
+    ///
+    /// **What it deliberately does not match:** a token combined with a *layout*
+    /// value rather than a number, such as the ruler placing its trailing rule
+    /// at `ruleThickness - hairlineWidth`. That composes a position out of a
+    /// width the drawing code was handed; it invents no second design value, and
+    /// widening this rule to cover it would forbid the only honest way to draw
+    /// an edge.
+    func testNoGatedFileDerivesAGeometryTokenByArithmetic() throws {
+        // A token on either side of an arithmetic operator from a number: both
+        // directions, and `CGFloat(…)` around the token does not hide it.
+        let derivations = [
+            try NSRegularExpression(pattern: "ChromeGeometry\\.[A-Za-z0-9_]+\\s*\\)?\\s*[*/+-]\\s*[0-9.]"),
+            try NSRegularExpression(pattern: "[0-9.]\\s*[*/+-]\\s*(CGFloat\\()?\\s*ChromeGeometry\\."),
+        ]
+        for url in try Self.swiftSources() where Self.gatedFiles.contains(url.lastPathComponent) {
+            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            let range = NSRange(code.startIndex..<code.endIndex, in: code)
+            for pattern in derivations {
+                XCTAssertNil(
+                    pattern.firstMatch(in: code, range: range),
+                    """
+                    \(url.lastPathComponent) derives a geometry value from a ChromeGeometry token by \
+                    arithmetic — a surface's own measurement is a bare local number, scaled once at \
+                    the use site
+                    """
+                )
+            }
+        }
     }
 
     // MARK: - Self-check

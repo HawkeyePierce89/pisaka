@@ -253,15 +253,15 @@ outer padding.
   - Modify: `Sources/Pisaka/LSPConsentBanner.swift`
   - Modify: `Tests/PisakaCoreTests/ChromeThemeSourceGatingTests.swift`
 
-  - [ ] Write the failing test first: a gating rule that no gated file spells a
+  - [x] Write the failing test first: a gating rule that no gated file spells a
         `ChromeGeometry` token inside an arithmetic expression, matched against
         comment- and literal-stripped text. Confirm it is red against the two
         current lines before fixing them.
-  - [ ] Replace both expressions with the surface's own bare number, scaled once
+  - [x] Replace both expressions with the surface's own bare number, scaled once
         at the use site.
-  - [ ] **Sweep for the shape:** `ChromeGeometry\.[a-zA-Z]+\s*[*/+-]` across
+  - [x] **Sweep for the shape:** `ChromeGeometry\.[a-zA-Z]+\s*[*/+-]` across
         `Sources/`. Every hit is the same defect; fix them all here.
-  - [ ] run `swift test` and the app-layer bundle — must pass before Task 7
+  - [x] run `swift test` and the app-layer bundle — must pass before Task 7
 
 ### Task 7: Spell the tab icon rule once
 
