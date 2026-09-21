@@ -610,7 +610,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     one file, read-only, syntax-highlighted, scrolled to a range. Modeled on
     `DiffWindowContent` + `DiffView`'s read-only pane — same `preferredColorScheme`
     propagation into a separate window, same Neon highlighting through
-    `SyntaxLanguageConfiguration`/`SyntaxTheme`, same `@ObservedObject`
+    `SyntaxLanguageConfiguration`/`SyntaxTheme` — including the `.plain` base
+    foreground set beside the font, so a character no capture covers reads the
+    same table the editor reads — same `@ObservedObject`
     `SettingsStore` so the viewer's font tracks the editor's. Its small
     `NSTextView` subclass (`SourceViewerTextView`) no longer overrides
     `scrollWheel`; it declares `zoomSurfaceKind = .code` instead, and the view is

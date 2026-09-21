@@ -26,7 +26,19 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `SyntaxTheme.shared.color(for: .plain)`, so no second resolution point
     exists, and `SyntaxThemeTests`'
     `testUncoveredTextReadsThePlainRowInBothAppearances` pins that value so they
-    cannot drift back onto a system colour unnoticed. Soft-wrapping is disabled (long lines
+    cannot drift back onto a system colour unnoticed.
+    **The rule is the whole zone's, not the editor's.** Every view that attaches
+    the syntax highlighter states its own base foreground the same way — the two
+    editors and the four read-only panes (`DiffView`, `SourceViewerContent`,
+    `DiffView_iOS`, `MergeView_iOS`) — because Neon paints only what a capture
+    covers and a pane left on the platform label colour paints uncovered text a
+    different colour than the editor beside it. The omission is the *absence* of
+    an assignment, which no compiler can see, so
+    `SyntaxBaseForegroundGatingTests` searches for the highlighter attachment
+    (the thing that is present) and pins both sets by **set equality**, with the
+    one file pair that splits — the iOS editor, attaching from its coordinator
+    and configuring its text view in the representable — named rather than
+    allowed by a weaker rule. Soft-wrapping is disabled (long lines
     scroll horizontally) so document space equals logical-line space, which keeps
     the logical-line-indexed minimap aligned with the document and viewport rect
     without forcing full TextKit layout. `makeNSView` returns a container holding

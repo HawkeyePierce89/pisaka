@@ -85,6 +85,11 @@ struct DiffView_iOS: UIViewRepresentable {
         textView.isEditable = false
         textView.isSelectable = true
         textView.font = .monospacedSystemFont(ofSize: CGFloat(fontSize), weight: .regular)
+        // The colour of a character no capture covers — the same question
+        // `SyntaxTokenKind.plain` answers — so it is read from the one table
+        // rather than left on the text view's system-label default, which would
+        // follow the *system* appearance and ignore the app's Theme preference.
+        textView.textColor = SyntaxTheme.shared.color(for: .plain)
         textView.alwaysBounceVertical = true
         textView.textContainer.lineBreakMode = .byClipping
         textView.textContainer.widthTracksTextView = false

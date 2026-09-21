@@ -800,7 +800,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     lives in Core's `GitCredentials`.
   - `iOS/LocalChangesView_iOS.swift` / `iOS/DiffView_iOS.swift` /
     `iOS/DiffRoute_iOS.swift` — the Local Changes list + two-`UITextView`
-    side-by-side diff, presented as sheets / pushed screens.
+    side-by-side diff, presented as sheets / pushed screens. Each pane sets the
+    theme's `.plain` entry as its base foreground beside the font, like every
+    other view attaching the syntax highlighter (`app-editor.md`).
   - `iOS/CommitLogView_iOS.swift` / `iOS/CommitGraphView_iOS.swift` —
     the Git Log list with the branch-graph gutter (UIKit over
     `CommitGraphLayout`).
@@ -845,4 +847,6 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     the advanced form is built fresh on each presentation and so uses only the
     from-scratch `init(filter:defaultDate:)`, which has no shown day to keep.
   - `iOS/MergeView_iOS.swift` / `iOS/MergeRoute_iOS.swift` — the adaptive 3-pane
-    conflict resolver (side-by-side on regular width, stacked on compact).
+    conflict resolver (side-by-side on regular width, stacked on compact). Its
+    panes set the theme's `.plain` base foreground beside the font, like every
+    other view attaching the syntax highlighter (`app-editor.md`).

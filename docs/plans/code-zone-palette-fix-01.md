@@ -88,23 +88,23 @@ whole pane at the platform colour. **The inconsistency is this branch's own**,
 and the plan's goal says every character in a file follows the table. The
 ticket's out-of-scope list excludes the *chrome* sweep, not the code zone.
 
-- [ ] Set the base foreground from `SyntaxTheme.shared.color(for: .plain)` in all
+- [x] Set the base foreground from `SyntaxTheme.shared.color(for: .plain)` in all
       four views, beside the `.font` assignment each already makes. Comment each
       as what it is — the colour of a character no capture covers, read from the
       one table rather than left on the platform default.
-- [ ] **Sweep for the shape, not the site.** The defect is *a view that attaches
+- [x] **Sweep for the shape, not the site.** The defect is *a view that attaches
       the syntax highlighter over `SyntaxTheme` but never sets its own base
       foreground*. Find every such view by searching for the highlighter
       attachment rather than for `textColor`, since the defect is the absence of
       that word. Confirm the list is exactly these four plus the two editors
       already done, and name in the commit message what was searched for.
-- [ ] Two comments overstate the agreement today and must be re-read after the
+- [x] Two comments overstate the agreement today and must be re-read after the
       sweep: `DiffView.swift` ("mapping each capture … exactly like the editor")
       and `SourceViewerContent.swift:246-249` ("the same three lines the editor
       and the diff panes use, so a `.swiftinterface` reads exactly like a project
       file"). If the sweep makes them true, leave them; if any clause is still
       wider than the code, narrow it.
-- [ ] Test that would have caught it: an app-layer test asserting that every
+- [x] Test that would have caught it: an app-layer test asserting that every
       macOS view which attaches the syntax highlighter also sets a base
       foreground — a source-gating test over `Sources/Pisaka`, in the style of the
       repository's other gating suites, reading the files through `#filePath` and
