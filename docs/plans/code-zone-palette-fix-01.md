@@ -200,11 +200,26 @@ maintainer reads when asking whether the Core tables matter.
 
 ### Task 6: Gates
 
-- [ ] `swift test` — green, with the count recorded.
-- [ ] `xcodegen generate` then the macOS app-layer bundle — green, with the count
-      recorded and the new tests named.
-- [ ] `xcodebuild … -destination 'generic/platform=iOS' build` — succeeds (Task 2
-      touches two iOS files).
-- [ ] `swiftlint --strict` — clean.
-- [ ] Re-read all seven findings against the diff and confirm each is answered at
-      the mechanism it names, not at the example it uses.
+- [x] `swift test` — green: 5724 tests, 0 failures.
+- [x] `xcodegen generate` then the macOS app-layer bundle — green: 110 tests, 0
+      failures. New/rewritten this round: `SyntaxBaseForegroundGatingTests`'
+      three methods (`testEveryAttachingViewStatesItsBaseForeground`,
+      `testEveryHighlighterAttachmentIsPinned`,
+      `testOnlyTheIOSEditorSplitsAcrossTwoFiles`),
+      `SyntaxThemeTests.testTheDomainLayersRestatedCodeColoursEqualTheEditorTable`,
+      the rewritten `testUncoveredTextReadsThePlainRowInBothAppearances` (now
+      calling `applyBaseTypography(to:)` and the no-grammar reset path on real
+      text views) and
+      `ChromePaletteTests.testTheInactiveSelectionRowNamesTheFileThatPaintsIt`.
+- [x] `xcodebuild … -destination 'generic/platform=iOS' build` — **BUILD
+      SUCCEEDED** (Task 2 touches two iOS files).
+- [x] `swiftlint --strict` — clean: 0 violations, 0 serious in 581 files.
+- [x] Re-read all seven findings against the diff and confirm each is answered at
+      the mechanism it names, not at the example it uses. Each is: the wash's
+      reason now names its one consumer *and* an assertion keeps that name true
+      as the tree moves; the base foreground is set in all four panes *and* a
+      set-equality gating suite fails on a sixth; the plain-row test now calls the
+      two sites rather than the expression, the reset path having turned out
+      reachable, so both are pinned and the doc claims exactly that; the preview
+      pin's stated reach is narrowed *and* the guard it lacked now exists; the
+      derivation's stale clauses are rewritten and repeated nowhere else.
