@@ -29,6 +29,8 @@ one duplicated hairline.
 - Builds and test runs write nothing into the repository tree: pass
   `-derivedDataPath ~/Library/Developer/Xcode/DerivedData/pisaka-chrome-theme-2`.
 - No product or brand names anywhere — code, comments, docs or commit messages.
+  `docs/plans/completed/` is the one deliberate exemption (a historical record);
+  the reason is stated in `docs/architecture/core-theme.md`'s sweep guide.
 - **Before committing each fix, sweep for the shape rather than the site.** Name
   the defect as a construct and grep for that construct across the repository,
   fixing every occurrence in the same commit. Three of these findings are about
@@ -140,18 +142,18 @@ roles.
 **Files:**
   - Modify: `docs/architecture/core-theme.md`
 
-  - [ ] Correct the sentence to name only the roles that are genuinely unused,
+  - [x] Correct the sentence to name only the roles that are genuinely unused,
         and resolve the contradiction with the paragraph four lines above it.
-  - [ ] Verify each role's claim against the code before writing it: grep
+  - [x] Verify each role's claim against the code before writing it: grep
         `Sources/` for every `ChromeColorRole` case and let the answer decide
         the sentence, rather than editing the two the finding quoted.
-  - [ ] Record the decision taken on this branch's review: the completed-plan
+  - [x] Record the decision taken on this branch's review: the completed-plan
         archive under `docs/plans/completed/` is **deliberately exempt** from the
         no-product-names convention, being a historical record of what was
         decided and when. State it where the convention is stated, so the next
         review does not raise it again as an open question.
-  - [ ] No test: this is prose no suite reads. Say so in the commit message.
-  - [ ] run `swift test` — must pass before Task 4
+  - [x] No test: this is prose no suite reads. Say so in the commit message.
+  - [x] run `swift test` — must pass before Task 4
 
 ### Task 4: Stop the minimap's comment denying the callback it relies on
 

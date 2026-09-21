@@ -57,9 +57,13 @@ adds no write of any kind. Its only persisted input is the existing
     `onAccent`, `accentTint`, `currentLine`, `bracketMatch`, `statusGreen`,
     `diffAddedBackground`, `diffRemovedBackground`, `conflictBackground`), and
     the second part spent two of those — `onAccent` on the consent strip's
-    confirming action and `accentTint` on the minimap's viewport fill. `bgCanvas`
-    and `bgPopover` wait for the window ground and the popovers; the three status
-    hues and the three diff/merge grounds wait for the surfaces that mean them;
+    confirming action and `accentTint` on the minimap's viewport fill, which
+    leaves the other **eight**. `bgCanvas` and `bgPopover` wait for the window
+    ground and the popovers; `statusGreen` — the one status hue nothing draws
+    yet, its two siblings having been spent by the first part, `statusRed` on
+    the tree draft field's invalid name and the gutter's error marker and
+    `statusYellow` on the gutter's warning marker — and the three diff/merge
+    grounds wait for the surfaces that mean them;
     and **`currentLine` and `bracketMatch` are deliberately still unused** — both
     belong to the *code* zone, whose overlays are temporary text attributes on the
     editor's own theme (`SyntaxTheme`), so spending them is a decision about where
@@ -443,3 +447,13 @@ caching, no appearance observer); a SwiftUI surface takes
 `@Environment(\.chromeTheme)` and asks `theme.color(_:)`. A surface whose root
 is a new window gains `.chromeThemed(settings)` beside `.interfaceScaled(...)` —
 and rule four will say so if it does not.
+
+**The no-product-names convention and the plan archive.** Every document, comment
+and commit message in the live tree names what a thing *is* rather than the
+competing tool it resembles; this sweep's own parts cleared the last references
+the live tree held. `docs/plans/completed/` is **deliberately exempt**, file
+names included: it is a historical record of what was decided and when, and
+rewriting it would make the record disagree with the reviews, tickets and commit
+messages that quote it. A sweep of the live tree that leaves the archive alone
+is complete, not partial — raising the archive's remaining names is answered
+here rather than re-opened.
