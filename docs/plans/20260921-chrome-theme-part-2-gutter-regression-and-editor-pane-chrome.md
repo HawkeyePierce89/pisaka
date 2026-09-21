@@ -272,55 +272,79 @@ part would rewrite anyway.
 
 ### Task 7: Verify acceptance criteria
 
-- [ ] `swift test` — green
-- [ ] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination
+- [x] `swift test` — green (5685 tests, 0 failures)
+- [x] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination
       'platform=macOS' -derivedDataPath
       ~/Library/Developer/Xcode/DerivedData/pisaka-chrome-theme-2 test` — green
-- [ ] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination
+      (95 tests, 0 failures)
+- [x] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination
       'generic/platform=iOS' -derivedDataPath
       ~/Library/Developer/Xcode/DerivedData/pisaka-chrome-theme-2 build` — the
-      iOS target still builds
-- [ ] `swiftlint --strict` from the repository root — clean
-- [ ] Confirm the seam test fails when the background rectangle is widened back
-      to the rectangle it is handed, then revert
-- [ ] Confirm `gatedFiles` grew by exactly the five files restyled here and that
-      the five rules and three exemptions are unchanged (diff the suite)
-- [ ] **Capture the running app, headlessly, once per appearance.** Not by
-      running the executable and not by driving the interface with synthetic
-      clicks — both were tried on this machine and neither works (a directly-run
-      binary shows no window; synthetic clicks land in whatever application is
-      frontmost). The procedure, run twice — once with `dark`, once with
-      `light`:
-      1. Quit any running instance (`osascript -e 'quit app id
-         "ws.karmanov.pisaka"'`, then confirm with `pgrep`), because a live
-         instance rewrites its own defaults on quit.
-      2. Select the appearance *outside the interface*: `defaults write
-         ws.karmanov.pisaka settings.themePreference -string dark` (then
-         `light`) — the key `SettingsStore.Keys.themePreference` names and the
-         raw value `ThemePreference` declares.
-      3. Launch the built bundle with `open` — `open -a
-         "$DERIVED/Build/Products/Debug/Pisaka.app"` — never the executable
-         inside it.
-      4. Wait for a window, then read its frame through the accessibility API: a
-         small Swift helper (written under the derived-data path, **not** into
-         the repository tree) that finds the process by bundle identifier, asks
-         `AXUIElementCopyAttributeValue` for `kAXWindowsAttribute` and prints the
-         first window's position and size.
-      5. `screencapture -x -R"$x,$y,$w,$h" "$OUT/chrome-dark.png"` with `$OUT`
-         outside the repository tree (under the derived-data path or `$TMPDIR`),
-         then read the image back and judge it: the editor shows its code, the
-         gutter is gutter-wide and agrees in colour with the pane, the minimap
-         draws its runs, and the five surfaces read as specified.
-      6. Quit the instance before the next appearance.
+      iOS target still builds (BUILD SUCCEEDED)
+- [x] `swiftlint --strict` from the repository root — clean (0 violations,
+      578 files)
+- [x] Confirm the seam test fails when the background rectangle is widened back
+      to the rectangle it is handed, then revert. Done: with the body replaced
+      by `return rect`, three of the five assertions fail on exactly the
+      regression's shape (742 where 59 is required, and 542 where 0 is
+      required); `testRectNarrowerThanTheGutterIsUnchanged` and
+      `testVerticalGeometryIsCarriedThrough` stay green, which is correct —
+      neither is about clamping. Source reverted and rebuilt afterwards.
+- [x] Confirm `gatedFiles` grew by exactly the five files restyled here and that
+      the five rules and three exemptions are unchanged (diff the suite). The
+      diff against `master` is a single six-line insertion — the comment plus
+      `TabListView.swift`, `TabRowView.swift`, `BreadcrumbBarView.swift`,
+      `MinimapView.swift`, `LSPConsentBanner.swift`. No other line of the suite
+      changed, so the rules and exemptions are untouched by construction.
+- [x] **Capture the running app, headlessly, once per appearance.** Done for
+      both appearances, with one deviation from the written procedure and one
+      finding.
 
-      **Honest fallback:** if no window frame can be obtained — the
-      accessibility permission is not granted to the driving process, the window
-      list is empty, or the wait times out — the task says so plainly in its
-      report, names which step failed, ticks nothing, and leaves the visual
-      confirmation to the manual post-completion list below. A box that could not
-      be verified is not ticked.
-- [ ] Confirm nothing was written into the repository tree (`git status` clean
-      but for the intended changes)
+      *Deviation, and why.* Step 5's `screencapture -R` region capture is
+      unsound on this machine for the reason the step itself half-anticipates:
+      it captures screen *coordinates*, so anything that takes the front during
+      the shot is captured instead of the window. That happened once, capturing
+      an unrelated application; that file was deleted unexamined. The capture
+      was redone with `screencapture -l<windowID>`, which targets the window
+      itself and is immune to focus. The window id comes from a second small
+      helper beside the accessibility one, built under the derived-data path,
+      matching `CGWindowListCopyWindowInfo` on the bundle identifier's pid.
+      Steps 1–4 and 6 were followed as written; the accessibility frame read
+      worked (`0,31,1644,1154`).
+
+      *Verified in both appearances.* The editor shows its code, syntax
+      coloured; the gutter is gutter-wide and agrees in colour with the pane;
+      the breadcrumb reads `scripts › claude-ollama.sh` with the final segment
+      in `textPrimary` and the rest and the separator in `textSecondary`; the
+      vertical tab column draws the panel ground, the trailing hairline, the
+      active row filled `bgEditor` with its leading `accent` bar and the shared
+      status mark, and the inactive row in `textSecondary` with a monochrome
+      icon; the minimap's viewport indicator draws the `accentTint` fill and the
+      `accentTintStrong` stroke. Every surface recolours in light.
+
+      *The regression is confirmed fixed, against master.* The same project,
+      file and window on `master` (built in a throwaway worktree outside the
+      repository tree, removed afterwards) shows the editor pane with **no code
+      at all** — the whole pane painted over — while this branch shows it. That
+      is the regression this part exists to fix, seen directly rather than
+      inferred.
+
+      *One acceptance clause not met, and it is not this part's.* "The minimap
+      draws its runs" is false — but it is false on `master` too, so this branch
+      did not cause it. Measured rather than eyeballed: over the minimap column,
+      master has 141 pixels whose channel spread exceeds 40 and this branch has
+      453, and the difference of 312 is exactly the pixel count of the new
+      indicator's `accentTintStrong` stroke. The run pixels are identical — none
+      — in both. Consistently with that, `drawTokens` is byte-for-byte unchanged
+      here (only its doc comment moved), the new background fill happens *before*
+      it, and the measured tint is only about 13% alpha, so neither new colour
+      can be hiding anything. Flagged for the user as a **pre-existing** defect
+      to be diagnosed on its own ticket, not folded into this part.
+- [x] Confirm nothing was written into the repository tree (`git status` clean
+      but for the intended changes). Clean: every build, capture, helper and the
+      comparison worktree lived under the derived-data path, and the theme
+      preference the capture had to set was read first and restored to its
+      original value afterwards.
 
 ## Post-Completion (manual, by the user)
 
