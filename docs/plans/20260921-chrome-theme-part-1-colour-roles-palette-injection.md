@@ -379,7 +379,7 @@ Docs: `docs/architecture/core-theme.md` (new), `app-window.md`,
 - Modify: `docs/architecture/app-window.md`,
   `docs/architecture/app-editor-overlays.md`, `CLAUDE.md`
 
-- [ ] `core-theme.md`: the role enumeration and why it is closed; the geometry
+- [x] `core-theme.md`: the role enumeration and why it is closed; the geometry
       tokens and the `InterfaceMetrics` scaling rule — including that
       `ChromeGeometry` carries **no font size**, the three chrome text sizes
       being `InterfaceTextStyle.body`/`.callout`/`.subheadline` (13/12/11) read
@@ -391,27 +391,27 @@ Docs: `docs/architecture/core-theme.md` (new), `app-window.md`,
       and "focused"; the monochrome-icon decision; the gating suite's five rules
       and three exemptions, noting that rule four reads
       `ZoomSourceGatingTests.interfaceScaledRoots` rather than restating it.
-- [ ] `core-theme.md` — the **sweep guide**: how a view is moved onto the roles
+- [x] `core-theme.md` — the **sweep guide**: how a view is moved onto the roles
       (find its colour sites, map each to a role, move its numbers onto
       `ChromeGeometry`, draw its text with `metrics.font(_:)`, add the file to
       the gated set, run the suite), and what to do when a surface seems to need
       a role that does not exist (it does not — the set is closed; raise it as a
       design question instead).
-- [ ] `app-window.md`: updated entries for `TabListView`/`TabRowView` (now the
+- [x] `app-window.md`: updated entries for `TabListView`/`TabRowView` (now the
       vertical column alone), the new `TabStripView`, and `ProjectTreeView` /
       `ProjectTreeDraftField` (row geometry, the four states, monochrome icons,
       the deleted `color(for:)`).
-- [ ] `app-editor-overlays.md`: updated `LineNumberRulerView` entry — the gutter
+- [x] `app-editor-overlays.md`: updated `LineNumberRulerView` entry — the gutter
       background and right hairline, the four colours through the bridge, and
       the deliberate duplication of the severity colours away from
       `SyntaxTheme`.
-- [ ] `CLAUDE.md`: the index lines for the four new Core files, the three new
+- [x] `CLAUDE.md`: the index lines for the four new Core files, the three new
       app files and `core-theme.md`, plus **one** cross-cutting-invariant
       paragraph — colour reaches a gated macOS chrome view only as a role, the
       palette has exactly two value sets and no third, and
       `ChromeThemeSourceGatingTests` pins which files obey it and which three
       are exempt. Keep the file well under its size target; no per-file essays.
-- [ ] run `swift test` and the app-layer bundle — must pass before Task 8
+- [x] run `swift test` and the app-layer bundle — must pass before Task 8
 
 ### Task 8: Verify acceptance criteria
 

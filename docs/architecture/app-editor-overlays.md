@@ -581,12 +581,31 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     whole buffer; attribute-only edits are ignored, and a wholesale buffer swap
     arrives as one full-range edit notification that rebuilds the cache (the same
     full rebuild the initial `textContentChanged()` does). It sizes `ruleThickness` to the widest
-    line number and follows the editor's monospaced font (at a smaller size) plus
-    `secondaryLabelColor` for light/dark. A pure view concern, so it lives in
-    `Pisaka`, not `PisakaCore`.
+    line number and follows the editor's monospaced font (at a smaller size).
+    **It is the chrome theme's second surface, and the one worked example of the
+    AppKit bridge** (`core-theme.md`): every colour it draws comes from
+    `ChromePalette.nsColor(_:)`, which answers a *dynamic* `NSColor`, so the
+    ruler follows the window's appearance — and therefore the Theme preference,
+    applied as `.preferredColorScheme` at the window root — while caching nothing
+    and observing no appearance change of its own. Four colours, four roles.
+    `drawHashMarksAndLabels` now **paints the gutter first**: `bgEditor` over the
+    drawn rect, then a `ChromeGeometry.hairlineWidth` rule in `hairline` at the
+    ruler's right edge (`ruleThickness - hairlineWidth`). Before the chrome theme
+    the ruler painted no background at all and inherited whatever the scroll view
+    drew, which is exactly what would make the gutter and the text disagree once
+    the editor took a colour of its own — so `CodeEditorView` paints the text
+    view, its clip view and its scroll view in that same `bgEditor` (one private
+    `applyEditorBackground(scrollView:textView:)`, the only colour that file
+    spells; the syntax tokens, the current-line and bracket painting and the
+    minimap all keep `SyntaxTheme`'s, and `CodeEditorView.swift` is deliberately
+    *not* in the chrome's gated set). The numbers and the blame labels share one
+    `numberAttributes` property — the ruler font plus `textSecondary` — which is
+    `internal` rather than `private` because it is the seam the app-layer gutter
+    suite reads: the drawing cannot be asserted, but what it is about to draw
+    with can. A pure view concern, so it lives in `Pisaka`, not `PisakaCore`.
     It also hosts the git-blame **annotation column**, drawn to the *left* of the
     numbers inside the same ruler, in the same `drawHashMarksAndLabels` pass, with
-    the same `rulerFont` and `NSColor.secondaryLabelColor`. State:
+    the same `rulerFont` and the same `textSecondary`. State:
     the `[BlameLine?]` array for the *displayed* file, a `hash → label` **string**
     memo, an `isAnnotating` flag and a `canAnnotate` flag (set by
     `BlameController.sync` from the file's URL — false for an untitled buffer,
@@ -665,17 +684,30 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     they do. Both inputs derive from `rulerFont`, so markers scale with code zoom
     like the numbers beside them (`zoomSurfaceKind == .code` unchanged), and are
     re-measured by the same `editorFontChanged()` path. A line carrying the worst
-    severity draws one dot in that severity's `SyntaxTheme` color; clean lines
-    draw nothing. The same edit notification feeds Core's shift through the new
+    severity draws one dot in that severity's **chrome status role** —
+    `LineNumberRulerView.diagnosticRole(for:)`, total over the closed severity
+    set: `error` → `statusRed`, `warning` → `statusYellow`, `information`/`hint`
+    → `statusBlue`; clean lines draw nothing. That is a **deliberate
+    duplication away from `SyntaxTheme`**, which still answers the same question
+    for the squiggle and the hover popover: the gutter is chrome and reads from
+    the palette, while the squiggle sits under the code and belongs to the code
+    zone's own theme, so the two tables are two on purpose (`core-theme.md`).
+    The three-surfaces-one-severity rule recorded on `SyntaxTheme` below is
+    therefore now about the squiggle and the panel icon; the gutter dot has moved
+    out of it, and the two tables' values happen to agree today, which is a fact
+    about the palette's choices and not a coupling either side may rely on. The same edit notification feeds Core's shift through the new
     `onEdit` closure — previous/post line-start tables, edited range and length
     delta, exactly `DiagnosticShift.updated`'s inputs, so the diagnostics channel
     never re-derives geometry this class already computed — captured **weakly**
     per the file's retain-cycle rule alongside `onToggleAnnotate`.
     **The fold chevron column** sits between the diagnostic markers and the
     numbers: `chevron.down` on the header line of every fold candidate,
-    `chevron.right` on a folded one (louder — `labelColor` against the open one's
-    `secondaryLabelColor` — because it is the only sign left in the gutter that a
-    block is hidden), and nothing on any other line, the column being blank rather
+    `chevron.right` on a folded one — **both in `textSecondary`**, the distinction
+    carried by the symbol rather than by two greys, because the gutter's chrome
+    text is one weight and a second one would be a second opinion about it (this
+    replaces the earlier louder-when-folded treatment, which spelled
+    `labelColor` against the open one's `secondaryLabelColor`) — and nothing on
+    any other line, the column being blank rather
     than absent. **Either set can put a chevron on a line**, not the candidate map
     alone: a tab switch restores the incoming file's folded state and publishes it
     with an empty candidate list, which the answer only fills a provider round trip
