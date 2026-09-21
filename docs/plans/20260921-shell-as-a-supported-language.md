@@ -388,21 +388,21 @@ link tree-sitter) and neither build executes it; the app-host bundle does both.
 **Files:**
 - Modify: `Tests/PisakaCoreTests/SyntaxTokenKindTests.swift`
 
-- [ ] Add `testShellGrammarQueryCaptureNamesResolve` in the exact shape of the
+- [x] Add `testShellGrammarQueryCaptureNamesResolve` in the exact shape of the
       Rust and Go tests: the **nine** names read out of the resolved checkout at
       v0.25.1 with a one-line note each on what they cover, a count assertion
       (`9`), and the loop that asserts each resolves to its expected kind. Note
       on the table that `variable_name` is emitted as `property`, so `$HOME`
       takes the property colour — the grammar's choice, recorded rather than
       corrected — and that this table needed **no** new `nameMap` entry.
-- [ ] Add `testShellEmbeddedCaptureIsDeliberatelyUnmapped`, asserting
+- [x] Add `testShellEmbeddedCaptureIsDeliberatelyUnmapped`, asserting
       `SyntaxTokenKind(captureName: "embedded") == .plain`, with decision 2's
       reasoning on it: it is an injection marker rather than a token class, it
       wraps spans whose inner captures already win under SwiftTreeSitter's
       less-specific-first ordering, and what it is left painting is the `$(`,
       `)`, `${`, `}` delimiters — correctly at the default colour. Written the
       way `testNoneCaptureNameStaysPlain` is: the absence is the decision.
-- [ ] Run `swift test` — must pass before Task 5.
+- [x] Run `swift test` — must pass before Task 5.
 
 ### Task 5: Re-run the required-reason API audit
 

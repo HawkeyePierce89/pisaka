@@ -195,6 +195,64 @@ final class SyntaxTokenKindTests: XCTestCase {
         }
     }
 
+    func testShellGrammarQueryCaptureNamesResolve() {
+        // The exact capture names emitted by the shell grammar's own
+        // `queries/highlights.scm` (tree-sitter/tree-sitter-bash 0.25.1,
+        // revision a06c2e44…), read out of the resolved checkout at the time it
+        // was pinned — the dockerfile, Go and Rust precedents above, for the
+        // same reason: a remote query cannot be re-read from here, so what this
+        // guards is that the Core mapping keeps resolving every name the
+        // grammar emits.
+        //
+        // Nine names, of which eight are pinned here and the ninth, `embedded`,
+        // is deliberately left unmapped — `testShellEmbeddedCaptureIsDeliberatelyUnmapped`
+        // carries that decision. This table needed **no** new `nameMap` entry.
+        //
+        // Worth stating because it is the grammar's choice and not a mistake in
+        // the table: `(variable_name)` is captured as `property`, so `$HOME`
+        // takes the property colour rather than the variable one. Recorded
+        // rather than corrected — remapping it here would recolour every other
+        // language's struct fields.
+        let emitted: [String: SyntaxTokenKind] = [
+            "comment": .comment,   // `#` to end of line
+            "constant": .constant, // a command argument matching `^-` (flags)
+            "function": .function, // `(command_name)` and a definition's `name:`
+            "keyword": .keyword,   // if, then, fi, for, while, case, export, …
+            "number": .number,     // `(file_descriptor)` — the `2` in `2>&1`
+            "operator": .operator, // `$`, `&&`, `>`, `>>`, `<`, `|`
+            "property": .property, // `(variable_name)` — see the note above
+            "string": .string,     // string, raw_string, heredoc body + start
+        ]
+
+        // The grammar's vocabulary is nine; `embedded` cannot sit in this table
+        // because the loop below asserts every entry renders non-plain, which is
+        // the exact opposite of the decision recorded for it.
+        XCTAssertEqual(emitted.count + 1, 9, "the pinned shell capture vocabulary is 9 names: these 8, plus `embedded`")
+
+        for (name, kind) in emitted {
+            XCTAssertEqual(SyntaxTokenKind(captureName: name), kind, "capture \(name)")
+            XCTAssertNotEqual(SyntaxTokenKind(captureName: name), .plain, "capture \(name) must not render plain")
+        }
+    }
+
+    func testShellEmbeddedCaptureIsDeliberatelyUnmapped() {
+        // The ninth name the shell grammar emits. `embedded` is an injection
+        // marker, not a token class: it captures `(command_substitution)`,
+        // `(process_substitution)` and `(expansion)` — whole spans, not a kind
+        // of token — and there is no member of the fourteen that it means.
+        //
+        // It costs nothing, because those spans contain their own more-specific
+        // captures and SwiftTreeSitter's `highlights()` sorts less-specific
+        // matches before more-specific ones, so the inner captures win. What
+        // `embedded` is actually left painting is the `$(`, `)`, `${` and `}`
+        // delimiters, and leaving those at the default colour is correct.
+        //
+        // Pinned the way `testNoneCaptureNameStaysPlain` is: the absence *is*
+        // the decision, so a later "map everything" sweep of the table cannot
+        // quietly give it a colour.
+        XCTAssertEqual(SyntaxTokenKind(captureName: "embedded"), .plain)
+    }
+
     func testNoneCaptureNameStaysPlain() {
         // `@none` is tree-sitter's conventional "deliberately not highlighted"
         // capture; the dockerfile query uses it on `(expansion)` so only the
