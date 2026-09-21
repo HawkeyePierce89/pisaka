@@ -5,14 +5,13 @@ import PisakaCore
 /// The horizontal tab strip above the editor: the whole strip's chrome, owned
 /// here rather than by its host.
 ///
-/// Split out of `TabListView` rather than left as a branch inside it, for two
-/// reasons. The vertical column is explicitly out of this part's scope and must
-/// keep drawing exactly what it drew — one view serving both orientations would
-/// have to keep a system colour for one of its two branches, which
-/// `ChromeThemeSourceGatingTests` (rightly) forbids a gated file. And the strip
-/// is not a list of rows that happens to run sideways: it has chrome of its own
+/// Split out of `TabListView` rather than left as a branch inside it: the strip
+/// is not a list of rows that happens to run sideways. It has chrome of its own
 /// — a height, a background, a bottom rule the editor below it sits under — that
-/// a row view cannot state.
+/// a row view cannot state, and the column's own chrome differs in every one of
+/// those three. What the two genuinely share is the trailing slot's precedence,
+/// and that is shared as one view (`TabStatusMark` below) rather than as one
+/// branching view.
 ///
 /// Which is why the host adds neither a `.frame(height:)` nor a `Divider()`: the
 /// strip states its own height (`ChromeGeometry.tabStripHeight`) and draws its
@@ -88,27 +87,12 @@ private struct TabStripCell: View {
                 .truncationMode(.middle)
                 .foregroundStyle(theme.color(isActive ? .textPrimary : .textSecondary))
 
-            // One slot, three claimants, in this order: the close mark while the
-            // pointer is in the tab, then the unsaved-changes dot, then the close
-            // mark on the active tab. The dot therefore **outranks** the mark on
-            // an active tab — unsaved work is a fact about the file that nothing
-            // else states, while the mark is reachable by pointing at the tab —
-            // and the mark still shows on the active tab whenever there is
-            // nothing to report, so the tab most likely to be closed does not
-            // have to be hunted for.
-            ZStack {
-                if isHovering {
-                    closeMark
-                } else if file.isDirty {
-                    Circle()
-                        .fill(theme.color(.textSecondary))
-                        .frame(width: metrics.scaled(7), height: metrics.scaled(7))
-                        .help("Unsaved changes")
-                } else if isActive {
-                    closeMark
-                }
-            }
-            .frame(width: metrics.scaled(14), height: metrics.scaled(14))
+            TabStatusMark(
+                isHovering: isHovering,
+                isDirty: file.isDirty,
+                isActive: isActive,
+                onClose: onClose
+            )
         }
         .padding(.horizontal, metrics.scaled(ChromeGeometry.rowPaddingX))
         .frame(maxHeight: .infinity)
@@ -131,6 +115,58 @@ private struct TabStripCell: View {
         .onHover { isHovering = $0 }
     }
 
+    /// The symbol `FileIcon` answers for this tab's file.
+    ///
+    /// An unsaved buffer has no url, and is asked about under its display name
+    /// so the answer is still `FileIcon`'s — its own fallback for a name it does
+    /// not recognise — rather than a second guess spelled here.
+    private var iconSymbolName: String {
+        let url = file.url ?? URL(fileURLWithPath: file.displayName)
+        return FileIcon(for: DirectoryEntry(url: url, isDirectory: false)).symbolName
+    }
+}
+
+/// The one slot both tab orientations draw at the trailing edge of a tab, with
+/// three claimants, in this order: the close mark while the pointer is in the
+/// tab, then the unsaved-changes dot, then the close mark on the active tab.
+///
+/// The dot therefore **outranks** the mark on an active tab — unsaved work is a
+/// fact about the file that nothing else states, while the mark is reachable by
+/// pointing at the tab — and the mark still shows on the active tab whenever
+/// there is nothing to report, so the tab most likely to be closed does not have
+/// to be hunted for.
+///
+/// It is one view rather than one rule restated in each orientation: the strip
+/// and the column show the same three facts about the same file, and two
+/// spellings of that precedence would drift the moment either is touched. It
+/// lives here, beside the strip that first stated the rule.
+struct TabStatusMark: View {
+    let isHovering: Bool
+    let isDirty: Bool
+    let isActive: Bool
+    let onClose: () -> Void
+
+    /// The interface zone's metrics, inherited from the window root.
+    @Environment(\.interfaceMetrics) private var metrics
+    /// The chrome's colours, inherited from the window root.
+    @Environment(\.chromeTheme) private var theme
+
+    var body: some View {
+        ZStack {
+            if isHovering {
+                closeMark
+            } else if isDirty {
+                Circle()
+                    .fill(theme.color(.textSecondary))
+                    .frame(width: metrics.scaled(7), height: metrics.scaled(7))
+                    .help("Unsaved changes")
+            } else if isActive {
+                closeMark
+            }
+        }
+        .frame(width: metrics.scaled(14), height: metrics.scaled(14))
+    }
+
     /// The close mark, drawn in either of the two slots that claim it.
     private var closeMark: some View {
         Button(action: onClose) {
@@ -140,16 +176,6 @@ private struct TabStripCell: View {
         }
         .buttonStyle(.plain)
         .help("Close")
-    }
-
-    /// The symbol `FileIcon` answers for this tab's file.
-    ///
-    /// An unsaved buffer has no url, and is asked about under its display name
-    /// so the answer is still `FileIcon`'s — its own fallback for a name it does
-    /// not recognise — rather than a second guess spelled here.
-    private var iconSymbolName: String {
-        let url = file.url ?? URL(fileURLWithPath: file.displayName)
-        return FileIcon(for: DirectoryEntry(url: url, isDirectory: false)).symbolName
     }
 }
 

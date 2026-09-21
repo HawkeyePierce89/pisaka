@@ -59,6 +59,9 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         "LineNumberRulerView.swift",
         "ProjectTreeView.swift",
         "ProjectTreeDraftField.swift",
+        // Part two: the editor pane's own chrome.
+        "TabListView.swift",
+        "TabRowView.swift",
     ]
 
     func testEveryGatedFileExists() throws {

@@ -142,23 +142,23 @@ consent strip's chrome), `CLAUDE.md` (one index line for the new file).
   `Sources/Pisaka/TabStripView.swift`
 - Modify: `Tests/PisakaCoreTests/ChromeThemeSourceGatingTests.swift`
 
-- [ ] Extract the strip cell's three-claimant slot into a shared `TabStatusMark`
+- [x] Extract the strip cell's three-claimant slot into a shared `TabStatusMark`
       view in `TabStripView.swift` (hover → close mark, else dirty → dot, else
       active → close mark), carrying the existing doc comment, and have the strip
       cell use it so its rendering is unchanged.
-- [ ] `TabListView`: `bgPanel` ground, a trailing hairline against the editor
+- [x] `TabListView`: `bgPanel` ground, a trailing hairline against the editor
       drawn by the column itself (`hairlineWidth`, scaled), rows at no padding of
       their own beyond the existing vertical inset.
-- [ ] `TabRowView`: `verticalTabRowHeight` tall, `rowPaddingX` horizontal; active
+- [x] `TabRowView`: `verticalTabRowHeight` tall, `rowPaddingX` horizontal; active
       row filled `bgEditor` with an `accentIndicator`-wide `accent` bar on the
       leading edge; label `textPrimary` when active and `textSecondary`
       otherwise; an inactive row hovered takes `hoverTint`; the monochrome
       `FileIcon` symbol in `textSecondary` (the strip's `iconSymbolName` rule,
       including the unsaved-buffer fallback); the shared `TabStatusMark` in the
       trailing slot. Every number through `metrics.scaled(_:)`.
-- [ ] Add `TabListView.swift` and `TabRowView.swift` to
+- [x] Add `TabListView.swift` and `TabRowView.swift` to
       `ChromeThemeSourceGatingTests.gatedFiles`, with a comment naming this part.
-- [ ] run `swift test` and the app-layer bundle — must pass before Task 3
+- [x] run `swift test` and the app-layer bundle — must pass before Task 3
 
 ### Task 3: The breadcrumb
 
