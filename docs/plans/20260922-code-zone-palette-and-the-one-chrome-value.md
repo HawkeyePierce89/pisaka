@@ -203,23 +203,23 @@ duplication.
 - Modify: `Sources/Pisaka/iOS/CodeEditorCoordinator_iOS.swift`
 - Modify: `Tests/PisakaAppTests/SyntaxThemeTests.swift`
 
-- [ ] In the macOS text-view configuration block, set the base foreground from
+- [x] In the macOS text-view configuration block, set the base foreground from
       `SyntaxTheme.shared.color(for: .plain)` beside the existing font assignment.
       Comment it as what it is: the colour of a character no capture covers, which
       is the same question `.plain` answers, so it is read from the theme rather
       than left on the text view's system-label default.
-- [ ] Do the same in the iOS text-view configuration block.
-- [ ] In the macOS no-grammar reset path, replace `textView.textColor ??
+- [x] Do the same in the iOS text-view configuration block.
+- [x] In the macOS no-grammar reset path, replace `textView.textColor ??
       .labelColor` with `SyntaxTheme.shared.color(for: .plain)`; in the iOS
       coordinator's equivalent, replace `textView.textColor ?? .label` the same
       way. No new resolution point is introduced — both read the one table.
-- [ ] Extend the doc comment of each reset path to say the restored colour is the
+- [x] Extend the doc comment of each reset path to say the restored colour is the
       theme's plain entry, not the platform's label colour.
-- [ ] Add an app-layer test that the value the macOS editor uses for uncovered
+- [x] Add an app-layer test that the value the macOS editor uses for uncovered
       text — `SyntaxTheme.shared.color(for: .plain)` — is the table's `.plain` row
       in both appearances, so the two sites cannot drift back onto a system colour
       without the suite noticing.
-- [ ] Run the app-layer bundle **and** an iOS build (`xcodebuild -project
+- [x] Run the app-layer bundle **and** an iOS build (`xcodebuild -project
       Pisaka.xcodeproj -scheme Pisaka -destination 'generic/platform=iOS' build`) —
       both must pass before Task 3.
 

@@ -934,13 +934,17 @@ final class CodeEditorCoordinator_iOS: NSObject, UITextViewDelegate {
             // `TextStorageSystemInterface`, which writes attributes directly on the
             // storage — so resetting the storage foreground is enough (no
             // layout-manager temporary attributes to clear, unlike macOS).
+            //
+            // The colour restored is the theme's plain entry — not the platform's
+            // label colour — so an unhighlighted file follows the app's Theme
+            // preference like every other character does.
             let storage = textView.textStorage
             if storage.length > 0 {
                 let fullRange = NSRange(location: 0, length: storage.length)
                 storage.removeAttribute(.foregroundColor, range: fullRange)
                 storage.addAttribute(
                     .foregroundColor,
-                    value: textView.textColor ?? .label,
+                    value: SyntaxTheme.shared.color(for: .plain),
                     range: fullRange
                 )
             }

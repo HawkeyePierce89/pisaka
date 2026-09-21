@@ -145,6 +145,22 @@ final class SyntaxThemeTests: XCTestCase {
         // kind, so `color(for:)` never falls through to it.
         XCTAssertEqual(Set(SyntaxTheme.table.keys), Set(SyntaxTokenKind.allCases))
     }
+
+    // MARK: - Uncovered text
+
+    /// The value the editor gives a character no capture covers.
+    ///
+    /// Two sites read it — the text view's base foreground and the no-grammar
+    /// reset path — and both spell `SyntaxTheme.shared.color(for: .plain)`. This
+    /// pins what that expression resolves to, so neither site can drift back onto
+    /// a platform label colour (which follows the *system* appearance and so
+    /// ignores the app's Theme preference) without the suite noticing.
+    func testUncoveredTextReadsThePlainRowInBothAppearances() throws {
+        let row = try XCTUnwrap(Self.expected[.plain])
+        let colour = SyntaxTheme.shared.nsColor(for: .plain)
+        try assertComponents(resolved(colour, under: .darkAqua), equal: row.dark, "uncovered text, dark")
+        try assertComponents(resolved(colour, under: .aqua), equal: row.light, "uncovered text, light")
+    }
 }
 
 #endif

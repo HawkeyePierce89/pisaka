@@ -124,6 +124,11 @@ struct CodeEditorView_iOS: UIViewRepresentable {
         let textView = UITextView(usingTextLayoutManager: false)
         textView.delegate = context.coordinator
         textView.font = editorFont()
+        // The colour of a character no capture covers — the same question
+        // `SyntaxTokenKind.plain` answers — so it is read from the one table
+        // rather than left on the text view's system-label default, which would
+        // follow the *system* appearance and ignore the app's Theme preference.
+        textView.textColor = SyntaxTheme.shared.color(for: .plain)
         textView.isEditable = true
         textView.isSelectable = true
         textView.alwaysBounceVertical = true

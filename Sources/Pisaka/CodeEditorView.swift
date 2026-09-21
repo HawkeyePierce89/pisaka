@@ -236,6 +236,16 @@ struct CodeEditorView: NSViewRepresentable {
         .monospacedSystemFont(ofSize: CGFloat(fontSize), weight: .regular)
     }
 
+    /// The two attributes every character starts from: the editor font, and the
+    /// colour of a character no capture covers — the same question
+    /// `SyntaxTokenKind.plain` answers, so it is read from the one table rather
+    /// than left on the text view's system-label default, which would follow the
+    /// *system* appearance and ignore the app's Theme preference.
+    private func applyBaseTypography(to textView: NSTextView) {
+        textView.font = editorFont()
+        textView.textColor = SyntaxTheme.shared.color(for: .plain)
+    }
+
     func makeNSView(context: Context) -> EditorContainerView {
         // Build the text view explicitly as TextKit 1. Neon's `TextViewHighlighter`
         // supports both TextKit systems, but a fixed, known-good configuration
@@ -384,7 +394,7 @@ struct CodeEditorView: NSViewRepresentable {
         textView.isSelectable = true
         textView.allowsUndo = true
         textView.isRichText = false
-        textView.font = editorFont()
+        applyBaseTypography(to: textView)
         context.coordinator.appliedFontSize = CGFloat(fontSize)
         textView.isAutomaticQuoteSubstitutionEnabled = false
         textView.isAutomaticDashSubstitutionEnabled = false
@@ -3575,13 +3585,17 @@ struct CodeEditorView: NSViewRepresentable {
                 // attributes on the text storage. Clearing the storage's
                 // foreground color alone would leave the old syntax colors visible;
                 // the temporary attributes must be cleared too.
+                //
+                // The colour restored is the theme's plain entry — not the
+                // platform's label colour — so an unhighlighted file follows the
+                // app's Theme preference like every other character does.
                 if let textStorage = textView.textStorage, textStorage.length > 0 {
                     let fullRange = NSRange(location: 0, length: textStorage.length)
                     textView.layoutManager?.setTemporaryAttributes([:], forCharacterRange: fullRange)
                     textStorage.removeAttribute(.foregroundColor, range: fullRange)
                     textStorage.addAttribute(
                         .foregroundColor,
-                        value: textView.textColor ?? .labelColor,
+                        value: SyntaxTheme.shared.color(for: .plain),
                         range: fullRange
                     )
                 }
