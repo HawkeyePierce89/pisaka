@@ -353,19 +353,43 @@ duplication.
 
 ### Task 6: Verify acceptance criteria
 
-- [ ] `swift test` — the whole domain suite green.
-- [ ] `xcodegen generate` then `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka
+- [x] `swift test` — the whole domain suite green. 5724 tests, 0 failures.
+- [x] `xcodegen generate` then `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka
       -destination 'platform=macOS' test` — the app-layer bundle green, including
-      both new suites and all three new rules.
-- [ ] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination
-      'generic/platform=iOS' build` — the iOS editor change compiles.
-- [ ] `swiftlint --strict` from the repository root — clean.
-- [ ] Re-read the acceptance list against the diff and confirm each item, naming the
-      file or test that satisfies it: no token kind left on the old scheme; plain
-      and unmapped text off any system colour; the preview's derivation intact and
-      now pinned; the domain theme stating the palette on its own; the two washes
-      distinct; no chrome role read by the code zone and no syntax entry in the
-      chrome palette.
+      both new suites and all three new rules. 105 tests, 0 failures, of which
+      `SyntaxThemeTests` is 5.
+- [x] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination
+      'generic/platform=iOS' build` — the iOS editor change compiles. BUILD
+      SUCCEEDED.
+- [x] `swiftlint --strict` from the repository root — clean. 0 violations in 580
+      files.
+- [x] Re-read the acceptance list against the diff and confirm each item, naming the
+      file or test that satisfies it:
+      - no token kind left on the old scheme — `SyntaxTheme.table` carries the
+        fourteen new rows, restated and compared component for component in both
+        appearances by `SyntaxThemeTests.testEveryTokenKindResolvesToItsRow`;
+      - plain and unmapped text off any system colour — `SyntaxTheme.plainText`
+        replaces the `.labelColor` / `.label` fallback, the two text-view
+        configuration blocks (`CodeEditorView.applyBaseTypography(to:)`,
+        `CodeEditorView_iOS.swift`) set the base foreground from `.plain`, and the
+        two no-grammar reset paths read the same entry; pinned by
+        `testNoTokenKindResolvesToASystemSemanticColour`,
+        `testPlainTextFallbackAndTheTablesTotality` and
+        `testUncoveredTextReadsThePlainRowInBothAppearances`;
+      - the preview's derivation intact and now pinned — `markdownPreviewTheme(prefersDark:)`
+        is unchanged and `testThePreviewThemeCarriesTheEditorsPaletteInBothAppearances`
+        asserts every kind's entry plus the untouched chrome fields;
+      - the domain theme stating the palette on its own —
+        `MarkdownPreviewTheme.light`/`.dark` carry the fourteen CSS strings, with
+        the new shape test in `MarkdownPreviewThemeTests` beside the two
+        pre-existing ones, neither loosened;
+      - the two washes distinct — `ChromePalette.selectionInactive` is now
+        `dark: 0x3C3F46, light: 0xE2E2E7` against `currentLine`'s unchanged pair,
+        with the rule-shaped test in `ChromePaletteTests`;
+      - no chrome role read by the code zone and no syntax entry in the chrome
+        palette — the only cross-references in `SyntaxTheme.swift` and
+        `ChromePalette.swift` are the two counterpart doc comments; neither file
+        names the other's type in code.
 
 ## Post-Completion (manual, by the reviewer)
 
