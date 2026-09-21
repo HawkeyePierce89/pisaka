@@ -709,10 +709,15 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     per the file's retain-cycle rule alongside `onToggleAnnotate`.
     **The ruler has two instances, not one**: the editor's, and the read-only
     out-of-project definition window's (`SourceViewerContent.swift`,
-    `app-window.md`), which builds the same class. Restyling the gutter therefore
-    restyled that window's gutter too, while the rest of that window is still
-    drawn the way it was — an accepted side effect of one ruler serving two
-    surfaces, standing until the sweep reaches the source viewer.
+    `app-window.md`), which builds the same class. Both now sit on `bgEditor`,
+    and deliberately so: the editor's pane takes it from
+    `CodeEditorView.applyEditorBackground(scrollView:textView:)`, and the source
+    viewer applies the same role to the same three views in its own
+    `makeNSView`, because a pane left on the system's text background would show
+    the gutter as a visibly lighter band beside the text in the dark appearance.
+    So the gutter and the text it numbers agree in both windows. What is *not*
+    themed is the rest of that window's chrome, which still draws the way it did
+    and waits for the sweep to reach it.
     **The fold chevron column** sits between the diagnostic markers and the
     numbers: `chevron.down` on the header line of every fold candidate,
     `chevron.right` on a folded one — **both in `textSecondary`**, the distinction
