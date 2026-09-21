@@ -190,15 +190,15 @@ consent strip's chrome), `CLAUDE.md` (one index line for the new file).
 - Modify: `Sources/Pisaka/MinimapView.swift`
 - Modify: `Tests/PisakaCoreTests/ChromeThemeSourceGatingTests.swift`
 
-- [ ] Background: `ChromePalette.nsColor(.bgEditor)` filling `bounds`, replacing
+- [x] Background: `ChromePalette.nsColor(.bgEditor)` filling `bounds`, replacing
       the half-opacity system text background.
-- [ ] Viewport indicator: fill `accentTint`, stroke `accentTintStrong`, both
+- [x] Viewport indicator: fill `accentTint`, stroke `accentTintStrong`, both
       dynamic, no cached colour and no appearance observer — the bridge's rule.
-- [ ] Leave `drawTokens` and `MinimapTokenizer` untouched, and say in the file's
+- [x] Leave `drawTokens` and `MinimapTokenizer` untouched, and say in the file's
       doc comment that the runs are the *code's* colours and stay with
       `SyntaxTheme` — the same boundary the syntax highlighting sits on.
-- [ ] Add `MinimapView.swift` to `gatedFiles`.
-- [ ] run `swift test` and the app-layer bundle — must pass before Task 5
+- [x] Add `MinimapView.swift` to `gatedFiles`.
+- [x] run `swift test` and the app-layer bundle — must pass before Task 5
 
 ### Task 5: The consent banner
 

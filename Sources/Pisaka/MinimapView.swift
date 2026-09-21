@@ -2,9 +2,8 @@
 import AppKit
 import PisakaCore
 
-/// A VS Code-style minimap: a syntax-colored, fixed-row-height overview of the
-/// file (sliding when it overflows the panel) with a draggable viewport
-/// rectangle on top.
+/// A minimap: a syntax-colored, fixed-row-height overview of the file (sliding
+/// when it overflows the panel) with a draggable viewport rectangle on top.
 ///
 /// The view is *flipped* (`isFlipped == true`) so its y axis grows downward and
 /// matches `MinimapGeometry`'s top-down convention exactly — a minimap y in the
@@ -12,14 +11,25 @@ import PisakaCore
 /// (`CodeEditorView`) handles the editor's flipped clip-view coordinates at the
 /// boundary; here everything is already top-down.
 ///
-/// Rendering is intentionally thin and *proportional* (VS Code-style): each
-/// document line gets a fixed minimap row height (`minimapLineHeight`, ~3px)
-/// rather than being stretched to fit. The full content (`lineCount *
-/// minimapLineHeight`) may exceed the panel, so the whole drawing slides upward
-/// by `minimapScrollTop` and rows outside the visible slice are culled. Per line
-/// it draws small colored rectangles (~1pt/char) for each non-whitespace run.
-/// Colors are resolved through `SyntaxTheme` at *draw time*, so the minimap
-/// follows the system appearance like the editor.
+/// Rendering is intentionally thin and *proportional*: each document line gets a
+/// fixed minimap row height (`minimapLineHeight`, ~3px) rather than being
+/// stretched to fit. The full content (`lineCount * minimapLineHeight`) may
+/// exceed the panel, so the whole drawing slides upward by `minimapScrollTop`
+/// and rows outside the visible slice are culled. Per line it draws small
+/// colored rectangles (~1pt/char) for each non-whitespace run.
+///
+/// **Two colour sources, one boundary.** The view's own chrome — the background
+/// it clears to and the viewport rectangle drawn over the overview — is drawn
+/// from `ChromeColorRole` through `ChromePalette.nsColor(_:)`, which answers a
+/// *dynamic* colour: nothing here caches a resolved value and nothing observes
+/// an appearance change, because the colour resolves itself while AppKit has the
+/// view's effective appearance current. The **runs** are not chrome: they are a
+/// rendering of the code, so they stay with `SyntaxTheme` for exactly the reason
+/// the syntax highlighting does — a token kind names the code zone's own theme,
+/// which no chrome role can stand in for. That is the same boundary
+/// `ChromeThemeSourceGatingTests` records from the other side, where
+/// `SyntaxTheme.swift` is one of the three exemptions. Both sources are resolved
+/// at *draw time*, so the minimap follows the appearance like the editor.
 ///
 /// It declares itself a **code** zoom surface. The minimap is a *sibling* of the
 /// editor's scroll view inside `EditorContainerView`, so the pointer walk cannot
@@ -68,8 +78,8 @@ final class MinimapView: NSView, ZoomSurfaceProviding {
     /// editor's bounds-changed notification, the same closed loop).
     var onScrollToOffset: ((CGFloat) -> Void)?
 
-    /// Minimap width per source character, in points. A coarse VS Code-like
-    /// density; runs are clipped to the view width so long lines don't overflow.
+    /// Minimap width per source character, in points. A coarse density; runs are
+    /// clipped to the view width so long lines don't overflow.
     private let charWidth: CGFloat = 1
 
     /// The shared built-in theme; colors are appearance-aware and re-resolved at
@@ -112,8 +122,9 @@ final class MinimapView: NSView, ZoomSurfaceProviding {
         super.draw(dirtyRect)
 
         guard let context = NSGraphicsContext.current?.cgContext else { return }
-        // Subtle background so the overview reads as a distinct gutter.
-        NSColor.textBackgroundColor.withAlphaComponent(0.5).setFill()
+        // The strip sits beside the code and reads as part of the editor pane,
+        // so it takes the pane's own ground rather than a washed system one.
+        ChromePalette.nsColor(.bgEditor).setFill()
         context.fill(bounds)
 
         drawTokens(in: context)
@@ -123,6 +134,9 @@ final class MinimapView: NSView, ZoomSurfaceProviding {
     /// Draw each document line's non-whitespace runs as thin colored bars at a
     /// fixed row height, slid up by the content slide and culled to the visible
     /// slice of the panel.
+    ///
+    /// The bars are in the *code's* colours, which is why this one method asks
+    /// `SyntaxTheme` rather than the palette — see the boundary above.
     private func drawTokens(in context: CGContext) {
         let lineCount = model.lineCount
         let rowHeight = minimapLineHeight
@@ -171,7 +185,8 @@ final class MinimapView: NSView, ZoomSurfaceProviding {
         }
     }
 
-    /// Draw the translucent, bordered viewport rectangle over the overview.
+    /// Draw the translucent, bordered viewport rectangle over the overview, in
+    /// the two accent-wash roles.
     private func drawViewportRectangle(in context: CGContext) {
         guard bounds.width > 0, geometry.minimapHeight > 0 else { return }
 
@@ -179,9 +194,12 @@ final class MinimapView: NSView, ZoomSurfaceProviding {
         guard height > 0 else { return }
 
         let rect = NSRect(x: 0, y: y, width: bounds.width, height: height)
-        NSColor.labelColor.withAlphaComponent(0.12).setFill()
+        // The two accent washes, each carrying its own opacity in the table, so
+        // nothing here composes an alpha of its own: the fill states where the
+        // viewport is, the stroke draws its edge one step stronger.
+        ChromePalette.nsColor(.accentTint).setFill()
         context.fill(rect)
-        NSColor.labelColor.withAlphaComponent(0.30).setStroke()
+        ChromePalette.nsColor(.accentTintStrong).setStroke()
         let border = rect.insetBy(dx: 0.5, dy: 0.5)
         context.stroke(border, width: 1)
     }
