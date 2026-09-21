@@ -119,6 +119,7 @@ struct LocalHistoryView: View {
         // itself. The diff panes stay on `settings.fontSize` — the code zone —
         // exactly as they do in a separate diff window.
         .interfaceScaled(settings)
+        .chromeThemed(settings)
     }
 
     // MARK: - The revisions list

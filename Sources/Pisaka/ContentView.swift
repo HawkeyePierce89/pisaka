@@ -459,6 +459,7 @@ struct ContentView: View {
         // inherits it. The editor, the terminal and the diff/merge panes are
         // deliberately unaffected: they draw at their own zones' font sizes.
         .interfaceScaled(settings)
+        .chromeThemed(settings)
     }
 
     /// What a statement request depends on: which tab is selected, and where the
@@ -901,7 +902,7 @@ struct ContentView: View {
             switch settings.tabOrientation {
             case .vertical:
                 // Middle zone: vertical tab list, as its own resizable column.
-                TabListView(model: model, orientation: .vertical, onClose: onClose)
+                TabListView(model: model, onClose: onClose)
                     .frame(
                         minWidth: metrics.scaled(180),
                         idealWidth: metrics.scaled(220),
@@ -931,9 +932,10 @@ struct ContentView: View {
                     // The 320pt floor is on the editor column here too, for the
                     // reason spelled out in the vertical branch above.
                     VStack(spacing: 0) {
-                        TabListView(model: model, orientation: .horizontal, onClose: onClose)
-                            .frame(height: metrics.scaled(32))
-                        Divider()
+                        // Neither a height nor a divider here: the strip states
+                        // its own height and draws its own rule, so the two
+                        // cannot disagree.
+                        TabStripView(model: model, onClose: onClose)
                         editorZone
                     }
                     .frame(minWidth: metrics.scaled(320), maxWidth: .infinity, maxHeight: .infinity)

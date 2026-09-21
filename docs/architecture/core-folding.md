@@ -315,11 +315,12 @@ for a url-backed file and the tab id's `uuidString` for an unsaved buffer, so th
 key is the *file*, not the tab. The path is spelled
 `url.standardizedFileURL.resolvingSymlinksInPath().path` — Core's
 `CanonicalPath.canonical(_:)` verbatim — and `CanonicalPath` is `internal` to
-Core while the app layer already spells that transform inline at five sites
+Core while the app layer already spells that transform inline at six sites
 (`CodeEditorView.Coordinator.foldMemoryKey`, `SourceViewerWindowController`,
-`PisakaApp` ×2, `RootView_iOS`), of which this is one. Making it `public` and
-routing all five through it is a cross-cutting change with its own verification
-and is deliberately not bundled here (`CLAUDE.md` Paths).
+`PisakaApp` ×2, `RootView_iOS`, and `ProjectTreeView`'s `TreeSelection`, which
+spells it in two statements rather than in one chain), of which this is one.
+Making it `public` and routing all six through it is a cross-cutting change with
+its own verification and is deliberately not bundled here (`CLAUDE.md` Paths).
 
 **There is deliberately no `prune(keeping:)`**, which is the one divergence from
 `EditorViewportMemory`: a viewport is where you were reading and is meaningless

@@ -286,6 +286,12 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
 - `ZoomGestureAccumulator.swift` — scroll/pinch deltas → the keyboard's discrete steps.
 - `InterfaceMetrics.swift` — `InterfaceTextStyle` base sizes; scaled fonts/metrics.
 
+`docs/architecture/core-theme.md` — the chrome theme (macOS; Core + app halves):
+- `ChromeColorRole.swift` — the closed 21-role colour vocabulary; a role names a meaning, never a value.
+- `ChromeGeometry.swift` — the chrome's point tokens, scaled at the use site; no font size, ever.
+- `ChromeAppearance.swift` — `dark`/`light` + the third `resolved(_:systemPrefersDark:)`.
+- `TreeRowState.swift` — the tree row's four-plus-drop states and their precedence; selection and focus are derived.
+
 `docs/architecture/core-database-viewer.md` — the database viewer tab (macOS; reads, plus two writes — the inline cell edit and the SQL console's confirmed mutation):
 - `DatabaseFileRule.swift` — the one recognized-extension rule; last extension only.
 - `DatabaseValue.swift` — the five storage classes + the one rendering (NULL vs. `""`, the blob placeholder); `DatabaseStatement`/`DatabaseResultSet`.
@@ -379,6 +385,11 @@ headlessly in `Tests/PisakaAppTests`.
 - `ZoomController.swift` — the one `NSEvent` monitor; the three View-menu items.
 - `InterfaceScaleEnvironment.swift` — `\.interfaceMetrics` + `.interfaceScaled(_:)`.
 
+`docs/architecture/core-theme.md` — the chrome theme's app surfaces (same doc as the Core half):
+- `ChromePalette.swift` — the one hex table (exhaustive `switch`, no `default`) + the dynamic-`NSColor` bridge and `ChromeTheme`.
+- `ChromeThemeEnvironment.swift` — `\.chromeTheme` + `.chromeThemed(_:)` at the interface scale's own eight roots.
+- `TabStripView.swift` — the horizontal tab strip, the first surface drawn wholly from the roles.
+
 `docs/architecture/core-database-viewer.md` — the viewer's app surfaces (same doc as the Core half):
 - `Platform/DatabaseConnectionService.swift` — the one SQLite-importing file: one actor-serialized read-only connection, busy timeout, verbatim messages; `performWrite(_:)`'s separate short-lived read-write connection; the console's one prepare-by-tail loop, its bounded stepping and its transaction bracket.
 - `DatabaseViewerTabs.swift` — one model (≡ one connection) per viewer tab; tab close observed, not called; forwards the gate question and the write hook; its own file so `PisakaApp` does not grow.
@@ -403,7 +414,7 @@ headlessly in `Tests/PisakaAppTests`.
 - `SourceViewerWindowController.swift` / `SourceViewerContent.swift` — the read-only out-of-project definition window.
 - `ProjectTreeView.swift` — project tree (lazy children, `treeRevision` reloads).
 - `ProjectTreeDraftField.swift` — inline naming draft field.
-- `TabListView.swift` / `TabRowView.swift` — open-tabs list/strip.
+- `TabListView.swift` / `TabRowView.swift` — the vertical open-tabs column (the horizontal strip is `TabStripView.swift`, indexed under the chrome theme).
 
 `docs/architecture/app-terminal.md` — embedded terminal (macOS):
 - `TerminalTheme.swift` — light/dark palette incl. themed ANSI-16.
@@ -699,6 +710,36 @@ ci.yml's `lint` job, and the version-bump procedure.
   precisely because two bracketed operations cannot otherwise be ordered — is
   reached through `PullRequestCoordinator` alone, its three sites, so no file
   under the feature names `autosave` or `localChanges` at all (`core-github.md`).
+- **Colour reaches a gated chrome view only as a role** (macOS only): the
+  chrome — everything drawn *around* the code — is named in Core as a **closed**
+  21-case `ChromeColorRole` plus `ChromeGeometry`'s point tokens (scaled at the
+  use site — with one stated exception, `hairlineWidth` on an AppKit *code*-zoom
+  surface, which has no interface scale to ask and draws the token unscaled, a
+  hairline being one point by definition — and carrying **no font size**: the
+  chrome's three sizes are
+  `InterfaceTextStyle.body`/`.callout`/`.subheadline`, 13/12/11, read through
+  `metrics.font(_:)`), and coloured in the app layer by one table,
+  `ChromePalette`, whose **exhaustive `switch`** makes a role without a value a
+  compile error. The palette has **exactly two value sets and no third** — a dark
+  and a light entry per role, plus one alpha shared by both, since a wash is one
+  wash over either background — resolved through `ChromeAppearance`, the third
+  spelling of `resolved(_:systemPrefersDark:)`. Two paths, no others: SwiftUI
+  reads `@Environment(\.chromeTheme)`, injected by `.chromeThemed(_:)` at
+  **exactly the eight roots `.interfaceScaled(_:)` already names** (one list, read
+  from `ZoomSourceGatingTests`' own declaration), and AppKit asks
+  `ChromePalette.nsColor(_:)` for a **dynamic** colour — which is why no AppKit
+  chrome view caches a resolved colour or observes an appearance change. A
+  reader: it takes no writer gate, is gated by none and writes nothing.
+  `ChromeThemeSourceGatingTests` pins which files obey the rule (six, by set
+  equality) and its five rules — no system semantic colour, no hex literal
+  outside the table, the three exemptions stay exemptions, the theme injected at
+  the scale's roots, no view constructing a theme — while **three files are exempt because they are not
+  chrome**: `SyntaxTheme.swift` (the code zone's own theme), `TerminalTheme.swift`
+  (a protocol's ANSI-16 vocabulary) and `FileIcon.swift` (a Core token iOS still
+  paints). Three surfaces are swept so far — the tab strip, the line-number
+  ruler, the project tree rows; the rest is the follow-up sweep, whose procedure
+  and its one refusal ("a surface needing a twenty-second role has found a design
+  question") are in `core-theme.md`.
 - **Zoom is three zones, one arithmetic, one pointer rule** (macOS only): `code`
   — which *is* `SettingsStore.fontSize`, never a second setting — `terminal` and
   `interface` each clamp/step/reset through one `ZoomScaleRule`, and every
@@ -834,9 +875,9 @@ ci.yml's `lint` job, and the version-bump procedure.
   `LSPInstallLayout` alone is purely lexical — the three must not be unified
   (documented on all). The fold memory key is the one stated exception:
   `CanonicalPath` is `internal` to Core and the app layer already spells
-  `standardizedFileURL.resolvingSymlinksInPath().path` inline at five sites,
+  `standardizedFileURL.resolvingSymlinksInPath().path` inline at six sites,
   of which that key is one; the spelling is Core's `canonical(_:)` verbatim and
-  making it `public` to route all five through it is a cross-cutting change
+  making it `public` to route all six through it is a cross-cutting change
   deliberately not bundled here (see `CodeEditorView.Coordinator.foldMemoryKey`
   and `core-folding.md`).
 - **Line separators**: the editor splits on LF/CR/CRLF/NEL/LS/PS everywhere via

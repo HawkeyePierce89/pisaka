@@ -63,6 +63,10 @@ struct TreeNameFieldView: View {
     let onCancel: () -> Void
 
     @Environment(\.interfaceMetrics) private var metrics
+    /// The chrome's colours, inherited from the window root — the same ones the
+    /// row this draft stands in reads, since a draft must read identically to
+    /// the row it replaces.
+    @Environment(\.chromeTheme) private var theme
 
     @State private var text: String
     @State private var issue: EntryPathIssue?
@@ -128,18 +132,30 @@ struct TreeNameFieldView: View {
                     }
 
                     Text(issue.message)
-                        .foregroundColor(Color(NSColor.systemRed))
+                        .foregroundColor(theme.color(.statusRed))
                         .font(metrics.scaledFont(.caption))
                         .lineLimit(nil)
                 }
             }
         }
-        .padding(.horizontal, isCreate ? metrics.scaled(TreeRowLayout.horizontalPadding) : 0)
-        .padding(.vertical, isCreate ? metrics.scaled(TreeRowLayout.verticalPadding) : 0)
-        // Outermost, *after* the padding: SwiftUI sizes a background to its
-        // primary view, so the region's bounds is this whole draft — icon
-        // column, field and reason line together. Clicking any of them is
-        // therefore "inside" by construction rather than by a measured inset.
+        .padding(.horizontal, isCreate ? metrics.scaled(ChromeGeometry.rowPaddingX) : 0)
+        // A **create** draft is a row of its own — `DirectoryNodeView` hosts it
+        // directly, above the children — so it has to state the row height the
+        // rows around it take, or it draws visibly shorter than its neighbours.
+        // A rename draft states nothing here: it is *inside* the row it renames,
+        // which already carries the token. `minHeight` only, never a ceiling:
+        // the wrapped validation-reason line below the field must be able to
+        // grow past one row.
+        .frame(
+            maxWidth: .infinity,
+            minHeight: isCreate ? metrics.scaled(ChromeGeometry.rowHeight) : nil,
+            alignment: .leading
+        )
+        // Outermost, *after* the padding and the row frame: SwiftUI sizes a
+        // background to its primary view, so the region's bounds is this whole
+        // draft — icon column, field and reason line together. Clicking any of
+        // them is therefore "inside" by construction rather than by a measured
+        // inset.
         .background(TreeDraftDismissRegion(onCancel: onCancel))
     }
 
@@ -156,15 +172,18 @@ struct TreeNameFieldView: View {
                 HStack(spacing: metrics.scaled(TreeRowLayout.chevronSpacing)) {
                     Color.clear.frame(width: metrics.scaled(TreeRowLayout.chevronWidth))
                     let icon = FileIcon(symbolName: "folder", color: .accent)
+                    // Monochrome, exactly as the row this draft stands in draws
+                    // its own icon: `FileIcon`'s tint is deliberately unread.
                     Image(systemName: icon.symbolName)
-                        .foregroundStyle(color(for: icon.color))
+                        .foregroundStyle(theme.color(.textSecondary))
                 }
             } else {
                 HStack(spacing: 0) {
                     Color.clear.frame(width: TreeRowLayout.chevronGutter(metrics))
                     let icon = fileIcon(for: text)
+                    // Monochrome, for the folder draft's reason.
                     Image(systemName: icon.symbolName)
-                        .foregroundStyle(color(for: icon.color))
+                        .foregroundStyle(theme.color(.textSecondary))
                 }
             }
         case .rename:
@@ -598,7 +617,14 @@ struct ProjectTreeDraftFieldRepresentable: NSViewRepresentable {
             }
         }
 
-        nsView.textColor = currentIssue != nil ? .systemRed : .labelColor
+        // Through the `NSColor` bridge, not AppKit's semantic set: this field is
+        // the chrome's one `NSTextField`, and it must read as the row it stands
+        // in — which is drawn from the palette. The bridge answers a *dynamic*
+        // colour, so the field follows the window's appearance without observing
+        // anything itself.
+        nsView.textColor = currentIssue != nil
+            ? ChromePalette.nsColor(.statusRed)
+            : ChromePalette.nsColor(.textPrimary)
     }
 
     static func dismantleNSView(_ nsView: CustomTextField, coordinator: Coordinator) {

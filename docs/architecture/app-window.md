@@ -708,14 +708,23 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     every depth and scale; the cost is that the tree's whole content, files
     included, sits one gutter further right than before this change (which is the
     ordinary file-tree layout, and the one visible geometry change here). The
-    unscaled row geometry lives in one `TreeRowLayout` enum with **three** readers
-    (the horizontal/vertical padding and the hover-highlight color, plus the
-    chevron column, its spacing and the gutter derived from the two): both row
-    kinds and — since the inline draft occupies the row it stands in and must be
-    padded and gutter-inset with the very same numbers, or the tree would visibly
-    shift as a draft opens and closes — `ProjectTreeDraftField.swift`, which is
-    why the enum is internal rather than `private`, exactly as `color(for:)` is.
-    As literals they would drift apart, and reading alike is the whole point. Every size
+    unscaled row geometry now comes from **two** places, split by whose
+    measurement it is. The chrome's own — a row's height
+    (`ChromeGeometry.rowHeight`, applied as a *fixed* min/max frame rather than
+    as padding around the content, so a tree row and a tab row cannot drift apart
+    when one gains a taller glyph — with one exception, both row kinds lifting
+    that ceiling while they host a rename draft, for the reason given in the
+    draft field's entry below), its horizontal padding
+    (`ChromeGeometry.rowPaddingX`) and one level of nesting
+    (`ChromeGeometry.treeIndentStep`, the former literal `12`) — are tokens, read
+    by every chrome list (`core-theme.md`). What stays in `TreeRowLayout` is the
+    part that is the *tree's* own: the chevron column, its spacing and the gutter
+    derived from the two. Both sets have the same **three** readers — both row
+    kinds and, since the inline draft occupies the row it stands in and must be
+    padded and gutter-inset with the very same numbers or the tree would visibly
+    shift as a draft opens and closes, `ProjectTreeDraftField.swift` — which is
+    why `TreeRowLayout` is internal rather than `private`. As literals they would
+    drift apart, and reading alike is the whole point. Every size
     goes through `\.interfaceMetrics` like the rest of the tree; the style names
     no `interfaceScale` and declares no zoom surface, so
     `ZoomSourceGatingTests`' set equalities are untouched. `DirectoryNodeView`
@@ -726,12 +735,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     immediately, while nested nodes default to `false` and load lazily on first
     expansion. The root's `.id(root)` resets node state when switching projects,
     so each newly opened folder also starts expanded. Rows render type-specific
-    icons via `FileIcon(for:)` (a file-scope `color(for:)` helper maps the
-    semantic `FileIconColor` token to a concrete SwiftUI `Color`; internal
-    rather than `private` because the draft field's icon column must resolve an
-    icon exactly as the row it replaces does, and the tidier-looking alternative
-    — a `FileIconColor -> Color` extension in Core — is barred by Core being
-    Foundation-only). Directory-read errors are swallowed
+    icons via `FileIcon(for:)`, drawn **monochrome** in
+    `ChromeColorRole.textSecondary`: only the symbol is read, the semantic tint
+    deliberately not (a column of differently-tinted glyphs argues with the
+    selection wash that is the row's actual message — the monochrome-icon
+    decision, `core-theme.md`). The app layer's former file-scope
+    `color(for: FileIconColor) -> Color` helper is **deleted** along with its two
+    readers' need for it; `FileIconColor` itself is untouched Core vocabulary
+    that iOS still paints. Directory-read errors are swallowed
     (`PlatformFeedback.warning()`, and `children` left *unset* rather than
     cached as an empty list, so collapsing and re-expanding retries a transient
     failure), never crashing the view — *except* a "no such file" error, which
@@ -880,12 +891,18 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     session still naming a source behind a modal alert would answer a later
     `validateDrop` for a drag that ended long ago, and a modal loop spun from
     inside AppKit's `performDragOperation:` blocks the drag session — and the
-    source app with it — behind a dialog. The highlight is a new
-    `TreeRowLayout.dropHighlight` (`accentColor.opacity(0.4)`), applied at the
-    *same* site and from the same enum as `hoverHighlight` and deliberately
-    stronger than it: the pointer is inside the row, so both conditions are true
-    at once, and the difference between the two is the whole answer to "will this
-    drop land here?" — drawing them from one place is what stops them drifting
+    source app with it — behind a dialog. The highlight is the **accent at 40 %
+    opacity**, reached at the *same* site and through the same rule as every
+    other row state: the row asks `TreeRowState.state(isSelected:isWindowKey:
+    isHovering:isDropTarget:)` (`core-theme.md`) and maps the answer through
+    `TreeRowBackground.color(for:resolving:)`. Drop outranks hover there because
+    the pointer is inside the row and both conditions are true at once, and "will
+    this drop land here?" is the only question being asked; the wash is heavier
+    than `accentTintStrong` for the same reason — a drop over a row that is also
+    selected has to out-read the selection. The closed role set names no drop
+    wash and gains none: this is the accent read more strongly, which is a
+    reading the palette already supports, not a twenty-second role. One rule and
+    one mapping, read by both row kinds, is what stops the treatments drifting
     apart. Everything else on both row kinds is **unchanged and in the same
     order**: the row's single `.onTapGesture` still toggles a folder (a drag and a
     click are distinct gestures), the hover highlight, the full-row `.contextMenu`s
@@ -893,14 +910,47 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     expansion value, the toggle action) are exactly as above. Nothing here names
     `interfaceScale` and no zoom surface is declared, so `ZoomSourceGatingTests`'
     set equalities are untouched.
+  - `ProjectTreeView.swift`, **the chrome theme's third surface** — the rows are
+    drawn from the colour roles through the geometry-and-state path
+    (`core-theme.md`). Every row background is one expression: the row asks
+    `TreeRowState.state(...)` and maps the answer through the file-scope
+    `TreeRowBackground.color(for:resolving:)` — `hover` → `hoverTint`,
+    `selectedFocused` → `accentTintStrong`, `selectedUnfocused` →
+    `selectionInactive`, `dropTarget` → the accent at 40 %, and `plain` →
+    `.clear`, the *absence* of a background rather than a colour of its own.
+    (`role(for:)` beneath it still answers the four that a role states, and `nil`
+    for the two that do not: `plain`, which paints nothing, and `dropTarget`,
+    whose wash the closed set does not name.) The theme arrives as a
+    role-to-colour *function*, not as the theme value, so no view file names
+    `ChromeTheme` — rule five of the gating suite (`core-theme.md`). Both row
+    kinds read that one mapping, for the reason they share the geometry tokens.
+    Two of the rule's four inputs are
+    **derived, not interactive**: *selection* is "this row's file is the active
+    editor tab's file" — `ProjectTreeView` builds a `TreeSelection` from
+    `model.selectedFile?.url` **once per render** and hands *that* down the
+    recursion, carrying the tab's url in both spellings (standardized, and with
+    its symlinks resolved), so a row matches either by a purely lexical
+    comparison of its own standardized url. Resolving per row instead would cost
+    one `realpath(3)` per visible row per keystroke, `DirectoryNodeView` being an
+    observer of the workspace. The two sides need two spellings because a tree
+    row's url is built by appending a listing's component to the opened root
+    while a tab's came from wherever it was opened. The accepted limit is stated
+    on `TreeSelection`: a row reached through a *symlinked* root while the tab's
+    url is already canonical is not highlighted, a configuration neither producer
+    creates. No click-to-select is introduced. *Focus* is
+    `@Environment(\.controlActiveState) == .key` on the row: the window is key or
+    it is not. A folder row passes `isSelected: false` unconditionally — a folder
+    is never an editor tab — and a file row passes `isDropTarget: false`, a file
+    not being a drop destination. The empty-state hint and both icon columns take
+    `textSecondary`.
   - `ProjectTreeDraftField.swift` — the AppKit-backed `NSTextField` behind
     the tree's inline naming, in five types: `TreeEditDraft` (what is being
     named), `TreeNameFieldView` (the row-shaped draft: icon column, field,
     red reason line), `TreeDraftDismissRegion` (the invisible mouse-down
     observer), `ProjectTreeDraftFieldRepresentable` (+ its `Coordinator`)
     and `CustomTextField`. The layer split gives this view no business
-    logic: it collects the typed text, draws red text and a wrapped reason
-    line on invalid input, and delegates every rule — validation,
+    logic: it collects the typed text, draws the invalid-input text and a
+    wrapped reason line in `ChromeColorRole.statusRed`, and delegates every rule — validation,
     preselection, live collision check, and what a click means — to
     `FileName` and `TreeDraftDismissRule` (`core-workspace.md`). Validation
     composes in one fixed order: blank (not an error — no reason line, but
@@ -1080,8 +1130,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     *alignment rect*, so the field's frame is four points wider than the
     width it was assigned, and reporting that frame back as the row's
     minimum widens the row four points per layout pass until AppKit aborts
-    the window's constraint loop. The create draft, whose row is not capped
-    at `maxWidth: .infinity`, took exactly that path. Enter is still
+    the window's constraint loop. The create draft took exactly that path
+    before the guard existed; its outermost frame now states
+    `maxWidth: .infinity` too, which removes the runaway's room but not the
+    guard, the refusal being about what a representable may report rather than
+    about which row happens to be capped. Enter is still
     never a line break — the coordinator swallows every newline selector and
     commits instead. The arithmetic is deliberately *not* shared with
     `FilePanels.promptFieldHeight(of:)`, which measures against a fixed 400
@@ -1091,9 +1144,65 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     it is led by the *same* `iconColumn` view drawn hidden and collapsed to
     zero height, so it matches the field's lead exactly and stays zero for a
     rename draft, which has no icon column at all.
-  - `TabListView.swift` / `TabRowView.swift` — the open-tabs list, with an
-    `orientation: TabOrientation` parameter (default `.vertical`): vertical is the
-    scrolling `LazyVStack` column; horizontal is a horizontal `ScrollView`/
-    `LazyHStack` strip of `TabRowView`s sized for a row (the row drops its
-    `maxWidth: .infinity` stretch in horizontal mode). `ContentView` picks the mode
-    from `settings.tabOrientation`.
+    **The draft is in the chrome theme's gated set** (`core-theme.md`), although
+    it is an editing affordance rather than a row: an inline draft *replaces* a
+    tree row on screen and must read identically to the row it stands in for. So
+    it takes the same geometry — `ChromeGeometry.rowPaddingX` horizontally, and
+    no vertical padding at all: a **rename** draft is inside the row it renames,
+    which already carries `ChromeGeometry.rowHeight`, while a **create** draft is
+    a row of its own (hosted directly by `DirectoryNodeView`) and therefore
+    states that height itself, as a `minHeight` and never a ceiling, so the
+    wrapped reason line can grow past one row. The two row kinds lift their own
+    `maxHeight` for exactly that reason while they host a rename draft: the row
+    states the height, and a draft inside it must still be able to grow when its
+    reason line wraps. The draft also draws its icon column monochrome in
+    `textSecondary` like the row it replaces, and takes the reason line in
+    `statusRed`. The field
+    itself is the chrome's one `NSTextField` and therefore the tree's one user of
+    the **AppKit bridge**: `updateNSView` sets `textColor` to
+    `ChromePalette.nsColor(.statusRed)` while the input is invalid and
+    `ChromePalette.nsColor(.textPrimary)` otherwise — dynamic colours, so the
+    field follows the window's appearance while observing nothing itself.
+  - `TabListView.swift` / `TabRowView.swift` — the open-tabs **vertical column**
+    and nothing else: the scrolling `LazyVStack` of `TabRowView`s, each stretched
+    to `maxWidth: .infinity`. The `orientation: TabOrientation` parameter is
+    gone. The horizontal presentation used to be a branch inside these two and is
+    now `TabStripView`, split out rather than left here for two reasons: the
+    column is explicitly *out* of the chrome theme's first scope and must keep
+    drawing exactly what it drew, while one view serving both orientations would
+    have had to keep a system colour for one of its two branches — which
+    `ChromeThemeSourceGatingTests` rightly forbids a gated file (`core-theme.md`);
+    and the strip is not a list of rows running sideways, it has chrome of its own
+    (a height, a background, a bottom rule) that a row view cannot state.
+    `ContentView` still picks the presentation from `settings.tabOrientation`.
+  - `TabStripView.swift` — the horizontal tab strip above the editor, and the
+    **first surface drawn entirely from the chrome colour roles** through the
+    SwiftUI environment path (`@Environment(\.chromeTheme)`, `core-theme.md`). It
+    owns the strip's whole chrome, which is why its host adds neither a
+    `.frame(height:)` nor a `Divider()`: the strip states its own height
+    (`ChromeGeometry.tabStripHeight`) and draws its own bottom hairline, so the
+    two cannot disagree. The strip is `bgPanel` behind a horizontal
+    `ScrollView`/`LazyHStack` of `TabStripCell`s; the hairline is an *overlay* on
+    the strip's bottom edge so the active tab — filled in `bgEditor`, to read as
+    the top edge of the editor rather than as a highlighted row — sits above it
+    and merges into the editor below. A cell carries a monochrome file icon
+    (`textSecondary`; `FileIcon`'s tint is deliberately unread — see the
+    monochrome-icon decision in `core-theme.md`), a `metrics.scaledFont(.callout)`
+    label in `textPrimary` when active and `textSecondary` otherwise, one
+    `accent` underline `ChromeGeometry.accentIndicator` tall on the active tab, a
+    trailing `hairline` between tabs, and **one slot** holding either the close
+    mark or the unsaved-changes dot, claimed in that order: the mark under the
+    pointer, then the dot, then the mark on the active tab. The dot therefore
+    **outranks** the mark on an active tab — unsaved work is a fact about the
+    file that nothing else on the strip states, while the mark is one hover away
+    — and the mark still shows on an active tab with nothing to report, so the
+    tab most likely to be closed does not have to be hunted for. An untitled
+    buffer has no url and is asked about under its display name, so the fallback
+    symbol is still `FileIcon`'s own rather than a second guess spelled here.
+    Every **chrome** measurement goes through `ChromeGeometry` and
+    `metrics.scaled(_:)` — the strip's height, the bottom and trailing hairlines,
+    the row padding, the accent indicator. The cell's own glyph sizes (icon 11,
+    close mark 9, dot 7, the 14-point slot they share, the 6-point item spacing)
+    stay local and scaled, as the sweep guide permits: they are this surface's
+    numbers, not chrome measurements another surface could drift from
+    (`core-theme.md`, step 3).

@@ -273,6 +273,121 @@ final class GutterFoldTests: XCTestCase {
         XCTAssertNil(after[1])
     }
 
+    // MARK: - The chrome palette
+
+    /// The gutter's four colours come from `ChromePalette`, not from AppKit's
+    /// semantic set.
+    ///
+    /// The drawing itself cannot be asserted headlessly, but everything the draw
+    /// loop is about to draw *with* can: the attribute dictionary the numbers and
+    /// the blame labels share, and the role each severity's dot resolves to. Both
+    /// are read under `.aqua` and `.darkAqua` in turn, because the point of the
+    /// AppKit bridge is that one dynamic colour answers twice — a value frozen at
+    /// construction would pass one half of this and fail the other.
+    func testRulerResolvesItsColoursFromThePaletteInBothAppearances() throws {
+        let harness = makeRulerHarness(text: "one\ntwo\nthree")
+        let drawn = try XCTUnwrap(
+            harness.ruler.numberAttributes[.foregroundColor] as? NSColor,
+            "the number attributes carry no foreground colour"
+        )
+
+        let appearances: [(NSAppearance.Name, ChromeAppearance)] = [
+            (.aqua, .light),
+            (.darkAqua, .dark),
+        ]
+        for (name, appearance) in appearances {
+            try assertSameColour(
+                drawn,
+                ChromePalette.nsColor(.textSecondary),
+                under: name,
+                "line numbers and blame labels under \(name.rawValue)"
+            )
+            // The rule is not merely "some colour" — it is specifically *not*
+            // the semantic grey the ruler drew with before the chrome theme.
+            let semantic = try resolved(NSColor.secondaryLabelColor, under: name)
+            let palette = try resolved(ChromePalette.nsColor(.textSecondary, in: appearance), under: name)
+            XCTAssertNotEqual(
+                components(of: semantic), components(of: palette),
+                "the palette's textSecondary has drifted onto AppKit's secondaryLabelColor under \(name.rawValue)"
+            )
+        }
+    }
+
+    /// Severity → chrome role, total over the closed severity set — and the four
+    /// answers drawn **pairwise distinct** under both appearances.
+    ///
+    /// The distinctness half is the part that has teeth: the mapping alone could
+    /// send two severities to one role and still satisfy a table, while the whole
+    /// point of the column is that a glance tells the four apart. Comparing each
+    /// severity's colour against its own role's would be a tautology — it is the
+    /// same expression twice — so the colours are compared against *each other*.
+    func testEverySeverityResolvesToItsRole() throws {
+        let expected: [DiagnosticSeverity: ChromeColorRole] = [
+            .error: .statusRed,
+            .warning: .statusYellow,
+            .information: .accent,
+            .hint: .textSecondary,
+        ]
+        for (severity, role) in expected {
+            XCTAssertEqual(
+                LineNumberRulerView.diagnosticRole(for: severity), role,
+                "\(severity) should mark the gutter with \(role.rawValue)"
+            )
+        }
+        let severities: [DiagnosticSeverity] = [.error, .warning, .information, .hint]
+        for name in [NSAppearance.Name.aqua, .darkAqua] {
+            var drawn: [DiagnosticSeverity: [Int]] = [:]
+            for severity in severities {
+                let colour = ChromePalette.nsColor(LineNumberRulerView.diagnosticRole(for: severity))
+                drawn[severity] = components(of: try resolved(colour, under: name))
+            }
+            for (index, left) in severities.enumerated() {
+                for right in severities[(index + 1)...] {
+                    XCTAssertNotEqual(
+                        drawn[left], drawn[right],
+                        "\(left) and \(right) draw the same dot under \(name.rawValue)"
+                    )
+                }
+            }
+        }
+    }
+
+    // MARK: - Colour helpers
+
+    /// Resolves a dynamic colour the way AppKit does when it draws inside a
+    /// window carrying that appearance.
+    private func resolved(_ color: NSColor, under name: NSAppearance.Name) throws -> NSColor {
+        let appearance = try XCTUnwrap(NSAppearance(named: name))
+        var out = color
+        appearance.performAsCurrentDrawingAppearance {
+            out = color.usingColorSpace(.sRGB) ?? color
+        }
+        return out
+    }
+
+    private func components(of color: NSColor) -> [Int] {
+        guard let srgb = color.usingColorSpace(.sRGB) else { return [] }
+        return [
+            Int((srgb.redComponent * 255).rounded()),
+            Int((srgb.greenComponent * 255).rounded()),
+            Int((srgb.blueComponent * 255).rounded()),
+            Int((srgb.alphaComponent * 100).rounded()),
+        ]
+    }
+
+    private func assertSameColour(
+        _ lhs: NSColor,
+        _ rhs: NSColor,
+        under name: NSAppearance.Name,
+        _ message: @autoclosure () -> String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        let left = try resolved(lhs, under: name)
+        let right = try resolved(rhs, under: name)
+        XCTAssertEqual(components(of: left), components(of: right), message(), file: file, line: line)
+    }
+
     // MARK: - Helpers
 
     private struct RulerHarness {

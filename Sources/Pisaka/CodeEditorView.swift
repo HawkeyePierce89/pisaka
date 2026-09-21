@@ -353,6 +353,7 @@ struct CodeEditorView: NSViewRepresentable {
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = true
         scrollView.documentView = textView
+        applyEditorBackground(scrollView: scrollView, textView: textView)
 
         let maxSize = CGFloat.greatestFiniteMagnitude
         textView.minSize = .zero
@@ -517,6 +518,26 @@ struct CodeEditorView: NSViewRepresentable {
         // sync has nothing yet, so this is usually a no-op).
         context.coordinator.refreshDiagnosticOverlays()
         return container
+    }
+
+    /// Paint the editor pane in the chrome's editor background.
+    ///
+    /// The gutter beside it paints the same role, which is what makes the two
+    /// agree; before the chrome theme neither named a colour and both inherited
+    /// whatever AppKit drew. The three views are set together because each draws
+    /// part of the pane: the text view its own bounds, the clip view everything
+    /// the content does not cover, the scroll view the rest.
+    ///
+    /// `ChromePalette.nsColor(_:)` is dynamic, so a Theme change needs no
+    /// observer here. This is the only colour this file spells: the syntax
+    /// tokens, the current-line and bracket-match painting and the minimap all
+    /// keep `SyntaxTheme`'s, and `CodeEditorView.swift` is deliberately not in
+    /// the chrome's gated set.
+    private func applyEditorBackground(scrollView: NSScrollView, textView: NSTextView) {
+        let background = ChromePalette.nsColor(.bgEditor)
+        textView.backgroundColor = background
+        scrollView.backgroundColor = background
+        scrollView.contentView.backgroundColor = background
     }
 
     /// Build the line-number gutter and wire the three things it reports back:

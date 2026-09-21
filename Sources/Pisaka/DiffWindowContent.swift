@@ -57,6 +57,7 @@ struct DiffWindowContent: View {
         // `DiffWindowController`), so it injects the interface scale itself. The
         // diff panes themselves stay on `settings.fontSize` — the code zone.
         .interfaceScaled(settings)
+        .chromeThemed(settings)
         .onAppear(perform: reload)
     }
 

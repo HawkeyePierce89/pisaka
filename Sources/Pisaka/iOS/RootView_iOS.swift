@@ -1479,8 +1479,13 @@ private struct FileRow_iOS: View {
     }
 }
 
-/// Maps a semantic `FileIconColor` token to a concrete SwiftUI `Color` (the iOS
-/// peer of the macOS `ProjectTreeView.color(for:)`).
+/// Maps a semantic `FileIconColor` token to a concrete SwiftUI `Color`.
+///
+/// iOS's own, with no macOS counterpart: the macOS tree draws its icons
+/// monochrome in the chrome's `textSecondary` role and reads only `FileIcon`'s
+/// symbol, so the mapping it used to keep is gone (`core-theme.md`, the
+/// monochrome-icon decision). `FileIconColor` stays Core vocabulary, and this is
+/// the one place it is painted.
 private func swiftUIColor(for token: FileIconColor) -> Color {
     switch token {
     case .orange: return .orange
