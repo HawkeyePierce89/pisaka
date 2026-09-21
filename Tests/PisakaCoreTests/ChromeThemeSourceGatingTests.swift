@@ -37,6 +37,10 @@ import XCTest
 /// - **No view constructs a theme inline.** A view building its own
 ///   `ChromeTheme` reads the preference it was handed and then stops hearing
 ///   about it.
+/// - **The gutter's fill still goes through its own rule.** A pure seam is only
+///   worth what its call site spends: the regression this branch exists to fix
+///   was one line in a drawing method, and every other gate stayed green while
+///   it painted the editor out.
 final class ChromeThemeSourceGatingTests: XCTestCase {
 
     // MARK: - The gated set
@@ -267,6 +271,89 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
             constructors, ["ChromeThemeEnvironment.swift"],
             "a view building its own theme stops hearing about the preference it was built from"
         )
+    }
+
+    // MARK: - Rule six: the gutter's fill goes through its own rule
+
+    /// The ruler file, and the two spellings of the rule its background fill
+    /// must go through.
+    ///
+    /// `LineNumberRulerBackgroundTests` pins what
+    /// `backgroundRect(in:ruleThickness:)` *answers*; nothing there can see
+    /// whether `drawHashMarksAndLabels` still asks it. That gap is not
+    /// hypothetical: restoring the one line this rule guards — `rect.fill()`,
+    /// filling the rectangle an `NSRulerView` was handed rather than the gutter's
+    /// own — is the exact regression this branch exists to fix, it paints the
+    /// code and the minimap out in `bgEditor`, and it leaves the seam's own
+    /// tests, `swift test`, the app bundle and SwiftLint all green. The seam
+    /// carries a long doc comment naming the regression; the call site is one
+    /// unremarkable line in a sixty-line drawing method, which makes it the
+    /// likelier of the two to be edited and the only one nothing was watching.
+    ///
+    /// Shaped after `FoldingSourceGatingTests`' reveal-funnel rule: one
+    /// definition, a counted set of callers, plus the forbidden bare form.
+    private static let rulerFile = "LineNumberRulerView.swift"
+
+    func testTheGutterFillGoesThroughItsOwnRule() throws {
+        let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
+            try Self.read(Self.rulerSource())
+        )
+        // Twice, exactly: the `static func` declaration and its one call. A third
+        // is a second answer to the same question; a first-and-only is a seam
+        // nobody calls.
+        XCTAssertEqual(
+            Self.occurrences(of: "backgroundRect(", in: code), 2,
+            """
+            \(Self.rulerFile) must spell backgroundRect( exactly twice — the rule and the one call \
+            site that spends it
+            """
+        )
+        // And the bare form the regression wore. `visibleRect.fill(` and friends
+        // are not matched: the boundary is an identifier character, so only the
+        // handed-in `rect` itself trips this.
+        let bare = try NSRegularExpression(pattern: "(^|[^A-Za-z0-9_.])rect\\.fill\\(")
+        let body = try XCTUnwrap(
+            Self.drawingBody(of: code),
+            "drawHashMarksAndLabels is gone or renamed — re-point this rule rather than losing it"
+        )
+        let range = NSRange(body.startIndex..<body.endIndex, in: body)
+        XCTAssertNil(
+            bare.firstMatch(in: body, range: range),
+            """
+            the ruler is handed the rectangle it was asked to redraw, which regularly spans the whole \
+            editor pane — filling it wholesale paints the code out
+            """
+        )
+    }
+
+    private static func rulerSource() throws -> URL {
+        try XCTUnwrap(
+            try swiftSources().first { $0.lastPathComponent == rulerFile },
+            "\(rulerFile) is gone or renamed"
+        )
+    }
+
+    private static func occurrences(of needle: String, in code: String) -> Int {
+        code.components(separatedBy: needle).count - 1
+    }
+
+    /// The body of `drawHashMarksAndLabels(in:)`, brace-matched from its own
+    /// declaration, so the rule above reads the drawing method alone and not the
+    /// seam's own arithmetic beside it.
+    private static func drawingBody(of code: String) -> String? {
+        guard let start = code.range(of: "func drawHashMarksAndLabels(") else { return nil }
+        guard let open = code[start.upperBound...].firstIndex(of: "{") else { return nil }
+        var depth = 0
+        var index = open
+        while index < code.endIndex {
+            if code[index] == "{" { depth += 1 }
+            if code[index] == "}" {
+                depth -= 1
+                if depth == 0 { return String(code[code.index(after: open)..<index]) }
+            }
+            index = code.index(after: index)
+        }
+        return nil
     }
 
     // MARK: - Self-check
