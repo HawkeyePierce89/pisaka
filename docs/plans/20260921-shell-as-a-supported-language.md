@@ -459,34 +459,63 @@ link tree-sitter) and neither build executes it; the app-host bundle does both.
 
 ### Task 7: Verify acceptance criteria
 
-- [ ] `swift test` — green, including `SymbolQueryTests`, `LanguageKeywordsTests`,
+- [x] `swift test` — green, including `SymbolQueryTests`, `LanguageKeywordsTests`,
       `LicenseCoverageTests`, `DependencyPinTests` and `ReleaseMetadataTests`.
-- [ ] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination
+- [x] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination
       'platform=macOS' -derivedDataPath
       ~/Library/Developer/Xcode/DerivedData/pisaka-shell test` — the app-layer
       bundle green, `ShellSymbolQueryTests` among it.
-- [ ] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination
+- [x] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination
       'generic/platform=iOS' -derivedDataPath
       ~/Library/Developer/Xcode/DerivedData/pisaka-shell build` — the iOS device
       build green, which is the standing link-time proof that the grammar's
       external scanner really compiles.
-- [ ] `swiftlint --strict` from the repository root — clean at the pinned
+- [x] `swiftlint --strict` from the repository root — clean at the pinned
       version.
-- [ ] Confirm the capture pin fails as designed: temporarily rename one of the
+- [x] Confirm the capture pin fails as designed: temporarily rename one of the
       nine names, confirm the failure, revert.
-- [ ] Confirm the symbols-query node pin fails as designed: temporarily add a
+- [x] Confirm the symbols-query node pin fails as designed: temporarily add a
       node name to the query, confirm `SymbolQueryTests` names shell, revert.
-- [ ] Confirm the **runtime** pin fails as designed: temporarily break the query
+- [x] Confirm the **runtime** pin fails as designed: temporarily break the query
       (rename a node to one the grammar does not have), confirm
       `ShellSymbolQueryTests` fails and names shell, revert. This is the
       assertion the whole of Task 3 exists for, so it is proven to bite rather
       than assumed to.
-- [ ] Build a **DEBUG** macOS build to the out-of-tree derived-data path and
+- [x] Build a **DEBUG** macOS build to the out-of-tree derived-data path and
       launch it with a scratch project directory **outside the repository**
       containing the same shape of fixture script as Task 3's. Report the build
       and launch outcome and any `SymbolQueryCatalog` assertion it trips.
-- [ ] Confirm `git status` shows only the intended changes and that no derived
+- [x] Confirm `git status` shows only the intended changes and that no derived
       data was written inside the working tree.
+
+Recorded outcome of this pass (2026-09-21):
+
+- `swift test`: 5711 tests, 0 failures.
+- App-layer bundle (`platform=macOS`, out-of-tree derived data): 98 tests, 0
+  failures, `ShellSymbolQueryTests`' three among them.
+- iOS device build (`generic/platform=iOS`): BUILD SUCCEEDED — the external
+  scanner links.
+- `swiftlint --strict` 0.65.1: 0 violations in 579 files.
+- Capture pin: renaming `property` to `propertyX` failed
+  `testShellGrammarQueryCaptureNamesResolve` on both of its assertions, naming
+  the capture. Reverted.
+- Node pin: adding a `(subshell …)` pattern failed
+  `testRemoteGrammarQueriesUseExactlyThePinnedNodeNames` with
+  "shell/symbols.scm changed which named nodes it matches". Reverted.
+- Runtime pin: renaming `function_definition` to a node the grammar does not
+  have failed the app-layer run, naming the file — it trips
+  `SymbolQueryCatalog`'s DEBUG assertion inside the test process
+  ("Queries/shell/symbols.scm does not compile against the shell grammar"),
+  which aborts the run before `ShellSymbolQueryTests`' own assertion reports.
+  The gate bites and names shell either way; the reporting route is the DEBUG
+  assertion rather than an XCTest failure line. Reverted.
+- DEBUG macOS build to `~/Library/Developer/Xcode/DerivedData/pisaka-shell`:
+  BUILD SUCCEEDED; launched with `/tmp/pisaka-shell-scratch` (outside the
+  repository) holding `deploy.sh`, a copy of Task 3's fixture. The app ran with
+  no `SymbolQueryCatalog` assertion and no error output, and was left running
+  for the manual step below.
+- `git status` clean; the ignored `build/` and `DerivedData/` directories in the
+  tree pre-date this work (7–8 September) and nothing was written into them.
 
 ## Post-Completion (manual, by the user — mandatory, not optional)
 
