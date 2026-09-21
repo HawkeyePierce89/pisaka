@@ -38,4 +38,9 @@ final class CommentStyleTests: XCTestCase {
         XCTAssertEqual(CommentStyle.style(for: .css), .block(open: "/*", close: "*/"))
         XCTAssertEqual(CommentStyle.style(for: .html), .block(open: "<!--", close: "-->"))
     }
+
+    func testShellUsesTheHashLineComment() {
+        XCTAssertEqual(CommentStyle.style(for: .shell), .line("#"))
+        XCTAssertFalse(CommentStyle.languagesWithoutComments.contains(.shell))
+    }
 }

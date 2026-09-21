@@ -504,6 +504,7 @@ final class LicenseCoverageTests: XCTestCase {
         "TreeSitterEditorconfig": "Copyright (c) 2024 Omar Valdez",
         "SwiftTreeSitter": "Copyright (c) 2021, Chime",
         "tree-sitter": "Copyright (c) 2018-2024 Max Brunsfeld",
+        "tree-sitter-bash": "Copyright (c) 2017 Max Brunsfeld",
         "tree-sitter-css": "Copyright (c) 2018 Max Brunsfeld",
         "tree-sitter-dockerfile": "Copyright (c) 2021 Camden Cheek",
         "tree-sitter-go": "Copyright (c) 2014 Max Brunsfeld",

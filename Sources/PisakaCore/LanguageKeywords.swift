@@ -20,9 +20,12 @@ import Foundation
 /// The lists are curated, not generated: each holds the tokens a person types
 /// while writing the language — declaration and statement keywords, the literal
 /// spellings (`true`/`nil`/`None`), the widely-used contextual keywords — and
-/// stops there. They are deliberately *not* a standard-library index: `print`,
-/// `console` and `String` are declarations, and a project that uses them has
-/// them in its buffer or (for its own code) in its symbol index already.
+/// stops there. They are deliberately *not* a standard-library index:
+/// `console`, `String` and `fmt.Println` are declarations, and a project that
+/// uses them has them in its buffer or (for its own code) in its symbol index
+/// already. The one shape that looks like an exception is not one: Go's `print`
+/// and `println` *are* on a list, because they are predeclared identifiers with
+/// no declaration site in any file — the Go list's own note draws that line.
 public enum LanguageKeywords {
 
     /// The keywords of `language`, sorted and duplicate-free, or an empty array
@@ -44,6 +47,7 @@ public enum LanguageKeywords {
         case .rust: return rust
         case .sql: return sql
         case .editorconfig: return editorConfig
+        case .shell: return shell
         case .json, .markdown, .html, .css, .yaml, .dotenv, .gitignore: return []
         }
     }
@@ -178,6 +182,57 @@ public enum LanguageKeywords {
         "try", "type",
         "while", "with",
         "yield",
+    ]
+
+    /// Shell: the reserved words plus the builtins the shell itself has to
+    /// interpret. The dividing line, stated so the list is a decision rather
+    /// than a sample: **a word is in when the shell itself must interpret it for
+    /// the script to mean what it says** — the reserved words, plus the builtins
+    /// that *bind or unbind a name* (`local`, `export`, `declare`, `readonly`,
+    /// `unset`, `read`, `mapfile`/`readarray`), *set a shell option or change
+    /// how the shell reads what follows* (`set`, `shopt`, `shift`, `eval`,
+    /// `source`, `command`, `builtin`), or *alter control flow* (`break`,
+    /// `continue`, `return`, `exit`, `exec`, `trap`).
+    ///
+    /// A word is **out** when it is an ordinary command that a program in
+    /// `$PATH` could perform, whether or not this shell also implements it
+    /// internally. `echo` is the worked example: it is a builtin *and* a real
+    /// file in `/bin`, and nothing about a script's meaning depends on which one
+    /// runs — so it is out, by the same rule that keeps `console` off every
+    /// other list: a word some other completion source can already offer is not
+    /// this source's job. The neighbouring precedent that looks like it argues
+    /// the other way does not: Go's list *does* carry `print`, and its own note
+    /// says why — a predeclared identifier is declared in no file anywhere, so
+    /// nothing else can ever offer it. `echo` is the opposite case. It is an
+    /// ordinary command with a file behind it, so the buffer words pick it up
+    /// the moment a script types it, which is exactly what a keyword list is
+    /// not for. `printf`, `test`, `pwd`, `kill`, `type`, `hash`,
+    /// `ulimit`, `umask`, `jobs`, `fg`, `bg`, `wait`, `pushd` and `popd` are out
+    /// for that reason; `true`/`false` are out because here they are commands,
+    /// not the boolean literals a grammar declares; every external program
+    /// (`grep`, `sed`, `awk`, `git`) is out; and the bracket/brace tokens are
+    /// punctuation the identifier rule would refuse to insert anyway.
+    ///
+    /// `mapfile`/`readarray` are the clause's least obvious members and stay in
+    /// for the same reason `read` does — they bind a name, which no external
+    /// program can do. `jobs`, `fg`, `bg` and `wait` stay out: manipulating the
+    /// job table is none of the three clauses.
+    private static let shell: [String] = [
+        "alias",
+        "break", "builtin",
+        "case", "command", "continue", "coproc",
+        "declare", "do", "done",
+        "elif", "else", "esac", "eval", "exec", "exit", "export",
+        "fi", "for", "function",
+        "getopts",
+        "if", "in",
+        "let", "local",
+        "mapfile",
+        "read", "readarray", "readonly", "return",
+        "select", "set", "shift", "shopt", "source",
+        "then", "time", "trap", "typeset",
+        "unalias", "unset", "until",
+        "while",
     ]
 
     /// Dockerfile: the instruction set, uppercase as it is written. `MAINTAINER`

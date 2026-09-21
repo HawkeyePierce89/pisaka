@@ -29,6 +29,12 @@ import Foundation
 /// of it appear regularly, so enumerating them would go stale. The leading dot
 /// is load-bearing — this is a dot-file convention, not an extension — so
 /// `foo.ignore`, `gitignore` and `ignore` deliberately do *not* match.
+///
+/// `.envrc` is an *exact name* rather than anything looser, and the placement is
+/// the decision: it is one character away from the dotenv family, and phase 1 is
+/// the only phase that cannot interact with the `.env.` prefix rule in either
+/// direction — a looser rule claiming it would have to be ordered against that
+/// prefix, while an exact name is answered before either ever runs.
 public enum SyntaxLanguage: String, CaseIterable, Equatable, Hashable, Sendable {
     case swift
     case javascript
@@ -46,6 +52,7 @@ public enum SyntaxLanguage: String, CaseIterable, Equatable, Hashable, Sendable 
     case gitignore
     case sql
     case editorconfig
+    case shell
 
     /// Resolve a language from a bare file extension (no leading dot — pass the
     /// extension itself, e.g. `"swift"`, as `pathExtension` yields). Matching is
@@ -119,6 +126,11 @@ public enum SyntaxLanguage: String, CaseIterable, Equatable, Hashable, Sendable 
         "yaml": .yaml,
         "dockerfile": .dockerfile,
         "sql": .sql,
+        "sh": .shell,
+        "bash": .shell,
+        "zsh": .shell,
+        "ksh": .shell,
+        "command": .shell,
     ]
 
     /// Lowercased whole file name → language, for the extensionless names.
@@ -126,7 +138,25 @@ public enum SyntaxLanguage: String, CaseIterable, Equatable, Hashable, Sendable 
         "dockerfile": .dockerfile,
         ".env": .dotenv,
         EditorConfigResolver.fileName: .editorconfig,
+        ".bashrc": .shell,
+        ".bash_profile": .shell,
+        ".bash_logout": .shell,
+        ".zshrc": .shell,
+        ".zprofile": .shell,
+        ".zshenv": .shell,
+        ".zlogin": .shell,
+        ".zlogout": .shell,
+        ".profile": .shell,
+        ".envrc": .shell,
     ]
+
+    /// The exact-name phase's keys and the extension phase's keys, exposed as
+    /// `internal` seams (the tables themselves stay `private`) solely so the
+    /// tests can hold this table against `FileIcon`'s own: the two maps are
+    /// separate by design — a language is not an icon — and nothing but a test
+    /// keeps a name that highlights as shell from drawing the grey fallback.
+    static var exactFileNames: [String] { Array(exactFileNameMap.keys) }
+    static var fileExtensions: [String] { Array(extensionMap.keys) }
 
     /// Lowercased file-name prefix → language, for the variant-suffixed forms.
     /// Each prefix ends in the dot that separates the variant, so `Dockerfileish`

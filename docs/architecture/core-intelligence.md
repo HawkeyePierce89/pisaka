@@ -631,9 +631,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     are **curated, not generated** — the tokens a person types while writing the
     language (declaration and statement keywords, the literal spellings
     `true`/`nil`/`None`, the widely-used contextual keywords) and nothing more.
-    They are deliberately not a standard-library index: `print`, `console` and
-    `String` are declarations, and a project that uses them has them in its buffer
-    or (for its own code) in its symbol index already. Go's list is what sharpens
+    They are deliberately not a standard-library index: `console`, `String` and
+    `fmt.Println` are declarations, and a project that uses them has them in its
+    buffer or (for its own code) in its symbol index already — while Go's `print`
+    and `println`, which look like the same shape, are on a list precisely
+    because they are not declarations anywhere. Go's list is what sharpens
     that rule into the one sentence the others were following implicitly: **an
     identifier belongs here when no source file can ever declare it.** That is why
     Go reaches past the 25 reserved words into the whole universe block — its 22
@@ -686,7 +688,37 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     identifier-shaped value literals (`true`, `false`, `unset`, etc.). Charset
     values (`utf-8`, `utf-16be`, etc.) are absent because they contain hyphens and
     therefore fail the insertable-token test; `latin1` is the one charset value
-    that is included, being the only identifier-shaped spelling among them. The list is deliberately not
+    that is included, being the only identifier-shaped spelling among them.
+    **Shell is where "no source file can ever declare it" stops dividing the
+    list**, because a shell builtin and a program on disk can carry the same
+    name, so the list states its own line instead: **a word is in when the shell
+    itself must interpret it for the script to mean what it says** — the reserved
+    words, plus the builtins that *bind or unbind a name* (`local`, `export`,
+    `declare`, `readonly`, `unset`, `read`, `mapfile`/`readarray`), *set a shell
+    option or change how the shell reads what follows* (`set`, `shopt`, `shift`,
+    `eval`, `source`, `command`, `builtin`), or *alter control flow* (`break`,
+    `continue`, `return`, `exit`, `exec`, `trap`). A word is **out** when it is an
+    ordinary command a program in `$PATH` could perform, whether or not this shell
+    also implements it internally. `echo` is the worked example, and the reason
+    the earlier phrasing had to be replaced: it is a builtin *and* a real file in
+    `/bin`, so a rule about what a file can declare admitted and refused it at
+    once. Nothing about a script's meaning depends on which `echo` runs, so it is
+    out — by the same argument that keeps `console` off every other list: a word
+    another completion source can already offer is not this source's job. The
+    neighbouring precedent that looks like it argues the other way does not.
+    Go's list *does* carry `print`, for the reason stated there — a predeclared
+    identifier is declared in no file anywhere, so nothing else can ever offer
+    it — and `echo` is the opposite case, an ordinary command with a file behind
+    it that the buffer words pick up the moment a script types it. Out with it go
+    `printf`, `test`, `pwd`, `kill`, `type`, `hash`, `ulimit`,
+    `umask`, `jobs`, `fg`, `bg`, `wait`, `pushd` and `popd`; `true`/`false` are
+    out because here they are commands rather than the boolean literals a grammar
+    declares; every external program (`grep`, `sed`, `awk`, `git`) is out; and the
+    bracket/brace tokens are punctuation the identifier rule would refuse to
+    insert anyway. The two least obvious members are stated as such:
+    `mapfile`/`readarray` stay **in** for the reason `read` does — they bind a
+    name, which no external program can do — while `jobs`, `fg`, `bg` and `wait`
+    stay **out**, manipulating the job table being none of the three clauses. The list is deliberately not
     context-aware and offers keys and values alike. **A keyword is never a definition**: `SymbolIntelligenceProvider`'s
     go-to-definition path does not consult these lists, because a keyword has no
     declaration site to jump to — the two features sharing a provider is exactly
@@ -1125,7 +1157,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     remains a jump target even when it is not worth inserting.
   - `SyntaxContextVocabulary.swift` — the per-language string/comment table and the
     gating policy — **two questions, one scan**. This file declares *what* each of
-    the 16 `SyntaxLanguage` cases considers a string or a comment and *whether*
+    the 17 `SyntaxLanguage` cases considers a string or a comment and *whether*
     being inside that string should suppress completion, while
     `SyntaxContextScanner` only walks the buffer and answers honestly
     (`.code`/`.string`/`.comment`). The split is what lets a language recognize
@@ -1150,6 +1182,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     | yaml | `'…'` (doubling escape), `"…"` (`\`), single-line | **no** | `#` at line start or after whitespace |
     | html | `'…'`, `"…"` attribute values, single-line, no escapes | **no** | `<!-- -->` non-nesting |
     | dotenv | `'…'`, `"…"` single-line, escape **`.none`** (see below) | **no** | `#` after indent |
+    | shell | `'…'` multi-line, escape **`.none`**; `"…"` multi-line `\` | **no** (see below) | `#` after whitespace |
     | gitignore | none | — | `#` at **true line start** (column zero) |
     | editorconfig | none | — | `#` and `;` after indent |
     | markdown | none | none | **completely ungated** |
@@ -1169,6 +1202,40 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
       inside a quoted YAML scalar from reading as a comment and `<!--` inside an
       attribute value from reading as one.
     - **Markdown**: prose all the way down, with no vocabulary to speak of.
+    - **Shell is the fifth `false`, and not for the document-vocabulary
+      reason.** A double-quoted shell string interpolates (`"$HOME/bin"`,
+      `"${TAG}-rc"`), so its contents are exactly the vocabulary completion
+      should still offer. The flag is per *language*, so the non-interpolating
+      single-quoted form inherits the same answer — a popup nobody asked for
+      costs less than silence in the form people actually type in. Its `'…'`
+      escape is `.none` because a backslash inside a single-quoted shell string
+      *is* a literal backslash and the next `'` always ends the literal; both
+      forms span lines because an unterminated quote in a script really does
+      continue, and reading it otherwise would silently re-open code. Its `#`
+      anchor is `.atWordStart`, held by shell alone: a `#` opens a comment when it
+      *starts a word*, so `echo hi;# note` is a comment (the `;` ended the word)
+      while `foo#bar` and the parameter expansion `${var#prefix}` are not, a `#`
+      glued to a word character being part of that word. The one converse case is
+      **not** handled and is recorded on the arm: a backslash-escaped space does
+      not end a word, so `echo foo\ #bar` keeps `#bar` in the argument while the
+      anchor reads the physical space and calls it a comment.
+      **Three shapes are deliberately not modelled**, each because no fixed
+      `StringForm` describes it — *heredocs* (the delimiter is an arbitrary word
+      declared on an earlier line, so there is no literal for `open`; the body
+      lexes as code **only while it contains no apostrophe**, both string forms
+      spanning lines, so an English body like `It's done` opens a `'…'` frame the
+      `EOF` terminator does not close and carries `.string` into the rest of the
+      file until the next apostrophe or the requested offset, which is where
+      comment-based suppression stops working), *`$'…'`* (its escapes are C's,
+      and `allowedPrefixLetters` takes letters rather than `$`, so it lexes as an
+      ordinary single-quoted string — which does **not** end it in the same
+      place: ANSI-C quoting escapes the delimiter, so bash closes `$'it\'s'` on
+      the third apostrophe while the scanner, whose form is `escape: .none`,
+      closes on the second and re-opens a line-spanning string on the third, so
+      the `#` in `x=$'it\'s'   # note` reads as inside a string rather than as a
+      comment and the popup stays alive across the region), and
+      *backslash-continued lines* (the scanner has no notion of a joined line and
+      needs none here, both forms spanning lines already).
     - **dotenv's escape rule is `.none`, deliberately.** dotenv has no normative
       grammar and escape handling differs per loader, so borrowing another
       language's backslash convention would be inventing a rule rather than
@@ -1186,9 +1253,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     The value types are `StringForm` (`open`/`close`, `spansLines`, `EscapeRule`
     `none`/`backslash`/`doubledDelimiter`, optional `allowedPrefixLetters`,
     `allowsPoundPadding`, `InterpolationHole`) and `CommentForm` (line with
-    `LineAnchor` `anywhere`/`trueLineStart`/`afterIndent`/`afterWhitespace`, or
-    block with `nestable`).
-    **`LineAnchor` has four cases, and the two line-start readings are separate on
+    `LineAnchor` `anywhere`/`trueLineStart`/`afterIndent`/`afterWhitespace`/
+    `atWordStart`, or block with `nestable`).
+    **`LineAnchor` has five cases, and the two line-start readings are separate on
     purpose**: a single `lineStart` name hid the question of whether leading
     whitespace is tolerated, and the languages that answer it differently were
     silently sharing one answer. `.anywhere` is every language whose comment token
@@ -1203,7 +1270,20 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     wild trim) and **editorconfig** (this repository's own `EditorConfigFile` parser
     trims the line and *then* tests `#`/`;`, and the two must not disagree about the
     same file); `.afterWhitespace` is anywhere the token is not glued to the
-    preceding character and is held by **yaml** alone. Deleting the name
+    preceding character and is held by **yaml** alone; and `.atWordStart` is
+    anywhere the token *starts a word* — line start, whitespace, **or** one of the
+    metacharacters that end a word without being whitespace (`;`, `&`, `|`, `(`,
+    `)`, `<`, `>`, the POSIX metacharacter set minus its whitespace members) — and
+    is held by **shell** alone, because bash reads `echo hi;# note` as a comment
+    while a `#` glued to a word character (`foo#bar`, `${var#prefix}`) is part of
+    that word. It is a fifth case rather than a loosening of `.afterWhitespace`
+    because yaml holds that anchor and its reading there is correct as it stands.
+    **The converse case stays unhandled and is recorded as such on the shell
+    arm**: a backslash-escaped space does not end a shell word, so in
+    `echo foo\ #bar` the `#bar` is still part of the argument while the anchor,
+    which sees only the physical space, calls it a comment — completion is
+    suppressed where it need not be, the conservative direction of the two.
+    Deleting the name
     `.lineStart` rather than redefining it was the point: every use site became a
     compile error and had to be re-decided instead of inheriting a silently changed
     meaning. `Vocabulary` is those two arrays plus `stringsSuppressCompletion`.
@@ -1558,7 +1638,7 @@ The language knowledge itself lives outside Core, in
 `.gitignore`, wired into the bundle as a **folder reference** in `project.yml`
 (like `Resources/Licenses`, so adding a language's query needs no `xcodegen
 generate`) and loaded by `SymbolQueryCatalog`. One convention, authored once and
-used by all thirteen files: **the captured node is always the name node**, the
+used by all sixteen files: **the captured node is always the name node**, the
 capture name is the kind (`@definition.type`, `@definition.function`, …), and an
 optional `@container` capture *in the same match* supplies the enclosing type's
 name — which is why `SymbolExtractor` walks matches rather than captures.
@@ -1598,7 +1678,7 @@ capture resolving to *its own* kind, the single auxiliary capture
 (`@_attribute`, the HTML `id` filter) pinned by its own set equality, the dotenv
 query validated against the vendored grammar's own `node-types.json` under the
 matching `named` flag *and* against its declared field table, and — for the
-twelve remote grammars, whose sources are not in the repository — the node-name,
+thirteen remote grammars, whose sources are not in the repository — the node-name,
 anonymous-literal and field-name sets pinned by hand, the way
 `SyntaxTokenKindTests` pins the dockerfile captures, so a grammar update that
 renames a node or a field fails with the language named.
@@ -1847,3 +1927,81 @@ a duplicate table symbol at the wrong site.
 ### `Resources/Queries/editorconfig/symbols.scm` — the section headers
 
 EditorConfig's query follows the shared convention and captures the section header's glob pattern as `@definition.heading`. `.heading` is chosen deliberately: `SymbolIntelligenceProvider.kindsExcludedFromCompletion` is exactly `[.heading]`, so a section header stays a ⌃⌘J jump target but is never offered as a completion. If it were `.selector` (like CSS), an identifier-shaped header like `[Makefile]` would start appearing in the completion list, which is incorrect.
+
+### `Resources/Queries/shell/symbols.scm` — the two anchoring decisions and the runtime gate
+
+Shell's query (grammar `tree-sitter/tree-sitter-bash`, pinned `0.25.1`, revision
+`a06c2e44…`) follows the shared convention and makes two decisions that read as
+an asymmetry unless the reason is written down.
+
+**Functions are unanchored, variables are anchored.** A shell function is global
+wherever its definition runs — nesting one inside another, or inside an `if`,
+does not scope it — so `(function_definition name: (word) @definition.function)`
+matches at any depth. An assignment is the opposite: one made inside a function
+body or a loop is almost always a local or a counter, so all three assignment
+patterns hang off `(program …)`. That is Python's and Go's anchoring, reached by
+the same argument: unanchored, the index fills with locals and the common names
+(`i`, `tmp`, `out`) push the real declaration out of the go-to-definition menu.
+Three patterns rather than one because the grammar nests the shapes differently
+— a bare `variable_assignment`, one inside a `variable_assignments` (the
+`A=1 B=2` form, one level deeper), and one inside a `declaration_command`
+(`readonly ROOT=/srv`, `export TAG=v1`, `declare -r …`).
+
+**One of those three shapes is near-inert, and the reason is the grammar's.**
+`src/grammar.json` declares `["command", "variable_assignments"]` a conflict, and
+the parser resolves it greedily *across newlines*: a run of assignments is a
+`variable_assignments` node only while nothing after it can serve as the command
+those assignments prefix. `A=1 B=2` followed by any statement whose first word
+reads as a command name (`echo`, `readonly`, a function call) parses as
+`(command (variable_assignment)… (command_name))` instead, and then neither name
+is captured at all — the `variable_assignments` pattern no longer matches, and
+the bare pattern is anchored at `(program …)`, which that `command` node is not.
+The capture therefore survives only at end of file or before statements that
+cannot read as a command, which is why the fixture's multi-assignment line is its
+last. Working around a declared grammar conflict from a query would be a
+different decision and is deliberately not attempted; what is owed instead is the
+honest record, in the query file's own comment and here, plus the assertion in
+`ShellSymbolQueryTests` that pins the collapse so a grammar bump changing it
+fails loudly rather than leaving a stale comment behind.
+
+**The name is captured as `(variable_name)` specifically, not by field alone.**
+`variable_assignment`'s `name:` field admits `variable_name` *or* `subscript`,
+and `arr[2]=x` declares nothing new — naming the node is what skips the subscript
+form, and it is the only thing that does. A bare `export PATH` inside a
+`declaration_command` is likewise **not** captured: it names a variable bound
+elsewhere, so indexing it would file a definition at a line that defines nothing.
+Only the assigning form is matched, through the nested `variable_assignment`.
+
+The node and field names above were read out of the grammar's own
+`src/node-types.json` at the pinned revision rather than inferred: `program`'s
+children expand the hidden `_statement`, whose subtypes include
+`variable_assignment`, `variable_assignments` and `declaration_command`;
+`function_definition` carries a `name:` field of type `word`. The **static** half
+of the verification is `SymbolQueryTests`' pinned tables — named
+`{declaration_command, function_definition, program, variable_assignment,
+variable_assignments, variable_name, word}`, anonymous `{}`, fields `{name}` —
+so a grammar update that renames any of them fails `swift test` with shell named.
+
+**The runtime half is a test here, not a hand-off** — the one place in this
+repository where that is true. The failure this section is most exposed to (a
+query that stops compiling against its grammar, which indexes zero symbols and
+looks exactly like a file that declares nothing) is invisible to `swift test`,
+because Core does not link tree-sitter, and to both builds, because neither
+executes a query. It is *not* invisible to `Tests/PisakaAppTests`, which runs
+inside the host app process, so `ShellSymbolQueryTests` asserts four things by
+execution: that `SyntaxLanguageConfiguration.configuration(for: .shell)` is
+non-`nil` (the grammar loads and its bundled highlight query resolves), that
+`SymbolQueryCatalog.query(for: .shell)` is non-`nil` (the shipped `.scm` really
+compiles against the pinned grammar — the assertion this whole paragraph exists
+for), and that `SymbolExtractor.symbols(in:language:fileURL:)` over a fixture
+script reduces, **by set equality** on `(kind, name, line)`, to the set written
+out in full. That turns the four readings above into assertions: every function
+in both spellings is present, every top-level assignment in all three shapes is
+present, no assignment made inside a function body or a loop appears, and neither
+`arr[2]=x` nor the valueless `export PATH` does. A fourth assertion, over an
+inline source rather than the fixture, pins the grammar conflict above: with
+`A=1 B=2` followed by an ordinary command, neither name is indexed. The manual ⌃⌘J check on a grammar
+update still stands for shell as it does for every other language, but here it is
+a **confirmation of the end-to-end path** (bundle → catalog → extractor → index →
+picker) rather than the only evidence. The same gap remains for the other
+sixteen languages; closing it for them is not this entry's claim.

@@ -421,4 +421,28 @@ final class ToggleCommentEngineTests: XCTestCase {
         XCTAssertEqual(edit2.text, original)
         XCTAssertEqual(edit2.selectedRange, NSRange(location: 0, length: 7))
     }
+
+    func testShellSelectionRoundTrips() {
+        let text = "set -e\nmake build\n"
+        let selection = NSRange(location: 0, length: (text as NSString).length)
+
+        guard let commented = ToggleCommentEngine.toggle(
+            text: text as NSString, selectedRange: selection, language: .shell
+        ) else {
+            return XCTFail("shell should have a comment style to toggle")
+        }
+        XCTAssertTrue(commented.text.contains("# set -e"))
+        XCTAssertTrue(commented.text.contains("# make build"))
+
+        let onceCommented = (text as NSString)
+            .replacingCharacters(in: commented.replacementRange, with: commented.text) as NSString
+        guard let uncommented = ToggleCommentEngine.toggle(
+            text: onceCommented, selectedRange: commented.selectedRange, language: .shell
+        ) else {
+            return XCTFail("a commented shell selection should toggle back")
+        }
+        let restored = onceCommented
+            .replacingCharacters(in: uncommented.replacementRange, with: uncommented.text)
+        XCTAssertEqual(restored, text)
+    }
 }

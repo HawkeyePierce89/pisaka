@@ -132,4 +132,85 @@ final class FileIconTests: XCTestCase {
             FileIcon(symbolName: "cylinder.split.1x2", color: .blue)
         )
     }
+
+    // MARK: - The shell startup dot-files
+
+    /// The ten names `SyntaxLanguage` claims by exact name. Written out rather
+    /// than read from the seam so a name silently *leaving* that table is also
+    /// a red test, not just a name joining it.
+    private static let shellStartupDotFiles = [
+        ".bashrc", ".bash_profile", ".bash_logout",
+        ".zshrc", ".zprofile", ".zshenv", ".zlogin", ".zlogout",
+        ".profile", ".envrc",
+    ]
+
+    func testShellStartupDotFilesCarryTheShellIcon() {
+        for name in Self.shellStartupDotFiles {
+            XCTAssertEqual(
+                FileIcon(for: file(name)),
+                FileIcon(symbolName: "terminal", color: .green),
+                "\(name) highlights as shell and must carry the shell icon"
+            )
+            XCTAssertEqual(SyntaxLanguage(forFileName: name), .shell, "\(name) must resolve as shell")
+        }
+    }
+
+    func testShellStartupDotFileMatchingIsCaseInsensitive() {
+        XCTAssertEqual(FileIcon(for: file(".ZSHRC")), FileIcon(symbolName: "terminal", color: .green))
+        XCTAssertEqual(FileIcon(for: file(".Bash_Profile")), FileIcon(symbolName: "terminal", color: .green))
+    }
+
+    // MARK: - The two tables, held together
+
+    /// The rule rather than the instances: every *name* `SyntaxLanguage`
+    /// resolves by its exact-name phase must have an icon of its own, because a
+    /// dot-file's `pathExtension` is empty and the extension phase can never
+    /// answer for it. The exemption is named here so it stays visible.
+    func testEveryExactFileNameLanguageHasANonFallbackIcon() {
+        // `.env` is the one exact name still on the fallback icon. It is
+        // dotenv, not shell, and giving it one is a separate decision from this
+        // change; naming it here is what keeps it from being forgotten.
+        let exempt: Set<String> = [".env"]
+        let fallback = FileIcon(symbolName: "doc", color: .gray)
+        for name in SyntaxLanguage.exactFileNames where !exempt.contains(name) {
+            XCTAssertNotEqual(
+                FileIcon(for: file(name)), fallback,
+                "\(name) resolves to a language and must not draw the fallback icon"
+            )
+        }
+        // The exemption must stay an exemption: if `.env` gains an icon, this
+        // list is what has to shrink.
+        for name in exempt {
+            XCTAssertEqual(FileIcon(for: file(name)), fallback, "\(name) is recorded as exempt")
+        }
+    }
+
+    /// The same rule over the extension phase. Two of shell's five extensions
+    /// are a stated, accepted cost from the original plan and stay on the
+    /// fallback; the other divergences are older languages, recorded rather
+    /// than fixed here.
+    func testShellExtensionsCarryTheShellIconExceptTheTwoAcceptedCosts() {
+        let fallback = FileIcon(symbolName: "doc", color: .gray)
+        // Read from the language table rather than written out, so a sixth
+        // shell extension is covered the day it is added.
+        let exempt: Set<String> = ["ksh", "command"]
+        let shellExtensions = SyntaxLanguage.fileExtensions
+            .filter { SyntaxLanguage(fileExtension: $0) == .shell }
+        XCTAssertFalse(shellExtensions.isEmpty)
+        for ext in shellExtensions where !exempt.contains(ext) {
+            XCTAssertEqual(
+                FileIcon(for: file("run.\(ext)")),
+                FileIcon(symbolName: "terminal", color: .green),
+                ".\(ext) must carry the shell icon"
+            )
+        }
+        // `ksh` and `command` highlight as shell and draw the generic document
+        // icon. That is the accepted cost recorded in the original plan, not an
+        // oversight; asserted so the exemption is visible and so adding an icon
+        // for either is a conscious edit here.
+        for ext in exempt {
+            XCTAssertEqual(SyntaxLanguage(fileExtension: ext), .shell)
+            XCTAssertEqual(FileIcon(for: file("run.\(ext)")), fallback, ".\(ext) is a recorded exemption")
+        }
+    }
 }

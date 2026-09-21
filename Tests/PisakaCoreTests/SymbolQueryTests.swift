@@ -346,6 +346,17 @@ final class SymbolQueryTests: XCTestCase {
                 anonymous: [], fields: []),
 
         .dockerfile: (named: ["from_instruction", "image_alias"], anonymous: [], fields: ["as"]),
+
+        // Shell's anonymous set is empty, and the asymmetry inside the named set
+        // is the query's whole shape: `function_definition` is matched at any
+        // depth (a shell function is global wherever it runs), while every
+        // assignment pattern hangs off `program`. `variable_name` is named
+        // explicitly rather than reached by `name:` alone — that field also
+        // admits `subscript`, and `arr[2]=x` declares nothing new.
+        .shell: (named: [
+            "declaration_command", "function_definition", "program", "variable_assignment",
+            "variable_assignments", "variable_name", "word",
+        ], anonymous: [], fields: ["name"]),
     ]
 
     // MARK: - Reading the shipped queries

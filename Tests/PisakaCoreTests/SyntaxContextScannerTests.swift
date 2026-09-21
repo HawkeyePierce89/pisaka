@@ -634,4 +634,126 @@ final class SyntaxContextScannerTests: XCTestCase {
         let text = "// comment"
         assertContext(text, at: 5, language: .json, is: .code)
     }
+
+    // MARK: - Shell
+
+    func testShellHashInsideAStringIsNotAComment() {
+        let text = "echo \"# not a comment\""
+        let inside = (text as NSString).range(of: "not").location
+        assertContext(text, at: inside, language: .shell, is: .string)
+        // Ungated: a double-quoted shell string interpolates, so its contents
+        // are still the vocabulary completion should answer in.
+        assertSuppress(text, at: inside, language: .shell, is: false)
+    }
+
+    func testShellGluedHashIsNotAComment() {
+        let word = "cp foo#bar dest"
+        assertContext(word, at: (word as NSString).range(of: "bar").location, language: .shell, is: .code)
+
+        let expansion = "echo ${var#prefix}"
+        assertContext(expansion, at: (expansion as NSString).range(of: "prefix").location,
+                      language: .shell, is: .code)
+    }
+
+    func testShellRealCommentIsAComment() {
+        let text = "# real\nmake build"
+        assertContext(text, at: 3, language: .shell, is: .comment)
+        assertSuppress(text, at: 3, language: .shell, is: true)
+
+        let trailing = "make build  # real"
+        let inside = (trailing as NSString).range(of: "real").location
+        assertContext(trailing, at: inside, language: .shell, is: .comment)
+    }
+
+    /// A `#` opens a comment when it starts a *word*, and shell's
+    /// metacharacters end a word without being whitespace. Each of these was
+    /// confirmed against `/bin/bash` before being asserted here.
+    func testShellHashAfterAWordEndingMetacharacterIsAComment() {
+        for separator in [";", "&", "|", "<", ">"] {
+            let text = "echo hi\(separator)# note\nmake build"
+            let inside = (text as NSString).range(of: "note").location
+            assertContext(text, at: inside, language: .shell, is: .comment)
+            assertSuppress(text, at: inside, language: .shell, is: true)
+        }
+
+        // The `case` arm's `)` — the shape that made this a finding.
+        let arm = "case $x in\nb)#note\necho matched;;\nesac"
+        let inArm = (arm as NSString).range(of: "note").location
+        assertContext(arm, at: inArm, language: .shell, is: .comment)
+
+        // And its opener, from a subshell.
+        let sub = "(echo hi)#note\necho done"
+        assertContext(sub, at: (sub as NSString).range(of: "note").location,
+                      language: .shell, is: .comment)
+    }
+
+    /// The word-start reading must not swallow the glued forms: a `#` after a
+    /// word character is part of that word, which is the whole reason the anchor
+    /// is not `.anywhere`.
+    func testShellWordStartAnchorStillRejectsGluedHashes() {
+        for text in ["cp foo#bar dest", "echo ${var#prefix}", "echo a1#b", "echo _#x"] {
+            let hash = (text as NSString).range(of: "#").location
+            assertContext(text, at: hash + 1, language: .shell, is: .code)
+        }
+    }
+
+    /// **A known approximation, asserted so it cannot drift silently.** A
+    /// backslash-escaped space does not end a shell word, so bash keeps `#bar`
+    /// inside the argument to `echo`; the anchor sees only the physical space and
+    /// calls it a comment. Recorded on the shell arm in `SyntaxContextVocabulary`
+    /// and in `core-intelligence.md`. This asserts today's (wrong) answer on
+    /// purpose — the cost is completion suppressed where it need not be, the
+    /// conservative direction, and fixing it needs word-level escape tracking the
+    /// scanner does not have.
+    func testShellEscapedSpaceBeforeHashIsTheKnownApproximation() {
+        let text = "echo foo\\ #bar"
+        let inside = (text as NSString).range(of: "bar").location
+        assertContext(text, at: inside, language: .shell, is: .comment)
+    }
+
+    func testShellSingleQuotedStringTakesNoEscape() {
+        // The backslash is literal, so the quote right after it still closes.
+        let text = "echo 'a\\' && ls"
+        let afterClose = (text as NSString).range(of: "&&").location
+        assertContext(text, at: afterClose, language: .shell, is: .code)
+    }
+
+    /// **A known approximation, asserted so the sentence recording it cannot
+    /// drift from it.** ANSI-C quoting (`$'…'`) escapes the delimiter itself, so
+    /// bash closes `$'it\'s'` on the *third* apostrophe. `allowedPrefixLetters`
+    /// takes letters rather than `$`, so the form lexes as an ordinary
+    /// single-quoted shell string whose escape rule is `.none`: the scanner
+    /// closes on the second apostrophe and the third re-opens a line-spanning
+    /// string. The trailing `#` is therefore read as inside a string rather than
+    /// as a comment. This asserts today's answer on purpose — the form is one of
+    /// the three shapes the shell arm states it does not model, and the cost is
+    /// only that completion stays alive where a comment would have gated it.
+    func testShellAnsiCQuotingIsTheKnownApproximation() {
+        let text = "x=$'it\\'s'   # note\necho done"
+        let inside = (text as NSString).range(of: "note").location
+        assertContext(text, at: inside, language: .shell, is: .string)
+        // Shell strings never gate, so nothing suppresses completion here —
+        // which is exactly what the corrected sentence on the arm now says.
+        assertSuppress(text, at: inside, language: .shell, is: false)
+    }
+
+    /// **A known approximation, asserted so the sentence recording it cannot
+    /// drift from it.** Heredocs are unmodelled, and the recorded consequence is
+    /// that the body lexes as code — which holds only while the body contains no
+    /// apostrophe. Both shell string forms span lines, and `advanceString` pops a
+    /// string frame on a line separator only when `!spansLines`, so one `'` in an
+    /// English body carries `.string` past the `EOF` terminator and into the rest
+    /// of the file. This asserts today's answer on purpose; fixing it needs
+    /// heredoc tracking the scanner does not have.
+    func testShellHeredocBodyApostropheCarriesStringPastTheTerminator() {
+        let text = "cat <<EOF\nIt's done\nEOF\n# note\necho done"
+        let inside = (text as NSString).range(of: "note").location
+        assertContext(text, at: inside, language: .shell, is: .string)
+
+        // An apostrophe-free body is the case the original sentence described:
+        // the body lexes as code and a following `#` is read as a comment.
+        let clean = "cat <<EOF\nall done\nEOF\n# note\necho done"
+        let cleanInside = (clean as NSString).range(of: "note").location
+        assertContext(clean, at: cleanInside, language: .shell, is: .comment)
+    }
 }

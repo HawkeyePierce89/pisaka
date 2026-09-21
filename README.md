@@ -105,7 +105,8 @@ do — is in [`docs/FEATURES.md`](docs/FEATURES.md).
   **there is no formula rendering**.
 - **Syntax highlighting** (tree-sitter via Neon) for Swift, JavaScript,
   TypeScript, JSON, Markdown, Python, Go, Rust, HTML, CSS, YAML, SQL,
-  Dockerfiles, `.env`, `.editorconfig` and dot-prefixed ignore files.
+  Dockerfiles, shell scripts, `.env`, `.editorconfig` and dot-prefixed ignore
+  files.
 - **Find & replace** — an in-file search bar (regex, whole word, match case)
   and a project-wide **Find in Files** window that honors your `.gitignore`
   and can Replace All across the project. Both share one **recent-searches**

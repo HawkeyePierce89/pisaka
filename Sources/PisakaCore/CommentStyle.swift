@@ -19,7 +19,7 @@ public enum CommentStyle: Equatable {
         switch language {
         case .swift, .javascript, .typescript, .go, .rust:
             return .line("//")
-        case .python, .yaml, .dockerfile, .dotenv, .gitignore:
+        case .python, .yaml, .dockerfile, .dotenv, .gitignore, .shell:
             return .line("#")
         case .editorconfig:
             // The format accepts `;` too, but `#` is the spec's primary line comment.

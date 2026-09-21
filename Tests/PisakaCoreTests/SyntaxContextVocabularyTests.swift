@@ -227,15 +227,34 @@ final class SyntaxContextVocabularyTests: XCTestCase {
                 byAnchor[anchor, default: []].insert(language)
             }
         }
-        // The key set closes the vocabulary from the other side: a fifth
+        // The key set closes the vocabulary from the other side: a sixth
         // `LineAnchor` case would otherwise add a key nothing below looks at, and
-        // the four assertions would all still pass while a whole reading of what
+        // the five assertions would all still pass while a whole reading of what
         // starts a comment went unstated.
-        XCTAssertEqual(Set(byAnchor.keys), [.anywhere, .trueLineStart, .afterIndent, .afterWhitespace])
+        XCTAssertEqual(Set(byAnchor.keys),
+                       [.anywhere, .trueLineStart, .afterIndent, .afterWhitespace, .atWordStart])
         XCTAssertEqual(byAnchor[.anywhere], [.swift, .javascript, .typescript, .python, .go, .rust, .sql])
         XCTAssertEqual(byAnchor[.trueLineStart], [.gitignore])
         XCTAssertEqual(byAnchor[.afterIndent], [.dockerfile, .dotenv, .editorconfig])
+        // yaml keeps `.afterWhitespace` — the reading is correct there, and
+        // moving shell off it must not have dragged yaml along.
         XCTAssertEqual(byAnchor[.afterWhitespace], [.yaml])
+        XCTAssertEqual(byAnchor[.atWordStart], [.shell])
+    }
+
+    /// The five languages shell did *not* take with it, pinned as whole comment
+    /// forms rather than as anchors alone, so a re-pointed token is a red test.
+    func testNonShellHashLanguagesKeepTheirAnchors() {
+        XCTAssertEqual(SyntaxContextVocabulary.commentForms(for: .yaml),
+                       [.line(token: "#", anchor: .afterWhitespace)])
+        XCTAssertEqual(SyntaxContextVocabulary.commentForms(for: .dockerfile),
+                       [.line(token: "#", anchor: .afterIndent)])
+        XCTAssertEqual(SyntaxContextVocabulary.commentForms(for: .dotenv),
+                       [.line(token: "#", anchor: .afterIndent)])
+        XCTAssertEqual(SyntaxContextVocabulary.commentForms(for: .editorconfig),
+                       [.line(token: "#", anchor: .afterIndent), .line(token: ";", anchor: .afterIndent)])
+        XCTAssertEqual(SyntaxContextVocabulary.commentForms(for: .gitignore),
+                       [.line(token: "#", anchor: .trueLineStart)])
     }
 
     /// editorconfig anchors *both* of its tokens the same way — the `;` must not
@@ -261,5 +280,38 @@ final class SyntaxContextVocabularyTests: XCTestCase {
         for form in forms {
             XCTAssertEqual(form.escape, .none, "dotenv \(form.open) must declare no escape rule")
         }
+    }
+
+    // MARK: - Shell
+
+    func testShellStringForms() {
+        let forms = SyntaxContextVocabulary.stringForms(for: .shell)
+        XCTAssertEqual(forms.count, 2)
+
+        guard let single = forms.first(where: { $0.open == "\'" }),
+              let double = forms.first(where: { $0.open == "\"" }) else {
+            return XCTFail("shell declares a single- and a double-quoted form")
+        }
+        // A backslash inside `\'…\'` is a literal backslash — the next quote ends it.
+        XCTAssertEqual(single.escape, .none)
+        XCTAssertEqual(double.escape, .backslash)
+        XCTAssertTrue(single.spansLines)
+        XCTAssertTrue(double.spansLines)
+        XCTAssertNil(single.hole)
+        XCTAssertNil(double.hole)
+    }
+
+    func testShellCommentFormIsHashAtWordStart() {
+        XCTAssertEqual(SyntaxContextVocabulary.commentForms(for: .shell),
+                       [.line(token: "#", anchor: .atWordStart)])
+    }
+
+    /// Shell is the fifth ungated language, and the only one that is ungated
+    /// because its strings *interpolate* rather than because they are the
+    /// document's vocabulary.
+    func testShellStringsDoNotSuppressCompletion() {
+        XCTAssertFalse(SyntaxContextVocabulary.stringsSuppressCompletion(for: .shell))
+        // It can still suppress — inside a comment.
+        XCTAssertTrue(SyntaxContextVocabulary.canSuppressCompletion(.shell))
     }
 }

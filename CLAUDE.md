@@ -914,7 +914,11 @@ on three of WebKit's own answers that no Core test can reach),
 bundled mermaid*: a heading whose slug names a diagram id survives that
 diagram's render — mermaid deletes whatever element already carries the id it is
 handed, so the two id families must stay in disjoint alphabets)
-and `EditorCommandTargetTests` (`core-markdown-preview.md`), plus the search
+and `EditorCommandTargetTests` (`core-markdown-preview.md`), plus
+`ShellSymbolQueryTests` — which *executes* the shipped `shell/symbols.scm`
+against its grammar and over a fixture script, the one compile-and-run check no
+Core suite can reach because Core does not link tree-sitter
+(`core-intelligence.md`) — plus the search
 history's two app-side sequencing suites — `EditorSearchStateTests` (the ⌘F
 bar's five recording sites) and `ProjectSearchWindowControllerTests` (the Find
 in Files close hook, `app-editor.md`). It exists because the folding launch-time trap

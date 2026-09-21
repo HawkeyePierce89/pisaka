@@ -300,9 +300,73 @@ final class SyntaxLanguageTests: XCTestCase {
             "main.py", "main.go", "main.rs", "index.html", "index.htm", "style.css",
             "config.yml", "config.yaml",
             "Dockerfile", ".env", ".gitignore", "schema.sql", ".editorconfig",
+            "deploy.sh",
         ]
         let reachable = Set(knownFileNames.compactMap(SyntaxLanguage.init(forFileName:)))
         XCTAssertEqual(reachable, Set(SyntaxLanguage.allCases),
                        "every SyntaxLanguage case must be reachable from some file name")
+    }
+
+    // MARK: - Shell
+
+    func testShellExtensionsResolve() {
+        XCTAssertEqual(SyntaxLanguage(forFileName: "deploy.sh"), .shell)
+        XCTAssertEqual(SyntaxLanguage(forFileName: "install.bash"), .shell)
+        XCTAssertEqual(SyntaxLanguage(forFileName: "prompt.zsh"), .shell)
+        XCTAssertEqual(SyntaxLanguage(forFileName: "legacy.ksh"), .shell)
+        XCTAssertEqual(SyntaxLanguage(forFileName: "Launch.command"), .shell)
+        XCTAssertEqual(SyntaxLanguage(fileExtension: "sh"), .shell)
+        XCTAssertEqual(SyntaxLanguage(fileExtension: "BASH"), .shell)
+    }
+
+    func testShellDotFilesResolveByExactName() {
+        for name in [".bashrc", ".bash_profile", ".bash_logout", ".zshrc", ".zprofile",
+                     ".zshenv", ".zlogin", ".zlogout", ".profile", ".envrc",
+        ] {
+            XCTAssertEqual(SyntaxLanguage(forFileName: name), .shell, name)
+        }
+    }
+
+    func testShellResolvesFromAPath() {
+        XCTAssertEqual(SyntaxLanguage(forFileName: "scripts/deploy.sh"), .shell)
+        XCTAssertEqual(SyntaxLanguage(forFileName: "project/.zshrc"), .shell)
+    }
+
+    /// `.envrc` is one character from the dotenv family, so the three dotenv
+    /// resolutions are re-asserted here: none of them moves.
+    func testTheDotenvFamilyIsUnmovedByEnvrc() {
+        XCTAssertEqual(SyntaxLanguage(forFileName: ".env"), .dotenv)
+        XCTAssertEqual(SyntaxLanguage(forFileName: ".env.local"), .dotenv)
+        XCTAssertEqual(SyntaxLanguage(forFileName: ".env.json"), .json)
+        XCTAssertEqual(SyntaxLanguage(forFileName: ".envrc"), .shell)
+    }
+
+    /// The shells this ticket deliberately does not claim: their grammars are not
+    /// bash's, so highlighting them with it would be wrong rather than partial.
+    func testOtherShellDialectsStayUnclaimed() {
+        XCTAssertNil(SyntaxLanguage(forFileName: "script.fish"))
+        XCTAssertNil(SyntaxLanguage(forFileName: "script.csh"))
+        XCTAssertNil(SyntaxLanguage(forFileName: "script.tcsh"))
+        XCTAssertNil(SyntaxLanguage(forFileName: "script.ps1"))
+    }
+
+    func testShellIsIndexable() {
+        XCTAssertFalse(SymbolIndexModel.unindexableLanguages.contains(.shell))
+        XCTAssertEqual(SymbolIndexModel.indexableLanguage(forFileName: "deploy.sh"), .shell)
+    }
+
+    /// The raw value is load-bearing: `configuration(forInjectionName:)` tries it
+    /// before the extension map, so a fenced ```shell block resolves.
+    func testShellRawValueAndInjectionSpellings() {
+        XCTAssertEqual(SyntaxLanguage.shell.rawValue, "shell")
+        XCTAssertEqual(SyntaxLanguage(rawValue: "shell"), .shell)
+        for fence in ["sh", "bash", "zsh", "ksh"] {
+            XCTAssertEqual(SyntaxLanguage(fileExtension: fence), .shell, fence)
+        }
+    }
+
+    func testShellLSPLanguageIDIsTheProtocolSpelling() {
+        XCTAssertEqual(SyntaxLanguage.shell.lspLanguageID, "shellscript")
+        XCTAssertNotEqual(SyntaxLanguage.shell.lspLanguageID, SyntaxLanguage.shell.rawValue)
     }
 }

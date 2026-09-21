@@ -510,6 +510,28 @@ public enum SyntaxContextScanner {
             guard idx > 0 else { return true }
             let prev = scan.character(at: idx - 1)
             return isWhitespace(prev) || isLineSeparator(prev)
+        case .atWordStart:
+            // Everything `.afterWhitespace` accepts, plus the metacharacters
+            // that end a shell word without being whitespace. Kept as its own
+            // arm rather than folded into the one above: yaml holds that anchor
+            // and its reading there is correct as it stands.
+            if isAfterIndent(at: idx, scan: scan) { return true }
+            guard idx > 0 else { return true }
+            let prev = scan.character(at: idx - 1)
+            if isWhitespace(prev) || isLineSeparator(prev) { return true }
+            return isWordEndingMetacharacter(prev)
+        }
+    }
+
+    /// The shell metacharacters that end a word without being whitespace:
+    /// `;` `&` `|` `(` `)` `<` `>` — the POSIX metacharacter set minus space,
+    /// tab and newline, which `isWhitespace`/`isLineSeparator` already answer.
+    private static func isWordEndingMetacharacter(_ ch: unichar) -> Bool {
+        switch ch {
+        case 59, 38, 124, 40, 41, 60, 62: // ; & | ( ) < >
+            return true
+        default:
+            return false
         }
     }
 

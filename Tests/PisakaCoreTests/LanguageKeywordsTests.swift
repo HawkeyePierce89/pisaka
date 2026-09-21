@@ -27,7 +27,10 @@ final class LanguageKeywordsTests: XCTestCase {
 
     func testTheDocumentedLanguagesAreTheOnesWithLists() {
         let withKeywords = Set(SyntaxLanguage.allCases.filter { !LanguageKeywords.keywords(for: $0).isEmpty })
-        XCTAssertEqual(withKeywords, [.swift, .javascript, .typescript, .python, .dockerfile, .go, .rust, .sql, .editorconfig])
+        XCTAssertEqual(withKeywords,
+                       [.swift, .javascript, .typescript, .python, .dockerfile, .go, .rust, .sql,
+                        .editorconfig, .shell,
+                       ])
     }
 
     // MARK: - Shape
@@ -327,5 +330,95 @@ final class LanguageKeywordsTests: XCTestCase {
         XCTAssertFalse(editorconfig.contains("utf-16be"))
         XCTAssertFalse(editorconfig.contains("utf-16le"))
         XCTAssertTrue(editorconfig.contains("latin1"))
+    }
+
+    // MARK: - Cross-references between the lists
+
+    /// The doc comments in `LanguageKeywords` argue from each other: the shell
+    /// list justifies dropping `echo` by naming a word that is on **no** list,
+    /// the type-level note names the standard-library shapes that stay out, and
+    /// Go's and Rust's notes name what the neighbouring lists *do* hold. Those
+    /// sentences are how the next borderline word gets decided, and until this
+    /// test existed one of them was simply untrue of the file it lived in — the
+    /// shell arm cited `print` as being off the other lists while
+    /// `LanguageKeywords.go` contained it.
+    ///
+    /// So the claims are asserted as a **rule over the lists** rather than as
+    /// the one pair that was found wrong: every word a doc comment says is on no
+    /// list is checked against every list, and every word a doc comment says is
+    /// on a particular list is checked there too. A new cross-reference joins a
+    /// table here and is then checked for free.
+    func testWordsTheDocCommentsClaimAreOnNoListAreOnNoList() {
+        // Each word is named by a doc comment in `LanguageKeywords.swift` as
+        // something the lists deliberately do not carry, with the comment that
+        // makes the claim.
+        let claimedAbsent = [
+            "console",      // the type-level note, and the shell arm's cross-reference
+            "String",       // the type-level note; also Rust's prelude clause
+            "fmt.Println",  // the type-level note and Go's closing clause
+            "Println",      // the same claim, unqualified
+            "macro_rules",  // Rust's second line
+            "Option", "Result", "Some", "Ok", "Err", "Vec", "Box",  // Rust's prelude clause
+            "f16", "f128",  // Rust's closing note
+        ]
+
+        for word in claimedAbsent {
+            for language in SyntaxLanguage.allCases {
+                XCTAssertFalse(
+                    LanguageKeywords.keywords(for: language).contains(word),
+                    "a doc comment says \(word) is on no list, but \(language) holds it"
+                )
+            }
+        }
+    }
+
+    /// The other half of the same rule: a doc comment naming a word as present
+    /// on a *sibling* list is just as load-bearing, and just as able to go stale
+    /// — Go's note argues from TypeScript's primitives, Rust's from Python's
+    /// soft keywords, and the type-level note now names Go's `print` as the one
+    /// shape that looks like an exception and is not.
+    func testWordsTheDocCommentsClaimAreOnASiblingListAreThere() {
+        let claimedPresent: [(String, SyntaxLanguage)] = [
+            ("print", .go), ("println", .go),        // the type-level note, the shell arm
+            ("len", .go), ("error", .go), ("nil", .go),  // Go's own note
+            ("string", .typescript), ("number", .typescript), ("never", .typescript),
+            ("as", .typescript),                     // the JavaScript arm: "`as` is TypeScript-side"
+            ("match", .python), ("case", .python),   // Rust's `union` clause
+            ("False", .python), ("None", .python), ("True", .python),
+            ("read", .shell), ("mapfile", .shell), ("readarray", .shell),
+        ]
+
+        for (word, language) in claimedPresent {
+            XCTAssertTrue(
+                LanguageKeywords.keywords(for: language).contains(word),
+                "a doc comment says \(language) holds \(word), and it does not"
+            )
+        }
+
+        // The JavaScript arm's claim is a contrast, so both halves are asserted.
+        XCTAssertFalse(LanguageKeywords.keywords(for: .javascript).contains("as"))
+    }
+
+    // MARK: - Shell
+
+    /// The dividing line stated on the list itself, asserted from both sides: a
+    /// word the shell must interpret is in, an ordinary command a `$PATH`
+    /// program could perform is out.
+    func testShellKeywordsHoldWhatTheShellMustInterpret() {
+        let shell = Set(LanguageKeywords.keywords(for: .shell))
+        for word in ["function", "local", "fi", "read", "export", "case", "esac", "shopt",
+                     "mapfile", "readarray", "trap",
+        ] {
+            XCTAssertTrue(shell.contains(word), "\(word) binds, gates or branches — it belongs in")
+        }
+    }
+
+    func testShellKeywordsExcludeOrdinaryCommandsAndPunctuation() {
+        let shell = Set(LanguageKeywords.keywords(for: .shell))
+        for word in ["echo", "printf", "test", "pwd", "kill", "jobs", "fg", "bg", "wait",
+                     "grep", "sed", "awk", "git", "true", "false", "[", "[[", "{",
+        ] {
+            XCTAssertFalse(shell.contains(word), "\(word) is not a word the shell must interpret")
+        }
     }
 }
