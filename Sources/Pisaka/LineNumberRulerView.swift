@@ -8,19 +8,20 @@ import PisakaCore
 /// It walks the layout manager's line fragments for the visible range, draws the
 /// 1-based source-line number beside each fragment's first line, and redraws when
 /// the editor scrolls, resizes, or its text changes. The numbers follow the
-/// editor's monospaced font (at a slightly smaller size) and the system
-/// appearance via `NSColor.secondaryLabelColor`, so it stays correct on
-/// light/dark switches.
+/// editor's monospaced font (at a slightly smaller size) and the chrome's
+/// `ChromeColorRole.textSecondary`, resolved through `ChromePalette.nsColor(_:)`
+/// — a *dynamic* colour, so it stays correct on light/dark switches with no
+/// observer of its own.
 ///
 /// It also hosts the git-blame **annotation column**, drawn to the *left* of the
 /// numbers inside the same ruler and in the same pass, with the same `rulerFont`
-/// and `NSColor.secondaryLabelColor`. With annotate off the column contributes 0
+/// and the same `textSecondary`. With annotate off the column contributes 0
 /// to the thickness and the gutter is byte-identical to a build without the
 /// feature.
 ///
 /// It also hosts a narrow fixed-width **diagnostic severity marker** column,
 /// between the blame column and the numbers: one dot per line that carries a
-/// diagnostic, in `SyntaxTheme`'s severity color. Unlike the blame column its
+/// diagnostic, in the chrome's status roles. Unlike the blame column its
 /// width is *constant* whether or not anything is ever reported — see
 /// ``diagnosticColumnWidth`` for that trade — and each dot's size derives from
 /// `rulerFont`, so it scales with the code zoom exactly like the numbers it
@@ -754,6 +755,35 @@ final class LineNumberRulerView: NSRulerView, ZoomSurfaceProviding {
         return rows
     }
 
+    /// The attributes both the line numbers and the blame labels are drawn
+    /// with: the ruler font and the chrome's `textSecondary`.
+    ///
+    /// One property rather than two literals at two call sites, and `internal`
+    /// rather than `private` because it is the seam the app-layer gutter suite
+    /// reads — the drawing itself cannot be asserted, but what it is about to
+    /// draw with can. The colour is the *dynamic* form, so the value this
+    /// returns answers differently under `.aqua` and `.darkAqua` without the
+    /// ruler being told which one it is in.
+    var numberAttributes: [NSAttributedString.Key: Any] {
+        [
+            .font: rulerFont,
+            .foregroundColor: ChromePalette.nsColor(.textSecondary),
+        ]
+    }
+
+    /// Severity → the status role its dot is filled with. Total over the closed
+    /// severity set, like `SyntaxTheme`'s own answer — and deliberately *not*
+    /// that one: the squiggle under the text and the hover popover are code
+    /// surfaces this ticket leaves alone, so the gutter's marker and the
+    /// underline below it now read from two tables on purpose.
+    static func diagnosticRole(for severity: DiagnosticSeverity) -> ChromeColorRole {
+        switch severity {
+        case .error: return .statusRed
+        case .warning: return .statusYellow
+        case .information, .hint: return .statusBlue
+        }
+    }
+
     override func drawHashMarksAndLabels(in rect: NSRect) {
         guard
             let textView,
@@ -761,10 +791,22 @@ final class LineNumberRulerView: NSRulerView, ZoomSurfaceProviding {
             let textContainer = textView.textContainer
         else { return }
 
-        let attributes: [NSAttributedString.Key: Any] = [
-            .font: rulerFont,
-            .foregroundColor: NSColor.secondaryLabelColor,
-        ]
+        // The gutter is painted first, in the editor's own background role, and
+        // separated from the text by a hairline at its right edge. Before the
+        // chrome theme the ruler painted no background at all and inherited
+        // whatever the scroll view drew, which is exactly what made the gutter
+        // and the text disagree once the editor took a colour of its own.
+        ChromePalette.nsColor(.bgEditor).setFill()
+        rect.fill()
+        ChromePalette.nsColor(.hairline).setFill()
+        NSRect(
+            x: ruleThickness - CGFloat(ChromeGeometry.hairlineWidth),
+            y: rect.minY,
+            width: CGFloat(ChromeGeometry.hairlineWidth),
+            height: rect.height
+        ).fill()
+
+        let attributes = numberAttributes
 
         let content = textView.string as NSString
         let textOrigin = textView.textContainerOrigin
@@ -907,16 +949,17 @@ final class LineNumberRulerView: NSRulerView, ZoomSurfaceProviding {
         let x = chevronColumnMinX - diagnosticGap - side
         let y = relativePoint.y + textOrigin.y + fragmentRect.minY
             + (fragmentRect.height - side) / 2
-        SyntaxTheme.shared.nsDiagnosticColor(for: severity).setFill()
+        ChromePalette.nsColor(Self.diagnosticRole(for: severity)).setFill()
         NSBezierPath(ovalIn: NSRect(x: x, y: y, width: side, height: side)).fill()
     }
 
     /// Draw one line's chevron, centered in the chevron column beside its line
-    /// fragment: `chevron.down` in `secondaryLabelColor` for a candidate that is
-    /// open, `chevron.right` in `labelColor` for one that is folded — the folded
-    /// one louder because it is the only sign left in the gutter that a block is
-    /// hidden. A line that heads neither a candidate nor a folded region draws
-    /// nothing; the column is blank, not absent.
+    /// fragment: `chevron.down` for a candidate that is open, `chevron.right`
+    /// for one that is folded — both in `textSecondary`, the distinction carried
+    /// by the symbol rather than by two greys, because the gutter's chrome text
+    /// is one weight and a second one would be a second opinion about it. A line
+    /// that heads neither a candidate nor a folded region draws nothing; the
+    /// column is blank, not absent.
     ///
     /// **The folded set is asked as well as the candidate map**, because the two
     /// do not arrive together: a tab switch restores what was folded in the
@@ -940,7 +983,7 @@ final class LineNumberRulerView: NSRulerView, ZoomSurfaceProviding {
         let isFolded = foldedState.folded(containing: line) != nil
         guard isFolded || foldCandidateByHeaderLine[line] != nil else { return }
         let symbolName = isFolded ? "chevron.right" : "chevron.down"
-        let color = isFolded ? NSColor.labelColor : NSColor.secondaryLabelColor
+        let color = ChromePalette.nsColor(.textSecondary)
         guard let image = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil) else { return }
         let side = chevronSide
         let configuration = NSImage.SymbolConfiguration(pointSize: side, weight: .regular)

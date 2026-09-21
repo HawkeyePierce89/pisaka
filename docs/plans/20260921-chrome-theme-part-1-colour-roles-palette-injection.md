@@ -252,33 +252,33 @@ Docs: `docs/architecture/core-theme.md` (new), `app-window.md`,
 - Modify: `Sources/Pisaka/LineNumberRulerView.swift`,
   `Sources/Pisaka/CodeEditorView.swift`
 
-- [ ] Paint the gutter: fill the drawn rect with
+- [x] Paint the gutter: fill the drawn rect with
       `ChromePalette.nsColor(.bgEditor)` at the top of
       `drawHashMarksAndLabels(in:)` and stroke a right hairline in `hairline` at
       `hairlineWidth`. Today the ruler paints no background at all; this is what
       makes the gutter and the text agree.
-- [ ] Line numbers and the blame column: `.foregroundColor` becomes
+- [x] Line numbers and the blame column: `.foregroundColor` becomes
       `nsColor(.textSecondary)` in place of `NSColor.secondaryLabelColor`.
-- [ ] Severity markers: the three status roles in place of
+- [x] Severity markers: the three status roles in place of
       `SyntaxTheme.shared.nsDiagnosticColor(for:)`. `SyntaxTheme` keeps its own
       diagnostic colours for its other consumers — the underline and the hover
       popover are the sweep's, and changing them here would restyle a surface
       this ticket excludes. Note the deliberate duplication in the doc entry.
-- [ ] Fold chevrons: both spellings become `textSecondary` — the column keeps
+- [x] Fold chevrons: both spellings become `textSecondary` — the column keeps
       today's geometry and today's open/folded distinction is carried by the
       symbol, not by two greys.
-- [ ] `CodeEditorView`: set the text view's (and its clip/scroll view's)
+- [x] `CodeEditorView`: set the text view's (and its clip/scroll view's)
       `backgroundColor` to `nsColor(.bgEditor)` so ruler and text agree. This is
       the one line this file gains; the syntax token colours, the
       `current-line`/`bracket-match` painting and the minimap are untouched, and
       `CodeEditorView.swift` is **not** added to the gated set.
-- [ ] Tests: extend the app-layer gutter suite
+- [x] Tests: extend the app-layer gutter suite
       (`Tests/PisakaAppTests/GutterFoldTests.swift`, via `EditorLayoutHarness`)
       with a case asserting the ruler resolves its four colours from the palette
       rather than from AppKit's semantic set — that the number attributes'
       foreground equals `ChromePalette.nsColor(.textSecondary)` and that each
       severity resolves to its status role — under both `.aqua` and `.darkAqua`.
-- [ ] run `swift test` and the app-layer bundle — must pass before Task 5
+- [x] run `swift test` and the app-layer bundle — must pass before Task 5
 
 ### Task 5: Surface 3 — the project tree rows (the geometry and state path)
 
