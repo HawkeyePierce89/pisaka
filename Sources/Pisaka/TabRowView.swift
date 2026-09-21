@@ -14,8 +14,9 @@ import PisakaCore
 /// not need: it is already the one row that is filled.
 ///
 /// The horizontal strip's cell is `TabStripView`'s own, not a second branch
-/// here; the trailing slot is `TabStatusMark`, shared with it, so the
-/// three-claimant precedence exists once.
+/// here; the two things the orientations genuinely share are views living
+/// beside that cell — `TabStatusMark`, so the three-claimant precedence exists
+/// once, and `TabFileIcon`, so the untitled-buffer fallback is spelled once.
 struct TabRowView: View {
     let file: OpenFile
     let isActive: Bool
@@ -31,12 +32,7 @@ struct TabRowView: View {
 
     var body: some View {
         HStack(spacing: metrics.scaled(6)) {
-            // The file icon, drawn monochrome for the strip's own reason:
-            // `FileIcon` answers a symbol *and* a semantic tint, and a column of
-            // tinted glyphs competes with the accent bar for the eye.
-            Image(systemName: iconSymbolName)
-                .font(.system(size: metrics.scaled(11)))
-                .foregroundStyle(theme.color(.textSecondary))
+            TabFileIcon(file: file)
 
             Text(file.displayName)
                 .font(metrics.scaledFont(.body))
@@ -79,16 +75,6 @@ struct TabRowView: View {
         if isActive { return theme.color(.bgEditor) }
         if isHovering { return theme.color(.hoverTint) }
         return Color.clear
-    }
-
-    /// The symbol `FileIcon` answers for this row's file.
-    ///
-    /// An unsaved buffer has no url, and is asked about under its display name
-    /// so the answer is still `FileIcon`'s — its own fallback for a name it does
-    /// not recognise — rather than a second guess spelled here.
-    private var iconSymbolName: String {
-        let url = file.url ?? URL(fileURLWithPath: file.displayName)
-        return FileIcon(for: DirectoryEntry(url: url, isDirectory: false)).symbolName
     }
 }
 

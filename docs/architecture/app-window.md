@@ -1180,13 +1180,18 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `ChromeGeometry.accentIndicator` wide on its **leading** edge (the strip's
     underline, rotated), its label `textPrimary` while every other row's is
     `textSecondary`, and `hoverTint` under the pointer on an inactive row only —
-    the active one is already the one row that is filled. The icon is the
-    monochrome `FileIcon` symbol in `textSecondary` (the monochrome-icon decision
-    in `core-theme.md`), with an untitled buffer asked about under its display
-    name so the fallback symbol is still `FileIcon`'s own. The trailing slot is
-    **`TabStatusMark`**, the one shared view living in `TabStripView.swift`: the
+    the active one is already the one row that is filled. The icon is
+    **`TabFileIcon`**, the second of the two views the orientations share (both
+    live in `TabStripView.swift`): the monochrome `FileIcon` symbol in
+    `textSecondary` (the monochrome-icon decision in `core-theme.md`), with an
+    untitled buffer asked about under its display name so the fallback symbol is
+    still `FileIcon`'s own. The trailing slot is the first,
+    **`TabStatusMark`**: the
     three-claimant precedence exists once, so the two orientations cannot drift
-    into two rules. Every number goes through `metrics.scaled(_:)`.
+    into two rules. Both are one view rather than one rule restated twice, for
+    the same reason and pinned by the same suite — `ChromeThemeSourceGatingTests`
+    holds the icon rule to one spelling by set equality, having found it pasted
+    into both. Every number goes through `metrics.scaled(_:)`.
   - `TabStripView.swift` — the horizontal tab strip above the editor, and the
     **first surface drawn entirely from the chrome colour roles** through the
     SwiftUI environment path (`@Environment(\.chromeTheme)`, `core-theme.md`). It
@@ -1197,14 +1202,15 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `ScrollView`/`LazyHStack` of `TabStripCell`s; the hairline is an *overlay* on
     the strip's bottom edge so the active tab — filled in `bgEditor`, to read as
     the top edge of the editor rather than as a highlighted row — sits above it
-    and merges into the editor below. A cell carries a monochrome file icon
+    and merges into the editor below. A cell carries `TabFileIcon`, a view of its
+    own in this file and the **second** of the two things the vertical column
+    shares with the strip: a monochrome file icon
     (`textSecondary`; `FileIcon`'s tint is deliberately unread — see the
     monochrome-icon decision in `core-theme.md`), a `metrics.scaledFont(.callout)`
     label in `textPrimary` when active and `textSecondary` otherwise, one
     `accent` underline `ChromeGeometry.accentIndicator` tall on the active tab, a
-    trailing `hairline` between tabs, and **one slot** — `TabStatusMark`, a view
-    of its own in this file and the one thing the vertical column shares with the
-    strip, so the precedence below exists once rather than twice — holding either
+    trailing `hairline` between tabs, and **one slot** — `TabStatusMark`, the
+    other shared view, so the precedence below exists once rather than twice — holding either
     the close mark or the unsaved-changes dot, claimed in that order: the mark under the
     pointer, then the dot, then the mark on the active tab. The dot therefore
     **outranks** the mark on an active tab — unsaved work is a fact about the
@@ -1212,7 +1218,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     — and the mark still shows on an active tab with nothing to report, so the
     tab most likely to be closed does not have to be hunted for. An untitled
     buffer has no url and is asked about under its display name, so the fallback
-    symbol is still `FileIcon`'s own rather than a second guess spelled here.
+    symbol is still `FileIcon`'s own rather than a second guess spelled here —
+    that rule is `TabFileIcon`'s, spelled once and asked by both orientations,
+    which is also what keeps `FileIcon(` off a second gated file's lines (each
+    such line is exempt from the suite's no-system-colour rule, the icon tints
+    sharing SwiftUI's hue names).
     Every **chrome** measurement goes through `ChromeGeometry` and
     `metrics.scaled(_:)` — the strip's height, the bottom and trailing hairlines,
     the row padding, the accent indicator. The cell's own glyph sizes (icon 11,

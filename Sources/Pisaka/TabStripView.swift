@@ -73,13 +73,7 @@ private struct TabStripCell: View {
 
     var body: some View {
         HStack(spacing: metrics.scaled(6)) {
-            // The file icon, drawn monochrome: `FileIcon` answers a symbol *and*
-            // a semantic tint, and the strip deliberately reads only the symbol.
-            // A row of tinted glyphs competes with the accent underline for the
-            // eye, and the underline is the one thing the strip has to say.
-            Image(systemName: iconSymbolName)
-                .font(.system(size: metrics.scaled(11)))
-                .foregroundStyle(theme.color(.textSecondary))
+            TabFileIcon(file: file)
 
             Text(file.displayName)
                 .font(metrics.scaledFont(.callout))
@@ -113,16 +107,6 @@ private struct TabStripCell: View {
         .contentShape(Rectangle())
         .onTapGesture(perform: onSelect)
         .onHover { isHovering = $0 }
-    }
-
-    /// The symbol `FileIcon` answers for this tab's file.
-    ///
-    /// An unsaved buffer has no url, and is asked about under its display name
-    /// so the answer is still `FileIcon`'s — its own fallback for a name it does
-    /// not recognise — rather than a second guess spelled here.
-    private var iconSymbolName: String {
-        let url = file.url ?? URL(fileURLWithPath: file.displayName)
-        return FileIcon(for: DirectoryEntry(url: url, isDirectory: false)).symbolName
     }
 }
 
@@ -176,6 +160,38 @@ struct TabStatusMark: View {
         }
         .buttonStyle(.plain)
         .help("Close")
+    }
+}
+
+/// The file icon both tab orientations draw at the leading edge of a tab.
+///
+/// It answers one rule, and answers it once: an `OpenFile` that has never been
+/// written has no url, and is asked about under its `displayName`, so the symbol
+/// for a name nothing recognises is `FileIcon`'s own fallback rather than a
+/// second guess spelled at the call site.
+///
+/// It is **drawn monochrome**: `FileIcon` answers a symbol *and* a semantic
+/// tint, and both orientations read only the symbol, because a run of tinted
+/// glyphs competes with the accent statement — the strip's underline, the
+/// column's leading bar — which is the one thing either has to say (the
+/// monochrome-icon decision in `core-theme.md`).
+///
+/// One view rather than one rule restated in each orientation, for
+/// `TabStatusMark`'s own reason: the two show the same fact about the same file,
+/// and two spellings of it drift the moment either is touched.
+struct TabFileIcon: View {
+    let file: OpenFile
+
+    /// The interface zone's metrics, inherited from the window root.
+    @Environment(\.interfaceMetrics) private var metrics
+    /// The chrome's colours, inherited from the window root.
+    @Environment(\.chromeTheme) private var theme
+
+    var body: some View {
+        let url = file.url ?? URL(fileURLWithPath: file.displayName)
+        Image(systemName: FileIcon(for: DirectoryEntry(url: url, isDirectory: false)).symbolName)
+            .font(.system(size: metrics.scaled(11)))
+            .foregroundStyle(theme.color(.textSecondary))
     }
 }
 

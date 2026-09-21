@@ -41,6 +41,9 @@ import XCTest
 ///   worth what its call site spends: the regression this branch exists to fix
 ///   was one line in a drawing method, and every other gate stayed green while
 ///   it painted the editor out.
+/// - **The tab icon rule is spelled once.** The untitled-buffer fallback was
+///   pasted into both orientations; two spellings of one rule drift, and each
+///   copy also buys itself a line exempt from the first rule above.
 /// - **No gated view derives a geometry value by arithmetic on a token.** A
 ///   padding written as half of another token reads as a measurement and is
 ///   really a coupling: nothing misrenders, and nothing names the relationship
@@ -176,7 +179,19 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     private static func iconFreeLines(of code: String) -> [String] {
         code
             .components(separatedBy: .newlines)
-            .filter { !$0.contains("FileIcon(") }
+            .filter { !constructsFileIcon($0) }
+    }
+
+    /// Whether this line constructs a `FileIcon` — the boundary-aware form, so
+    /// `TabFileIcon(`, a view *named* after the icon it draws, buys no exemption
+    /// from rule one. One definition, read by the exemption above and by the
+    /// rule that counts what it exempts, so the two cannot drift apart.
+    static func constructsFileIcon(_ line: String) -> Bool {
+        guard let pattern = try? NSRegularExpression(
+            pattern: "(^|[^A-Za-z0-9_])FileIcon\\("
+        ) else { return false }
+        let range = NSRange(line.startIndex..<line.endIndex, in: line)
+        return pattern.firstMatch(in: line, range: range) != nil
     }
 
     // MARK: - Rule two: no hex literal outside the table
@@ -404,6 +419,61 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
                 )
             }
         }
+    }
+
+    // MARK: - Rule eight: the tab icon rule is spelled once
+
+    /// The untitled-buffer icon fallback — an `OpenFile` with no url asked about
+    /// under its `displayName`, so the symbol is `FileIcon`'s own fallback
+    /// rather than a second guess — is one rule, and `TabFileIcon` is its one
+    /// spelling.
+    ///
+    /// It was pasted into both orientations once already, which is the failure
+    /// `TabStatusMark` exists to refuse: two spellings of one rule drift the
+    /// moment either is touched, and nothing in the compiler can see that they
+    /// have. The paste had a second cost this suite can see from the other side
+    /// — `iconFreeLines` drops every line naming `FileIcon(` from rule one's
+    /// scan, so each copy bought itself a line exempt from the no-system-colour
+    /// check. Both halves are pinned here by set equality: one declaration, and
+    /// a counted set of gated files carrying an exempted line.
+    func testTheTabIconRuleIsSpelledOnce() throws {
+        var declarers: Set<String> = []
+        var fallbackSpellers: Set<String> = []
+        var iconNamers: Set<String> = []
+        for url in try Self.swiftSources() {
+            let name = url.lastPathComponent
+            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            if code.contains("struct TabFileIcon") { declarers.insert(name) }
+            if code.contains("file.url ?? URL(fileURLWithPath: file.displayName)") {
+                fallbackSpellers.insert(name)
+            }
+            let constructsIcon = code
+                .components(separatedBy: .newlines)
+                .contains(where: Self.constructsFileIcon)
+            if Self.gatedFiles.contains(name) && constructsIcon {
+                iconNamers.insert(name)
+            }
+        }
+        XCTAssertEqual(
+            declarers, ["TabStripView.swift"],
+            "the shared tab icon is one view, declared beside TabStatusMark and for its reason"
+        )
+        XCTAssertEqual(
+            fallbackSpellers, ["TabStripView.swift"],
+            """
+            the untitled-buffer icon fallback is one rule — a second spelling of it is the drift \
+            TabFileIcon exists to refuse
+            """
+        )
+        // Three, and named: the tree's rows, the inline draft field drawing the
+        // placeholder icon a real row would have, and the shared tab icon both
+        // orientations now ask. A fourth is a line that has quietly bought
+        // itself out of rule one.
+        XCTAssertEqual(
+            iconNamers,
+            ["ProjectTreeDraftField.swift", "ProjectTreeView.swift", "TabStripView.swift"],
+            "a gated file naming FileIcon( carries a line exempt from rule one — keep the set small"
+        )
     }
 
     // MARK: - Self-check

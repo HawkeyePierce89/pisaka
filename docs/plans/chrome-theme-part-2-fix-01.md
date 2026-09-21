@@ -289,16 +289,19 @@ worth naming is the `OpenFile`-specific `url ?? displayName` fallback, not the
   - Modify: `Tests/PisakaCoreTests/ChromeThemeSourceGatingTests.swift`
   - Modify: `docs/architecture/app-window.md`
 
-  - [ ] Lift the shared rule to one spelling, beside `TabStatusMark` and for the
+  - [x] Lift the shared rule to one spelling, beside `TabStatusMark` and for the
         same stated reason, and have both orientations use it. Carry the doc
         comment to the one definition; neither call site restates it.
-  - [ ] Confirm both orientations render unchanged.
-  - [ ] Write the test that would have caught it: extend the gating suite so the
+  - [x] Confirm both orientations render unchanged (by construction: the one
+        view reproduces both call sites byte-for-byte — the same symbol rule at
+        the same scaled size in the same role; no headless window was obtained,
+        so this is not an eye check).
+  - [x] Write the test that would have caught it: extend the gating suite so the
         rule is spelled in exactly one file, by count, in the pattern the suite
         already uses for its other one-definition rules. This is also what
         removes the second `iconFreeLines` exemption.
-  - [ ] Update the `TabStripView`/`TabRowView` entries in `app-window.md`.
-  - [ ] run `swift test` and the app-layer bundle — must pass before Task 8
+  - [x] Update the `TabStripView`/`TabRowView` entries in `app-window.md`.
+  - [x] run `swift test` and the app-layer bundle — must pass before Task 8
 
 ### Task 8: Name the breadcrumb's real host in `app-window.md`
 
