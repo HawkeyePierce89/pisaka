@@ -334,12 +334,12 @@ member.
 
 ### Task 9: Run the gates
 
-  - [ ] `swift test` — green
-  - [ ] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' -derivedDataPath ~/Library/Developer/Xcode/DerivedData/pisaka-chrome-theme-2 test` — green
-  - [ ] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'generic/platform=iOS' -derivedDataPath ~/Library/Developer/Xcode/DerivedData/pisaka-chrome-theme-2 build` — the iOS target still builds
-  - [ ] `swiftlint --strict` from the repository root — clean
-  - [ ] Confirm each new gating rule fails when the defect it names is restored,
+  - [x] `swift test` — green
+  - [x] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' -derivedDataPath ~/Library/Developer/Xcode/DerivedData/pisaka-chrome-theme-2 test` — green
+  - [x] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'generic/platform=iOS' -derivedDataPath ~/Library/Developer/Xcode/DerivedData/pisaka-chrome-theme-2 build` — the iOS target still builds
+  - [x] `swiftlint --strict` from the repository root — clean
+  - [x] Confirm each new gating rule fails when the defect it names is restored,
         then revert: the call-site rule against `rect.fill()`, the arithmetic
         rule against the divided token, the one-spelling rule against a second
         copy. A rule that cannot be made to fail is pinning nothing.
-  - [ ] Confirm nothing was written into the repository tree
+  - [x] Confirm nothing was written into the repository tree
