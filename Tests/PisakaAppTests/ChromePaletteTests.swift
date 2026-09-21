@@ -38,7 +38,7 @@ final class ChromePaletteTests: XCTestCase {
         .accentTint: (0x4F8DFF, 0x2F6FE0, 0x22),
         .accentTintStrong: (0x4F8DFF, 0x2F6FE0, 0x33),
         .hoverTint: (0xFFFFFF, 0x000000, 0x0A),
-        .selectionInactive: (0x34363B, 0xF0F0F2, 0xFF),
+        .selectionInactive: (0x3C3F46, 0xE2E2E7, 0xFF),
         .currentLine: (0x34363B, 0xF0F0F2, 0xFF),
         .bracketMatch: (0x3D4A5C, 0xDBE6F5, 0xFF),
         .statusGreen: (0x7A9D6E, 0x4F8A3D, 0xFF),
@@ -181,6 +181,35 @@ final class ChromePaletteTests: XCTestCase {
                     "\(role.rawValue), \(appearance.rawValue), through SwiftUI"
                 )
             }
+        }
+    }
+
+    // MARK: - The states a reader has to tell apart
+
+    /// The inactive-selection wash and the current-line wash are two different
+    /// facts, and must not be the same colour.
+    ///
+    /// A selection the user made in a view that no longer has focus, and the line
+    /// the caret is sitting on, answer different questions; drawn in one value a
+    /// reader cannot tell which of the two a washed row is, and so has lost one of
+    /// them. The two were byte-identical once, which is the defect this states.
+    ///
+    /// The rule is about the property, not about today's numbers: it survives any
+    /// later palette change that keeps the two washes distinguishable, and fails
+    /// the moment one is edited onto the other.
+    func testTheInactiveSelectionWashIsNotTheCurrentLineWash() throws {
+        for appearance in ChromeAppearance.allCases {
+            let theme = ChromeTheme(appearance)
+            XCTAssertNotEqual(
+                theme.color(.selectionInactive), theme.color(.currentLine),
+                "selectionInactive and currentLine are one colour in \(appearance.rawValue)"
+            )
+            let selection = try components(ChromePalette.nsColor(.selectionInactive, in: appearance))
+            let line = try components(ChromePalette.nsColor(.currentLine, in: appearance))
+            XCTAssertFalse(
+                selection == line,
+                "selectionInactive and currentLine resolve to the same AppKit colour in \(appearance.rawValue)"
+            )
         }
     }
 

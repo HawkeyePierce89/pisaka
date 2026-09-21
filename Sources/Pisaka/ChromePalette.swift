@@ -57,19 +57,32 @@ enum ChromePalette {
         case .bgPopover: return Entry(dark: 0x36383D, light: 0xFFFFFF)
 
         // Text.
+        // The code zone's own theme states this same pair for its body-text
+        // weight, and the pair below for its secondary weight. That is two
+        // layers agreeing about a weight, not duplication to be factored
+        // out: this palette must not gain a syntax entry, and the syntax
+        // table must not start reading a role. `SyntaxTheme.swift` says the
+        // same from its side.
         case .textPrimary: return Entry(dark: 0xDFE1E5, light: 0x1D1D1F)
         case .textSecondary: return Entry(dark: 0xA0A3AA, light: 0x6E6E73)
         case .onAccent: return Entry(dark: 0xFFFFFF, light: 0xFFFFFF)
 
         // Lines and accent.
         case .hairline: return Entry(dark: 0x393B40, light: 0xD1D1D6)
+        // The syntax table states this same pair for its label colour — the
+        // third of the three agreements noted above, and agreement for the
+        // same reason.
         case .accent: return Entry(dark: 0x4F8DFF, light: 0x2F6FE0)
         case .accentTint: return Entry(dark: 0x4F8DFF, light: 0x2F6FE0, alpha: 0x22)
         case .accentTintStrong: return Entry(dark: 0x4F8DFF, light: 0x2F6FE0, alpha: 0x33)
 
         // Row and line states.
         case .hoverTint: return Entry(dark: 0xFFFFFF, light: 0x000000, alpha: 0x0A)
-        case .selectionInactive: return Entry(dark: 0x34363B, light: 0xF0F0F2)
+        // Changed: this wash was once byte-identical to `currentLine` below,
+        // which left an unfocused selection and the line the caret is on
+        // indistinguishable. It is now a deliberate step stronger, so the two
+        // states read apart.
+        case .selectionInactive: return Entry(dark: 0x3C3F46, light: 0xE2E2E7)
         case .currentLine: return Entry(dark: 0x34363B, light: 0xF0F0F2)
         case .bracketMatch: return Entry(dark: 0x3D4A5C, light: 0xDBE6F5)
 

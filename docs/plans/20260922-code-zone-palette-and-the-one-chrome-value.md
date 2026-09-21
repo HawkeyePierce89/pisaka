@@ -281,32 +281,32 @@ duplication.
 - Modify: `Tests/PisakaAppTests/ChromePaletteTests.swift`
 - Modify: `Sources/Pisaka/ChromePalette.swift`
 
-- [ ] Write the second new rule-shaped test first, in `ChromePaletteTests`: **the
+- [x] Write the second new rule-shaped test first, in `ChromePaletteTests`: **the
       inactive-selection wash is not equal to the current-line wash**, asserted in
       both appearances through `ChromeTheme` and through the concrete AppKit
       colours. Its doc comment must state the rule rather than the numbers — an
       unfocused selection and the line the caret is on are two different facts, and
       a reader who cannot tell them apart has lost one of them — so it survives a
       later palette change. Confirm it fails against today's values.
-- [ ] Change `ChromePalette`'s `selectionInactive` row to
+- [x] Change `ChromePalette`'s `selectionInactive` row to
       `Entry(dark: 0x3C3F46, light: 0xE2E2E7)`, leaving `currentLine` at
       `dark: 0x34363B, light: 0xF0F0F2`. Add a comment on the row recording this as
       a **change**: the wash was previously identical to the current-line highlight
       and is now a deliberate step stronger, so the two states read apart.
-- [ ] Update the restated row in `ChromePaletteTests.expected` to
+- [x] Update the restated row in `ChromePaletteTests.expected` to
       `.selectionInactive: (0x3C3F46, 0xE2E2E7, 0xFF)`.
-- [ ] Leave `conflictBackground` unchanged: it already carries
+- [x] Leave `conflictBackground` unchanged: it already carries
       `dark: 0xC9A35C, light: 0xA67C2E, alpha: 0x26`, which is exactly the ticket's
       value — verified at `Sources/Pisaka/ChromePalette.swift:84` and in the suite's
       restated row. Record that check as done in the commit message.
-- [ ] Add a short comment on `ChromePalette`'s `textPrimary`, `textSecondary` and
+- [x] Add a short comment on `ChromePalette`'s `textPrimary`, `textSecondary` and
       `accent` rows noting that the code zone's own theme states the same values for
       its body-text weight, its secondary weight and its label colour, and that this
       is two layers agreeing — the chrome palette must not gain a syntax entry, and
       the syntax table must not start reading a role. The sentence in
       `SyntaxTheme.swift` is its counterpart; a reader arriving from either side
       finds it.
-- [ ] Run the app-layer bundle — must pass before Task 5.
+- [x] Run the app-layer bundle — must pass before Task 5.
 
 ### Task 5: Update the design documents
 
