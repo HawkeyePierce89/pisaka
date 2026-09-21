@@ -684,22 +684,35 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     they do. Both inputs derive from `rulerFont`, so markers scale with code zoom
     like the numbers beside them (`zoomSurfaceKind == .code` unchanged), and are
     re-measured by the same `editorFontChanged()` path. A line carrying the worst
-    severity draws one dot in that severity's **chrome status role** —
+    severity draws one dot in that severity's **chrome role** —
     `LineNumberRulerView.diagnosticRole(for:)`, total over the closed severity
-    set: `error` → `statusRed`, `warning` → `statusYellow`, `information`/`hint`
-    → `statusBlue`; clean lines draw nothing. That is a **deliberate
+    set: `error` → `statusRed`, `warning` → `statusYellow`, `information` →
+    `accent`, `hint` → `textSecondary`; clean lines draw nothing. Two of the four
+    are not status roles, and deliberately so: the chrome has exactly one blue —
+    the accent — which is what a notice is drawn in, and a hint is a remark
+    rather than a condition, so it takes the same tone as the line numbers beside
+    it. The app-bundle gutter suite pins the mapping **and** that the four
+    resolve to four visibly different colours under both appearances, which is
+    the property the column actually has to have. That is a **deliberate
     duplication away from `SyntaxTheme`**, which still answers the same question
     for the squiggle and the hover popover: the gutter is chrome and reads from
     the palette, while the squiggle sits under the code and belongs to the code
     zone's own theme, so the two tables are two on purpose (`core-theme.md`).
     The three-surfaces-one-severity rule recorded on `SyntaxTheme` below is
     therefore now about the squiggle and the panel icon; the gutter dot has moved
-    out of it, and the two tables' values happen to agree today, which is a fact
-    about the palette's choices and not a coupling either side may rely on. The same edit notification feeds Core's shift through the new
+    out of it, and **the two tables now disagree outright** — the palette's
+    values are the chrome design's own and the syntax theme's are the code
+    zone's, so neither side may be read as a statement about the other. The same edit notification feeds Core's shift through the new
     `onEdit` closure — previous/post line-start tables, edited range and length
     delta, exactly `DiagnosticShift.updated`'s inputs, so the diagnostics channel
     never re-derives geometry this class already computed — captured **weakly**
     per the file's retain-cycle rule alongside `onToggleAnnotate`.
+    **The ruler has two instances, not one**: the editor's, and the read-only
+    out-of-project definition window's (`SourceViewerContent.swift`,
+    `app-window.md`), which builds the same class. Restyling the gutter therefore
+    restyled that window's gutter too, while the rest of that window is still
+    drawn the way it was — an accepted side effect of one ruler serving two
+    surfaces, standing until the sweep reaches the source viewer.
     **The fold chevron column** sits between the diagnostic markers and the
     numbers: `chevron.down` on the header line of every fold candidate,
     `chevron.right` on a folded one — **both in `textSecondary`**, the distinction

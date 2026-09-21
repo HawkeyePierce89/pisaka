@@ -889,14 +889,17 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     session still naming a source behind a modal alert would answer a later
     `validateDrop` for a drag that ended long ago, and a modal loop spun from
     inside AppKit's `performDragOperation:` blocks the drag session — and the
-    source app with it — behind a dialog. The highlight is the `dropTint` role,
-    reached at the *same* site and through the same rule as every other row
-    state: the row asks `TreeRowState.state(isSelected:isWindowKey:isHovering:
-    isDropTarget:)` (`core-theme.md`) and maps the answer through
-    `TreeRowBackground.role(for:)`. Drop outranks hover there because the pointer
-    is inside the row and both conditions are true at once, and "will this drop
-    land here?" is the only question being asked; `dropTint` is its own role
-    rather than a reuse of the selection wash for the same reason. One rule and
+    source app with it — behind a dialog. The highlight is the **accent at 40 %
+    opacity**, reached at the *same* site and through the same rule as every
+    other row state: the row asks `TreeRowState.state(isSelected:isWindowKey:
+    isHovering:isDropTarget:)` (`core-theme.md`) and maps the answer through
+    `TreeRowBackground.color(for:resolving:)`. Drop outranks hover there because
+    the pointer is inside the row and both conditions are true at once, and "will
+    this drop land here?" is the only question being asked; the wash is heavier
+    than `accentTintStrong` for the same reason — a drop over a row that is also
+    selected has to out-read the selection. The closed role set names no drop
+    wash and gains none: this is the accent read more strongly, which is a
+    reading the palette already supports, not a twenty-second role. One rule and
     one mapping, read by both row kinds, is what stops the treatments drifting
     apart. Everything else on both row kinds is **unchanged and in the same
     order**: the row's single `.onTapGesture` still toggles a folder (a drag and a
@@ -909,19 +912,30 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     drawn from the colour roles through the geometry-and-state path
     (`core-theme.md`). Every row background is one expression: the row asks
     `TreeRowState.state(...)` and maps the answer through the file-scope
-    `TreeRowBackground.role(for:)` — `hover` → `hoverTint`, `selectedFocused` →
-    `accentTintStrong`, `selectedUnfocused` → `selectionInactive`, `dropTarget` →
-    `dropTint`, and `plain` → `nil`, which is the *absence* of a background
-    rather than a colour of its own. Both row kinds read that one mapping, for
-    the reason they share the geometry tokens. Two of the rule's four inputs are
+    `TreeRowBackground.color(for:resolving:)` — `hover` → `hoverTint`,
+    `selectedFocused` → `accentTintStrong`, `selectedUnfocused` →
+    `selectionInactive`, `dropTarget` → the accent at 40 %, and `plain` →
+    `.clear`, the *absence* of a background rather than a colour of its own.
+    (`role(for:)` beneath it still answers the four that a role states, and `nil`
+    for the two that do not: `plain`, which paints nothing, and `dropTarget`,
+    whose wash the closed set does not name.) The theme arrives as a
+    role-to-colour *function*, not as the theme value, so no view file names
+    `ChromeTheme` — rule five of the gating suite (`core-theme.md`). Both row
+    kinds read that one mapping, for the reason they share the geometry tokens.
+    Two of the rule's four inputs are
     **derived, not interactive**: *selection* is "this row's file is the active
-    editor tab's file" — `ProjectTreeView` reads `model.selectedFile?.url` and
-    hands it down the recursion, each file row comparing canonically (the app
-    layer's existing inline `standardizedFileURL.resolvingSymlinksInPath()`
-    spelling, `CanonicalPath` being `internal` to Core), because a tree row's url
-    is built by appending a listing's component to the opened root while a tab's
-    came from wherever it was opened, and two spellings of one file must read as
-    selected. No click-to-select is introduced. *Focus* is
+    editor tab's file" — `ProjectTreeView` builds a `TreeSelection` from
+    `model.selectedFile?.url` **once per render** and hands *that* down the
+    recursion, carrying the tab's url in both spellings (standardized, and with
+    its symlinks resolved), so a row matches either by a purely lexical
+    comparison of its own standardized url. Resolving per row instead would cost
+    one `realpath(3)` per visible row per keystroke, `DirectoryNodeView` being an
+    observer of the workspace. The two sides need two spellings because a tree
+    row's url is built by appending a listing's component to the opened root
+    while a tab's came from wherever it was opened. The accepted limit is stated
+    on `TreeSelection`: a row reached through a *symlinked* root while the tab's
+    url is already canonical is not highlighted, a configuration neither producer
+    creates. No click-to-select is introduced. *Focus* is
     `@Environment(\.controlActiveState) == .key` on the row: the window is key or
     it is not. A folder row passes `isSelected: false` unconditionally — a folder
     is never an editor tab — and a file row passes `isDropTarget: false`, a file
@@ -1114,8 +1128,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     *alignment rect*, so the field's frame is four points wider than the
     width it was assigned, and reporting that frame back as the row's
     minimum widens the row four points per layout pass until AppKit aborts
-    the window's constraint loop. The create draft, whose row is not capped
-    at `maxWidth: .infinity`, took exactly that path. Enter is still
+    the window's constraint loop. The create draft took exactly that path
+    before the guard existed; its outermost frame now states
+    `maxWidth: .infinity` too, which removes the runaway's room but not the
+    guard, the refusal being about what a representable may report rather than
+    about which row happens to be capped. Enter is still
     never a line break — the coordinator swallows every newline selector and
     commits instead. The arithmetic is deliberately *not* shared with
     `FilePanels.promptFieldHeight(of:)`, which measures against a fixed 400
@@ -1129,8 +1146,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     it is an editing affordance rather than a row: an inline draft *replaces* a
     tree row on screen and must read identically to the row it stands in for. So
     it takes the same geometry — `ChromeGeometry.rowPaddingX` horizontally, and
-    no vertical padding at all, the row's height being the fixed token the two
-    row kinds now use — draws its icon column monochrome in `textSecondary` like
+    no vertical padding at all: a **rename** draft is inside the row it renames,
+    which already carries `ChromeGeometry.rowHeight`, while a **create** draft is
+    a row of its own (hosted directly by `DirectoryNodeView`) and therefore
+    states that height itself, as a `minHeight` and never a ceiling, so the
+    wrapped reason line can grow past one row. The two row kinds lift their own
+    `maxHeight` for exactly that reason while they host a rename draft — draws its icon column monochrome in `textSecondary` like
     the row it replaces, and takes the reason line in `statusRed`. The field
     itself is the chrome's one `NSTextField` and therefore the tree's one user of
     the **AppKit bridge**: `updateNSView` sets `textColor` to
@@ -1165,9 +1186,18 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     label in `textPrimary` when active and `textSecondary` otherwise, one
     `accent` underline `ChromeGeometry.accentIndicator` tall on the active tab, a
     trailing `hairline` between tabs, and **one slot** holding either the close
-    mark or the unsaved-changes dot: the mark shows on the active tab as well as
-    under the pointer, so the tab a user is most likely to close does not have to
-    be hunted for. An untitled buffer has no url and is asked about under its
-    display name, so the fallback symbol is still `FileIcon`'s own rather than a
-    second guess spelled here. Every number goes through `ChromeGeometry` and
-    `metrics.scaled(_:)`.
+    mark or the unsaved-changes dot, claimed in that order: the mark under the
+    pointer, then the dot, then the mark on the active tab. The dot therefore
+    **outranks** the mark on an active tab — unsaved work is a fact about the
+    file that nothing else on the strip states, while the mark is one hover away
+    — and the mark still shows on an active tab with nothing to report, so the
+    tab most likely to be closed does not have to be hunted for. An untitled
+    buffer has no url and is asked about under its display name, so the fallback
+    symbol is still `FileIcon`'s own rather than a second guess spelled here.
+    Every **chrome** measurement goes through `ChromeGeometry` and
+    `metrics.scaled(_:)` — the strip's height, the bottom and trailing hairlines,
+    the row padding, the accent indicator. The cell's own glyph sizes (icon 11,
+    close mark 9, dot 7, the 14-point slot they share, the 6-point item spacing)
+    stay local and scaled, as the sweep guide permits: they are this surface's
+    numbers, not chrome measurements another surface could drift from
+    (`core-theme.md`, step 3).

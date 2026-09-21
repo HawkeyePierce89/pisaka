@@ -34,25 +34,27 @@ adds no write of any kind. Its only persisted input is the existing
 ## Core
 
   - `ChromeColorRole.swift` — the closed role enumeration: a `public enum`,
-    `String`-raw-valued, `CaseIterable`, `Hashable`, `Sendable`, twenty-two
-    cases in five groups (backgrounds, text, lines and accent, row states,
-    status, diff and merge). A role names a **meaning**; it carries no colour at
-    all, which is what keeps Core Foundation-only and portable, and is the same
-    split `FileIconColor` already makes. **The set is closed on purpose.** The
-    sweep that follows adds *views*, never roles: a surface that appears to need
-    a twenty-third role has found a design question, and the answer is to reuse
-    an existing role or to change the design — not to grow the table, which
-    would end as one role per call site and no design system at all. Several
-    roles are consequently *unused* by the three surfaces restyled first
-    (`bgPopover`, `bgSidebar`, `bgBar`, `textTertiary`, `accentTint`,
-    `statusGreen`, `diffAddedBackground`, `diffRemovedBackground`,
-    `conflictBackground`); they are declared nonetheless, because the table is
-    the design rather than an inventory of today's call sites. `dropTint` is
-    deliberately its own role rather than a reuse of `accentTintStrong`: hover
-    and drop are on at the same moment (the pointer is inside the row being
-    dropped on) and must be told apart at a glance. The raw values are the
-    stable names the gating suite and the palette test speak; renaming one is a
-    documentation change as much as a code change.
+    `String`-raw-valued, `CaseIterable`, `Hashable`, `Sendable`, **twenty-one**
+    cases in six groups — backgrounds (`bgCanvas`, `bgPanel`, `bgEditor`,
+    `bgPopover`), text (`textPrimary`, `textSecondary`, `onAccent`), lines and
+    accent (`hairline`, `accent`, `accentTint`, `accentTintStrong`), row and
+    line states (`hoverTint`, `selectionInactive`, `currentLine`,
+    `bracketMatch`), status (`statusGreen`, `statusRed`, `statusYellow`) and
+    diff and merge (the three backgrounds). A role names a **meaning**; it
+    carries no colour at all, which is what keeps Core Foundation-only and
+    portable, and is the same split `FileIconColor` already makes. **The set is
+    closed on purpose.** The sweep that follows adds *views*, never roles: a
+    surface that appears to need a twenty-second role has found a design
+    question, and the answer is to reuse an existing role or to change the
+    design — not to grow the table, which would end as one role per call site
+    and no design system at all. Ten roles are consequently *unused* by the
+    three surfaces restyled first (`bgCanvas`, `bgPopover`, `onAccent`,
+    `accentTint`, `currentLine`, `bracketMatch`, `statusGreen`,
+    `diffAddedBackground`, `diffRemovedBackground`, `conflictBackground`); they
+    are declared nonetheless, because the table is the design rather than an
+    inventory of today's call sites. The raw values are the stable names the
+    gating suite and the palette test speak; renaming one is a documentation
+    change as much as a code change.
   - `ChromeGeometry.swift` — the chrome's measurements as unscaled point values:
     row height and horizontal padding, the tree's indent step, the maximum
     corner radius, the hairline width, four row/strip/bar heights, the bottom
@@ -61,7 +63,15 @@ adds no write of any kind. Its only persisted input is the existing
     `InterfaceMetrics.scaled(_:)`: nothing here is pre-scaled and no view
     multiplies a token by anything of its own, because the interface zoom's
     half-point rounding only composes correctly when it is applied once, at the
-    end (`core-zoom.md`). And **there is no font size here, and there will not be
+    end (`core-zoom.md`). **The one stated exception is `hairlineWidth` on an
+    AppKit code-zoom surface** — today `LineNumberRulerView`, which draws the
+    gutter's right-hand rule from the token unscaled. A hairline is one point by
+    definition, the thinnest rule the chrome draws rather than a measurement that
+    grows with the interface, and a code-zoom surface has no `InterfaceMetrics`
+    to ask in the first place: the interface scale is a different zone from the
+    one that ruler lives in. The next AppKit chrome surface follows this
+    precedent rather than inventing a second answer. And **there is no font size
+    here, and there will not be
     one**: the chrome's type scale already exists as `InterfaceTextStyle` —
     `.body` is 13, `.callout` 12 and `.subheadline` 11, exactly the three sizes
     the chrome draws with — reached through `InterfaceMetrics.font(_:)` /
@@ -101,7 +111,11 @@ allowed to spell a hex literal at all.
 `Entry` is one row of the table: a `dark` value, a `light` value and the `alpha`
 **both** are drawn at — a single alpha rather than one per appearance, because
 the translucent roles are *washes*, and a wash is the same wash over either
-background; two alphas would be two opinions about one design decision.
+background; two alphas would be two opinions about one design decision. The
+alpha is a `UInt8` defaulting to `0xFF`, the byte the design's eight-digit values
+carry in their last position, so the table spells the design's numbers verbatim
+(`0x22`, `0x33`, `0x0A`, `0x26`) rather than a fraction rounded away from them;
+each accessor divides by 255 where it builds a colour (`Entry.opacity`).
 
 `entry(for:)` is an **exhaustive `switch role` with no `default`**. That is the
 point: a role added to Core without a pair here is a *compile* error, rather
@@ -175,7 +189,17 @@ included.
     `app-editor-overlays.md`.
   - **The project tree rows** — `ProjectTreeView.swift` and
     `ProjectTreeDraftField.swift`, the geometry and row-state path. Full entry in
-    `app-window.md`.
+    `app-window.md`. One row state is painted without a role of its own: a
+    `dropTarget` row takes `accent` at **40 % opacity**, resolved at the two row
+    sites through `TreeRowBackground.color(for:resolving:)`. The closed set names
+    no drop wash, and the design's answer is a stronger reading of the accent
+    rather than a twenty-second role: hover, selection and drop are all true at
+    the moment a drag sits over a selected row (the pointer is inside it), so the
+    drop treatment has to out-read `accentTintStrong`, which it does by being the
+    same hue at a heavier wash. An `.opacity(_:)` on a role colour breaks neither
+    gating rule — it spells no hex and names no system colour — and the mapping
+    takes the theme as a role-to-colour *function* so no view file names the
+    theme's type (rule five).
 
 ### The monochrome-icon decision
 
@@ -264,14 +288,19 @@ Each further surface is restyled on its own, in the same six steps:
 1. **Find its colour sites.** Every `Color`, `NSColor`, `.foregroundStyle`,
    `.background`, `setFill`, tint and `opacity(...)` wash in the file.
 2. **Map each one to a role**, from the table in `ChromeColorRole.swift`. A
-   background asks which *kind* of surface it is (editor, panel, sidebar, bar,
-   popover); text asks which of the three weights it is; a wash asks which state
-   it expresses.
+   background asks which *kind* of surface it is — canvas (the window's ground),
+   panel (a dock, a side pane, a bar), editor or popover; text asks which of the
+   two chrome weights it is, or `onAccent` when it is drawn on the accent itself;
+   a wash asks which state it expresses.
 3. **Move its numbers onto `ChromeGeometry`**, scaled at the use site through
    `metrics.scaled(_:)`. A number that is genuinely the surface's own — the
    tree's chevron column, say — stays local, in a type that says so; a number
    that is a *chrome* measurement (a row height, a padding, a hairline) is a
-   token or it is a drift waiting to happen.
+   token or it is a drift waiting to happen. The one exception to the scaling
+   half is `hairlineWidth` on an **AppKit code-zoom surface**, which has no
+   `InterfaceMetrics` to ask and draws it unscaled — one point being what a
+   hairline is (see the `ChromeGeometry` entry above, and `LineNumberRulerView`,
+   which set the precedent).
 4. **Draw its text with `metrics.font(_:)` / `scaledFont(_:)`**, from
    `InterfaceTextStyle` — `.body` (13), `.callout` (12), `.subheadline` (11). Do
    not add a size to `ChromeGeometry`.
