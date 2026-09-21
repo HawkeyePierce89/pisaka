@@ -222,28 +222,28 @@ Docs: `docs/architecture/core-theme.md` (new), `app-window.md`,
 - Modify: `Sources/Pisaka/TabListView.swift`, `Sources/Pisaka/TabRowView.swift`,
   `Sources/Pisaka/ContentView.swift`
 
-- [ ] Reduce `TabListView`/`TabRowView` to the **vertical column only**: drop
+- [x] Reduce `TabListView`/`TabRowView` to the **vertical column only**: drop
       the `orientation` parameter and the `.horizontal` branch. Their colours
       and metrics are otherwise untouched — the vertical column is the sweep's.
-- [ ] `TabStripView`: the strip's whole chrome, owned here rather than in
+- [x] `TabStripView`: the strip's whole chrome, owned here rather than in
       `ContentView` — `ChromeGeometry.tabStripHeight` on `bgPanel`, a bottom
       hairline (`hairline` at `hairlineWidth`), a right hairline between tabs,
       every value through `metrics.scaled(...)`, labels through
       `metrics.font(.callout)`.
-- [ ] The tab cell: active tab filled `bgEditor` with an `accentIndicator`-tall
+- [x] The tab cell: active tab filled `bgEditor` with an `accentIndicator`-tall
       `accent` underline so it merges into the editor below; active label
       `textPrimary`, inactive `textSecondary`; a modified tab shows a 7 pt
       `textSecondary` dot in place of the close mark; the close mark is visible
       on the active tab **and** on hover (today it is hover-only); the file icon
       is drawn monochrome in `textSecondary` through `FileIcon(for:)`'s symbol
       with its colour ignored.
-- [ ] `ContentView`'s `.horizontal` branch hosts `TabStripView` with no
+- [x] `ContentView`'s `.horizontal` branch hosts `TabStripView` with no
       `.frame(height:)` and no `Divider()` of its own — the strip states its own
       height and draws its own hairline. The `.vertical` branch is unchanged.
-- [ ] Tests: the strip is SwiftUI glue and stays untested by convention; the
+- [x] Tests: the strip is SwiftUI glue and stays untested by convention; the
       gating suite in Task 6 is what covers it. Re-run the existing suites to
       confirm the `TabListView` signature change broke nothing.
-- [ ] run `swift test` and the app-layer bundle — must pass before Task 4
+- [x] run `swift test` and the app-layer bundle — must pass before Task 4
 
 ### Task 4: Surface 2 — the line-number ruler (the AppKit bridge path)
 

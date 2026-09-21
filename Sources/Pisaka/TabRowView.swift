@@ -2,14 +2,16 @@
 import SwiftUI
 import PisakaCore
 
-/// A single tab row: the file's display name, an unsaved-changes indicator, and a
-/// close button. The active tab is highlighted. In `.vertical` orientation the row
-/// stretches to the column width; in `.horizontal` orientation it hugs its content
-/// so tabs sit side by side in a strip.
+/// A single tab row in the **vertical** tab column: the file's display name, an
+/// unsaved-changes indicator, and a close button. The active tab is highlighted,
+/// and the row stretches to the column's width.
+///
+/// The horizontal strip's cell is `TabStripView`'s own, not a second branch
+/// here; this row's colours and metrics are the sweep's to move onto the chrome
+/// roles later.
 struct TabRowView: View {
     let file: OpenFile
     let isActive: Bool
-    var orientation: TabOrientation = .vertical
     let onSelect: () -> Void
     let onClose: () -> Void
 
@@ -24,10 +26,7 @@ struct TabRowView: View {
                 .font(metrics.scaledFont(.body))
                 .lineLimit(1)
                 .truncationMode(.middle)
-                .frame(
-                    maxWidth: orientation == .vertical ? .infinity : nil,
-                    alignment: .leading
-                )
+                .frame(maxWidth: .infinity, alignment: .leading)
 
             // Close button on hover; otherwise the dirty dot (if any).
             ZStack {
@@ -49,9 +48,7 @@ struct TabRowView: View {
         }
         .padding(.horizontal, metrics.scaled(10))
         .padding(.vertical, metrics.scaled(6))
-        // A horizontal-strip tab hugs its content (no full-width stretch); a
-        // vertical-column tab fills the column.
-        .frame(maxWidth: orientation == .vertical ? .infinity : nil, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background(isActive ? Color.accentColor.opacity(0.2) : Color.clear)
         .contentShape(Rectangle())
         .onTapGesture(perform: onSelect)
