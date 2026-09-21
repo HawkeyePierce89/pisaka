@@ -7,12 +7,16 @@ import Foundation
 /// each language considers a string or a comment, and whether being inside that
 /// string should suppress completion.
 ///
-/// The split between "recognized" and "gating" is deliberate: JSON, YAML, HTML
-/// and dotenv strings are *lexed* (so a `#` inside a quoted YAML scalar is not
-/// mistaken for a comment) but do not suppress completion, because their strings
-/// *are* the document's vocabulary — buffer-word completion of a repeated key,
-/// class name or variable is the only completion those files have. Markdown has
-/// no vocabulary at all and is completely ungated. The reasons for each decision
+/// The split between "recognized" and "gating" is deliberate, and it is reached
+/// for two different reasons. JSON, YAML, HTML and dotenv strings are *lexed*
+/// (so a `#` inside a quoted YAML scalar is not mistaken for a comment) but do
+/// not suppress completion, because their strings *are* the document's
+/// vocabulary — buffer-word completion of a repeated key, class name or variable
+/// is the only completion those files have. **Shell is the fifth ungated
+/// language and joins for the second reason**: its double-quoted string
+/// *interpolates* (`"$HOME/bin"`, `"${TAG}-rc"`), so its contents are code the
+/// completion should still answer in. Markdown has no vocabulary at all and is
+/// completely ungated. The reasons for each decision
 /// are carried on the vocabulary entry for the language, not only in the plan.
 public enum SyntaxContextVocabulary {
 
@@ -51,7 +55,10 @@ public enum SyntaxContextVocabulary {
         case afterIndent
         /// At the start of the line or after whitespace — anywhere the token is
         /// not glued to the preceding character. Held by **yaml**, whose `#`
-        /// opens a comment mid-line but only when a space precedes it.
+        /// opens a comment mid-line but only when a space precedes it, and by
+        /// **shell**, for which the same reading is exactly right: a `#` glued to
+        /// the preceding character is part of a word, so neither `foo#bar` nor
+        /// the parameter expansion `${var#prefix}` opens a comment.
         case afterWhitespace
     }
 
@@ -132,7 +139,7 @@ public enum SyntaxContextVocabulary {
 
     // MARK: - Accessors
 
-    /// The vocabulary for `language`, covering all 16 `SyntaxLanguage` cases.
+    /// The vocabulary for `language`, covering all 17 `SyntaxLanguage` cases.
     public static func vocabulary(for language: SyntaxLanguage) -> Vocabulary {
         Vocabulary(
             stringForms: stringForms(for: language),
@@ -168,6 +175,8 @@ public enum SyntaxContextVocabulary {
             return htmlStringForms
         case .dotenv:
             return dotenvStringForms
+        case .shell:
+            return shellStringForms
         case .gitignore, .editorconfig, .markdown:
             return []
         }
@@ -213,16 +222,27 @@ public enum SyntaxContextVocabulary {
             // and then tests `#`/`;`; the two must not disagree about the same
             // file, so the scanner skips indentation the same way.
             return [.line(token: "#", anchor: .afterIndent), .line(token: ";", anchor: .afterIndent)]
+        case .shell:
+            // A `#` glued to the preceding character is part of a word, so
+            // `foo#bar` and `${var#prefix}` are not comments. Same reading YAML
+            // takes, for the same lexical reason.
+            return [.line(token: "#", anchor: .afterWhitespace)]
         case .markdown:
             return []
         }
     }
 
     /// Whether strings of `language` suppress completion. `false` for the four
-    /// document-vocabulary languages whose strings *are* the content to complete.
+    /// document-vocabulary languages whose strings *are* the content to complete
+    /// — and `false` for **shell**, which is not one of them and answers `false`
+    /// for its own reason: a double-quoted shell string interpolates, so what is
+    /// inside it is the vocabulary completion should still offer. The flag is per
+    /// *language*, so the non-interpolating single-quoted form inherits the same
+    /// answer; a popup nobody asked for costs less than silence in the form
+    /// people actually type in.
     public static func stringsSuppressCompletion(for language: SyntaxLanguage) -> Bool {
         switch language {
-        case .json, .yaml, .html, .dotenv:
+        case .json, .yaml, .html, .dotenv, .shell:
             return false
         case .swift, .javascript, .typescript, .python, .go, .rust, .css, .sql, .dockerfile:
             return true
@@ -405,5 +425,34 @@ public enum SyntaxContextVocabulary {
     private static let dotenvStringForms: [StringForm] = [
         StringForm(open: "'", close: "'", spansLines: false, escape: .none),
         StringForm(open: "\"", close: "\"", spansLines: false, escape: .none),
+    ]
+
+    /// Shell: `'…'` with **no** escape rule at all — a backslash inside a single
+    /// -quoted shell string is a literal backslash and the next `'` always ends
+    /// the literal — and `"…"` with `.backslash`, which is the double-quoted
+    /// form's actual rule. Both span lines: an unterminated quote in a shell
+    /// script really does continue onto the next line, and the scanner must read
+    /// it that way or a stray quote would silently re-open code.
+    ///
+    /// **Not gating**, for a reason the four document-vocabulary languages do not
+    /// share — see `stringsSuppressCompletion(for:)`.
+    ///
+    /// **Three shapes are deliberately not modelled**, each because no fixed
+    /// `StringForm` describes it:
+    ///
+    ///  * **Heredocs** (`<<EOF … EOF`). The delimiter is an arbitrary word
+    ///    declared on an earlier line, so there is no literal to put in `open`.
+    ///    A heredoc body lexes as code, which is the honest failure: the words in
+    ///    it stay completable rather than being gated by a guess.
+    ///  * **`$'…'`**, whose escapes are C's. `allowedPrefixLetters` takes
+    ///    letters, not `$`, so the form lexes as an ordinary single-quoted
+    ///    string — which ends it in exactly the same place, since the only
+    ///    difference is what the escapes *mean*.
+    ///  * **Backslash-continued lines**. The scanner has no notion of a line
+    ///    joined to the next one; it does not need one here, because both string
+    ///    forms already span lines.
+    private static let shellStringForms: [StringForm] = [
+        StringForm(open: "'", close: "'", spansLines: true, escape: .none),
+        StringForm(open: "\"", close: "\"", spansLines: true, escape: .backslash),
     ]
 }

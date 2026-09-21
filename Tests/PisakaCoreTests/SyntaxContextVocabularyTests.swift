@@ -235,7 +235,7 @@ final class SyntaxContextVocabularyTests: XCTestCase {
         XCTAssertEqual(byAnchor[.anywhere], [.swift, .javascript, .typescript, .python, .go, .rust, .sql])
         XCTAssertEqual(byAnchor[.trueLineStart], [.gitignore])
         XCTAssertEqual(byAnchor[.afterIndent], [.dockerfile, .dotenv, .editorconfig])
-        XCTAssertEqual(byAnchor[.afterWhitespace], [.yaml])
+        XCTAssertEqual(byAnchor[.afterWhitespace], [.yaml, .shell])
     }
 
     /// editorconfig anchors *both* of its tokens the same way — the `;` must not
@@ -261,5 +261,38 @@ final class SyntaxContextVocabularyTests: XCTestCase {
         for form in forms {
             XCTAssertEqual(form.escape, .none, "dotenv \(form.open) must declare no escape rule")
         }
+    }
+
+    // MARK: - Shell
+
+    func testShellStringForms() {
+        let forms = SyntaxContextVocabulary.stringForms(for: .shell)
+        XCTAssertEqual(forms.count, 2)
+
+        guard let single = forms.first(where: { $0.open == "\'" }),
+              let double = forms.first(where: { $0.open == "\"" }) else {
+            return XCTFail("shell declares a single- and a double-quoted form")
+        }
+        // A backslash inside `\'…\'` is a literal backslash — the next quote ends it.
+        XCTAssertEqual(single.escape, .none)
+        XCTAssertEqual(double.escape, .backslash)
+        XCTAssertTrue(single.spansLines)
+        XCTAssertTrue(double.spansLines)
+        XCTAssertNil(single.hole)
+        XCTAssertNil(double.hole)
+    }
+
+    func testShellCommentFormIsHashAfterWhitespace() {
+        XCTAssertEqual(SyntaxContextVocabulary.commentForms(for: .shell),
+                       [.line(token: "#", anchor: .afterWhitespace)])
+    }
+
+    /// Shell is the fifth ungated language, and the only one that is ungated
+    /// because its strings *interpolate* rather than because they are the
+    /// document's vocabulary.
+    func testShellStringsDoNotSuppressCompletion() {
+        XCTAssertFalse(SyntaxContextVocabulary.stringsSuppressCompletion(for: .shell))
+        // It can still suppress — inside a comment.
+        XCTAssertTrue(SyntaxContextVocabulary.canSuppressCompletion(.shell))
     }
 }

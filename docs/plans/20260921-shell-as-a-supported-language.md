@@ -276,7 +276,7 @@ One task because the set-equality suites make it one: the enum case, every table
 that must answer for it, and the query that keeps `SymbolQueryTests` green are a
 single indivisible green step.
 
-- [ ] Add `case shell` to `SyntaxLanguage`. Extend `extensionMap` with `sh`,
+- [x] Add `case shell` to `SyntaxLanguage`. Extend `extensionMap` with `sh`,
       `bash`, `zsh`, `ksh`, `command`, and `exactFileNameMap` with `.bashrc`,
       `.bash_profile`, `.bash_logout`, `.zshrc`, `.zprofile`, `.zshenv`,
       `.zlogin`, `.zlogout`, `.profile`, `.envrc`. **No phase is reordered,
@@ -285,14 +285,14 @@ single indivisible green step.
       `.envrc` is an exact name: it is one character from the dotenv family, and
       an exact name in phase 1 is the only placement that cannot interact with
       the `.env.` prefix rule in either direction.
-- [ ] `CommentStyle`: `.shell` joins the `#` line-comment group.
+- [x] `CommentStyle`: `.shell` joins the `#` line-comment group.
       `languagesWithoutComments` unchanged.
-- [ ] `LanguageKeywords`: add the `shell` list exactly as decision 8 fixes it,
+- [x] `LanguageKeywords`: add the `shell` list exactly as decision 8 fixes it,
       sorted and duplicate-free, and write decision 8's line — the three
       admitting clauses and the "an ordinary command a `$PATH` program could
       perform is out" refusal — into the list's own doc comment, naming `echo` as
       the worked example and `mapfile`/`read` as the clause that admits them.
-- [ ] `SyntaxContextVocabulary`: add the three arms. Strings — `'…'`
+- [x] `SyntaxContextVocabulary`: add the three arms. Strings — `'…'`
       `spansLines: true, escape: .none` and `"…"` `spansLines: true,
       escape: .backslash`; comments — `.line(token: "#", anchor:
       .afterWhitespace)`; suppression — `false`. Put decisions 4, 5 and 6 above
@@ -301,16 +301,16 @@ single indivisible green step.
       answer belongs to "the four document-vocabulary languages" — shell is the
       fifth and joins for a different reason. Correct `vocabulary(for:)`'s
       "all 16 `SyntaxLanguage` cases" to 17.
-- [ ] `SyntaxLanguage.lspLanguageID`: `case .shell: return "shellscript"`, with
+- [x] `SyntaxLanguage.lspLanguageID`: `case .shell: return "shellscript"`, with
       the one-line note that it is the protocol's spelling, that it differs from
       the raw value, and that no server speaks it here — the arm exists so the
       mapping stays total, as `.dotenv`'s does.
-- [ ] `SyntaxLanguageConfiguration`: `import TreeSitterBash` beside the other
+- [x] `SyntaxLanguageConfiguration`: `import TreeSitterBash` beside the other
       remote grammars, and
       `case .shell: return try LanguageConfiguration(tree_sitter_bash(), name: "Bash")`,
       noting that the bundle `TreeSitterBash_TreeSitterBash` is what that name
       derives.
-- [ ] Write `Resources/Queries/shell/symbols.scm` under the shared convention:
+- [x] Write `Resources/Queries/shell/symbols.scm` under the shared convention:
       `(function_definition name: (word) @definition.function)` unanchored, and
       three `(program …)`-anchored variable patterns — a bare
       `variable_assignment`, one inside `variable_assignments` (the `A=1 B=2`
@@ -318,12 +318,12 @@ single indivisible green step.
       Capture `name: (variable_name)` specifically, which is what skips the
       `subscript` form `arr[2]=x`. Carry decision 7 and the subscript note in the
       file's own header comment, the way Python's and Go's do.
-- [ ] `SymbolQueryTests`: add `.shell` to `pinnedNodeNames` — named
+- [x] `SymbolQueryTests`: add `.shell` to `pinnedNodeNames` — named
       `{declaration_command, function_definition, program, variable_assignment,
       variable_assignments, variable_name, word}`, anonymous `{}`, fields
       `{name}`. The existing union assertion then covers the new language
       automatically.
-- [ ] Tests, each asserted **by name**: every new extension and dot-file resolves
+- [x] Tests, each asserted **by name**: every new extension and dot-file resolves
       to `.shell`; `.env`, `.env.local` and `.env.json` resolve exactly as on the
       default branch; `fish`, `csh`, `tcsh` and `ps1` still resolve to `nil`; a
       path form (`scripts/deploy.sh`, `project/.zshrc`) resolves; `.shell` is not
@@ -334,7 +334,7 @@ single indivisible green step.
       no escape, double quote takes backslash, both span lines, the anchor, the
       suppression answer); and scanner cases — `echo "# not a comment"` reads as
       a string, `foo#bar` and `${var#prefix}` are not comments, `# real` is.
-- [ ] Run `swift test` — every set-equality suite green — before Task 3.
+- [x] Run `swift test` — every set-equality suite green — before Task 3.
 
 ### Task 3: Execute the symbols query in the app-layer bundle
 

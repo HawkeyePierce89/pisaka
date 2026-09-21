@@ -44,6 +44,7 @@ public enum LanguageKeywords {
         case .rust: return rust
         case .sql: return sql
         case .editorconfig: return editorConfig
+        case .shell: return shell
         case .json, .markdown, .html, .css, .yaml, .dotenv, .gitignore: return []
         }
     }
@@ -178,6 +179,50 @@ public enum LanguageKeywords {
         "try", "type",
         "while", "with",
         "yield",
+    ]
+
+    /// Shell: the reserved words plus the builtins the shell itself has to
+    /// interpret. The dividing line, stated so the list is a decision rather
+    /// than a sample: **a word is in when the shell itself must interpret it for
+    /// the script to mean what it says** — the reserved words, plus the builtins
+    /// that *bind or unbind a name* (`local`, `export`, `declare`, `readonly`,
+    /// `unset`, `read`, `mapfile`/`readarray`), *set a shell option or change
+    /// how the shell reads what follows* (`set`, `shopt`, `shift`, `eval`,
+    /// `source`, `command`, `builtin`), or *alter control flow* (`break`,
+    /// `continue`, `return`, `exit`, `exec`, `trap`).
+    ///
+    /// A word is **out** when it is an ordinary command that a program in
+    /// `$PATH` could perform, whether or not this shell also implements it
+    /// internally. `echo` is the worked example: it is a builtin *and* a real
+    /// file in `/bin`, and nothing about a script's meaning depends on which one
+    /// runs — so it is out, by the same rule that keeps `print` and `console`
+    /// off the other lists. `printf`, `test`, `pwd`, `kill`, `type`, `hash`,
+    /// `ulimit`, `umask`, `jobs`, `fg`, `bg`, `wait`, `pushd` and `popd` are out
+    /// for that reason; `true`/`false` are out because here they are commands,
+    /// not the boolean literals a grammar declares; every external program
+    /// (`grep`, `sed`, `awk`, `git`) is out; and the bracket/brace tokens are
+    /// punctuation the identifier rule would refuse to insert anyway.
+    ///
+    /// `mapfile`/`readarray` are the clause's least obvious members and stay in
+    /// for the same reason `read` does — they bind a name, which no external
+    /// program can do. `jobs`, `fg`, `bg` and `wait` stay out: manipulating the
+    /// job table is none of the three clauses.
+    private static let shell: [String] = [
+        "alias",
+        "break", "builtin",
+        "case", "command", "continue", "coproc",
+        "declare", "do", "done",
+        "elif", "else", "esac", "eval", "exec", "exit", "export",
+        "fi", "for", "function",
+        "getopts",
+        "if", "in",
+        "let", "local",
+        "mapfile",
+        "read", "readarray", "readonly", "return",
+        "select", "set", "shift", "shopt", "source",
+        "then", "time", "trap", "typeset",
+        "unalias", "unset", "until",
+        "while",
     ]
 
     /// Dockerfile: the instruction set, uppercase as it is written. `MAINTAINER`

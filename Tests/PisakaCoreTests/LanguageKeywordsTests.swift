@@ -27,7 +27,10 @@ final class LanguageKeywordsTests: XCTestCase {
 
     func testTheDocumentedLanguagesAreTheOnesWithLists() {
         let withKeywords = Set(SyntaxLanguage.allCases.filter { !LanguageKeywords.keywords(for: $0).isEmpty })
-        XCTAssertEqual(withKeywords, [.swift, .javascript, .typescript, .python, .dockerfile, .go, .rust, .sql, .editorconfig])
+        XCTAssertEqual(withKeywords,
+                       [.swift, .javascript, .typescript, .python, .dockerfile, .go, .rust, .sql,
+                        .editorconfig, .shell,
+                       ])
     }
 
     // MARK: - Shape
@@ -327,5 +330,28 @@ final class LanguageKeywordsTests: XCTestCase {
         XCTAssertFalse(editorconfig.contains("utf-16be"))
         XCTAssertFalse(editorconfig.contains("utf-16le"))
         XCTAssertTrue(editorconfig.contains("latin1"))
+    }
+
+    // MARK: - Shell
+
+    /// The dividing line stated on the list itself, asserted from both sides: a
+    /// word the shell must interpret is in, an ordinary command a `$PATH`
+    /// program could perform is out.
+    func testShellKeywordsHoldWhatTheShellMustInterpret() {
+        let shell = Set(LanguageKeywords.keywords(for: .shell))
+        for word in ["function", "local", "fi", "read", "export", "case", "esac", "shopt",
+                     "mapfile", "readarray", "trap",
+        ] {
+            XCTAssertTrue(shell.contains(word), "\(word) binds, gates or branches — it belongs in")
+        }
+    }
+
+    func testShellKeywordsExcludeOrdinaryCommandsAndPunctuation() {
+        let shell = Set(LanguageKeywords.keywords(for: .shell))
+        for word in ["echo", "printf", "test", "pwd", "kill", "jobs", "fg", "bg", "wait",
+                     "grep", "sed", "awk", "git", "true", "false", "[", "[[", "{",
+        ] {
+            XCTAssertFalse(shell.contains(word), "\(word) is not a word the shell must interpret")
+        }
     }
 }

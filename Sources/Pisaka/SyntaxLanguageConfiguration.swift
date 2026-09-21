@@ -21,6 +21,7 @@ import TreeSitterMarkdownInline
 import TreeSitterYAML
 import TreeSitterDockerfile
 import TreeSitterDotenv
+import TreeSitterBash
 // Vendored locally (`Vendor/TreeSitterGitignore`) — upstream ships neither a
 // Swift binding nor highlight queries; see that package's `VENDORED.md`. It is
 // packaged exactly like the remote grammars, so its resource bundle follows the
@@ -116,6 +117,13 @@ enum SyntaxLanguageConfiguration {
             // The SPM resource bundle is TreeSitterSql_TreeSitterSql, which
             // LanguageConfiguration derives from name: "Sql".
             return try LanguageConfiguration(tree_sitter_sql(), name: "Sql")
+        case .shell:
+            // Package *and* target are both `TreeSitterBash`, so the resource
+            // bundle is `TreeSitterBash_TreeSitterBash` — what `name: "Bash"`
+            // already derives through the convention above. The *case* is
+            // `.shell` because it covers zsh, ksh and `.profile` too; the
+            // grammar behind it is bash's.
+            return try LanguageConfiguration(tree_sitter_bash(), name: "Bash")
         case .editorconfig:
             // The SPM resource bundle is TreeSitterEditorconfig_TreeSitterEditorconfig,
             // which LanguageConfiguration derives from name: "Editorconfig",

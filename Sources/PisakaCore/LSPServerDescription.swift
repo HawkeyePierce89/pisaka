@@ -173,6 +173,11 @@ extension SyntaxLanguage {
     /// spelled the way editors have settled on: `.dotenv` (no server speaks it;
     /// present only so the mapping is total) and `.gitignore` → `"ignore"`, the id
     /// editors have settled on for the whole gitignore family.
+    ///
+    /// `.shell` → `"shellscript"` is the protocol's own spelling and deliberately
+    /// differs from the case's raw value (`"shell"`). No server registered here
+    /// speaks it; the arm exists so the mapping stays total, exactly as
+    /// `.dotenv`'s does.
     public var lspLanguageID: String {
         switch self {
         case .swift: return "swift"
@@ -191,6 +196,7 @@ extension SyntaxLanguage {
         case .gitignore: return "ignore"
         case .sql: return "sql"
         case .editorconfig: return "editorconfig"
+        case .shell: return "shellscript"
         }
     }
 

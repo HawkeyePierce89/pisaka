@@ -634,4 +634,41 @@ final class SyntaxContextScannerTests: XCTestCase {
         let text = "// comment"
         assertContext(text, at: 5, language: .json, is: .code)
     }
+
+    // MARK: - Shell
+
+    func testShellHashInsideAStringIsNotAComment() {
+        let text = "echo \"# not a comment\""
+        let inside = (text as NSString).range(of: "not").location
+        assertContext(text, at: inside, language: .shell, is: .string)
+        // Ungated: a double-quoted shell string interpolates, so its contents
+        // are still the vocabulary completion should answer in.
+        assertSuppress(text, at: inside, language: .shell, is: false)
+    }
+
+    func testShellGluedHashIsNotAComment() {
+        let word = "cp foo#bar dest"
+        assertContext(word, at: (word as NSString).range(of: "bar").location, language: .shell, is: .code)
+
+        let expansion = "echo ${var#prefix}"
+        assertContext(expansion, at: (expansion as NSString).range(of: "prefix").location,
+                      language: .shell, is: .code)
+    }
+
+    func testShellRealCommentIsAComment() {
+        let text = "# real\nmake build"
+        assertContext(text, at: 3, language: .shell, is: .comment)
+        assertSuppress(text, at: 3, language: .shell, is: true)
+
+        let trailing = "make build  # real"
+        let inside = (trailing as NSString).range(of: "real").location
+        assertContext(trailing, at: inside, language: .shell, is: .comment)
+    }
+
+    func testShellSingleQuotedStringTakesNoEscape() {
+        // The backslash is literal, so the quote right after it still closes.
+        let text = "echo 'a\\' && ls"
+        let afterClose = (text as NSString).range(of: "&&").location
+        assertContext(text, at: afterClose, language: .shell, is: .code)
+    }
 }
