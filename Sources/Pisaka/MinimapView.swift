@@ -21,9 +21,17 @@ import PisakaCore
 /// **Two colour sources, one boundary.** The view's own chrome — the background
 /// it clears to and the viewport rectangle drawn over the overview — is drawn
 /// from `ChromeColorRole` through `ChromePalette.nsColor(_:)`, which answers a
-/// *dynamic* colour: nothing here caches a resolved value and nothing observes
-/// an appearance change, because the colour resolves itself while AppKit has the
-/// view's effective appearance current. The **runs** are not chrome: they are a
+/// *dynamic* colour: nothing here caches a resolved value and nothing watches for
+/// a *colour* change, because the colour resolves itself while AppKit has the
+/// view's effective appearance current. That is a statement about the value, not
+/// about the drawing: a dynamic colour resolves only *while drawing*, and this
+/// view paints its whole content itself in `draw(_:)`, which AppKit does not
+/// re-run on its own when the effective appearance changes. So
+/// ``viewDidChangeEffectiveAppearance()`` below is still required — it caches
+/// nothing and asks about no role, it only says "redraw", which is what makes the
+/// resolution happen under the new appearance. Deleting it leaves the minimap
+/// painted in the previous appearance's greys until something else dirties it.
+/// The **runs** are not chrome: they are a
 /// rendering of the code, so they stay with `SyntaxTheme` for exactly the reason
 /// the syntax highlighting does — a token kind names the code zone's own theme,
 /// which no chrome role can stand in for. That is the same boundary
@@ -113,6 +121,10 @@ final class MinimapView: NSView, ZoomSurfaceProviding {
     }
 
     /// Re-resolve theme colors for the new appearance by redrawing.
+    ///
+    /// Required, not decorative: both colour sources answer values that resolve
+    /// while drawing, and nothing else dirties this view on an appearance change,
+    /// so without this the strip keeps the previous appearance's colours.
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         needsDisplay = true

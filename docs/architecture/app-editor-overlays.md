@@ -857,9 +857,16 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     appearance — and the viewport indicator is `accentTint` filled and
     `accentTintStrong` stroked, **each wash carrying its own opacity in the
     table** so this view composes no alpha of its own. Both are *dynamic*
-    `NSColor`s: nothing is cached and no appearance change is observed, because
-    the colour resolves itself while AppKit has the view's effective appearance
-    current. The **runs are not chrome** — they are a rendering of the code — so
+    `NSColor`s: nothing is cached and nothing watches for a *colour* change,
+    because the colour resolves itself while AppKit has the view's effective
+    appearance current — a statement about the value, not about the drawing. This
+    view paints its whole content itself in `draw(_:)`, which AppKit does not
+    re-run when the effective appearance changes, so
+    `viewDidChangeEffectiveAppearance()` is still overridden and still required:
+    it caches nothing and names no role, it only sets `needsDisplay`, which is
+    what makes the resolution happen under the new appearance. Deleting it leaves
+    the strip in the previous appearance's greys until something else dirties it.
+    The **runs are not chrome** — they are a rendering of the code — so
     `drawTokens` and `MinimapTokenizer` are untouched and keep asking
     `SyntaxTheme`, for exactly the reason the syntax highlighting does: a token
     kind names the code zone's own theme, which no chrome role can stand in

@@ -170,22 +170,22 @@ claim is repeated in `docs/architecture/app-editor-overlays.md`.
   - Modify: `Sources/Pisaka/MinimapView.swift`
   - Modify: `docs/architecture/app-editor-overlays.md`
 
-  - [ ] Rewrite the comment to say what is actually true: the dynamic colour
+  - [x] Rewrite the comment to say what is actually true: the dynamic colour
         needs no cached value and no colour-specific observer, *and* the view
         must still be told to redraw when the effective appearance changes,
         which is what the override does.
-  - [ ] Fix the same claim in `app-editor-overlays.md`. **Both halves in one
+  - [x] Fix the same claim in `app-editor-overlays.md`. **Both halves in one
         commit** — a fix that lands only at the site the finding quoted is the
         failure mode this plan's approach section names.
-  - [ ] **Sweep for the shape:** every place in this branch's diff that argues
+  - [x] **Sweep for the shape:** every place in this branch's diff that argues
         "nothing observes an appearance change" about an AppKit surface. The
         gutter and the editor pane make the same argument; confirm for each
         whether an appearance-change override exists beside it, and correct the
         prose wherever the two disagree.
-  - [ ] No test: a comment cannot be asserted. The protection is that the
+  - [x] No test: a comment cannot be asserted. The protection is that the
         override itself is exercised by the app bundle if any suite touches it;
         do not add a test that merely restates the comment.
-  - [ ] run `swift test` and the app-layer bundle — must pass before Task 5
+  - [x] run `swift test` and the app-layer bundle — must pass before Task 5
 
 ### Task 5: Let the splitter own the tab column's trailing edge
 

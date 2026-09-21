@@ -146,14 +146,22 @@ Three accessors, one table:
   - `nsColor(_ role:)` — the **AppKit bridge**: a *dynamic* `NSColor` built on
     `PlatformColor.dynamic(light:dark:alpha:)`, the primitive already in the
     tree (`SyntaxTheme`'s own colours are built the same way). This is why **no
-    AppKit view in the chrome caches a resolved colour and none observes an
-    appearance change by hand**: the Theme preference is applied as
+    AppKit view in the chrome caches a resolved colour and none watches for a
+    *colour* change by hand**: the Theme preference is applied as
     `.preferredColorScheme` at each SwiftUI window root, which sets that window's
     `NSAppearance`; every `NSView` inside inherits it, and a dynamic colour asked
     to draw under the new appearance answers the new value. A view that resolved
     a colour once into a stored property would freeze whichever appearance
     happened to be current, and would then need an observer to un-freeze it — two
-    mechanisms where the platform already provides one.
+    mechanisms where the platform already provides one. **That is a rule about the
+    value, not about the drawing**: a dynamic colour resolves only *while
+    drawing*, so a view AppKit does not redraw by itself on an appearance change
+    — one painting its whole content in `draw(_:)` rather than handing AppKit a
+    `backgroundColor` — still overrides `viewDidChangeEffectiveAppearance()` to
+    ask for that redraw. It caches nothing and names no role; it says only
+    "redraw". `MinimapView` is the chrome's one such view today; the gutter, the
+    editor pane and the read-only viewer pane each hand AppKit a colour and so
+    need none.
   - `nsColor(_ role:in:)` — the **concrete** `NSColor` of one appearance, for the
     sites that are not drawing (the palette test reads components) or that have
     already been handed an appearance to resolve against. Drawing code asks the
@@ -443,7 +451,9 @@ has decided not to make, and that is a design question to raise, not a table to
 grow.
 
 An AppKit surface takes the bridge (`ChromePalette.nsColor(_:)`, dynamic, no
-caching, no appearance observer); a SwiftUI surface takes
+caching, no colour observer — but still a `viewDidChangeEffectiveAppearance()`
+redraw if it paints itself rather than handing AppKit a colour); a SwiftUI
+surface takes
 `@Environment(\.chromeTheme)` and asks `theme.color(_:)`. A surface whose root
 is a new window gains `.chromeThemed(settings)` beside `.interfaceScaled(...)` —
 and rule four will say so if it does not.

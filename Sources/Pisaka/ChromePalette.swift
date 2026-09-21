@@ -93,7 +93,7 @@ enum ChromePalette {
     /// resolves the value itself, per appearance, at draw time.
     ///
     /// That is why **no AppKit view in the chrome caches a resolved colour and
-    /// none observes an appearance change by hand.** The Theme preference is
+    /// none watches for a *colour* change by hand.** The Theme preference is
     /// applied as `.preferredColorScheme` at each SwiftUI window root, which sets
     /// that window's `NSAppearance`; every `NSView` inside the window inherits it,
     /// and a dynamic colour asked to draw under the new appearance answers the new
@@ -101,6 +101,14 @@ enum ChromePalette {
     /// freeze whichever appearance happened to be current when it did, and would
     /// then need an observer to un-freeze it — two mechanisms where the platform
     /// already provides one.
+    ///
+    /// **That is a rule about the value, not about the drawing.** A dynamic colour
+    /// resolves only while drawing, so a view AppKit does not redraw by itself on
+    /// an appearance change — one that paints its whole content in `draw(_:)`
+    /// rather than handing AppKit a `backgroundColor` — still overrides
+    /// `viewDidChangeEffectiveAppearance()` to ask for that redraw. It caches
+    /// nothing and names no role; it says only "redraw". `MinimapView` is the
+    /// chrome's one such view today.
     static func nsColor(_ role: ChromeColorRole) -> NSColor {
         let entry = entry(for: role)
         return PlatformColor.dynamic(light: entry.light, dark: entry.dark, alpha: entry.opacity)
