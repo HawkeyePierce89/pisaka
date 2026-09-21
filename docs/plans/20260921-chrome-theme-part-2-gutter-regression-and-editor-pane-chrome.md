@@ -120,20 +120,20 @@ consent strip's chrome), `CLAUDE.md` (one index line for the new file).
 - Modify: `Sources/Pisaka/LineNumberRulerView.swift`
 - Create: `Tests/PisakaAppTests/LineNumberRulerBackgroundTests.swift`
 
-- [ ] Write the failing test first: hand `backgroundRect(in:ruleThickness:)` a
+- [x] Write the failing test first: hand `backgroundRect(in:ruleThickness:)` a
       742-wide rectangle against a 59-wide gutter and assert the answer is 59
       wide; assert a narrower dirty rectangle is returned unchanged; assert a
       dirty rectangle starting inside the gutter keeps its origin and stops at
       the gutter's trailing edge; assert a dirty rectangle wholly to the right of
       the gutter yields zero width rather than a negative one; assert y and
       height are carried through untouched.
-- [ ] Add the seam as a `static func` on `LineNumberRulerView`, `internal` for
+- [x] Add the seam as a `static func` on `LineNumberRulerView`, `internal` for
       the reason `numberAttributes` is, with a doc comment naming the regression
       it prevents: an `NSRulerView` is handed the rectangle *it* was asked to
       redraw, which is not its bounds.
-- [ ] Call it from `drawHashMarksAndLabels` in place of `rect.fill()`; leave the
+- [x] Call it from `drawHashMarksAndLabels` in place of `rect.fill()`; leave the
       hairline, the attributes and every other drawing line as they are.
-- [ ] run `swift test` and the app-layer bundle — must pass before Task 2
+- [x] run `swift test` and the app-layer bundle — must pass before Task 2
 
 ### Task 2: The vertical tab column
 
