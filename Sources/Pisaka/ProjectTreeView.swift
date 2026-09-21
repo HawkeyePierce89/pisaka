@@ -81,6 +81,8 @@ struct ProjectTreeView: View {
 
     /// The interface zone's metrics, inherited from the window root.
     @Environment(\.interfaceMetrics) private var metrics
+    /// The chrome's colours, inherited from the window root.
+    @Environment(\.chromeTheme) private var theme
 
     var body: some View {
         Group {
@@ -94,7 +96,7 @@ struct ProjectTreeView: View {
                 VStack {
                     Spacer()
                     Text("Click to open a folder")
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(theme.color(.textSecondary))
                         .font(metrics.scaledFont(.callout))
                     Spacer()
                 }
@@ -155,6 +157,7 @@ struct ProjectTreeView: View {
                         onDraftAppeared: { draftAppearedTrigger += 1 },
                         draft: $draft,
                         dragSession: dragSession,
+                        selectedFileURL: model.selectedFile?.url,
                         isRoot: true,
                         startsExpanded: true
                     )
@@ -208,6 +211,10 @@ private struct DirectoryNodeView: View {
     /// The tree-wide drag state, handed down the recursion so every row reads and
     /// writes the same one.
     let dragSession: TreeDragSession
+    /// The active editor tab's file, handed down the recursion so each file row
+    /// can answer whether it is the selected one. `nil` when no tab is open, or
+    /// when the active tab has no file on disk.
+    let selectedFileURL: URL?
     /// The project root row offers only create actions (New File / New Folder);
     /// nested directories also offer Rename / Delete. It is also the one folder
     /// row that is a drop *target* without being a drag *source*.
@@ -219,6 +226,8 @@ private struct DirectoryNodeView: View {
 
     /// The interface zone's metrics, inherited from the window root.
     @Environment(\.interfaceMetrics) private var metrics
+    /// The chrome's colours, inherited from the window root.
+    @Environment(\.chromeTheme) private var theme
 
     /// `startsExpanded` seeds the initial expansion state. The root node is
     /// built with `true` so a freshly opened folder shows its immediate
@@ -241,6 +250,7 @@ private struct DirectoryNodeView: View {
         onDraftAppeared: @escaping () -> Void,
         draft: Binding<TreeEditDraft?>,
         dragSession: TreeDragSession,
+        selectedFileURL: URL?,
         isRoot: Bool = false,
         startsExpanded: Bool = false,
         siblings: [String] = []
@@ -261,6 +271,7 @@ private struct DirectoryNodeView: View {
         self.onDraftAppeared = onDraftAppeared
         self._draft = draft
         self.dragSession = dragSession
+        self.selectedFileURL = selectedFileURL
         self.isRoot = isRoot
         self.siblings = siblings
         _isExpanded = State(initialValue: startsExpanded)
@@ -289,7 +300,7 @@ private struct DirectoryNodeView: View {
                     )
                     .id("draft-\(isFolder ? "folder" : "file")")
                 }
-                .padding(.leading, metrics.scaled(12))
+                .padding(.leading, metrics.scaled(ChromeGeometry.treeIndentStep))
                 .id("draft-row")
                 .onAppear {
                     onDraftAppeared()
@@ -316,9 +327,10 @@ private struct DirectoryNodeView: View {
                         onDraftAppeared: onDraftAppeared,
                         draft: $draft,
                         dragSession: dragSession,
+                        selectedFileURL: selectedFileURL,
                         siblings: currentChildrenNames
                     )
-                    .padding(.leading, metrics.scaled(12))
+                    .padding(.leading, metrics.scaled(ChromeGeometry.treeIndentStep))
                 } else {
                     FileRowView(
                         entry: entry,
@@ -339,9 +351,10 @@ private struct DirectoryNodeView: View {
                         onShowLocalHistory: { onShowLocalHistory(entry.url) },
                         dragSession: dragSession,
                         draft: draft,
-                        siblings: currentChildrenNames
+                        siblings: currentChildrenNames,
+                        isSelected: Self.isSameFile(entry.url, selectedFileURL)
                     )
-                    .padding(.leading, metrics.scaled(12))
+                    .padding(.leading, metrics.scaled(ChromeGeometry.treeIndentStep))
                 }
             }
         } label: {
@@ -349,8 +362,9 @@ private struct DirectoryNodeView: View {
             // directory entry to resolve the folder icon through `FileIcon`.
             let icon = FileIcon(for: DirectoryEntry(url: url, isDirectory: true))
             HStack(spacing: metrics.scaled(4)) {
+                // Monochrome, for `FileRowView`'s reason.
                 Image(systemName: icon.symbolName)
-                    .foregroundStyle(color(for: icon.color))
+                    .foregroundStyle(theme.color(.textSecondary))
                     // Decorative, and hidden for the same reason the style hides
                     // its chevron: this label sits *inside* the row's combined
                     // accessibility element, so an unhidden symbol prepends its
@@ -577,6 +591,20 @@ private struct DirectoryNodeView: View {
         return nil
     }
 
+    /// Whether these two urls name the same file.
+    ///
+    /// Compared canonically — the app layer's existing inline spelling, since
+    /// `CanonicalPath` is `internal` to `PisakaCore` — because the two sides are
+    /// spelled by different producers: a tree row's url is built by appending a
+    /// listing's component to the opened root, while the selected tab's url came
+    /// from wherever that tab was opened (a panel, a session record, a
+    /// definition jump). Two spellings of one file must read as selected.
+    private static func isSameFile(_ lhs: URL, _ rhs: URL?) -> Bool {
+        guard let rhs else { return false }
+        return lhs.standardizedFileURL.resolvingSymlinksInPath()
+            == rhs.standardizedFileURL.resolvingSymlinksInPath()
+    }
+
     /// Whether `error` is "this path is gone" — the node is about to disappear from
     /// the tree anyway, so its read failure is expected rather than reportable.
     private static func isMissingFileError(_ error: Error) -> Bool {
@@ -672,12 +700,18 @@ private struct FolderDisclosureRow<Menu: View>: View {
 
     /// The interface zone's metrics, inherited from the window root.
     @Environment(\.interfaceMetrics) private var metrics
+    /// The chrome's colours, inherited from the window root.
+    @Environment(\.chromeTheme) private var theme
+    /// Whether this row's window is the key one — the app layer's whole
+    /// definition of "focused" for a tree row. `.key` is focused, every other
+    /// value is not.
+    @Environment(\.controlActiveState) private var controlActiveState
 
     var body: some View {
         HStack(spacing: metrics.scaled(TreeRowLayout.chevronSpacing)) {
             Image(systemName: "chevron.right")
                 .font(metrics.scaledFont(.caption))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(theme.color(.textSecondary))
                 .rotationEffect(.degrees(configuration.isExpanded ? 90 : 0))
                 // A fixed column so sibling labels line up regardless of the
                 // chevron glyph's own metrics.
@@ -689,14 +723,21 @@ private struct FolderDisclosureRow<Menu: View>: View {
                 .accessibilityHidden(true)
             configuration.label
         }
-        // Exactly `FileRowView`'s treatment — the same three `TreeRowLayout`
-        // values, not a second copy of them — so a folder row and a file row read
-        // and highlight alike. The label brings its own `maxWidth: .infinity`
-        // frame, but the row repeats it: the highlight must cover the chevron
-        // column too, edge to edge.
-        .padding(.horizontal, metrics.scaled(TreeRowLayout.horizontalPadding))
-        .padding(.vertical, metrics.scaled(TreeRowLayout.verticalPadding))
-        .frame(maxWidth: .infinity, alignment: .leading)
+        // Exactly `FileRowView`'s treatment — the same `ChromeGeometry` tokens,
+        // not a second copy of them — so a folder row and a file row read and
+        // highlight alike. The row is a *fixed* `rowHeight` tall rather than
+        // padded to its content's height: every chrome list measures its rows
+        // with the one token, so a tree row and a tab row cannot drift apart as
+        // one of them gains a taller glyph. The label brings its own
+        // `maxWidth: .infinity` frame, but the row repeats it: the highlight must
+        // cover the chevron column too, edge to edge.
+        .padding(.horizontal, metrics.scaled(ChromeGeometry.rowPaddingX))
+        .frame(
+            maxWidth: .infinity,
+            minHeight: metrics.scaled(ChromeGeometry.rowHeight),
+            maxHeight: metrics.scaled(ChromeGeometry.rowHeight),
+            alignment: .leading
+        )
         // The drop highlight replaces the hover one rather than layering over it
         // (the pointer is inside the row, so both are on), and is drawn at the
         // same site from the same enum, which is what keeps the two treatments
@@ -748,39 +789,64 @@ private struct FolderDisclosureRow<Menu: View>: View {
         .accessibilityAction { if !isDrafted { configuration.isExpanded.toggle() } }
     }
 
-    /// The row's background: the drop highlight while a droppable drag is over
-    /// it, otherwise the ordinary hover treatment.
+    /// The row's background, asked of `TreeRowState` and mapped to a role — the
+    /// same two lines a file row runs, so the two row kinds cannot answer the
+    /// question differently.
+    ///
+    /// A folder row passes `isSelected: false` unconditionally: selection here is
+    /// *derived* from the active editor tab, and a folder is never one.
     private var rowBackground: Color {
-        if isDropTarget { return TreeRowLayout.dropHighlight }
-        return isHovering ? TreeRowLayout.hoverHighlight : Color.clear
+        let state = TreeRowState.state(
+            isSelected: false,
+            isWindowKey: controlActiveState == .key,
+            isHovering: isHovering,
+            isDropTarget: isDropTarget
+        )
+        guard let role = TreeRowBackground.role(for: state) else { return Color.clear }
+        return theme.color(role)
     }
 }
 
-/// The unscaled geometry a tree row is drawn with. The first three values are
-/// what makes a folder row and a file row read alike, so both row kinds read
-/// them from here: duplicated as literals, a change to one row kind would
-/// silently desynchronize the other. Each is scaled through
-/// `\.interfaceMetrics` at its use site, like every other size in the tree.
+/// The one mapping from a `TreeRowState` to the role its background is painted
+/// in — `nil` for `.plain`, which is the absence of a background rather than a
+/// colour of its own.
 ///
-/// Internal rather than `private` for the same reason `color(for:)` is: the
-/// draft field in `ProjectTreeDraftField.swift` is a third reader, and it is one
-/// by necessity — an inline draft occupies the row it stands in, so it must be
-/// padded and gutter-inset with these very numbers or the tree would visibly
-/// shift as a draft opens and closes. Both readers are project-tree view files;
-/// the type is not part of any wider view vocabulary.
+/// Both row kinds read it, for the reason they share `ChromeGeometry`'s tokens:
+/// restated at each row kind, a change to one would silently leave the other
+/// painting the old answer.
+enum TreeRowBackground {
+    static func role(for state: TreeRowState) -> ChromeColorRole? {
+        switch state {
+        case .plain: return nil
+        case .hover: return .hoverTint
+        case .selectedFocused: return .accentTintStrong
+        case .selectedUnfocused: return .selectionInactive
+        case .dropTarget: return .dropTint
+        }
+    }
+}
+
+/// The chevron geometry a tree row is drawn with — the part of a row's
+/// measurements that is the *tree's own*, not the chrome's.
+///
+/// Everything else a row measures itself with now comes from `ChromeGeometry`:
+/// a row's height is `ChromeGeometry.rowHeight`, its horizontal padding
+/// `ChromeGeometry.rowPaddingX`, and one level of nesting insets a child by
+/// `ChromeGeometry.treeIndentStep`. What stays here is the chevron column's
+/// width, its gap and the gutter rule derived from the two — a rule about how a
+/// disclosure row and a leaf row line up, which no other chrome surface has and
+/// which is deliberately *not* what this part is changing.
+///
+/// Each value is scaled through `\.interfaceMetrics` at its use site, like
+/// every other size in the tree.
+///
+/// Internal rather than `private` because the draft field in
+/// `ProjectTreeDraftField.swift` is a second reader, and it is one by necessity
+/// — an inline draft occupies the row it stands in, so it must be gutter-inset
+/// with these very numbers or the tree would visibly shift as a draft opens and
+/// closes. Both readers are project-tree view files; the type is not part of any
+/// wider view vocabulary.
 enum TreeRowLayout {
-    /// The row's horizontal padding, inside the hover highlight.
-    static let horizontalPadding: Double = 6
-    /// The row's vertical padding, inside the hover highlight.
-    static let verticalPadding: Double = 3
-    /// The row's hover highlight.
-    static let hoverHighlight = Color.accentColor.opacity(0.15)
-    /// The highlight a folder row draws while a drag that *would be accepted*
-    /// hovers it. Deliberately stronger than `hoverHighlight`, which is on at the
-    /// same time (the pointer is inside the row): the two must be told apart at a
-    /// glance, since the difference between them is the whole answer to "will
-    /// this drop land here?".
-    static let dropHighlight = Color.accentColor.opacity(0.4)
     /// The folder row's fixed chevron column width.
     static let chevronWidth: Double = 12
     /// The folder row's gap between the chevron column and the label.
@@ -791,7 +857,8 @@ enum TreeRowLayout {
     /// icon land on the same vertical line.
     ///
     /// Load-bearing, not cosmetic. A child row is inset by
-    /// `metrics.scaled(12)`, which is *less* than the gutter: without it a
+    /// `metrics.scaled(ChromeGeometry.treeIndentStep)`, which is *less* than the
+    /// gutter: without it a
     /// folder's label sat 22pt in while its own file children sat at 18pt, so
     /// files rendered 4pt to the **left** of the folder containing them and the
     /// hierarchy read inverted. Both row kinds leading with the same gutter puts
@@ -828,17 +895,29 @@ private struct FileRowView: View {
     let dragSession: TreeDragSession
     let draft: TreeEditDraft?
     let siblings: [String]
+    /// Whether this row is the active editor tab's file. *Derived*, never
+    /// clicked: the tree introduces no selection gesture of its own, so the one
+    /// row drawn as selected is the one the editor is showing.
+    let isSelected: Bool
 
     @State private var isHovering = false
 
     /// The interface zone's metrics, inherited from the window root.
     @Environment(\.interfaceMetrics) private var metrics
+    /// The chrome's colours, inherited from the window root.
+    @Environment(\.chromeTheme) private var theme
+    /// Whether this row's window is the key one — see `FolderDisclosureRow`.
+    @Environment(\.controlActiveState) private var controlActiveState
 
     var body: some View {
         let icon = FileIcon(for: entry)
         HStack(spacing: metrics.scaled(4)) {
+            // Monochrome, like every other icon in the chrome: `FileIcon`
+            // answers a symbol *and* a semantic tint, and the tree reads only
+            // the symbol. A column of tinted glyphs competes with the row
+            // highlight, which is the one thing a tree row has to say.
             Image(systemName: icon.symbolName)
-                .foregroundStyle(color(for: icon.color))
+                .foregroundStyle(theme.color(.textSecondary))
             if case .rename(let draftedEntry) = draft, draftedEntry.url == entry.url {
                 TreeNameFieldView(
                     // The bound entry, not the optional re-read, exactly as the
@@ -861,12 +940,16 @@ private struct FileRowView: View {
         // the folder it sits in (see `TreeRowLayout.chevronGutter`). Applied
         // inside the row's horizontal padding, like the chevron column is.
         .padding(.leading, TreeRowLayout.chevronGutter(metrics))
-        // Shared with `FolderDisclosureRow` through `TreeRowLayout`, which is
+        // Shared with `FolderDisclosureRow` through `ChromeGeometry`, which is
         // what keeps the two row kinds' treatment identical.
-        .padding(.horizontal, metrics.scaled(TreeRowLayout.horizontalPadding))
-        .padding(.vertical, metrics.scaled(TreeRowLayout.verticalPadding))
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(isHovering ? TreeRowLayout.hoverHighlight : Color.clear)
+        .padding(.horizontal, metrics.scaled(ChromeGeometry.rowPaddingX))
+        .frame(
+            maxWidth: .infinity,
+            minHeight: metrics.scaled(ChromeGeometry.rowHeight),
+            maxHeight: metrics.scaled(ChromeGeometry.rowHeight),
+            alignment: .leading
+        )
+        .background(rowBackground)
         .contentShape(Rectangle())
         // As on a folder row: added ahead of the untouched tap/hover/menu block,
         // through the same one drag-source helper.
@@ -906,6 +989,20 @@ private struct FileRowView: View {
             return true
         }
         return false
+    }
+
+    /// The row's background, through the same rule and the same mapping a folder
+    /// row asks. A file row is never a drop target — a file is not a
+    /// destination — so that input is constantly `false`.
+    private var rowBackground: Color {
+        let state = TreeRowState.state(
+            isSelected: isSelected,
+            isWindowKey: controlActiveState == .key,
+            isHovering: isHovering,
+            isDropTarget: false
+        )
+        guard let role = TreeRowBackground.role(for: state) else { return Color.clear }
+        return theme.color(role)
     }
 }
 
@@ -1122,31 +1219,6 @@ private struct TreeDropDelegate: DropDelegate {
         let destination = folder
         DispatchQueue.main.async { move(source, destination) }
         return true
-    }
-}
-
-/// Maps a semantic `FileIconColor` token to a concrete SwiftUI `Color`.
-///
-/// Belongs to the project tree's view layer, and is internal rather than
-/// `private` on purpose: it has two readers, both of them files of this tree —
-/// this one (the folder row's and the file row's icons) and
-/// `ProjectTreeDraftField.swift` (the draft's icon column, which must resolve
-/// the icon the same way or a drafted row would not read like the row it
-/// replaces). The tidier-looking alternative, a `FileIconColor -> Color`
-/// extension in Core, is barred: `PisakaCore` is Foundation-only and must never
-/// import SwiftUI, so the mapping from the semantic token to a concrete color is
-/// exactly the part of `FileIcon` that has to live up here.
-func color(for token: FileIconColor) -> Color {
-    switch token {
-    case .orange: return .orange
-    case .yellow: return .yellow
-    case .blue: return .blue
-    case .green: return .green
-    case .purple: return .purple
-    case .red: return .red
-    case .pink: return .pink
-    case .gray: return .gray
-    case .accent: return .accentColor
     }
 }
 

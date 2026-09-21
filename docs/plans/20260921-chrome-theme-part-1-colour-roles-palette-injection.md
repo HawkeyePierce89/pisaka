@@ -287,40 +287,40 @@ Docs: `docs/architecture/core-theme.md` (new), `app-window.md`,
 - Modify: `Sources/Pisaka/ProjectTreeView.swift`,
   `Sources/Pisaka/ProjectTreeDraftField.swift`
 
-- [ ] Geometry: `TreeRowLayout`'s numbers move onto `ChromeGeometry` — rows take
+- [x] Geometry: `TreeRowLayout`'s numbers move onto `ChromeGeometry` — rows take
       a fixed `metrics.scaled(ChromeGeometry.rowHeight)` frame instead of the
       present vertical padding, `rowPaddingX` replaces `horizontalPadding`, and
       the three child-indent sites take `treeIndentStep`. The chevron column's
       width, spacing and `chevronGutter` alignment rule are preserved exactly —
       that rule is load-bearing (it is what keeps a child from out-denting its
       parent) and is not what this ticket is changing.
-- [ ] Selection, derived: `ProjectTreeView` reads `model.selectedFile?.url` (it
+- [x] Selection, derived: `ProjectTreeView` reads `model.selectedFile?.url` (it
       already observes the workspace) and threads it to `DirectoryNodeView` and
       `FileRowView`; a folder row passes `isSelected: false` unconditionally.
       Compare canonically, using the app layer's existing inline spelling
       (`standardizedFileURL.resolvingSymlinksInPath()`), as `CanonicalPath` is
       `internal` to Core.
-- [ ] Focus, derived: `@Environment(\.controlActiveState)` on the row — `.key`
+- [x] Focus, derived: `@Environment(\.controlActiveState)` on the row — `.key`
       is focused, anything else is not.
-- [ ] Painting: each row asks `TreeRowState.state(...)` and maps the answer to
+- [x] Painting: each row asks `TreeRowState.state(...)` and maps the answer to
       `hoverTint` / `accentTintStrong` / `selectionInactive` / `Color.clear`;
       the drop highlight keeps its own stronger accent tint as its own
       role-based value. Chevrons, folder icons and file icons are drawn
       monochrome in `textSecondary`, the empty-state text in `textSecondary`.
-- [ ] Delete the app layer's `color(for: FileIconColor) -> Color` entirely: its
+- [x] Delete the app layer's `color(for: FileIconColor) -> Color` entirely: its
       only two readers are this file and `ProjectTreeDraftField.swift`, and both
       stop painting the colour. `FileIcon`'s Core table is untouched — iOS still
       reads it, and `CompletionPanel` keeps its own private mapping.
-- [ ] `ProjectTreeDraftField.swift`: the drafted row takes the same geometry,
+- [x] `ProjectTreeDraftField.swift`: the drafted row takes the same geometry,
       the same monochrome icon, `statusRed` for the validation state and
       `textPrimary` for the field's text (the `NSTextField` site goes through
       the `NSColor` bridge, exercising it a second time).
-- [ ] Tests: the row-state rule is already pinned in Task 1's Core suite; add
+- [x] Tests: the row-state rule is already pinned in Task 1's Core suite; add
       the cases the views actually ask for — a hovered selected row in a key
       window, the same row once the window resigns key, a drop target over a
       selected row — so the mapping the views rely on is stated in
       `swift test`.
-- [ ] run `swift test` and the app-layer bundle — must pass before Task 6
+- [x] run `swift test` and the app-layer bundle — must pass before Task 6
 
 ### Task 6: The source-gating suite
 

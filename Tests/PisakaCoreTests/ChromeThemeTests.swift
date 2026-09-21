@@ -167,6 +167,36 @@ final class ChromeThemeTests: XCTestCase {
         )
     }
 
+    /// The three combinations the project tree's two row kinds actually ask the
+    /// rule for, named after the gesture that produces each — so the rows' own
+    /// reading of the rule is stated in `swift test` rather than only in the
+    /// views that do the asking.
+    ///
+    /// A file row asks with `isDropTarget: false` always (a file is not a drop
+    /// destination) and a folder row with `isSelected: false` always (selection
+    /// is derived from the active editor tab, and a folder is never one), which
+    /// is why these three and not the whole product are the interesting ones.
+    func testTheRowsAskFortheseThreeCombinations() {
+        // The pointer passes over the row the editor is currently showing, in
+        // the front window: it stays legible as *the* selected row.
+        XCTAssertEqual(
+            TreeRowState.state(isSelected: true, isWindowKey: true, isHovering: true, isDropTarget: false),
+            .selectedFocused
+        )
+        // The same row, once the window resigns key — the selection is still
+        // there to be seen, without claiming focus it no longer has.
+        XCTAssertEqual(
+            TreeRowState.state(isSelected: true, isWindowKey: false, isHovering: true, isDropTarget: false),
+            .selectedUnfocused
+        )
+        // A drag hovering a folder row that also happens to be selected: the
+        // question on screen is where the drop lands, so the drop answers.
+        XCTAssertEqual(
+            TreeRowState.state(isSelected: true, isWindowKey: true, isHovering: true, isDropTarget: true),
+            .dropTarget
+        )
+    }
+
     // MARK: - Reading the source file
 
     private static func readCoreSource(_ name: String) throws -> String {
