@@ -126,14 +126,14 @@ Docs: `docs/architecture/core-theme.md` (new), `app-window.md`,
 - Create: `Sources/PisakaCore/TreeRowState.swift`
 - Create: `Tests/PisakaCoreTests/ChromeThemeTests.swift`
 
-- [ ] `ChromeColorRole`: a `public enum`, `String`-raw-valued, `CaseIterable`,
+- [x] `ChromeColorRole`: a `public enum`, `String`-raw-valued, `CaseIterable`,
       `Hashable`, `Sendable`, one case per row of the token table — all 22,
       including the ones no surface in this part uses (`bgPopover`,
       `conflictBackground`, `diffAddedBackground`, `diffRemovedBackground`,
       `selectionInactive`). Foundation-only: no hex, no platform colour type,
       the `FileIconColor` precedent. Document that the set is closed and that
       the sweep adds views, never roles.
-- [ ] `ChromeGeometry`: a `public enum` namespace of `static let` `Double`s for
+- [x] `ChromeGeometry`: a `public enum` namespace of `static let` `Double`s for
       every **geometry** token in the table (`rowHeight`, `rowPaddingX`,
       `treeIndentStep`, `cornerRadiusMax`, `hairlineWidth`, `tabStripHeight`,
       `verticalTabRowHeight`, `dockTabRowHeight`, `bottomBarHeight`,
@@ -145,17 +145,17 @@ Docs: `docs/architecture/core-theme.md` (new), `app-window.md`,
       those numbers is created. Document that every geometry token is scaled
       through `InterfaceMetrics` at its use site, that no view multiplies a
       number itself, and — in one sentence — where the type scale lives instead.
-- [ ] `ChromeAppearance`: `public enum { case dark, light }` plus
+- [x] `ChromeAppearance`: `public enum { case dark, light }` plus
       `resolved(_ preference: ThemePreference, systemPrefersDark: Bool)` — the
       third instance of the existing signature, cross-referenced in its doc
       comment to the two that already exist.
-- [ ] `TreeRowState`: `public enum { plain, hover, selectedFocused,
+- [x] `TreeRowState`: `public enum { plain, hover, selectedFocused,
       selectedUnfocused, dropTarget }` with a total pure rule
       `state(isSelected:isWindowKey:isHovering:isDropTarget:)`. State the
       precedence in the doc comment and pin it in the test: drop target wins
       over everything (it answers "will this drop land here?"), then selection
       (focused vs. unfocused by window key), then hover, then plain.
-- [ ] Tests: every role has a distinct raw value, asserted by **set equality**
+- [x] Tests: every role has a distinct raw value, asserted by **set equality**
       against a literal list of role names so a role added or removed fails;
       every geometry token equals its table value, and the geometry namespace's
       declared set is likewise pinned by set equality so a stray font constant
@@ -164,7 +164,7 @@ Docs: `docs/architecture/core-theme.md` (new), `app-window.md`,
       `resolved` is total over the three preferences × two system answers;
       `TreeRowState` exhaustive over all sixteen input combinations, including
       the precedence cases (selected + hovering, drop target + selected).
-- [ ] run `swift test` — must pass before Task 2
+- [x] run `swift test` — must pass before Task 2
 
 ### Task 2: App — the palette, the two paths, and the injection
 
