@@ -21,30 +21,39 @@ import PisakaCore
 final class ChromePaletteTests: XCTestCase {
 
     /// The table, restated. One row per `ChromeColorRole`.
-    private static let expected: [ChromeColorRole: (dark: UInt32, light: UInt32, alpha: CGFloat)] = [
-        .bgEditor: (0x1F1F24, 0xFFFFFF, 1),
-        .bgPanel: (0x26262C, 0xF2F2F4, 1),
-        .bgSidebar: (0x232329, 0xECECEF, 1),
-        .bgBar: (0x2A2A31, 0xF7F7F9, 1),
-        .bgPopover: (0x2E2E36, 0xFDFDFE, 1),
-        .textPrimary: (0xE8E8ED, 0x1D1D1F, 1),
-        .textSecondary: (0x9B9BA5, 0x6B6B73, 1),
-        .textTertiary: (0x6E6E78, 0x9A9AA2, 1),
-        .hairline: (0x3A3A42, 0xD8D8DC, 1),
-        .accent: (0x4A9EFF, 0x1B6BCC, 1),
-        .accentTint: (0x4A9EFF, 0x1B6BCC, 0.12),
-        .accentTintStrong: (0x4A9EFF, 0x1B6BCC, 0.25),
-        .hoverTint: (0xFFFFFF, 0x000000, 0.07),
-        .selectionInactive: (0xFFFFFF, 0x000000, 0.12),
-        .dropTint: (0x4A9EFF, 0x1B6BCC, 0.40),
-        .statusRed: (0xFF7B85, 0xC01C5A, 1),
-        .statusYellow: (0xE2B03C, 0xA05E00, 1),
-        .statusGreen: (0x7EE787, 0x1E7A33, 1),
-        .statusBlue: (0x79B8DA, 0x45718B, 1),
-        .diffAddedBackground: (0x7EE787, 0x1E7A33, 0.16),
-        .diffRemovedBackground: (0xFF7B85, 0xC01C5A, 0.16),
-        .conflictBackground: (0xE2B03C, 0xA05E00, 0.18),
+    ///
+    /// The alpha is the design's own byte — the last two digits of an eight-digit
+    /// value — compared as `CGFloat(alpha) / 255`, so the row here is the number
+    /// the design states rather than a fraction rounded away from it.
+    private static let expected: [ChromeColorRole: (dark: UInt32, light: UInt32, alpha: UInt8)] = [
+        .bgCanvas: (0x1E1F22, 0xF5F5F7, 0xFF),
+        .bgPanel: (0x2B2D30, 0xECECEF, 0xFF),
+        .bgEditor: (0x2F3136, 0xFFFFFF, 0xFF),
+        .bgPopover: (0x36383D, 0xFFFFFF, 0xFF),
+        .textPrimary: (0xDFE1E5, 0x1D1D1F, 0xFF),
+        .textSecondary: (0xA0A3AA, 0x6E6E73, 0xFF),
+        .onAccent: (0xFFFFFF, 0xFFFFFF, 0xFF),
+        .hairline: (0x393B40, 0xD1D1D6, 0xFF),
+        .accent: (0x4F8DFF, 0x2F6FE0, 0xFF),
+        .accentTint: (0x4F8DFF, 0x2F6FE0, 0x22),
+        .accentTintStrong: (0x4F8DFF, 0x2F6FE0, 0x33),
+        .hoverTint: (0xFFFFFF, 0x000000, 0x0A),
+        .selectionInactive: (0x34363B, 0xF0F0F2, 0xFF),
+        .currentLine: (0x34363B, 0xF0F0F2, 0xFF),
+        .bracketMatch: (0x3D4A5C, 0xDBE6F5, 0xFF),
+        .statusGreen: (0x7A9D6E, 0x4F8A3D, 0xFF),
+        .statusRed: (0xC4746B, 0xC1483D, 0xFF),
+        .statusYellow: (0xC9A35C, 0xA67C2E, 0xFF),
+        .diffAddedBackground: (0x7A9D6E, 0x4F8A3D, 0x22),
+        .diffRemovedBackground: (0xC4746B, 0xC1483D, 0x22),
+        .conflictBackground: (0xC9A35C, 0xA67C2E, 0x26),
     ]
+
+    /// The one role the design gives the *same* value in both appearances: text
+    /// drawn on the accent is white over either, the accent being the one colour
+    /// that does not change weight between the two themes. Exempted by name from
+    /// the disagree-about-every-role rule below, and by name only.
+    private static let sameInBothAppearances: Set<ChromeColorRole> = [.onAccent]
 
     // MARK: - Helpers
 
@@ -63,7 +72,7 @@ final class ChromePaletteTests: XCTestCase {
     private func assertComponents(
         _ color: NSColor,
         equal rgb: UInt32,
-        alpha: CGFloat,
+        alpha: UInt8,
         _ message: @autoclosure () -> String,
         file: StaticString = #filePath,
         line: UInt = #line
@@ -72,7 +81,10 @@ final class ChromePaletteTests: XCTestCase {
         XCTAssertEqual(actual.r, Int((rgb >> 16) & 0xFF), "\(message()) — red", file: file, line: line)
         XCTAssertEqual(actual.g, Int((rgb >> 8) & 0xFF), "\(message()) — green", file: file, line: line)
         XCTAssertEqual(actual.b, Int(rgb & 0xFF), "\(message()) — blue", file: file, line: line)
-        XCTAssertEqual(actual.alpha, alpha, accuracy: 0.001, "\(message()) — alpha", file: file, line: line)
+        XCTAssertEqual(
+            actual.alpha, CGFloat(alpha) / 255, accuracy: 0.002,
+            "\(message()) — alpha", file: file, line: line
+        )
     }
 
     /// Resolves a dynamic colour the way AppKit does when it draws inside a
@@ -136,14 +148,23 @@ final class ChromePaletteTests: XCTestCase {
 
     // MARK: - The SwiftUI path
 
-    func testTheTwoThemesDisagreeAboutEveryRole() {
+    func testTheTwoThemesDisagreeAboutEveryRoleButTheExemptedOne() {
         let dark = ChromeTheme(.dark)
         let light = ChromeTheme(.light)
         XCTAssertNotEqual(dark, light)
-        for role in ChromeColorRole.allCases {
+        // The exemption is pinned by set equality rather than merely skipped: a
+        // second role quietly given one value in both appearances must fail here.
+        XCTAssertEqual(Self.sameInBothAppearances, [.onAccent])
+        for role in ChromeColorRole.allCases where !Self.sameInBothAppearances.contains(role) {
             XCTAssertNotEqual(
                 dark.color(role), light.color(role),
                 "\(role.rawValue) is the same colour in both appearances — one of its two values is wrong"
+            )
+        }
+        for role in Self.sameInBothAppearances {
+            XCTAssertEqual(
+                dark.color(role), light.color(role),
+                "\(role.rawValue) is exempted because the design gives it one value in both appearances"
             )
         }
     }

@@ -313,27 +313,41 @@ final class GutterFoldTests: XCTestCase {
         }
     }
 
-    /// Severity → status role, total over the closed severity set, and each dot
-    /// resolving to that role's value in both appearances.
-    func testEverySeverityResolvesToItsStatusRole() throws {
+    /// Severity → chrome role, total over the closed severity set — and the four
+    /// answers drawn **pairwise distinct** under both appearances.
+    ///
+    /// The distinctness half is the part that has teeth: the mapping alone could
+    /// send two severities to one role and still satisfy a table, while the whole
+    /// point of the column is that a glance tells the four apart. Comparing each
+    /// severity's colour against its own role's would be a tautology — it is the
+    /// same expression twice — so the colours are compared against *each other*.
+    func testEverySeverityResolvesToItsRole() throws {
         let expected: [DiagnosticSeverity: ChromeColorRole] = [
             .error: .statusRed,
             .warning: .statusYellow,
-            .information: .statusBlue,
-            .hint: .statusBlue,
+            .information: .accent,
+            .hint: .textSecondary,
         ]
         for (severity, role) in expected {
             XCTAssertEqual(
                 LineNumberRulerView.diagnosticRole(for: severity), role,
                 "\(severity) should mark the gutter with \(role.rawValue)"
             )
-            for name in [NSAppearance.Name.aqua, .darkAqua] {
-                try assertSameColour(
-                    ChromePalette.nsColor(LineNumberRulerView.diagnosticRole(for: severity)),
-                    ChromePalette.nsColor(role),
-                    under: name,
-                    "\(severity)'s marker under \(name.rawValue)"
-                )
+        }
+        let severities: [DiagnosticSeverity] = [.error, .warning, .information, .hint]
+        for name in [NSAppearance.Name.aqua, .darkAqua] {
+            var drawn: [DiagnosticSeverity: [Int]] = [:]
+            for severity in severities {
+                let colour = ChromePalette.nsColor(LineNumberRulerView.diagnosticRole(for: severity))
+                drawn[severity] = components(of: try resolved(colour, under: name))
+            }
+            for (index, left) in severities.enumerated() {
+                for right in severities[(index + 1)...] {
+                    XCTAssertNotEqual(
+                        drawn[left], drawn[right],
+                        "\(left) and \(right) draw the same dot under \(name.rawValue)"
+                    )
+                }
             }
         }
     }

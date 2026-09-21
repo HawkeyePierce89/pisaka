@@ -771,16 +771,23 @@ final class LineNumberRulerView: NSRulerView, ZoomSurfaceProviding {
         ]
     }
 
-    /// Severity → the status role its dot is filled with. Total over the closed
+    /// Severity → the chrome role its dot is filled with. Total over the closed
     /// severity set, like `SyntaxTheme`'s own answer — and deliberately *not*
     /// that one: the squiggle under the text and the hover popover are code
     /// surfaces this ticket leaves alone, so the gutter's marker and the
     /// underline below it now read from two tables on purpose.
+    ///
+    /// The four answers are three status roles and one text role. *Information*
+    /// takes `accent` — the chrome has exactly one blue, and a notice is the
+    /// thing the accent is for — and a *hint* takes `textSecondary`, because a
+    /// hint is a remark rather than a condition and is drawn in the same tone the
+    /// line numbers beside it are.
     static func diagnosticRole(for severity: DiagnosticSeverity) -> ChromeColorRole {
         switch severity {
         case .error: return .statusRed
         case .warning: return .statusYellow
-        case .information, .hint: return .statusBlue
+        case .information: return .accent
+        case .hint: return .textSecondary
         }
     }
 
@@ -799,6 +806,12 @@ final class LineNumberRulerView: NSRulerView, ZoomSurfaceProviding {
         ChromePalette.nsColor(.bgEditor).setFill()
         rect.fill()
         ChromePalette.nsColor(.hairline).setFill()
+        // `ChromeGeometry.hairlineWidth` unscaled — the one stated exception to
+        // "every token is scaled at its use site". A hairline is one point by
+        // definition, and this ruler is a *code*-zoom surface with no
+        // `InterfaceMetrics` to ask: the interface scale belongs to a different
+        // zone (`core-zoom.md`). The next AppKit chrome surface follows this
+        // precedent rather than inventing a second answer.
         NSRect(
             x: ruleThickness - CGFloat(ChromeGeometry.hairlineWidth),
             y: rect.minY,

@@ -8,15 +8,16 @@ import Foundation
 /// a meaning into a concrete colour. A chrome view therefore never spells a
 /// colour; it spells a role.
 ///
-/// **The set is closed.** These 22 roles are the whole vocabulary of the chrome,
+/// **The set is closed.** These 21 roles are the whole vocabulary of the chrome,
 /// and the surface-by-surface sweep that follows adds *views*, never roles: a
-/// surface that appears to need a twenty-third role has instead found a design
+/// surface that appears to need a twenty-second role has instead found a design
 /// question, and the answer is to reuse one of these or to change the design —
 /// not to grow the table. Some roles are consequently unused by the three
-/// surfaces restyled first (`bgPopover`, `conflictBackground`,
-/// `diffAddedBackground`, `diffRemovedBackground`, `statusGreen`, `textTertiary`,
-/// `accentTint`, `bgSidebar`, `bgBar`); they are declared here nonetheless,
-/// because the table is the design, not an inventory of today's call sites.
+/// surfaces restyled first (`bgCanvas`, `bgPopover`, `onAccent`, `accentTint`,
+/// `currentLine`, `bracketMatch`, `statusGreen`, `diffAddedBackground`,
+/// `diffRemovedBackground`, `conflictBackground`); they are declared here
+/// nonetheless, because the table is the design, not an inventory of today's
+/// call sites.
 ///
 /// The raw values are the stable names the gating suite and the palette test
 /// speak; they are not persisted anywhere, but renaming one is a documentation
@@ -24,14 +25,14 @@ import Foundation
 public enum ChromeColorRole: String, CaseIterable, Hashable, Sendable {
     // MARK: Backgrounds
 
+    /// The window's own ground, behind everything that has no surface of its
+    /// own: the space around the panes, an empty pane's backdrop.
+    case bgCanvas
+    /// A dockable panel's background: the bottom dock, the side panels, the
+    /// project tree, a thin horizontal bar.
+    case bgPanel
     /// The editor's own background — and the gutter's, so the two agree.
     case bgEditor
-    /// A dockable panel's background (the bottom dock, the side panels).
-    case bgPanel
-    /// The project tree's background.
-    case bgSidebar
-    /// A thin horizontal bar: the breadcrumb, the bottom bar.
-    case bgBar
     /// A floating surface drawn above everything: a popover, a completion panel.
     case bgPopover
 
@@ -40,10 +41,11 @@ public enum ChromeColorRole: String, CaseIterable, Hashable, Sendable {
     /// Chrome text at full weight: an active tab's label, a field's content.
     case textPrimary
     /// Chrome text that is present but not the subject: an inactive tab's label,
-    /// a line number, an icon drawn monochrome.
+    /// a line number, an icon drawn monochrome, a caption.
     case textSecondary
-    /// Chrome text at its faintest: a caption, a disabled control's label.
-    case textTertiary
+    /// Text and glyphs drawn *on* the accent at full strength, where the
+    /// chrome's own text colours would be unreadable.
+    case onAccent
 
     // MARK: Lines and accent
 
@@ -56,27 +58,25 @@ public enum ChromeColorRole: String, CaseIterable, Hashable, Sendable {
     /// The accent as a stronger wash: a selected row in a key window.
     case accentTintStrong
 
-    // MARK: Row states
+    // MARK: Row and line states
 
     /// The wash a row takes while the pointer is inside it.
     case hoverTint
     /// A selected row in a window that is not key — selection without focus.
     case selectionInactive
-    /// The wash a row takes while a drag that *would be accepted* hovers it.
-    /// Deliberately its own role rather than `accentTintStrong`: hover and drop
-    /// are on at the same time and must be told apart at a glance.
-    case dropTint
+    /// The line the caret is on, washed so it can be found at a glance.
+    case currentLine
+    /// The pair of brackets the caret sits between.
+    case bracketMatch
 
     // MARK: Status
 
+    /// Success.
+    case statusGreen
     /// An error, a failure, a refused input.
     case statusRed
     /// A warning.
     case statusYellow
-    /// Success.
-    case statusGreen
-    /// Information, and everything below a warning.
-    case statusBlue
 
     // MARK: Diff and merge
 

@@ -12,7 +12,7 @@ import PisakaCore
 /// its single, deliberately narrow exemption).
 ///
 /// **The `switch` below is exhaustive on purpose — there is no `default`.** A
-/// twenty-third role added to Core without a pair here is a *compile* error
+/// twenty-second role added to Core without a pair here is a *compile* error
 /// rather than a colour that silently falls back to something plausible; a pair
 /// spelled wrongly is caught instead by `ChromePaletteTests`, which asserts every
 /// role's two values component by component.
@@ -24,51 +24,64 @@ enum ChromePalette {
     /// A single alpha rather than one per appearance, because the roles that are
     /// translucent are *washes* — a tint is the same wash over either background,
     /// and two alphas would be two opinions about the same design decision.
+    ///
+    /// The alpha is a `UInt8`, the byte the design's own eight-digit values carry
+    /// in their last position, so this table spells the design's numbers verbatim
+    /// rather than a rounded fraction of them; every accessor divides by 255 at
+    /// the moment it builds a colour.
     struct Entry: Equatable {
         /// The value used when the chrome is drawn dark.
         let dark: UInt32
         /// The value used when the chrome is drawn light.
         let light: UInt32
-        /// The opacity both variants are drawn at; `1` for everything opaque.
-        let alpha: CGFloat
+        /// The opacity both variants are drawn at; `0xFF` for everything opaque.
+        let alpha: UInt8
+
+        init(dark: UInt32, light: UInt32, alpha: UInt8 = 0xFF) {
+            self.dark = dark
+            self.light = light
+            self.alpha = alpha
+        }
+
+        /// The alpha as the fraction a drawing API wants.
+        var opacity: CGFloat { CGFloat(alpha) / 255 }
     }
 
     /// The table. Every role, no `default`.
     static func entry(for role: ChromeColorRole) -> Entry {
         switch role {
         // Backgrounds.
-        case .bgEditor: return Entry(dark: 0x1F1F24, light: 0xFFFFFF, alpha: 1)
-        case .bgPanel: return Entry(dark: 0x26262C, light: 0xF2F2F4, alpha: 1)
-        case .bgSidebar: return Entry(dark: 0x232329, light: 0xECECEF, alpha: 1)
-        case .bgBar: return Entry(dark: 0x2A2A31, light: 0xF7F7F9, alpha: 1)
-        case .bgPopover: return Entry(dark: 0x2E2E36, light: 0xFDFDFE, alpha: 1)
+        case .bgCanvas: return Entry(dark: 0x1E1F22, light: 0xF5F5F7)
+        case .bgPanel: return Entry(dark: 0x2B2D30, light: 0xECECEF)
+        case .bgEditor: return Entry(dark: 0x2F3136, light: 0xFFFFFF)
+        case .bgPopover: return Entry(dark: 0x36383D, light: 0xFFFFFF)
 
         // Text.
-        case .textPrimary: return Entry(dark: 0xE8E8ED, light: 0x1D1D1F, alpha: 1)
-        case .textSecondary: return Entry(dark: 0x9B9BA5, light: 0x6B6B73, alpha: 1)
-        case .textTertiary: return Entry(dark: 0x6E6E78, light: 0x9A9AA2, alpha: 1)
+        case .textPrimary: return Entry(dark: 0xDFE1E5, light: 0x1D1D1F)
+        case .textSecondary: return Entry(dark: 0xA0A3AA, light: 0x6E6E73)
+        case .onAccent: return Entry(dark: 0xFFFFFF, light: 0xFFFFFF)
 
         // Lines and accent.
-        case .hairline: return Entry(dark: 0x3A3A42, light: 0xD8D8DC, alpha: 1)
-        case .accent: return Entry(dark: 0x4A9EFF, light: 0x1B6BCC, alpha: 1)
-        case .accentTint: return Entry(dark: 0x4A9EFF, light: 0x1B6BCC, alpha: 0.12)
-        case .accentTintStrong: return Entry(dark: 0x4A9EFF, light: 0x1B6BCC, alpha: 0.25)
+        case .hairline: return Entry(dark: 0x393B40, light: 0xD1D1D6)
+        case .accent: return Entry(dark: 0x4F8DFF, light: 0x2F6FE0)
+        case .accentTint: return Entry(dark: 0x4F8DFF, light: 0x2F6FE0, alpha: 0x22)
+        case .accentTintStrong: return Entry(dark: 0x4F8DFF, light: 0x2F6FE0, alpha: 0x33)
 
-        // Row states.
-        case .hoverTint: return Entry(dark: 0xFFFFFF, light: 0x000000, alpha: 0.07)
-        case .selectionInactive: return Entry(dark: 0xFFFFFF, light: 0x000000, alpha: 0.12)
-        case .dropTint: return Entry(dark: 0x4A9EFF, light: 0x1B6BCC, alpha: 0.40)
+        // Row and line states.
+        case .hoverTint: return Entry(dark: 0xFFFFFF, light: 0x000000, alpha: 0x0A)
+        case .selectionInactive: return Entry(dark: 0x34363B, light: 0xF0F0F2)
+        case .currentLine: return Entry(dark: 0x34363B, light: 0xF0F0F2)
+        case .bracketMatch: return Entry(dark: 0x3D4A5C, light: 0xDBE6F5)
 
         // Status.
-        case .statusRed: return Entry(dark: 0xFF7B85, light: 0xC01C5A, alpha: 1)
-        case .statusYellow: return Entry(dark: 0xE2B03C, light: 0xA05E00, alpha: 1)
-        case .statusGreen: return Entry(dark: 0x7EE787, light: 0x1E7A33, alpha: 1)
-        case .statusBlue: return Entry(dark: 0x79B8DA, light: 0x45718B, alpha: 1)
+        case .statusGreen: return Entry(dark: 0x7A9D6E, light: 0x4F8A3D)
+        case .statusRed: return Entry(dark: 0xC4746B, light: 0xC1483D)
+        case .statusYellow: return Entry(dark: 0xC9A35C, light: 0xA67C2E)
 
         // Diff and merge.
-        case .diffAddedBackground: return Entry(dark: 0x7EE787, light: 0x1E7A33, alpha: 0.16)
-        case .diffRemovedBackground: return Entry(dark: 0xFF7B85, light: 0xC01C5A, alpha: 0.16)
-        case .conflictBackground: return Entry(dark: 0xE2B03C, light: 0xA05E00, alpha: 0.18)
+        case .diffAddedBackground: return Entry(dark: 0x7A9D6E, light: 0x4F8A3D, alpha: 0x22)
+        case .diffRemovedBackground: return Entry(dark: 0xC4746B, light: 0xC1483D, alpha: 0x22)
+        case .conflictBackground: return Entry(dark: 0xC9A35C, light: 0xA67C2E, alpha: 0x26)
         }
     }
 
@@ -90,7 +103,7 @@ enum ChromePalette {
     /// already provides one.
     static func nsColor(_ role: ChromeColorRole) -> NSColor {
         let entry = entry(for: role)
-        return PlatformColor.dynamic(light: entry.light, dark: entry.dark, alpha: entry.alpha)
+        return PlatformColor.dynamic(light: entry.light, dark: entry.dark, alpha: entry.opacity)
     }
 
     /// A role as the **concrete** `NSColor` of one appearance.
@@ -101,7 +114,7 @@ enum ChromePalette {
     static func nsColor(_ role: ChromeColorRole, in appearance: ChromeAppearance) -> NSColor {
         let entry = entry(for: role)
         let rgb = appearance == .dark ? entry.dark : entry.light
-        return NSColor(rgb: rgb).withAlphaComponent(entry.alpha)
+        return NSColor(rgb: rgb).withAlphaComponent(entry.opacity)
     }
 
     // MARK: - The SwiftUI path
@@ -116,7 +129,7 @@ enum ChromePalette {
             red: Double((rgb >> 16) & 0xFF) / 255,
             green: Double((rgb >> 8) & 0xFF) / 255,
             blue: Double(rgb & 0xFF) / 255,
-            opacity: Double(entry.alpha)
+            opacity: Double(entry.opacity)
         )
     }
 }

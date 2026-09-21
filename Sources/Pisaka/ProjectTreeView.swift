@@ -157,7 +157,7 @@ struct ProjectTreeView: View {
                         onDraftAppeared: { draftAppearedTrigger += 1 },
                         draft: $draft,
                         dragSession: dragSession,
-                        selectedFileURL: model.selectedFile?.url,
+                        selection: TreeSelection(model.selectedFile?.url),
                         isRoot: true,
                         startsExpanded: true
                     )
@@ -178,6 +178,50 @@ struct ProjectTreeView: View {
         .onChange(of: model.projectRoot) { _ in
             draft = nil
         }
+    }
+}
+
+/// The tree's selection, resolved **once per render** and handed down the
+/// recursion.
+///
+/// A tree row is drawn as selected when its file is the active editor tab's
+/// file, and the two sides are spelled by different producers: a row's url is
+/// built by appending a listing's component to the opened root, while the tab's
+/// came from wherever that tab was opened (a panel, a session record, a
+/// definition jump). So the tab's url is carried in both spellings — as the tab
+/// spells it, standardized, and canonically — and a row matches either.
+///
+/// Resolving it here rather than per row is the point. `resolvingSymlinksInPath()`
+/// touches the file system, `DirectoryNodeView` observes the workspace, and a
+/// keystroke in the editor re-renders every visible row: comparing per row cost
+/// one `realpath(3)` per row per keystroke. One resolution per render costs one,
+/// whatever the tree's size.
+///
+/// **The one limit, accepted.** A row reached through a *symlinked* root while
+/// the tab's url is already canonical does not match, because the canonical side
+/// is computed only for the tab and the row is compared as it is spelled. Tabs
+/// opened from the tree share the tree's own spelling, and the paths that arrive
+/// canonical (a definition jump) are canonical on both sides, so the gap is a
+/// row highlight missing in a configuration neither producer creates.
+struct TreeSelection: Equatable {
+    /// The active tab's url as that tab spells it, standardized.
+    let spelled: URL?
+    /// The same url with its symlinks resolved.
+    let canonical: URL?
+
+    init(_ url: URL?) {
+        let spelled = url?.standardizedFileURL
+        self.spelled = spelled
+        self.canonical = spelled?.resolvingSymlinksInPath()
+    }
+
+    /// Whether the row at `url` is the selected one. No file-system call: the
+    /// row's own url is standardized (lexical) and compared against the two
+    /// spellings resolved at the top of the render.
+    func contains(_ url: URL) -> Bool {
+        guard spelled != nil else { return false }
+        let row = url.standardizedFileURL
+        return row == spelled || row == canonical
     }
 }
 
@@ -211,10 +255,12 @@ private struct DirectoryNodeView: View {
     /// The tree-wide drag state, handed down the recursion so every row reads and
     /// writes the same one.
     let dragSession: TreeDragSession
-    /// The active editor tab's file, handed down the recursion so each file row
-    /// can answer whether it is the selected one. `nil` when no tab is open, or
-    /// when the active tab has no file on disk.
-    let selectedFileURL: URL?
+    /// The tree's selection, resolved once by `ProjectTreeView` and handed down
+    /// the recursion so each file row can answer whether it is the selected one
+    /// without a file-system call of its own (see `TreeSelection`). It carries no
+    /// url at all when no tab is open, or when the active tab has no file on
+    /// disk.
+    let selection: TreeSelection
     /// The project root row offers only create actions (New File / New Folder);
     /// nested directories also offer Rename / Delete. It is also the one folder
     /// row that is a drop *target* without being a drag *source*.
@@ -250,7 +296,7 @@ private struct DirectoryNodeView: View {
         onDraftAppeared: @escaping () -> Void,
         draft: Binding<TreeEditDraft?>,
         dragSession: TreeDragSession,
-        selectedFileURL: URL?,
+        selection: TreeSelection,
         isRoot: Bool = false,
         startsExpanded: Bool = false,
         siblings: [String] = []
@@ -271,7 +317,7 @@ private struct DirectoryNodeView: View {
         self.onDraftAppeared = onDraftAppeared
         self._draft = draft
         self.dragSession = dragSession
-        self.selectedFileURL = selectedFileURL
+        self.selection = selection
         self.isRoot = isRoot
         self.siblings = siblings
         _isExpanded = State(initialValue: startsExpanded)
@@ -327,7 +373,7 @@ private struct DirectoryNodeView: View {
                         onDraftAppeared: onDraftAppeared,
                         draft: $draft,
                         dragSession: dragSession,
-                        selectedFileURL: selectedFileURL,
+                        selection: selection,
                         siblings: currentChildrenNames
                     )
                     .padding(.leading, metrics.scaled(ChromeGeometry.treeIndentStep))
@@ -352,7 +398,7 @@ private struct DirectoryNodeView: View {
                         dragSession: dragSession,
                         draft: draft,
                         siblings: currentChildrenNames,
-                        isSelected: Self.isSameFile(entry.url, selectedFileURL)
+                        isSelected: selection.contains(entry.url)
                     )
                     .padding(.leading, metrics.scaled(ChromeGeometry.treeIndentStep))
                 }
@@ -591,20 +637,6 @@ private struct DirectoryNodeView: View {
         return nil
     }
 
-    /// Whether these two urls name the same file.
-    ///
-    /// Compared canonically — the app layer's existing inline spelling, since
-    /// `CanonicalPath` is `internal` to `PisakaCore` — because the two sides are
-    /// spelled by different producers: a tree row's url is built by appending a
-    /// listing's component to the opened root, while the selected tab's url came
-    /// from wherever that tab was opened (a panel, a session record, a
-    /// definition jump). Two spellings of one file must read as selected.
-    private static func isSameFile(_ lhs: URL, _ rhs: URL?) -> Bool {
-        guard let rhs else { return false }
-        return lhs.standardizedFileURL.resolvingSymlinksInPath()
-            == rhs.standardizedFileURL.resolvingSymlinksInPath()
-    }
-
     /// Whether `error` is "this path is gone" — the node is about to disappear from
     /// the tree anyway, so its read failure is expected rather than reportable.
     private static func isMissingFileError(_ error: Error) -> Bool {
@@ -731,11 +763,17 @@ private struct FolderDisclosureRow<Menu: View>: View {
         // one of them gains a taller glyph. The label brings its own
         // `maxWidth: .infinity` frame, but the row repeats it: the highlight must
         // cover the chevron column too, edge to edge.
+        //
+        // The ceiling is lifted while the row hosts a **rename draft**: the draft
+        // is a `VStack` that grows a wrapped validation-reason line under the
+        // field, so a row capped at `rowHeight` would clip the reason it exists
+        // to show. `minHeight` stays either way, so an undrafted row and a
+        // drafted one with nothing to report are the same height.
         .padding(.horizontal, metrics.scaled(ChromeGeometry.rowPaddingX))
         .frame(
             maxWidth: .infinity,
             minHeight: metrics.scaled(ChromeGeometry.rowHeight),
-            maxHeight: metrics.scaled(ChromeGeometry.rowHeight),
+            maxHeight: isDrafted ? nil : metrics.scaled(ChromeGeometry.rowHeight),
             alignment: .leading
         )
         // The drop highlight replaces the hover one rather than layering over it
@@ -789,9 +827,9 @@ private struct FolderDisclosureRow<Menu: View>: View {
         .accessibilityAction { if !isDrafted { configuration.isExpanded.toggle() } }
     }
 
-    /// The row's background, asked of `TreeRowState` and mapped to a role — the
-    /// same two lines a file row runs, so the two row kinds cannot answer the
-    /// question differently.
+    /// The row's background, asked of `TreeRowState` and painted through
+    /// `TreeRowBackground.color(for:theme:)` — the same two lines a file row
+    /// runs, so the two row kinds cannot answer the question differently.
     ///
     /// A folder row passes `isSelected: false` unconditionally: selection here is
     /// *derived* from the active editor tab, and a folder is never one.
@@ -802,27 +840,55 @@ private struct FolderDisclosureRow<Menu: View>: View {
             isHovering: isHovering,
             isDropTarget: isDropTarget
         )
-        guard let role = TreeRowBackground.role(for: state) else { return Color.clear }
-        return theme.color(role)
+        return TreeRowBackground.color(for: state, resolving: theme.color)
     }
 }
 
-/// The one mapping from a `TreeRowState` to the role its background is painted
-/// in — `nil` for `.plain`, which is the absence of a background rather than a
-/// colour of its own.
+/// The one mapping from a `TreeRowState` to the colour its background is painted
+/// in.
 ///
 /// Both row kinds read it, for the reason they share `ChromeGeometry`'s tokens:
 /// restated at each row kind, a change to one would silently leave the other
 /// painting the old answer.
 enum TreeRowBackground {
+    /// The role a state paints itself in, where a role alone says it.
+    ///
+    /// `nil` twice, for two different reasons. `.plain` is the *absence* of a
+    /// background rather than a colour of its own — a row in no state paints
+    /// nothing. `.dropTarget` is a wash the closed role set does not name: the
+    /// drop highlight has to out-read the selection wash while the pointer is
+    /// inside the row (hover, selection and drop are all true at that moment),
+    /// and the design answers that with the accent at 40 % rather than with a
+    /// role of its own — `color(for:theme:)` below is where that is said.
     static func role(for state: TreeRowState) -> ChromeColorRole? {
         switch state {
-        case .plain: return nil
+        case .plain, .dropTarget: return nil
         case .hover: return .hoverTint
         case .selectedFocused: return .accentTintStrong
         case .selectedUnfocused: return .selectionInactive
-        case .dropTarget: return .dropTint
         }
+    }
+
+    /// The colour a row actually paints: the state's role where it has one, the
+    /// drop wash where it does not, and `.clear` for `.plain`.
+    ///
+    /// The drop wash is `accent` at **40 %** — deliberately stronger than
+    /// `accentTintStrong`, so a drop hovering a row that is also selected still
+    /// answers the only question a drag is asking. Both row kinds call this one
+    /// method, which is what keeps the two treatments from drifting apart.
+    ///
+    /// The theme arrives as `resolving`, a role-to-colour function the row hands
+    /// over, rather than as the theme value itself: a view file that named the
+    /// theme's *type* would join the set the gating suite keeps to the plumbing
+    /// (`core-theme.md`, rule five), and this mapping has no business holding a
+    /// theme — it is asked one question per state.
+    static func color(
+        for state: TreeRowState,
+        resolving: (ChromeColorRole) -> Color
+    ) -> Color {
+        if state == .dropTarget { return resolving(.accent).opacity(0.4) }
+        guard let role = role(for: state) else { return Color.clear }
+        return resolving(role)
     }
 }
 
@@ -941,12 +1007,14 @@ private struct FileRowView: View {
         // inside the row's horizontal padding, like the chevron column is.
         .padding(.leading, TreeRowLayout.chevronGutter(metrics))
         // Shared with `FolderDisclosureRow` through `ChromeGeometry`, which is
-        // what keeps the two row kinds' treatment identical.
+        // what keeps the two row kinds' treatment identical — including the
+        // lifted ceiling while this row hosts a rename draft, whose wrapped
+        // validation-reason line a fixed `rowHeight` would clip.
         .padding(.horizontal, metrics.scaled(ChromeGeometry.rowPaddingX))
         .frame(
             maxWidth: .infinity,
             minHeight: metrics.scaled(ChromeGeometry.rowHeight),
-            maxHeight: metrics.scaled(ChromeGeometry.rowHeight),
+            maxHeight: isDraftedRow ? nil : metrics.scaled(ChromeGeometry.rowHeight),
             alignment: .leading
         )
         .background(rowBackground)
@@ -1001,8 +1069,7 @@ private struct FileRowView: View {
             isHovering: isHovering,
             isDropTarget: false
         )
-        guard let role = TreeRowBackground.role(for: state) else { return Color.clear }
-        return theme.color(role)
+        return TreeRowBackground.color(for: state, resolving: theme.color)
     }
 }
 

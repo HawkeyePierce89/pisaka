@@ -88,24 +88,24 @@ private struct TabStripCell: View {
                 .truncationMode(.middle)
                 .foregroundStyle(theme.color(isActive ? .textPrimary : .textSecondary))
 
-            // The close mark on the active tab and under the pointer; otherwise
-            // the unsaved-changes dot, in the same slot. Showing it on the active
-            // tab too means the tab a user is most likely to close does not have
-            // to be hunted for first.
+            // One slot, three claimants, in this order: the close mark while the
+            // pointer is in the tab, then the unsaved-changes dot, then the close
+            // mark on the active tab. The dot therefore **outranks** the mark on
+            // an active tab — unsaved work is a fact about the file that nothing
+            // else states, while the mark is reachable by pointing at the tab —
+            // and the mark still shows on the active tab whenever there is
+            // nothing to report, so the tab most likely to be closed does not
+            // have to be hunted for.
             ZStack {
-                if isActive || isHovering {
-                    Button(action: onClose) {
-                        Image(systemName: "xmark")
-                            .font(.system(size: metrics.scaled(9), weight: .bold))
-                            .foregroundStyle(theme.color(.textSecondary))
-                    }
-                    .buttonStyle(.plain)
-                    .help("Close")
+                if isHovering {
+                    closeMark
                 } else if file.isDirty {
                     Circle()
                         .fill(theme.color(.textSecondary))
                         .frame(width: metrics.scaled(7), height: metrics.scaled(7))
                         .help("Unsaved changes")
+                } else if isActive {
+                    closeMark
                 }
             }
             .frame(width: metrics.scaled(14), height: metrics.scaled(14))
@@ -129,6 +129,17 @@ private struct TabStripCell: View {
         .contentShape(Rectangle())
         .onTapGesture(perform: onSelect)
         .onHover { isHovering = $0 }
+    }
+
+    /// The close mark, drawn in either of the two slots that claim it.
+    private var closeMark: some View {
+        Button(action: onClose) {
+            Image(systemName: "xmark")
+                .font(.system(size: metrics.scaled(9), weight: .bold))
+                .foregroundStyle(theme.color(.textSecondary))
+        }
+        .buttonStyle(.plain)
+        .help("Close")
     }
 
     /// The symbol `FileIcon` answers for this tab's file.

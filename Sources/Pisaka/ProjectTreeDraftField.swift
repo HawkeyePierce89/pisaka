@@ -139,10 +139,23 @@ struct TreeNameFieldView: View {
             }
         }
         .padding(.horizontal, isCreate ? metrics.scaled(ChromeGeometry.rowPaddingX) : 0)
-        // Outermost, *after* the padding: SwiftUI sizes a background to its
-        // primary view, so the region's bounds is this whole draft — icon
-        // column, field and reason line together. Clicking any of them is
-        // therefore "inside" by construction rather than by a measured inset.
+        // A **create** draft is a row of its own — `DirectoryNodeView` hosts it
+        // directly, above the children — so it has to state the row height the
+        // rows around it take, or it draws visibly shorter than its neighbours.
+        // A rename draft states nothing here: it is *inside* the row it renames,
+        // which already carries the token. `minHeight` only, never a ceiling:
+        // the wrapped validation-reason line below the field must be able to
+        // grow past one row.
+        .frame(
+            maxWidth: .infinity,
+            minHeight: isCreate ? metrics.scaled(ChromeGeometry.rowHeight) : nil,
+            alignment: .leading
+        )
+        // Outermost, *after* the padding and the row frame: SwiftUI sizes a
+        // background to its primary view, so the region's bounds is this whole
+        // draft — icon column, field and reason line together. Clicking any of
+        // them is therefore "inside" by construction rather than by a measured
+        // inset.
         .background(TreeDraftDismissRegion(onCancel: onCancel))
     }
 

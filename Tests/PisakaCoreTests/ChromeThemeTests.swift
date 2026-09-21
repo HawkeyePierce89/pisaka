@@ -12,17 +12,17 @@ final class ChromeThemeTests: XCTestCase {
     /// removed while a surface still means it — fails here rather than in a
     /// screenshot.
     private static let declaredRoles: Set<String> = [
-        "bgEditor", "bgPanel", "bgSidebar", "bgBar", "bgPopover",
-        "textPrimary", "textSecondary", "textTertiary",
+        "bgCanvas", "bgPanel", "bgEditor", "bgPopover",
+        "textPrimary", "textSecondary", "onAccent",
         "hairline", "accent", "accentTint", "accentTintStrong",
-        "hoverTint", "selectionInactive", "dropTint",
-        "statusRed", "statusYellow", "statusGreen", "statusBlue",
+        "hoverTint", "selectionInactive", "currentLine", "bracketMatch",
+        "statusGreen", "statusRed", "statusYellow",
         "diffAddedBackground", "diffRemovedBackground", "conflictBackground",
     ]
 
     func testTheRoleSetIsExactlyTheDeclaredOne() {
         XCTAssertEqual(Set(ChromeColorRole.allCases.map(\.rawValue)), Self.declaredRoles)
-        XCTAssertEqual(ChromeColorRole.allCases.count, 22)
+        XCTAssertEqual(ChromeColorRole.allCases.count, 21)
     }
 
     func testEveryRoleHasADistinctRawValue() {
@@ -37,18 +37,20 @@ final class ChromeThemeTests: XCTestCase {
 
     // MARK: - Geometry
 
+    /// The numbers are the chrome design's own table, deliberately *not* the
+    /// metrics the app happened to draw with before it.
     func testGeometryTokensCarryTheirTableValues() {
-        XCTAssertEqual(ChromeGeometry.rowHeight, 22)
-        XCTAssertEqual(ChromeGeometry.rowPaddingX, 6)
-        XCTAssertEqual(ChromeGeometry.treeIndentStep, 12)
-        XCTAssertEqual(ChromeGeometry.cornerRadiusMax, 5)
+        XCTAssertEqual(ChromeGeometry.rowHeight, 24)
+        XCTAssertEqual(ChromeGeometry.rowPaddingX, 8)
+        XCTAssertEqual(ChromeGeometry.treeIndentStep, 16)
+        XCTAssertEqual(ChromeGeometry.cornerRadiusMax, 6)
         XCTAssertEqual(ChromeGeometry.hairlineWidth, 1)
         XCTAssertEqual(ChromeGeometry.tabStripHeight, 32)
         XCTAssertEqual(ChromeGeometry.verticalTabRowHeight, 28)
-        XCTAssertEqual(ChromeGeometry.dockTabRowHeight, 22)
-        XCTAssertEqual(ChromeGeometry.bottomBarHeight, 24)
-        XCTAssertEqual(ChromeGeometry.breadcrumbHeight, 22)
-        XCTAssertEqual(ChromeGeometry.bottomBarToggleSide, 18)
+        XCTAssertEqual(ChromeGeometry.dockTabRowHeight, 28)
+        XCTAssertEqual(ChromeGeometry.bottomBarHeight, 28)
+        XCTAssertEqual(ChromeGeometry.breadcrumbHeight, 24)
+        XCTAssertEqual(ChromeGeometry.bottomBarToggleSide, 22)
         XCTAssertEqual(ChromeGeometry.bottomBarToggleRadius, 4)
         XCTAssertEqual(ChromeGeometry.accentIndicator, 2)
     }
