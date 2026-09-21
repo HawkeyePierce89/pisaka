@@ -143,6 +143,33 @@ final class MarkdownPreviewThemeTests: XCTestCase {
         }
     }
 
+    /// Both restated code tables are non-empty, total, and written in the one
+    /// shape the page can emit: `#` and six lowercase hex digits.
+    ///
+    /// The restatement exists so the domain layer has a complete theme to test
+    /// and fall back on — the app overwrites it from the editor's table at run
+    /// time — so nothing in the product reads these strings back and no compiler
+    /// can see one drift into a shape the stylesheet cannot use. A value with an
+    /// uppercase digit, a three-digit short form or a stray name would be emitted
+    /// verbatim into a custom property; this is what refuses it.
+    func testBothCodeTablesAreTotalAndWrittenAsLowercaseSixDigitHex() {
+        for (name, theme) in [("light", MarkdownPreviewTheme.light), ("dark", .dark)] {
+            XCTAssertFalse(theme.codeColors.isEmpty, "\(name) carries no code colours")
+            XCTAssertEqual(
+                Set(theme.codeColors.keys),
+                Set(SyntaxTokenKind.allCases),
+                "\(name) is not total over the token kinds"
+            )
+            for kind in SyntaxTokenKind.allCases {
+                let value = theme.codeColors[kind] ?? ""
+                XCTAssertNotNil(
+                    value.range(of: "^#[0-9a-f]{6}$", options: .regularExpression),
+                    "\(name).\(kind) is \(value), not #rrggbb in lowercase hex"
+                )
+            }
+        }
+    }
+
     /// Light and dark differ in *every* field, chrome and code alike — a field
     /// copied from one to the other is a colour that will be unreadable in one of
     /// the two appearances, and only a total comparison catches it.

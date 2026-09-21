@@ -146,6 +146,62 @@ final class SyntaxThemeTests: XCTestCase {
         XCTAssertEqual(Set(SyntaxTheme.table.keys), Set(SyntaxTokenKind.allCases))
     }
 
+    // MARK: - The preview seam
+
+    /// The palette actually reaches the preview page.
+    ///
+    /// What it pins: for each appearance, `markdownPreviewTheme(prefersDark:)`
+    /// carries every token kind's colour, equal to the CSS spelling of *this
+    /// suite's own restated row* — so the assertion is against the values the
+    /// design states, not against whatever the production table happens to hold.
+    /// A derivation that is wrong, partial, or resolved under the other
+    /// appearance fails here, and so does any later palette edit made on one side
+    /// only — which is precisely the situation in which a stopped derivation
+    /// would otherwise become visible on screen.
+    ///
+    /// What it cannot see: the derivation being deleted while the editor's table
+    /// and the domain layer's restated one happen to agree. Nothing that reads
+    /// values can. Before this change the two tables disagreed and the screen was
+    /// that check; this is the assertion that replaces it.
+    ///
+    /// Entries are read as `codeColors[kind]` through `XCTUnwrap` rather than
+    /// through `color(for:)`, so a missing kind fails instead of falling through
+    /// to the theme's body-text colour and comparing equal by accident.
+    func testThePreviewThemeCarriesTheEditorsPaletteInBothAppearances() throws {
+        for prefersDark in [true, false] {
+            let derived = SyntaxTheme.shared.markdownPreviewTheme(prefersDark: prefersDark)
+            let base = prefersDark ? MarkdownPreviewTheme.dark : MarkdownPreviewTheme.light
+
+            for kind in SyntaxTokenKind.allCases {
+                let row = try XCTUnwrap(Self.expected[kind], "\(kind) has no expected row")
+                let rgb = prefersDark ? row.dark : row.light
+                let wanted = String(
+                    format: "#%02x%02x%02x",
+                    Int((rgb >> 16) & 0xFF),
+                    Int((rgb >> 8) & 0xFF),
+                    Int(rgb & 0xFF)
+                )
+                let carried = try XCTUnwrap(
+                    derived.codeColors[kind],
+                    "\(kind) has no entry in the derived theme (prefersDark: \(prefersDark))"
+                )
+                XCTAssertEqual(carried, wanted, "\(kind), prefersDark: \(prefersDark)")
+            }
+
+            // The derivation overwrites code colours and nothing else: the page's
+            // chrome is shared with the other document surface in the window and
+            // stays the domain layer's.
+            XCTAssertEqual(derived.background, base.background)
+            XCTAssertEqual(derived.text, base.text)
+            XCTAssertEqual(derived.secondaryText, base.secondaryText)
+            XCTAssertEqual(derived.link, base.link)
+            XCTAssertEqual(derived.codeBackground, base.codeBackground)
+            XCTAssertEqual(derived.border, base.border)
+            XCTAssertEqual(derived.tableBorder, base.tableBorder)
+            XCTAssertEqual(derived.colorScheme, base.colorScheme)
+        }
+    }
+
     // MARK: - Uncovered text
 
     /// The value the editor gives a character no capture covers.

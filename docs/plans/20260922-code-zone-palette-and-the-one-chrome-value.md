@@ -230,29 +230,29 @@ duplication.
 - Modify: `Tests/PisakaCoreTests/MarkdownPreviewThemeTests.swift`
 - Modify: `Tests/PisakaAppTests/SyntaxThemeTests.swift`
 
-- [ ] Replace `light.codeColors` with the fourteen light values as lowercase
+- [x] Replace `light.codeColors` with the fourteen light values as lowercase
       `#rrggbb` strings: keyword `#8250b0`, string `#4f7942`, comment `#8a8a90`,
       number `#a5652d`, type `#2b6a83`, function `#2f5fa8`, variable `#1d1d1f`,
       constant `#a5652d`, operator `#6e6e73`, punctuation `#6e6e73`, property
       `#2f6b63`, parameter `#1d1d1f`, label `#2f6fe0`, plain `#1d1d1f`.
-- [ ] Replace `dark.codeColors` with the fourteen dark values: keyword `#b48ead`,
+- [x] Replace `dark.codeColors` with the fourteen dark values: keyword `#b48ead`,
       string `#9db97b`, comment `#6b6e76`, number `#c9976c`, type `#6a9fb5`,
       function `#7aa6da`, variable `#dfe1e5`, constant `#c9976c`, operator
       `#a0a3aa`, punctuation `#a0a3aa`, property `#7fa8a0`, parameter `#dfe1e5`,
       label `#4f8dff`, plain `#dfe1e5`.
-- [ ] Leave every chrome field of both themes untouched, and say so in the doc
+- [x] Leave every chrome field of both themes untouched, and say so in the doc
       comment beside each `codeColors` block: these are the editor palette's
       variants, restated only so the domain layer has a complete theme to test and
       fall back on; the app overwrites them from the editor's table at run time
       through `withCodeColors(_:)`, which is the mechanism that must keep working
       and must not be reimplemented.
-- [ ] Add a Core test asserting that the two `codeColors` tables are non-empty,
+- [x] Add a Core test asserting that the two `codeColors` tables are non-empty,
       total over `SyntaxTokenKind.allCases`, and that every value matches `#`
       followed by six lowercase hex digits — so a restatement can never drift into
       a shape the page cannot emit. Keep `testBothThemesAreTotalOverTokenKinds` and
       `testLightAndDarkDifferInEveryColourField` exactly as they are; neither may be
       loosened.
-- [ ] Add, in `SyntaxThemeTests`, the seam pin the two equal tables now need: for
+- [x] Add, in `SyntaxThemeTests`, the seam pin the two equal tables now need: for
       each of `prefersDark: true` and `false`, assert that
       `SyntaxTheme.shared.markdownPreviewTheme(prefersDark:)` carries, for **every**
       `SyntaxTokenKind`, a `codeColors` entry equal to the CSS string of that kind's
@@ -261,7 +261,7 @@ duplication.
       falling through to the theme's body-text colour. Build the expected string by
       formatting the restated row (`#%02x%02x%02x`, lowercase), so the assertion is
       against the ticket's values rather than against `SyntaxTheme.table`.
-- [ ] Give that test a doc comment stating what it pins and what it does not: it is
+- [x] Give that test a doc comment stating what it pins and what it does not: it is
       the only check that the editor's palette actually reaches the page — a wrong,
       partial or wrongly-appearance-resolved derivation fails here, and so does any
       later palette edit made on one side only, which is precisely the situation in
@@ -269,11 +269,11 @@ duplication.
       catch the derivation being deleted while both tables happen to agree; before
       this ticket the two tables disagreed and the screen was that check, and this
       is the assertion that replaces it.
-- [ ] Also assert in that test that the derived theme's chrome fields still equal the
+- [x] Also assert in that test that the derived theme's chrome fields still equal the
       base theme's for that appearance — the derivation overwrites code colours and
       nothing else — so a future edit cannot quietly widen it into the shared
       document chrome this ticket puts out of scope.
-- [ ] Run `swift test` **and** the app-layer bundle — both must pass before Task 4.
+- [x] Run `swift test` **and** the app-layer bundle — both must pass before Task 4.
 
 ### Task 4: The one chrome value
 
