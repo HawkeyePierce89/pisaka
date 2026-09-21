@@ -163,11 +163,14 @@ preview draws something legible rather than nothing), the `\.chromeTheme`
 accessor, and `.chromeThemed(_:)`, a `ViewModifier` taking the observed
 `SettingsStore` so a Preferences edit re-evaluates the root with no relaunch.
 `ThemePreference.system` carries no appearance by itself, so the modifier reads
-`@Environment(\.colorScheme)`; it sits *above* each root's
-`.preferredColorScheme(...)` in the chain — a modifier applied later wraps the
-environment write rather than descending from it — so the scheme it reads is the
-system's own, which is exactly what `.system` means. The two forced preferences
-never consult it. `SettingsStore.chromeTheme(systemPrefersDark:)` exists for the
+`@Environment(\.colorScheme)` — and that is the one case that reads it. Under
+`.system` the root's `.preferredColorScheme(nil)` forces nothing, so the window
+keeps following the system and `\.colorScheme` reports the system's own answer,
+which is exactly what `.system` means. The two forced preferences resolve
+without consulting it, so what `\.colorScheme` reports under them cannot change
+the result — which is the whole argument, since a forced preference *does* set
+the window's appearance and that appearance *does* propagate down to every view
+in the window, the modifier included. `SettingsStore.chromeTheme(systemPrefersDark:)` exists for the
 same reason `SettingsStore.interfaceMetrics` does: a root that applies
 `.chromeThemed(self)` cannot read the value it just injected.
 
@@ -186,7 +189,12 @@ included.
     Full entry in `app-window.md`.
   - **The line-number ruler** — `LineNumberRulerView.swift` (plus one method in
     `CodeEditorView.swift`), the AppKit bridge path. Full entry in
-    `app-editor-overlays.md`.
+    `app-editor-overlays.md`. The ruler has a second instance, in the read-only
+    out-of-project definition window, and it carries the editor background with
+    it: `SourceViewerContent.swift` paints its pane in `bgEditor` too, so the
+    gutter and the text beside it agree there as well — and that is the only
+    thing of that window which is themed, the rest of its chrome still awaiting
+    the sweep.
   - **The project tree rows** — `ProjectTreeView.swift` and
     `ProjectTreeDraftField.swift`, the geometry and row-state path. Full entry in
     `app-window.md`. One row state is painted without a role of its own: a

@@ -43,11 +43,15 @@ extension EnvironmentValues {
 /// the root and the new theme flows down with no relaunch.
 ///
 /// `ThemePreference.system` carries no appearance by itself, so the modifier
-/// reads `@Environment(\.colorScheme)` to answer that question. It sits *above*
-/// each root's `.preferredColorScheme(...)` in the modifier chain — a modifier
-/// applied later wraps the environment write rather than descending from it —
-/// so the scheme it reads is the system's own, which is exactly what `.system`
-/// means. The two forced preferences never consult it.
+/// reads `@Environment(\.colorScheme)` to answer that question — and it is the
+/// *only* case that reads it. Under `.system` the root's
+/// `.preferredColorScheme(nil)` forces nothing, so the window keeps following
+/// the system and `\.colorScheme` reports the system's own answer, which is
+/// exactly what `.system` means. The two forced preferences resolve without
+/// consulting it at all, so whatever `\.colorScheme` reports under them — a
+/// forced preference does set the window's appearance, and that appearance does
+/// propagate down to every view inside it, this modifier included — cannot
+/// change the result.
 private struct ChromeThemed: ViewModifier {
     @ObservedObject var settings: SettingsStore
     @Environment(\.colorScheme) private var colorScheme

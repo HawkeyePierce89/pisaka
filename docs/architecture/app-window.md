@@ -712,7 +712,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     measurement it is. The chrome's own — a row's height
     (`ChromeGeometry.rowHeight`, applied as a *fixed* min/max frame rather than
     as padding around the content, so a tree row and a tab row cannot drift apart
-    when one gains a taller glyph), its horizontal padding
+    when one gains a taller glyph — with one exception, both row kinds lifting
+    that ceiling while they host a rename draft, for the reason given in the
+    draft field's entry below), its horizontal padding
     (`ChromeGeometry.rowPaddingX`) and one level of nesting
     (`ChromeGeometry.treeIndentStep`, the former literal `12`) — are tokens, read
     by every chrome list (`core-theme.md`). What stays in `TreeRowLayout` is the
@@ -1151,8 +1153,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     a row of its own (hosted directly by `DirectoryNodeView`) and therefore
     states that height itself, as a `minHeight` and never a ceiling, so the
     wrapped reason line can grow past one row. The two row kinds lift their own
-    `maxHeight` for exactly that reason while they host a rename draft — draws its icon column monochrome in `textSecondary` like
-    the row it replaces, and takes the reason line in `statusRed`. The field
+    `maxHeight` for exactly that reason while they host a rename draft: the row
+    states the height, and a draft inside it must still be able to grow when its
+    reason line wraps. The draft also draws its icon column monochrome in
+    `textSecondary` like the row it replaces, and takes the reason line in
+    `statusRed`. The field
     itself is the chrome's one `NSTextField` and therefore the tree's one user of
     the **AppKit bridge**: `updateNSView` sets `textColor` to
     `ChromePalette.nsColor(.statusRed)` while the input is invalid and
