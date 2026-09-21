@@ -61,6 +61,7 @@ struct SourceViewerContent: View {
         // itself — for the chrome only: the pane is a code surface and stays on
         // `settings.fontSize`.
         .interfaceScaled(settings)
+        .chromeThemed(settings)
     }
 }
 

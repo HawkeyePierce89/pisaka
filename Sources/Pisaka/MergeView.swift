@@ -65,6 +65,7 @@ struct MergeView: View {
         // This window is its own SwiftUI root — an `NSHostingController` created by
         // `MergeWindowController` — so it injects the interface scale itself.
         .interfaceScaled(settings)
+        .chromeThemed(settings)
     }
 
     // MARK: Toolbar

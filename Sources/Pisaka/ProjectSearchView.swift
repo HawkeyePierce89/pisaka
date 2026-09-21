@@ -86,6 +86,7 @@ struct ProjectSearchView: View {
         // `ProjectSearchWindowController`), so it injects the interface scale
         // itself.
         .interfaceScaled(settings)
+        .chromeThemed(settings)
         .onAppear {
             // Re-seed from the model so reopening the window shows the query whose
             // results are still on screen.

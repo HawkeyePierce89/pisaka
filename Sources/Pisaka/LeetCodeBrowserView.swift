@@ -95,6 +95,7 @@ struct LeetCodeBrowserView: View {
         // itself; the rows and controls above adopt it with the rest of the
         // LeetCode surfaces.
         .interfaceScaled(settings)
+        .chromeThemed(settings)
         // Keyed on `loadKey` so this covers every half with one rule: the load on
         // appear, the re-arm after a sign-in that flips `availability`, and the
         // re-arm after a session *replacement*, which clears the rows while
@@ -151,6 +152,7 @@ struct LeetCodeBrowserView: View {
             // sign-in sheet matches the window it is raised over instead of
             // arriving at 100% on top of a browser at 200%.
             .interfaceScaled(settings)
+            .chromeThemed(settings)
         }
     }
 

@@ -459,6 +459,7 @@ struct ContentView: View {
         // inherits it. The editor, the terminal and the diff/merge panes are
         // deliberately unaffected: they draw at their own zones' font sizes.
         .interfaceScaled(settings)
+        .chromeThemed(settings)
     }
 
     /// What a statement request depends on: which tab is selected, and where the

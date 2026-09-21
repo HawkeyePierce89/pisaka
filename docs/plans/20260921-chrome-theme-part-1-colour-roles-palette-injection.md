@@ -178,23 +178,23 @@ Docs: `docs/architecture/core-theme.md` (new), `app-window.md`,
   `ProjectSearchView.swift`, `MergeView.swift`, `LeetCodeBrowserView.swift`,
   `LocalHistoryView.swift`
 
-- [ ] `ChromePalette`: an **exhaustive `switch role`** (no `default`) returning
+- [x] `ChromePalette`: an **exhaustive `switch role`** (no `default`) returning
       the `(dark, light)` pair as `0xRRGGBB` plus an alpha — so a role added
       without a pair fails to *compile*, and the test below catches a wrong
       value. This is the one file allowed to spell hex.
-- [ ] The AppKit bridge: `ChromePalette.nsColor(_ role:) -> NSColor`, built on
+- [x] The AppKit bridge: `ChromePalette.nsColor(_ role:) -> NSColor`, built on
       the existing `PlatformColor.dynamic(light:dark:alpha:)`, so AppKit
       resolves per appearance itself. Document explicitly that **no AppKit view
       caches a resolved colour and none observes appearance changes by hand** —
       `.preferredColorScheme` sets the window's `NSAppearance`, which every
       `NSView` inside it inherits, which is why the existing `SyntaxTheme`
       colours already follow the Theme preference.
-- [ ] The SwiftUI path: `ChromeTheme`, an `Equatable` value carrying the
+- [x] The SwiftUI path: `ChromeTheme`, an `Equatable` value carrying the
       resolved `ChromeAppearance` and answering `color(_ role:) -> Color` from
       the palette's concrete side. Carrying the *resolved* appearance rather
       than a dynamic colour is what makes a preference change invalidate the
       whole subtree, so the recolour is live by construction.
-- [ ] `ChromeThemeEnvironment.swift`: the `EnvironmentKey` (defaulting to the
+- [x] `ChromeThemeEnvironment.swift`: the `EnvironmentKey` (defaulting to the
       dark theme, the primary appearance), `\.chromeTheme`, and a
       `.chromeThemed(_ settings: SettingsStore)` modifier that observes the
       store and reads `@Environment(\.colorScheme)` to answer
@@ -202,17 +202,17 @@ Docs: `docs/architecture/core-theme.md` (new), `app-window.md`,
       the sweep obeys, in `InterfaceScaleEnvironment.swift`'s voice: nothing
       resolves a role itself, the modifier is applied only at roots, and the
       default is the resting one.
-- [ ] Apply `.chromeThemed(settings)` at **exactly the eight roots** that
+- [x] Apply `.chromeThemed(settings)` at **exactly the eight roots** that
       already apply `.interfaceScaled(settings)`, immediately beside it, and
       below the `.preferredColorScheme` site where one exists.
-- [ ] Tests (`Tests/PisakaAppTests/ChromePaletteTests.swift`,
+- [x] Tests (`Tests/PisakaAppTests/ChromePaletteTests.swift`,
       `@testable import Pisaka`): for every `ChromeColorRole.allCases`, assert
       the dark and the light `NSColor` resolve to exactly the sRGB components
       and alpha of the table's hex values; assert the dynamic `NSColor`
       resolves to the dark variant under `.darkAqua` and the light one under
       `.aqua`; assert `ChromeTheme(.dark)` and `ChromeTheme(.light)` differ for
       every role that has two different values.
-- [ ] run `swift test` and the app-layer bundle — both must pass before Task 3
+- [x] run `swift test` and the app-layer bundle — both must pass before Task 3
 
 ### Task 3: Surface 1 — the horizontal tab strip (the environment path)
 

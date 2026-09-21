@@ -1042,7 +1042,10 @@ struct PisakaApp: App {
                         )
                     }
                 }
-                .interfaceScaled(settings)
+                // The chrome theme rides along on the same line, for the same
+                // reason and at the same root: this file sits at its length
+                // ceiling, and the two modifiers are one injection.
+                .interfaceScaled(settings).chromeThemed(settings)
             }
             .onAppear {
                 // Start once. `onSaved` reuses `refreshLocalChanges()` so an
@@ -1632,7 +1635,9 @@ struct PisakaApp: App {
             // `SettingsView`: applied by the scene it reaches the settings form
             // itself, not only the views below it (an environment write never
             // reaches the view that makes it).
-            .interfaceScaled(settings)
+            // The chrome theme, injected at the same root and on the same line
+            // (see the note at the LeetCode sheet above).
+            .interfaceScaled(settings).chromeThemed(settings)
         }
     }
 
