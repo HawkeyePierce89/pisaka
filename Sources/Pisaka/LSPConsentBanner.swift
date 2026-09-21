@@ -68,6 +68,13 @@ struct LSPConsentBanner: View {
     /// window.
     @Environment(\.interfaceMetrics) private var metrics
 
+    /// The chrome's colours, inherited from the same root. The strip is chrome
+    /// between two other chrome surfaces — the breadcrumb above it and the tab
+    /// strip above that — so it takes its ground, its rule and its text from the
+    /// roles rather than from whatever the system happens to call a control
+    /// background.
+    @Environment(\.chromeTheme) private var theme
+
     var body: some View {
         // An empty `VStack` renders nothing and contributes no height, so the
         // common case — every language no downloadable server serves, and every
@@ -154,23 +161,70 @@ struct LSPConsentBanner: View {
         return rust.consentPrompt(forOpening: language)
     }
 
+    /// The strip all three questions are drawn into: one ground, one rule, one
+    /// set of colours, so the three rows cannot drift into three looks.
+    ///
+    /// The rule is a `hairline` rectangle rather than a `Divider()` for the
+    /// breadcrumb's reason: a divider is drawn in the *system's* separator
+    /// colour and would disagree with the strip above it the moment the Theme
+    /// preference disagrees with the system appearance.
     private func strip<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
         VStack(spacing: 0) {
             content()
             // The banner's own bottom rule, so the editor zone needs no
-            // conditional `Divider()` beside a view that is usually empty.
-            Divider()
+            // conditional separator beside a view that is usually empty.
+            Rectangle()
+                .fill(theme.color(.hairline))
+                .frame(height: metrics.scaled(ChromeGeometry.hairlineWidth))
         }
+        .background(theme.color(.bgPanel))
+    }
+
+    /// The confirming action, one helper for all three rows: the accent filled,
+    /// its label in `onAccent`, corners at `cornerRadiusMax`.
+    ///
+    /// One helper rather than three call sites because the three rows ask the
+    /// same question and must answer it with the same button — and `.plain`
+    /// rather than a bordered style because a system-drawn button beside an
+    /// accent-filled one is precisely the mixed look this sweep removes.
+    private func acceptButton(_ title: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(metrics.scaledFont(.body))
+                .foregroundStyle(theme.color(.onAccent))
+                .padding(.horizontal, metrics.scaled(ChromeGeometry.rowPaddingX))
+                .padding(.vertical, metrics.scaled(ChromeGeometry.rowPaddingX / 2))
+                .background(
+                    RoundedRectangle(cornerRadius: metrics.scaled(ChromeGeometry.cornerRadiusMax))
+                        .fill(theme.color(.accent))
+                )
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// The declining action: a plain `textSecondary` label. Neither answer is
+    /// destructive and both are reversible from Preferences, so the weight of
+    /// the two buttons is the only thing saying which is the offer.
+    private func declineButton(_ title: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(metrics.scaledFont(.body))
+                .foregroundStyle(theme.color(.textSecondary))
+                .padding(.horizontal, metrics.scaled(ChromeGeometry.rowPaddingX))
+                .padding(.vertical, metrics.scaled(ChromeGeometry.rowPaddingX / 2))
+        }
+        .buttonStyle(.plain)
     }
 
     private func downloadRow(_ prompt: LSPConsentPrompt) -> some View {
         HStack(spacing: metrics.scaled(12)) {
             Image(systemName: "arrow.down.circle")
-                .foregroundStyle(.tint)
+                .foregroundStyle(theme.color(.accent))
 
             VStack(alignment: .leading, spacing: metrics.scaled(2)) {
                 Text("Download the \(prompt.displayName) language server?")
                     .font(metrics.scaledFont(.callout))
+                    .foregroundStyle(theme.color(.textPrimary))
                 // The size is `pendingDownloadByteCount`, so the second server
                 // offers the ~4 MB it actually costs rather than the ~56 MB the
                 // first one did — see `LSPConsentPrompt`.
@@ -180,7 +234,7 @@ struct LSPConsentBanner: View {
                     + "without it they keep using the built-in index."
                 )
                 .font(metrics.scaledFont(.caption))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(theme.color(.textSecondary))
                 .fixedSize(horizontal: false, vertical: true)
 
                 // What this server does on the network *after* the download,
@@ -198,7 +252,7 @@ struct LSPConsentBanner: View {
                 if let note = prompt.runtimeNetworkNote {
                     Text(note)
                         .font(metrics.scaledFont(.caption))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(theme.color(.textSecondary))
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
@@ -216,11 +270,11 @@ struct LSPConsentBanner: View {
             // *before* the first responder ever sees it, so every newline typed
             // in the file behind the banner would start a 52 MB download and
             // record consent for it. Both answers stay pointer-only.
-            Button("Download") {
+            acceptButton("Download") {
                 Task { await provisioning.accept(prompt.server) }
             }
 
-            Button("No Thanks") {
+            declineButton("No Thanks") {
                 provisioning.decline(prompt.server)
             }
         }
@@ -228,7 +282,6 @@ struct LSPConsentBanner: View {
         .padding(.horizontal, metrics.scaled(12))
         .padding(.vertical, metrics.scaled(8))
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(NSColor.controlBackgroundColor))
     }
 
     /// The Go question: the same strip, the same two actions and the same absence
@@ -254,11 +307,12 @@ struct LSPConsentBanner: View {
     private func goRow(_ prompt: LSPGoConsentPrompt) -> some View {
         HStack(spacing: metrics.scaled(12)) {
             Image(systemName: "hammer")
-                .foregroundStyle(.tint)
+                .foregroundStyle(theme.color(.accent))
 
             VStack(alignment: .leading, spacing: metrics.scaled(2)) {
                 Text("Install \(prompt.displayName) with your Go toolchain?")
                     .font(metrics.scaledFont(.callout))
+                    .foregroundStyle(theme.color(.textPrimary))
                 Text(
                     "Pisaka will build version \(prompt.version) with the Go at "
                     + "\(prompt.goExecutablePath) and keep the result to itself — nothing is "
@@ -269,7 +323,7 @@ struct LSPConsentBanner: View {
                     + "without it they keep using the built-in index."
                 )
                 .font(metrics.scaledFont(.caption))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(theme.color(.textSecondary))
                 .fixedSize(horizontal: false, vertical: true)
             }
 
@@ -280,11 +334,11 @@ struct LSPConsentBanner: View {
             // the answer is recorded (`accept` records it synchronously before its
             // first hop), and a `.defaultAction` here would put every Return typed
             // in the file behind this strip on the key-equivalent path.
-            Button("Install") {
+            acceptButton("Install") {
                 Task { await gopls.accept() }
             }
 
-            Button("No Thanks") {
+            declineButton("No Thanks") {
                 gopls.decline()
             }
         }
@@ -292,7 +346,6 @@ struct LSPConsentBanner: View {
         .padding(.horizontal, metrics.scaled(12))
         .padding(.vertical, metrics.scaled(8))
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(NSColor.controlBackgroundColor))
     }
 
     /// The Rust question: the download row's arrow and size, because it *is* a
@@ -317,11 +370,12 @@ struct LSPConsentBanner: View {
     private func rustRow(_ prompt: LSPRustConsentPrompt) -> some View {
         HStack(spacing: metrics.scaled(12)) {
             Image(systemName: "arrow.down.circle")
-                .foregroundStyle(.tint)
+                .foregroundStyle(theme.color(.accent))
 
             VStack(alignment: .leading, spacing: metrics.scaled(2)) {
                 Text("Download the \(prompt.displayName) language server?")
                     .font(metrics.scaledFont(.callout))
+                    .foregroundStyle(theme.color(.textPrimary))
                 Text(
                     "\(Self.size(prompt.downloadByteCount)) download of the official "
                     + "\(prompt.version) release, verified and kept to itself. "
@@ -329,7 +383,7 @@ struct LSPConsentBanner: View {
                     + "without it they keep using the built-in index."
                 )
                 .font(metrics.scaledFont(.caption))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(theme.color(.textSecondary))
                 .fixedSize(horizontal: false, vertical: true)
             }
 
@@ -342,11 +396,11 @@ struct LSPConsentBanner: View {
             // same moment), and a `.defaultAction` here would put every Return
             // typed in the file behind this strip on the window's key-equivalent
             // path.
-            Button("Download") {
+            acceptButton("Download") {
                 Task { await rust.accept() }
             }
 
-            Button("No Thanks") {
+            declineButton("No Thanks") {
                 rust.decline()
             }
         }
@@ -354,7 +408,6 @@ struct LSPConsentBanner: View {
         .padding(.horizontal, metrics.scaled(12))
         .padding(.vertical, metrics.scaled(8))
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(NSColor.controlBackgroundColor))
     }
 
     /// The approximate size, in the unit the user's Mac writes sizes in.

@@ -206,18 +206,18 @@ consent strip's chrome), `CLAUDE.md` (one index line for the new file).
 - Modify: `Sources/Pisaka/LSPConsentBanner.swift`
 - Modify: `Tests/PisakaCoreTests/ChromeThemeSourceGatingTests.swift`
 
-- [ ] The strip: `bgPanel` background on all three rows, and its bottom rule
+- [x] The strip: `bgPanel` background on all three rows, and its bottom rule
       drawn as a `hairline` rectangle instead of a `Divider()`.
-- [ ] Text: the question line `textPrimary`, the explanatory caption (and the
+- [x] Text: the question line `textPrimary`, the explanatory caption (and the
       runtime-network note, which is the same kind of fact) `textSecondary`, the
       leading symbol `accent` in place of `.tint`.
-- [ ] Actions: one private helper for the confirming button — `accent` fill,
+- [x] Actions: one private helper for the confirming button — `accent` fill,
       `onAccent` label, `cornerRadiusMax`, padding from `rowPaddingX` — used by
       all three rows' accepting action; the declining action a plain
       `textSecondary` label button. No keyboard shortcut is added: the existing
       doc comment explains why, and it still holds.
-- [ ] Add `LSPConsentBanner.swift` to `gatedFiles`.
-- [ ] run `swift test` and the app-layer bundle — must pass before Task 6
+- [x] Add `LSPConsentBanner.swift` to `gatedFiles`.
+- [x] run `swift test` and the app-layer bundle — must pass before Task 6
 
 ### Task 6: Documentation, and the brand-name sweep
 

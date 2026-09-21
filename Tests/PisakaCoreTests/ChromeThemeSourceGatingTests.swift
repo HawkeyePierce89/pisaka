@@ -64,6 +64,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         "TabRowView.swift",
         "BreadcrumbBarView.swift",
         "MinimapView.swift",
+        "LSPConsentBanner.swift",
     ]
 
     func testEveryGatedFileExists() throws {
