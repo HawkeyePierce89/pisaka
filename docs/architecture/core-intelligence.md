@@ -1214,12 +1214,20 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
       **Three shapes are deliberately not modelled**, each because no fixed
       `StringForm` describes it — *heredocs* (the delimiter is an arbitrary word
       declared on an earlier line, so there is no literal for `open`; the body
-      lexes as code, which is the honest failure), *`$'…'`* (its escapes are C's,
+      lexes as code **only while it contains no apostrophe**, both string forms
+      spanning lines, so an English body like `It's done` opens a `'…'` frame the
+      `EOF` terminator does not close and carries `.string` into the rest of the
+      file until the next apostrophe or the requested offset, which is where
+      comment-based suppression stops working), *`$'…'`* (its escapes are C's,
       and `allowedPrefixLetters` takes letters rather than `$`, so it lexes as an
-      ordinary single-quoted string — which ends it in the same place, the only
-      difference being what the escapes *mean*), and *backslash-continued lines*
-      (the scanner has no notion of a joined line and needs none here, both forms
-      spanning lines already).
+      ordinary single-quoted string — which does **not** end it in the same
+      place: ANSI-C quoting escapes the delimiter, so bash closes `$'it\'s'` on
+      the third apostrophe while the scanner, whose form is `escape: .none`,
+      closes on the second and re-opens a line-spanning string on the third, so
+      the `#` in `x=$'it\'s'   # note` reads as inside a string rather than as a
+      comment and the popup stays alive across the region), and
+      *backslash-continued lines* (the scanner has no notion of a joined line and
+      needs none here, both forms spanning lines already).
     - **dotenv's escape rule is `.none`, deliberately.** dotenv has no normative
       grammar and escape handling differs per loader, so borrowing another
       language's backslash convention would be inventing a rule rather than

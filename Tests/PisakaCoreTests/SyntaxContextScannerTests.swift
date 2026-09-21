@@ -717,4 +717,43 @@ final class SyntaxContextScannerTests: XCTestCase {
         let afterClose = (text as NSString).range(of: "&&").location
         assertContext(text, at: afterClose, language: .shell, is: .code)
     }
+
+    /// **A known approximation, asserted so the sentence recording it cannot
+    /// drift from it.** ANSI-C quoting (`$'…'`) escapes the delimiter itself, so
+    /// bash closes `$'it\'s'` on the *third* apostrophe. `allowedPrefixLetters`
+    /// takes letters rather than `$`, so the form lexes as an ordinary
+    /// single-quoted shell string whose escape rule is `.none`: the scanner
+    /// closes on the second apostrophe and the third re-opens a line-spanning
+    /// string. The trailing `#` is therefore read as inside a string rather than
+    /// as a comment. This asserts today's answer on purpose — the form is one of
+    /// the three shapes the shell arm states it does not model, and the cost is
+    /// only that completion stays alive where a comment would have gated it.
+    func testShellAnsiCQuotingIsTheKnownApproximation() {
+        let text = "x=$'it\\'s'   # note\necho done"
+        let inside = (text as NSString).range(of: "note").location
+        assertContext(text, at: inside, language: .shell, is: .string)
+        // Shell strings never gate, so nothing suppresses completion here —
+        // which is exactly what the corrected sentence on the arm now says.
+        assertSuppress(text, at: inside, language: .shell, is: false)
+    }
+
+    /// **A known approximation, asserted so the sentence recording it cannot
+    /// drift from it.** Heredocs are unmodelled, and the recorded consequence is
+    /// that the body lexes as code — which holds only while the body contains no
+    /// apostrophe. Both shell string forms span lines, and `advanceString` pops a
+    /// string frame on a line separator only when `!spansLines`, so one `'` in an
+    /// English body carries `.string` past the `EOF` terminator and into the rest
+    /// of the file. This asserts today's answer on purpose; fixing it needs
+    /// heredoc tracking the scanner does not have.
+    func testShellHeredocBodyApostropheCarriesStringPastTheTerminator() {
+        let text = "cat <<EOF\nIt's done\nEOF\n# note\necho done"
+        let inside = (text as NSString).range(of: "note").location
+        assertContext(text, at: inside, language: .shell, is: .string)
+
+        // An apostrophe-free body is the case the original sentence described:
+        // the body lexes as code and a following `#` is read as a comment.
+        let clean = "cat <<EOF\nall done\nEOF\n# note\necho done"
+        let cleanInside = (clean as NSString).range(of: "note").location
+        assertContext(clean, at: cleanInside, language: .shell, is: .comment)
+    }
 }

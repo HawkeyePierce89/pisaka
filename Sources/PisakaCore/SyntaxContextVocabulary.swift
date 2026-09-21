@@ -461,12 +461,25 @@ public enum SyntaxContextVocabulary {
     ///
     ///  * **Heredocs** (`<<EOF … EOF`). The delimiter is an arbitrary word
     ///    declared on an earlier line, so there is no literal to put in `open`.
-    ///    A heredoc body lexes as code, which is the honest failure: the words in
-    ///    it stay completable rather than being gated by a guess.
+    ///    A heredoc body lexes as code — but **only while it contains no
+    ///    apostrophe**. Both shell string forms span lines, so an English body
+    ///    (`It's done`) opens a `'…'` frame the terminator does not close: the
+    ///    scan stays in `.string` past `EOF` until the next apostrophe or the
+    ///    requested offset, and comment-based suppression stops working for the
+    ///    remainder of the file. The words in an apostrophe-free body stay
+    ///    completable rather than being gated by a guess, which is the honest
+    ///    failure; the apostrophe case is the wider one and is stated here so it
+    ///    is not discovered instead.
     ///  * **`$'…'`**, whose escapes are C's. `allowedPrefixLetters` takes
     ///    letters, not `$`, so the form lexes as an ordinary single-quoted
-    ///    string — which ends it in exactly the same place, since the only
-    ///    difference is what the escapes *mean*.
+    ///    string — which does **not** end it in the same place. ANSI-C quoting
+    ///    escapes the delimiter itself, so bash closes `$'it\'s'` on the *third*
+    ///    apostrophe; the shipped form is `escape: .none` and `advanceString`
+    ///    consults an escape length only for `.backslash`, so the scanner closes
+    ///    on the second and the third re-opens a line-spanning string. On
+    ///    `x=$'it\'s'   # note` the trailing `#` is therefore read as inside a
+    ///    string rather than as a comment, and since shell does not suppress
+    ///    completion inside strings the popup stays alive across the region.
     ///  * **Backslash-continued lines**. The scanner has no notion of a line
     ///    joined to the next one; it does not need one here, because both string
     ///    forms already span lines.

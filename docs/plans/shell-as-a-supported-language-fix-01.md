@@ -148,18 +148,18 @@ file, which is the one thing shell's comment form was added to provide. Neither
 is a regression — shell had no vocabulary at all before — and both are contained
 to completion suppression.
 
-- [ ] Correct the `$'…'` sentence: say that the scanner closes on the second
+- [x] Correct the `$'…'` sentence: say that the scanner closes on the second
       apostrophe while bash closes on the third, and what that costs.
-- [ ] Correct the heredoc sentence: say that the body lexes as code **only while
+- [x] Correct the heredoc sentence: say that the body lexes as code **only while
       it contains no apostrophe**, and that one apostrophe carries `.string` past
       the terminator into the rest of the file.
-- [ ] Mirror both corrections in `docs/architecture/core-intelligence.md`, where
+- [x] Mirror both corrections in `docs/architecture/core-intelligence.md`, where
       the same two sentences appear.
-- [ ] **Sweep:** the construct is *a sentence in this file stating what the
+- [x] **Sweep:** the construct is *a sentence in this file stating what the
       scanner does without the case that breaks it*. Re-read every recorded
       approximation on the shell arms and on the neighbouring languages' arms;
       correct any other that is narrower than the behaviour. Say what was checked.
-- [ ] Tests that would have caught both, written as **characterisation** tests of
+- [x] Tests that would have caught both, written as **characterisation** tests of
       today's behaviour with a comment saying the behaviour is the known
       approximation and the assertion exists so the doc sentence cannot drift
       from it: `x=$'it\'s'   # note` — the `#` is not read as a comment; a
