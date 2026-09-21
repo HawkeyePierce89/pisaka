@@ -329,17 +329,17 @@ Docs: `docs/architecture/core-theme.md` (new), `app-window.md`,
 - Create: `Tests/PisakaCoreTests/ChromeThemeSourceGatingTests.swift`
 - Modify: `Tests/PisakaCoreTests/ZoomSourceGatingTests.swift`
 
-- [ ] In `ZoomSourceGatingTests`' mould, reading `Sources/` through `#filePath`
+- [x] In `ZoomSourceGatingTests`' mould, reading `Sources/` through `#filePath`
       with Foundation only and matching against
       `LSPSourceGatingTests.strippingCommentsAndStringLiterals(_:)` output — the
       gated files document their own rules at length, so a raw `contains` would
       pass while the code it names was deleted.
-- [ ] The gated set, asserted by **set equality** in both directions:
+- [x] The gated set, asserted by **set equality** in both directions:
       `ChromePalette.swift`, `ChromeThemeEnvironment.swift`,
       `TabStripView.swift`, `LineNumberRulerView.swift`, `ProjectTreeView.swift`,
       `ProjectTreeDraftField.swift`. A file in the set that no longer exists
       fails, so the sweep adds a file deliberately when it restyles it.
-- [ ] Rule one — no system semantic colour: a closed forbidden-token list
+- [x] Rule one — no system semantic colour: a closed forbidden-token list
       covering AppKit's (`labelColor`, `secondaryLabelColor`,
       `tertiaryLabelColor`, `textBackgroundColor`, `controlBackgroundColor`,
       `windowBackgroundColor`, `separatorColor`,
@@ -348,28 +348,28 @@ Docs: `docs/architecture/core-theme.md` (new), `app-window.md`,
       SwiftUI's (`accentColor`, `primary`, `secondary`, `tertiary`, and the
       named hues). `clear` is deliberately allowed and documented as such: it is
       the absence of a colour, not a role.
-- [ ] Rule two — no hex literal: a `0x[0-9A-Fa-f]{6}` match over the stripped
+- [x] Rule two — no hex literal: a `0x[0-9A-Fa-f]{6}` match over the stripped
       text. `ChromePalette.swift` is the one exemption, checked by the palette
       test in Task 2 instead, and the suite asserts it is the *only* gated file
       that spells hex, so the exemption cannot become a hole.
-- [ ] Rule three — the three named exemptions, each with its reason in the doc
+- [x] Rule three — the three named exemptions, each with its reason in the doc
       comment: `SyntaxTheme.swift` (a token-kind colour table is the code zone,
       not chrome), `TerminalTheme.swift` (an ANSI-16 palette is a protocol's
       vocabulary, not a design system's) and `FileIcon.swift` (a Core semantic
       token iOS still paints). The suite asserts these three are *not* in the
       gated set, so a later sweep cannot quietly add them.
-- [ ] Rule four — the theme is injected at the same roots as the interface
+- [x] Rule four — the theme is injected at the same roots as the interface
       scale: drop `private` from `ZoomSourceGatingTests.interfaceScaledRoots`
       (its only change, one word, with a one-line note in its doc comment saying
       the chrome-theme suite reads it), collect `.chromeThemed(` by file and
       assert set equality against **that one declared set**. The root list is
       not duplicated in the new suite, so a root that gains one modifier and
       forgets the other fails in exactly one place.
-- [ ] Rule five — no view constructs a theme inline: `ChromeTheme(` appears only
+- [x] Rule five — no view constructs a theme inline: `ChromeTheme(` appears only
       in `ChromeThemeEnvironment.swift` and `ChromePalette.swift`.
-- [ ] Self-check, in the suite's own idiom: each gated file must actually *name*
+- [x] Self-check, in the suite's own idiom: each gated file must actually *name*
       a role, so a rename cannot empty the checks into a vacuous pass.
-- [ ] run `swift test` — must pass before Task 7
+- [x] run `swift test` — must pass before Task 7
 
 ### Task 7: Documentation
 

@@ -99,7 +99,9 @@ final class ZoomSourceGatingTests: XCTestCase {
     /// Asserted by **set equality**, in both directions: a new root that forgets
     /// the modifier never appears here, and a root deleted without updating this
     /// list fails rather than quietly shrinking the check.
-    private static let interfaceScaledRoots: Set<String> = [
+    /// Not `private`: `ChromeThemeSourceGatingTests` reads this one declaration so the
+    /// chrome theme's injection roots cannot drift from the scale's.
+    static let interfaceScaledRoots: Set<String> = [
         "ContentView.swift",
         "PisakaApp.swift",
         "DiffWindowContent.swift",
