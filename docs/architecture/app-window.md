@@ -1159,15 +1159,21 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `settings.tabOrientation`. The horizontal presentation used to be a branch
     inside these two and is now `TabStripView`, split out rather than left here
     because the two orientations state *different* chrome — the strip a height and
-    a rule under it, the column a width it is given and a rule beside it — so
+    a rule under it, the column a width it is given and a boundary its splitter
+    states for it — so
     neither can be a branch inside the other, and a strip is not a list of rows
     running sideways.
     Both files are **drawn entirely from the chrome colour roles** (the second
     part of the sweep, `core-theme.md`) through the environment path. The column
-    is `bgPanel` behind the scroll view and owns its **trailing** hairline as an
-    overlay, for the reason the strip owns its bottom one: the active row is
-    filled in the editor's own background so it reads as the left edge of the pane
-    beside it, and a rule the *host* drew would sit between the two and undo that.
+    is `bgPanel` behind the scroll view and draws **no pane-edge rule of its
+    own**: its host is not a stack but the `HSplitView` in `editorSplit`, which
+    draws a splitter divider at the column/editor boundary whatever the column
+    does, so a trailing hairline here would be a second rule beside that one —
+    and `app-window.md`'s own minimum-width paragraph already budgets those
+    dividers into the window. The pane immediately left of it in the same split
+    view, the gated `ProjectTreeView`, states that boundary the same way: by
+    leaving it to the splitter. (The strip's bottom rule is the other case — its
+    host *is* a `VStack`, which draws nothing between its children.)
     A row is `ChromeGeometry.verticalTabRowHeight` tall with `rowPaddingX`
     horizontal padding, and states the strip's vocabulary turned through a right
     angle: the active row filled `bgEditor` with an `accent` bar

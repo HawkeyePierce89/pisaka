@@ -258,15 +258,19 @@ disagree.
     `app-editor-overlays.md`.
   - **The vertical tab column** — `TabListView.swift` and `TabRowView.swift`, the
     environment path. The column states the strip's vocabulary turned through a
-    right angle: `bgPanel` ground, a hairline on its **trailing** edge (the strip
-    draws one under itself), the active row filled `bgEditor` with the
+    right angle: `bgPanel` ground, **no pane-edge rule at all** — its host is the
+    `HSplitView` in `ContentView.editorSplit`, whose splitter already states the
+    column/editor boundary, exactly as the gated `ProjectTreeView` beside it in
+    the same split view leaves its own — the active row filled `bgEditor` with the
     `accentIndicator`-wide `accent` bar on its **leading** edge rather than
     underneath, `textPrimary` for the active label and `textSecondary` for the
     rest, `hoverTint` for an inactive row under the pointer — which the active row
     does not need, being the one row that is filled — and the monochrome
     `FileIcon` symbol. The two orientations stay two views on purpose: they state
-    *different* chrome (a height and a rule under it versus a width and a rule
-    beside it), so neither can be a branch inside the other. The one thing they
+    *different* chrome (a height and a rule under it, the strip's host being a
+    `VStack` that draws nothing between its children, versus a width it is given
+    and a boundary its splitter states for it), so neither can be a branch inside
+    the other. The one thing they
     genuinely share — the trailing slot's three-claimant precedence (hover → close
     mark, else dirty → dot, else active → close mark) — is shared as **one view**,
     `TabStatusMark` in `TabStripView.swift`, so the two cannot drift into two

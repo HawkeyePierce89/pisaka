@@ -214,18 +214,18 @@ is **not** introduced here; do not change the strip.
   - Modify: `Sources/Pisaka/TabListView.swift`
   - Modify: `docs/architecture/app-window.md`
 
-  - [ ] Remove the trailing hairline overlay and rewrite the doc comment to say
+  - [x] Remove the trailing hairline overlay and rewrite the doc comment to say
         why the column draws no pane-edge rule: the splitter already states that
         boundary, and the pane beside it in the same container states it the
         same way.
-  - [ ] Update the `TabListView` entry in `app-window.md` to match.
-  - [ ] **Sweep for the shape:** any other pane inside `editorSplit` that draws
+  - [x] Update the `TabListView` entry in `app-window.md` to match.
+  - [x] **Sweep for the shape:** any other pane inside `editorSplit` that draws
         its own edge rule against a splitter. Fix each in this commit.
-  - [ ] Confirm by eye, by the headless capture procedure Task 7 of the original
+  - [x] Confirm by eye, by the headless capture procedure Task 7 of the original
         plan established: the column/editor boundary now shows one rule, and the
         tree/column boundary is unchanged. If no window can be obtained, say so
         plainly rather than claiming the check.
-  - [ ] run `swift test` and the app-layer bundle — must pass before Task 6
+  - [x] run `swift test` and the app-layer bundle — must pass before Task 6
 
 ### Task 6: Stop the consent strip deriving a geometry token by arithmetic
 
