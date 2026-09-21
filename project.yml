@@ -144,6 +144,29 @@ packages:
   tree-sitter-rust:
     url: https://github.com/tree-sitter/tree-sitter-rust
     exactVersion: "0.24.2"
+  # Bash's grammar is pinned remotely and vendored nowhere, and the two facts
+  # that decide that were read out of the manifest at this exact revision rather
+  # than assumed:
+  #   * its `sources:` is `["src/parser.c", "src/scanner.c"]` — the grammar
+  #     declares an external scanner and upstream *does* compile it, so this is
+  #     not the `TreeSitterDotenv` failure mode (a manifest that omits
+  #     `src/scanner.c` and leaves the consuming app with undefined
+  #     `..._external_scanner_*` symbols at link time). The iOS device build is
+  #     the standing link-time proof.
+  #   * its manifest names `tree-sitter/swift-tree-sitter` — a *different*
+  #     package identity from the ChimeHQ/SwiftTreeSitter the root pins
+  #     `branch: main` above — and only from its *test* target, and SwiftPM
+  #     prunes a non-root package's test-only dependencies. So this adds exactly
+  #     one pin, records no `swift-tree-sitter` entry in `Package.resolved`, and
+  #     provokes no "required using two different requirements" failure — the
+  #     same pruning `tree-sitter-go` and `tree-sitter-rust` above already rely
+  #     on.
+  # Package *and* target are both `TreeSitterBash`, so the resource bundle is the
+  # `TreeSitterBash_TreeSitterBash` that `LanguageConfiguration(…, name: "Bash")`
+  # derives, and `bindings/swift` + `queries/highlights.scm` both ship.
+  tree-sitter-bash:
+    url: https://github.com/tree-sitter/tree-sitter-bash
+    exactVersion: "0.25.1"
   # dotenv is vendored for a different reason than gitignore below: upstream
   # (pnx/tree-sitter-dotenv v1.1.1) *does* ship a SwiftPM manifest, but its
   # `sources:` omits `src/scanner.c` while the grammar declares an external
@@ -509,6 +532,8 @@ targets:
         product: TreeSitterGo
       - package: tree-sitter-rust
         product: TreeSitterRust
+      - package: tree-sitter-bash
+        product: TreeSitterBash
       - package: TreeSitterDotenv
         product: TreeSitterDotenv
       - package: TreeSitterGitignore

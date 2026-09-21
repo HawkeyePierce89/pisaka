@@ -145,6 +145,15 @@
       "file" : "tree-sitter-rust.txt"
     },
     {
+      "id" : "tree-sitter-bash",
+      "name" : "tree-sitter-bash",
+      "origin" : "https://github.com/tree-sitter/tree-sitter-bash",
+      "version" : "0.25.1",
+      "revision" : "a06c2e4415e9bc0346c6b86d401879ffb44058f7",
+      "spdx" : "MIT",
+      "file" : "tree-sitter-bash.txt"
+    },
+    {
       "id" : "TreeSitterDotenv",
       "name" : "tree-sitter-dotenv (vendored)",
       "origin" : "Vendor/TreeSitterDotenv",

@@ -228,12 +228,12 @@ vendored; no highlight query is authored.
 Lands the dependency on its own, with nothing importing it yet, so the pin and
 the licence machinery are proven green before any language work rests on them.
 
-- [ ] Add the package to `project.yml` beside the other grammars —
+- [x] Add the package to `project.yml` beside the other grammars —
       `url: https://github.com/tree-sitter/tree-sitter-bash`,
       `exactVersion: "0.25.1"` — and the target dependency
       (`package: tree-sitter-bash`, `product: TreeSitterBash`). No
       `destinationFilters:`.
-- [ ] Write the `project.yml` comment the way `tree-sitter-go`'s and
+- [x] Write the `project.yml` comment the way `tree-sitter-go`'s and
       `tree-sitter-rust`'s are written, stating the two facts read out of the
       manifest **at this revision**: `sources:` names `src/scanner.c` so the
       external scanner really compiles (the failure the vendored dotenv package
@@ -242,21 +242,21 @@ the licence machinery are proven green before any language work rests on them.
       `SwiftTreeSitter`, pruned by SwiftPM, so it adds no pin and provokes no
       two-requirements conflict. Say that the resource bundle is
       `TreeSitterBash_TreeSitterBash`, which is what `name: "Bash"` derives.
-- [ ] Regenerate: `xcodegen generate`, then
+- [x] Regenerate: `xcodegen generate`, then
       `xcodebuild -project Pisaka.xcodeproj -resolvePackageDependencies
       -derivedDataPath ~/Library/Developer/Xcode/DerivedData/pisaka-shell`.
       Confirm the resolved file stays v2 schema, records the 40-hex revision for
       the tag, and gained **no** `swift-tree-sitter` entry. Never hand-edit it.
-- [ ] Copy upstream's `LICENSE` at the pinned revision verbatim to
+- [x] Copy upstream's `LICENSE` at the pinned revision verbatim to
       `Resources/Licenses/tree-sitter-bash.txt`. Read the package manifest for
       any third-party tree it compiles in; there is none, so no appendix —
       unlike libgit2 and tree-sitter itself.
-- [ ] Add the `licenses.json` notice: `id`/`name` `tree-sitter-bash`, `origin`
+- [x] Add the `licenses.json` notice: `id`/`name` `tree-sitter-bash`, `origin`
       the repository URL, `version` `0.25.1`, `revision` the recorded pin, `spdx`
       `MIT`, `file` `tree-sitter-bash.txt`.
-- [ ] Add the `tree-sitter-bash` row to `LicenseCoverageTests`'
+- [x] Add the `tree-sitter-bash` row to `LicenseCoverageTests`'
       `expectedCopyrightHolders`.
-- [ ] Run `swift test` — `DependencyPinTests` and the `LicenseCoverageTests`
+- [x] Run `swift test` — `DependencyPinTests` and the `LicenseCoverageTests`
       pin/coverage assertions must all pass — before Task 2.
 
 ### Task 2: The language and its seven tables
