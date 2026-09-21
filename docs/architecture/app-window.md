@@ -14,10 +14,15 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     inline diff — the old
     Changes-mode right-zone `DiffPane` branch and the `DiffPane` struct itself were
     removed; diffs open in a separate window on double-click). The `if let file`
-    branch of `textEditorZone(for:onScrolled:)` is a `VStack(spacing: 0) { BreadcrumbBarView(fileURL:
-    file.url, projectRoot: model.projectRoot);
-    LSPConsentBanner(provisioning:gopls:rust:language:hasProjectRoot:); <SearchBarView while
-    search.isVisible>; CodeEditorView(…) }` — so the find bar
+    branch of **`editorZone`** — the host, not `textEditorZone(for:onScrolled:)`,
+    which takes the file as a parameter and holds only what sits *below* the
+    breadcrumb — is a `VStack(spacing: 0) { BreadcrumbBarView(fileURL: file.url,
+    projectRoot: model.projectRoot); <the tab-kind routing above> }`: the
+    breadcrumb first, for **every** tab kind (a database has a path like any
+    other file), then either `DatabaseViewerHost(file:)` or
+    `markdownSplit(for:)`, whose editor side is
+    `textEditorZone(for:onScrolled:)` — `LSPConsentBanner(provisioning:gopls:rust:language:hasProjectRoot:)`,
+    `<SearchBarView while search.isVisible>`, `CodeEditorView(…)`. So the find bar
     sits between the breadcrumb and the editor and, living inside `editorZone`,
     covers **both** tab layouts at once (in `.horizontal` it simply lands under the
     tab strip). The consent banner (phase 2b, entry in `core-provisioning.md`) sits
@@ -340,9 +345,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     without one, and `onScrolled` is `nil` for an unpreviewed tab — a stored
     property re-assigned on every update, so it costs no identity. The
     `GeometryReader` consequently wraps every editor, which costs the editor
-    column nothing: its 320pt floor is stated explicitly on `editorZone` at both
-    of `editorSplit`'s call sites rather than derived from the text view's
-    intrinsic width. `markdownSplitContent(for:size:)` spends the divider's 5 scaled
+    column nothing: its 320pt floor is stated explicitly at both of
+    `editorSplit`'s call sites — on `editorZone` itself in the vertical branch,
+    on the `VStack` that is the tab strip plus `editorZone` in the horizontal one
+    — rather than derived from the text view's intrinsic width. `markdownSplitContent(for:size:)` spends the divider's 5 scaled
     points first and hands what is left to `MarkdownPreviewWidthRule`, so the two
     frames sum to no more than the area, and pins/clips the pair for `mainArea`'s
     reason. The gesture is measured in `markdownSplitSpace` — the split's own

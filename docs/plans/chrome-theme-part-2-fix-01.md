@@ -323,14 +323,14 @@ member.
 **Files:**
   - Modify: `docs/architecture/app-window.md`
 
-  - [ ] Name `editorZone` as the host and list what it actually holds now,
+  - [x] Name `editorZone` as the host and list what it actually holds now,
         reading the member rather than the old sentence.
-  - [ ] **Sweep for the shape:** every sentence in `app-window.md` naming a
+  - [x] **Sweep for the shape:** every sentence in `app-window.md` naming a
         `ContentView` member as a host. Check each against the member it names
         and correct the ones that are wrong, in this commit.
-  - [ ] No test: no suite reads this document's prose. Say so in the commit
+  - [x] No test: no suite reads this document's prose. Say so in the commit
         message.
-  - [ ] run `swift test` — must pass before Task 9
+  - [x] run `swift test` — must pass before Task 9
 
 ### Task 9: Run the gates
 
