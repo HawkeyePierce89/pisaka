@@ -41,13 +41,13 @@ import XCTest
 ///   worth what its call site spends: the regression this branch exists to fix
 ///   was one line in a drawing method, and every other gate stayed green while
 ///   it painted the editor out.
-/// - **The tab icon rule is spelled once.** The untitled-buffer fallback was
-///   pasted into both orientations; two spellings of one rule drift, and each
-///   copy also buys itself a line exempt from the first rule above.
 /// - **No gated view derives a geometry value by arithmetic on a token.** A
 ///   padding written as half of another token reads as a measurement and is
 ///   really a coupling: nothing misrenders, and nothing names the relationship
 ///   either, so the day the other token moves this one moves with it.
+/// - **The tab icon rule is spelled once.** The untitled-buffer fallback was
+///   pasted into both orientations; two spellings of one rule drift, and each
+///   copy also buys itself a line exempt from the first rule above.
 final class ChromeThemeSourceGatingTests: XCTestCase {
 
     // MARK: - The gated set
@@ -500,6 +500,95 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
                 """
             )
         }
+    }
+
+    // MARK: - The documented rule count
+
+    /// The numbered rules above, counted from their own markers, and the two
+    /// documents that summarise them.
+    ///
+    /// This is bookkeeping rather than a ninth rule: it gates no source file. It
+    /// exists because the rules above are the kind of thing a reader learns
+    /// about from a summary and not from the suite, and both summaries have
+    /// already drifted once — `core-theme.md`'s canonical list named five of
+    /// eight and `CLAUDE.md` six, each correct on the day it was written. A
+    /// count that drifts is worse than no count: it tells a reader the sweep is
+    /// smaller than it is, and the rules it omits are the newest ones.
+    ///
+    /// Shaped after `LintConfigurationTests`' style-version pair: one source of
+    /// truth — here the markers themselves — and every document spelling it
+    /// checked against that, in the sentence that names it rather than anywhere
+    /// in the file.
+    static func declaredRuleCount() throws -> Int {
+        let source = try read(URL(fileURLWithPath: #filePath))
+        let markers = try NSRegularExpression(pattern: "(?m)^\\s*// MARK: - Rule [a-z]+:")
+        let range = NSRange(source.startIndex..<source.endIndex, in: source)
+        let count = markers.numberOfMatches(in: source, range: range)
+        XCTAssertGreaterThan(count, 0, "the rule markers are gone or reworded — re-point this count")
+        return count
+    }
+
+    /// English for the numbers a rule count can plausibly be; a suite growing
+    /// past this has outgrown a prose summary too.
+    private static let spelled = [
+        1: "one", 2: "two", 3: "three", 4: "four", 5: "five", 6: "six",
+        7: "seven", 8: "eight", 9: "nine", 10: "ten", 11: "eleven", 12: "twelve",
+    ]
+
+    func testBothSummariesSpellTheSuitesOwnRuleCount() throws {
+        let count = try Self.declaredRuleCount()
+        let word = try XCTUnwrap(Self.spelled[count], "no spelling for \(count) rules")
+
+        let theme = try Self.read(Self.document("docs/architecture/core-theme.md"))
+        XCTAssertTrue(
+            theme.contains("The \(word) rules, each invisible to the compiler:"),
+            """
+            core-theme.md's canonical list must open on the suite's own count (\(count)); a reader \
+            consults that list to learn what the suite enforces
+            """
+        )
+
+        let index = try Self.read(Self.document("CLAUDE.md"))
+        XCTAssertTrue(
+            index.contains("and its \(word) rules"),
+            "CLAUDE.md's chrome-theme invariant must name the suite's own rule count (\(count))"
+        )
+    }
+
+    /// The canonical list must also *have* that many items: a corrected count
+    /// over an uncorrected enumeration is the same defect wearing the right
+    /// number.
+    func testTheCanonicalListEnumeratesEveryRule() throws {
+        let count = try Self.declaredRuleCount()
+        let word = try XCTUnwrap(Self.spelled[count], "no spelling for \(count) rules")
+        let theme = try Self.read(Self.document("docs/architecture/core-theme.md"))
+        let opening = try XCTUnwrap(
+            theme.range(of: "The \(word) rules, each invisible to the compiler:"),
+            "the canonical list's opening sentence is gone — re-point this rule rather than losing it"
+        )
+        let rest = theme[opening.upperBound...]
+        let end = rest.range(of: "\nPlus a ")?.lowerBound ?? rest.endIndex
+        let list = String(rest[..<end])
+        let items = try NSRegularExpression(pattern: "(?m)^([0-9]+)\\. \\*\\*")
+        let range = NSRange(list.startIndex..<list.endIndex, in: list)
+        let numbers = items.matches(in: list, range: range).compactMap { match -> Int? in
+            guard let digits = Range(match.range(at: 1), in: list) else { return nil }
+            return Int(list[digits])
+        }
+        XCTAssertEqual(
+            numbers, Array(1...count),
+            "the canonical list must enumerate all \(count) rules, in order, one bolded item each"
+        )
+    }
+
+    private static func document(_ relativePath: String) throws -> URL {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let url = root.appendingPathComponent(relativePath)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: url.path), "\(relativePath) is gone or moved")
+        return url
     }
 
     // MARK: - Reading the sources

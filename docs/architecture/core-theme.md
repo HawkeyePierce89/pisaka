@@ -373,7 +373,7 @@ although it is an editing affordance rather than a row: an inline draft
 for. `TabStripView.swift` covers `TabStatusMark` too, the slot view the two
 orientations share, which is why that extraction did not add a seventh file.
 
-The five rules, each invisible to the compiler:
+The eight rules, each invisible to the compiler:
 
 1. **No gated view names a system semantic colour.** A closed forbidden-token
    list — AppKit's semantic set (`labelColor`, `separatorColor`,
@@ -409,12 +409,48 @@ The five rules, each invisible to the compiler:
    separately because the wider one is the one a view would first join. A view
    building its own theme reads the preference once and then stops hearing about
    it.
+6. **The gutter's fill still goes through its own rule.**
+   `LineNumberRulerView.swift` spells `backgroundRect(` exactly twice — the rule
+   and the one call site that spends it — and its `drawHashMarksAndLabels(in:)`
+   may not fill the bare rectangle it was handed. That one line is the
+   regression this part exists to fix: it paints the code and the minimap out in
+   `bgEditor` while the seam's own tests, `swift test`, the app bundle and
+   SwiftLint all stay green. A seam pins nothing its call site does not spend.
+7. **No gated view derives a geometry value by arithmetic on a token.** A
+   `ChromeGeometry` token on either side of an operator from a number — a
+   padding written as half a row-padding token, say — is matched in both
+   directions, `CGFloat(…)` around it included. Nothing misrenders: the cost is
+   a coupling nothing names, so the day the other token moves this one moves
+   with it. A surface's own measurement is a bare local number. A token combined
+   with a *layout* value is deliberately not matched — `ruleThickness -
+   hairlineWidth` composes a position out of a width the drawing code was
+   handed, and inventing no second design value is the whole difference.
+8. **The tab icon rule is spelled once.** `struct TabFileIcon` and the
+   untitled-buffer fallback it carries — an `OpenFile` with no url asked about
+   under its `displayName` — are declared in `TabStripView.swift` and nowhere
+   else, both halves by set equality, because that fallback was pasted into both
+   orientations once already. The paste had a second cost read from the other
+   side: rule one drops every line naming `FileIcon(`, so each copy bought
+   itself a line exempt from the no-system-colour check — which is why the gated
+   files carrying such a line are themselves a counted set of three
+   (`ProjectTreeView.swift`, `ProjectTreeDraftField.swift`,
+   `TabStripView.swift`).
 
 Plus a **self-check** in the suite's own idiom: every gated file must actually
 *name* a `ChromeColorRole`, or the checks above have gone vacuous — with one
 exception, `ChromeThemeEnvironment.swift`, which carries the appearance down the
 tree and paints nothing, so it names no role by construction while staying gated
 for the two rules it *can* break.
+
+And, beside the rules rather than among them, a **cross-file count**: the suite
+counts its own numbered rule markers and asserts that both summaries of it — the
+list above and `CLAUDE.md`'s chrome-theme invariant — spell that number in the
+sentence naming it, and that the list above enumerates exactly that many items
+in order. It gates no source file; it exists because both summaries had already
+drifted, each correct on the day it was written, and a count that drifts tells a
+reader the sweep is smaller than it is while omitting the newest rules. Same
+shape as `LintConfigurationTests`' style-version pair: one source of truth, every
+document spelling it checked against that.
 
 The values themselves are pinned in the app bundle instead
 (`ChromePaletteTests`), the palette being an app-target file.

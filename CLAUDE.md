@@ -734,11 +734,15 @@ ci.yml's `lint` job, and the version-bump procedure.
   by itself still overrides `viewDidChangeEffectiveAppearance()` to ask for one. A
   reader: it takes no writer gate, is gated by none and writes nothing.
   `ChromeThemeSourceGatingTests` pins which files obey the rule (eleven, by set
-  equality) and its six rules — no system semantic colour, no hex literal
+  equality) and its eight rules — no system semantic colour, no hex literal
   outside the table, the three exemptions stay exemptions, the theme injected at
   the scale's roots, no view constructing a theme, the gutter's fill still going
   through its own rule (a seam pins nothing its call site does not spend, and
-  that call site was this sweep's one regression) — while **three files are exempt because they are not
+  that call site was this sweep's one regression), no geometry token derived by
+  arithmetic, and the tab icon rule spelled once — plus, beside the rules rather
+  than among them, the cross-file count that keeps this sentence and
+  `core-theme.md`'s own list equal to the number of rules the suite declares —
+  while **three files are exempt because they are not
   chrome**: `SyntaxTheme.swift` (the code zone's own theme), `TerminalTheme.swift`
   (a protocol's ANSI-16 vocabulary) and `FileIcon.swift` (a Core token iOS still
   paints). Seven surfaces are swept so far — part one's tab strip, line-number
