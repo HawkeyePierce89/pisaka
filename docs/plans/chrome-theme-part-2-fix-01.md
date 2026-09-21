@@ -105,19 +105,19 @@ is off by five.
 **Files:**
   - Modify: `CLAUDE.md`
 
-  - [ ] Correct both sentences: the gated-file count and the swept-surface list,
+  - [x] Correct both sentences: the gated-file count and the swept-surface list,
         naming the surfaces this part added.
-  - [ ] Read the whole chrome invariant paragraph against what the code now does
+  - [x] Read the whole chrome invariant paragraph against what the code now does
         and correct anything else in it the branch falsified — the role count,
         the exemptions, the two injection paths and the hairline exception are
         each a claim that must still hold.
-  - [ ] **Sweep for the shape:** a count or a list in `CLAUDE.md` that mirrors a
+  - [x] **Sweep for the shape:** a count or a list in `CLAUDE.md` that mirrors a
         set the branch changed. Check every invariant paragraph this branch's
         diff touched code for, not only the chrome one, and fix each in this
         commit.
-  - [ ] No test: `CLAUDE.md`'s prose is not read by any suite. Say so in the
+  - [x] No test: `CLAUDE.md`'s prose is not read by any suite. Say so in the
         commit message rather than inventing one.
-  - [ ] run `swift test` — must pass before Task 3
+  - [x] run `swift test` — must pass before Task 3
 
 ### Task 3: Correct `core-theme.md`'s ledger of unspent roles
 

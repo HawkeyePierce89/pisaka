@@ -729,16 +729,22 @@ ci.yml's `lint` job, and the version-bump procedure.
   **exactly the eight roots `.interfaceScaled(_:)` already names** (one list, read
   from `ZoomSourceGatingTests`' own declaration), and AppKit asks
   `ChromePalette.nsColor(_:)` for a **dynamic** colour — which is why no AppKit
-  chrome view caches a resolved colour or observes an appearance change. A
+  chrome view caches a resolved colour or watches for a *colour* change; a
+  dynamic colour resolves only while drawing, so a view AppKit does not redraw
+  by itself still overrides `viewDidChangeEffectiveAppearance()` to ask for one. A
   reader: it takes no writer gate, is gated by none and writes nothing.
-  `ChromeThemeSourceGatingTests` pins which files obey the rule (six, by set
-  equality) and its five rules — no system semantic colour, no hex literal
+  `ChromeThemeSourceGatingTests` pins which files obey the rule (eleven, by set
+  equality) and its six rules — no system semantic colour, no hex literal
   outside the table, the three exemptions stay exemptions, the theme injected at
-  the scale's roots, no view constructing a theme — while **three files are exempt because they are not
+  the scale's roots, no view constructing a theme, the gutter's fill still going
+  through its own rule (a seam pins nothing its call site does not spend, and
+  that call site was this sweep's one regression) — while **three files are exempt because they are not
   chrome**: `SyntaxTheme.swift` (the code zone's own theme), `TerminalTheme.swift`
   (a protocol's ANSI-16 vocabulary) and `FileIcon.swift` (a Core token iOS still
-  paints). Three surfaces are swept so far — the tab strip, the line-number
-  ruler, the project tree rows; the rest is the follow-up sweep, whose procedure
+  paints). Seven surfaces are swept so far — part one's tab strip, line-number
+  ruler and project tree rows (the inline draft field with them), and part two's
+  vertical tab column, breadcrumb, minimap chrome and language-server consent
+  strip; the rest is the follow-up sweep, whose procedure
   and its one refusal ("a surface needing a twenty-second role has found a design
   question") are in `core-theme.md`.
 - **Zoom is three zones, one arithmetic, one pointer rule** (macOS only): `code`
