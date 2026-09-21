@@ -25,8 +25,15 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     do (`app-editor-overlays.md`). Both sites read
     `SyntaxTheme.shared.color(for: .plain)`, so no second resolution point
     exists, and `SyntaxThemeTests`'
-    `testUncoveredTextReadsThePlainRowInBothAppearances` pins that value so they
-    cannot drift back onto a system colour unnoticed.
+    `testUncoveredTextReadsThePlainRowInBothAppearances` pins **both sites at the
+    site**: it calls `applyBaseTypography(to:)` — `internal` for exactly this
+    reason — on a fresh text view and reads the colour back off it, and it drives
+    `Coordinator.updateHighlighter(for:language:contentReplaced:)` with no
+    language and reads the colour back off the storage. Deleting either
+    assignment fails that test; asserting
+    `SyntaxTheme.shared.color(for: .plain)` instead, as the test first did, would
+    have stayed green, because the expression's own value is already pinned by
+    the table test and a site nobody calls still resolves it correctly.
     **The rule is the whole zone's, not the editor's.** Every view that attaches
     the syntax highlighter states its own base foreground the same way — the two
     editors and the four read-only panes (`DiffView`, `SourceViewerContent`,

@@ -129,21 +129,21 @@ leaves every suite green.
 Verified: `applyBaseTypography(to:)` is `private`, so `@testable import` cannot
 reach it — which is why the test was written against the expression instead.
 
-- [ ] Make `applyBaseTypography(to:)` `internal` rather than `private`, with a
+- [x] Make `applyBaseTypography(to:)` `internal` rather than `private`, with a
       doc comment saying why, in the same words the branch already uses for
       `SyntaxTheme.plainText`: the suite has to assert the site directly, because
       asserting the expression it contains pins nothing about the site.
-- [ ] Rewrite the test to call `applyBaseTypography(to:)` on a fresh `NSTextView`
+- [x] Rewrite the test to call `applyBaseTypography(to:)` on a fresh `NSTextView`
       and assert that view's `textColor` resolves to the `.plain` row in both
       appearances. That is the assertion the doc comment already claims.
-- [ ] State honestly, in the test's doc comment, what is still not pinned — the
+- [x] State honestly, in the test's doc comment, what is still not pinned — the
       no-grammar reset path at `:3598`, if it remains unreachable from the bundle
       — in the same shape as the preview-seam test three methods above, which is
       scrupulous about its own limit. If the reset path can be reached, pin it
       too and say so instead.
-- [ ] Correct `docs/architecture/app-editor.md:28` to claim exactly what the test
+- [x] Correct `docs/architecture/app-editor.md:28` to claim exactly what the test
       now pins, no more.
-- [ ] **Sweep for the shape, not the site.** The defect is *a test whose doc
+- [x] **Sweep for the shape, not the site.** The defect is *a test whose doc
       comment claims coverage its body does not have*. Re-read every test doc
       comment this branch added — in `SyntaxThemeTests`, `ChromePaletteTests` and
       `MarkdownPreviewThemeTests` — and check each claim against the assertions

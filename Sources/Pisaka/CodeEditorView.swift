@@ -241,7 +241,16 @@ struct CodeEditorView: NSViewRepresentable {
     /// `SyntaxTokenKind.plain` answers, so it is read from the one table rather
     /// than left on the text view's system-label default, which would follow the
     /// *system* appearance and ignore the app's Theme preference.
-    private func applyBaseTypography(to textView: NSTextView) {
+    ///
+    /// `internal` rather than `private` for the same reason `SyntaxTheme.plainText`
+    /// is: the suite has to assert *this site*, because asserting the expression
+    /// it contains pins nothing about the site. A test reading
+    /// `SyntaxTheme.shared.color(for: .plain)` stays green with this assignment
+    /// deleted — the colour is still right, and no text view is ever given it.
+    /// `SyntaxThemeTests.testUncoveredTextReadsThePlainRowInBothAppearances`
+    /// therefore calls this method on a fresh text view and reads the colour back
+    /// off it.
+    func applyBaseTypography(to textView: NSTextView) {
         textView.font = editorFont()
         textView.textColor = SyntaxTheme.shared.color(for: .plain)
     }

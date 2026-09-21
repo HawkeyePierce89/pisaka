@@ -1,5 +1,6 @@
 #if os(macOS)
 import AppKit
+import SwiftUI
 import XCTest
 import PisakaCore
 @testable import Pisaka
@@ -204,18 +205,65 @@ final class SyntaxThemeTests: XCTestCase {
 
     // MARK: - Uncovered text
 
-    /// The value the editor gives a character no capture covers.
+    /// The two sites that give a character no capture covers its colour, each
+    /// asserted at the site.
     ///
-    /// Two sites read it — the text view's base foreground and the no-grammar
-    /// reset path — and both spell `SyntaxTheme.shared.color(for: .plain)`. This
-    /// pins what that expression resolves to, so neither site can drift back onto
-    /// a platform label colour (which follows the *system* appearance and so
-    /// ignores the app's Theme preference) without the suite noticing.
+    /// What it pins: `CodeEditorView.applyBaseTypography(to:)` leaves a fresh
+    /// text view's `textColor` on the `.plain` row in both appearances, and the
+    /// no-grammar reset path — `Coordinator.updateHighlighter(for:language:contentReplaced:)`
+    /// with no language — writes that same row over the whole storage. Both are
+    /// read back off the object they wrote to, so deleting either assignment
+    /// fails here even though `SyntaxTheme.shared.color(for: .plain)` keeps
+    /// resolving correctly. That expression's own value is pinned by
+    /// `testEveryTokenKindResolvesToItsTabledValueInBothAppearances`; asserting
+    /// it a second time here would have pinned no site at all, which is what this
+    /// test previously did.
+    ///
+    /// What it cannot see: a *third* surface added later that gives uncovered
+    /// text a colour of its own. The set of views attaching the highlighter is
+    /// `SyntaxBaseForegroundGatingTests`' subject, by set equality; this test
+    /// knows only about the editor's two.
+    ///
+    /// The value asserted is this suite's own restated `.plain` row, not
+    /// whatever the production table holds, so a palette edit made on one side
+    /// only fails rather than agreeing with itself.
+    @MainActor
     func testUncoveredTextReadsThePlainRowInBothAppearances() throws {
         let row = try XCTUnwrap(Self.expected[.plain])
-        let colour = SyntaxTheme.shared.nsColor(for: .plain)
-        try assertComponents(resolved(colour, under: .darkAqua), equal: row.dark, "uncovered text, dark")
-        try assertComponents(resolved(colour, under: .aqua), equal: row.light, "uncovered text, light")
+
+        // Site one: the base typography every text view starts from.
+        var text = ""
+        let binding = Binding(get: { text }, set: { text = $0 })
+        let editor = CodeEditorView(
+            fileID: UUID(),
+            fileName: "Untitled",
+            openFileIDs: [],
+            text: binding,
+            fontSize: 13,
+            completionEnabled: false,
+            indentLevelHighlightingEnabled: false,
+            interfaceMetrics: InterfaceMetrics(scale: 1),
+            editorConfig: EditorConfigModel(fileService: FileService())
+        )
+        let textView = NSTextView(frame: NSRect(x: 0, y: 0, width: 100, height: 100))
+        editor.applyBaseTypography(to: textView)
+        let base = try XCTUnwrap(textView.textColor, "the base typography left no foreground colour at all")
+        try assertComponents(resolved(base, under: .darkAqua), equal: row.dark, "base foreground, dark")
+        try assertComponents(resolved(base, under: .aqua), equal: row.light, "base foreground, light")
+
+        // Site two: the no-grammar reset path, which writes the same row over the
+        // whole storage when a file resolves to no language at all.
+        let reset = NSTextView(frame: NSRect(x: 0, y: 0, width: 100, height: 100))
+        reset.string = "plain text"
+        let coordinator = CodeEditorView.Coordinator(text: binding)
+        coordinator.updateHighlighter(for: reset, language: nil, contentReplaced: true)
+        let storage = try XCTUnwrap(reset.textStorage)
+        let written = try XCTUnwrap(
+            storage.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor,
+            "the no-grammar reset path wrote no foreground colour"
+        )
+        try assertComponents(resolved(written, under: .darkAqua), equal: row.dark, "reset path, dark")
+        try assertComponents(resolved(written, under: .aqua), equal: row.light, "reset path, light")
     }
 }
 
