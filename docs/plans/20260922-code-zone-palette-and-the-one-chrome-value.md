@@ -317,7 +317,7 @@ duplication.
 - Modify: `docs/architecture/app-editor.md`
 - Modify: `docs/architecture/app-ios.md`
 
-- [ ] `app-editor-overlays.md`, the `SyntaxTheme.swift` entry: replace the
+- [x] `app-editor-overlays.md`, the `SyntaxTheme.swift` entry: replace the
       "following the system appearance / falling back to `.labelColor` for
       `.plain`/unmapped kinds" statement — it becomes false. Record the palette's
       intent, the fourteenth entry, the repetitions and why none may be collapsed,
@@ -326,13 +326,13 @@ duplication.
       rather than duplication. Note the new `SyntaxThemeTests` and the three rules
       it pins — no system semantic colour, the fallback's value with the totality
       that makes it unreachable, and the preview seam.
-- [ ] `core-theme.md`, the `ChromePalette.swift` entry: record `selectionInactive`
+- [x] `core-theme.md`, the `ChromePalette.swift` entry: record `selectionInactive`
       as changed — what it was, what it is, and that the change exists because it
       was indistinguishable from `currentLine`. Record the new
       inactive-selection-vs-current-line test and note that `conflictBackground` was
       checked and already correct. Do not disturb the gating suite's rule count or
       the sentence in `CLAUDE.md` that mirrors it — no chrome gating rule is added.
-- [ ] `core-markdown-preview.md`, the `MarkdownPreviewTheme.swift` entry: record
+- [x] `core-markdown-preview.md`, the `MarkdownPreviewTheme.swift` entry: record
       that the restated code tables now carry the editor's new palette, that the
       run-time derivation through `withCodeColors(_:)` is unchanged and is still the
       copy that reaches the page, and — the fact this ticket creates — that the two
@@ -340,14 +340,16 @@ duplication.
       `SyntaxThemeTests`' seam pin is what reports it instead. State plainly what
       that pin can and cannot see. Record that the preview's chrome is deliberately
       untouched because it is shared with the other document surface in the window.
-- [ ] `app-editor.md` (`CodeEditorView.swift`) and `app-ios.md`
+- [x] `app-editor.md` (`CodeEditorView.swift`) and `app-ios.md`
       (`CodeEditorView_iOS.swift` / `CodeEditorCoordinator_iOS.swift`): record that
       the text view's base foreground now comes from the theme's plain entry, so a
       character no capture covers follows the app's Theme preference rather than the
       system appearance.
-- [ ] Confirm `CLAUDE.md` needs no edit: no file changes layer, no invariant
+- [x] Confirm `CLAUDE.md` needs no edit: no file changes layer, no invariant
       changes, no new index line. State that conclusion explicitly rather than
-      leaving it implicit.
+      leaving it implicit. Confirmed: no edit needed — the index line still reads
+      `SyntaxTheme.swift` as a colour table and the chrome gating exemption list is
+      unchanged; no file moved layer and no invariant changed.
 
 ### Task 6: Verify acceptance criteria
 

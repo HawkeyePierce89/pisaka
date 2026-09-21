@@ -679,6 +679,37 @@ statement panel's signature; `withCodeColors(_:)` is the app's one use — keep
 Core's chrome, replace the code palette — as a dedicated member so adding a
 chrome colour later cannot silently drop out of the app's copy.
 
+The two restated `codeColors` tables now carry the **editor's own palette**,
+fourteen entries each as lowercase `#rrggbb`. They exist only so the domain
+layer has a complete theme to test and to fall back on; the app overwrites them
+at run time from `SyntaxTheme.table` through `withCodeColors(_:)`, which is
+unchanged and is still the copy that actually reaches the page. Nothing here is
+a second opinion about a colour, and the derivation must not be reimplemented.
+The **chrome fields of both themes are deliberately untouched** by that palette
+work — they are shared with the other document surface drawn in this window, so
+changing them is a different decision from changing the code zone's.
+
+That agreement removes a check that used to be free. Until the palette landed,
+Core's restatement and the editor's table *disagreed*, so a derivation that
+stopped working showed up on screen as old-versus-new colours; now the two
+agree and the screen reports nothing. `SyntaxThemeTests`'
+`testThePreviewThemeCarriesTheEditorsPaletteInBothAppearances` is what reports
+it instead: for each `prefersDark`, every `SyntaxTokenKind`'s `codeColors` entry
+is read through `XCTUnwrap` (not through `color(for:)`, so a missing entry fails
+rather than falling through to the theme's body text) and compared against the
+CSS string formatted from the suite's own restated row — and the derived theme's
+chrome fields are asserted still equal to the base theme's, so a future edit
+cannot quietly widen the derivation into that shared chrome. Stated honestly,
+the pin catches a wrong, partial or wrongly-appearance-resolved derivation, and
+— the case that matters over time — any palette edit made on one side only,
+which is precisely when a stopped derivation would otherwise become visible. It
+**cannot** catch the derivation being deleted while both tables happen to
+agree; nothing that reads values can, and no stronger claim is made for it.
+Core's own `MarkdownPreviewThemeTests` keeps the structural half unloosened —
+totality over `SyntaxTokenKind.allCases`, light ≠ dark in every colour field —
+plus `testBothCodeTablesAreTotalAndWrittenAsLowercaseSixDigitHex`, so a
+restatement can never drift into a shape the page cannot emit.
+
 ### `MarkdownHighlightClasses.swift`
 
 The bridge between the two highlighters (M10): `scopeKinds` (scope → kind),

@@ -922,9 +922,48 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     a non-`const` `TSLanguage *` return with no `void` parameter list, which
     needed no cast — it imports as `OpaquePointer!` like every other grammar.
   - `SyntaxTheme.swift` — built-in (not user-configurable) `SyntaxTokenKind →
-    NSColor` table with light/dark variants following the system appearance;
-    exposes `nsColor(for:)` (a dynamic, appearance-aware `NSColor`, falling back
-    to `.labelColor` for `.plain`/unmapped kinds) for the attribute provider. It
+    NSColor` table with light/dark variants, exposing `nsColor(for:)` (a dynamic,
+    appearance-aware `NSColor`) for the attribute provider. The palette is **the
+    project's own** — muted and low-contrast, chosen against the surfaces the
+    code is drawn on rather than after any platform convention — and the table is
+    **fourteen rows, total over the closed `SyntaxTokenKind`**: `.plain` has an
+    entry of its own rather than being answered by a fallback.
+    Several rows carry the same pair on purpose, one clause each: a constant
+    reads as the literal it is, so it takes `.number`'s; operators and
+    punctuation are the same class of mark, so they take one weight; a parameter
+    is an ordinary identifier, so it takes `.variable`'s; and `.variable`,
+    `.parameter` and `.plain` all sit at the body-text weight because colouring
+    an ordinary identifier competes with the hues that carry meaning. **None of
+    the repetitions may be collapsed into a shared constant** — they are fourteen
+    answers to fourteen questions, and the moment two are meant to diverge a
+    shared constant turns that one edit into two.
+    The fallback that `color(for:)` used to spell as `.labelColor` / `.label` is
+    now a value of its own, `plainText` (light `0x1D1D1F`, dark `0xDFE1E5`),
+    answering the same question `.plain` does. A **system semantic colour is
+    forbidden here for the reason it is forbidden in the chrome**: it follows the
+    *system* appearance and would therefore ignore the app's own Theme
+    preference, which is exactly what a code zone drawn beside chrome that obeys
+    the preference must not do. It is `internal` rather than `private` because
+    the suite has to assert it directly — the enum is closed and the table total,
+    so no call to `color(for:)` can reach it.
+    Three of the pairs are **numerically equal to chrome roles** — the body-text
+    weight (`ChromeColorRole.textPrimary`), the secondary weight
+    (`.textSecondary`) and the label colour (`.accent`). That is two layers
+    agreeing about a weight, **not duplication to be factored out**: the code
+    zone owns its own theme and reads no chrome role, the chrome palette carries
+    no syntax entry, and unifying the two tables is explicitly not wanted
+    (the counterpart sentence is on those rows in `ChromePalette`,
+    `core-theme.md`).
+    `SyntaxThemeTests` (app bundle, macOS-gated) pins the values the way
+    `ChromePaletteTests` pins the chrome's: the fourteen rows restated in the
+    suite and compared component for component under both `NSAppearance`s. Three
+    of its assertions are rules rather than numbers, so they survive a later
+    palette change — **no token kind resolves to a system semantic colour** in
+    either appearance (the defect above); **`plainText` is the `.plain` row**,
+    asserted beside the table's **totality**, which is the statement of why the
+    constant has to be asserted directly at all; and the **preview seam**, that
+    `markdownPreviewTheme(prefersDark:)` carries every kind's row to the page
+    (`core-markdown-preview.md`). It
     also owns the bracket-highlighting palette, all through `PlatformColor
     .dynamic(light:dark:)` so the iOS variant (a follow-up) comes for free:
     `bracketDepthColors` (five cycling hues — gold, purple, blue, teal, green —

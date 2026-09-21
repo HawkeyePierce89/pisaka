@@ -141,6 +141,30 @@ the light side, an alpha left at `1` on a wash — so `ChromePaletteTests` (app
 bundle, since the palette lives in the app target) restates the whole table and
 compares component by component; the duplication *is* the test.
 
+**One row has changed since the table was first written.** `selectionInactive`
+was `dark: 0x34363B, light: 0xF0F0F2` — byte for byte the pair `currentLine`
+carries — and is now `dark: 0x3C3F46, light: 0xE2E2E7`, a deliberate step
+stronger. The change exists because the two were *indistinguishable*: an
+unfocused selection and the line the caret is on are two different facts about
+the document, and a reader who cannot tell them apart has lost one of them.
+`ChromePaletteTests` states that as a rule rather than as the new numbers —
+`testTheInactiveSelectionWashIsNotTheCurrentLineWash`, asserted in both
+appearances through `ChromeTheme` and through the concrete AppKit colours — so
+it survives a later palette change; the restated row carries the new pair
+beside it. `conflictBackground` was checked against the same design while this
+row was being changed and was **already correct**
+(`dark: 0xC9A35C, light: 0xA67C2E, alpha: 0x26`), so it is untouched. No gating
+rule is added by any of this: `ChromeThemeSourceGatingTests`' rule count is
+unchanged, as is the sentence in `CLAUDE.md` that mirrors it.
+
+`textPrimary`, `textSecondary` and `accent` each carry a short comment
+recording that the **code zone's own theme states the same values** — for its
+body-text weight, its secondary weight and its label colour. That is two layers
+agreeing about a weight, not duplication: the chrome palette must not gain a
+syntax entry and the syntax table must not start reading a role. The
+counterpart sentence is in `SyntaxTheme.swift` (`app-editor-overlays.md`), so a
+reader arriving from either side finds it.
+
 Three accessors, one table:
 
   - `nsColor(_ role:)` — the **AppKit bridge**: a *dynamic* `NSColor` built on

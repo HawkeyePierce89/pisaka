@@ -14,7 +14,19 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     (Core) → `SyntaxTheme` color; the configuration's `languageProvider` resolves
     injected sub-languages (Markdown's `markdown_inline`, fenced code blocks,
     embedded HTML/YAML) via `SyntaxLanguageConfiguration`. No detected language →
-    plain text, no highlighter attached. Soft-wrapping is disabled (long lines
+    plain text, no highlighter attached.
+    **The text view's base foreground is the theme's `.plain` entry**, set beside
+    the font in the configuration block and written by the no-grammar reset path
+    over the whole storage — never the platform's `.labelColor`. A character no
+    capture covers is the same question `.plain` answers, so it is read from the
+    one table rather than left on the text view's system-label default; a system
+    semantic colour follows the *system* appearance and would ignore the app's
+    own Theme preference, which is exactly what an unhighlighted file must not
+    do (`app-editor-overlays.md`). Both sites read
+    `SyntaxTheme.shared.color(for: .plain)`, so no second resolution point
+    exists, and `SyntaxThemeTests`'
+    `testUncoveredTextReadsThePlainRowInBothAppearances` pins that value so they
+    cannot drift back onto a system colour unnoticed. Soft-wrapping is disabled (long lines
     scroll horizontally) so document space equals logical-line space, which keeps
     the logical-line-indexed minimap aligned with the document and viewport rect
     without forcing full TextKit layout. `makeNSView` returns a container holding

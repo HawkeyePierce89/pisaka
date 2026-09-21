@@ -398,6 +398,13 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     same programmatic-edit re-entry guard and single-undo discipline; pinch-to-
     zoom font stepping (the iOS analog of macOS Cmd+scroll). No gutter/minimap on
     iOS (deferred).
+    **The text view's base foreground is the theme's `.plain` entry**, exactly as
+    on macOS: set beside the font in the configuration block and written by the
+    coordinator's no-grammar reset path, never `UIColor.label`. A character no
+    capture covers is the question `.plain` answers, so it is read from
+    `SyntaxTheme.shared.color(for: .plain)` — the one table — and an
+    unhighlighted file therefore follows the app's Theme preference rather than
+    the system appearance (`app-editor-overlays.md`).
     **`.editorconfig` is wired here exactly as on macOS** (the layer is
     `core-editorconfig.md`): the representable takes an undefaulted `editorConfig:
     EditorConfigModel` (any default worth writing would be a second live disk
