@@ -2,7 +2,7 @@
 import SwiftUI
 import PisakaCore
 
-/// The Problems panel in the VS Code-style bottom dock: every diagnostic the
+/// The Problems panel in the bottom dock: every diagnostic the
 /// language servers currently hold, grouped by file.
 ///
 /// A header carries the error/warning counts from `DiagnosticsModel.counts`

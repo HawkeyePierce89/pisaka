@@ -116,8 +116,8 @@ final class BracketDepthScannerTests: XCTestCase {
     /// The two Core bracket engines answer *different* questions and therefore
     /// count depth differently, which shows up on crossed (broken) input.
     ///
-    /// `BracketDepthScanner` keeps *one shared stack across all kinds* (JetBrains
-    /// rainbow semantics), so in `{[(]}` the `]` arrives with `(` on top of the
+    /// `BracketDepthScanner` keeps *one shared stack across all kinds* (the rainbow
+    /// colouring's own semantics), so in `{[(]}` the `]` arrives with `(` on top of the
     /// stack: wrong kind → unmatched, and the stack is left alone, which then
     /// leaves `{`, `[` and `(` as unmatched leftovers and the `}` closing… `(`'s
     /// kind mismatch too. Every token comes out unmatched.

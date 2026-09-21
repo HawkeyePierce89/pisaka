@@ -793,7 +793,7 @@ public final class WorkspaceModel: ObservableObject {
     ///
     /// This is the autosave action: unlike `save(for:)` it never returns
     /// `.needsSaveAs` and never prompts. A url-less ("Untitled") buffer is
-    /// skipped entirely (JetBrains-style autosave must not pop a Save As panel),
+    /// skipped entirely (autosave must not pop a Save As panel),
     /// and a clean file is skipped because there is nothing to write. For each
     /// remaining file the `text` is written via `fileService.write(_:to:)` and
     /// `savedText` advanced to match, clearing the dirty flag.

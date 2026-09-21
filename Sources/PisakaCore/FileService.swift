@@ -392,7 +392,7 @@ public struct FileService: FileServicing {
     /// completed at that component or above it.
     ///
     /// Directories created before a *later* step fails are **not** rolled back,
-    /// matching `mkdir -p` (and VS Code): a failure leaves whatever prefix
+    /// matching `mkdir -p`: a failure leaves whatever prefix
     /// already succeeded.
     ///
     /// A **symlink to a directory** on the path is *reused*, not refused: the

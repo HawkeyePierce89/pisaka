@@ -37,6 +37,17 @@ import XCTest
 /// - **No view constructs a theme inline.** A view building its own
 ///   `ChromeTheme` reads the preference it was handed and then stops hearing
 ///   about it.
+/// - **The gutter's fill still goes through its own rule.** A pure seam is only
+///   worth what its call site spends: the regression this branch exists to fix
+///   was one line in a drawing method, and every other gate stayed green while
+///   it painted the editor out.
+/// - **No gated view derives a geometry value by arithmetic on a token.** A
+///   padding written as half of another token reads as a measurement and is
+///   really a coupling: nothing misrenders, and nothing names the relationship
+///   either, so the day the other token moves this one moves with it.
+/// - **The tab icon rule is spelled once.** The untitled-buffer fallback was
+///   pasted into both orientations; two spellings of one rule drift, and each
+///   copy also buys itself a line exempt from the first rule above.
 final class ChromeThemeSourceGatingTests: XCTestCase {
 
     // MARK: - The gated set
@@ -59,6 +70,12 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         "LineNumberRulerView.swift",
         "ProjectTreeView.swift",
         "ProjectTreeDraftField.swift",
+        // Part two: the editor pane's own chrome.
+        "TabListView.swift",
+        "TabRowView.swift",
+        "BreadcrumbBarView.swift",
+        "MinimapView.swift",
+        "LSPConsentBanner.swift",
     ]
 
     func testEveryGatedFileExists() throws {
@@ -162,7 +179,19 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     private static func iconFreeLines(of code: String) -> [String] {
         code
             .components(separatedBy: .newlines)
-            .filter { !$0.contains("FileIcon(") }
+            .filter { !constructsFileIcon($0) }
+    }
+
+    /// Whether this line constructs a `FileIcon` — the boundary-aware form, so
+    /// `TabFileIcon(`, a view *named* after the icon it draws, buys no exemption
+    /// from rule one. One definition, read by the exemption above and by the
+    /// rule that counts what it exempts, so the two cannot drift apart.
+    static func constructsFileIcon(_ line: String) -> Bool {
+        guard let pattern = try? NSRegularExpression(
+            pattern: "(^|[^A-Za-z0-9_])FileIcon\\("
+        ) else { return false }
+        let range = NSRange(line.startIndex..<line.endIndex, in: line)
+        return pattern.firstMatch(in: line, range: range) != nil
     }
 
     // MARK: - Rule two: no hex literal outside the table
@@ -263,6 +292,190 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         )
     }
 
+    // MARK: - Rule six: the gutter's fill goes through its own rule
+
+    /// The ruler file, and the two spellings of the rule its background fill
+    /// must go through.
+    ///
+    /// `LineNumberRulerBackgroundTests` pins what
+    /// `backgroundRect(in:ruleThickness:)` *answers*; nothing there can see
+    /// whether `drawHashMarksAndLabels` still asks it. That gap is not
+    /// hypothetical: restoring the one line this rule guards — `rect.fill()`,
+    /// filling the rectangle an `NSRulerView` was handed rather than the gutter's
+    /// own — is the exact regression this branch exists to fix, it paints the
+    /// code and the minimap out in `bgEditor`, and it leaves the seam's own
+    /// tests, `swift test`, the app bundle and SwiftLint all green. The seam
+    /// carries a long doc comment naming the regression; the call site is one
+    /// unremarkable line in a sixty-line drawing method, which makes it the
+    /// likelier of the two to be edited and the only one nothing was watching.
+    ///
+    /// Shaped after `FoldingSourceGatingTests`' reveal-funnel rule: one
+    /// definition, a counted set of callers, plus the forbidden bare form.
+    private static let rulerFile = "LineNumberRulerView.swift"
+
+    func testTheGutterFillGoesThroughItsOwnRule() throws {
+        let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
+            try Self.read(Self.rulerSource())
+        )
+        // Twice, exactly: the `static func` declaration and its one call. A third
+        // is a second answer to the same question; a first-and-only is a seam
+        // nobody calls.
+        XCTAssertEqual(
+            Self.occurrences(of: "backgroundRect(", in: code), 2,
+            """
+            \(Self.rulerFile) must spell backgroundRect( exactly twice — the rule and the one call \
+            site that spends it
+            """
+        )
+        // And the bare form the regression wore. `visibleRect.fill(` and friends
+        // are not matched: the boundary is an identifier character, so only the
+        // handed-in `rect` itself trips this.
+        let bare = try NSRegularExpression(pattern: "(^|[^A-Za-z0-9_.])rect\\.fill\\(")
+        let body = try XCTUnwrap(
+            Self.drawingBody(of: code),
+            "drawHashMarksAndLabels is gone or renamed — re-point this rule rather than losing it"
+        )
+        let range = NSRange(body.startIndex..<body.endIndex, in: body)
+        XCTAssertNil(
+            bare.firstMatch(in: body, range: range),
+            """
+            the ruler is handed the rectangle it was asked to redraw, which regularly spans the whole \
+            editor pane — filling it wholesale paints the code out
+            """
+        )
+    }
+
+    private static func rulerSource() throws -> URL {
+        try XCTUnwrap(
+            try swiftSources().first { $0.lastPathComponent == rulerFile },
+            "\(rulerFile) is gone or renamed"
+        )
+    }
+
+    private static func occurrences(of needle: String, in code: String) -> Int {
+        code.components(separatedBy: needle).count - 1
+    }
+
+    /// The body of `drawHashMarksAndLabels(in:)`, brace-matched from its own
+    /// declaration, so the rule above reads the drawing method alone and not the
+    /// seam's own arithmetic beside it.
+    private static func drawingBody(of code: String) -> String? {
+        guard let start = code.range(of: "func drawHashMarksAndLabels(") else { return nil }
+        guard let open = code[start.upperBound...].firstIndex(of: "{") else { return nil }
+        var depth = 0
+        var index = open
+        while index < code.endIndex {
+            if code[index] == "{" { depth += 1 }
+            if code[index] == "}" {
+                depth -= 1
+                if depth == 0 { return String(code[code.index(after: open)..<index]) }
+            }
+            index = code.index(after: index)
+        }
+        return nil
+    }
+
+    // MARK: - Rule seven: no geometry token is derived by arithmetic
+
+    /// `ChromeGeometry`'s first rule says it in words: every token is scaled at
+    /// its use site, and **no view multiplies one of these numbers by anything
+    /// itself**. This is the rule as something a suite can see.
+    ///
+    /// What it forbids is a chrome surface *deriving a design value locally* —
+    /// a token combined with a number, as in a vertical padding written as half
+    /// a horizontal row-padding token. Nothing misrenders when it happens: the
+    /// tokens are `Double`s, so the arithmetic is exact and the scale is still
+    /// applied once. The cost is the coupling, which nothing names: a later
+    /// change to a horizontal row-padding token would move an unrelated vertical
+    /// padding with it, and the reader of either line has no way to know. A
+    /// surface's own measurement is a bare local number — which the sweep guide
+    /// permits, and which the same call sites already use for their other
+    /// spacings.
+    ///
+    /// **What it deliberately does not match:** a token combined with a *layout*
+    /// value rather than a number, such as the ruler placing its trailing rule
+    /// at `ruleThickness - hairlineWidth`. That composes a position out of a
+    /// width the drawing code was handed; it invents no second design value, and
+    /// widening this rule to cover it would forbid the only honest way to draw
+    /// an edge.
+    func testNoGatedFileDerivesAGeometryTokenByArithmetic() throws {
+        // A token on either side of an arithmetic operator from a number: both
+        // directions, and `CGFloat(…)` around the token does not hide it.
+        let derivations = [
+            try NSRegularExpression(pattern: "ChromeGeometry\\.[A-Za-z0-9_]+\\s*\\)?\\s*[*/+-]\\s*[0-9.]"),
+            try NSRegularExpression(pattern: "[0-9.]\\s*[*/+-]\\s*(CGFloat\\()?\\s*ChromeGeometry\\."),
+        ]
+        for url in try Self.swiftSources() where Self.gatedFiles.contains(url.lastPathComponent) {
+            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            let range = NSRange(code.startIndex..<code.endIndex, in: code)
+            for pattern in derivations {
+                XCTAssertNil(
+                    pattern.firstMatch(in: code, range: range),
+                    """
+                    \(url.lastPathComponent) derives a geometry value from a ChromeGeometry token by \
+                    arithmetic — a surface's own measurement is a bare local number, scaled once at \
+                    the use site
+                    """
+                )
+            }
+        }
+    }
+
+    // MARK: - Rule eight: the tab icon rule is spelled once
+
+    /// The untitled-buffer icon fallback — an `OpenFile` with no url asked about
+    /// under its `displayName`, so the symbol is `FileIcon`'s own fallback
+    /// rather than a second guess — is one rule, and `TabFileIcon` is its one
+    /// spelling.
+    ///
+    /// It was pasted into both orientations once already, which is the failure
+    /// `TabStatusMark` exists to refuse: two spellings of one rule drift the
+    /// moment either is touched, and nothing in the compiler can see that they
+    /// have. The paste had a second cost this suite can see from the other side
+    /// — `iconFreeLines` drops every line naming `FileIcon(` from rule one's
+    /// scan, so each copy bought itself a line exempt from the no-system-colour
+    /// check. Both halves are pinned here by set equality: one declaration, and
+    /// a counted set of gated files carrying an exempted line.
+    func testTheTabIconRuleIsSpelledOnce() throws {
+        var declarers: Set<String> = []
+        var fallbackSpellers: Set<String> = []
+        var iconNamers: Set<String> = []
+        for url in try Self.swiftSources() {
+            let name = url.lastPathComponent
+            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            if code.contains("struct TabFileIcon") { declarers.insert(name) }
+            if code.contains("file.url ?? URL(fileURLWithPath: file.displayName)") {
+                fallbackSpellers.insert(name)
+            }
+            let constructsIcon = code
+                .components(separatedBy: .newlines)
+                .contains(where: Self.constructsFileIcon)
+            if Self.gatedFiles.contains(name) && constructsIcon {
+                iconNamers.insert(name)
+            }
+        }
+        XCTAssertEqual(
+            declarers, ["TabStripView.swift"],
+            "the shared tab icon is one view, declared beside TabStatusMark and for its reason"
+        )
+        XCTAssertEqual(
+            fallbackSpellers, ["TabStripView.swift"],
+            """
+            the untitled-buffer icon fallback is one rule — a second spelling of it is the drift \
+            TabFileIcon exists to refuse
+            """
+        )
+        // Three, and named: the tree's rows, the inline draft field drawing the
+        // placeholder icon a real row would have, and the shared tab icon both
+        // orientations now ask. A fourth is a line that has quietly bought
+        // itself out of rule one.
+        XCTAssertEqual(
+            iconNamers,
+            ["ProjectTreeDraftField.swift", "ProjectTreeView.swift", "TabStripView.swift"],
+            "a gated file naming FileIcon( carries a line exempt from rule one — keep the set small"
+        )
+    }
+
     // MARK: - Self-check
 
     /// Every gated file draws with roles and must therefore name one — with a
@@ -287,6 +500,95 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
                 """
             )
         }
+    }
+
+    // MARK: - The documented rule count
+
+    /// The numbered rules above, counted from their own markers, and the two
+    /// documents that summarise them.
+    ///
+    /// This is bookkeeping rather than a ninth rule: it gates no source file. It
+    /// exists because the rules above are the kind of thing a reader learns
+    /// about from a summary and not from the suite, and both summaries have
+    /// already drifted once — `core-theme.md`'s canonical list named five of
+    /// eight and `CLAUDE.md` six, each correct on the day it was written. A
+    /// count that drifts is worse than no count: it tells a reader the sweep is
+    /// smaller than it is, and the rules it omits are the newest ones.
+    ///
+    /// Shaped after `LintConfigurationTests`' style-version pair: one source of
+    /// truth — here the markers themselves — and every document spelling it
+    /// checked against that, in the sentence that names it rather than anywhere
+    /// in the file.
+    static func declaredRuleCount() throws -> Int {
+        let source = try read(URL(fileURLWithPath: #filePath))
+        let markers = try NSRegularExpression(pattern: "(?m)^\\s*// MARK: - Rule [a-z]+:")
+        let range = NSRange(source.startIndex..<source.endIndex, in: source)
+        let count = markers.numberOfMatches(in: source, range: range)
+        XCTAssertGreaterThan(count, 0, "the rule markers are gone or reworded — re-point this count")
+        return count
+    }
+
+    /// English for the numbers a rule count can plausibly be; a suite growing
+    /// past this has outgrown a prose summary too.
+    private static let spelled = [
+        1: "one", 2: "two", 3: "three", 4: "four", 5: "five", 6: "six",
+        7: "seven", 8: "eight", 9: "nine", 10: "ten", 11: "eleven", 12: "twelve",
+    ]
+
+    func testBothSummariesSpellTheSuitesOwnRuleCount() throws {
+        let count = try Self.declaredRuleCount()
+        let word = try XCTUnwrap(Self.spelled[count], "no spelling for \(count) rules")
+
+        let theme = try Self.read(Self.document("docs/architecture/core-theme.md"))
+        XCTAssertTrue(
+            theme.contains("The \(word) rules, each invisible to the compiler:"),
+            """
+            core-theme.md's canonical list must open on the suite's own count (\(count)); a reader \
+            consults that list to learn what the suite enforces
+            """
+        )
+
+        let index = try Self.read(Self.document("CLAUDE.md"))
+        XCTAssertTrue(
+            index.contains("and its \(word) rules"),
+            "CLAUDE.md's chrome-theme invariant must name the suite's own rule count (\(count))"
+        )
+    }
+
+    /// The canonical list must also *have* that many items: a corrected count
+    /// over an uncorrected enumeration is the same defect wearing the right
+    /// number.
+    func testTheCanonicalListEnumeratesEveryRule() throws {
+        let count = try Self.declaredRuleCount()
+        let word = try XCTUnwrap(Self.spelled[count], "no spelling for \(count) rules")
+        let theme = try Self.read(Self.document("docs/architecture/core-theme.md"))
+        let opening = try XCTUnwrap(
+            theme.range(of: "The \(word) rules, each invisible to the compiler:"),
+            "the canonical list's opening sentence is gone — re-point this rule rather than losing it"
+        )
+        let rest = theme[opening.upperBound...]
+        let end = rest.range(of: "\nPlus a ")?.lowerBound ?? rest.endIndex
+        let list = String(rest[..<end])
+        let items = try NSRegularExpression(pattern: "(?m)^([0-9]+)\\. \\*\\*")
+        let range = NSRange(list.startIndex..<list.endIndex, in: list)
+        let numbers = items.matches(in: list, range: range).compactMap { match -> Int? in
+            guard let digits = Range(match.range(at: 1), in: list) else { return nil }
+            return Int(list[digits])
+        }
+        XCTAssertEqual(
+            numbers, Array(1...count),
+            "the canonical list must enumerate all \(count) rules, in order, one bolded item each"
+        )
+    }
+
+    private static func document(_ relativePath: String) throws -> URL {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let url = root.appendingPathComponent(relativePath)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: url.path), "\(relativePath) is gone or moved")
+        return url
     }
 
     // MARK: - Reading the sources

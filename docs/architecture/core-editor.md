@@ -14,7 +14,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `selectedRange`, the resulting selection expressed in the coordinates of the
     document *after* the insertion. `public enum DuplicateEngine { static func
     duplicate(text: NSString, selectedRange: NSRange) -> DuplicateEdit }`
-    implements JetBrains' Cmd+D semantics. **No selection**: the caret's logical
+    implements the established Cmd+D semantics. **No selection**: the caret's logical
     line is duplicated below it and the caret moves into the copy at the same
     column. **A selection**: the selected span is duplicated *character-wise* — a
     multi-line selection included, deliberately not rounded out to whole lines —
@@ -39,7 +39,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     line, or an empty buffer) gets a plain `"\n"` prepended to the copy instead — a
     deliberate simplification, so a CR/CRLF-delimited file's *trailing* insertion
     uses `"\n"` while every terminated line still copies its own separator; an
-    empty buffer therefore gains an empty line, as in JetBrains. The selection is
+    empty buffer therefore gains an empty line, deliberately. The selection is
     clamped to the buffer bounds first (an out-of-range or `NSNotFound` range can
     never trap) but is otherwise used as given: the engine never widens a range to
     a composed character sequence, since that would change selection semantics
@@ -196,7 +196,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     enum, and it crosses the `@Sendable` extractor seam
     (`docs/architecture/core-intelligence.md`).
   - `MinimapGeometry.swift` — pure, testable scroll/viewport math for the
-    VS Code-style *proportional* minimap (CoreGraphics/Foundation only). A
+    *proportional* minimap (CoreGraphics/Foundation only). A
     `public struct MinimapGeometry: Equatable` built from `documentHeight`/
     `viewportHeight`/`minimapHeight`/`contentHeight` (the owner computes
     `contentHeight = lineCount * minimapLineHeight`). Each minimap line has a
@@ -397,7 +397,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `AutoPairEngine`, which *clamps* a degenerate range because it must still
     decide what a keystroke does; here a caret outside the buffer names nothing to
     highlight. The character *after* the caret is considered first, then the one
-    before it (VS Code order), so with brackets on both sides the following one
+    before it (the adopted order), so with brackets on both sides the following one
     wins — and an adjacent bracket that has *no* match doesn't end the search, so
     a caret between an unmatched opener and a matched closer (`)|(`) still
     highlights the closer's pair. An opener scans forward and a closer backward,
@@ -438,8 +438,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     reports the honest level (7 stays 7) and the view resolves `depth % N` over
     its own cycling palette (the `FileIconColor`/`SyntaxTokenKind` split). `public
     enum BracketDepthScanner { static func scan(text: NSString) -> [BracketToken] }`
-    is one O(n) pass with a **single stack shared by all three kinds** (JetBrains
-    rainbow semantics — nesting depth is one number for the whole document, so
+    is one O(n) pass with a **single stack shared by all three kinds** (the
+    rainbow colouring's semantics — nesting depth is one number for the whole document, so
     `{[()]}` reads 0,1,2): an opener is pushed and reported with the depth
     *before* the increment; a closer matching the top of the stack pops it and
     takes its opener's depth (so a pair always shares one color); a closer of the
@@ -556,7 +556,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     split: the view owns selection, scrolling and colors, every decision lives
     here), shared by *both* consumers — the editor's ⌘F find bar and the
     project-wide Find in Files traversal, so the two can never disagree on what
-    matches. `SearchQuery` (`Equatable`: `pattern` + the three JetBrains toggles
+    matches. `SearchQuery` (`Equatable`: `pattern` + the three conventional toggles
     `isRegex`/`caseSensitive`/`wholeWord`, flags defaulting to `false`; a value
     type so the view can compare the query it last ran and skip a redundant
     re-scan), `SearchMatch` (`range` + 1-based `lineNumber`), `TextSearchError`
@@ -608,7 +608,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     fall back — an anchored pattern re-matching a range the original run never
     produced. Those line boundaries are the point: `regularExpression(for:)`
     always compiles with **`.anchorsMatchLines`**, the product decision being that
-    `^`/`$` in a *search* are line boundaries as they are in VS Code and JetBrains
+    `^`/`$` in a *search* are line boundaries as they are in editor find generally
     (`^import` finds every import line, not only one at the very top of the file).
     The option lives in that single factory, so it applies identically to
     `matches(in:query:)` and to this anchored re-match and the two can never

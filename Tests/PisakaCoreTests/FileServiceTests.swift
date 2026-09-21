@@ -97,7 +97,7 @@ final class FileServiceTests: XCTestCase {
 
         let entries = try service.contentsOfDirectory(at: dir)
 
-        // Dotfiles are visible (VS Code-style); only the exact service names in
+        // Dotfiles are visible; only the exact service names in
         // `excludedEntryNames` (`.git`, `.DS_Store`) are hidden — a visible dot
         // *directory* (`.github`) and a visible dot *file* (`.gitignore`) both
         // survive. Order is directories-first, then `localizedCaseInsensitiveCompare`:

@@ -331,7 +331,7 @@ public final class CommitDialogModel: ObservableObject {
     /// file. Every file starts fully checked: a dialog opened and confirmed with no
     /// further clicks commits every local change.
     ///
-    /// `preselectedPath` is the JetBrains "Commit File" case — the dialog opened
+    /// `preselectedPath` is the "Commit File" case — the dialog opened
     /// from one changed file's own context menu, where that file alone starts
     /// checked and every other one starts empty (`selections(for:preselecting:)`
     /// owns the rule, including what a path absent from the fresh list means). It is
@@ -653,7 +653,7 @@ public final class CommitDialogModel: ObservableObject {
     /// Toggle a whole file: a fully checked file clears, anything else — including
     /// a **mixed** one — becomes fully checked. Clicking a partially selected
     /// file's checkbox therefore selects the rest of it rather than discarding what
-    /// was already picked, which is the JetBrains behaviour and the non-destructive
+    /// was already picked, which is the deliberate behaviour and the non-destructive
     /// reading of an ambiguous click.
     public func toggleFile(path: String) {
         guard let index = files.firstIndex(where: { $0.path == path }) else { return }

@@ -205,7 +205,7 @@ public final class SettingsStore: ObservableObject {
     ///
     /// Off is **total**: neither the automatic popup/strip nor an explicitly
     /// invoked completion (⌃Space, Find > Complete, AppKit's stock ⌥⎋/F5)
-    /// produces anything. The narrower JetBrains behaviour — auto-popup off,
+    /// produces anything. The narrower behaviour — auto-popup off,
     /// explicit invocation still alive — was considered and deliberately not
     /// taken here: it needs a second piece of state (the reason a completion was
     /// asked for) threaded through every entry point, and a switch labelled

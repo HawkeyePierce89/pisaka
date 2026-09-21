@@ -1008,7 +1008,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     set the hover could not have known: the writer gate's own notice, a
     destination that gained the name or a source that vanished mid-drag, and a
     `fileService.move` that threw. The two *create*
-    call sites accept a VS Code-style relative path of any depth
+    call sites accept a relative path of any depth
     (`centrifugo/config.json`): `parseRelativeEntryPath` does all the validation
     (whole-input and per-component trimming, so no padded name reaches disk; the
     `.`/`..`/line-break/NUL rules; and the case-insensitive reserved-name refusal),
@@ -1285,7 +1285,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     non-`Equatable` closure parameters and putting the project tree, the tab list
     and `CodeEditorView.updateNSView` right back on the typing path that comment
     claims to keep them off — a `@State private var isCommitDialogPresented`, a
-    `CommandMenu("Git")` holding "Commit…" (**⌘K**, JetBrains' shortcut) disabled
+    `CommandMenu("Git")` holding "Commit…" (**⌘K**, the conventional shortcut) disabled
     on exactly the one condition the `LocalChangesView` header button is — no
     project root — and deliberately **not** also on `changedFiles` being empty:
     that list is refreshed only on a folder open, a save and the manual Refresh
@@ -1695,7 +1695,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     read on the stream queue — the `SecurityScopedFileService` precedent). iOS is out
     of scope: FSEvents does not exist there, so the tree still refreshes only on the
     app's own operations.
-  - `AutosaveController.swift` — the thin view-layer wiring of JetBrains-style
+  - `AutosaveController.swift` — the thin view-layer wiring of
     autosave to `WorkspaceModel.saveAllDirty()` (all the testable decision logic
     lives in Core; this is trigger→action wiring only, untested like the rest of
     the view layer). A `final class` holding the Combine cancellables and

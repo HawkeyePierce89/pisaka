@@ -93,7 +93,7 @@ enum ChromePalette {
     /// resolves the value itself, per appearance, at draw time.
     ///
     /// That is why **no AppKit view in the chrome caches a resolved colour and
-    /// none observes an appearance change by hand.** The Theme preference is
+    /// none watches for a *colour* change by hand.** The Theme preference is
     /// applied as `.preferredColorScheme` at each SwiftUI window root, which sets
     /// that window's `NSAppearance`; every `NSView` inside the window inherits it,
     /// and a dynamic colour asked to draw under the new appearance answers the new
@@ -101,6 +101,19 @@ enum ChromePalette {
     /// freeze whichever appearance happened to be current when it did, and would
     /// then need an observer to un-freeze it — two mechanisms where the platform
     /// already provides one.
+    ///
+    /// **That is a rule about the value, not about the drawing.** A dynamic colour
+    /// resolves whenever the drawing happens, so a chrome view asking for one
+    /// every time it paints needs no cached value and no colour-specific
+    /// observer. The surfaces differ only in what they hand AppKit: the editor
+    /// pane and the read-only viewer pane set a `backgroundColor`; the gutter
+    /// (an `NSRulerView`, which has none to set) and the minimap fill their own
+    /// background while drawing. The gutter overrides
+    /// `viewDidChangeEffectiveAppearance()` nowhere and was measured recolouring
+    /// live in both directions when the system appearance changed under the
+    /// running window. `MinimapView` does carry such an override; whether it is
+    /// required or redundant there was not established, it predates the chrome
+    /// sweep, and it stays until something measures it.
     static func nsColor(_ role: ChromeColorRole) -> NSColor {
         let entry = entry(for: role)
         return PlatformColor.dynamic(light: entry.light, dark: entry.dark, alpha: entry.opacity)

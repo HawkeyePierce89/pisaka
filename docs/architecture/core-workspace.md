@@ -20,8 +20,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     protocol so tests can inject a stub that simulates read/write/listing
     failures. `contentsOfDirectory(at:)` returns `[DirectoryEntry]` (a public
     `Identifiable`/`Equatable` model: `url`, `isDirectory`, and a computed
-    `name` from `lastPathComponent`). Dotfiles are *visible* (VS Code-style —
-    `.gitignore`/`.github` are ordinary, editable entries); only the service
+    `name` from `lastPathComponent`). Dotfiles are *visible*
+    (`.gitignore`/`.github` are ordinary, editable entries); only the service
     entries listed in the `excludedEntryNames` constant (`.git`, `.DS_Store`) are
     filtered out, compared by *exact* name through the public
     `isExcludedEntryName(_:)` predicate — one source of truth shared by the
@@ -47,7 +47,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `FileServiceError.notADirectory(name:)` naming that component, a missing one
     ensures its parent then creates itself), so a file sitting anywhere on the path
     is detected *before* any directory is written; directories created before a
-    *later* step fails are **not** rolled back (`mkdir -p`/VS Code semantics), and a
+    *later* step fails are **not** rolled back (`mkdir -p` semantics), and a
     **symlink to a directory** on the path is *reused*, not refused (the
     existence/type probe dereferences the link, so the chain continues inside its
     target — deliberate, matching `mkdir -p`). Its probe-then-create pair is not

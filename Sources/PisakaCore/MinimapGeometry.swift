@@ -1,6 +1,6 @@
 import CoreGraphics
 
-/// Pure scroll/viewport math for a VS Code-style proportional minimap.
+/// Pure scroll/viewport math for a proportional minimap.
 ///
 /// Unlike a stretch-to-fit minimap, each minimap line has a *fixed* height
 /// (`minimapLineHeight`, owned by the view layer). The owner multiplies that by

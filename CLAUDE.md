@@ -93,7 +93,7 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
 
 `docs/architecture/core-editor.md` — editor engines (pure, `NSString` + UTF-16 offsets):
 - `ColumnSelectionEngine.swift` — the middle-drag column-selection rule.
-- `DuplicateEngine.swift` — ⌘D duplicate (JetBrains semantics).
+- `DuplicateEngine.swift` — ⌘D duplicate (the established semantics).
 - `CommentStyle.swift` — language-to-comment-syntax mapping.
 - `ToggleCommentEngine.swift` — ⌘/ toggle comment computation.
 - `TreeRefreshFilter.swift` — FSEvents batch filter; root must arrive canonical.
@@ -414,7 +414,8 @@ headlessly in `Tests/PisakaAppTests`.
 - `SourceViewerWindowController.swift` / `SourceViewerContent.swift` — the read-only out-of-project definition window.
 - `ProjectTreeView.swift` — project tree (lazy children, `treeRevision` reloads).
 - `ProjectTreeDraftField.swift` — inline naming draft field.
-- `TabListView.swift` / `TabRowView.swift` — the vertical open-tabs column (the horizontal strip is `TabStripView.swift`, indexed under the chrome theme).
+- `TabListView.swift` / `TabRowView.swift` — the vertical open-tabs column, on the chrome roles (the horizontal strip is `TabStripView.swift`, indexed under the chrome theme, and owns `TabStatusMark`, the trailing slot both orientations draw).
+- `BreadcrumbBarView.swift` — the breadcrumb above the editor, its own file so it can be gated; the outer/`.equatable()` split that keeps it both cheap and live.
 
 `docs/architecture/app-terminal.md` — embedded terminal (macOS):
 - `TerminalTheme.swift` — light/dark palette incl. themed ANSI-16.
@@ -728,16 +729,27 @@ ci.yml's `lint` job, and the version-bump procedure.
   **exactly the eight roots `.interfaceScaled(_:)` already names** (one list, read
   from `ZoomSourceGatingTests`' own declaration), and AppKit asks
   `ChromePalette.nsColor(_:)` for a **dynamic** colour — which is why no AppKit
-  chrome view caches a resolved colour or observes an appearance change. A
+  chrome view caches a resolved colour or watches for a *colour* change; a
+  dynamic colour resolves whenever the drawing happens, and the gutter — which
+  paints its own background and overrides nothing — was measured recolouring
+  live in both directions when the system appearance changed under it. A
   reader: it takes no writer gate, is gated by none and writes nothing.
-  `ChromeThemeSourceGatingTests` pins which files obey the rule (six, by set
-  equality) and its five rules — no system semantic colour, no hex literal
+  `ChromeThemeSourceGatingTests` pins which files obey the rule (eleven, by set
+  equality) and its eight rules — no system semantic colour, no hex literal
   outside the table, the three exemptions stay exemptions, the theme injected at
-  the scale's roots, no view constructing a theme — while **three files are exempt because they are not
+  the scale's roots, no view constructing a theme, the gutter's fill still going
+  through its own rule (a seam pins nothing its call site does not spend, and
+  that call site was this sweep's one regression), no geometry token derived by
+  arithmetic, and the tab icon rule spelled once — plus, beside the rules rather
+  than among them, the cross-file count that keeps this sentence and
+  `core-theme.md`'s own list equal to the number of rules the suite declares —
+  while **three files are exempt because they are not
   chrome**: `SyntaxTheme.swift` (the code zone's own theme), `TerminalTheme.swift`
   (a protocol's ANSI-16 vocabulary) and `FileIcon.swift` (a Core token iOS still
-  paints). Three surfaces are swept so far — the tab strip, the line-number
-  ruler, the project tree rows; the rest is the follow-up sweep, whose procedure
+  paints). Seven surfaces are swept so far — part one's tab strip, line-number
+  ruler and project tree rows (the inline draft field with them), and part two's
+  vertical tab column, breadcrumb, minimap chrome and language-server consent
+  strip; the rest is the follow-up sweep, whose procedure
   and its one refusal ("a surface needing a twenty-second role has found a design
   question") are in `core-theme.md`.
 - **Zoom is three zones, one arithmetic, one pointer rule** (macOS only): `code`

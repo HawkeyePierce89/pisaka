@@ -267,7 +267,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     (`app-ios.md`) all bind straight to this property with no local state, so
     they cannot disagree. Off is **total**: neither the automatic popup/strip nor
     an explicitly invoked completion (⌃Space, Find > Complete, AppKit's stock
-    ⌥⎋/F5) produces anything. The narrower JetBrains behaviour — auto-popup off,
+    ⌥⎋/F5) produces anything. The narrower behaviour — auto-popup off,
     explicit invocation still alive — was considered and deliberately **not**
     taken: it needs a second piece of state (the reason a completion was asked
     for) threaded through every entry point, and a switch labelled "off" that

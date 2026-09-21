@@ -3,7 +3,7 @@ import AppKit
 import Combine
 import PisakaCore
 
-/// JetBrains-style autosave: writes every dirty titled file to disk
+/// Autosave: writes every dirty titled file to disk
 /// automatically, on four triggers — idle (a short debounce after the last
 /// keystroke), tab switch (the selected file changes), focus loss (the app
 /// deactivates), and app termination (Cmd+Q / quit). Untitled (url-less) buffers

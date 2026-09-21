@@ -3,7 +3,7 @@ import SwiftUI
 import AppKit
 import PisakaCore
 
-/// The JetBrains-style find/replace bar shown directly above the editor.
+/// The find/replace bar shown directly above the editor.
 ///
 /// Thin and untested like the rest of `Sources/Pisaka`: it renders
 /// `EditorSearchState` and writes the user's input straight back into it. Every
@@ -80,7 +80,7 @@ struct SearchBarView: View {
     private var findRow: some View {
         HStack(spacing: metrics.scaled(6)) {
             // Expands/collapses the replace row. Kept as a disclosure chevron on
-            // the leading edge (JetBrains/Xcode convention) so the two rows read as
+            // the leading edge (the conventional placement) so the two rows read as
             // one control rather than two bars.
             Button {
                 search.isReplaceExpanded.toggle()

@@ -791,6 +791,34 @@ final class LineNumberRulerView: NSRulerView, ZoomSurfaceProviding {
         }
     }
 
+    /// The rectangle the gutter's background fill covers, given the rectangle
+    /// `drawHashMarksAndLabels` was handed and the gutter's own width.
+    ///
+    /// A pure rule with a test of its own, `internal` for the reason
+    /// `numberAttributes` is: the drawing cannot be asserted, what is about to be
+    /// drawn can. It exists to prevent one specific regression — an
+    /// `NSRulerView` is handed the rectangle *it was asked to redraw*, which is
+    /// not its bounds and regularly spans the whole editor pane, so filling it
+    /// wholesale paints the code and the minimap out in `bgEditor`.
+    ///
+    /// The trailing edge is clamped to `ruleThickness` rather than the answer
+    /// being `(0, ruleThickness)` outright, so a partial dirty rectangle starting
+    /// inside the gutter keeps its origin; a rectangle wholly to the right of the
+    /// gutter answers a zero width, never a negative one. The vertical half
+    /// belongs to the scroll position and is carried through untouched.
+    ///
+    /// `nonisolated` because it is arithmetic over two values and touches no
+    /// view state — which is also what lets the suite call it off the main actor.
+    nonisolated static func backgroundRect(in rect: NSRect, ruleThickness: CGFloat) -> NSRect {
+        let maxX = min(rect.maxX, ruleThickness)
+        return NSRect(
+            x: rect.minX,
+            y: rect.minY,
+            width: max(0, maxX - rect.minX),
+            height: rect.height
+        )
+    }
+
     override func drawHashMarksAndLabels(in rect: NSRect) {
         guard
             let textView,
@@ -802,9 +830,11 @@ final class LineNumberRulerView: NSRulerView, ZoomSurfaceProviding {
         // separated from the text by a hairline at its right edge. Before the
         // chrome theme the ruler painted no background at all and inherited
         // whatever the scroll view drew, which is exactly what made the gutter
-        // and the text disagree once the editor took a colour of its own.
+        // and the text disagree once the editor took a colour of its own. The
+        // rectangle filled is the gutter's own, not the one handed in —
+        // `backgroundRect(in:ruleThickness:)` says why.
         ChromePalette.nsColor(.bgEditor).setFill()
-        rect.fill()
+        Self.backgroundRect(in: rect, ruleThickness: ruleThickness).fill()
         ChromePalette.nsColor(.hairline).setFill()
         // `ChromeGeometry.hairlineWidth` unscaled — the one stated exception to
         // "every token is scaled at its use site". A hairline is one point by

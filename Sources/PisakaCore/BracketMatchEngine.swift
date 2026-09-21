@@ -44,7 +44,7 @@ public struct BracketPair: Equatable {
 /// questions and therefore count depth differently. This one counts *its own kind
 /// only* (the `IndentEngine.dedentOnClosing` rule): "which `]` closes *this* `[`"
 /// ignores unrelated `(`/`{`. `BracketDepthScanner` keeps *one shared stack across
-/// all three kinds* (JetBrains rainbow semantics), because nesting depth is a
+/// all three kinds* (the rainbow colouring's semantics), because nesting depth is a
 /// single number for the whole document. On well-formed code the two always agree;
 /// on *crossed* input they do not. In `{[(]}` this engine pairs `[`↔`]` (correctly
 /// nested once `(` is ignored), while the scanner sees `]` arrive with `(` on top
@@ -79,7 +79,7 @@ public enum BracketMatchEngine {
     ///   `AutoPairEngine`, which *clamps* a degenerate range because it must still
     ///   decide what a keystroke does; here there is simply nothing to show.
     /// - The character *after* the caret is considered first, then the one before
-    ///   it (VS Code order), so with brackets on both sides the following one
+    ///   it (the adopted order), so with brackets on both sides the following one
     ///   wins. An adjacent bracket that has no match does not end the search: the
     ///   other side is still tried, so a caret between an unmatched opener and a
     ///   matched closer (`)|(`) still highlights the closer's pair.

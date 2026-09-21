@@ -172,7 +172,7 @@ extension SyntaxLanguage {
     /// Most cases are the spec's own identifiers. Two are not in that list and are
     /// spelled the way editors have settled on: `.dotenv` (no server speaks it;
     /// present only so the mapping is total) and `.gitignore` → `"ignore"`, the id
-    /// VS Code uses for the whole gitignore family.
+    /// editors have settled on for the whole gitignore family.
     public var lspLanguageID: String {
         switch self {
         case .swift: return "swift"
