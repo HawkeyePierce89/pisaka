@@ -286,16 +286,16 @@ skipped step; and the paragraph is *already* non-exhaustive — `Resources/Queri
 holds sixteen language directories and the paragraph names thirteen, SQL and
 EditorConfig having both been added without touching it.
 
-- [ ] Add shell to the list.
-- [ ] **Since the same sentence is already wrong about two other languages**,
+- [x] Add shell to the list.
+- [x] **Since the same sentence is already wrong about two other languages**,
       also add SQL and EditorConfig, so the fix does not leave a list that is
       accurate about the newest language and stale about two older ones. That is
       the sweep for this one: the construct is *a user-facing list that must match
       `Resources/Queries` minus `unindexableLanguages`*.
-- [ ] Verify the resulting list against `Resources/Queries` and
+- [x] Verify the resulting list against `Resources/Queries` and
       `SymbolIndexModel.unindexableLanguages` and state in the report that the two
       now agree — or, if some language is deliberately omitted, say which and why.
-- [ ] No test: `docs/FEATURES.md` has no gate, and inventing one for a prose list
+- [x] No test: `docs/FEATURES.md` has no gate, and inventing one for a prose list
       is out of scope here. Say so in the report rather than silently leaving the
       checkbox meaningless.
 

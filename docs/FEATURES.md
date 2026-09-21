@@ -456,7 +456,11 @@ user sees it.
   puts its methods under `Holder` — and top-level `const`/`static`, but not
   locals inside a function);
   Markdown headings, CSS selectors, top-level
-  YAML/JSON keys, Dockerfile build stages, `.env` variables and HTML `id`s are
+  YAML/JSON keys, Dockerfile build stages, `.env` variables, HTML `id`s, shell
+  functions and top-level shell variable assignments (one inside a function or a
+  loop is a local, and is deliberately left out), SQL tables, views, materialized
+  views, custom types, functions and a table's columns (filed under the table),
+  and `.editorconfig` section headers are
   indexed too — as navigation targets in full, and as completions only where the
   name is a single word (above). A file type with no query still completes from the words in the
   buffer.
