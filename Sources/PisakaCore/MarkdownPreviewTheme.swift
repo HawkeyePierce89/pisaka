@@ -128,7 +128,12 @@ public struct MarkdownPreviewTheme: Equatable, Sendable {
     /// the editor's own table at run time through `withCodeColors(_:)`, which is
     /// the mechanism that must keep working and must not be reimplemented. The
     /// two copies now state the same values, so the screen no longer reports a
-    /// broken derivation; a test does.
+    /// broken derivation; two tests do, and they are separate on purpose —
+    /// `SyntaxThemeTests.testThePreviewThemeCarriesTheEditorsPaletteInBothAppearances`
+    /// pins that the derivation carries the editor's table, and
+    /// `testTheDomainLayersRestatedCodeColoursEqualTheEditorTable` pins that this
+    /// block still states the same values, which the first cannot see because
+    /// `withCodeColors(_:)` replaces it wholesale.
     public static let light = MarkdownPreviewTheme(
         background: "#ffffff",
         text: "#1d1d1f",

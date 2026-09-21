@@ -700,11 +700,20 @@ rather than falling through to the theme's body text) and compared against the
 CSS string formatted from the suite's own restated row — and the derived theme's
 chrome fields are asserted still equal to the base theme's, so a future edit
 cannot quietly widen the derivation into that shared chrome. Stated honestly,
-the pin catches a wrong, partial or wrongly-appearance-resolved derivation, and
-— the case that matters over time — any palette edit made on one side only,
-which is precisely when a stopped derivation would otherwise become visible. It
-**cannot** catch the derivation being deleted while both tables happen to
-agree; nothing that reads values can, and no stronger claim is made for it.
+that pin catches a wrong, partial or wrongly-appearance-resolved derivation, and
+an edit to `SyntaxTheme.table` not carried into the suite's restated rows — and
+nothing more: the derived theme is built wholly from `table`, and
+`withCodeColors(_:)` replaces the block, so Core's own `codeColors` are never
+read by it and could go stale underneath it. The **second** assertion is what
+compares them: `testTheDomainLayersRestatedCodeColoursEqualTheEditorTable` reads
+`MarkdownPreviewTheme.light`/`.dark`'s `codeColors` entry for entry over
+`SyntaxTokenKind.allCases` against the same restated rows, in the app bundle
+because Core cannot see `SyntaxTheme` at all. Editing `table` and the restated
+row together — the correct way to change the palette — now fails there until
+Core's copy follows, which is the guarantee "the two copies state the same
+values" rests on. What **neither** catches is the derivation being deleted while
+both tables agree, the fall-back value then being correct by accident; nothing
+that reads values can, and no stronger claim is made for either.
 Core's own `MarkdownPreviewThemeTests` keeps the structural half unloosened —
 totality over `SyntaxTokenKind.allCases`, light ≠ dark in every colour field —
 plus `testBothCodeTablesAreTotalAndWrittenAsLowercaseSixDigitHex`, so a

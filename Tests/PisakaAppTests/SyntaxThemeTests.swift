@@ -66,6 +66,19 @@ final class SyntaxThemeTests: XCTestCase {
         XCTAssertEqual(actual.alpha, 1, accuracy: 0.002, "\(message()) — alpha", file: file, line: line)
     }
 
+    /// A restated row as the `#rrggbb` string the preview's CSS carries it in —
+    /// lower case, three components, alpha dropped, which is the one spelling
+    /// `SyntaxTheme.cssColorString(for:)` produces and the one the domain layer's
+    /// own tables are written in.
+    private func cssString(_ rgb: UInt32) -> String {
+        String(
+            format: "#%02x%02x%02x",
+            Int((rgb >> 16) & 0xFF),
+            Int((rgb >> 8) & 0xFF),
+            Int(rgb & 0xFF)
+        )
+    }
+
     /// Resolves a dynamic colour the way AppKit does when it draws inside a
     /// window carrying that appearance.
     private func resolved(_ color: NSColor, under name: NSAppearance.Name) throws -> NSColor {
@@ -156,14 +169,20 @@ final class SyntaxThemeTests: XCTestCase {
     /// suite's own restated row* — so the assertion is against the values the
     /// design states, not against whatever the production table happens to hold.
     /// A derivation that is wrong, partial, or resolved under the other
-    /// appearance fails here, and so does any later palette edit made on one side
-    /// only — which is precisely the situation in which a stopped derivation
-    /// would otherwise become visible on screen.
+    /// appearance fails here, and so does an edit to `SyntaxTheme.table` not
+    /// carried into this suite's restated rows.
     ///
-    /// What it cannot see: the derivation being deleted while the editor's table
-    /// and the domain layer's restated one happen to agree. Nothing that reads
-    /// values can. Before this change the two tables disagreed and the screen was
-    /// that check; this is the assertion that replaces it.
+    /// What it cannot see, precisely: the domain layer's own
+    /// `MarkdownPreviewTheme.light`/`.dark` `codeColors`. The derived theme is
+    /// built entirely from `table` and `withCodeColors(_:)` replaces the block
+    /// wholesale, so Core's copy is never read here and could go stale with this
+    /// assertion green. That copy is compared against the same restated rows by
+    /// `testTheDomainLayersRestatedCodeColoursEqualTheEditorTable`; the two tests
+    /// together are what make "the two copies state the same values" true.
+    ///
+    /// What neither can see: the derivation being deleted while the editor's
+    /// table and the domain layer's restated one agree — the fall-back value is
+    /// then correct by accident. Nothing that reads values can see that.
     ///
     /// Entries are read as `codeColors[kind]` through `XCTUnwrap` rather than
     /// through `color(for:)`, so a missing kind fails instead of falling through
@@ -175,13 +194,7 @@ final class SyntaxThemeTests: XCTestCase {
 
             for kind in SyntaxTokenKind.allCases {
                 let row = try XCTUnwrap(Self.expected[kind], "\(kind) has no expected row")
-                let rgb = prefersDark ? row.dark : row.light
-                let wanted = String(
-                    format: "#%02x%02x%02x",
-                    Int((rgb >> 16) & 0xFF),
-                    Int((rgb >> 8) & 0xFF),
-                    Int(rgb & 0xFF)
-                )
+                let wanted = cssString(prefersDark ? row.dark : row.light)
                 let carried = try XCTUnwrap(
                     derived.codeColors[kind],
                     "\(kind) has no entry in the derived theme (prefersDark: \(prefersDark))"
@@ -200,6 +213,59 @@ final class SyntaxThemeTests: XCTestCase {
             XCTAssertEqual(derived.border, base.border)
             XCTAssertEqual(derived.tableBorder, base.tableBorder)
             XCTAssertEqual(derived.colorScheme, base.colorScheme)
+        }
+    }
+
+    /// The domain layer's second copy of the code palette, compared entry for
+    /// entry with the editor's.
+    ///
+    /// `MarkdownPreviewTheme.light`/`.dark` each carry a full `codeColors` block
+    /// so `PisakaCore` has a complete theme to test and to fall back on. Nothing
+    /// on macOS reads those entries — the app overwrites the whole block from
+    /// `SyntaxTheme.table` — so a palette edit made on the editor's side alone
+    /// leaves them stale with every screen correct and, before this test, every
+    /// gate green. That is the state the branch set out to remove, and only an
+    /// assertion can see it.
+    ///
+    /// The comparison is against this suite's own restated rows rather than
+    /// against `table` read back at run time, for the reason the rest of the file
+    /// gives: the restated rows are the design's values, and they are tied to the
+    /// production table by
+    /// `testEveryTokenKindResolvesToItsTabledValueInBothAppearances`. Editing
+    /// `table` and the restated row together — the correct way to change the
+    /// palette — therefore fails *here* until Core's copy follows.
+    ///
+    /// It lives in the app bundle because `PisakaCore` cannot see `SyntaxTheme`
+    /// at all: colour is the view layer's business, and the domain layer is the
+    /// side holding the copy.
+    ///
+    /// What it cannot see: the chrome entries beside `codeColors`, which are not
+    /// the editor's to state and have no counterpart to compare against.
+    func testTheDomainLayersRestatedCodeColoursEqualTheEditorTable() throws {
+        for prefersDark in [true, false] {
+            let theme = prefersDark ? MarkdownPreviewTheme.dark : MarkdownPreviewTheme.light
+
+            // The block is complete on Core's side too: a kind added with no row
+            // there fails before any value is compared.
+            XCTAssertEqual(
+                Set(theme.codeColors.keys),
+                Set(SyntaxTokenKind.allCases),
+                "MarkdownPreviewTheme.\(prefersDark ? "dark" : "light").codeColors does not name every token kind"
+            )
+
+            for kind in SyntaxTokenKind.allCases {
+                let row = try XCTUnwrap(Self.expected[kind], "\(kind) has no expected row")
+                let stated = try XCTUnwrap(
+                    theme.codeColors[kind],
+                    "\(kind) has no entry in MarkdownPreviewTheme.\(prefersDark ? "dark" : "light")"
+                )
+                XCTAssertEqual(
+                    stated,
+                    cssString(prefersDark ? row.dark : row.light),
+                    "\(kind), prefersDark: \(prefersDark) — the domain layer's copy has gone stale "
+                        + "against the editor's table"
+                )
+            }
         }
     }
 

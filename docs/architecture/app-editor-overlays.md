@@ -956,14 +956,18 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `core-theme.md`).
     `SyntaxThemeTests` (app bundle, macOS-gated) pins the values the way
     `ChromePaletteTests` pins the chrome's: the fourteen rows restated in the
-    suite and compared component for component under both `NSAppearance`s. Three
+    suite and compared component for component under both `NSAppearance`s. Four
     of its assertions are rules rather than numbers, so they survive a later
     palette change — **no token kind resolves to a system semantic colour** in
     either appearance (the defect above); **`plainText` is the `.plain` row**,
     asserted beside the table's **totality**, which is the statement of why the
-    constant has to be asserted directly at all; and the **preview seam**, that
-    `markdownPreviewTheme(prefersDark:)` carries every kind's row to the page
-    (`core-markdown-preview.md`). It
+    constant has to be asserted directly at all; the **preview seam**, that
+    `markdownPreviewTheme(prefersDark:)` carries every kind's row to the page;
+    and, separately from it because `withCodeColors(_:)` replaces the block the
+    seam is checked through, that the domain layer's **second copy** of the
+    palette — `MarkdownPreviewTheme.light`/`.dark`'s `codeColors` — still states
+    these same values, which is what keeps a one-sided palette edit from going
+    stale with every gate green (`core-markdown-preview.md`). It
     also owns the bracket-highlighting palette, all through `PlatformColor
     .dynamic(light:dark:)` so the iOS variant (a follow-up) comes for free:
     `bracketDepthColors` (five cycling hues — gold, purple, blue, teal, green —

@@ -167,17 +167,17 @@ is the claim, and the absent guard behind
 `Sources/PisakaCore/MarkdownPreviewTheme.swift:130`'s "The two copies now state
 the same values".
 
-- [ ] Add the guard rather than only narrowing the claim: an app-layer test
+- [x] Add the guard rather than only narrowing the claim: an app-layer test
       asserting that `MarkdownPreviewTheme.light.codeColors` and `.dark.codeColors`
       equal, entry for entry over `SyntaxTokenKind.allCases`, the CSS strings of
       the editor table's rows for the matching appearance. It belongs in the app
       bundle because Core cannot see `SyntaxTheme`.
-- [ ] Only then restate the honesty clause in
+- [x] Only then restate the honesty clause in
       `docs/architecture/core-markdown-preview.md` and in the test's own doc
       comment, to say what is true once the guard exists — the two copies are now
       compared, and what remains unpinnable is the derivation being deleted while
       both tables agree.
-- [ ] **Sweep for the shape, not the site.** The defect is *a stated guarantee
+- [x] **Sweep for the shape, not the site.** The defect is *a stated guarantee
       wider than the assertion behind it*. Check the other honesty clauses this
       branch wrote — in `MarkdownPreviewTheme.swift`, `SyntaxTheme.swift` and the
       three architecture documents — against the tests they name.
