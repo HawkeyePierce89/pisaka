@@ -410,19 +410,19 @@ link tree-sitter) and neither build executes it; the app-host bundle does both.
 - Modify: `docs/architecture/core-services.md`
 - Modify (only if the audit finds something): `Resources/PrivacyInfo.xcprivacy`
 
-- [ ] Build for iOS device and run the recorded `nm -u` grep against the
+- [x] Build for iOS device and run the recorded `nm -u` grep against the
       **correct** binary — the debug dylib for a Debug build — confirming first
       that the file scanned lists hundreds of undefined symbols, since an empty
       match on the wrong binary reads exactly like a clean result.
-- [ ] Record the outcome as a new "Last re-run" line in the audit, naming the
+- [x] Record the outcome as a new "Last re-run" line in the audit, naming the
       newly linked grammar and its answer. The expectation from reading
       `src/scanner.c` (only `assert.h`, `ctype.h`, `string.h`, `wctype.h`) is
       that nothing changes — but record what the command actually printed, not
       the expectation.
-- [ ] Touch `PrivacyInfo.xcprivacy` **only** if the audit finds a symbol the
+- [x] Touch `PrivacyInfo.xcprivacy` **only** if the audit finds a symbol the
       manifest does not already declare; `ReleaseMetadataTests` asserts that set
       by set equality, so a speculative edit fails.
-- [ ] Run `swift test` — must pass before Task 6.
+- [x] Run `swift test` — must pass before Task 6.
 
 ### Task 6: Documentation
 

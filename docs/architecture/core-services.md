@@ -785,8 +785,8 @@ run in `swift test` rather than needing an Xcode build.
     no `.xcprivacy` either; the build would surface one if it ever
     appeared, since every grammar's resource bundle is handed to *both*
     destinations' `ProcessInfoPlistFile` step as a `-scanforprivacyfile`
-    argument — 16 bundles today, `TreeSitterRust_TreeSitterRust.bundle` among
-    them), so their required-reason calls must be
+    argument — 19 bundles on the 2026-09-21 re-run, counted off the iOS build's
+    own command lines, `TreeSitterBash_TreeSitterBash.bundle` among them), so their required-reason calls must be
     declared by this manifest. A `Sources/`-only grep misses them — that is how
     the boot-time entry below was originally missed. Re-run the audit as a grep
     over `Sources/` **plus** a symbol check on the built binary:
@@ -808,7 +808,30 @@ run in `swift test` rather than needing an Xcode build.
     Confirm the file you scanned is non-trivial (`nm -u` on it should list
     hundreds of symbols) before believing an empty match.
 
-    **Last re-run: 2026-09-02**, after the database viewer linked `SQLite3`. A
+    **Last re-run: 2026-09-21**, after linking the remote `tree-sitter-bash`
+    grammar for the shell language. A newly linked dependency compiled from C
+    into the app, so the convention above obliges the re-run; the answer is that
+    nothing changes. Built for the device (`-destination 'generic/platform=iOS'`,
+    Debug) to an out-of-tree derived-data path and scanned
+    `Debug-iphoneos/Pisaka.app/Pisaka.debug.dylib` — **2569** undefined symbols,
+    against the launch stub `Pisaka.app/Pisaka`'s 30, which is the "check the
+    right binary" confirmation this record demands before an empty match may be
+    believed. The grep printed exactly four lines, `_fstat`, `_lstat`,
+    `_mach_absolute_time`, `_stat` — the same four symbols the record below
+    already explains, in `nm`'s own sorted order — and nothing else: no
+    disk-space symbol, no `sysctl`, no `getattrlist` family. That the
+    new grammar was inside what was scanned is confirmed rather than assumed:
+    `_tree_sitter_bash` is **defined** (`T`) in that dylib, and so are all five
+    `_tree_sitter_bash_external_scanner_*` symbols — upstream's manifest lists
+    `src/scanner.c` in its `sources:`, and the link is what proves it, the same
+    second confirmation `tree-sitter-rust` earned. Reading that scanner's
+    includes (`assert.h`, `ctype.h`, `string.h`, `wctype.h`) predicted the
+    answer; the symbol table is the answer. `find SourcePackages -name
+    '*.xcprivacy'` over **both** `checkouts/` and `artifacts/` still returns
+    nothing, so no dependency has started shipping a manifest of its own.
+    `PrivacyInfo.xcprivacy` is unchanged and `ReleaseMetadataTests`' set equality
+    still passes.
+    **Previous re-run: 2026-09-02**, after the database viewer linked `SQLite3`. A
     newly linked library, so the convention above obliges the re-run; the answer
     is that nothing changes. `libsqlite3.tbd` is a macOS **system** dylib the
     viewer's one importing file (`DatabaseConnectionService.swift`, `#if
@@ -817,7 +840,7 @@ run in `swift test` rather than needing an Xcode build.
     manifest answers for, and the viewer calls no required-reason API through it
     (its file access is `sqlite3_open_v2` on a path the user picked, not a
     metadata read). `PrivacyInfo.xcprivacy` is unchanged.
-    **Previous re-run: 2026-08-21**, after vendoring TreeSitterSql — confirmed `nm -u` against `parser.c` and `scanner.c` references no required-reason API.
+    **Earlier re-run: 2026-08-21**, after vendoring TreeSitterSql — confirmed `nm -u` against `parser.c` and `scanner.c` references no required-reason API.
     **Earlier re-run: 2026-08-15**, after linking Sparkle — a newly linked
     dependency, which this file's own convention says obliges a re-run. Sparkle
     is the case the recipe above structurally **cannot** see, and that is the
