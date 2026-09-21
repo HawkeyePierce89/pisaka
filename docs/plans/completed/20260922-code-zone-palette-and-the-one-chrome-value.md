@@ -1,5 +1,17 @@
 # The code zone's palette, and the one chrome value that disagrees with it
 
+> **Correction, recorded after the fact.** This plan states, in its overview and
+> in two of its steps, that `selectionInactive` being byte-identical to
+> `currentLine` left an unfocused selection and the caret's line
+> *indistinguishable on screen*. That symptom cannot occur and never did:
+> `selectionInactive` is painted only by a project-tree row in a non-key window,
+> and `currentLine` is painted by nothing at all. The value change is right and
+> stands — the design states it — but its reason is the design, not a visible
+> defect. The sentences below are left as written because this is a record of
+> what was planned; the corrected statement lives in
+> `docs/architecture/core-theme.md` and on the palette row itself, and the
+> correction is `docs/plans/code-zone-palette-fix-01.md`, Task 1.
+
 ## Overview
 
 Replace the editor's syntax colour table with the project's own palette — fourteen

@@ -79,9 +79,17 @@ enum ChromePalette {
         // Row and line states.
         case .hoverTint: return Entry(dark: 0xFFFFFF, light: 0x000000, alpha: 0x0A)
         // Changed: this wash was once byte-identical to `currentLine` below,
-        // which left an unfocused selection and the line the caret is on
-        // indistinguishable. It is now a deliberate step stronger, so the two
-        // states read apart.
+        // and is now a deliberate step stronger, because the design states
+        // that value. Its one consumer is `ProjectTreeView.swift`'s
+        // `TreeRowBackground.role(for:)`, `case .selectedUnfocused` — a
+        // project-tree row selected while its window is not key — so this is
+        // what that row washes itself with, not an editor text selection.
+        // `currentLine` is at present painted by nothing at all (its only
+        // occurrences are its declaration, the row below and this comment), so
+        // the two have never been drawn together and no symptom was visible;
+        // what the change answers is the design, and what the rule below it in
+        // `ChromePaletteTests` guards is the future in which a current-line
+        // highlight is added.
         case .selectionInactive: return Entry(dark: 0x3C3F46, light: 0xE2E2E7)
         case .currentLine: return Entry(dark: 0x34363B, light: 0xF0F0F2)
         case .bracketMatch: return Entry(dark: 0x3D4A5C, light: 0xDBE6F5)

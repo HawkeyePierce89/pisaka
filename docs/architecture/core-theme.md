@@ -144,14 +144,26 @@ compares component by component; the duplication *is* the test.
 **One row has changed since the table was first written.** `selectionInactive`
 was `dark: 0x34363B, light: 0xF0F0F2` — byte for byte the pair `currentLine`
 carries — and is now `dark: 0x3C3F46, light: 0xE2E2E7`, a deliberate step
-stronger. The change exists because the two were *indistinguishable*: an
-unfocused selection and the line the caret is on are two different facts about
-the document, and a reader who cannot tell them apart has lost one of them.
-`ChromePaletteTests` states that as a rule rather than as the new numbers —
+stronger, because the design states that value. **No symptom was visible, and
+the change must not be recorded as if one had been**: `selectionInactive` has
+exactly one consumer — `ProjectTreeView.swift`'s `TreeRowBackground.role(for:)`,
+`case .selectedUnfocused`, a project-tree row selected while its window is not
+key, never an editor text selection — and `currentLine` is painted by *nothing
+at all*, its only occurrences being its declaration, its palette row and the
+comment on the row above it. The two have therefore never shared a surface, and
+the only thing that looks different after the change is one tree row's
+background. What `ChromePaletteTests` states —
 `testTheInactiveSelectionWashIsNotTheCurrentLineWash`, asserted in both
-appearances through `ChromeTheme` and through the concrete AppKit colours — so
-it survives a later palette change; the restated row carries the new pair
-beside it. `conflictBackground` was checked against the same design while this
+appearances through `ChromeTheme` and through the concrete AppKit colours — is a
+rule about the *future*: whoever adds a current-line highlight must not let it
+arrive in the selection's own wash. It is written as the property rather than as
+the new numbers, so it survives a later palette change; the restated row carries
+the new pair beside it. A second assertion,
+`testTheInactiveSelectionRowNamesTheFileThatPaintsIt`, keeps the row's comment
+honest the only way a comment can be kept honest — it names a *file*, and the
+test checks that the file still paints the role and that the comment still names
+it. That is why the row's comment was rewritten from a symptom into a consumer:
+a symptom is unfalsifiable prose, a file name is an assertion. `conflictBackground` was checked against the same design while this
 row was being changed and was **already correct**
 (`dark: 0xC9A35C, light: 0xA67C2E, alpha: 0x26`), so it is untouched. No gating
 rule is added by any of this: `ChromeThemeSourceGatingTests`' rule count is

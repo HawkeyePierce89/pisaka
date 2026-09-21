@@ -189,10 +189,16 @@ final class ChromePaletteTests: XCTestCase {
     /// The inactive-selection wash and the current-line wash are two different
     /// facts, and must not be the same colour.
     ///
-    /// A selection the user made in a view that no longer has focus, and the line
-    /// the caret is sitting on, answer different questions; drawn in one value a
-    /// reader cannot tell which of the two a washed row is, and so has lost one of
-    /// them. The two were byte-identical once, which is the defect this states.
+    /// **This states a rule about a future, not a defect that was visible.** The
+    /// two roles are not drawn together today, and in fact are not drawn together
+    /// at all: `selectionInactive` has exactly one consumer — a project-tree row
+    /// selected while its window is not key — and `currentLine` is painted by
+    /// nothing whatsoever. They were byte-identical once; the palette row is now
+    /// a deliberate step stronger because the design states that value, and this
+    /// assertion is what keeps a current-line highlight, once someone adds one,
+    /// from silently arriving in the selection's own wash. Read as evidence of a
+    /// symptom that was fixed, it would be read wrong: nothing on screen changed
+    /// but one tree row's background.
     ///
     /// The rule is about the property, not about today's numbers: it survives any
     /// later palette change that keeps the two washes distinguishable, and fails
@@ -211,6 +217,64 @@ final class ChromePaletteTests: XCTestCase {
                 "selectionInactive and currentLine resolve to the same AppKit colour in \(appearance.rawValue)"
             )
         }
+    }
+
+    /// The row's comment names a consumer, and that consumer exists.
+    ///
+    /// The comment on `ChromePalette`'s `selectionInactive` row says the wash
+    /// belongs to `ProjectTreeView.swift`'s unfocused-selection row. A comment
+    /// naming a *file* is checkable where a comment naming a *symptom* is not,
+    /// which is the whole reason the row was rewritten that way — so this asserts
+    /// both halves: that the role is still painted somewhere under `Sources/`
+    /// outside the palette itself, and that the palette's comment names the file
+    /// that paints it. Of the two forms the fix could take, this is the assertion
+    /// rather than the bare comment, because the assertion keeps the comment true
+    /// as the tree moves; the comment alone would rot in silence.
+    ///
+    /// Read over the raw text on purpose: half of what is checked *is* a comment,
+    /// so the repository's comment-stripping scanners would delete the subject.
+    func testTheInactiveSelectionRowNamesTheFileThatPaintsIt() throws {
+        let sources = Self.repositoryRoot.appendingPathComponent("Sources")
+        let palettePath = "Sources/Pisaka/ChromePalette.swift"
+        var consumers: Set<String> = []
+        let enumerator = try XCTUnwrap(
+            FileManager.default.enumerator(at: sources, includingPropertiesForKeys: nil)
+        )
+        for case let url as URL in enumerator where url.pathExtension == "swift" {
+            let relative = Self.relativePath(of: url)
+            guard relative != palettePath else { continue }
+            guard let text = try? String(contentsOf: url, encoding: .utf8) else { continue }
+            if text.contains(".selectionInactive") { consumers.insert(relative) }
+        }
+        XCTAssertFalse(
+            consumers.isEmpty,
+            "selectionInactive is painted by nothing; its palette comment names a consumer that is gone"
+        )
+        let palette = try String(
+            contentsOf: Self.repositoryRoot.appendingPathComponent(palettePath), encoding: .utf8
+        )
+        for consumer in consumers {
+            let name = (consumer as NSString).lastPathComponent
+            XCTAssertTrue(
+                palette.contains(name),
+                "ChromePalette's selectionInactive comment does not name \(name), which paints it"
+            )
+        }
+    }
+
+    /// The repository root, walked up from this file.
+    private static var repositoryRoot: URL {
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+    }
+
+    private static func relativePath(of url: URL) -> String {
+        let root = repositoryRoot.standardizedFileURL.path
+        let path = url.standardizedFileURL.path
+        guard path.hasPrefix(root + "/") else { return path }
+        return String(path.dropFirst(root.count + 1))
     }
 
     // MARK: - The resolution the roots perform
