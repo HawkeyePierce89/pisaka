@@ -165,11 +165,11 @@ removing it would be a change made on an argument rather than on evidence.
 
 ### Task 3: Run the gates
 
-  - [ ] `swift test` — green
-  - [ ] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' -derivedDataPath ~/Library/Developer/Xcode/DerivedData/pisaka-chrome-theme-2 test` — green
-  - [ ] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'generic/platform=iOS' -derivedDataPath ~/Library/Developer/Xcode/DerivedData/pisaka-chrome-theme-2 build` — the iOS target still builds
-  - [ ] `swiftlint --strict` from the repository root — clean
-  - [ ] Confirm Task 1's cross-file rule fails when either document's count is
+  - [x] `swift test` — green
+  - [x] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' -derivedDataPath ~/Library/Developer/Xcode/DerivedData/pisaka-chrome-theme-2 test` — green
+  - [x] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'generic/platform=iOS' -derivedDataPath ~/Library/Developer/Xcode/DerivedData/pisaka-chrome-theme-2 build` — the iOS target still builds
+  - [x] `swiftlint --strict` from the repository root — clean
+  - [x] Confirm Task 1's cross-file rule fails when either document's count is
         changed by one, then revert. A pair that cannot be made to fail is
         pinning nothing.
-  - [ ] Confirm nothing was written into the repository tree
+  - [x] Confirm nothing was written into the repository tree
