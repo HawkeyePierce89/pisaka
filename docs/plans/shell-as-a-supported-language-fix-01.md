@@ -184,18 +184,18 @@ differently; the cost is that the decision record argues from a fact untrue of
 the file it lives in, and `print` is exactly the precedent that would settle the
 next borderline word.
 
-- [ ] Rewrite the shell list's justification so it cites only what is true of
+- [x] Rewrite the shell list's justification so it cites only what is true of
       this file. `echo` is still out, and the reason still holds — an ordinary
       command a `$PATH` program could perform — but the supporting cross-
       reference must either name a word genuinely on no list, or name Go's
       `print` **and** say why Go's case is different (a predeclared identifier
       with no declaration site anywhere, which `echo` is not).
-- [ ] Mirror the correction in `docs/architecture/core-intelligence.md`.
-- [ ] **Sweep:** the construct is *a doc comment asserting what some other
+- [x] Mirror the correction in `docs/architecture/core-intelligence.md`.
+- [x] **Sweep:** the construct is *a doc comment asserting what some other
       keyword list does or does not contain*. Grep every doc comment in this file
       for a claim about a sibling list and check each against the lists
       themselves. Report what was checked and what was wrong.
-- [ ] A test that would have caught it: assert the cross-reference mechanically —
+- [x] A test that would have caught it: assert the cross-reference mechanically —
       for each word a doc comment claims is on no list, assert it appears in no
       list. Keep it a rule over the lists rather than a hard-coded pair, so the
       next such claim is checked for free.

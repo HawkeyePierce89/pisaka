@@ -631,9 +631,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     are **curated, not generated** — the tokens a person types while writing the
     language (declaration and statement keywords, the literal spellings
     `true`/`nil`/`None`, the widely-used contextual keywords) and nothing more.
-    They are deliberately not a standard-library index: `print`, `console` and
-    `String` are declarations, and a project that uses them has them in its buffer
-    or (for its own code) in its symbol index already. Go's list is what sharpens
+    They are deliberately not a standard-library index: `console`, `String` and
+    `fmt.Println` are declarations, and a project that uses them has them in its
+    buffer or (for its own code) in its symbol index already — while Go's `print`
+    and `println`, which look like the same shape, are on a list precisely
+    because they are not declarations anywhere. Go's list is what sharpens
     that rule into the one sentence the others were following implicitly: **an
     identifier belongs here when no source file can ever declare it.** That is why
     Go reaches past the 25 reserved words into the whole universe block — its 22
@@ -701,8 +703,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     the earlier phrasing had to be replaced: it is a builtin *and* a real file in
     `/bin`, so a rule about what a file can declare admitted and refused it at
     once. Nothing about a script's meaning depends on which `echo` runs, so it is
-    out — by the same argument that keeps `print` and `console` off the other
-    lists — along with `printf`, `test`, `pwd`, `kill`, `type`, `hash`, `ulimit`,
+    out — by the same argument that keeps `console` off every other list: a word
+    another completion source can already offer is not this source's job. The
+    neighbouring precedent that looks like it argues the other way does not.
+    Go's list *does* carry `print`, for the reason stated there — a predeclared
+    identifier is declared in no file anywhere, so nothing else can ever offer
+    it — and `echo` is the opposite case, an ordinary command with a file behind
+    it that the buffer words pick up the moment a script types it. Out with it go
+    `printf`, `test`, `pwd`, `kill`, `type`, `hash`, `ulimit`,
     `umask`, `jobs`, `fg`, `bg`, `wait`, `pushd` and `popd`; `true`/`false` are
     out because here they are commands rather than the boolean literals a grammar
     declares; every external program (`grep`, `sed`, `awk`, `git`) is out; and the

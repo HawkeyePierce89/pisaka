@@ -20,9 +20,12 @@ import Foundation
 /// The lists are curated, not generated: each holds the tokens a person types
 /// while writing the language — declaration and statement keywords, the literal
 /// spellings (`true`/`nil`/`None`), the widely-used contextual keywords — and
-/// stops there. They are deliberately *not* a standard-library index: `print`,
-/// `console` and `String` are declarations, and a project that uses them has
-/// them in its buffer or (for its own code) in its symbol index already.
+/// stops there. They are deliberately *not* a standard-library index:
+/// `console`, `String` and `fmt.Println` are declarations, and a project that
+/// uses them has them in its buffer or (for its own code) in its symbol index
+/// already. The one shape that looks like an exception is not one: Go's `print`
+/// and `println` *are* on a list, because they are predeclared identifiers with
+/// no declaration site in any file — the Go list's own note draws that line.
 public enum LanguageKeywords {
 
     /// The keywords of `language`, sorted and duplicate-free, or an empty array
@@ -195,8 +198,15 @@ public enum LanguageKeywords {
     /// `$PATH` could perform, whether or not this shell also implements it
     /// internally. `echo` is the worked example: it is a builtin *and* a real
     /// file in `/bin`, and nothing about a script's meaning depends on which one
-    /// runs — so it is out, by the same rule that keeps `print` and `console`
-    /// off the other lists. `printf`, `test`, `pwd`, `kill`, `type`, `hash`,
+    /// runs — so it is out, by the same rule that keeps `console` off every
+    /// other list: a word some other completion source can already offer is not
+    /// this source's job. The neighbouring precedent that looks like it argues
+    /// the other way does not: Go's list *does* carry `print`, and its own note
+    /// says why — a predeclared identifier is declared in no file anywhere, so
+    /// nothing else can ever offer it. `echo` is the opposite case. It is an
+    /// ordinary command with a file behind it, so the buffer words pick it up
+    /// the moment a script types it, which is exactly what a keyword list is
+    /// not for. `printf`, `test`, `pwd`, `kill`, `type`, `hash`,
     /// `ulimit`, `umask`, `jobs`, `fg`, `bg`, `wait`, `pushd` and `popd` are out
     /// for that reason; `true`/`false` are out because here they are commands,
     /// not the boolean literals a grammar declares; every external program
