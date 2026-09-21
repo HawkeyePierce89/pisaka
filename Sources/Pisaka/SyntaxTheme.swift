@@ -22,15 +22,14 @@ struct SyntaxTheme {
     static let shared = SyntaxTheme()
 
     /// The appearance-aware foreground color for a token kind, for the text-view
-    /// attribute provider. `.plain` (and any unmapped kind) falls back to the
-    /// default label color so ordinary text matches the editor's foreground.
+    /// attribute provider.
+    ///
+    /// `.plain` has a real entry of its own, and the table is total over the
+    /// closed `SyntaxTokenKind`, so the `plainText` fallback below is unreachable
+    /// while that stays true — it is the answer to a kind the table does not
+    /// name, and there is none.
     func color(for kind: SyntaxTokenKind) -> PlatformColor {
-        if let mapped = SyntaxTheme.table[kind] { return mapped }
-        #if os(macOS)
-        return .labelColor
-        #else
-        return .label
-        #endif
+        SyntaxTheme.table[kind] ?? SyntaxTheme.plainText
     }
 
     #if os(macOS)
@@ -303,26 +302,69 @@ struct SyntaxTheme {
 
     private static let diagnosticHint: PlatformColor = .dynamic(light: 0x77808C, dark: 0x6E7681)
 
-    /// Token kind → appearance-aware color. Tones follow the platform's own
-    /// conventional light/dark source presentation, so a file reads the way a
-    /// native editor's does. Built through the cross-platform
+    /// Token kind → appearance-aware color: the project's own palette, muted and
+    /// low-contrast, chosen against the surfaces the code is drawn on rather than
+    /// after any platform convention. Built through the cross-platform
     /// `PlatformColor.dynamic(light:dark:)` bridge (on macOS `PlatformColor` is
-    /// `NSColor`, so these stay the exact same dynamic `NSColor`s as before).
-    private static let table: [SyntaxTokenKind: PlatformColor] = [
-        .keyword: .dynamic(light: 0x9B2393, dark: 0xFC5FA3),
-        .string: .dynamic(light: 0xC41A16, dark: 0xFC6A5D),
-        .comment: .dynamic(light: 0x536579, dark: 0x7E8C99),
-        .number: .dynamic(light: 0x1C00CF, dark: 0xD0BF69),
-        .type: .dynamic(light: 0x3F6E75, dark: 0x5DD8FF),
-        .function: .dynamic(light: 0x326D74, dark: 0x67B7A4),
-        .variable: .dynamic(light: 0x0F68A0, dark: 0x9EF1DD),
-        .constant: .dynamic(light: 0x1C00CF, dark: 0xD0BF69),
-        .operator: .dynamic(light: 0x3D3D3D, dark: 0xD6D6D6),
-        .punctuation: .dynamic(light: 0x3D3D3D, dark: 0xD6D6D6),
-        .property: .dynamic(light: 0x0F68A0, dark: 0x67B7A4),
-        .parameter: .dynamic(light: 0x0F68A0, dark: 0x9EF1DD),
-        .label: .dynamic(light: 0x9B2393, dark: 0xFC5FA3),
+    /// `NSColor`, so these are dynamic `NSColor`s).
+    ///
+    /// Several rows carry the same pair, and each repetition is deliberate: a
+    /// constant reads as the literal it is, so it takes `.number`'s pair;
+    /// operators and punctuation are the same class of mark, so they take one
+    /// weight; a parameter is an ordinary identifier, so it takes `.variable`'s;
+    /// and `.variable`, `.parameter` and `.plain` all sit at the body-text weight
+    /// because colouring an ordinary identifier competes with the hues that
+    /// actually carry meaning.
+    ///
+    /// The fourteen rows are fourteen answers to fourteen questions and must not
+    /// be collapsed into shared constants: the moment two of them are meant to
+    /// diverge, a shared constant makes that one edit into two.
+    ///
+    /// Three of these pairs are numerically equal to chrome roles — the body-text
+    /// weight (`ChromeColorRole.textPrimary`), the secondary weight
+    /// (`.textSecondary`) and the label colour (`.accent`). That equality is two
+    /// layers agreeing about a weight, not duplication to be factored out: the
+    /// code zone owns its own theme and reads no chrome role, and the chrome
+    /// palette carries no syntax entry. Unifying the two tables is explicitly not
+    /// wanted; the counterpart sentence is on those rows in `ChromePalette`.
+    ///
+    /// `internal` rather than `private` for one reason: the suite states the
+    /// table's *totality* over the closed `SyntaxTokenKind`, which is what makes
+    /// `plainText` unreachable in the product, and totality is a fact about the
+    /// keys that no reading of values can stand in for — three rows carry the
+    /// same pair as `plainText`, so a missing one of those would resolve
+    /// correctly and still be missing.
+    static let table: [SyntaxTokenKind: PlatformColor] = [
+        .keyword: .dynamic(light: 0x8250B0, dark: 0xB48EAD),
+        .string: .dynamic(light: 0x4F7942, dark: 0x9DB97B),
+        .comment: .dynamic(light: 0x8A8A90, dark: 0x6B6E76),
+        .number: .dynamic(light: 0xA5652D, dark: 0xC9976C),
+        .type: .dynamic(light: 0x2B6A83, dark: 0x6A9FB5),
+        .function: .dynamic(light: 0x2F5FA8, dark: 0x7AA6DA),
+        .variable: .dynamic(light: 0x1D1D1F, dark: 0xDFE1E5),
+        .constant: .dynamic(light: 0xA5652D, dark: 0xC9976C),
+        .operator: .dynamic(light: 0x6E6E73, dark: 0xA0A3AA),
+        .punctuation: .dynamic(light: 0x6E6E73, dark: 0xA0A3AA),
+        .property: .dynamic(light: 0x2F6B63, dark: 0x7FA8A0),
+        .parameter: .dynamic(light: 0x1D1D1F, dark: 0xDFE1E5),
+        .label: .dynamic(light: 0x2F6FE0, dark: 0x4F8DFF),
+        .plain: .dynamic(light: 0x1D1D1F, dark: 0xDFE1E5),
     ]
+
+    /// The colour of text that carries no meaning — the fallback `color(for:)`
+    /// would use for a kind the table does not name.
+    ///
+    /// It answers the *same* question `.plain` does, which is why this one value
+    /// is spelled twice rather than all fourteen being hoisted into constants. A
+    /// system semantic colour is forbidden here for the reason it is forbidden in
+    /// the chrome: it follows the *system* appearance and would ignore the app's
+    /// own Theme preference, leaving plain text disagreeing with everything drawn
+    /// around it.
+    ///
+    /// `internal` rather than `private` because the suite has to assert it
+    /// directly: `SyntaxTokenKind` is closed and `table` is total over it, so no
+    /// call to `color(for:)` can reach this value in the product.
+    static let plainText: PlatformColor = .dynamic(light: 0x1D1D1F, dark: 0xDFE1E5)
 }
 
 #endif

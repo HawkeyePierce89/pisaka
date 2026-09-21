@@ -123,7 +123,7 @@ duplication.
 - Modify: `Sources/Pisaka/SyntaxTheme.swift`
 - Create: `Tests/PisakaAppTests/SyntaxThemeTests.swift`
 
-- [ ] Replace every row of `SyntaxTheme.table` with the ticket's values, and add
+- [x] Replace every row of `SyntaxTheme.table` with the ticket's values, and add
       the fourteenth row for `.plain`. Each row stays a literal
       `.dynamic(light: 0x…, dark: 0x…)` pair — fourteen rows, no row expressed in
       terms of another, no shared constant for a repeated value:
@@ -141,7 +141,7 @@ duplication.
       `.parameter` light `0x1D1D1F` dark `0xDFE1E5`;
       `.label` light `0x2F6FE0` dark `0x4F8DFF`;
       `.plain` light `0x1D1D1F` dark `0xDFE1E5`.
-- [ ] Rewrite the table's doc comment. It must say (a) that the palette is the
+- [x] Rewrite the table's doc comment. It must say (a) that the palette is the
       project's own, muted and low-contrast, chosen against the surfaces around the
       code rather than after any platform convention — replacing the current
       sentence about following the platform's conventional presentation; (b) why
@@ -152,14 +152,14 @@ duplication.
       the hues that carry meaning); (c) that the fourteen rows are fourteen answers
       to fourteen questions and must not be collapsed into shared constants,
       because a future divergence would then be an edit in two places.
-- [ ] Add, in the same doc comment, the two-layers sentence: three of these value
+- [x] Add, in the same doc comment, the two-layers sentence: three of these value
       pairs are numerically equal to chrome roles — the body-text weight
       (`textPrimary`), the secondary-text weight (`textSecondary`) and the accent
       (`label`) — and that equality is **two layers agreeing about a weight, not
       duplication to be factored out**. State that the code zone owns its own
       theme, reads no chrome role, and that the chrome palette carries no syntax
       entry; unifying the two tables is explicitly not wanted.
-- [ ] Replace `color(for:)`'s `.labelColor` / `.label` fallback with an **internal**
+- [x] Replace `color(for:)`'s `.labelColor` / `.label` fallback with an **internal**
       (not `private`) static `plainText` dynamic colour (light `0x1D1D1F`, dark
       `0xDFE1E5`). Its doc comment says it answers the *same* question `.plain`
       does — "text that carries no meaning" — which is why this one value is
@@ -169,16 +169,16 @@ duplication.
       that it is `internal` because the suite has to assert it directly — the enum
       is closed and the table total, so no call to `color(for:)` can reach it.
       Remove the now-dead `#if os(macOS)` / `#else` branch in that method.
-- [ ] Update `color(for:)`'s own doc comment: `.plain` now has a real entry, and the
+- [x] Update `color(for:)`'s own doc comment: `.plain` now has a real entry, and the
       fallback is unreachable while the table is total.
-- [ ] Create `Tests/PisakaAppTests/SyntaxThemeTests.swift` (macOS-gated,
+- [x] Create `Tests/PisakaAppTests/SyntaxThemeTests.swift` (macOS-gated,
       `@testable import Pisaka`), modelled on `ChromePaletteTests`: restate all
       fourteen rows as an `[SyntaxTokenKind: (dark: UInt32, light: UInt32)]` table;
       assert the restated set equals `SyntaxTokenKind.allCases`; assert each kind's
       colour resolves component-for-component to its row under `.darkAqua` and
       `.aqua`, using the same `performAsCurrentDrawingAppearance` +
       `usingColorSpace(.sRGB)` helpers; assert every entry is fully opaque.
-- [ ] In the same suite, add the first new rule-shaped test: **no token kind
+- [x] In the same suite, add the first new rule-shaped test: **no token kind
       resolves to a system semantic colour in either appearance.** Resolve each kind
       under each appearance and assert it differs from `NSColor.labelColor`,
       `.secondaryLabelColor`, `.tertiaryLabelColor` and `.textColor` resolved under
@@ -186,14 +186,14 @@ duplication.
       for — a system colour follows the system appearance and so ignores the app's
       Theme preference — and say that the rule is about the property, not about
       today's numbers, so it survives a later palette change.
-- [ ] Add a test that `SyntaxTheme.plainText` itself resolves to the `.plain` row in
+- [x] Add a test that `SyntaxTheme.plainText` itself resolves to the `.plain` row in
       both appearances, and assert beside it — in the same test, so the two
       sentences are read together — that `SyntaxTheme.table` is total over
       `SyntaxTokenKind.allCases`, which is what makes the fallback unreachable in
       the product. The doc comment must say exactly that: the constant is asserted
       directly because no call can reach it, and the totality assertion is the
       statement of why.
-- [ ] Run `xcodegen generate`, then the app-layer bundle — must pass before Task 2.
+- [x] Run `xcodegen generate`, then the app-layer bundle — must pass before Task 2.
 
 ### Task 2: Every character in a file follows the table
 
