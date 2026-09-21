@@ -154,14 +154,24 @@ Three accessors, one table:
     a colour once into a stored property would freeze whichever appearance
     happened to be current, and would then need an observer to un-freeze it — two
     mechanisms where the platform already provides one. **That is a rule about the
-    value, not about the drawing**: a dynamic colour resolves only *while
-    drawing*, so a view AppKit does not redraw by itself on an appearance change
-    — one painting its whole content in `draw(_:)` rather than handing AppKit a
-    `backgroundColor` — still overrides `viewDidChangeEffectiveAppearance()` to
-    ask for that redraw. It caches nothing and names no role; it says only
-    "redraw". `MinimapView` is the chrome's one such view today; the gutter, the
-    editor pane and the read-only viewer pane each hand AppKit a colour and so
-    need none.
+    value, not about the drawing**: a dynamic colour resolves whenever the
+    drawing happens, so a chrome view that asks for one every time it paints
+    needs no cached value and no colour-specific observer of any kind. The
+    chrome's AppKit surfaces divide by what they hand AppKit, not by what they
+    need: the editor pane and the read-only viewer pane set a `backgroundColor`
+    and let AppKit fill it; the gutter (`LineNumberRulerView`, which as an
+    `NSRulerView` has no `backgroundColor` to set) and the minimap fill their
+    own background inside their own drawing. The gutter overrides
+    `viewDidChangeEffectiveAppearance()` nowhere, and it was **measured**
+    recolouring live in both directions — the application built from this
+    branch, the Theme preference following the system, the *system* appearance
+    switched under the running window with no relaunch, the gutter strip and
+    the editor pane strip beside it agreeing on the new colour and then on the
+    old one again. `MinimapView` does carry such an override; whether it is
+    required there or redundant **was not established** — it predates this
+    sweep, nothing in this project executes an appearance change, and nothing
+    measured that view. It stays until something does. Asserting either way
+    would be an argument where the only evidence is about the gutter.
   - `nsColor(_ role:in:)` — the **concrete** `NSColor` of one appearance, for the
     sites that are not drawing (the palette test reads components) or that have
     already been handed an appearance to resolve against. Drawing code asks the
@@ -491,8 +501,7 @@ has decided not to make, and that is a design question to raise, not a table to
 grow.
 
 An AppKit surface takes the bridge (`ChromePalette.nsColor(_:)`, dynamic, no
-caching, no colour observer — but still a `viewDidChangeEffectiveAppearance()`
-redraw if it paints itself rather than handing AppKit a colour); a SwiftUI
+caching, no colour observer); a SwiftUI
 surface takes
 `@Environment(\.chromeTheme)` and asks `theme.color(_:)`. A surface whose root
 is a new window gains `.chromeThemed(settings)` beside `.interfaceScaled(...)` —

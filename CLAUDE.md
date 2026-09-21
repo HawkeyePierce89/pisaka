@@ -730,8 +730,9 @@ ci.yml's `lint` job, and the version-bump procedure.
   from `ZoomSourceGatingTests`' own declaration), and AppKit asks
   `ChromePalette.nsColor(_:)` for a **dynamic** colour — which is why no AppKit
   chrome view caches a resolved colour or watches for a *colour* change; a
-  dynamic colour resolves only while drawing, so a view AppKit does not redraw
-  by itself still overrides `viewDidChangeEffectiveAppearance()` to ask for one. A
+  dynamic colour resolves whenever the drawing happens, and the gutter — which
+  paints its own background and overrides nothing — was measured recolouring
+  live in both directions when the system appearance changed under it. A
   reader: it takes no writer gate, is gated by none and writes nothing.
   `ChromeThemeSourceGatingTests` pins which files obey the rule (eleven, by set
   equality) and its eight rules — no system semantic colour, no hex literal

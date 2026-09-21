@@ -24,13 +24,16 @@ import PisakaCore
 /// *dynamic* colour: nothing here caches a resolved value and nothing watches for
 /// a *colour* change, because the colour resolves itself while AppKit has the
 /// view's effective appearance current. That is a statement about the value, not
-/// about the drawing: a dynamic colour resolves only *while drawing*, and this
-/// view paints its whole content itself in `draw(_:)`, which AppKit does not
-/// re-run on its own when the effective appearance changes. So
-/// ``viewDidChangeEffectiveAppearance()`` below is still required — it caches
-/// nothing and asks about no role, it only says "redraw", which is what makes the
-/// resolution happen under the new appearance. Deleting it leaves the minimap
-/// painted in the previous appearance's greys until something else dirties it.
+/// about the drawing: a dynamic colour resolves whenever the drawing happens, so
+/// nothing here has to remember an appearance. This view paints its whole
+/// content itself in `draw(_:)` rather than handing AppKit a `backgroundColor`
+/// — the same shape as the gutter, which overrides nothing and was measured
+/// recolouring live in both directions when the system appearance changed under
+/// the running window. ``viewDidChangeEffectiveAppearance()`` below predates the
+/// chrome sweep and only says "redraw"; whether it is **required here or
+/// redundant was never established** — nothing in this project executes an
+/// appearance change, and no measurement was taken of this view. It stays until
+/// one is.
 /// The **runs** are not chrome: they are a
 /// rendering of the code, so they stay with `SyntaxTheme` for exactly the reason
 /// the syntax highlighting does — a token kind names the code zone's own theme,
@@ -122,9 +125,11 @@ final class MinimapView: NSView, ZoomSurfaceProviding {
 
     /// Re-resolve theme colors for the new appearance by redrawing.
     ///
-    /// Required, not decorative: both colour sources answer values that resolve
-    /// while drawing, and nothing else dirties this view on an appearance change,
-    /// so without this the strip keeps the previous appearance's colours.
+    /// It caches nothing and names no role; it only sets `needsDisplay`. Whether
+    /// it is load-bearing is **unmeasured**: the gutter, which paints its own
+    /// background the same way and overrides nothing, was observed recolouring
+    /// live in both directions. This override predates the chrome sweep and is
+    /// kept rather than removed on that argument alone.
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         needsDisplay = true

@@ -140,28 +140,28 @@ removing it would be a change made on an argument rather than on evidence.
     `docs/architecture/app-editor-overlays.md`, `CLAUDE.md`
   - Modify: `Sources/Pisaka/ChromePalette.swift`, `Sources/Pisaka/MinimapView.swift`
 
-  - [ ] Replace the stated rule with the observation: a dynamic colour resolves
+  - [x] Replace the stated rule with the observation: a dynamic colour resolves
         whenever drawing happens, and a chrome view drawing one needs no cached
         value and no colour-specific observer. Say that the gutter, which paints
         its own background and overrides nothing, was measured recolouring live
         in both directions when the appearance changed under it.
-  - [ ] Remove the classification that calls the gutter a view that "hands
+  - [x] Remove the classification that calls the gutter a view that "hands
         AppKit a colour". Either drop the three-surface bucketing entirely or
         state it by what each surface actually does — the editor pane and the
         viewer pane set a `backgroundColor`; the gutter and the minimap paint
         their own.
-  - [ ] Say plainly what is *not* known: whether the minimap's override is
+  - [x] Say plainly what is *not* known: whether the minimap's override is
         required or redundant was not established, it predates this branch, and
         it stays until something measures it. A document that admits this is
         correct; one that asserts either way is not.
-  - [ ] **Sweep for the shape:** grep for the claim's wording across `Sources/`,
+  - [x] **Sweep for the shape:** grep for the claim's wording across `Sources/`,
         `docs/` and `CLAUDE.md` — the previous round put it in five files and a
         fix landing in fewer leaves the rest contradicting the tree. Fix every
         occurrence in this commit.
-  - [ ] No test: no gate in this project executes an appearance change, which is
+  - [x] No test: no gate in this project executes an appearance change, which is
         exactly why the claim went unchecked. Say so in the commit message
         rather than inventing a test that restates the prose.
-  - [ ] run `swift test` and the app-layer bundle — must pass before Task 3
+  - [x] run `swift test` and the app-layer bundle — must pass before Task 3
 
 ### Task 3: Run the gates
 

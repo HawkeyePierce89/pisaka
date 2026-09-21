@@ -859,13 +859,18 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     table** so this view composes no alpha of its own. Both are *dynamic*
     `NSColor`s: nothing is cached and nothing watches for a *colour* change,
     because the colour resolves itself while AppKit has the view's effective
-    appearance current — a statement about the value, not about the drawing. This
-    view paints its whole content itself in `draw(_:)`, which AppKit does not
-    re-run when the effective appearance changes, so
-    `viewDidChangeEffectiveAppearance()` is still overridden and still required:
-    it caches nothing and names no role, it only sets `needsDisplay`, which is
-    what makes the resolution happen under the new appearance. Deleting it leaves
-    the strip in the previous appearance's greys until something else dirties it.
+    appearance current — a statement about the value, not about the drawing. A
+    dynamic colour resolves whenever the drawing happens, so nothing here has to
+    remember an appearance. This view paints its whole content itself in
+    `draw(_:)` rather than handing AppKit a `backgroundColor`, which is the same
+    shape as the gutter beside it — and the gutter overrides
+    `viewDidChangeEffectiveAppearance()` nowhere, yet was measured recolouring
+    live in both directions when the system appearance changed under the running
+    window. The override this view does carry caches nothing and names no role;
+    it only sets `needsDisplay`. **Whether it is required here or redundant was
+    never established**: it predates the chrome sweep, no gate in this project
+    executes an appearance change, and nothing measured this view. It is kept
+    until something does, rather than removed on an argument.
     The **runs are not chrome** — they are a rendering of the code — so
     `drawTokens` and `MinimapTokenizer` are untouched and keep asking
     `SyntaxTheme`, for exactly the reason the syntax highlighting does: a token

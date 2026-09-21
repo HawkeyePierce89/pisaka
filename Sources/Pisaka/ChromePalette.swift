@@ -103,12 +103,17 @@ enum ChromePalette {
     /// already provides one.
     ///
     /// **That is a rule about the value, not about the drawing.** A dynamic colour
-    /// resolves only while drawing, so a view AppKit does not redraw by itself on
-    /// an appearance change — one that paints its whole content in `draw(_:)`
-    /// rather than handing AppKit a `backgroundColor` — still overrides
-    /// `viewDidChangeEffectiveAppearance()` to ask for that redraw. It caches
-    /// nothing and names no role; it says only "redraw". `MinimapView` is the
-    /// chrome's one such view today.
+    /// resolves whenever the drawing happens, so a chrome view asking for one
+    /// every time it paints needs no cached value and no colour-specific
+    /// observer. The surfaces differ only in what they hand AppKit: the editor
+    /// pane and the read-only viewer pane set a `backgroundColor`; the gutter
+    /// (an `NSRulerView`, which has none to set) and the minimap fill their own
+    /// background while drawing. The gutter overrides
+    /// `viewDidChangeEffectiveAppearance()` nowhere and was measured recolouring
+    /// live in both directions when the system appearance changed under the
+    /// running window. `MinimapView` does carry such an override; whether it is
+    /// required or redundant there was not established, it predates the chrome
+    /// sweep, and it stays until something measures it.
     static func nsColor(_ role: ChromeColorRole) -> NSColor {
         let entry = entry(for: role)
         return PlatformColor.dynamic(light: entry.light, dark: entry.dark, alpha: entry.opacity)
