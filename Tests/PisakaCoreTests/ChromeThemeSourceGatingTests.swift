@@ -62,6 +62,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         // Part two: the editor pane's own chrome.
         "TabListView.swift",
         "TabRowView.swift",
+        "BreadcrumbBarView.swift",
     ]
 
     func testEveryGatedFileExists() throws {

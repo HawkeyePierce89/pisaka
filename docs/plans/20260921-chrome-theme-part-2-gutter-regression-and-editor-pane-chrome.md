@@ -167,22 +167,22 @@ consent strip's chrome), `CLAUDE.md` (one index line for the new file).
 - Modify: `Sources/Pisaka/ContentView.swift`
 - Modify: `Tests/PisakaCoreTests/ChromeThemeSourceGatingTests.swift`
 
-- [ ] Move `PathBarView` out of `ContentView.swift` into the new file as
+- [x] Move `PathBarView` out of `ContentView.swift` into the new file as
       `BreadcrumbBarView`, carrying its doc comment — minus the brand reference
       — and adding why it now lives in a file of its own.
-- [ ] Split it into the thin outer view (reads `@Environment(\.chromeTheme)`,
+- [x] Split it into the thin outer view (reads `@Environment(\.chromeTheme)`,
       passes `theme.appearance` down) and the inner `.equatable()` view storing
       `fileURL`, `projectRoot`, `metrics` and `appearance`, with a hand-written
       `==` over the four and a comment explaining that the appearance travels for
       the same reason the metrics do.
-- [ ] Draw it: `breadcrumbHeight` tall, `bgPanel`, a bottom hairline of its own,
+- [x] Draw it: `breadcrumbHeight` tall, `bgPanel`, a bottom hairline of its own,
       segments and `›` separators in `textSecondary`, the last segment in
       `textPrimary`, composed as one `Text` so middle truncation survives;
       `rowPaddingX` horizontal padding; `metrics.scaledFont(.subheadline)`.
-- [ ] `ContentView`: host `BreadcrumbBarView` and delete the `Divider()` under
+- [x] `ContentView`: host `BreadcrumbBarView` and delete the `Divider()` under
       it, as the horizontal tab strip's host already does.
-- [ ] Add `BreadcrumbBarView.swift` to `gatedFiles`.
-- [ ] run `swift test` and the app-layer bundle — must pass before Task 4
+- [x] Add `BreadcrumbBarView.swift` to `gatedFiles`.
+- [x] run `swift test` and the app-layer bundle — must pass before Task 4
 
 ### Task 4: The minimap's own chrome
 

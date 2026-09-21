@@ -38,7 +38,7 @@ struct ContentView: View {
     /// re-evaluate the whole window — the project tree, the tab list,
     /// `CodeEditorView.updateNSView`, the bottom panel — on every keystroke in the
     /// commit message field, which is bound to the model's `@Published` `message`.
-    /// That is the per-keystroke cost `PathBarView.equatable()` exists to avoid,
+    /// That is the per-keystroke cost `BreadcrumbBarView`'s equatable half exists to avoid,
     /// arriving from a new source.
     var commitDialog: CommitDialogModel = CommitDialogModel(gitService: GitCLIService())
     /// Owns the embedded terminal's live sessions. Defaults to a fresh model so
@@ -64,7 +64,7 @@ struct ContentView: View {
     /// immediate on a tab switch). Owned by `PisakaApp` and threaded straight into
     /// `CodeEditorView`; deliberately **not** `@ObservedObject` — it publishes
     /// nothing, and the index model behind it republishes after every chunk of a
-    /// walk, which is exactly the per-update cost `PathBarView.equatable()` and the
+    /// walk, which is exactly the per-update cost `BreadcrumbBarView`'s equatable half and the
     /// non-observed `commitDialog` exist to keep off this view. Defaults to a
     /// controller over a fresh, never-walked index so a default-constructed view
     /// (previews/tests) still compiles.
@@ -972,14 +972,12 @@ struct ContentView: View {
     private var editorZone: some View {
         if let file = model.selectedFile {
             VStack(spacing: 0) {
-                // The metrics travel as a stored property rather than through the
-                // environment precisely because this view is `.equatable()`:
-                // SwiftUI compares the view's *values* to decide whether to
-                // re-render, so a scale that lived only in the environment would
-                // leave the breadcrumb at its old size until the file changed.
-                PathBarView(fileURL: file.url, projectRoot: model.projectRoot, metrics: metrics)
-                    .equatable()
-                Divider()
+                // The strip states its own height and draws its own bottom rule
+                // — as the horizontal tab strip above it does — so there is no
+                // `Divider()` here for the two to disagree about. What it is
+                // handed, and why the scale and the appearance travel with it,
+                // is in `BreadcrumbBarView`.
+                BreadcrumbBarView(fileURL: file.url, projectRoot: model.projectRoot)
                 // The one place the second tab kind is routed on. The breadcrumb
                 // above stays for every tab — a database has a path like any other
                 // file — and below it a viewer tab gets its own surface instead of
@@ -1302,58 +1300,6 @@ struct ContentView: View {
               let url = LocalChangesModel.jumpToSourceURL(for: file, root: root)
         else { return }
         onOpenFile(url)
-    }
-}
-
-/// The VS Code-style breadcrumb bar above the editor: the open file's path
-/// relative to the opened project root (`backend › src › dialogs.service.ts`), or
-/// an abbreviated absolute path when it lives outside the root. All the segment
-/// computation is `PisakaCore.DisplayPath` — this is display only, so the view
-/// stays thin and the rule stays unit-tested. `home` is read here (Core takes it
-/// as a parameter, the `TerminalLaunch` precedent).
-///
-/// A fixed row height keeps the editor from jumping as the path changes, and
-/// middle truncation keeps the file name visible in a narrow window. Rendered
-/// inside `ContentView.editorZone`, so both tab orientations get it (in
-/// `.horizontal` it lands just under the tab strip).
-///
-/// It is a separate `Equatable` view — rather than a `@ViewBuilder` on
-/// `ContentView` — because `DisplayPath.components` resolves symlinks
-/// (`CanonicalPath.canonical` → `resolvingSymlinksInPath()`, an `lstat` walk per
-/// path component) while `ContentView.body` re-evaluates on *every* keystroke:
-/// the editor binding routes each edit through `model.updateText`, republishing
-/// `openFiles`. Keying the view on `(fileURL, projectRoot)` alone lets SwiftUI
-/// skip the recompute unless the tab or the project root actually changed, so
-/// that filesystem work stays off the typing path.
-///
-/// The interface metrics are a stored property for the same reason the identity
-/// is: equality decides whether SwiftUI re-runs this body at all, so the scale
-/// has to be part of what it compares.
-private struct PathBarView: View, Equatable {
-    let fileURL: URL?
-    let projectRoot: URL?
-    let metrics: InterfaceMetrics
-
-    var body: some View {
-        Text(
-            DisplayPath.components(
-                fileURL: fileURL,
-                projectRoot: projectRoot,
-                home: FileManager.default.homeDirectoryForCurrentUser
-            )
-            .joined(separator: " › ")
-        )
-        .font(metrics.scaledFont(.caption))
-        .foregroundStyle(.secondary)
-        .lineLimit(1)
-        .truncationMode(.middle)
-        .padding(.horizontal, metrics.scaled(8))
-        .frame(
-            maxWidth: .infinity,
-            minHeight: metrics.scaled(22),
-            maxHeight: metrics.scaled(22),
-            alignment: .leading
-        )
     }
 }
 
