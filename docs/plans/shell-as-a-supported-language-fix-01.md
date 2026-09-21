@@ -328,13 +328,13 @@ unperformed mandatory item.
 
 ### Task 8: Run the gates
 
-- [ ] `swift test` — green.
-- [ ] The app-layer bundle — green, `ShellSymbolQueryTests` among it.
-- [ ] The iOS device build — green.
-- [ ] `swiftlint --strict` — clean.
-- [ ] Confirm each new test **bites**: break the thing it guards, confirm the red,
+- [x] `swift test` — green.
+- [x] The app-layer bundle — green, `ShellSymbolQueryTests` among it.
+- [x] The iOS device build — green.
+- [x] `swiftlint --strict` — clean.
+- [x] Confirm each new test **bites**: break the thing it guards, confirm the red,
       revert. Do this for the new anchor case, the two characterisation tests, the
       cross-reference rule, the multi-assignment assertion and the icon rule.
       Report which ones were mutated and what the failure said.
-- [ ] Confirm `git status` shows only the intended changes and that no derived
+- [x] Confirm `git status` shows only the intended changes and that no derived
       data was written inside the working tree.
