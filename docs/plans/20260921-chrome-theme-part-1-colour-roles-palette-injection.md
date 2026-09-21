@@ -415,20 +415,20 @@ Docs: `docs/architecture/core-theme.md` (new), `app-window.md`,
 
 ### Task 8: Verify acceptance criteria
 
-- [ ] `swift test` — green
-- [ ] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination
+- [x] `swift test` — green
+- [x] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination
       'platform=macOS' -derivedDataPath
       ~/Library/Developer/Xcode/DerivedData/pisaka-chrome-theme test` — green
-- [ ] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination
+- [x] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination
       'generic/platform=iOS' -derivedDataPath
       ~/Library/Developer/Xcode/DerivedData/pisaka-chrome-theme build` — the iOS
       target still builds
-- [ ] `swiftlint --strict` from the repository root — clean
-- [ ] Confirm by inspection that the gating suite fails as designed: temporarily
+- [x] `swiftlint --strict` from the repository root — clean
+- [x] Confirm by inspection that the gating suite fails as designed: temporarily
       add a `.secondary` and a hex literal to a gated file and to the gated set,
       confirm three distinct failures, then revert
-- [ ] Confirm the palette test fails when a role's value is altered, then revert
-- [ ] Confirm nothing was written into the repository tree (`git status` clean
+- [x] Confirm the palette test fails when a role's value is altered, then revert
+- [x] Confirm nothing was written into the repository tree (`git status` clean
       but for the intended changes)
 
 ## Post-Completion (manual, by the user)
