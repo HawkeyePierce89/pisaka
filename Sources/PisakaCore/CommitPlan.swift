@@ -238,7 +238,7 @@ public enum CheckboxState: Equatable {
 ///
 /// 1. *A manual `git add` from the terminal is overwritten by a commit from the
 ///    dialog.* The commit is built from an index seeded with `read-tree HEAD`
-///    plus exactly what the UI shows as checked — the JetBrains model, "what you
+///    plus exactly what the UI shows as checked — the adopted model, "what you
 ///    selected is what you committed" — so staged-but-unchecked changes are not
 ///    in it. They are not lost: they remain in the working tree as ordinary local
 ///    changes. What *is* discarded is the staging itself, by the `git reset

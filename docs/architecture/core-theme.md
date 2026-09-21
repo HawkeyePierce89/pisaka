@@ -20,10 +20,15 @@ facts (`TreeRowState`); it stays Foundation-only and therefore colour-free, the
 light value and one alpha, and offers that value along **two paths**: a SwiftUI
 `\.chromeTheme` environment value carrying the resolved appearance, and an
 AppKit bridge returning a *dynamic* `NSColor`. The theme is injected at exactly
-the eight roots that already inject the interface scale. Three surfaces are
-restyled end to end in this part — the horizontal tab strip, the line-number
-ruler and the project tree rows — and every other surface is deliberately
-untouched, waiting for the sweep described at the end of this document.
+the eight roots that already inject the interface scale. The sweep runs in
+parts: the first restyled the horizontal tab strip, the line-number ruler and
+the project tree rows; the second took the rest of the **editor pane's** own
+chrome — the vertical tab column, the breadcrumb, the minimap's chrome and the
+language-server consent strip — and corrected the gutter regression the first
+part shipped. The running record is
+["The surfaces restyled so far"](#the-surfaces-restyled-so-far) below; every
+surface not named there is deliberately untouched, waiting for the sweep
+described at the end of this document.
 `ChromeThemeSourceGatingTests` (`swift test`) pins which files obey the rule and
 `ChromePaletteTests` (app bundle) pins the values themselves.
 
@@ -47,12 +52,19 @@ adds no write of any kind. Its only persisted input is the existing
     surface that appears to need a twenty-second role has found a design
     question, and the answer is to reuse an existing role or to change the
     design — not to grow the table, which would end as one role per call site
-    and no design system at all. Ten roles are consequently *unused* by the
-    three surfaces restyled first (`bgCanvas`, `bgPopover`, `onAccent`,
-    `accentTint`, `currentLine`, `bracketMatch`, `statusGreen`,
-    `diffAddedBackground`, `diffRemovedBackground`, `conflictBackground`); they
-    are declared nonetheless, because the table is the design rather than an
-    inventory of today's call sites. The raw values are the stable names the
+    and no design system at all. Several roles are consequently still
+    *unused*: the first part left ten of them so (`bgCanvas`, `bgPopover`,
+    `onAccent`, `accentTint`, `currentLine`, `bracketMatch`, `statusGreen`,
+    `diffAddedBackground`, `diffRemovedBackground`, `conflictBackground`), and
+    the second part spent two of those — `onAccent` on the consent strip's
+    confirming action and `accentTint` on the minimap's viewport fill. `bgCanvas`
+    and `bgPopover` wait for the window ground and the popovers; the three status
+    hues and the three diff/merge grounds wait for the surfaces that mean them;
+    and **`currentLine` and `bracketMatch` are deliberately still unused** — both
+    belong to the *code* zone, whose overlays are temporary text attributes on the
+    editor's own theme (`SyntaxTheme`), so spending them is a decision about where
+    the chrome ends rather than a restyle. They are declared nonetheless, because
+    the table is the design rather than an inventory of today's call sites. The raw values are the stable names the
     gating suite and the palette test speak; renaming one is a documentation
     change as much as a code change.
   - `ChromeGeometry.swift` — the chrome's measurements as unscaled point values:
@@ -183,7 +195,13 @@ place. Applying the modifier below a root would not be wrong so much as
 meaningless: the value is inherited by construction, sheets and popovers
 included.
 
-### The three surfaces restyled here
+### The surfaces restyled so far
+
+The sweep's running record. Each entry names the file, the path it took
+(environment, AppKit bridge, or geometry/row state) and the document holding its
+full entry; what is **not** listed here has not been swept.
+
+#### Part one — the tab strip, the gutter, the tree rows
 
   - **The horizontal tab strip** — `TabStripView.swift`, the environment path.
     Full entry in `app-window.md`.
@@ -209,11 +227,103 @@ included.
     takes the theme as a role-to-colour *function* so no view file names the
     theme's type (rule five).
 
+#### Part two — the editor pane's own chrome
+
+The pane the code sits in, taken as one piece, because these four surfaces touch
+each other: the column or strip on one side, the breadcrumb and the consent strip
+stacked above, the minimap on the other side, and the gutter inside. A part that
+restyled one of them alone would have shipped a boundary where two grounds
+disagree.
+
+  - **The gutter's corrected fill** — `LineNumberRulerView.swift`, the AppKit
+    bridge path, and the one *regression* in the sweep so far rather than a new
+    surface: part one gave the ruler a background of its own and filled the
+    rectangle it was **handed**, which for an `NSRulerView` is the rectangle it
+    was asked to redraw and regularly spans the whole editor pane — so the code
+    and the minimap were painted out in `bgEditor`. The fill is now clamped by
+    the pure `LineNumberRulerView.backgroundRect(in:ruleThickness:)`. Full entry,
+    including why no gate in the pipeline could see it, in
+    `app-editor-overlays.md`.
+  - **The vertical tab column** — `TabListView.swift` and `TabRowView.swift`, the
+    environment path. The column states the strip's vocabulary turned through a
+    right angle: `bgPanel` ground, a hairline on its **trailing** edge (the strip
+    draws one under itself), the active row filled `bgEditor` with the
+    `accentIndicator`-wide `accent` bar on its **leading** edge rather than
+    underneath, `textPrimary` for the active label and `textSecondary` for the
+    rest, `hoverTint` for an inactive row under the pointer — which the active row
+    does not need, being the one row that is filled — and the monochrome
+    `FileIcon` symbol. The two orientations stay two views on purpose: they state
+    *different* chrome (a height and a rule under it versus a width and a rule
+    beside it), so neither can be a branch inside the other. The one thing they
+    genuinely share — the trailing slot's three-claimant precedence (hover → close
+    mark, else dirty → dot, else active → close mark) — is shared as **one view**,
+    `TabStatusMark` in `TabStripView.swift`, so the two cannot drift into two
+    rules. The strip's own rendering is unchanged by that extraction. Full entry
+    in `app-window.md`.
+  - **The breadcrumb** — `BreadcrumbBarView.swift`, the environment path, and the
+    one surface of this part that needed a **file of its own**: it was a private
+    view inside `ContentView.swift`, which is full of system semantic colours for
+    surfaces later parts will reach, and gating rule one is per *file*. Lifting it
+    out is what let it join the gated set now instead of waiting for its host. It
+    is also the first gated surface that had to stay **both `.equatable()` and
+    live**: the strip exists to keep a symlink-resolving path walk off the typing
+    path, so it compares its inputs — but a view that compares only
+    `(fileURL, projectRoot)` would hold yesterday's colours until the tab changed.
+    The answer is two views in one file: a thin outer one reading
+    `@Environment(\.chromeTheme)` and handing the inner, equatable one the
+    resolved `ChromeAppearance` as a stored property beside `metrics`, with a
+    hand-written `==` over the four so a later property cannot quietly drop one.
+    The appearance is an **equality term, not a colour source** — the body still
+    reads `theme.color(_:)` from the environment — which is why neither view names
+    the theme's type and rule five is untouched. It draws `bgPanel`, its own bottom
+    hairline (so its host's `Divider()` could go, as the tab strip's host already
+    had none) and the path as **one** `Text` composed by `+`: the last segment
+    `textPrimary`, every leading segment and every `›` separator `textSecondary`.
+    One run rather than an `HStack` of labels because middle truncation over a
+    single string is what keeps the file name visible in a narrow window. Full
+    entry in `app-window.md`.
+  - **The minimap's own chrome** — `MinimapView.swift`, the AppKit bridge path,
+    and the surface that states the chrome/code boundary most sharply: its
+    background is `bgEditor` (it sits beside the text and must agree with it) and
+    its viewport indicator is `accentTint` filled, `accentTintStrong` stroked —
+    each wash carrying its own opacity in the table, so the view composes no alpha
+    of its own. The **runs are not chrome**: they are a rendering of the code, so
+    they stay with `SyntaxTheme` for exactly the reason the syntax highlighting
+    does, and `drawTokens`/`MinimapTokenizer` are untouched. Full entry in
+    `app-editor-overlays.md`.
+  - **The language-server consent strip** — `LSPConsentBanner.swift`, the
+    environment path. One `strip(_:)` helper gives all three questions one ground
+    (`bgPanel`) and one bottom rule (a `hairline` rectangle, not a `Divider()`,
+    which would be drawn in the *system's* separator colour and disagree the
+    moment the Theme preference disagrees with the system appearance). The
+    question line is `textPrimary`; the explanatory caption and the runtime-network
+    note are `textSecondary`, being the same kind of fact; the leading symbol is
+    `accent`. The two actions are where the strip states the sweep's rule about
+    **mixed looks**: the confirming one is drawn by one private helper — `accent`
+    fill, `onAccent` label, `cornerRadiusMax`, padding off `rowPaddingX`, and
+    `.buttonStyle(.plain)` — used by all three rows, and the declining one is a
+    plain `textSecondary` label button, because a system-drawn button beside an
+    accent-filled one is precisely the look this sweep removes. The weight of the
+    two buttons is the only thing saying which is the offer, which is honest: both
+    answers are non-destructive and reversible from Preferences. No keyboard
+    shortcut is added — the reason in that file's own comment (a default button in
+    the main window takes Return before the first responder, so every newline
+    typed in the file behind the banner would start a download) still holds. Full
+    entry in `core-provisioning.md`.
+
+#### What is still waiting
+
+The sidebar (the project tree's *host*, as against its rows), the bottom dock and
+the always-visible bottom bar, the six dock panels, the dialogs and sheets, the
+separate diff/merge/history/browser windows, the Preferences surfaces and the
+terminal. Each follows the six-step guide at the end of this document, on its
+own, with `gatedFiles` growing as part of the restyle rather than afterwards.
+
 ### The monochrome-icon decision
 
-Every icon in the three swept surfaces is drawn in `textSecondary`: the tab
-strip's file icon, the tree's folder and file icons, the draft field's icon
-column. `FileIcon` answers a symbol **and** a semantic tint, and these surfaces
+Every icon in the swept surfaces is drawn in `textSecondary`: the tab strip's
+file icon, the vertical column's, the tree's folder and file icons, the draft
+field's icon column. `FileIcon` answers a symbol **and** a semantic tint, and these surfaces
 deliberately read only the symbol. A column of differently-tinted glyphs
 competes for the eye with the one thing each surface actually has to say — the
 accent underline on the active tab, the selection wash on the active file's row
@@ -239,9 +349,13 @@ The **gated set** — asserted by set equality in both directions, so a renamed 
 deleted file fails rather than quietly losing its coverage:
 `ChromePalette.swift`, `ChromeThemeEnvironment.swift`, `TabStripView.swift`,
 `LineNumberRulerView.swift`, `ProjectTreeView.swift`,
-`ProjectTreeDraftField.swift`. The draft field is in the set although it is an
-editing affordance rather than a row: an inline draft *replaces* a tree row on
-screen and must read identically to the row it stands in for.
+`ProjectTreeDraftField.swift` — the first part's six — plus the second part's
+five: `TabListView.swift`, `TabRowView.swift`, `BreadcrumbBarView.swift`,
+`MinimapView.swift`, `LSPConsentBanner.swift`. The draft field is in the set
+although it is an editing affordance rather than a row: an inline draft
+*replaces* a tree row on screen and must read identically to the row it stands in
+for. `TabStripView.swift` covers `TabStatusMark` too, the slot view the two
+orientations share, which is why that extraction did not add a seventh file.
 
 The five rules, each invisible to the compiler:
 

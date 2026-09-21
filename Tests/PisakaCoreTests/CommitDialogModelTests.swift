@@ -185,7 +185,7 @@ final class CommitDialogModelTests: XCTestCase {
         XCTAssertEqual(model.files.map(\.path), ["a.txt"])
         XCTAssertNil(model.errorMessage)
         // "Everything checked" is the default: a dialog opened and confirmed with
-        // no further clicks commits every local change, as JetBrains' does.
+        // no further clicks commits every local change, which is the adopted model.
         XCTAssertEqual(model.selection(for: "a.txt")?.selectedUnits, [1, 2])
         XCTAssertEqual(model.checkboxState(for: "a.txt"), .checked)
         XCTAssertEqual(model.selectedFileCount, 1)

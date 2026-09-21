@@ -2,7 +2,7 @@
 import SwiftUI
 import PisakaCore
 
-/// The JetBrains-style branch-switcher widget for the always-visible bottom bar.
+/// The branch-switcher widget for the always-visible bottom bar.
 ///
 /// A thin SwiftUI view over `BranchSwitcherModel` — all branching logic
 /// (grouping/sorting/marking, filter, the default create-from-remote name) lives

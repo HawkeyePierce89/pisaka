@@ -96,7 +96,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     grammar) would let those dialogs adopt the same live validation with **no view
     change at all**, since `validator` is already threaded through.
   - `BranchSwitcherView.swift` — the macOS branch-switcher widget in the
-    always-visible bottom bar (JetBrains status-bar convention): the current branch
+    always-visible bottom bar (the status-bar convention): the current branch
     label, clicked to a popover with the Local/Remote branch list (the current one
     marked), a filter field, and a "New Branch…" item (name only, created from
     `HEAD`). A remote-branch row is a two-item `Menu` — "Checkout" (git DWIM via
@@ -346,7 +346,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     .nullDevice`: no command here reads stdin, and inheriting the app's would hand
     git or `ssh` a controlling terminal to prompt on whenever the app was launched
     from a shell.
-  - `CommitDialogView.swift` — the commit dialog: an IDEA-style modal **sheet** on
+  - `CommitDialogView.swift` — the commit dialog: a modal **sheet** on
     the main window. Left, the changed files with three-state checkboxes and
     status badges (reusing `LocalChangesView`'s `statusColor`/`statusLetter`,
     which became internal for exactly that — two lists of changed files
@@ -538,8 +538,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     the same way and, in `ContentView`, resolves
     `LocalChangesModel.jumpToSourceURL(for:root:)` against `localChanges.root`
     before calling the existing `onOpenFile` — no new callback from `PisakaApp`, no
-    second open path. **Commit…** is JetBrains'
-    "Commit File": it opens the ordinary commit dialog with *only that file*
+    second open path. **Commit…** is the
+    "Commit File" gesture: it opens the ordinary commit dialog with *only that file*
     preselected, through the very same `PisakaApp.openCommitDialog` the header
     button and ⌘K run (see there — the preselect is its only parameter, so the
     gates, the autosave flush, the modal suspension and the generation pinning are
@@ -618,7 +618,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     view layer so Core stays color-free; `DiffContainerView` lays the two panes
     side by side with a hairline divider.
   - `CommitLogView.swift` — the Git Log view (shown in the bottom dock panel): a
-    JetBrains-style read-only
+    a read-only
     commit table (a fixed-`rowHeight` list of short hash, ref badges, subject,
     author, date) observing `CommitLogModel`, with row selection setting
     `model.selected`. Each row's leading cell is the branch-graph gutter — the view

@@ -304,7 +304,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     model, recorded because they are surprising and deliberate:** (1) a manual
     `git add` from the terminal is *overwritten* by a commit from the dialog — the
     index is seeded with `read-tree HEAD` plus exactly what the UI shows as
-    checked (the JetBrains model, "what you selected is what you committed"), and
+    checked (the adopted model, "what you selected is what you committed"), and
     the staging itself is discarded by the `git reset --quiet` that follows a
     successful commit, though the changes remain in the working tree as ordinary
     local changes; (2) the *staged* effects of a formatting `pre-commit` hook are
@@ -368,7 +368,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     level first,
     reads the context/identity/HEAD message/changed files, and starts **every file
     fully checked** (a dialog opened and confirmed with no further clicks commits
-    every local change) — unless `preselectedPath` names one, the JetBrains "Commit
+    every local change) — unless `preselectedPath` names one, the "Commit
     File" case where the dialog was opened from a single changed file's own context
     menu and **only that file starts checked**. The rule is the internal pure
     `selections(for:preselecting:)`: `nil` runs every file through
@@ -475,7 +475,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     I/O error — stays `.binary`, since "unreadable" and "absent" are different
     facts and committing the former as a deletion would be a silent removal.
     `toggleFile` makes a **mixed** file fully checked rather than clearing it (the
-    JetBrains behaviour and the non-destructive reading of an ambiguous click);
+    deliberate behaviour and the non-destructive reading of an ambiguous click);
     `toggleUnit` ignores an index that names no unit. All three selection mutators
     (and `setAmend`, and **`message`** through its own `didSet`, the field being
     bound straight to the published property) also **clear `errorMessage`**: the

@@ -93,7 +93,7 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
 
 `docs/architecture/core-editor.md` — editor engines (pure, `NSString` + UTF-16 offsets):
 - `ColumnSelectionEngine.swift` — the middle-drag column-selection rule.
-- `DuplicateEngine.swift` — ⌘D duplicate (JetBrains semantics).
+- `DuplicateEngine.swift` — ⌘D duplicate (the established semantics).
 - `CommentStyle.swift` — language-to-comment-syntax mapping.
 - `ToggleCommentEngine.swift` — ⌘/ toggle comment computation.
 - `TreeRefreshFilter.swift` — FSEvents batch filter; root must arrive canonical.
@@ -414,7 +414,8 @@ headlessly in `Tests/PisakaAppTests`.
 - `SourceViewerWindowController.swift` / `SourceViewerContent.swift` — the read-only out-of-project definition window.
 - `ProjectTreeView.swift` — project tree (lazy children, `treeRevision` reloads).
 - `ProjectTreeDraftField.swift` — inline naming draft field.
-- `TabListView.swift` / `TabRowView.swift` — the vertical open-tabs column (the horizontal strip is `TabStripView.swift`, indexed under the chrome theme).
+- `TabListView.swift` / `TabRowView.swift` — the vertical open-tabs column, on the chrome roles (the horizontal strip is `TabStripView.swift`, indexed under the chrome theme, and owns `TabStatusMark`, the trailing slot both orientations draw).
+- `BreadcrumbBarView.swift` — the breadcrumb above the editor, its own file so it can be gated; the outer/`.equatable()` split that keeps it both cheap and live.
 
 `docs/architecture/app-terminal.md` — embedded terminal (macOS):
 - `TerminalTheme.swift` — light/dark palette incl. themed ANSI-16.

@@ -2,7 +2,7 @@
 import SwiftUI
 import PisakaCore
 
-/// The commit dialog: an IDEA-style modal sheet over the main window.
+/// The commit dialog: a modal sheet over the main window.
 ///
 /// On the left the changed files with three-state checkboxes and status badges; on
 /// the right the selected file's unified diff with a checkbox on every changed line

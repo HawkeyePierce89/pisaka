@@ -110,7 +110,7 @@ final class CompletionController {
     /// The switch is **binary and total**: off silences the as-you-type popup
     /// *and* every explicit invocation (⌃Space, Find > Complete, AppKit's stock
     /// ⌥⎋/F5), which all funnel through `update(…)` — the one door into this
-    /// controller. The narrower JetBrains behaviour (auto-popup off, explicit
+    /// controller. The narrower behaviour (auto-popup off, explicit
     /// invocation alive) was considered and deliberately rejected as a
     /// complication; it is a possible follow-up.
     ///

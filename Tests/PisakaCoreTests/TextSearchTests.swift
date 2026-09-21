@@ -374,7 +374,7 @@ final class TextSearchTests: XCTestCase {
         )
     }
 
-    /// `^` is a *line* start, the VS Code/JetBrains editor-find semantics.
+    /// `^` is a *line* start, the adopted editor-find semantics.
     func testRegexCaretMatchesAtEveryLineStart() throws {
         let text = "ab\ncd" as NSString
         let query = SearchQuery(pattern: #"^\w"#, isRegex: true)

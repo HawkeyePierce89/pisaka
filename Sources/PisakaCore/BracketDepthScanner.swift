@@ -55,7 +55,7 @@ public struct BracketToken: Equatable {
 ///
 /// **Divergence from `BracketMatchEngine`.** The two engines answer different
 /// questions and therefore count depth differently. This one keeps *one shared
-/// stack across all three kinds* (JetBrains rainbow semantics), because nesting
+/// stack across all three kinds* (the rainbow colouring's semantics), because nesting
 /// depth is a single number for the whole document: `{[()]}` reads 0,1,2.
 /// `BracketMatchEngine` counts *its own kind only* (the
 /// `IndentEngine.dedentOnClosing` rule), since "which `]` closes *this* `[`"

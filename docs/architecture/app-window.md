@@ -14,8 +14,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     inline diff — the old
     Changes-mode right-zone `DiffPane` branch and the `DiffPane` struct itself were
     removed; diffs open in a separate window on double-click). The `if let file`
-    branch of `textEditorZone(for:onScrolled:)` is a `VStack(spacing: 0) { PathBarView(fileURL:
-    file.url, projectRoot: model.projectRoot).equatable(); Divider();
+    branch of `textEditorZone(for:onScrolled:)` is a `VStack(spacing: 0) { BreadcrumbBarView(fileURL:
+    file.url, projectRoot: model.projectRoot);
     LSPConsentBanner(provisioning:gopls:rust:language:hasProjectRoot:); <SearchBarView while
     search.isVisible>; CodeEditorView(…) }` — so the find bar
     sits between the breadcrumb and the editor and, living inside `editorZone`,
@@ -91,7 +91,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     operations that happen to be reached from the same click.
     The controller is deliberately **not** `@ObservedObject` — it publishes nothing,
     and the index model behind it republishes after every chunk of a walk, which is
-    exactly the per-update cost `PathBarView.equatable()` and the non-observed
+    exactly the per-update cost `BreadcrumbBarView`'s inner `.equatable()` view and the non-observed
     `commitDialog` exist to keep off this view; both default (to a controller over a
     fresh, never-walked index, and a no-op) so previews compile.
     A fourth passes straight through for **indentation**: `editorConfig:
@@ -108,23 +108,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     (it publishes nothing) and — unlike `editorConfig` — optional and defaulted, so
     `nil` in previews and tests simply transforms nothing and `model` +
     `editorConfig` stay the only two required arguments.
-    The private `PathBarView` is the VS Code-style
-    breadcrumb: a `.caption`/`.secondary` `Text` of
-    `DisplayPath.components(fileURL:projectRoot:home:
-    FileManager.default.homeDirectoryForCurrentUser)` joined with `" › "`. All the
-    segment logic is Core's `DisplayPath` (the view only reads `home` and picks
-    the separator), so this stays display-only and untested like the rest of the
-    view layer. It is a *separate `Equatable` view* rather than a
-    `@ViewBuilder` on `ContentView` because `DisplayPath.components` resolves
-    symlinks (`CanonicalPath.canonical` → `resolvingSymlinksInPath()`, an `lstat`
-    walk per path component) while `ContentView.body` re-evaluates on **every**
-    keystroke (the editor binding routes each edit through `model.updateText`,
-    republishing `openFiles`): keying the view on `(fileURL, projectRoot)` alone
-    lets SwiftUI skip the recompute unless the tab or the project root actually
-    changed, keeping that filesystem work off the typing path. `.lineLimit(1)` +
-    `.truncationMode(.middle)` keep the file name visible in a narrow window and a
-    *fixed* 22pt row height keeps the editor from jumping as the path changes.
-    Because it lives inside `editorZone` it covers **both** tab layouts at once —
+    The breadcrumb is no longer private to this file: it is
+    `BreadcrumbBarView.swift`, with its own entry below. `ContentView` hosts it and
+    adds **no** `Divider()` under it, exactly as it adds none under the horizontal
+    tab strip — the strip draws its own bottom rule, so a host-drawn one would be a
+    second rule nothing keeps in step with the height above it. Because the
+    breadcrumb lives inside `editorZone` it covers **both** tab layouts at once —
     in `.horizontal` it simply lands under the tab strip — while the "No file
     open" branch is deliberately left bare (no bar without a file). The window
     body is a
@@ -138,7 +127,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `text.magnifyingglass` for Usages) sits flush at
     the bottom, and `mainArea` is the three-column `editorSplit` alone, or — when a
     `BottomPanel` is shown — `editorSplit` over the panel. The bottom bar also hosts
-    the `BranchSwitcherView` (JetBrains status-bar convention) showing the current
+    the `BranchSwitcherView` (the status-bar convention) showing the current
     branch, threaded through as the `branchSwitcher: BranchSwitcherModel` /
     `onSwitchBranch` / `onCreateBranch` parameters (owned by `PisakaApp`, defaulted
     for previews). Beside it sits the new project switcher (`ProjectSwitcherView`), threaded through as the `recentProjects: () -> [RecentProject]` / `onOpenRecentProject: (URL) -> Void` parameters (owned by `PisakaApp`, defaulted). Beside the branch widget sits
@@ -1166,15 +1155,32 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
   - `TabListView.swift` / `TabRowView.swift` — the open-tabs **vertical column**
     and nothing else: the scrolling `LazyVStack` of `TabRowView`s, each stretched
     to `maxWidth: .infinity`. The `orientation: TabOrientation` parameter is
-    gone. The horizontal presentation used to be a branch inside these two and is
-    now `TabStripView`, split out rather than left here for two reasons: the
-    column is explicitly *out* of the chrome theme's first scope and must keep
-    drawing exactly what it drew, while one view serving both orientations would
-    have had to keep a system colour for one of its two branches — which
-    `ChromeThemeSourceGatingTests` rightly forbids a gated file (`core-theme.md`);
-    and the strip is not a list of rows running sideways, it has chrome of its own
-    (a height, a background, a bottom rule) that a row view cannot state.
-    `ContentView` still picks the presentation from `settings.tabOrientation`.
+    gone; `ContentView` still picks the presentation from
+    `settings.tabOrientation`. The horizontal presentation used to be a branch
+    inside these two and is now `TabStripView`, split out rather than left here
+    because the two orientations state *different* chrome — the strip a height and
+    a rule under it, the column a width it is given and a rule beside it — so
+    neither can be a branch inside the other, and a strip is not a list of rows
+    running sideways.
+    Both files are **drawn entirely from the chrome colour roles** (the second
+    part of the sweep, `core-theme.md`) through the environment path. The column
+    is `bgPanel` behind the scroll view and owns its **trailing** hairline as an
+    overlay, for the reason the strip owns its bottom one: the active row is
+    filled in the editor's own background so it reads as the left edge of the pane
+    beside it, and a rule the *host* drew would sit between the two and undo that.
+    A row is `ChromeGeometry.verticalTabRowHeight` tall with `rowPaddingX`
+    horizontal padding, and states the strip's vocabulary turned through a right
+    angle: the active row filled `bgEditor` with an `accent` bar
+    `ChromeGeometry.accentIndicator` wide on its **leading** edge (the strip's
+    underline, rotated), its label `textPrimary` while every other row's is
+    `textSecondary`, and `hoverTint` under the pointer on an inactive row only —
+    the active one is already the one row that is filled. The icon is the
+    monochrome `FileIcon` symbol in `textSecondary` (the monochrome-icon decision
+    in `core-theme.md`), with an untitled buffer asked about under its display
+    name so the fallback symbol is still `FileIcon`'s own. The trailing slot is
+    **`TabStatusMark`**, the one shared view living in `TabStripView.swift`: the
+    three-claimant precedence exists once, so the two orientations cannot drift
+    into two rules. Every number goes through `metrics.scaled(_:)`.
   - `TabStripView.swift` — the horizontal tab strip above the editor, and the
     **first surface drawn entirely from the chrome colour roles** through the
     SwiftUI environment path (`@Environment(\.chromeTheme)`, `core-theme.md`). It
@@ -1190,8 +1196,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     monochrome-icon decision in `core-theme.md`), a `metrics.scaledFont(.callout)`
     label in `textPrimary` when active and `textSecondary` otherwise, one
     `accent` underline `ChromeGeometry.accentIndicator` tall on the active tab, a
-    trailing `hairline` between tabs, and **one slot** holding either the close
-    mark or the unsaved-changes dot, claimed in that order: the mark under the
+    trailing `hairline` between tabs, and **one slot** — `TabStatusMark`, a view
+    of its own in this file and the one thing the vertical column shares with the
+    strip, so the precedence below exists once rather than twice — holding either
+    the close mark or the unsaved-changes dot, claimed in that order: the mark under the
     pointer, then the dot, then the mark on the active tab. The dot therefore
     **outranks** the mark on an active tab — unsaved work is a fact about the
     file that nothing else on the strip states, while the mark is one hover away
@@ -1206,3 +1214,42 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     stay local and scaled, as the sweep guide permits: they are this surface's
     numbers, not chrome measurements another surface could drift from
     (`core-theme.md`, step 3).
+  - `BreadcrumbBarView.swift` — the breadcrumb bar above the editor: the open
+    file's path relative to the opened project root
+    (`backend › src › dialogs.service.ts`), or an abbreviated absolute path when
+    the file lives outside the root. All the segment computation is Core's
+    `DisplayPath.components(fileURL:projectRoot:home:)` — the view only reads
+    `home` (the `TerminalLaunch` precedent) — so this stays display-only and
+    untested like the rest of the view layer. Rendered inside
+    `ContentView.editorZone`, so both tab orientations get it.
+    **Why it is a file of its own**: it was private to `ContentView.swift`, and a
+    file gated by `ChromeThemeSourceGatingTests` may name no system semantic
+    colour while `ContentView` is full of them for surfaces later parts of the
+    sweep will reach — gating rule one is per *file*, so lifting the strip out is
+    what let it join the gated set now instead of waiting for its host
+    (`core-theme.md`). It draws `bgPanel`, is
+    `ChromeGeometry.breadcrumbHeight` tall (a fixed height keeps the editor from
+    jumping as the path changes) with `rowPaddingX` horizontal padding and
+    `metrics.scaledFont(.subheadline)` text, and — like the tab strip — draws its
+    **own** bottom hairline, which is why its host's `Divider()` is gone.
+    **Two views in one file**: a thin outer `BreadcrumbBarView` reading
+    `@Environment(\.chromeTheme)` and `\.interfaceMetrics`, and a private,
+    `.equatable()` `BreadcrumbSegments` storing `fileURL`, `projectRoot`,
+    `metrics` and the resolved `ChromeAppearance`, compared by a hand-written `==`
+    over the four. The equatable half exists because `DisplayPath.components`
+    resolves symlinks (`CanonicalPath.canonical` → `resolvingSymlinksInPath()`, an
+    `lstat` walk per path component) while `ContentView.body` re-evaluates on
+    **every** keystroke (the editor binding routes each edit through
+    `model.updateText`, republishing `openFiles`): keying it on the tab and the
+    root keeps that filesystem work off the typing path. The appearance travels
+    down as a stored property for exactly the same reason the metrics do —
+    equality decides whether the body runs at all, so a view comparing only the
+    identity would hold yesterday's colours until the tab changed — and it is an
+    **equality term, not a colour source**: the body still asks
+    `theme.color(_:)`, so neither view names the theme's *type* and gating rule
+    five is untouched. The path is composed as **one** `Text` by `+`, the final
+    segment `textPrimary` and every leading segment and `›` separator
+    `textSecondary`, with `.lineLimit(1)` + `.truncationMode(.middle)`: one run
+    rather than an `HStack` of labels, because middle truncation over a single
+    string is what keeps the file name visible in a narrow window while a stack
+    would truncate each label on its own and lose the name first.

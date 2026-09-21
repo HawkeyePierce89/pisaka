@@ -780,7 +780,7 @@ struct PisakaApp: App {
         #endif
     }
 
-    /// Which bottom dock panel is shown (`nil` = none), VS Code-style. Owned here
+    /// Which bottom dock panel is shown (`nil` = none). Owned here
     /// so the always-visible bottom bar (in `ContentView`) and the View-menu
     /// commands share one source of truth; toggled via `togglePanel(_:)`.
     @State private var bottomPanel: BottomPanel?
@@ -883,7 +883,7 @@ struct PisakaApp: App {
     /// which this is not.
     private let projectWatcher = ProjectWatcher()
 
-    /// JetBrains-style autosave wiring (idle / focus-loss / tab-switch / quit).
+    /// Autosave wiring (idle / focus-loss / tab-switch / quit).
     /// A plain stored reference — the `@main` App is created once, so this single
     /// instance lives for the app's lifetime; it is started from the window
     /// content's `.onAppear` below.
@@ -1548,7 +1548,7 @@ struct PisakaApp: App {
             }
 
             CommandMenu("Git") {
-                // ⌘K, JetBrains' commit shortcut. Gated on the project alone —
+                // ⌘K, the conventional commit shortcut. Gated on the project alone —
                 // the same condition as the Local Changes header button — and
                 // deliberately *not* additionally on `changedFiles` being
                 // non-empty. That list is refreshed only on a folder open, a save
@@ -2410,7 +2410,7 @@ struct PisakaApp: App {
     /// Open the commit dialog for the current project (⌘K / the Local Changes
     /// header button / a changed file's "Commit…" context-menu item).
     ///
-    /// `preselectingPath` is the JetBrains "Commit File" case: with a repo-relative
+    /// `preselectingPath` is the "Commit File" case: with a repo-relative
     /// path only *that* file is left checked in the freshly loaded list, and it is
     /// the **only** difference between the row item and ⌘K/the ✓ button. Everything
     /// around it — the re-entry guard, `revertInFlight()`, the autosave flush and

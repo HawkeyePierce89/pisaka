@@ -1697,7 +1697,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `open()` (⌘F — shows *and* bumps `focusRequest`, so a repeat press re-focuses
     and selects rather than doing nothing), `openReplace()` (⌘⌥F), and `close()`
     (Esc). **Window-scoped and owned by `PisakaApp`, not by the editor**: the bar's
-    contents and toggles survive a tab switch (JetBrains/VS Code behavior), so the
+    contents and toggles survive a tab switch (the conventional behavior), so the
     state cannot live in `CodeEditorView`'s coordinator, which is rebuilt with the
     view. It holds no `NSTextView`, no ranges and no engine call — everything
     *executed* goes through the `EditorSearchActions` protocol

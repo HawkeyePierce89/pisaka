@@ -29,7 +29,7 @@ public struct DuplicateEdit: Equatable {
 /// describing "what to insert and where", while the view layer applies it as one
 /// programmatic edit).
 ///
-/// The semantics are JetBrains' Cmd+D:
+/// The semantics are the established Cmd+D ones:
 /// - **No selection** — the caret's logical line is duplicated below it and the
 ///   caret moves into the copy at the same column.
 /// - **A selection** — the selected span is duplicated *character-wise* (a
@@ -64,7 +64,7 @@ public enum DuplicateEngine {
     /// prepended to the copy instead — a deliberate simplification, so a
     /// CR/CRLF-delimited file's trailing insertion uses `"\n"` while every
     /// terminated line still copies its own separator verbatim. An empty buffer
-    /// therefore gains an empty line, as in JetBrains.
+    /// therefore gains an empty line, deliberately.
     public static func duplicate(text: NSString, selectedRange: NSRange) -> DuplicateEdit {
         let range = clamped(selectedRange, length: text.length)
 

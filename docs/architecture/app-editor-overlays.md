@@ -588,9 +588,26 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     ruler follows the window's appearance — and therefore the Theme preference,
     applied as `.preferredColorScheme` at the window root — while caching nothing
     and observing no appearance change of its own. Four colours, four roles.
-    `drawHashMarksAndLabels` now **paints the gutter first**: `bgEditor` over the
-    drawn rect, then a `ChromeGeometry.hairlineWidth` rule in `hairline` at the
-    ruler's right edge (`ruleThickness - hairlineWidth`). Before the chrome theme
+    `drawHashMarksAndLabels` now **paints the gutter first**: `bgEditor` over
+    `Self.backgroundRect(in:ruleThickness:)`, then a
+    `ChromeGeometry.hairlineWidth` rule in `hairline` at the
+    ruler's right edge (`ruleThickness - hairlineWidth`).
+    **The rectangle filled is the gutter's own, never the one handed in**, and
+    that seam is the fix for the one regression the chrome sweep has shipped: an
+    `NSRulerView` is handed the rectangle *it was asked to redraw*, which is not
+    its bounds and regularly spans the whole editor pane, so the first part's
+    `rect.fill()` painted the code and the minimap out in `bgEditor`. The rule is
+    a `nonisolated static func` clamping the trailing edge —
+    `maxX = min(rect.maxX, ruleThickness)`, width never negative, y and height
+    carried through untouched — and it clamps rather than answering
+    `(0, ruleThickness)` outright so a **partial** dirty rectangle starting inside
+    the gutter keeps its origin; a rectangle wholly to the right of the gutter
+    answers a zero width. It is `internal` for `numberAttributes`' reason and
+    tested by `LineNumberRulerBackgroundTests` in the app-layer bundle, which is
+    **the only thing in the pipeline that can see it**: the regression compiled,
+    linted, passed every Core suite and the CI smoke launch, and was visible
+    solely by looking at a running window — the drawing cannot be asserted, but
+    what is about to be drawn can. Before the chrome theme
     the ruler painted no background at all and inherited whatever the scroll view
     drew, which is exactly what would make the gutter and the text disagree once
     the editor took a colour of its own — so `CodeEditorView` paints the text
@@ -830,14 +847,29 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `y > bounds.height`) as a backstop. Within
     a row it draws small colored rectangles (~1pt/char, clipped to the minimap
     width, `color.withAlphaComponent(0.6)`) for each non-whitespace run. Draws the
-    semi-transparent viewport rectangle overlay from `viewportRect(forScrollOffset:)`
-    (already panel-space). `mouseDown`/`mouseDragged` map the cursor y through
+    viewport rectangle overlay from `viewportRect(forScrollOffset:)`
+    (already panel-space).
+    **Two colour sources, one boundary** (the second part of the chrome sweep,
+    `core-theme.md`). The view's own *chrome* takes the AppKit bridge, the ruler's
+    path: the background is `ChromePalette.nsColor(.bgEditor)` over `bounds` —
+    replacing a half-opacity system text background, which disagreed with the pane
+    beside it the moment the Theme preference disagreed with the system
+    appearance — and the viewport indicator is `accentTint` filled and
+    `accentTintStrong` stroked, **each wash carrying its own opacity in the
+    table** so this view composes no alpha of its own. Both are *dynamic*
+    `NSColor`s: nothing is cached and no appearance change is observed, because
+    the colour resolves itself while AppKit has the view's effective appearance
+    current. The **runs are not chrome** — they are a rendering of the code — so
+    `drawTokens` and `MinimapTokenizer` are untouched and keep asking
+    `SyntaxTheme`, for exactly the reason the syntax highlighting does: a token
+    kind names the code zone's own theme, which no chrome role can stand in
+    for. `mouseDown`/`mouseDragged` map the cursor y through
     `scrollOffset(forMinimapCenterY:)` and report the target
     offset via an `onScroll` callback (serving both click-to-jump and drag).
     `scrollWheel(with:)` maps the event's `scrollingDeltaY` (negated — wheel-up is
     positive, but the minimap is top-down so up must *decrease* the offset)
     through `geometry.scrollOffset(byMinimapDelta:from:)` to an absolute document
-    offset and reports it via a separate `onScrollToOffset` callback. Colors
+    offset and reports it via a separate `onScrollToOffset` callback. The run colors
     are resolved through `SyntaxTheme.shared` at draw time, so it redraws correctly
     on light/dark appearance change and on resize.
   - `SyntaxLanguageConfiguration.swift` — registry mapping `SyntaxLanguage` →

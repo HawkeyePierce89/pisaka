@@ -234,7 +234,7 @@ part would rewrite anyway.
 - Modify (brand sweep): `Sources/Pisaka/ContentView.swift`,
   `docs/architecture/app-window.md`, and the breadcrumb comment moved in Task 3
 
-- [ ] Brand sweep, all five: (1) the breadcrumb's doc comment, rewritten in
+- [x] Brand sweep, all five: (1) the breadcrumb's doc comment, rewritten in
       Task 3; (2) `docs/architecture/app-window.md` line ~141, the branch
       widget's "status-bar convention" sentence; (3)
       `Sources/Pisaka/ContentView.swift` line ~148, the bottom-dock-panel
@@ -244,24 +244,31 @@ part would rewrite anyway.
       name with what it was standing in for (the convention or the placement
       being described), never by deleting the sentence's meaning. Then `grep -ri`
       the repository for the offending names to confirm the set is empty — code,
-      comments, docs and the commit message alike.
-- [ ] `core-theme.md`: retitle the "three surfaces restyled here" section as the
+      comments, docs and the commit message alike. **Wider than five, and one
+      stated exclusion**: the repository held ~60 such references, not five, so
+      the sweep cleared every one in the live tree (all of `Sources/`, all of
+      `Tests/`, every `docs/architecture/*.md` and `CLAUDE.md`) — the grep is
+      empty there. `docs/plans/completed/` is deliberately left alone: it is the
+      archived record of plans as they were written and approved, and rewriting
+      past tickets (one is even named for a product) falsifies a record rather
+      than fixing a document.
+- [x] `core-theme.md`: retitle the "three surfaces restyled here" section as the
       sweep's running record and add this part's surfaces — the vertical tab
       column (and the one slot view the two orientations now share), the
       breadcrumb (including why it is a file of its own and how it stays both
       equatable and live), the minimap's chrome (and the run colours it does not
       touch), the consent strip; restate what remains for later parts, and that
       `currentLine`/`bracketMatch` are deliberately still unused.
-- [ ] `app-window.md`: rewrite the `TabListView`/`TabRowView` entry and the
+- [x] `app-window.md`: rewrite the `TabListView`/`TabRowView` entry and the
       breadcrumb entry (new file name, new structure, the deleted `Divider()`).
-- [ ] `app-editor-overlays.md`: the ruler's corrected fill — the seam, why the
+- [x] `app-editor-overlays.md`: the ruler's corrected fill — the seam, why the
       handed rectangle is not the bounds, and that the test is the only thing
       that can see it — and the minimap's background and viewport indicator.
-- [ ] `core-provisioning.md`: one paragraph on the consent strip's chrome in its
+- [x] `core-provisioning.md`: one paragraph on the consent strip's chrome in its
       `LSPConsentBanner.swift` entry.
-- [ ] `CLAUDE.md`: one index line for `BreadcrumbBarView.swift` under
+- [x] `CLAUDE.md`: one index line for `BreadcrumbBarView.swift` under
       `app-window.md`, and the tab-column line adjusted; nothing else grows.
-- [ ] run `swift test` (the doc-reading suites) — must pass before Task 7
+- [x] run `swift test` (the doc-reading suites) — must pass before Task 7
 
 ### Task 7: Verify acceptance criteria
 

@@ -2,7 +2,7 @@
 import SwiftUI
 import PisakaCore
 
-/// The Local Changes list in the VS Code-style bottom dock panel.
+/// The Local Changes list in the bottom dock panel.
 ///
 /// Renders the files differing from `HEAD` either flat or grouped by folder
 /// (`ChangeTree`), per `model.groupingMode`. A segmented control toggles the
@@ -44,7 +44,7 @@ struct LocalChangesView: View {
     /// wiring.
     var onCommit: () -> Void = {}
     /// Invoked when a row's context-menu "Commit…" item is chosen, opening the
-    /// commit dialog with *only that file* preselected (JetBrains' "Commit File").
+    /// commit dialog with *only that file* preselected (the "Commit File" gesture).
     /// It goes through the same handler as `onCommit`/⌘K — only the preselect
     /// differs — so the gates, the autosave flush and the generation pinning are
     /// shared verbatim. Defaults to a no-op so previews/tests can construct the

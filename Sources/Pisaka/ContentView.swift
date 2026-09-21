@@ -145,7 +145,7 @@ struct ContentView: View {
     /// is the app's job — and threaded straight into `CodeEditorView`. Default
     /// no-op for previews/tests.
     var onViewDefinitionOutsideProject: (URL, NSRange) -> Void = { _, _ in }
-    /// Which bottom dock panel is shown (`nil` = none), VS Code-style. Owned by
+    /// Which bottom dock panel is shown (`nil` = none). Owned by
     /// `PisakaApp` and bound here; `.constant(nil)` keeps the default-constructed
     /// view (previews/tests) with no panel shown.
     var bottomPanel: Binding<BottomPanel?> = .constant(nil)
@@ -789,7 +789,7 @@ struct ContentView: View {
                 onOpenFolder: onOpenFolder,
                 onOpenRecent: onOpenRecentProject
             )
-            // JetBrains-style branch widget on the right of the status bar: shows
+            // The branch widget at the right of the always-visible bottom bar: shows
             // the current branch and opens the switch/create popover.
             BranchSwitcherView(
                 model: branchSwitcher,

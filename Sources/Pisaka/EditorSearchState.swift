@@ -25,7 +25,7 @@ protocol EditorSearchActions: AnyObject {
 /// (`open`/`close`) the Find menu drives.
 ///
 /// Window-scoped and owned by `PisakaApp`, not by the editor: the bar's contents
-/// and toggles survive a tab switch (JetBrains/VS Code behavior), so the state
+/// and toggles survive a tab switch (the conventional behavior), so the state
 /// cannot live in `CodeEditorView`'s coordinator, which is rebuilt with the view.
 /// Everything *executed* lives in `EditorSearchController` behind
 /// `EditorSearchActions`; this type holds no `NSTextView`, no ranges and no

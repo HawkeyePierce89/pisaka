@@ -2,7 +2,7 @@
 import SwiftUI
 import PisakaCore
 
-/// The iOS peer of the macOS `BranchSwitcherView` — the JetBrains-style branch
+/// The iOS peer of the macOS `BranchSwitcherView` — the branch
 /// widget for the toolbar / navigation bar.
 ///
 /// A thin SwiftUI view over `BranchSwitcherModel`; all branching logic

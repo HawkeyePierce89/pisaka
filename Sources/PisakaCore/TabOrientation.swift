@@ -1,5 +1,5 @@
 /// How the open-tabs list is laid out: a vertical column (the default,
-/// VS Code-style sidebar) or a horizontal strip above the editor.
+/// an editor sidebar) or a horizontal strip above the editor.
 ///
 /// A color/SwiftUI-free semantic enum (the `FileIconColor`/`BottomPanel`
 /// precedent); the view layer reads it to pick a layout. Its `String` raw value

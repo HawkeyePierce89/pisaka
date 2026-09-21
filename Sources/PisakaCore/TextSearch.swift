@@ -1,6 +1,6 @@
 import Foundation
 
-/// What to look for: the pattern plus the three JetBrains/VS Code-style toggles
+/// What to look for: the pattern plus the three conventional toggles
 /// (`Aa` case sensitivity, `ab` whole word, `.*` regular expression).
 ///
 /// A value type so the view layer can compare the query it last ran against the
@@ -139,7 +139,7 @@ public enum TextSearchEngine {
     /// same way.
     ///
     /// `.anchorsMatchLines` is always on: the product decision is that `^`/`$` in
-    /// a *search* are line boundaries, as they are in VS Code and JetBrains, so
+    /// a *search* are line boundaries, as they are in editor find generally, so
     /// `^import` finds every import line rather than only one at the very top of
     /// the file. Because the option lives in this one factory it applies
     /// identically to `matches(in:query:)` and to the anchored re-match inside

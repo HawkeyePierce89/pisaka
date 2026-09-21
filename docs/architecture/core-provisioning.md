@@ -730,6 +730,36 @@ below. All of it, with decisions D21–D24, is in `core-lsp.md`.
     where accepting demonstrably changes nothing.
     `size(_:)` formats through `ByteCountFormatter`, so "52.2 MB" here means what
     it means in the Finder.
+    **Its chrome comes wholly from the colour roles** (the second part of the
+    chrome sweep, `core-theme.md`), through the SwiftUI environment path: the
+    strip is chrome sitting between two other chrome surfaces — the breadcrumb
+    above it and the tab strip above that — so it takes its ground, its rule and
+    its text from the roles rather than from whatever the system happens to call a
+    control background. The generic `strip(_:)` helper gives all three questions
+    one `bgPanel` ground and one bottom rule, drawn as a `hairline` **rectangle**
+    rather than a `Divider()`: a divider is drawn in the *system's* separator
+    colour and would disagree with the strip above it the moment the Theme
+    preference disagrees with the system appearance. The question line is
+    `textPrimary`; the explanatory caption *and* the runtime-network note are
+    `textSecondary`, being the same kind of fact; the leading symbol is `accent`.
+    The two actions are where the strip states the sweep's rule about **mixed
+    looks**: one private `acceptButton(_:action:)` draws the confirming action for
+    all three rows — `accent` fill, `onAccent` label, `cornerRadiusMax` corners,
+    padding off `rowPaddingX`, `.buttonStyle(.plain)` — and
+    `declineButton(_:action:)` draws the declining one as a plain `textSecondary`
+    label, because a system-drawn button beside an accent-filled one is precisely
+    the look that sweep removes. One helper rather than three call sites because
+    the three rows ask the same question and must answer it with the same button.
+    The **weight of the two buttons is the only thing saying which is the offer**,
+    which is honest here: neither answer is destructive and both are reversible
+    from Preferences. **No keyboard shortcut is added** — the reason already in
+    that file holds unchanged: a `.defaultAction` in the main editor window takes
+    Return through the window's key-equivalent pass before the first responder
+    sees it, so every newline typed in the file behind the banner would start a
+    download and record consent for it. Both answers stay pointer-only. Every
+    measurement goes through `metrics.scaled(_:)`, so the strip grows with the
+    two chrome surfaces above it rather than staying a fixed band across a scaled
+    window.
     **It prints `LSPConsentPrompt.runtimeNetworkNote` under the size sentence**,
     verbatim and in the same caption style, when the prompt carries one. The
     presence of the note is the whole condition — no server is named in this view

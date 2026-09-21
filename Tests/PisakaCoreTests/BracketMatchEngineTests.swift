@@ -50,7 +50,7 @@ final class BracketMatchEngineTests: XCTestCase {
 
     func testBracketsOnBothSidesPrefersTheOneAfterTheCaret() {
         // "()|[]" — before: ')' of the first pair, after: '[' of the second.
-        // VS Code order picks the character after the caret.
+        // The adopted order picks the character after the caret.
         XCTAssertEqual(pair("()[]", caret: 2), expected(open: 2, close: 3))
     }
 
@@ -106,8 +106,8 @@ final class BracketMatchEngineTests: XCTestCase {
     /// `BracketMatchEngine` counts *its own kind only* (the
     /// `IndentEngine.dedentOnClosing` rule), so in `{[(]}` the `[` at 1 pairs with
     /// the `]` at 3 — ignoring the unrelated `(` between them.
-    /// `BracketDepthScanner` keeps *one shared stack across all kinds* (JetBrains
-    /// rainbow semantics), so it sees `]` arrive with `(` on top of the stack,
+    /// `BracketDepthScanner` keeps *one shared stack across all kinds* (the rainbow
+    /// colouring's own semantics), so it sees `]` arrive with `(` on top of the stack,
     /// reports it unmatched, and leaves every other bracket of `{[(]}` unmatched
     /// too — its mirror test is `testCrossedBracketsAllUnmatchedUnlikeMatchEngine`.
     ///
