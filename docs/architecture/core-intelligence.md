@@ -1204,9 +1204,13 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
       *is* a literal backslash and the next `'` always ends the literal; both
       forms span lines because an unterminated quote in a script really does
       continue, and reading it otherwise would silently re-open code. Its `#`
-      anchor is `.afterWhitespace`, YAML's reading for the same lexical reason: a
-      `#` glued to the preceding character is part of a word, so neither
-      `foo#bar` nor the parameter expansion `${var#prefix}` opens a comment.
+      anchor is `.atWordStart`, held by shell alone: a `#` opens a comment when it
+      *starts a word*, so `echo hi;# note` is a comment (the `;` ended the word)
+      while `foo#bar` and the parameter expansion `${var#prefix}` are not, a `#`
+      glued to a word character being part of that word. The one converse case is
+      **not** handled and is recorded on the arm: a backslash-escaped space does
+      not end a word, so `echo foo\ #bar` keeps `#bar` in the argument while the
+      anchor reads the physical space and calls it a comment.
       **Three shapes are deliberately not modelled**, each because no fixed
       `StringForm` describes it — *heredocs* (the delimiter is an arbitrary word
       declared on an earlier line, so there is no literal for `open`; the body
@@ -1233,9 +1237,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     The value types are `StringForm` (`open`/`close`, `spansLines`, `EscapeRule`
     `none`/`backslash`/`doubledDelimiter`, optional `allowedPrefixLetters`,
     `allowsPoundPadding`, `InterpolationHole`) and `CommentForm` (line with
-    `LineAnchor` `anywhere`/`trueLineStart`/`afterIndent`/`afterWhitespace`, or
-    block with `nestable`).
-    **`LineAnchor` has four cases, and the two line-start readings are separate on
+    `LineAnchor` `anywhere`/`trueLineStart`/`afterIndent`/`afterWhitespace`/
+    `atWordStart`, or block with `nestable`).
+    **`LineAnchor` has five cases, and the two line-start readings are separate on
     purpose**: a single `lineStart` name hid the question of whether leading
     whitespace is tolerated, and the languages that answer it differently were
     silently sharing one answer. `.anywhere` is every language whose comment token
@@ -1250,7 +1254,20 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     wild trim) and **editorconfig** (this repository's own `EditorConfigFile` parser
     trims the line and *then* tests `#`/`;`, and the two must not disagree about the
     same file); `.afterWhitespace` is anywhere the token is not glued to the
-    preceding character and is held by **yaml** alone. Deleting the name
+    preceding character and is held by **yaml** alone; and `.atWordStart` is
+    anywhere the token *starts a word* — line start, whitespace, **or** one of the
+    metacharacters that end a word without being whitespace (`;`, `&`, `|`, `(`,
+    `)`, `<`, `>`, the POSIX metacharacter set minus its whitespace members) — and
+    is held by **shell** alone, because bash reads `echo hi;# note` as a comment
+    while a `#` glued to a word character (`foo#bar`, `${var#prefix}`) is part of
+    that word. It is a fifth case rather than a loosening of `.afterWhitespace`
+    because yaml holds that anchor and its reading there is correct as it stands.
+    **The converse case stays unhandled and is recorded as such on the shell
+    arm**: a backslash-escaped space does not end a shell word, so in
+    `echo foo\ #bar` the `#bar` is still part of the argument while the anchor,
+    which sees only the physical space, calls it a comment — completion is
+    suppressed where it need not be, the conservative direction of the two.
+    Deleting the name
     `.lineStart` rather than redefining it was the point: every use site became a
     compile error and had to be re-decided instead of inheriting a silently changed
     meaning. `Vocabulary` is those two arrays plus `stringsSuppressCompletion`.

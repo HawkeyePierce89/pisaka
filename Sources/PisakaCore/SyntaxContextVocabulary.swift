@@ -54,12 +54,20 @@ public enum SyntaxContextVocabulary {
         /// each of whose readers trims the line before testing the token.
         case afterIndent
         /// At the start of the line or after whitespace — anywhere the token is
-        /// not glued to the preceding character. Held by **yaml**, whose `#`
-        /// opens a comment mid-line but only when a space precedes it, and by
-        /// **shell**, for which the same reading is exactly right: a `#` glued to
-        /// the preceding character is part of a word, so neither `foo#bar` nor
-        /// the parameter expansion `${var#prefix}` opens a comment.
+        /// not glued to the preceding character. Held by **yaml** alone, whose
+        /// `#` opens a comment mid-line but only when a space precedes it.
         case afterWhitespace
+        /// Wherever the token *starts a word*: at the start of the line, after
+        /// whitespace, or after one of the metacharacters that end a word
+        /// without being whitespace — `;`, `&`, `|`, `(`, `)`, `<` and `>`,
+        /// which is the POSIX metacharacter set minus its whitespace members
+        /// (those are already covered by the whitespace reading).
+        ///
+        /// Held by **shell** alone. `.afterWhitespace` is not the same rule and
+        /// is wrong here: `echo hi;# note` is a comment to bash, because the `;`
+        /// ended the word, while a `#` genuinely glued to a word character is
+        /// not (`foo#bar`, `${var#prefix}`).
+        case atWordStart
     }
 
     /// Whether a string literal contains interpolation holes that re-open code.
@@ -223,10 +231,21 @@ public enum SyntaxContextVocabulary {
             // file, so the scanner skips indentation the same way.
             return [.line(token: "#", anchor: .afterIndent), .line(token: ";", anchor: .afterIndent)]
         case .shell:
-            // A `#` glued to the preceding character is part of a word, so
-            // `foo#bar` and `${var#prefix}` are not comments. Same reading YAML
-            // takes, for the same lexical reason.
-            return [.line(token: "#", anchor: .afterWhitespace)]
+            // A `#` opens a comment when it starts a *word*, which is what
+            // `.atWordStart` reads: line start, whitespace, or one of the
+            // metacharacters that end a word (`;`, `&`, `|`, `(`, `)`, `<`,
+            // `>`). So `echo hi;# note` is a comment and `foo#bar` and
+            // `${var#prefix}` are not, since a `#` glued to a word character is
+            // part of that word.
+            //
+            // **One converse case is still wrong, and stays wrong**: a
+            // backslash-escaped space does not end a word, so in `echo foo\ #bar`
+            // the `#bar` remains part of the argument while this anchor — which
+            // sees only the physical space before it — calls it a comment. The
+            // scanner has no notion of a line's escapes at the word level; the
+            // cost is that completion is suppressed inside an escaped-space
+            // argument, which is the conservative direction of the two.
+            return [.line(token: "#", anchor: .atWordStart)]
         case .markdown:
             return []
         }

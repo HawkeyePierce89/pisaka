@@ -665,6 +665,52 @@ final class SyntaxContextScannerTests: XCTestCase {
         assertContext(trailing, at: inside, language: .shell, is: .comment)
     }
 
+    /// A `#` opens a comment when it starts a *word*, and shell's
+    /// metacharacters end a word without being whitespace. Each of these was
+    /// confirmed against `/bin/bash` before being asserted here.
+    func testShellHashAfterAWordEndingMetacharacterIsAComment() {
+        for separator in [";", "&", "|", "<", ">"] {
+            let text = "echo hi\(separator)# note\nmake build"
+            let inside = (text as NSString).range(of: "note").location
+            assertContext(text, at: inside, language: .shell, is: .comment)
+            assertSuppress(text, at: inside, language: .shell, is: true)
+        }
+
+        // The `case` arm's `)` — the shape that made this a finding.
+        let arm = "case $x in\nb)#note\necho matched;;\nesac"
+        let inArm = (arm as NSString).range(of: "note").location
+        assertContext(arm, at: inArm, language: .shell, is: .comment)
+
+        // And its opener, from a subshell.
+        let sub = "(echo hi)#note\necho done"
+        assertContext(sub, at: (sub as NSString).range(of: "note").location,
+                      language: .shell, is: .comment)
+    }
+
+    /// The word-start reading must not swallow the glued forms: a `#` after a
+    /// word character is part of that word, which is the whole reason the anchor
+    /// is not `.anywhere`.
+    func testShellWordStartAnchorStillRejectsGluedHashes() {
+        for text in ["cp foo#bar dest", "echo ${var#prefix}", "echo a1#b", "echo _#x"] {
+            let hash = (text as NSString).range(of: "#").location
+            assertContext(text, at: hash + 1, language: .shell, is: .code)
+        }
+    }
+
+    /// **A known approximation, asserted so it cannot drift silently.** A
+    /// backslash-escaped space does not end a shell word, so bash keeps `#bar`
+    /// inside the argument to `echo`; the anchor sees only the physical space and
+    /// calls it a comment. Recorded on the shell arm in `SyntaxContextVocabulary`
+    /// and in `core-intelligence.md`. This asserts today's (wrong) answer on
+    /// purpose — the cost is completion suppressed where it need not be, the
+    /// conservative direction, and fixing it needs word-level escape tracking the
+    /// scanner does not have.
+    func testShellEscapedSpaceBeforeHashIsTheKnownApproximation() {
+        let text = "echo foo\\ #bar"
+        let inside = (text as NSString).range(of: "bar").location
+        assertContext(text, at: inside, language: .shell, is: .comment)
+    }
+
     func testShellSingleQuotedStringTakesNoEscape() {
         // The backslash is literal, so the quote right after it still closes.
         let text = "echo 'a\\' && ls"
