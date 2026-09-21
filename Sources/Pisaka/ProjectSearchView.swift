@@ -289,6 +289,14 @@ struct ProjectSearchView: View {
 
                 Text(previewText(result.previews[index]))
                     .font(.system(size: settings.fontSize, design: .monospaced))
+                    // The preview is a line of the file, drawn at the code font,
+                    // so its colour comes from the one table for the reason the
+                    // editor's own uncovered text does: SwiftUI's default label
+                    // is pure black/white and the palette's plain row is
+                    // `#1d1d1f`/`#dfe1e5`, so a row and the file it opens would
+                    // otherwise disagree by a step. The line *number* beside it
+                    // stays `.secondary`: it is chrome the file does not contain.
+                    .foregroundStyle(Color(SyntaxTheme.shared.color(for: .plain)))
                     .lineLimit(1)
                     .truncationMode(.tail)
 

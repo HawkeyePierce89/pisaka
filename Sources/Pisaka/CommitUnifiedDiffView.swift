@@ -113,6 +113,15 @@ struct CommitUnifiedDiffView: View {
             number(line.newNumber)
             Text(sign(line.kind) + line.text)
                 .font(.system(size: fontSize, design: .monospaced))
+                // A diff row is file content drawn at the code font, so its
+                // colour comes from the one table rather than from SwiftUI's
+                // default label: that default is not the design's value (the
+                // palette's plain row is `#1d1d1f`/`#dfe1e5`, the label colour is
+                // pure black/white), so an unstated foreground would put this
+                // panel a step off the table beside the editor behind the sheet.
+                // Only the *text* is stated; the added/removed tint stays a
+                // background, so a row still reads as added or removed.
+                .foregroundStyle(Color(SyntaxTheme.shared.color(for: .plain)))
                 .lineLimit(1)
                 .fixedSize(horizontal: true, vertical: false)
             Spacer(minLength: 0)
