@@ -431,31 +431,31 @@ link tree-sitter) and neither build executes it; the app-host bundle does both.
   `docs/architecture/core-intelligence.md`, `CLAUDE.md`, `README.md`,
   `docs/FEATURES.md`
 
-- [ ] `core-editor.md`: extend the `SyntaxLanguage` entry with the new extensions
+- [x] `core-editor.md`: extend the `SyntaxLanguage` entry with the new extensions
       and dot-files, the `.envrc` placement argument, and one sentence on the
       injection path the raw value serves (and that the Markdown preview's fence
       label is a different, unaffected path); extend the `SyntaxTokenKind` entry
       with the `embedded` decision and the ordering fact it rests on; extend the
       `LanguageKeywords` entry with the line decision 8 states.
-- [ ] `core-intelligence.md`: a shell section in the shape of the Go and Rust
+- [x] `core-intelligence.md`: a shell section in the shape of the Go and Rust
       ones — the query's two anchoring decisions, the node/field names verified
       against the pinned `node-types.json`, what the static half of the
       verification recipe found, and **the new app-layer suite as the runtime
       half**, naming what it asserts and why the manual step is now a
       confirmation rather than the only evidence. Correct the "16
       `SyntaxLanguage` cases" sentence to 17.
-- [ ] `CLAUDE.md`: the Tests paragraph enumerates the `PisakaAppTests` suites, so
+- [x] `CLAUDE.md`: the Tests paragraph enumerates the `PisakaAppTests` suites, so
       add `ShellSymbolQueryTests` to that list with its half-sentence reason (it
       executes a symbols query against its grammar, which `swift test` cannot).
       Nothing else in that file: the vendored-grammar count is unchanged, "one
       tree-sitter grammar per language" still holds, and the index line for
       `SyntaxLanguage.swift` still describes the file. Confirm by inspection and
       say so.
-- [ ] `README.md` and `docs/FEATURES.md`: add shell to the language lists that
+- [x] `README.md` and `docs/FEATURES.md`: add shell to the language lists that
       become untrue (highlighting, comment toggle, keyword completion, file-name
       resolution). Nowhere else — do not restate the language in every document
       that mentions the table.
-- [ ] Run `swift test` — must pass before Task 7.
+- [x] Run `swift test` — must pass before Task 7.
 
 ### Task 7: Verify acceptance criteria
 

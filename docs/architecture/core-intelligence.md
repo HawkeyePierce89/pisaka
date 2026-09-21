@@ -686,7 +686,31 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     identifier-shaped value literals (`true`, `false`, `unset`, etc.). Charset
     values (`utf-8`, `utf-16be`, etc.) are absent because they contain hyphens and
     therefore fail the insertable-token test; `latin1` is the one charset value
-    that is included, being the only identifier-shaped spelling among them. The list is deliberately not
+    that is included, being the only identifier-shaped spelling among them.
+    **Shell is where "no source file can ever declare it" stops dividing the
+    list**, because a shell builtin and a program on disk can carry the same
+    name, so the list states its own line instead: **a word is in when the shell
+    itself must interpret it for the script to mean what it says** — the reserved
+    words, plus the builtins that *bind or unbind a name* (`local`, `export`,
+    `declare`, `readonly`, `unset`, `read`, `mapfile`/`readarray`), *set a shell
+    option or change how the shell reads what follows* (`set`, `shopt`, `shift`,
+    `eval`, `source`, `command`, `builtin`), or *alter control flow* (`break`,
+    `continue`, `return`, `exit`, `exec`, `trap`). A word is **out** when it is an
+    ordinary command a program in `$PATH` could perform, whether or not this shell
+    also implements it internally. `echo` is the worked example, and the reason
+    the earlier phrasing had to be replaced: it is a builtin *and* a real file in
+    `/bin`, so a rule about what a file can declare admitted and refused it at
+    once. Nothing about a script's meaning depends on which `echo` runs, so it is
+    out — by the same argument that keeps `print` and `console` off the other
+    lists — along with `printf`, `test`, `pwd`, `kill`, `type`, `hash`, `ulimit`,
+    `umask`, `jobs`, `fg`, `bg`, `wait`, `pushd` and `popd`; `true`/`false` are
+    out because here they are commands rather than the boolean literals a grammar
+    declares; every external program (`grep`, `sed`, `awk`, `git`) is out; and the
+    bracket/brace tokens are punctuation the identifier rule would refuse to
+    insert anyway. The two least obvious members are stated as such:
+    `mapfile`/`readarray` stay **in** for the reason `read` does — they bind a
+    name, which no external program can do — while `jobs`, `fg`, `bg` and `wait`
+    stay **out**, manipulating the job table being none of the three clauses. The list is deliberately not
     context-aware and offers keys and values alike. **A keyword is never a definition**: `SymbolIntelligenceProvider`'s
     go-to-definition path does not consult these lists, because a keyword has no
     declaration site to jump to — the two features sharing a provider is exactly
@@ -1125,7 +1149,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     remains a jump target even when it is not worth inserting.
   - `SyntaxContextVocabulary.swift` — the per-language string/comment table and the
     gating policy — **two questions, one scan**. This file declares *what* each of
-    the 16 `SyntaxLanguage` cases considers a string or a comment and *whether*
+    the 17 `SyntaxLanguage` cases considers a string or a comment and *whether*
     being inside that string should suppress completion, while
     `SyntaxContextScanner` only walks the buffer and answers honestly
     (`.code`/`.string`/`.comment`). The split is what lets a language recognize
@@ -1150,6 +1174,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     | yaml | `'…'` (doubling escape), `"…"` (`\`), single-line | **no** | `#` at line start or after whitespace |
     | html | `'…'`, `"…"` attribute values, single-line, no escapes | **no** | `<!-- -->` non-nesting |
     | dotenv | `'…'`, `"…"` single-line, escape **`.none`** (see below) | **no** | `#` after indent |
+    | shell | `'…'` multi-line, escape **`.none`**; `"…"` multi-line `\` | **no** (see below) | `#` after whitespace |
     | gitignore | none | — | `#` at **true line start** (column zero) |
     | editorconfig | none | — | `#` and `;` after indent |
     | markdown | none | none | **completely ungated** |
@@ -1169,6 +1194,28 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
       inside a quoted YAML scalar from reading as a comment and `<!--` inside an
       attribute value from reading as one.
     - **Markdown**: prose all the way down, with no vocabulary to speak of.
+    - **Shell is the fifth `false`, and not for the document-vocabulary
+      reason.** A double-quoted shell string interpolates (`"$HOME/bin"`,
+      `"${TAG}-rc"`), so its contents are exactly the vocabulary completion
+      should still offer. The flag is per *language*, so the non-interpolating
+      single-quoted form inherits the same answer — a popup nobody asked for
+      costs less than silence in the form people actually type in. Its `'…'`
+      escape is `.none` because a backslash inside a single-quoted shell string
+      *is* a literal backslash and the next `'` always ends the literal; both
+      forms span lines because an unterminated quote in a script really does
+      continue, and reading it otherwise would silently re-open code. Its `#`
+      anchor is `.afterWhitespace`, YAML's reading for the same lexical reason: a
+      `#` glued to the preceding character is part of a word, so neither
+      `foo#bar` nor the parameter expansion `${var#prefix}` opens a comment.
+      **Three shapes are deliberately not modelled**, each because no fixed
+      `StringForm` describes it — *heredocs* (the delimiter is an arbitrary word
+      declared on an earlier line, so there is no literal for `open`; the body
+      lexes as code, which is the honest failure), *`$'…'`* (its escapes are C's,
+      and `allowedPrefixLetters` takes letters rather than `$`, so it lexes as an
+      ordinary single-quoted string — which ends it in the same place, the only
+      difference being what the escapes *mean*), and *backslash-continued lines*
+      (the scanner has no notion of a joined line and needs none here, both forms
+      spanning lines already).
     - **dotenv's escape rule is `.none`, deliberately.** dotenv has no normative
       grammar and escape handling differs per loader, so borrowing another
       language's backslash convention would be inventing a rule rather than
@@ -1558,7 +1605,7 @@ The language knowledge itself lives outside Core, in
 `.gitignore`, wired into the bundle as a **folder reference** in `project.yml`
 (like `Resources/Licenses`, so adding a language's query needs no `xcodegen
 generate`) and loaded by `SymbolQueryCatalog`. One convention, authored once and
-used by all thirteen files: **the captured node is always the name node**, the
+used by all sixteen files: **the captured node is always the name node**, the
 capture name is the kind (`@definition.type`, `@definition.function`, …), and an
 optional `@container` capture *in the same match* supplies the enclosing type's
 name — which is why `SymbolExtractor` walks matches rather than captures.
@@ -1598,7 +1645,7 @@ capture resolving to *its own* kind, the single auxiliary capture
 (`@_attribute`, the HTML `id` filter) pinned by its own set equality, the dotenv
 query validated against the vendored grammar's own `node-types.json` under the
 matching `named` flag *and* against its declared field table, and — for the
-twelve remote grammars, whose sources are not in the repository — the node-name,
+thirteen remote grammars, whose sources are not in the repository — the node-name,
 anonymous-literal and field-name sets pinned by hand, the way
 `SyntaxTokenKindTests` pins the dockerfile captures, so a grammar update that
 renames a node or a field fails with the language named.
@@ -1847,3 +1894,62 @@ a duplicate table symbol at the wrong site.
 ### `Resources/Queries/editorconfig/symbols.scm` — the section headers
 
 EditorConfig's query follows the shared convention and captures the section header's glob pattern as `@definition.heading`. `.heading` is chosen deliberately: `SymbolIntelligenceProvider.kindsExcludedFromCompletion` is exactly `[.heading]`, so a section header stays a ⌃⌘J jump target but is never offered as a completion. If it were `.selector` (like CSS), an identifier-shaped header like `[Makefile]` would start appearing in the completion list, which is incorrect.
+
+### `Resources/Queries/shell/symbols.scm` — the two anchoring decisions and the runtime gate
+
+Shell's query (grammar `tree-sitter/tree-sitter-bash`, pinned `0.25.1`, revision
+`a06c2e44…`) follows the shared convention and makes two decisions that read as
+an asymmetry unless the reason is written down.
+
+**Functions are unanchored, variables are anchored.** A shell function is global
+wherever its definition runs — nesting one inside another, or inside an `if`,
+does not scope it — so `(function_definition name: (word) @definition.function)`
+matches at any depth. An assignment is the opposite: one made inside a function
+body or a loop is almost always a local or a counter, so all three assignment
+patterns hang off `(program …)`. That is Python's and Go's anchoring, reached by
+the same argument: unanchored, the index fills with locals and the common names
+(`i`, `tmp`, `out`) push the real declaration out of the go-to-definition menu.
+Three patterns rather than one because the grammar nests the shapes differently
+— a bare `variable_assignment`, one inside a `variable_assignments` (the
+`A=1 B=2` form, one level deeper), and one inside a `declaration_command`
+(`readonly ROOT=/srv`, `export TAG=v1`, `declare -r …`).
+
+**The name is captured as `(variable_name)` specifically, not by field alone.**
+`variable_assignment`'s `name:` field admits `variable_name` *or* `subscript`,
+and `arr[2]=x` declares nothing new — naming the node is what skips the subscript
+form, and it is the only thing that does. A bare `export PATH` inside a
+`declaration_command` is likewise **not** captured: it names a variable bound
+elsewhere, so indexing it would file a definition at a line that defines nothing.
+Only the assigning form is matched, through the nested `variable_assignment`.
+
+The node and field names above were read out of the grammar's own
+`src/node-types.json` at the pinned revision rather than inferred: `program`'s
+children expand the hidden `_statement`, whose subtypes include
+`variable_assignment`, `variable_assignments` and `declaration_command`;
+`function_definition` carries a `name:` field of type `word`. The **static** half
+of the verification is `SymbolQueryTests`' pinned tables — named
+`{declaration_command, function_definition, program, variable_assignment,
+variable_assignments, variable_name, word}`, anonymous `{}`, fields `{name}` —
+so a grammar update that renames any of them fails `swift test` with shell named.
+
+**The runtime half is a test here, not a hand-off** — the one place in this
+repository where that is true. The failure this section is most exposed to (a
+query that stops compiling against its grammar, which indexes zero symbols and
+looks exactly like a file that declares nothing) is invisible to `swift test`,
+because Core does not link tree-sitter, and to both builds, because neither
+executes a query. It is *not* invisible to `Tests/PisakaAppTests`, which runs
+inside the host app process, so `ShellSymbolQueryTests` asserts three things by
+execution: that `SyntaxLanguageConfiguration.configuration(for: .shell)` is
+non-`nil` (the grammar loads and its bundled highlight query resolves), that
+`SymbolQueryCatalog.query(for: .shell)` is non-`nil` (the shipped `.scm` really
+compiles against the pinned grammar — the assertion this whole paragraph exists
+for), and that `SymbolExtractor.symbols(in:language:fileURL:)` over a fixture
+script reduces, **by set equality** on `(kind, name, line)`, to the set written
+out in full. That turns the four readings above into assertions: every function
+in both spellings is present, every top-level assignment in all three shapes is
+present, no assignment made inside a function body or a loop appears, and neither
+`arr[2]=x` nor the valueless `export PATH` does. The manual ⌃⌘J check on a grammar
+update still stands for shell as it does for every other language, but here it is
+a **confirmation of the end-to-end path** (bundle → catalog → extractor → index →
+picker) rather than the only evidence. The same gap remains for the other
+sixteen languages; closing it for them is not this entry's claim.

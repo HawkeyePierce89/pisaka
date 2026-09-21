@@ -142,7 +142,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
   - `SyntaxLanguage.swift` — pure, testable
     `String`/`CaseIterable`/`Equatable`/`Hashable`/`Sendable`
     enum of supported languages (swift, javascript, typescript, go, rust, json,
-    markdown, python, html, css, yaml, dockerfile, dotenv, gitignore, sql) with
+    markdown, python, html, css, yaml, dockerfile, dotenv, gitignore, sql,
+    editorconfig, shell) with
     `init?(fileExtension:)` and `init?(forFileName:)`, backed by a lowercased
     extension→language map, mirroring `FileIcon`'s extension-map pattern. The
     last three carry no extension at all (`Dockerfile`, `.env`, `.gitignore`), so
@@ -179,6 +180,31 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `.markdown` rather than to `.gitignore`. `testEveryCaseIsReachableByFileName`
     covers every `allCases` through a file *name* (not an extension), so a future
     case added with no resolution rule fails the suite.
+    **Shell is the widest user of both maps and adds no fifth phase.** The
+    extension map gained `sh`, `bash`, `zsh`, `ksh` and `command`; the exact-name
+    map gained the ten login/startup dot-files (`.bashrc`, `.bash_profile`,
+    `.bash_logout`, `.zshrc`, `.zprofile`, `.zshenv`, `.zlogin`, `.zlogout`,
+    `.profile`, `.envrc`). Every one of them is served by the two maps that
+    already existed — no phase was reordered, loosened or given a new rule.
+    `.envrc`'s **placement is the decision**: it is one character from the dotenv
+    family, and phase 1 is the only phase that cannot interact with the `.env.`
+    prefix rule in either direction — a looser rule claiming it would have to be
+    ordered against that prefix, while an exact name is answered before either
+    ever runs. `(".envrc" as NSString).pathExtension` is `""` and `.envrc` does
+    not carry the `.env.` prefix, so the name was unclaimed before this and no
+    dotenv answer moved: `.env` stays phase 1, `.env.local` phase 3, `.env.json`
+    phase 2, each pinned by its own test.
+    The **raw value is load-bearing for one path**: the editor's fenced-block
+    injection, `SyntaxLanguageConfiguration.configuration(forInjectionName:)`,
+    lowercases the label and tries `SyntaxLanguage(rawValue:)` first and
+    `SyntaxLanguage(fileExtension:)` second — so a ` ```shell ` block resolves
+    through the raw value and ` ```sh `/` ```bash `/` ```zsh `/` ```ksh ` through
+    the extension map, with no code beyond the two maps above. The Markdown
+    **preview**'s fence label is a *different* path and is unaffected either way:
+    `MarkdownRenderer.highlightName(for:)` emits `class="language-<name>"` for
+    the bundled highlighter's own alias table and never consults this enum
+    (`core-markdown-preview.md`).
+
     **Adding a case has three obligations beyond the map**: a grammar in
     `project.yml`/`SyntaxLanguageConfiguration` for highlighting; a
     `Resources/Queries/<raw value>/symbols.scm` for the symbol index — or an
@@ -290,6 +316,22 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     would incorrectly recolor HTML attributes and Rust `#[derive(…)]`.
     `spell` is mapped to `.plain` following the `.none` precedent to prevent it
     from interfering with its companion `@comment` capture.
+    **tree-sitter-bash's `embedded` is deliberately left unmapped**, the same
+    absence-as-decision as `none` and `spell` and pinned by its own test so a
+    later "map everything" sweep cannot quietly colour it. It is an *injection
+    marker*, not a token class — there is no kind among the fourteen that it
+    means — and it wraps whole `command_substitution` / `process_substitution` /
+    `expansion` spans that contain their own, more specific captures. The
+    ordering fact the decision rests on is SwiftTreeSitter's: `highlights()`
+    sorts less-specific matches before more-specific ones
+    (`QueryDefinitions.swift`), so every inner capture wins and what `embedded`
+    is actually left painting is the `$(`, `)`, `${` and `}` delimiters —
+    correctly at the default colour. The other eight names the grammar emits
+    (`comment`, `constant`, `function`, `keyword`, `number`, `operator`,
+    `property`, `string`) already resolve through the existing map, so shell
+    needed **no** new `nameMap` entry at all; `property` is the grammar's own
+    choice for `variable_name`, which is why `$HOME` takes the property colour —
+    recorded rather than corrected.
   - `IndentEngine.swift` — pure, testable auto-indent computation for the editor
     (Foundation only, no AppKit/Neon), operating on an `NSString` + UTF-16 offsets
     and splitting lines with the same Unicode separators as the rest of the editor
