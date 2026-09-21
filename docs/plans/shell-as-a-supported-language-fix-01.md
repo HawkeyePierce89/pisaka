@@ -222,16 +222,16 @@ and places its multi-assignment line at end of file for exactly this reason; the
 three shapes the plan claims for top-level assignments is therefore near-inert,
 and that is not currently recorded where it would be read.
 
-- [ ] Add the caveat to the pattern's own comment in `symbols.scm`: name the
+- [x] Add the caveat to the pattern's own comment in `symbols.scm`: name the
       declared grammar conflict, say that the capture survives only when no later
       statement can read as a command, and say plainly that this makes the pattern
       rare in practice rather than implying it works generally.
-- [ ] Mirror it in `docs/architecture/core-intelligence.md`'s shell section,
+- [x] Mirror it in `docs/architecture/core-intelligence.md`'s shell section,
       which currently describes three working shapes.
-- [ ] **Do not attempt to fix the capture.** Working around a declared grammar
+- [x] **Do not attempt to fix the capture.** Working around a declared grammar
       conflict from a query is out of scope and would be a different decision; the
       deliverable here is an honest record.
-- [ ] A test that would have caught it: extend `ShellSymbolQueryTests` with a
+- [x] A test that would have caught it: extend `ShellSymbolQueryTests` with a
       second, small fixture — or an inline source string, whichever fits the
       suite's shape — where `A=1 B=2` is followed by an ordinary command, and
       assert that neither name is indexed, with a comment naming the grammar

@@ -98,6 +98,48 @@ final class ShellSymbolQueryTests: XCTestCase {
         XCTAssertFalse(names.contains("PATH"), "a valueless `export PATH` names a variable bound elsewhere")
     }
 
+    /// The caveat the `variable_assignments` pattern's own comment states,
+    /// asserted rather than described: `A=1 B=2` followed by an ordinary command
+    /// indexes **neither** name.
+    ///
+    /// The cause is the grammar's, not the query's — `src/grammar.json` declares
+    /// `["command", "variable_assignments"]` a conflict and the parser resolves
+    /// it greedily across newlines, so the run parses as
+    /// `(command (variable_assignment)… (command_name))` and matches neither the
+    /// `variable_assignments` pattern nor the `(program …)`-anchored bare one.
+    /// This is a characterisation test: the behaviour is the recorded limit, and
+    /// the assertion exists so a grammar bump that changes it arrives as a red
+    /// test instead of silently outdating two comments and this doc entry.
+    ///
+    /// Written over an inline source rather than the fixture on purpose — the
+    /// fixture asserts by set equality and keeps its multi-assignment line last
+    /// precisely to avoid this shape, so the collapse has nowhere to be seen
+    /// there.
+    func testAMultiAssignmentFollowedByACommandIndexesNeitherName() {
+        let source = """
+        HOST=localhost PORT=8080
+        echo done
+        """
+        let symbols = SymbolExtractor.symbols(
+            in: source,
+            language: .shell,
+            fileURL: URL(fileURLWithPath: "/inline/multi-assignment.sh")
+        )
+        let names = Set(symbols.map(\.name))
+        XCTAssertFalse(names.contains("HOST"), "the declared `command`/`variable_assignments` conflict collapses the run into a `command`")
+        XCTAssertFalse(names.contains("PORT"), "the declared `command`/`variable_assignments` conflict collapses the run into a `command`")
+
+        // The same two names, with nothing after them that can read as a command
+        // name, *are* indexed — which is what makes the assertion above about
+        // the grammar conflict rather than about the pattern being dead.
+        let trailing = SymbolExtractor.symbols(
+            in: "HOST=localhost PORT=8080\n",
+            language: .shell,
+            fileURL: URL(fileURLWithPath: "/inline/multi-assignment-last.sh")
+        )
+        XCTAssertEqual(Set(trailing.map(\.name)), ["HOST", "PORT"])
+    }
+
     /// The `(kind, name, line)` comparison shape — deliberately not `Symbol`,
     /// which carries the fixture's absolute `fileURL` and would make the set
     /// above depend on where the clone lives.

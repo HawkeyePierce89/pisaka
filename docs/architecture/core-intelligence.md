@@ -1947,6 +1947,23 @@ Three patterns rather than one because the grammar nests the shapes differently
 `A=1 B=2` form, one level deeper), and one inside a `declaration_command`
 (`readonly ROOT=/srv`, `export TAG=v1`, `declare -r …`).
 
+**One of those three shapes is near-inert, and the reason is the grammar's.**
+`src/grammar.json` declares `["command", "variable_assignments"]` a conflict, and
+the parser resolves it greedily *across newlines*: a run of assignments is a
+`variable_assignments` node only while nothing after it can serve as the command
+those assignments prefix. `A=1 B=2` followed by any statement whose first word
+reads as a command name (`echo`, `readonly`, a function call) parses as
+`(command (variable_assignment)… (command_name))` instead, and then neither name
+is captured at all — the `variable_assignments` pattern no longer matches, and
+the bare pattern is anchored at `(program …)`, which that `command` node is not.
+The capture therefore survives only at end of file or before statements that
+cannot read as a command, which is why the fixture's multi-assignment line is its
+last. Working around a declared grammar conflict from a query would be a
+different decision and is deliberately not attempted; what is owed instead is the
+honest record, in the query file's own comment and here, plus the assertion in
+`ShellSymbolQueryTests` that pins the collapse so a grammar bump changing it
+fails loudly rather than leaving a stale comment behind.
+
 **The name is captured as `(variable_name)` specifically, not by field alone.**
 `variable_assignment`'s `name:` field admits `variable_name` *or* `subscript`,
 and `arr[2]=x` declares nothing new — naming the node is what skips the subscript
@@ -1971,7 +1988,7 @@ query that stops compiling against its grammar, which indexes zero symbols and
 looks exactly like a file that declares nothing) is invisible to `swift test`,
 because Core does not link tree-sitter, and to both builds, because neither
 executes a query. It is *not* invisible to `Tests/PisakaAppTests`, which runs
-inside the host app process, so `ShellSymbolQueryTests` asserts three things by
+inside the host app process, so `ShellSymbolQueryTests` asserts four things by
 execution: that `SyntaxLanguageConfiguration.configuration(for: .shell)` is
 non-`nil` (the grammar loads and its bundled highlight query resolves), that
 `SymbolQueryCatalog.query(for: .shell)` is non-`nil` (the shipped `.scm` really
@@ -1981,7 +1998,9 @@ script reduces, **by set equality** on `(kind, name, line)`, to the set written
 out in full. That turns the four readings above into assertions: every function
 in both spellings is present, every top-level assignment in all three shapes is
 present, no assignment made inside a function body or a loop appears, and neither
-`arr[2]=x` nor the valueless `export PATH` does. The manual ⌃⌘J check on a grammar
+`arr[2]=x` nor the valueless `export PATH` does. A fourth assertion, over an
+inline source rather than the fixture, pins the grammar conflict above: with
+`A=1 B=2` followed by an ordinary command, neither name is indexed. The manual ⌃⌘J check on a grammar
 update still stands for shell as it does for every other language, but here it is
 a **confirmation of the end-to-end path** (bundle → catalog → extractor → index →
 picker) rather than the only evidence. The same gap remains for the other

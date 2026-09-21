@@ -30,6 +30,22 @@
 (program (variable_assignment name: (variable_name) @definition.variable))
 
 ; `A=1 B=2` on one line nests one level deeper.
+;
+; **This pattern is rare in practice, and the reason is the grammar's, not the
+; query's.** `src/grammar.json` declares `["command", "variable_assignments"]` a
+; conflict, and the parser resolves it greedily *across newlines*: the run is a
+; `variable_assignments` node only while nothing after it can serve as the
+; command those assignments prefix. With any later statement whose first word
+; reads as a command name (`echo`, `readonly`, a function call), the whole run
+; collapses into `(command (variable_assignment)… (command_name))` and neither
+; name is captured — not by this pattern, which no longer matches, and not by
+; the bare one above, which is anchored at `(program …)`. So the capture
+; survives only at end of file, or before statements that cannot read as a
+; command. Working around a declared grammar conflict from a query is a
+; different decision and deliberately not attempted here; the fixture places its
+; multi-assignment line last for exactly this reason, and
+; `ShellSymbolQueryTests` asserts the collapse so a grammar bump that changes it
+; shows up as a red test rather than as a stale comment.
 (program (variable_assignments
            (variable_assignment name: (variable_name) @definition.variable)))
 
