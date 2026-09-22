@@ -57,19 +57,40 @@ enum ChromePalette {
         case .bgPopover: return Entry(dark: 0x36383D, light: 0xFFFFFF)
 
         // Text.
+        // The code zone's own theme states this same pair for its body-text
+        // weight, and the pair below for its secondary weight. That is two
+        // layers agreeing about a weight, not duplication to be factored
+        // out: this palette must not gain a syntax entry, and the syntax
+        // table must not start reading a role. `SyntaxTheme.swift` says the
+        // same from its side.
         case .textPrimary: return Entry(dark: 0xDFE1E5, light: 0x1D1D1F)
         case .textSecondary: return Entry(dark: 0xA0A3AA, light: 0x6E6E73)
         case .onAccent: return Entry(dark: 0xFFFFFF, light: 0xFFFFFF)
 
         // Lines and accent.
         case .hairline: return Entry(dark: 0x393B40, light: 0xD1D1D6)
+        // The syntax table states this same pair for its label colour — the
+        // third of the three agreements noted above, and agreement for the
+        // same reason.
         case .accent: return Entry(dark: 0x4F8DFF, light: 0x2F6FE0)
         case .accentTint: return Entry(dark: 0x4F8DFF, light: 0x2F6FE0, alpha: 0x22)
         case .accentTintStrong: return Entry(dark: 0x4F8DFF, light: 0x2F6FE0, alpha: 0x33)
 
         // Row and line states.
         case .hoverTint: return Entry(dark: 0xFFFFFF, light: 0x000000, alpha: 0x0A)
-        case .selectionInactive: return Entry(dark: 0x34363B, light: 0xF0F0F2)
+        // Changed: this wash was once byte-identical to `currentLine` below,
+        // and is now a deliberate step stronger, because the design states
+        // that value. Its one consumer is `ProjectTreeView.swift`'s
+        // `TreeRowBackground.role(for:)`, `case .selectedUnfocused` — a
+        // project-tree row selected while its window is not key — so this is
+        // what that row washes itself with, not an editor text selection.
+        // `currentLine` is at present painted by nothing at all (its only
+        // occurrences are its declaration, the row below and this comment), so
+        // the two have never been drawn together and no symptom was visible;
+        // what the change answers is the design, and what the rule below it in
+        // `ChromePaletteTests` guards is the future in which a current-line
+        // highlight is added.
+        case .selectionInactive: return Entry(dark: 0x3C3F46, light: 0xE2E2E7)
         case .currentLine: return Entry(dark: 0x34363B, light: 0xF0F0F2)
         case .bracketMatch: return Entry(dark: 0x3D4A5C, light: 0xDBE6F5)
 

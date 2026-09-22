@@ -14,7 +14,59 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     (Core) → `SyntaxTheme` color; the configuration's `languageProvider` resolves
     injected sub-languages (Markdown's `markdown_inline`, fenced code blocks,
     embedded HTML/YAML) via `SyntaxLanguageConfiguration`. No detected language →
-    plain text, no highlighter attached. Soft-wrapping is disabled (long lines
+    plain text, no highlighter attached.
+    **The text view's base foreground is the theme's `.plain` entry**, set beside
+    the font in the configuration block and written by the no-grammar reset path
+    over the whole storage — never the platform's `.labelColor`. A character no
+    capture covers is the same question `.plain` answers, so it is read from the
+    one table rather than left on the text view's system-label default. A system
+    semantic colour is refused for its **value**, not for the appearance it
+    tracks: `.labelColor` resolves against the window's `NSAppearance`, which the
+    Theme preference sets through `.preferredColorScheme` at the window root, so
+    it follows the preference exactly as a table row does — it is simply pure
+    black/white where the plain row is `#1d1d1f`/`#dfe1e5`, which would leave an
+    uncovered character a step off the table beside every covered one
+    (`core-theme.md`). Both sites read
+    `SyntaxTheme.shared.color(for: .plain)`, so no second resolution point
+    exists, and `SyntaxThemeTests`'
+    `testUncoveredTextReadsThePlainRowInBothAppearances` pins **both sites at the
+    site**: it calls `applyBaseTypography(to:)` — `internal` for exactly this
+    reason — on a fresh text view and reads the colour back off it, and it drives
+    `Coordinator.updateHighlighter(for:language:contentReplaced:)` with no
+    language and reads the colour back off the storage. Deleting either
+    assignment fails that test; asserting
+    `SyntaxTheme.shared.color(for: .plain)` instead, as the test first did, would
+    have stayed green, because the expression's own value is already pinned by
+    the table test and a site nobody calls still resolves it correctly.
+    **The rule is the whole zone's, not the editor's**, and the enumeration is
+    as wide as the sentence. Every surface that *declares itself the code zone*
+    and shows file content states its own base foreground out of the one table,
+    whether or not it is highlighted at all: the two editors, the read-only panes
+    (`DiffView`, `SourceViewerContent`, `DiffView_iOS`, `MergeView_iOS`), the
+    macOS merge panes (`MergeView`'s `MergePaneTextView`, which attaches no
+    highlighter), the commit dialog's unified diff (`CommitUnifiedDiffView`) and
+    the Find in Files result previews (`ProjectSearchView`). The reason is a
+    **value**, not an appearance: the platform's label colour is pure
+    black/white and the palette's plain row is `#1d1d1f`/`#dfe1e5`, so a surface
+    that states nothing sits a step off the table beside every surface that
+    states one — and, inside a highlighted pane, beside every character a capture
+    did cover. The omission is the *absence* of an assignment, which no compiler
+    can see, so `SyntaxBaseForegroundGatingTests` is keyed on the **code-zone
+    declaration** (`zoomSurfaceKind == .code` or a `ZoomSurfaceMarker(kind:
+    .code)`) rather than on the highlighter attachment — the earlier key, which
+    could not see the merge panes at all — and pins every surface by
+    `<file>:<declaring type>` set equality, so `DiffView.swift`'s two surfaces
+    are two entries and a second pane added inside a passing file cannot ride in
+    on its neighbour. The base-foreground statements are counted by **site**, not
+    by file, for the same reason. A code-zone surface with nothing of the file's
+    to colour is a **named exemption carrying its reason** — the two gutters, the
+    minimap, the completion list, the scroll view behind a pane, the two web
+    views (each with its own stylesheet) and the commit message field (the user's
+    prose, not the file's content) — never a silence. The highlighter attachment
+    is still pinned as the *iOS* half, the zoom zones being macOS vocabulary,
+    with the one file pair that splits — the iOS editor, attaching from its
+    coordinator and configuring its text view in the representable — named rather
+    than allowed by a weaker rule. Soft-wrapping is disabled (long lines
     scroll horizontally) so document space equals logical-line space, which keeps
     the logical-line-indexed minimap aligned with the document and viewport rect
     without forcing full TextKit layout. `makeNSView` returns a container holding

@@ -141,6 +141,55 @@ the light side, an alpha left at `1` on a wash — so `ChromePaletteTests` (app
 bundle, since the palette lives in the app target) restates the whole table and
 compares component by component; the duplication *is* the test.
 
+**One row has changed since the table was first written.** `selectionInactive`
+was `dark: 0x34363B, light: 0xF0F0F2` — byte for byte the pair `currentLine`
+carries — and is now `dark: 0x3C3F46, light: 0xE2E2E7`, a deliberate step
+stronger, because the design states that value. **No symptom was visible, and
+the change must not be recorded as if one had been**: `selectionInactive` has
+exactly one consumer — `ProjectTreeView.swift`'s `TreeRowBackground.role(for:)`,
+`case .selectedUnfocused`, a project-tree row selected while its window is not
+key, never an editor text selection — and `currentLine` is painted by *nothing
+at all*, its only occurrences being its declaration, its palette row and the
+comment on the row above it. The two have therefore never shared a surface, and
+the only thing that looks different after the change is one tree row's
+background. What `ChromePaletteTests` states —
+`testTheInactiveSelectionWashIsNotTheCurrentLineWash`, asserted in both
+appearances through `ChromeTheme` and through the concrete AppKit colours — is a
+rule about the *future*: whoever adds a current-line highlight must not let it
+arrive in the selection's own wash. It is written as the property rather than as
+the new numbers, so it survives a later palette change; the restated row carries
+the new pair beside it. A second assertion,
+`testTheInactiveSelectionRowNamesTheFileThatPaintsIt`, keeps the row's comment
+honest the only way a comment can be kept honest — it names a *file*, and the
+test checks that the file still paints the role and that the comment still names
+it. That is why the row's comment was rewritten from a symptom into a consumer:
+a symptom is unfalsifiable prose, a file name is an assertion. Its **two halves
+read different text**, because they ask different questions: the half about the
+palette's own comment reads the palette **raw** (stripping would delete its
+subject), while the half that finds the painting site reads every other file
+**comment- and literal-stripped** and keys on the **construct that makes the role
+a colour** — a role-producing `return`, or the role handed to a `color` call —
+never on the bare name. Keyed on the bare name over raw text, as it first was, it
+could not see the defect it is named for: deleting
+`case .selectedUnfocused: return .selectionInactive` from `ProjectTreeView.swift`
+while any prose in that file still spelled the role left the wash painted by
+nothing and the suite green. Both changes are load-bearing — stripping alone
+would still be satisfied by a live mention that paints nothing — and the pair was
+checked by removing that one `case` under a surviving mention and watching the
+test go red. `conflictBackground` was checked against the same design while this
+row was being changed and was **already correct**
+(`dark: 0xC9A35C, light: 0xA67C2E, alpha: 0x26`), so it is untouched. No gating
+rule is added by any of this: `ChromeThemeSourceGatingTests`' rule count is
+unchanged, as is the sentence in `CLAUDE.md` that mirrors it.
+
+`textPrimary`, `textSecondary` and `accent` each carry a short comment
+recording that the **code zone's own theme states the same values** — for its
+body-text weight, its secondary weight and its label colour. That is two layers
+agreeing about a weight, not duplication: the chrome palette must not gain a
+syntax entry and the syntax table must not start reading a role. The
+counterpart sentence is in `SyntaxTheme.swift` (`app-editor-overlays.md`), so a
+reader arriving from either side finds it.
+
 Three accessors, one table:
 
   - `nsColor(_ role:)` — the **AppKit bridge**: a *dynamic* `NSColor` built on
@@ -320,8 +369,8 @@ disagree.
   - **The language-server consent strip** — `LSPConsentBanner.swift`, the
     environment path. One `strip(_:)` helper gives all three questions one ground
     (`bgPanel`) and one bottom rule (a `hairline` rectangle, not a `Divider()`,
-    which would be drawn in the *system's* separator colour and disagree the
-    moment the Theme preference disagrees with the system appearance). The
+    which would be drawn in the *system's* separator value and so disagree with
+    the `hairline` rules beside it in either appearance). The
     question line is `textPrimary`; the explanatory caption and the runtime-network
     note are `textSecondary`, being the same kind of fact; the leading symbol is
     `accent`. The two actions are where the strip states the sweep's rule about
@@ -390,9 +439,13 @@ The eight rules, each invisible to the compiler:
    `controlBackgroundColor`, the `system…` hues, …) plus SwiftUI's
    `accentColor`/`primary`/`secondary`/`tertiary` — and, for the **views** only,
    SwiftUI's named hues. They compile, they look plausible in whichever
-   appearance the reviewer happens to be in, and they desert the palette the
-   moment the Theme preference disagrees with the system one, which is the whole
-   reason the roles exist. Two narrow carve-outs: the palette is exempt from the
+   appearance the reviewer happens to be in, and they desert **the palette** —
+   not the preference. A system semantic colour is itself dynamic, resolved
+   against the window's `NSAppearance`, which is precisely what
+   `.preferredColorScheme` at the window root sets, so it tracks the Theme
+   preference exactly as a role does; what it carries is the platform's value
+   rather than the table's, so a view naming one draws a step off the roles
+   beside it in *either* appearance, which is the whole reason the roles exist. Two narrow carve-outs: the palette is exempt from the
    *hue* half alone, because `red`/`green`/`blue` are argument labels of
    `Color(.sRGB, red:green:blue:opacity:)`; and lines constructing a `FileIcon(`
    are dropped before matching, because `FileIconColor`'s cases collide with the

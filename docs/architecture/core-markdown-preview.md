@@ -269,9 +269,14 @@ highlight.js classifies a token by writing a *scope* into a `class`;
 `MarkdownHighlightClasses.scopeKinds` maps every scope of the bundled standard
 build onto a `SyntaxTokenKind`, and `SyntaxTheme.markdownPreviewTheme(prefersDark:)`
 resolves that vocabulary against an `NSAppearance` and hands Core the colours as
-`#rrggbb` strings. `MarkdownPreviewTheme.light`/`.dark` keep only the chrome;
-every code colour is overwritten through `withCodeColors(_:)`, so adding a token
-kind reaches the preview with no second edit.
+`#rrggbb` strings. Of `MarkdownPreviewTheme.light`/`.dark` only the chrome
+survives on macOS: every code colour is overwritten through
+`withCodeColors(_:)`, which replaces the block wholesale. Those two themes still
+*carry* a full `codeColors` block, so the domain layer has a complete theme to
+test and to fall back on — a second copy macOS never reads. Adding a token kind
+is therefore two edits, a row in each table, and
+`SyntaxThemeTests.testTheDomainLayersRestatedCodeColoursEqualTheEditorTable`
+fails until the second one lands.
 
 Coverage is asserted by **set equality in both directions** — every scope maps to
 a kind, every kind is reached by at least one scope — which is what `CaseIterable`
@@ -678,6 +683,46 @@ disabled task-item checkboxes match a dark pane.
 statement panel's signature; `withCodeColors(_:)` is the app's one use — keep
 Core's chrome, replace the code palette — as a dedicated member so adding a
 chrome colour later cannot silently drop out of the app's copy.
+
+The two restated `codeColors` tables now carry the **editor's own palette**,
+fourteen entries each as lowercase `#rrggbb`. They exist only so the domain
+layer has a complete theme to test and to fall back on; the app overwrites them
+at run time from `SyntaxTheme.table` through `withCodeColors(_:)`, which is
+unchanged and is still the copy that actually reaches the page. Nothing here is
+a second opinion about a colour, and the derivation must not be reimplemented.
+The **chrome fields of both themes are deliberately untouched** by that palette
+work — they are shared with the other document surface drawn in this window, so
+changing them is a different decision from changing the code zone's.
+
+That agreement removes a check that used to be free. Until the palette landed,
+Core's restatement and the editor's table *disagreed*, so a derivation that
+stopped working showed up on screen as old-versus-new colours; now the two
+agree and the screen reports nothing. `SyntaxThemeTests`'
+`testThePreviewThemeCarriesTheEditorsPaletteInBothAppearances` is what reports
+it instead: for each `prefersDark`, every `SyntaxTokenKind`'s `codeColors` entry
+is read through `XCTUnwrap` (not through `color(for:)`, so a missing entry fails
+rather than falling through to the theme's body text) and compared against the
+CSS string formatted from the suite's own restated row — and the derived theme's
+chrome fields are asserted still equal to the base theme's, so a future edit
+cannot quietly widen the derivation into that shared chrome. Stated honestly,
+that pin catches a wrong, partial or wrongly-appearance-resolved derivation, and
+an edit to `SyntaxTheme.table` not carried into the suite's restated rows — and
+nothing more: the derived theme is built wholly from `table`, and
+`withCodeColors(_:)` replaces the block, so Core's own `codeColors` are never
+read by it and could go stale underneath it. The **second** assertion is what
+compares them: `testTheDomainLayersRestatedCodeColoursEqualTheEditorTable` reads
+`MarkdownPreviewTheme.light`/`.dark`'s `codeColors` entry for entry over
+`SyntaxTokenKind.allCases` against the same restated rows, in the app bundle
+because Core cannot see `SyntaxTheme` at all. Editing `table` and the restated
+row together — the correct way to change the palette — now fails there until
+Core's copy follows, which is the guarantee "the two copies state the same
+values" rests on. What **neither** catches is the derivation being deleted while
+both tables agree, the fall-back value then being correct by accident; nothing
+that reads values can, and no stronger claim is made for either.
+Core's own `MarkdownPreviewThemeTests` keeps the structural half unloosened —
+totality over `SyntaxTokenKind.allCases`, light ≠ dark in every colour field —
+plus `testBothCodeTablesAreTotalAndWrittenAsLowercaseSixDigitHex`, so a
+restatement can never drift into a shape the page cannot emit.
 
 ### `MarkdownHighlightClasses.swift`
 

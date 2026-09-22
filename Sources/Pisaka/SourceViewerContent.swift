@@ -131,6 +131,14 @@ struct SourceViewerPane: NSViewRepresentable {
         textView.isSelectable = true
         textView.isRichText = false
         textView.font = .monospacedSystemFont(ofSize: CGFloat(fontSize), weight: .regular)
+        // The colour of a character no capture covers — the same question
+        // `SyntaxTokenKind.plain` answers — so it is read from the one table
+        // rather than left on the text view's system-label default. That default
+        // is not the design's value: the palette's plain row is `#1d1d1f`/
+        // `#dfe1e5` and the label colour is pure black/white, so a character no
+        // capture covers would sit a step off the table beside every character
+        // one does.
+        textView.textColor = SyntaxTheme.shared.color(for: .plain)
 
         // The editor's own gutter. `canAnnotate` stays false (its default), so its
         // one context-menu item is greyed out — blaming a file outside the

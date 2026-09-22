@@ -918,7 +918,10 @@ and `EditorCommandTargetTests` (`core-markdown-preview.md`), plus
 `ShellSymbolQueryTests` — which *executes* the shipped `shell/symbols.scm`
 against its grammar and over a fixture script, the one compile-and-run check no
 Core suite can reach because Core does not link tree-sitter
-(`core-intelligence.md`) — plus the search
+(`core-intelligence.md`) — plus
+`SyntaxBaseForegroundGatingTests` — the code zone's one cross-file rule: every
+view attaching the syntax highlighter states its own base foreground, both sets
+pinned by set equality (`app-editor.md`) — plus the search
 history's two app-side sequencing suites — `EditorSearchStateTests` (the ⌘F
 bar's five recording sites) and `ProjectSearchWindowControllerTests` (the Find
 in Files close hook, `app-editor.md`). It exists because the folding launch-time trap

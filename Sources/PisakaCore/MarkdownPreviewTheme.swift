@@ -118,10 +118,22 @@ public struct MarkdownPreviewTheme: Equatable, Sendable {
     ///
     /// The chrome colours are `LeetCodeStatementDocument.Theme.light`'s, plus a
     /// table border: the two panes sit in the same window and there is no reason
-    /// for one document surface to be a different white from the other. The code
-    /// colours are the editor palette's light variants, restated here only so
-    /// Core has a complete theme to test and to fall back on; the app overwrites
-    /// them from `SyntaxTheme` at run time, which is the copy that must match.
+    /// for one document surface to be a different white from the other. They are
+    /// untouched by the code palette below and stay that way — the chrome is
+    /// shared with the other document surface in the window.
+    ///
+    /// The `codeColors` block is the editor palette's light variants, restated
+    /// here only so the domain layer has a complete theme to test and to fall
+    /// back on. It is not a second opinion: the app overwrites every entry from
+    /// the editor's own table at run time through `withCodeColors(_:)`, which is
+    /// the mechanism that must keep working and must not be reimplemented. The
+    /// two copies now state the same values, so the screen no longer reports a
+    /// broken derivation; two tests do, and they are separate on purpose —
+    /// `SyntaxThemeTests.testThePreviewThemeCarriesTheEditorsPaletteInBothAppearances`
+    /// pins that the derivation carries the editor's table, and
+    /// `testTheDomainLayersRestatedCodeColoursEqualTheEditorTable` pins that this
+    /// block still states the same values, which the first cannot see because
+    /// `withCodeColors(_:)` replaces it wholesale.
     public static let light = MarkdownPreviewTheme(
         background: "#ffffff",
         text: "#1d1d1f",
@@ -132,24 +144,30 @@ public struct MarkdownPreviewTheme: Equatable, Sendable {
         tableBorder: "#c7c7cc",
         colorScheme: "light",
         codeColors: [
-            .keyword: "#9b2393",
-            .string: "#c41a16",
-            .comment: "#536579",
-            .number: "#1c00cf",
-            .type: "#3f6e75",
-            .function: "#326d74",
-            .variable: "#0f68a0",
-            .constant: "#1c00cf",
-            .operator: "#3d3d3d",
-            .punctuation: "#3d3d3d",
-            .property: "#0f68a0",
-            .parameter: "#0f68a0",
-            .label: "#9b2393",
+            .keyword: "#8250b0",
+            .string: "#4f7942",
+            .comment: "#8a8a90",
+            .number: "#a5652d",
+            .type: "#2b6a83",
+            .function: "#2f5fa8",
+            .variable: "#1d1d1f",
+            .constant: "#a5652d",
+            .operator: "#6e6e73",
+            .punctuation: "#6e6e73",
+            .property: "#2f6b63",
+            .parameter: "#1d1d1f",
+            .label: "#2f6fe0",
             .plain: "#1d1d1f",
         ]
     )
 
     /// The dark theme — the light one's counterpart, field for field.
+    ///
+    /// Its chrome is likewise out of the code palette's reach. The `codeColors`
+    /// block is the editor palette's dark variants, restated for the same reason
+    /// the light ones are: the domain layer needs a complete theme to test and to
+    /// fall back on, while the app replaces the whole block from the editor's
+    /// table through `withCodeColors(_:)`.
     public static let dark = MarkdownPreviewTheme(
         background: "#1e1e1e",
         text: "#e8e8ed",
@@ -160,20 +178,20 @@ public struct MarkdownPreviewTheme: Equatable, Sendable {
         tableBorder: "#4a4a4e",
         colorScheme: "dark",
         codeColors: [
-            .keyword: "#fc5fa3",
-            .string: "#fc6a5d",
-            .comment: "#7e8c99",
-            .number: "#d0bf69",
-            .type: "#5dd8ff",
-            .function: "#67b7a4",
-            .variable: "#9ef1dd",
-            .constant: "#d0bf69",
-            .operator: "#d6d6d6",
-            .punctuation: "#d6d6d6",
-            .property: "#67b7a4",
-            .parameter: "#9ef1dd",
-            .label: "#fc5fa3",
-            .plain: "#e8e8ed",
+            .keyword: "#b48ead",
+            .string: "#9db97b",
+            .comment: "#6b6e76",
+            .number: "#c9976c",
+            .type: "#6a9fb5",
+            .function: "#7aa6da",
+            .variable: "#dfe1e5",
+            .constant: "#c9976c",
+            .operator: "#a0a3aa",
+            .punctuation: "#a0a3aa",
+            .property: "#7fa8a0",
+            .parameter: "#dfe1e5",
+            .label: "#4f8dff",
+            .plain: "#dfe1e5",
         ]
     )
 

@@ -236,6 +236,27 @@ struct CodeEditorView: NSViewRepresentable {
         .monospacedSystemFont(ofSize: CGFloat(fontSize), weight: .regular)
     }
 
+    /// The two attributes every character starts from: the editor font, and the
+    /// colour of a character no capture covers — the same question
+    /// `SyntaxTokenKind.plain` answers, so it is read from the one table rather
+    /// than left on the text view's system-label default. That default is not
+    /// the design's value: the palette's plain row is `#1d1d1f`/`#dfe1e5` and
+    /// the label colour is pure black/white, so a character no capture covers
+    /// would sit a step off the table beside every character one does.
+    ///
+    /// `internal` rather than `private` for the same reason `SyntaxTheme.plainText`
+    /// is: the suite has to assert *this site*, because asserting the expression
+    /// it contains pins nothing about the site. A test reading
+    /// `SyntaxTheme.shared.color(for: .plain)` stays green with this assignment
+    /// deleted — the colour is still right, and no text view is ever given it.
+    /// `SyntaxThemeTests.testUncoveredTextReadsThePlainRowInBothAppearances`
+    /// therefore calls this method on a fresh text view and reads the colour back
+    /// off it.
+    func applyBaseTypography(to textView: NSTextView) {
+        textView.font = editorFont()
+        textView.textColor = SyntaxTheme.shared.color(for: .plain)
+    }
+
     func makeNSView(context: Context) -> EditorContainerView {
         // Build the text view explicitly as TextKit 1. Neon's `TextViewHighlighter`
         // supports both TextKit systems, but a fixed, known-good configuration
@@ -384,7 +405,7 @@ struct CodeEditorView: NSViewRepresentable {
         textView.isSelectable = true
         textView.allowsUndo = true
         textView.isRichText = false
-        textView.font = editorFont()
+        applyBaseTypography(to: textView)
         context.coordinator.appliedFontSize = CGFloat(fontSize)
         textView.isAutomaticQuoteSubstitutionEnabled = false
         textView.isAutomaticDashSubstitutionEnabled = false
@@ -3575,13 +3596,18 @@ struct CodeEditorView: NSViewRepresentable {
                 // attributes on the text storage. Clearing the storage's
                 // foreground color alone would leave the old syntax colors visible;
                 // the temporary attributes must be cleared too.
+                //
+                // The colour restored is the theme's plain entry — not the
+                // platform's label colour, which is pure black/white rather than
+                // the palette's `#1d1d1f`/`#dfe1e5` — so an unhighlighted file
+                // reads at the table's own value like every covered character.
                 if let textStorage = textView.textStorage, textStorage.length > 0 {
                     let fullRange = NSRange(location: 0, length: textStorage.length)
                     textView.layoutManager?.setTemporaryAttributes([:], forCharacterRange: fullRange)
                     textStorage.removeAttribute(.foregroundColor, range: fullRange)
                     textStorage.addAttribute(
                         .foregroundColor,
-                        value: textView.textColor ?? .labelColor,
+                        value: SyntaxTheme.shared.color(for: .plain),
                         range: fullRange
                     )
                 }

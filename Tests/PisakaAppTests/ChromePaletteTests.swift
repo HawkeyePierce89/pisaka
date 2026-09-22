@@ -38,7 +38,7 @@ final class ChromePaletteTests: XCTestCase {
         .accentTint: (0x4F8DFF, 0x2F6FE0, 0x22),
         .accentTintStrong: (0x4F8DFF, 0x2F6FE0, 0x33),
         .hoverTint: (0xFFFFFF, 0x000000, 0x0A),
-        .selectionInactive: (0x34363B, 0xF0F0F2, 0xFF),
+        .selectionInactive: (0x3C3F46, 0xE2E2E7, 0xFF),
         .currentLine: (0x34363B, 0xF0F0F2, 0xFF),
         .bracketMatch: (0x3D4A5C, 0xDBE6F5, 0xFF),
         .statusGreen: (0x7A9D6E, 0x4F8A3D, 0xFF),
@@ -182,6 +182,127 @@ final class ChromePaletteTests: XCTestCase {
                 )
             }
         }
+    }
+
+    // MARK: - The states a reader has to tell apart
+
+    /// The inactive-selection wash and the current-line wash are two different
+    /// facts, and must not be the same colour.
+    ///
+    /// **This states a rule about a future, not a defect that was visible.** The
+    /// two roles are not drawn together today, and in fact are not drawn together
+    /// at all: `selectionInactive` has exactly one consumer — a project-tree row
+    /// selected while its window is not key — and `currentLine` is painted by
+    /// nothing whatsoever. They were byte-identical once; the palette row is now
+    /// a deliberate step stronger because the design states that value, and this
+    /// assertion is what keeps a current-line highlight, once someone adds one,
+    /// from silently arriving in the selection's own wash. Read as evidence of a
+    /// symptom that was fixed, it would be read wrong: nothing on screen changed
+    /// but one tree row's background.
+    ///
+    /// The rule is about the property, not about today's numbers: it survives any
+    /// later palette change that keeps the two washes distinguishable, and fails
+    /// the moment one is edited onto the other.
+    func testTheInactiveSelectionWashIsNotTheCurrentLineWash() throws {
+        for appearance in ChromeAppearance.allCases {
+            let theme = ChromeTheme(appearance)
+            XCTAssertNotEqual(
+                theme.color(.selectionInactive), theme.color(.currentLine),
+                "selectionInactive and currentLine are one colour in \(appearance.rawValue)"
+            )
+            let selection = try components(ChromePalette.nsColor(.selectionInactive, in: appearance))
+            let line = try components(ChromePalette.nsColor(.currentLine, in: appearance))
+            XCTAssertFalse(
+                selection == line,
+                "selectionInactive and currentLine resolve to the same AppKit colour in \(appearance.rawValue)"
+            )
+        }
+    }
+
+    /// The spellings by which the inactive-selection role becomes a colour.
+    ///
+    /// The construct, not the name: a role-producing arm (the shape
+    /// `ProjectTreeView.role(for:)` uses) or the role handed to one of the two
+    /// lookups that turn a role into a colour. A file merely *naming* the role —
+    /// in prose, in a string, or in the role enum's own declaration — matches
+    /// none of these, which is the point.
+    private static let paintingSpellings = [
+        "return .selectionInactive",
+        "(.selectionInactive)",
+        "(.selectionInactive,",
+    ]
+
+    /// The row's comment names a consumer, and that consumer exists.
+    ///
+    /// The comment on `ChromePalette`'s `selectionInactive` row says the wash
+    /// belongs to `ProjectTreeView.swift`'s unfocused-selection row. A comment
+    /// naming a *file* is checkable where a comment naming a *symptom* is not,
+    /// which is the whole reason the row was rewritten that way — so this asserts
+    /// both halves: that the role is still painted somewhere under `Sources/`
+    /// outside the palette itself, and that the palette's comment names the file
+    /// that paints it. Of the two forms the fix could take, this is the assertion
+    /// rather than the bare comment, because the assertion keeps the comment true
+    /// as the tree moves; the comment alone would rot in silence.
+    ///
+    /// **The two halves ask different questions and need different inputs.** The
+    /// half that checks the palette's own comment reads the palette **raw**: what
+    /// it is about *is* a comment, so a stripping scanner would delete its
+    /// subject. The half that finds the painting site reads every other file
+    /// **comment- and literal-stripped**, the way every other gating suite in the
+    /// repository does, and keys on the **construct that makes the role a
+    /// colour** — a role-producing `return`, or the role handed to a `color`
+    /// call — rather than on the bare name. Keyed on the bare name over raw text,
+    /// as it first was, the named defect stayed green: delete
+    /// `case .selectedUnfocused: return .selectionInactive` from
+    /// `ProjectTreeView.swift` and any prose in that file still spelling the role
+    /// kept the file in the consumer set, so the wash was painted by nothing and
+    /// every assertion passed. Both changes are needed — the stripping alone
+    /// would still be satisfied by a live mention that paints nothing.
+    func testTheInactiveSelectionRowNamesTheFileThatPaintsIt() throws {
+        let sources = Self.repositoryRoot.appendingPathComponent("Sources")
+        let palettePath = "Sources/Pisaka/ChromePalette.swift"
+        var consumers: Set<String> = []
+        let enumerator = try XCTUnwrap(
+            FileManager.default.enumerator(at: sources, includingPropertiesForKeys: nil)
+        )
+        for case let url as URL in enumerator where url.pathExtension == "swift" {
+            let relative = Self.relativePath(of: url)
+            guard relative != palettePath else { continue }
+            guard let raw = try? String(contentsOf: url, encoding: .utf8) else { continue }
+            let text = SyntaxBaseForegroundGatingTests.strippingCommentsAndStringLiterals(raw)
+            if Self.paintingSpellings.contains(where: { text.contains($0) }) {
+                consumers.insert(relative)
+            }
+        }
+        XCTAssertFalse(
+            consumers.isEmpty,
+            "selectionInactive is painted by nothing; its palette comment names a consumer that is gone"
+        )
+        let palette = try String(
+            contentsOf: Self.repositoryRoot.appendingPathComponent(palettePath), encoding: .utf8
+        )
+        for consumer in consumers {
+            let name = (consumer as NSString).lastPathComponent
+            XCTAssertTrue(
+                palette.contains(name),
+                "ChromePalette's selectionInactive comment does not name \(name), which paints it"
+            )
+        }
+    }
+
+    /// The repository root, walked up from this file.
+    private static var repositoryRoot: URL {
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+    }
+
+    private static func relativePath(of url: URL) -> String {
+        let root = repositoryRoot.standardizedFileURL.path
+        let path = url.standardizedFileURL.path
+        guard path.hasPrefix(root + "/") else { return path }
+        return String(path.dropFirst(root.count + 1))
     }
 
     // MARK: - The resolution the roots perform

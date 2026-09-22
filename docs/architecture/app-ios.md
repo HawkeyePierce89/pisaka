@@ -398,6 +398,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     same programmatic-edit re-entry guard and single-undo discipline; pinch-to-
     zoom font stepping (the iOS analog of macOS Cmd+scroll). No gutter/minimap on
     iOS (deferred).
+    **The text view's base foreground is the theme's `.plain` entry**, exactly as
+    on macOS: set beside the font in the configuration block and written by the
+    coordinator's no-grammar reset path, never `UIColor.label`. A character no
+    capture covers is the question `.plain` answers, so it is read from
+    `SyntaxTheme.shared.color(for: .plain)` — the one table — so an unhighlighted
+    file reads at the design's value rather than at `UIColor.label`'s pure
+    black/white. Both resolve against the same appearance; only the value differs,
+    and the difference is a visible step (`core-theme.md`).
     **`.editorconfig` is wired here exactly as on macOS** (the layer is
     `core-editorconfig.md`): the representable takes an undefaulted `editorConfig:
     EditorConfigModel` (any default worth writing would be a second live disk
@@ -793,7 +801,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     lives in Core's `GitCredentials`.
   - `iOS/LocalChangesView_iOS.swift` / `iOS/DiffView_iOS.swift` /
     `iOS/DiffRoute_iOS.swift` — the Local Changes list + two-`UITextView`
-    side-by-side diff, presented as sheets / pushed screens.
+    side-by-side diff, presented as sheets / pushed screens. Each pane sets the
+    theme's `.plain` entry as its base foreground beside the font, like every
+    other view attaching the syntax highlighter (`app-editor.md`).
   - `iOS/CommitLogView_iOS.swift` / `iOS/CommitGraphView_iOS.swift` —
     the Git Log list with the branch-graph gutter (UIKit over
     `CommitGraphLayout`).
@@ -838,4 +848,6 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     the advanced form is built fresh on each presentation and so uses only the
     from-scratch `init(filter:defaultDate:)`, which has no shown day to keep.
   - `iOS/MergeView_iOS.swift` / `iOS/MergeRoute_iOS.swift` — the adaptive 3-pane
-    conflict resolver (side-by-side on regular width, stacked on compact).
+    conflict resolver (side-by-side on regular width, stacked on compact). Its
+    panes set the theme's `.plain` base foreground beside the font, like every
+    other view attaching the syntax highlighter (`app-editor.md`).

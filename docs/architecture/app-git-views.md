@@ -612,7 +612,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     the pane (`docs/architecture/core-zoom.md`).
     The `Coordinator` mirrors vertical scroll between the panes (guarded against
     the sync feedback loop), and builds a Neon `TextViewHighlighter` per pane
-    (same `SyntaxLanguageConfiguration` + `SyntaxTheme` mapping as the editor),
+    (same `SyntaxLanguageConfiguration` + `SyntaxTheme` mapping as the editor,
+    and — since Neon paints only what a capture covers — the same `.plain` base
+    foreground beside the font, so uncovered text agrees with the editor instead
+    of sitting on the platform label colour; `SyntaxBaseForegroundGatingTests`),
     detaching the outgoing highlighters before a buffer swap to avoid the stale
     cross-language race. `DiffColors` keeps the row/marker color scheme in the
     view layer so Core stays color-free; `DiffContainerView` lays the two panes

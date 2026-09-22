@@ -852,9 +852,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     **Two colour sources, one boundary** (the second part of the chrome sweep,
     `core-theme.md`). The view's own *chrome* takes the AppKit bridge, the ruler's
     path: the background is `ChromePalette.nsColor(.bgEditor)` over `bounds` —
-    replacing a half-opacity system text background, which disagreed with the pane
-    beside it the moment the Theme preference disagreed with the system
-    appearance — and the viewport indicator is `accentTint` filled and
+    replacing a half-opacity system text background, whose value disagreed with
+    the pane beside it in either appearance (the half opacity being the whole
+    departure — it tracked the window's appearance as faithfully as the role
+    does) — and the viewport indicator is `accentTint` filled and
     `accentTintStrong` stroked, **each wash carrying its own opacity in the
     table** so this view composes no alpha of its own. Both are *dynamic*
     `NSColor`s: nothing is cached and nothing watches for a *colour* change,
@@ -922,9 +923,57 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     a non-`const` `TSLanguage *` return with no `void` parameter list, which
     needed no cast — it imports as `OpaquePointer!` like every other grammar.
   - `SyntaxTheme.swift` — built-in (not user-configurable) `SyntaxTokenKind →
-    NSColor` table with light/dark variants following the system appearance;
-    exposes `nsColor(for:)` (a dynamic, appearance-aware `NSColor`, falling back
-    to `.labelColor` for `.plain`/unmapped kinds) for the attribute provider. It
+    NSColor` table with light/dark variants, exposing `nsColor(for:)` (a dynamic,
+    appearance-aware `NSColor`) for the attribute provider. The palette is **the
+    project's own** — muted and low-contrast, chosen against the surfaces the
+    code is drawn on rather than after any platform convention — and the table is
+    **fourteen rows, total over the closed `SyntaxTokenKind`**: `.plain` has an
+    entry of its own rather than being answered by a fallback.
+    Several rows carry the same pair on purpose, one clause each: a constant
+    reads as the literal it is, so it takes `.number`'s; operators and
+    punctuation are the same class of mark, so they take one weight; a parameter
+    is an ordinary identifier, so it takes `.variable`'s; and `.variable`,
+    `.parameter` and `.plain` all sit at the body-text weight because colouring
+    an ordinary identifier competes with the hues that carry meaning. **None of
+    the repetitions may be collapsed into a shared constant** — they are fourteen
+    answers to fourteen questions, and the moment two are meant to diverge a
+    shared constant turns that one edit into two.
+    The fallback that `color(for:)` used to spell as `.labelColor` / `.label` is
+    now a value of its own, `plainText` (light `0x1D1D1F`, dark `0xDFE1E5`),
+    answering the same question `.plain` does. A **system semantic colour is
+    forbidden here for the reason it is forbidden in the chrome**, and the reason
+    is the **value**, not the appearance it tracks: `.labelColor` is itself a
+    dynamic colour resolved against the window's `NSAppearance`, which the Theme
+    preference sets through `.preferredColorScheme` at the window root, so it
+    follows that preference exactly as a table row does (were it otherwise, Theme
+    = Dark under a Light system would have drawn black text on the dark pane all
+    through v1.0). What it is not is the design's value — pure black/white where
+    the plain row is `#1d1d1f`/`#dfe1e5` — so an uncovered character would sit a
+    step off the table beside every covered one and beside the chrome around it. It is `internal` rather than `private` because
+    the suite has to assert it directly — the enum is closed and the table total,
+    so no call to `color(for:)` can reach it.
+    Three of the pairs are **numerically equal to chrome roles** — the body-text
+    weight (`ChromeColorRole.textPrimary`), the secondary weight
+    (`.textSecondary`) and the label colour (`.accent`). That is two layers
+    agreeing about a weight, **not duplication to be factored out**: the code
+    zone owns its own theme and reads no chrome role, the chrome palette carries
+    no syntax entry, and unifying the two tables is explicitly not wanted
+    (the counterpart sentence is on those rows in `ChromePalette`,
+    `core-theme.md`).
+    `SyntaxThemeTests` (app bundle, macOS-gated) pins the values the way
+    `ChromePaletteTests` pins the chrome's: the fourteen rows restated in the
+    suite and compared component for component under both `NSAppearance`s. Four
+    of its assertions are rules rather than numbers, so they survive a later
+    palette change — **no token kind resolves to a system semantic colour** in
+    either appearance (the defect above); **`plainText` is the `.plain` row**,
+    asserted beside the table's **totality**, which is the statement of why the
+    constant has to be asserted directly at all; the **preview seam**, that
+    `markdownPreviewTheme(prefersDark:)` carries every kind's row to the page;
+    and, separately from it because `withCodeColors(_:)` replaces the block the
+    seam is checked through, that the domain layer's **second copy** of the
+    palette — `MarkdownPreviewTheme.light`/`.dark`'s `codeColors` — still states
+    these same values, which is what keeps a one-sided palette edit from going
+    stale with every gate green (`core-markdown-preview.md`). It
     also owns the bracket-highlighting palette, all through `PlatformColor
     .dynamic(light:dark:)` so the iOS variant (a follow-up) comes for free:
     `bracketDepthColors` (five cycling hues — gold, purple, blue, teal, green —
@@ -985,11 +1034,16 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     drawing call**: `markdownPreviewTheme(prefersDark:)` (macOS), which resolves
     every `SyntaxTokenKind` through `nsColor(for:)` and spells each as a
     `#rrggbb` CSS string, then hands them to `MarkdownPreviewTheme.light`/`.dark`
-    through `withCodeColors(_:)` — Core keeps the chrome, this file supplies the
+    through `withCodeColors(_:)` — Core's chrome survives, this file supplies the
     code palette. A fenced Swift block in the preview and the same block in the
     text view beside it are the same code read twice, so the preview must carry no
-    palette of its own; deriving it here, where a kind already has a colour, is
-    what makes adding a kind reach the preview with no second edit
+    palette *of its own on screen*; deriving it here, where a kind already has a
+    colour, is what makes the page show the editor's values. Core's own
+    `codeColors` block is not that palette but a second copy, restated so the
+    domain layer has a complete theme to test and to fall back on, and never read
+    on macOS — so adding a kind is two edits, one in each table, the second of
+    them pinned by
+    `SyntaxThemeTests.testTheDomainLayersRestatedCodeColoursEqualTheEditorTable`
     (`core-markdown-preview.md`). `prefersDark` is a parameter rather than
     something read, because these are dynamic colours with no single component to
     inspect: they resolve against whatever appearance is current at draw time, so

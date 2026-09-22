@@ -274,6 +274,15 @@ private struct MergeThreePaneView: NSViewRepresentable {
         textView.isRichText = false
         textView.allowsUndo = editable
         textView.font = .monospacedSystemFont(ofSize: CGFloat(fontSize), weight: .regular)
+        // The colour of a character no capture covers — the same question
+        // `SyntaxTokenKind.plain` answers — so it is read from the one table
+        // rather than left on the text view's system-label default. That default
+        // is not the design's value: the palette's plain row is `#1d1d1f`/
+        // `#dfe1e5` and the label colour is pure black/white, so every character
+        // the highlighter does not reach would sit a step off the table beside
+        // every character it does. The three merge panes are not highlighted at
+        // all, so here that is the whole pane.
+        textView.textColor = SyntaxTheme.shared.color(for: .plain)
 
         return (scrollView, textView)
     }

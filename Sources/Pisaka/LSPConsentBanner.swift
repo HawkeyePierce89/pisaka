@@ -166,8 +166,8 @@ struct LSPConsentBanner: View {
     ///
     /// The rule is a `hairline` rectangle rather than a `Divider()` for the
     /// breadcrumb's reason: a divider is drawn in the *system's* separator
-    /// colour and would disagree with the strip above it the moment the Theme
-    /// preference disagrees with the system appearance.
+    /// value, which is not the table's, so it would disagree with the hairlines
+    /// above it in either appearance.
     private func strip<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
         VStack(spacing: 0) {
             content()
