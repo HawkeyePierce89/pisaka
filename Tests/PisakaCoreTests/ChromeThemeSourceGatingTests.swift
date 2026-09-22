@@ -52,6 +52,20 @@ import XCTest
 /// - **The tab icon rule is spelled once.** The untitled-buffer fallback was
 ///   pasted into both orientations; two spellings of one rule drift, and each
 ///   copy also buys itself a line exempt from the first rule above.
+/// - **The window's chrome is configured in one file.** A transparent title bar
+///   is a property of the *window*, so two markers setting it would compete for
+///   it silently — the ground decided by whichever reached the window first.
+/// - **Every bottom-bar toggle is identifiable without sight.** The six panel
+///   toggles and the completion switch are icon-only squares; the `Label` that
+///   used to supply each one's accessibility name for free is gone, and an
+///   unhidden `Image(systemName:)` supplies a name of its own instead — the
+///   symbol's. A control that has quietly lost its title renders perfectly and
+///   reads out as its glyph to VoiceOver — "square split bottom" where the
+///   command's name belongs — which no other gate here can see. The bar's
+///   widgets owe the same rule from the other side: they hide every symbol they
+///   draw *and* spell an accessibility value, because two of those glyphs were
+///   the row's state and hiding a state without speaking it is the same defect
+///   with the counts looking healthy.
 final class ChromeThemeSourceGatingTests: XCTestCase {
 
     // MARK: - The gated set
@@ -80,6 +94,12 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         "BreadcrumbBarView.swift",
         "MinimapView.swift",
         "LSPConsentBanner.swift",
+        // Part three: the window's own chrome.
+        "MainWindowChrome.swift",
+        "ContentView.swift",
+        "ProjectSwitcherView.swift",
+        "BranchSwitcherView.swift",
+        "PullRequestIndicatorView.swift",
     ]
 
     func testEveryGatedFileExists() throws {
@@ -352,9 +372,14 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     }
 
     private static func rulerSource() throws -> URL {
+        try source(named: rulerFile)
+    }
+
+    /// The one file under `Sources/` with this name.
+    private static func source(named name: String) throws -> URL {
         try XCTUnwrap(
-            try swiftSources().first { $0.lastPathComponent == rulerFile },
-            "\(rulerFile) is gone or renamed"
+            try swiftSources().first { $0.lastPathComponent == name },
+            "\(name) is gone or renamed"
         )
     }
 
@@ -366,7 +391,16 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// declaration, so the rule above reads the drawing method alone and not the
     /// seam's own arithmetic beside it.
     private static func drawingBody(of code: String) -> String? {
-        guard let start = code.range(of: "func drawHashMarksAndLabels(") else { return nil }
+        matchedBody(after: "func drawHashMarksAndLabels(", in: code)
+    }
+
+    /// The brace-matched body following the first occurrence of `declaration`.
+    ///
+    /// Rule six's helper, generalized when rule ten needed the same reading of a
+    /// different declaration: one definition, so the two rules cannot come to
+    /// disagree about what "this declaration's body" means.
+    static func matchedBody(after declaration: String, in code: String) -> String? {
+        guard let start = code.range(of: declaration) else { return nil }
         guard let open = code[start.upperBound...].firstIndex(of: "{") else { return nil }
         var depth = 0
         var index = open
@@ -482,6 +516,247 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         )
     }
 
+    // MARK: - Rule nine: the window's chrome is configured in one file
+
+    /// The one file allowed to make a window's title bar transparent.
+    ///
+    /// `titlebarAppearsTransparent` is a property of the window, not of a view
+    /// tree: whoever sets it last wins, and nothing in the compiler — or in any
+    /// other gate here — can see two setters. A second one would not fail; it
+    /// would simply decide the title bar's ground on some launches and not
+    /// others, depending on which marker reached the window first. Pinned by set
+    /// equality in both directions, so a *removed* setter is a failure too: the
+    /// window's ground is the colour the transparency exists to reveal, and
+    /// without it the framework's own material covers it.
+    func testOnlyTheWindowChromeMakesATitleBarTransparent() throws {
+        var setters: Set<String> = []
+        for url in try Self.swiftSources() {
+            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            if LSPSourceGatingTests.containsToken("titlebarAppearsTransparent", in: code) {
+                setters.insert(url.lastPathComponent)
+            }
+        }
+        XCTAssertEqual(
+            setters, ["MainWindowChrome.swift"],
+            "the main window's chrome is configured in one file — a second setter competes with it"
+        )
+    }
+
+    /// The scene's **one** attachment site.
+    ///
+    /// The setter's uniqueness above says nothing about whether anything ever
+    /// reaches the window: `apply(to:)` is only ever called from the marker's
+    /// `viewDidMoveToWindow()`, and the marker only ever runs because the scene
+    /// attaches it. Delete `.background(MainWindowChrome())` and every other
+    /// gate here stays green while the shipped window keeps its platform title
+    /// bar — so the site is pinned by set equality, exactly as the frame
+    /// marker's own suite pins its sibling on the same line.
+    func testTheSceneAttachesTheWindowChromeExactlyOnce() throws {
+        var attachers: [String] = []
+        for url in try Self.swiftSources() {
+            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            let sites = Self.occurrences(of: "MainWindowChrome(", in: code)
+            if sites > 0 {
+                attachers.append(contentsOf: Array(repeating: url.lastPathComponent, count: sites))
+            }
+        }
+        XCTAssertEqual(
+            attachers, ["PisakaApp.swift"],
+            """
+            the main window's chrome is attached once, by the scene — a missing attachment \
+            leaves the window un-themed with every other rule here still green
+            """
+        )
+
+        let scene = try Self.read(
+            Self.document("Sources/Pisaka/PisakaApp.swift")
+        )
+        let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(scene)
+        XCTAssertTrue(
+            LSPSourceGatingTests.containsToken("MainWindowFrameAutosave", in: code),
+            "the frame marker sits beside the chrome marker on the same line — neither may be lost"
+        )
+    }
+
+    // MARK: - Rule ten: every bottom-bar control is identifiable without sight
+
+    /// The window root, and the two toggle idioms whose bodies must each name a
+    /// tooltip *and* an accessibility label.
+    ///
+    /// Part three made both icon-only. That is a visual decision with an
+    /// invisible cost: a `Label(title, systemImage:)` is its own accessibility
+    /// name, while an unhidden `Image(systemName:)` folds *its own symbol name*
+    /// into whatever element it is combined into — so dropping the title does
+    /// not leave the control nameless, it leaves it named after a glyph. Either
+    /// way the name the title carried is gone, and `.help(` is a *tooltip*,
+    /// which VoiceOver does not read as a name. Nothing misrenders, no test
+    /// goes red, and the only reader who notices is the one who cannot see the
+    /// bar at all.
+    ///
+    /// Read over the **brace-matched bodies** of the two declarations, in rule
+    /// six's idiom, so a `.help(` somewhere else in this 1 400-line file cannot
+    /// satisfy it. The call count is pinned too: one declaration plus six calls,
+    /// so a seventh dock panel arriving without a glance at this rule fails here
+    /// rather than shipping under its glyph's name.
+    private static let windowRootFile = "ContentView.swift"
+
+    /// The bar's three widgets, the same rule read from the other side.
+    ///
+    /// A `Button`'s children are combined into one element, so every
+    /// `Image(systemName:)` a widget draws contributes its symbol name to the
+    /// button's own — the announcement part one recorded on a tree row
+    /// ("chevron.right, folder fill, Sources") is exactly that. A widget is
+    /// therefore identifiable only if it either states its name outright with
+    /// `.accessibilityLabel(`, or hides every decorative symbol it draws.
+    ///
+    /// Asserted by counting, in this suite's own `occurrences(of:in:)` idiom:
+    /// each widget's `Image(systemName:` count must equal its
+    /// `.accessibilityHidden(true)` count. A symbol added without a thought for
+    /// the announcement moves one count and not the other.
+    ///
+    /// Counting alone was not enough, and the way it failed is the reason for
+    /// the second half. A widget's symbol is usually decoration, but two of
+    /// these are the row's **state** — `row.isCurrent ? "checkmark" : "folder"`
+    /// and the branch list's checkmark — and hiding *those* satisfies the count
+    /// while deleting the only thing that distinguished the current project, or
+    /// the checked-out branch, from every other row. The count went green on a
+    /// change that made the two lists unreadable without sight. So each of these
+    /// files must also spell an accessibility **value**: the state carrier a
+    /// hidden glyph owes back.
+    ///
+    /// What this rule does **not** see, said plainly because the honest limit is
+    /// part of it: it cannot tell which symbol encoded state and does not try.
+    /// A file could hide a state-bearing glyph and satisfy the value half with a
+    /// value on some *other* row. What it pins is the shape of the regression it
+    /// exists for — a file that hides every symbol it draws still says something
+    /// about state — and the rest is the reviewer's, as the sweep's own rule
+    /// says: a symbol whose name or colour varies with a value is state.
+    private static let barWidgetFiles = [
+        "ProjectSwitcherView.swift",
+        "BranchSwitcherView.swift",
+    ]
+
+    /// The stated exception: the pull-request indicator names itself outright —
+    /// an explicit `.accessibilityLabel(` plus an `.accessibilityValue(` — so
+    /// what its two symbols would fold in never reaches the announcement.
+    private static let labelledBarWidgetFile = "PullRequestIndicatorView.swift"
+
+    func testEveryBottomBarToggleCarriesATooltipAndALabel() throws {
+        let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
+            try Self.read(Self.source(named: Self.windowRootFile))
+        )
+        for declaration in ["func bottomBarButton(", "var completionToggleButton"] {
+            let body = try XCTUnwrap(
+                Self.matchedBody(after: declaration, in: code),
+                "\(declaration) is gone or renamed — re-point this rule rather than losing it"
+            )
+            for required in [".help(", ".accessibilityLabel("] {
+                XCTAssertTrue(
+                    body.contains(required),
+                    """
+                    \(Self.windowRootFile)'s \(declaration) must spell \(required) — an icon-only \
+                    control is named after its glyph until an explicit label replaces that
+                    """
+                )
+            }
+        }
+        // One declaration and six calls — the six bottom dock panels. A seventh
+        // panel adds a call here, and this count is where it is asked whether
+        // the new toggle is named.
+        XCTAssertEqual(
+            Self.occurrences(of: "bottomBarButton(", in: code), 7,
+            """
+            \(Self.windowRootFile) must spell bottomBarButton( exactly seven times — the declaration \
+            and one call per bottom dock panel
+            """
+        )
+    }
+
+    func testEveryBottomBarWidgetHidesItsSymbolsAndSpeaksTheirState() throws {
+        for name in Self.barWidgetFiles {
+            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
+                try Self.read(Self.source(named: name))
+            )
+            let symbols = Self.occurrences(of: "Image(systemName:", in: code)
+            XCTAssertGreaterThan(
+                symbols, 0,
+                "\(name) draws no SF Symbol any more — re-point this rule rather than losing it"
+            )
+            XCTAssertEqual(
+                Self.occurrences(of: ".accessibilityHidden(true)", in: code), symbols,
+                """
+                \(name) must hide every Image(systemName:) it draws — a button combines its \
+                children, so an unhidden symbol folds its own name into the button's
+                """
+            )
+            XCTAssertTrue(
+                code.contains(".accessibilityValue("),
+                """
+                \(name) hides every symbol it draws and must therefore spell an \
+                .accessibilityValue( — two of these glyphs are the row's state, not decoration, \
+                and hiding a state without speaking it leaves the current row indistinguishable
+                """
+            )
+        }
+
+        let labelled = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
+            try Self.read(Self.source(named: Self.labelledBarWidgetFile))
+        )
+        XCTAssertTrue(
+            labelled.contains(".accessibilityLabel("),
+            """
+            \(Self.labelledBarWidgetFile) is the stated exception because it names itself \
+            outright; without that label it owes the counting rule above
+            """
+        )
+    }
+
+    // MARK: - Rule eleven: every label the bar draws stays on one line
+
+    /// The three widgets again, this time as the only files that draw a `Text`
+    /// inside the bar's own fixed-height frame.
+    ///
+    /// Part three gave the bottom bar `frame(height:)` on
+    /// `ChromeGeometry.bottomBarHeight`, where before its height came from the
+    /// padding around its content. In a fixed-height frame a flexible `Text`
+    /// does not make room for itself: a label long enough to wrap — a deep
+    /// project folder, and especially a branch name, which is the one string
+    /// here nobody chooses for its length — is laid out in two lines and drawn
+    /// in one and a half, clipped by the frame instead of growing it. Nothing
+    /// errors, nothing else goes red, and the bar looks right on every window
+    /// wide enough.
+    ///
+    /// So each widget file must spell `.lineLimit(1)`, asserted in this suite's
+    /// `contains` idiom over stripped source.
+    ///
+    /// The honest limit, stated with the rule as the two above state theirs: a
+    /// source rule cannot see a layout. It sees the line that prevents this one
+    /// — it cannot tell *which* `Text` in the file carries the limit, so a file
+    /// whose bar label lost it while a popover row kept one would satisfy this.
+    /// What it pins is that the construct is known here at all, which is what
+    /// the widgets did not have: the limit was absent from all three.
+    private static let barLabelFiles = [
+        "ProjectSwitcherView.swift",
+        "BranchSwitcherView.swift",
+        "PullRequestIndicatorView.swift",
+    ]
+
+    func testEveryBottomBarLabelIsSingleLine() throws {
+        for name in Self.barLabelFiles {
+            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
+                try Self.read(Self.source(named: name))
+            )
+            XCTAssertTrue(
+                code.contains(".lineLimit(1)"),
+                """
+                \(name) draws a Text inside the bottom bar's fixed-height frame and must limit it \
+                to one line — a label that wraps in a frame that cannot grow is a label drawn in \
+                two lines and clipped to one and a half
+                """
+            )
+        }
+    }
+
     // MARK: - Self-check
 
     /// Every gated file draws with roles and must therefore name one — with a
@@ -513,7 +788,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// The numbered rules above, counted from their own markers, and the two
     /// documents that summarise them.
     ///
-    /// This is bookkeeping rather than a ninth rule: it gates no source file. It
+    /// This is bookkeeping rather than a rule of its own: it gates no source file. It
     /// exists because the rules above are the kind of thing a reader learns
     /// about from a summary and not from the suite, and both summaries have
     /// already drifted once — `core-theme.md`'s canonical list named five of

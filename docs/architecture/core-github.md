@@ -1580,23 +1580,35 @@ sitting in front of it.
 
 ### `PullRequestIndicatorView.swift`
 
-Beside the branch switcher: `#N` plus the checks state, for the branch checked out
-right now. **Absent rather than empty** — nothing is drawn when the branch has no
+Beside the branch switcher: a leading `arrow.triangle.merge`, `#N` and a
+trailing checks mark — three elements since the chrome theme's part three, for
+the branch checked out right now. That part is what restyled it: all four
+colours are now `ChromeColorRole`s read from `\.chromeTheme` (the checks mark's
+`circle` / `clock` / `xmark.circle.fill` / `checkmark.circle.fill` in
+`textSecondary` / `statusYellow` / `statusRed` / `statusGreen`, the last role's
+first consumer — `noChecks` moved off `arrow.triangle.pull` onto `circle` there
+too), and its own paddings are gone so the bar's gaps and height are the
+measurements actually drawn. `app-window.md`'s part-three paragraph is the
+record; what follows here is the behaviour, which that part left untouched. **Absent rather than empty** — nothing is drawn when the branch has no
 open pull request, when `gh` is not ready, or on a detached HEAD, all three of
 which are `currentBranchPullRequest == nil`. Clicking opens the panel with that
 row expanded. It reads the same model the panel does: one `gh` answer, two
 surfaces, no second read. Part 2 gave it **no new
 action**: the click already lands on the row where Merge lives, and a second merge
 entry point in the bar would be a control offering a sheet beside a row that
-offers the same one. Chrome, sized through `\.interfaceMetrics`, declaring no
-zoom surface, like every other control in the bar.
+offers the same one. Chrome — coloured through `\.chromeTheme`, sized through
+`\.interfaceMetrics` — declaring no zoom surface, like every other control in
+the bar. It is also the one bar widget that needs no hidden symbols: it names
+itself outright with an explicit `.accessibilityLabel` and `.accessibilityValue`
+(`core-theme.md`'s rule ten, which hides the other two widgets' glyphs).
 
 ### The two files that were only touched
 
 `ContentView.swift` gained the sixth bar button, the `panelContent(_:)` branch and
 the indicator in `bottomBar`. The button's glyph is `arrow.triangle.merge` rather
-than `arrow.triangle.pull`, which Changes two buttons to its left already uses —
-two adjacent dock buttons drawn with one symbol are indistinguishable at a glance.
+than `arrow.triangle.pull`, which Changes already uses further along the bar —
+two dock buttons drawn with one symbol are indistinguishable at a glance, and
+since part three made the controls icon-only the glyph is all there is.
 The indicator expands its row **only when the panel has one**: its pull request
 comes from the `--head` lookup, which is independent of the `--limit 50` list and
 survives a failed read of it, so on a repository with more open pull requests than

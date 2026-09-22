@@ -989,7 +989,14 @@ struct PisakaApp: App {
             // (the auxiliary windows deliberately have none). The attachment must
             // not be moved inside `ContentView`: the marker must sit in the scene's
             // own content so exactly one window ever adopts the name.
-            .background(MainWindowFrameAutosave())
+            // The window's chrome — the transparent title bar and its `bgPanel`
+            // ground — rides on the *same line*, chained onto the frame marker's
+            // background rather than taking one of its own: this file is at its
+            // measured `file_length` ceiling, the precedent the
+            // `.environmentObject` pair above already documents. The two markers
+            // are siblings, not one thing: frame persistence and colour are
+            // unrelated questions about the same window.
+            .background(MainWindowFrameAutosave()).background(MainWindowChrome())
             // The LeetCode sheets, attached *outside* `ContentView` rather than
             // inside it: the window content already presents the commit dialog
             // from its own body, and these are raised by menu commands this

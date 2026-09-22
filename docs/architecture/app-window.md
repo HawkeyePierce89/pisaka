@@ -122,16 +122,76 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     in `.horizontal` it simply lands under the tab strip — while the "No file
     open" branch is deliberately left bare (no bar without a file). The window
     body is a
-    `VStack(spacing: 0) { mainArea; Divider(); bottomBar }`: an always-visible
+    `VStack(spacing: 0) { mainArea; bottomBar }` — **no `Divider()` between
+    them** since part three: the bar draws its own one-point `hairline` along
+    its top edge, in the palette's value rather than the platform's. Keeping a
+    rule there at all is a stated deviation from the design, which draws none:
+    with the dock closed the editor's ground and the bar's are one value apart
+    in the dark theme, so without it the bar would have no visible top edge. The
+    body's root paints `chromeColor(.bgCanvas)`, the window's own ground, seen
+    at the no-file-open placeholder; the dock's two empty states read as canvas
+    but sit on the panel slot's own `bgPanel` (`core-theme.md`'s part-three
+    window-ground entry carries the accounting). All three sentences read
+    `textSecondary`.
+    The colours are reached through a private `chromeColor(_:)`
+    **role-to-colour function** resolving `settings.chromeTheme(systemPrefersDark:)`
+    against `@Environment(\.colorScheme)`: a root cannot read the environment
+    value it writes, and the function shape keeps this file from naming
+    `ChromeTheme` (`core-theme.md`'s gating rule five). An always-visible
     `bottomBar` of six toggle buttons (Terminal / Git / Changes /
     Problems / Usages / Pull Requests, the active one highlighted,
     `arrow.triangle.pull` for Changes and — deliberately *not* the same glyph —
-    `arrow.triangle.merge` for Pull Requests, since two adjacent dock buttons
-    drawn with one symbol are indistinguishable at a glance, which `ContentView`
-    says in a comment beside it; `exclamationmark.triangle` for Problems,
+    `arrow.triangle.merge` for Pull Requests, since two dock buttons drawn with
+    one symbol are indistinguishable at a glance and, since part three made the
+    seven controls icon-only, the glyph is all there is (the part-three
+    paragraph below carries the current reason; the two are no longer
+    *adjacent*, which is why adjacency is not it);
+    `exclamationmark.triangle` for Problems,
     `text.magnifyingglass` for Usages) sits flush at
     the bottom, and `mainArea` is the three-column `editorSplit` alone, or — when a
-    `BottomPanel` is shown — `editorSplit` over the panel. The bottom bar also hosts
+    `BottomPanel` is shown — `editorSplit` over the panel, that panel slot
+    painted `bgPanel` with **no rule of its own** (the divider above it carries
+    the boundary — see the dividers below).
+
+    **The bar since part three.** Its order is **reversed**: a leading group of
+    the three widgets at 14-point gaps, a `Spacer()`, then the six panel toggles
+    and the completion switch at 2-point gaps. The widgets say *where you are*
+    (project, branch, pull request) and now read first; the controls, which say
+    what you can open, collect at the trailing end beside the completion switch
+    they already sat next to. Both gaps are bare local numbers scaled once —
+    deriving either from a `ChromeGeometry` token would couple this bar's
+    spacing to a measurement that means something else (gating rule seven). The
+    bar itself takes `ChromeGeometry.bottomBarHeight`, a
+    `ChromeGeometry.barPaddingX` horizontal inset, a `bgPanel` ground and the
+    top `hairline` above. All seven controls — `bottomBarButton(…)` six times
+    and `completionToggleButton` — are **icon-only squares**:
+    `bottomBarToggleSide` on a side, `bottomBarToggleRadius` of corner radius,
+    the icon at `.body`, an `accentTintStrong` ground under an `accent` icon
+    while active and no ground under a `textSecondary` icon otherwise, each
+    keeping `.contentShape(Rectangle())`. **The visible titles are gone**, which
+    is what makes `.help(` and `.accessibilityLabel(` mandatory on every one of
+    them rather than polite: the `Label(title, systemImage:)` they used to carry
+    *was* each one's accessibility name, while an unhidden `Image(systemName:)`
+    supplies a name of its own instead — the *symbol's* (`core-theme.md`'s rule
+    ten). Gating
+    rule ten pins both in the brace-matched bodies of `bottomBarButton(` and
+    `completionToggleButton`, and pins `bottomBarButton(` at exactly seven
+    occurrences — one declaration and one call per dock panel — so a seventh
+    panel is asked the question rather than shipping under its glyph's name.
+
+    **Both draggable dividers are drawn from the roles too.**
+    `panelDivider(available:)` fills `bgPanel` and overlays a one-point
+    `hairline` rectangle along its **top** edge;
+    `markdownPreviewDivider(available:)` does the same with the rule along its
+    **leading** edge. Each rule sits on the edge nearer the editor, which is the
+    boundary it states; the dock divider *is* the dock's top edge, which is why
+    the panel slot below draws no second rule (two hairlines five points apart
+    read as a double rule). The 5-point drag target, the `contentShape`, the
+    hover/drag cursor sync and the whole drag gesture below are unchanged — what
+    moved is what is drawn, and it is a regression fixed rather than a new
+    surface: each used to fill its five points with the platform's
+    `separatorColor`, a five-point-wide rule in a value nothing beside it
+    shares (`core-theme.md`). The bottom bar also hosts
     the `BranchSwitcherView` (the status-bar convention) showing the current
     branch, threaded through as the `branchSwitcher: BranchSwitcherModel` /
     `onSwitchBranch` / `onCreateBranch` parameters (owned by `PisakaApp`, defaulted
@@ -140,15 +200,32 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     nothing at all unless the checked-out branch has an open pull request; its
     click **opens** rather than toggles (a toggle would collapse the panel when it
     is already the one showing) and then expands that row (`core-github.md`).
-    At the **trailing end** of the same bar, after the branch widget, sits the
-    completion on/off switch (T-4): `completionToggleButton`, in the existing
-    `bottomBarButton` idiom (plain button style, accent tint when active,
-    secondary when not), showing `lightbulb` when on and `lightbulb.slash` when
-    off with a `.help(…)` naming the state ("Code completion: On" / "Code
-    completion: Off"). Unlike its siblings it is deliberately icon-only, so it
-    carries no `Label` title to serve as its accessibility name and `.help` is a
-    tooltip rather than a name: the label and the state are therefore spelled out
-    with `.accessibilityLabel("Code completion")` + `.accessibilityValue(…)`,
+    **Since part three all three widgets are on the chrome roles**
+    (`core-theme.md`), and the bar's order is reversed: the widgets lead, the six
+    panel toggles and the completion switch trail. The branch switcher draws its
+    `arrow.triangle.branch` glyph, its branch name and its new `chevron.down`
+    caret all in `textSecondary` at `.callout`, and its popover's failure line in
+    `statusRed`. The pull-request indicator is now **three** elements — a leading
+    `arrow.triangle.merge` (the glyph the Pull Requests toggle uses; the two sit
+    at opposite ends of the bar, so the adjacency that once argued against
+    sharing it no longer applies), `#N`, and a trailing checks mark whose four
+    glyphs are `circle` / `clock` / `xmark.circle.fill` / `checkmark.circle.fill`
+    coloured `textSecondary` / `statusYellow` / `statusRed` / `statusGreen` —
+    `statusGreen`'s first consumer. All three widgets **drop their own paddings**
+    so the bar's 14-point gaps and its `bottomBarHeight` are the measurements
+    actually drawn, each keeping `.contentShape(Rectangle())` as its click
+    target; the indicator's tooltip, accessibility label and value and its
+    absent-rather-than-empty rule are untouched.
+    At the **trailing end** of the same bar, after the six panel toggles, sits
+    the completion on/off switch (T-4): `completionToggleButton`, in the
+    `bottomBarButton` idiom (the same square, the same two states, keyed on
+    `settings.completionEnabled`), showing `lightbulb` when on and
+    `lightbulb.slash` when off with a `.help(…)` naming the state ("Code
+    completion: On" / "Code completion: Off"). It has never carried a `Label`
+    title to serve as its accessibility name — and since part three its six
+    siblings have lost theirs too — while `.help` is a tooltip rather than a
+    name: the label and the state are therefore spelled out with
+    `.accessibilityLabel("Code completion")` + `.accessibilityValue(…)`,
     without which the one bottom-bar control that silently changes how the editor
     behaves could not be identified without sight. It writes **straight through** to
     `settings.completionEnabled` with no local `@State`, which is what makes it
@@ -475,6 +552,30 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     minimum of its own (see the panel-height paragraph above); the slot's scaled
     height is the only height it has.
   - `ProjectSwitcherView.swift` (macOS) — the bottom-bar project switcher. Reads `recentProjects` inside the button's action before presenting, so the catalog is queried exactly at popover-open time. Takes two closures: `onOpenFolder` (dismisses and calls, wired to the same open panel) and `onOpenRecent` (dismisses and calls with the URL). Includes a current-row short-circuit: clicking the already-current project just dismisses the popover. The empty state is a short list with only the "Open Folder…" item. Everything sizes through the interface zone (`\.interfaceMetrics`), and it deliberately declares no zoom surface.
+
+    **On the chrome roles** since part three (`core-theme.md`): it reads
+    `\.chromeTheme` beside `\.interfaceMetrics` and spends `textPrimary` on the
+    project's name at `.callout`, `textSecondary` on the leading `folder` glyph
+    and on the trailing `chevron.down` caret the sweep added — the widget opens a
+    list and now says so. It draws **no padding of its own**: the bottom bar owns
+    the 14-point gaps between its three widgets and its own height, so a padding
+    here would make the bar's stated measurements not the ones drawn; the label
+    keeps `.contentShape(Rectangle())` so the whole of it stays the click target.
+    The popover's colours are roles too — `accent` for the current row's glyph
+    and name, `textSecondary` for the section header, the path line and the empty
+    state, `textPrimary` for a non-current row's name — because gating rule one
+    is per *file* and this file obeys it whole. Every symbol the file draws is
+    `.accessibilityHidden(true)` (a `Button` combines its children), and the
+    popover row's is hidden with a **debt paid**: its glyph is
+    `row.isCurrent ? "checkmark" : "folder"`, so the row states
+    `.accessibilityValue("Current project")` for the project that is open —
+    hiding the glyph without that left the current row announcing exactly what
+    every other row announced, since the `accent` beside it is no more readable
+    without sight (`core-theme.md`, rule ten's second half). The popover's `Divider()` calls
+    deliberately **stay**: a divider names no colour, so no rule can see it, and
+    its ground is still the platform's material, on which a `hairline` rule would
+    be the mismatch rather than the cure. That deferral is recorded as inherited
+    work for the popovers' part in `core-theme.md`.
   - `ProblemsPanelView.swift` (macOS) — the Problems panel: every diagnostic the
     language servers currently hold, grouped by file. It observes `DiagnosticsModel`
     (`@ObservedObject` — this view is *for* that state and nothing else renders it)
@@ -940,6 +1041,28 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     is never an editor tab — and a file row passes `isDropTarget: false`, a file
     not being a drop destination. The empty-state hint and both icon columns take
     `textSecondary`.
+
+    Part three adds the surface *around* those rows. **The host** — both
+    branches of the body, the tree and the open-a-folder placeholder alike —
+    draws `bgPanel`. The placeholder is deliberately *not* the window's
+    `bgCanvas` showing through: it stands inside the same split slot as the tree
+    it replaces, bounded by the same divider, and a pane whose ground changed
+    with whether a folder happened to be open would read as a hole in the
+    sidebar rather than as the window behind it. **The header** is a fixed strip
+    of `ChromeGeometry.sidebarHeaderHeight` (32) inset by
+    `ChromeGeometry.barPaddingX` (12) — the same inset the bottom bar draws, and
+    deliberately not `rowPaddingX` (8), which is a row's padding inside its own
+    highlight — both scaled at the use site. It carries the open folder's name,
+    uppercased, in `textSecondary` at `.subheadline`/`.semibold` with
+    `metrics.scaled(0.5)` of tracking at the leading end; a `Spacer()`; and the
+    Refresh button at the trailing end, its icon `textSecondary` at `.body` and
+    its tooltip unchanged. The header draws its **own** one-point `hairline`
+    rectangle along its bottom edge and the `Divider()` that used to sit between
+    it and the tree is gone — part two's precedent: a `Divider()` is painted in
+    the system's separator value, which disagrees with the `hairline` role beside
+    it in either appearance. The Refresh button is a **deliberate deviation**:
+    the design draws the project label alone, but a restyle does not remove a
+    working control, and this is the tree's one manual re-read path.
   - `ProjectTreeDraftField.swift` — the AppKit-backed `NSTextField` behind
     the tree's inline naming, in five types: `TreeEditDraft` (what is being
     named), `TreeNameFieldView` (the row-shaped draft: icon column, field,

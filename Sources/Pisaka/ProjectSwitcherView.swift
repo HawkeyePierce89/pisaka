@@ -28,6 +28,11 @@ struct ProjectSwitcherView: View {
     /// that opened them.
     @Environment(\.interfaceMetrics) private var metrics
 
+    /// The chrome theme, read from the environment the window root injects. The
+    /// popover inherits it from this view, which is why the popover's own colours
+    /// are roles too (its rules are not — see the note on `popoverContent`).
+    @Environment(\.chromeTheme) private var theme
+
     var body: some View {
         Button {
             if !isPresented {
@@ -35,10 +40,39 @@ struct ProjectSwitcherView: View {
             }
             isPresented.toggle()
         } label: {
-            Label(currentLabel, systemImage: "folder")
-                .font(metrics.scaledFont(.callout))
-                .padding(.horizontal, metrics.scaled(8))
-                .padding(.vertical, metrics.scaled(3))
+            // A `Button`'s children are *combined* into one accessibility
+            // element, and an unhidden SF Symbol folds its own name into that
+            // element's name — the announcement part one recorded on the tree
+            // row ("chevron.right, folder fill, Sources") is the same mechanism
+            // read from the other side. Both symbols here are decoration beside
+            // a name that already says everything, so both are hidden, in
+            // `ProjectTreeView`'s idiom.
+            HStack(spacing: metrics.scaled(4)) {
+                Image(systemName: "folder")
+                    .foregroundStyle(theme.color(.textSecondary))
+                    .accessibilityHidden(true)
+                // One line, always. The bar states its own height now
+                // (`ChromeGeometry.bottomBarHeight`), and a flexible `Text` in a
+                // fixed-height frame does not make room for itself: a folder
+                // name long enough to wrap on a narrow window is a name drawn in
+                // two lines and clipped to one and a half. Truncating is the
+                // same answer the popover's own rows give, for the same reason.
+                Text(currentLabel)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .foregroundStyle(theme.color(.textPrimary))
+                // The caret the design draws on a widget that opens a list.
+                // Neither switcher carried one before this sweep.
+                Image(systemName: "chevron.down")
+                    .foregroundStyle(theme.color(.textSecondary))
+                    .accessibilityHidden(true)
+            }
+            .font(metrics.scaledFont(.callout))
+            // No padding of its own: the bottom bar owns the 14-point gaps
+            // between its widgets and its own height, so a padding here would
+            // make the bar's stated measurements not the ones drawn. The whole
+            // label stays the click target through `contentShape`.
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .help("Current project — click to switch")
@@ -54,6 +88,13 @@ struct ProjectSwitcherView: View {
         return "No Folder"
     }
 
+    /// The popover's *colours* are roles because the chrome rules are per file
+    /// and this file obeys them whole. Its `Divider()` calls deliberately stay:
+    /// a divider names no colour, so no rule can see it, and the fix is not
+    /// available yet — the popover's own ground is still the platform's material,
+    /// and a `hairline` rule painted on that ground would be the mismatch rather
+    /// than the cure. The rules go when the ground under them is swept, which is
+    /// recorded as inherited work in `core-theme.md`'s part-three record.
     private var popoverContent: some View {
         VStack(alignment: .leading, spacing: metrics.scaled(8)) {
             Button {
@@ -81,7 +122,7 @@ struct ProjectSwitcherView: View {
                 Divider()
                 Text("No recent projects")
                     .font(metrics.scaledFont(.callout))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(theme.color(.textSecondary))
                     .padding(.vertical, metrics.scaled(4))
             }
         }
@@ -92,10 +133,21 @@ struct ProjectSwitcherView: View {
     private func sectionHeader(_ title: String) -> some View {
         Text(title)
             .font(metrics.scaledFont(.caption, weight: .semibold))
-            .foregroundStyle(.secondary)
+            .foregroundStyle(theme.color(.textSecondary))
             .padding(.top, metrics.scaled(4))
     }
 
+    /// A recent-project row.
+    ///
+    /// This row's glyph is the one symbol in this file whose *name and colour
+    /// are both chosen by a value* — `checkmark`/accent for the project that is
+    /// open, `folder`/secondary for every other. That is the row's **state**,
+    /// not decoration, and the accent on the name beside it carries the same
+    /// state in the same unreadable currency: colour. So the glyph stays hidden
+    /// — a spoken value says it better than a folded-in symbol name would — and
+    /// the state it showed is spoken by the row itself, as an accessibility
+    /// *value* on the combined element the `Button` makes of its children. A
+    /// non-current row has no state to report and says nothing.
     private func projectRow(_ row: RecentProject) -> some View {
         Button {
             isPresented = false
@@ -104,13 +156,17 @@ struct ProjectSwitcherView: View {
             HStack(spacing: metrics.scaled(6)) {
                 Image(systemName: row.isCurrent ? "checkmark" : "folder")
                     .frame(width: metrics.scaled(16))
-                    .foregroundStyle(row.isCurrent ? Color.accentColor : Color.secondary)
+                    .foregroundStyle(theme.color(row.isCurrent ? .accent : .textSecondary))
+                    // Hidden because the state it showed is now spoken: the
+                    // value below is the carrier, and an unhidden symbol would
+                    // fold its own name into the row's instead.
+                    .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 0) {
                     Text(row.name)
-                        .foregroundStyle(row.isCurrent ? Color.accentColor : Color.primary)
+                        .foregroundStyle(theme.color(row.isCurrent ? .accent : .textPrimary))
                     Text(row.path)
                         .font(metrics.scaledFont(.caption))
-                        .foregroundStyle(Color.secondary)
+                        .foregroundStyle(theme.color(.textSecondary))
                         .lineLimit(1)
                         .truncationMode(.middle)
                 }
@@ -121,6 +177,7 @@ struct ProjectSwitcherView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityValue(row.isCurrent ? "Current project" : "")
     }
 }
 #endif

@@ -39,14 +39,46 @@ struct BranchSwitcherView: View {
     /// that opened them.
     @Environment(\.interfaceMetrics) private var metrics
 
+    /// The chrome theme, read from the environment the window root injects. The
+    /// popover inherits it from this view, which is why the popover's own colours
+    /// are roles too (its rules are not — see the note on `popoverContent`).
+    @Environment(\.chromeTheme) private var theme
+
     var body: some View {
         Button {
             isPresented = true
         } label: {
-            Label(currentLabel, systemImage: "arrow.triangle.branch")
-                .font(metrics.scaledFont(.callout))
-                .padding(.horizontal, metrics.scaled(8))
-                .padding(.vertical, metrics.scaled(3))
+            // A `Button`'s children are *combined* into one accessibility
+            // element, and an unhidden SF Symbol folds its own name into that
+            // element's name — the announcement part one recorded on the tree
+            // row ("chevron.right, folder fill, Sources") is the same mechanism
+            // read from the other side. Both symbols here are decoration beside
+            // a name that already says everything, so both are hidden, in
+            // `ProjectTreeView`'s idiom.
+            HStack(spacing: metrics.scaled(4)) {
+                Image(systemName: "arrow.triangle.branch")
+                    .accessibilityHidden(true)
+                // One line, always. The bar states its own height now
+                // (`ChromeGeometry.bottomBarHeight`), and a flexible `Text` in a
+                // fixed-height frame does not make room for itself: a long
+                // branch name — the shape this widget meets most often — would
+                // wrap and be clipped in half rather than grow the bar.
+                // Truncating is the same answer the popover's own rows give.
+                Text(currentLabel)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                // The caret the design draws on a widget that opens a list.
+                // Neither switcher carried one before this sweep.
+                Image(systemName: "chevron.down")
+                    .accessibilityHidden(true)
+            }
+            .font(metrics.scaledFont(.callout))
+            .foregroundStyle(theme.color(.textSecondary))
+            // No padding of its own: the bottom bar owns the 14-point gaps
+            // between its widgets and its own height, so a padding here would
+            // make the bar's stated measurements not the ones drawn. The whole
+            // label stays the click target through `contentShape`.
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .disabled(model.root == nil)
@@ -63,6 +95,13 @@ struct BranchSwitcherView: View {
         return model.root == nil ? "No branch" : "Detached"
     }
 
+    /// The popover's *colours* are roles because the chrome rules are per file
+    /// and this file obeys them whole. Its `Divider()` calls deliberately stay:
+    /// a divider names no colour, so no rule can see it, and the fix is not
+    /// available yet — the popover's own ground is still the platform's material,
+    /// and a `hairline` rule painted on that ground would be the mismatch rather
+    /// than the cure. The rules go when the ground under them is swept, which is
+    /// recorded as inherited work in `core-theme.md`'s part-three record.
     private var popoverContent: some View {
         VStack(alignment: .leading, spacing: metrics.scaled(8)) {
             TextField("Filter branches", text: $model.filterText)
@@ -102,7 +141,7 @@ struct BranchSwitcherView: View {
                     if locals.isEmpty && remotes.isEmpty {
                         Text("No branches")
                             .font(metrics.scaledFont(.callout))
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(theme.color(.textSecondary))
                             .padding(.vertical, metrics.scaled(4))
                     }
                 }
@@ -113,7 +152,7 @@ struct BranchSwitcherView: View {
                 Divider()
                 Text(error)
                     .font(metrics.scaledFont(.caption))
-                    .foregroundStyle(.red)
+                    .foregroundStyle(theme.color(.statusRed))
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
@@ -124,30 +163,55 @@ struct BranchSwitcherView: View {
     private func sectionHeader(_ title: String) -> some View {
         Text(title)
             .font(metrics.scaledFont(.caption, weight: .semibold))
-            .foregroundStyle(.secondary)
+            .foregroundStyle(theme.color(.textSecondary))
             .padding(.top, metrics.scaled(4))
     }
 
+    /// A local-branch row.
+    ///
+    /// This row's glyph is the one symbol in this file whose *name and colour
+    /// are both chosen by a value* — `checkmark`/accent for the branch that is
+    /// checked out, the branch symbol/secondary for every other. That is the
+    /// row's **state**, not decoration, and the accent on the name beside it
+    /// carries the same state in the same unreadable currency: colour. So the
+    /// glyph stays hidden — a spoken value says it better than a folded-in
+    /// symbol name would — and the state it showed is spoken by the row itself,
+    /// as an accessibility *value* on the combined element the `Button` makes
+    /// of its children. A non-current row has no state to report and says
+    /// nothing.
     private func branchRow(_ branch: BranchRef, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: metrics.scaled(6)) {
                 Image(systemName: rowIcon(for: branch))
                     .frame(width: metrics.scaled(16))
-                    .foregroundStyle(branch.isCurrent ? Color.accentColor : Color.secondary)
+                    .foregroundStyle(theme.color(branch.isCurrent ? .accent : .textSecondary))
+                    // Hidden because the state it showed is now spoken: the
+                    // value below is the carrier, and an unhidden symbol would
+                    // fold its own name into the row's instead.
+                    .accessibilityHidden(true)
                 Text(branch.shortName)
-                    .foregroundStyle(branch.isCurrent ? Color.accentColor : Color.primary)
+                    .foregroundStyle(theme.color(branch.isCurrent ? .accent : .textPrimary))
                 Spacer()
             }
             .font(metrics.scaledFont(.body))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityValue(branch.isCurrent ? "Current branch" : "")
     }
 
     /// A remote-branch row: a two-item menu — Checkout (git DWIM: switch to the
     /// same-named local or create it from the remote ref, no fetch) and "New Branch
     /// from '…'…" (the create-with-a-pre-filled-name flow). Selecting either
     /// dismisses the popover before the handler runs.
+    ///
+    /// Unlike `branchRow(_:action:)` this row carries **no state**, and so owes
+    /// no spoken value: `BranchRef.parse` builds every remote ref with
+    /// `isCurrent: false` — HEAD is a local branch — so `rowIcon(for:)` answers
+    /// `cloud` here for every row and the colour is the same secondary on every
+    /// row. A glyph that is identical in every state is decoration, which is
+    /// what hiding it silently means; that is worth saying once, because the
+    /// shared `rowIcon(for:)` reads as though it varied.
     private func remoteBranchRow(_ branch: BranchRef) -> some View {
         Menu {
             Button("Checkout") {
@@ -162,9 +226,13 @@ struct BranchSwitcherView: View {
             HStack(spacing: metrics.scaled(6)) {
                 Image(systemName: rowIcon(for: branch))
                     .frame(width: metrics.scaled(16))
-                    .foregroundStyle(Color.secondary)
+                    .foregroundStyle(theme.color(.textSecondary))
+                    // Decoration: the same glyph in the same colour on every
+                    // remote row, so hiding it removes nothing — see the note
+                    // on this declaration.
+                    .accessibilityHidden(true)
                 Text(branch.shortName)
-                    .foregroundStyle(Color.primary)
+                    .foregroundStyle(theme.color(.textPrimary))
                 Spacer()
             }
             .font(metrics.scaledFont(.body))

@@ -370,6 +370,28 @@ struct ContentView: View {
     /// `SettingsStore.interfaceMetrics`); every view below reads the environment.
     private var metrics: InterfaceMetrics { settings.interfaceMetrics }
 
+    /// The system's appearance, read for the one case that needs it:
+    /// `ThemePreference.system` carries none of its own. Under the two forced
+    /// preferences the answer is resolved without consulting this at all, so
+    /// whatever it reports there cannot change the result — `ChromeThemed`'s own
+    /// reasoning, spent here for the same reason.
+    @Environment(\.colorScheme) private var colorScheme
+
+    /// This view's chrome colours, as a **role-to-colour function**.
+    ///
+    /// The first consumer of `SettingsStore.chromeTheme(systemPrefersDark:)`.
+    /// A root cannot read the environment value it writes — `.chromeThemed(self)`
+    /// reaches descendants, not the view that applied it — so the window root
+    /// resolves the theme from the same store the modifier reads.
+    ///
+    /// Exposed as a function rather than as a stored `ChromeTheme` so this file
+    /// never names the type: gating rule five holds the theme's *name* to two
+    /// files, and part one's `TreeRowBackground.color(for:resolving:)` already
+    /// established the shape a view uses when it has to carry the theme around.
+    private func chromeColor(_ role: ChromeColorRole) -> Color {
+        settings.chromeTheme(systemPrefersDark: colorScheme == .dark).color(role)
+    }
+
     var body: some View {
         // The editor (or editor-over-panel split) fills the window above an
         // always-visible bottom bar of Terminal/Git/Changes/Problems toggle
@@ -377,9 +399,23 @@ struct ContentView: View {
         // below `mainArea`, and nothing inside `mainArea` may paint over it.
         VStack(spacing: 0) {
             mainArea
-            Divider()
+            // No `Divider()` here: the bar draws its own one-point `hairline`
+            // along its top edge, so the rule is in the palette's value rather
+            // than the platform's (part two's precedent). Keeping a rule at all
+            // is a deliberate deviation from the design, which draws none: with
+            // the dock closed the editor's ground and the bar's are one value
+            // apart in the dark theme, and without the rule the bar would have
+            // no visible top edge.
             bottomBar
         }
+        // The window's ground: the one value in the window that is *not* a
+        // panel strip, which is what `bgCanvas` means. Where it is actually
+        // *seen* is the no-file-open placeholder alone — the dock's two empty
+        // states read as canvas but are drawn inside `panelContent(_:)`, which
+        // paints `bgPanel` directly under them. The title bar above it is
+        // `bgPanel` for the opposite reason (`MainWindowChrome`); the whole
+        // accounting is in `core-theme.md`'s part-three window-ground entry.
+        .background(chromeColor(.bgCanvas))
         // The window's own minimum content size, both axes, stated *here* rather
         // than on `editorSplit` — and scaled, because at 200% the chrome it has
         // to hold is twice the size. On the split either floor reached the window
@@ -521,6 +557,10 @@ struct ContentView: View {
                             )),
                             alignment: .top
                         )
+                        // The dock's own ground, with no rule of its own: the
+                        // divider above carries the boundary (see
+                        // `panelDivider`).
+                        .background(chromeColor(.bgPanel))
                 }
                 // Pinned to the area before it is clipped, because `.clipped()`
                 // clips a view to the frame it *reported*, not to the one it was
@@ -584,8 +624,16 @@ struct ContentView: View {
     /// still being resized reads as the drag having been dropped.
     private func panelDivider(available: CGFloat) -> some View {
         Rectangle()
-            .fill(Color(NSColor.separatorColor))
+            // The divider *is* the dock's top edge, so it carries the rule at
+            // that boundary and the panel slot below it draws no second one:
+            // two hairlines five points apart would read as a double rule.
+            .fill(chromeColor(.bgPanel))
             .frame(height: metrics.scaled(5))
+            .overlay(alignment: .top) {
+                Rectangle()
+                    .fill(chromeColor(.hairline))
+                    .frame(height: metrics.scaled(ChromeGeometry.hairlineWidth))
+            }
             .contentShape(Rectangle())
             .onHover { hovering in
                 panelDividerHovering = hovering
@@ -740,7 +788,7 @@ struct ContentView: View {
         } else {
             Text("No problems")
                 .font(metrics.scaledFont(.callout))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(chromeColor(.textSecondary))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
@@ -757,118 +805,173 @@ struct ContentView: View {
         } else {
             Text("Find Usages on a name to list where it is used")
                 .font(metrics.scaledFont(.callout))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(chromeColor(.textSecondary))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
-    /// The always-visible bottom bar: Terminal/Git/Changes/Problems/Usages/Pull
-    /// Requests toggle buttons, the active one highlighted. Clicking goes through `onTogglePanel`
-    /// (shared with the View menu) so a button and its matching command behave
-    /// identically.
+    /// The always-visible bottom bar: the three widgets at the leading end, the
+    /// six panel toggles and the completion switch at the trailing one.
+    ///
+    /// The order is **reversed** from what it was: the widgets — which say where
+    /// you are (project, branch, pull request) — now read first, and the
+    /// controls — which say what you can open — collect at the trailing end
+    /// beside the completion switch they already sat next to. Clicking a toggle
+    /// goes through `onTogglePanel` (shared with the View menu) so a button and
+    /// its matching command behave identically.
+    ///
+    /// Every gap here is a bare local number scaled once: 14 points between the
+    /// widgets, 2 between the toggles, which sit shoulder to shoulder because
+    /// each already carries its own square. Deriving either from a
+    /// `ChromeGeometry` token would couple this bar's spacing to a measurement
+    /// that means something else (gating rule seven).
     private var bottomBar: some View {
-        HStack(spacing: metrics.scaled(4)) {
-            bottomBarButton(title: "Terminal", systemImage: "terminal", panel: .terminal)
-            bottomBarButton(title: "Git", systemImage: "arrow.triangle.branch", panel: .log)
-            bottomBarButton(title: "Changes", systemImage: "arrow.triangle.pull", panel: .changes)
-            bottomBarButton(title: "Problems", systemImage: "exclamationmark.triangle", panel: .problems)
-            bottomBarButton(title: "Usages", systemImage: "text.magnifyingglass", panel: .usages)
-            // `arrow.triangle.merge` rather than `arrow.triangle.pull`, which
-            // Changes two buttons to the left already uses: two adjacent dock
-            // buttons drawn with one glyph are indistinguishable at a glance.
-            bottomBarButton(
-                title: "Pull Requests",
-                systemImage: "arrow.triangle.merge",
-                panel: .pullRequests
-            )
-            Spacer()
-            // Recent-projects switcher widget.
-            ProjectSwitcherView(
-                currentRoot: model.projectRoot,
-                recentProjects: recentProjects,
-                onOpenFolder: onOpenFolder,
-                onOpenRecent: onOpenRecentProject
-            )
-            // The branch widget at the right of the always-visible bottom bar: shows
-            // the current branch and opens the switch/create popover.
-            BranchSwitcherView(
-                model: branchSwitcher,
-                onSwitch: onSwitchBranch,
-                onCreateFromRemote: onCreateBranchFromRemote,
-                onCheckoutRemote: onCheckoutRemote,
-                onNewBranch: onNewBranch
-            )
-            // Beside the branch widget, and reading the same model the panel
-            // does. It draws nothing at all unless the checked-out branch has an
-            // open pull request, so the bar is unchanged on every other branch.
-            PullRequestIndicatorView(model: pullRequests.model) { number in
-                // Open rather than toggle: the click asked to *look* at this row,
-                // and a toggle would collapse the panel when it happens to be the
-                // one already showing.
-                if bottomPanel.wrappedValue != .pullRequests { onTogglePanel(.pullRequests) }
-                // Only when the panel actually has that row. The indicator's
-                // pull request comes from the `--head` lookup, which is
-                // independent of the `--limit 50` list and survives a failed read
-                // of it, so on a repository with more open pull requests than
-                // that the row may not be there to expand — and expanding a
-                // number nothing draws would spend a `gh pr checks` call to
-                // change nothing on screen.
-                guard pullRequests.model.pullRequests.contains(where: { $0.number == number })
-                else { return }
-                Task { await pullRequests.model.expand(number) }
+        HStack(spacing: 0) {
+            HStack(spacing: metrics.scaled(14)) {
+                // Recent-projects switcher widget.
+                ProjectSwitcherView(
+                    currentRoot: model.projectRoot,
+                    recentProjects: recentProjects,
+                    onOpenFolder: onOpenFolder,
+                    onOpenRecent: onOpenRecentProject
+                )
+                // The branch widget: shows the current branch and opens the
+                // switch/create popover.
+                BranchSwitcherView(
+                    model: branchSwitcher,
+                    onSwitch: onSwitchBranch,
+                    onCreateFromRemote: onCreateBranchFromRemote,
+                    onCheckoutRemote: onCheckoutRemote,
+                    onNewBranch: onNewBranch
+                )
+                // Beside the branch widget, and reading the same model the panel
+                // does. It draws nothing at all unless the checked-out branch has
+                // an open pull request, so the bar is unchanged on every other
+                // branch.
+                PullRequestIndicatorView(model: pullRequests.model) { number in
+                    // Open rather than toggle: the click asked to *look* at this
+                    // row, and a toggle would collapse the panel when it happens
+                    // to be the one already showing.
+                    if bottomPanel.wrappedValue != .pullRequests { onTogglePanel(.pullRequests) }
+                    // Only when the panel actually has that row. The indicator's
+                    // pull request comes from the `--head` lookup, which is
+                    // independent of the `--limit 50` list and survives a failed
+                    // read of it, so on a repository with more open pull requests
+                    // than that the row may not be there to expand — and expanding
+                    // a number nothing draws would spend a `gh pr checks` call to
+                    // change nothing on screen.
+                    guard pullRequests.model.pullRequests.contains(where: { $0.number == number })
+                    else { return }
+                    Task { await pullRequests.model.expand(number) }
+                }
             }
-            completionToggleButton
+            Spacer()
+            HStack(spacing: metrics.scaled(2)) {
+                bottomBarButton(title: "Terminal", systemImage: "terminal", panel: .terminal)
+                bottomBarButton(title: "Git", systemImage: "arrow.triangle.branch", panel: .log)
+                bottomBarButton(title: "Changes", systemImage: "arrow.triangle.pull", panel: .changes)
+                bottomBarButton(
+                    title: "Problems",
+                    systemImage: "exclamationmark.triangle",
+                    panel: .problems
+                )
+                bottomBarButton(title: "Usages", systemImage: "text.magnifyingglass", panel: .usages)
+                // `arrow.triangle.merge` rather than `arrow.triangle.pull`, which
+                // Changes three buttons to the left already uses: two dock
+                // buttons drawn with one glyph are indistinguishable at a glance,
+                // and now that the labels are gone the glyph is all there is.
+                bottomBarButton(
+                    title: "Pull Requests",
+                    systemImage: "arrow.triangle.merge",
+                    panel: .pullRequests
+                )
+                completionToggleButton
+            }
         }
-        .padding(.horizontal, metrics.scaled(8))
-        .padding(.vertical, metrics.scaled(4))
+        .padding(.horizontal, metrics.scaled(ChromeGeometry.barPaddingX))
+        .frame(height: metrics.scaled(ChromeGeometry.bottomBarHeight))
+        .background(chromeColor(.bgPanel))
+        .overlay(alignment: .top) {
+            Rectangle()
+                .fill(chromeColor(.hairline))
+                .frame(height: metrics.scaled(ChromeGeometry.hairlineWidth))
+        }
     }
 
-    /// The completion on/off switch at the trailing end of the status bar, in the
-    /// same plain-button idiom as `bottomBarButton`. It writes *straight through*
-    /// to `settings.completionEnabled` with no local `@State`, which is what makes
-    /// it impossible for this icon and the Preferences checkbox to disagree: both
-    /// are views of the one stored flag. Off is total — no automatic popup and no
-    /// explicit invocation — but nothing in the intelligence stack is torn down,
-    /// so ⌃⌘J go-to-definition keeps working and flipping it back on costs a
-    /// keystroke, not a restart.
+    /// The completion on/off switch at the trailing end of the bottom bar, in the
+    /// same icon-only square idiom as `bottomBarButton`. It writes *straight
+    /// through* to `settings.completionEnabled` with no local `@State`, which is
+    /// what makes it impossible for this icon and the Preferences checkbox to
+    /// disagree: both are views of the one stored flag. Off is total — no
+    /// automatic popup and no explicit invocation — but nothing in the
+    /// intelligence stack is torn down, so ⌃⌘J go-to-definition keeps working and
+    /// flipping it back on costs a keystroke, not a restart.
     private var completionToggleButton: some View {
         let isOn = settings.completionEnabled
         return Button {
             settings.completionEnabled.toggle()
         } label: {
             Image(systemName: isOn ? "lightbulb" : "lightbulb.slash")
-                .font(metrics.scaledFont(.callout))
-                .padding(.horizontal, metrics.scaled(6))
-                .padding(.vertical, metrics.scaled(3))
+                .font(metrics.scaledFont(.body))
+                .foregroundStyle(isOn ? chromeColor(.accent) : chromeColor(.textSecondary))
+                .frame(
+                    width: metrics.scaled(ChromeGeometry.bottomBarToggleSide),
+                    height: metrics.scaled(ChromeGeometry.bottomBarToggleSide)
+                )
+                .background(isOn ? chromeColor(.accentTintStrong) : Color.clear)
+                .clipShape(
+                    RoundedRectangle(cornerRadius: metrics.scaled(ChromeGeometry.bottomBarToggleRadius))
+                )
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .foregroundStyle(isOn ? Color.accentColor : Color.secondary)
         .help(isOn ? "Code completion: On" : "Code completion: Off")
-        // Its siblings carry a `Label`, whose title *is* their accessibility
-        // name; this one is deliberately icon-only, and `.help` is a tooltip
-        // rather than a name — so the label and the state are spelled out here.
-        // Without them this is the one bottom-bar control that cannot be
-        // identified without sight, and it silently changes how the editor
-        // behaves.
+        // This control has never had a visible label, and now its six siblings
+        // have lost theirs too — `.help` is a tooltip rather than a name, so the
+        // label and the state are spelled out here. Without them this is a
+        // bottom-bar control that cannot be identified without sight, and it
+        // silently changes how the editor behaves.
         .accessibilityLabel("Code completion")
         .accessibilityValue(isOn ? "On" : "Off")
     }
 
+    /// One bottom-bar panel toggle: an icon-only square, its ground drawn in
+    /// `accentTintStrong` with an `accent` icon while its panel is the visible
+    /// one, and no ground with a `textSecondary` icon otherwise.
+    ///
+    /// **The visible titles are gone**, which is what makes both the `.help(` and
+    /// the `.accessibilityLabel(` below mandatory rather than polite: an
+    /// icon-only control whose `Label` is gone does not go silent — a `Button`
+    /// combines its children, so the bare `Image(systemName:)` folds the
+    /// *symbol's* own name into the announcement unless an explicit
+    /// `.accessibilityLabel` replaces it. "square split bottom" is not the name
+    /// of this command, which is why the label is mandatory here — and why a
+    /// symbol drawn as decoration *beside* a name is hidden instead, the same
+    /// rule read from the other side (`BranchSwitcherView`,
+    /// `ProjectSwitcherView`). Gating rule ten pins both, in this body and in
+    /// `completionToggleButton`'s, because nothing in the compiler can see a
+    /// control announcing its glyph.
     private func bottomBarButton(title: String, systemImage: String, panel: BottomPanel) -> some View {
         let isActive = bottomPanel.wrappedValue == panel
         return Button {
             onTogglePanel(panel)
         } label: {
-            Label(title, systemImage: systemImage)
-                .font(metrics.scaledFont(.callout))
-                .padding(.horizontal, metrics.scaled(8))
-                .padding(.vertical, metrics.scaled(3))
-                .background(isActive ? Color.accentColor.opacity(0.2) : Color.clear)
-                .clipShape(RoundedRectangle(cornerRadius: metrics.scaled(5)))
+            Image(systemName: systemImage)
+                .font(metrics.scaledFont(.body))
+                .foregroundStyle(isActive ? chromeColor(.accent) : chromeColor(.textSecondary))
+                .frame(
+                    width: metrics.scaled(ChromeGeometry.bottomBarToggleSide),
+                    height: metrics.scaled(ChromeGeometry.bottomBarToggleSide)
+                )
+                .background(isActive ? chromeColor(.accentTintStrong) : Color.clear)
+                .clipShape(
+                    RoundedRectangle(cornerRadius: metrics.scaled(ChromeGeometry.bottomBarToggleRadius))
+                )
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .foregroundStyle(isActive ? Color.accentColor : Color.primary)
+        .help(title)
+        .accessibilityLabel(title)
     }
 
     private var editorSplit: some View {
@@ -1005,7 +1108,7 @@ struct ContentView: View {
         } else {
             Text("No file open")
                 .font(metrics.scaledFont(.body))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(chromeColor(.textSecondary))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
@@ -1197,8 +1300,16 @@ struct ContentView: View {
     /// rather than the pointer.
     private func markdownPreviewDivider(available: CGFloat) -> some View {
         Rectangle()
-            .fill(Color(NSColor.separatorColor))
+            // The dock divider's ground and rule, turned on its side: the rule
+            // sits on the *leading* edge, which is the editor pane's own
+            // boundary — the edge nearer the editor, as the dock's is.
+            .fill(chromeColor(.bgPanel))
             .frame(width: metrics.scaled(5))
+            .overlay(alignment: .leading) {
+                Rectangle()
+                    .fill(chromeColor(.hairline))
+                    .frame(width: metrics.scaled(ChromeGeometry.hairlineWidth))
+            }
             .contentShape(Rectangle())
             .onHover { hovering in
                 markdownDividerHovering = hovering

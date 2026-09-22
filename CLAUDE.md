@@ -352,6 +352,7 @@ headlessly in `Tests/PisakaAppTests`.
 `docs/architecture/app-shell.md` — app orchestration (macOS):
 - `PisakaApp.swift` — `@main`: menus/shortcuts, every writer-coordination bracket, session restore, run/test.
 - `MainWindowFrameAutosave.swift` — the main window's by-hand frame persistence (the standard autosave is bypassed twice over).
+- `MainWindowChrome.swift` — the main window's title-bar chrome: one marker, a transparent title bar on a dynamic `bgPanel` ground.
 - `SoftwareUpdater.swift` — the whole Sparkle 2 surface; inert in DEBUG by not compiling the updater in.
 - `ProjectWatcher.swift` — FSEvents subscription (realpath'd root, dir-level events).
 - `AutosaveController.swift` — autosave triggers; two suspension counters.
@@ -734,22 +735,35 @@ ci.yml's `lint` job, and the version-bump procedure.
   paints its own background and overrides nothing — was measured recolouring
   live in both directions when the system appearance changed under it. A
   reader: it takes no writer gate, is gated by none and writes nothing.
-  `ChromeThemeSourceGatingTests` pins which files obey the rule (eleven, by set
-  equality) and its eight rules — no system semantic colour, no hex literal
+  `ChromeThemeSourceGatingTests` pins which files obey the rule (sixteen, by set
+  equality) and its eleven rules — no system semantic colour, no hex literal
   outside the table, the three exemptions stay exemptions, the theme injected at
   the scale's roots, no view constructing a theme, the gutter's fill still going
   through its own rule (a seam pins nothing its call site does not spend, and
   that call site was this sweep's one regression), no geometry token derived by
-  arithmetic, and the tab icon rule spelled once — plus, beside the rules rather
+  arithmetic, the tab icon rule spelled once, the window's chrome configured
+  in one file, and every bottom-bar control identifiable without sight (the
+  toggles are icon-only, so the `Label` that used to supply each one's
+  accessibility name for free is gone, and the three widgets hide every
+  decorative symbol they draw, since a `Button` combines its children and an
+  unhidden SF Symbol folds its own name in — the pull-request indicator the
+  stated exception, naming itself outright), and every label the bar draws
+  staying on one line (the bar states its own height now, so a label that wraps
+  is clipped rather than accommodated) — plus, beside the rules rather
   than among them, the cross-file count that keeps this sentence and
   `core-theme.md`'s own list equal to the number of rules the suite declares —
   while **three files are exempt because they are not
   chrome**: `SyntaxTheme.swift` (the code zone's own theme), `TerminalTheme.swift`
   (a protocol's ANSI-16 vocabulary) and `FileIcon.swift` (a Core token iOS still
-  paints). Seven surfaces are swept so far — part one's tab strip, line-number
-  ruler and project tree rows (the inline draft field with them), and part two's
+  paints). Twelve surfaces are swept so far — part one's tab strip, line-number
+  ruler and project tree rows (the inline draft field with them), part two's
   vertical tab column, breadcrumb, minimap chrome and language-server consent
-  strip; the rest is the follow-up sweep, whose procedure
+  strip, and part three's window ground and title bar, sidebar host and header,
+  bottom dock container with its two dividers, bottom bar with its icon-only
+  toggles, and the bar's three widgets — which spend the two roles that were
+  waiting for a surface rather than a decision, `bgCanvas` at the window root
+  and `statusGreen` on the pull-request indicator's checks mark, leaving six
+  unspent; the rest is the follow-up sweep, whose procedure
   and its one refusal ("a surface needing a twenty-second role has found a design
   question") are in `core-theme.md`.
 - **Zoom is three zones, one arithmetic, one pointer rule** (macOS only): `code`

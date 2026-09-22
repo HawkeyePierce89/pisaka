@@ -48,7 +48,9 @@ final class ChromeThemeTests: XCTestCase {
         XCTAssertEqual(ChromeGeometry.tabStripHeight, 32)
         XCTAssertEqual(ChromeGeometry.verticalTabRowHeight, 28)
         XCTAssertEqual(ChromeGeometry.dockTabRowHeight, 28)
+        XCTAssertEqual(ChromeGeometry.sidebarHeaderHeight, 32)
         XCTAssertEqual(ChromeGeometry.bottomBarHeight, 28)
+        XCTAssertEqual(ChromeGeometry.barPaddingX, 12)
         XCTAssertEqual(ChromeGeometry.breadcrumbHeight, 24)
         XCTAssertEqual(ChromeGeometry.bottomBarToggleSide, 22)
         XCTAssertEqual(ChromeGeometry.bottomBarToggleRadius, 4)
@@ -67,8 +69,9 @@ final class ChromeThemeTests: XCTestCase {
         let declared = Self.staticLetNames(in: source)
         XCTAssertEqual(declared, [
             "rowHeight", "rowPaddingX", "treeIndentStep", "cornerRadiusMax", "hairlineWidth",
-            "tabStripHeight", "verticalTabRowHeight", "dockTabRowHeight", "bottomBarHeight",
-            "breadcrumbHeight", "bottomBarToggleSide", "bottomBarToggleRadius", "accentIndicator",
+            "tabStripHeight", "verticalTabRowHeight", "dockTabRowHeight", "sidebarHeaderHeight",
+            "bottomBarHeight", "barPaddingX", "breadcrumbHeight", "bottomBarToggleSide",
+            "bottomBarToggleRadius", "accentIndicator",
         ])
         for suspect in ["font", "Font", "fontSize", "textSize"] {
             XCTAssertFalse(

@@ -1470,7 +1470,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     presenter call — `LeetCodeCommands.signIn()` awaits
     `awaitAccountResolution()` and raises the login sheet only when the settled
     state is not signed in, because the optimistic one would have a stored-but-dead
-    session open nothing (`core-leetcode.md`, L27). The scene also attaches the `MainWindowFrameAutosave` marker to its content, before the sheet modifiers, so exactly one window adopts the name; it must not move into `ContentView` because the marker must sit in the scene's own content to avoid being pulled into a presentation or duplicated.
+    session open nothing (`core-leetcode.md`, L27). The scene also attaches the `MainWindowFrameAutosave` marker to its content, before the sheet modifiers, so exactly one window adopts the name; it must not move into `ContentView` because the marker must sit in the scene's own content to avoid being pulled into a presentation or duplicated. `MainWindowChrome()` is **chained onto that same line** rather than added on one of its own — `PisakaApp.swift` is exactly at its `file_length` ceiling — and is a sibling marker with its own entry below, not a change to the frame one.
   - `MainWindowFrameAutosave.swift` — the main window's frame persistence, done by
     hand because the standard window-frame autosave is unusable here twice over
     (both halves verified live in the preferences domain): the framework-derived
@@ -1494,6 +1494,60 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     arrangement is constrained by the same call that applies it, and the
     content's minimum-size floor still clamps from below. The auxiliary windows
     deliberately persist nothing and center per use instead.
+  - `MainWindowChrome.swift` — the main window's own chrome, and the third part
+    of the chrome-theme sweep's one new file (`core-theme.md`). A non-drawing,
+    hit-test-transparent `NSViewRepresentable` marker in
+    `MainWindowFrameAutosave`'s mould: its view reaches the hosting window on
+    `viewDidMoveToWindow`, skips sheets (a sheet is hosted by its own window,
+    and the commit dialog's chrome is not the main window's) and applies the
+    chrome through one idempotent `static func apply(to:)`. What it sets is two
+    properties and nothing else: `titlebarAppearsTransparent = true`, and
+    `backgroundColor = ChromePalette.nsColor(.bgPanel)`. The transparency is
+    what makes the second line visible at all — without it the framework draws
+    its own material over the strip and the colour below never shows.
+
+    **Why the ground is `bgPanel` while `ContentView`'s root paints
+    `bgCanvas`.** The window's ground *is* the canvas, and that is where the
+    role earns its name: it is seen at the no-file-open placeholder, the dock's
+    own empty states sitting on `bgPanel` instead (`core-theme.md` carries the
+    accounting). The title bar is not that surface — it is the
+    topmost of the window's panel *strips*, sitting directly above the tab strip
+    and the sidebar header, both of which draw `bgPanel`. Painting it the canvas
+    value would draw a band one step off the strips it touches.
+
+    **Why the colour is dynamic.** `ChromePalette.nsColor(_:)` answers a colour
+    that resolves against the effective appearance whenever it is drawn, so a
+    Theme change repaints the title bar with no appearance observer here and no
+    cached value to invalidate — the rule `ChromePalette` states for every
+    AppKit chrome surface, spent at one more call site. The title *text* and the
+    window buttons are left alone: the framework draws both against the window's
+    appearance, which the Theme preference already sets at the content root, so
+    they follow without being told.
+
+    **A sibling of the frame marker, not a change to it.** The two answer
+    unrelated questions about the same window — where it sits, and what colour
+    it is — and a marker that did both would tie a colour decision to a
+    persistence contract with its own gating suite and its own long explanation
+    of why the framework's machinery is bypassed. It is attached in the scene by
+    **chaining** onto the frame marker's existing line
+    (`.background(MainWindowFrameAutosave()).background(MainWindowChrome())`)
+    rather than on a line of its own, because `PisakaApp.swift` sits exactly at
+    its `file_length` ceiling — the precedent that file already documents for
+    its chained `.environmentObject` pair. `ChromeThemeSourceGatingTests`' ninth
+    rule pins `titlebarAppearsTransparent` to this file by set equality in both
+    directions: it is a property of the *window*, so two setters would compete
+    silently, and a removed one hands the strip back to the framework's
+    material. `MainWindowChromeTests` (app bundle) asserts both properties on a
+    real `NSWindow` — the ground in both appearances, which is what a frozen,
+    once-resolved colour would fail — twice over: through `apply(to:)`, and
+    again through the path the app actually takes, a marker added to the
+    window's content view with nobody calling the method. It also asserts the
+    marker is hit-test transparent. Its *other* rule, the
+    `setAccessibilityElement(false)` in the initialiser, is deliberately **not**
+    pinned: a plain `NSView` already answers `false`, so an assertion on it
+    would pass with the line deleted. The line stays because it states the
+    intent beside the hit-test override, and the suite says in its own comment
+    that it cannot pin it.
   - `SoftwareUpdater.swift` — the app's **entire** Sparkle 2 surface, wholly
     inside `#if os(macOS)`: a small `ObservableObject` owning one
     `SPUStandardUpdaterController`, plus `CheckForUpdatesCommand`, the one-button
