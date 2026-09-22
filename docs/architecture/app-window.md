@@ -140,6 +140,22 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     nothing at all unless the checked-out branch has an open pull request; its
     click **opens** rather than toggles (a toggle would collapse the panel when it
     is already the one showing) and then expands that row (`core-github.md`).
+    **Since part three all three widgets are on the chrome roles**
+    (`core-theme.md`), and the bar's order is reversed: the widgets lead, the six
+    panel toggles and the completion switch trail. The branch switcher draws its
+    `arrow.triangle.branch` glyph, its branch name and its new `chevron.down`
+    caret all in `textSecondary` at `.callout`, and its popover's failure line in
+    `statusRed`. The pull-request indicator is now **three** elements — a leading
+    `arrow.triangle.merge` (the glyph the Pull Requests toggle uses; the two sit
+    at opposite ends of the bar, so the adjacency that once argued against
+    sharing it no longer applies), `#N`, and a trailing checks mark whose four
+    glyphs are `circle` / `clock` / `xmark.circle.fill` / `checkmark.circle.fill`
+    coloured `textSecondary` / `statusYellow` / `statusRed` / `statusGreen` —
+    `statusGreen`'s first consumer. All three widgets **drop their own paddings**
+    so the bar's 14-point gaps and its `bottomBarHeight` are the measurements
+    actually drawn, each keeping `.contentShape(Rectangle())` as its click
+    target; the indicator's tooltip, accessibility label and value and its
+    absent-rather-than-empty rule are untouched.
     At the **trailing end** of the same bar, after the branch widget, sits the
     completion on/off switch (T-4): `completionToggleButton`, in the existing
     `bottomBarButton` idiom (plain button style, accent tint when active,
@@ -475,6 +491,23 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     minimum of its own (see the panel-height paragraph above); the slot's scaled
     height is the only height it has.
   - `ProjectSwitcherView.swift` (macOS) — the bottom-bar project switcher. Reads `recentProjects` inside the button's action before presenting, so the catalog is queried exactly at popover-open time. Takes two closures: `onOpenFolder` (dismisses and calls, wired to the same open panel) and `onOpenRecent` (dismisses and calls with the URL). Includes a current-row short-circuit: clicking the already-current project just dismisses the popover. The empty state is a short list with only the "Open Folder…" item. Everything sizes through the interface zone (`\.interfaceMetrics`), and it deliberately declares no zoom surface.
+
+    **On the chrome roles** since part three (`core-theme.md`): it reads
+    `\.chromeTheme` beside `\.interfaceMetrics` and spends `textPrimary` on the
+    project's name at `.callout`, `textSecondary` on the leading `folder` glyph
+    and on the trailing `chevron.down` caret the sweep added — the widget opens a
+    list and now says so. It draws **no padding of its own**: the bottom bar owns
+    the 14-point gaps between its three widgets and its own height, so a padding
+    here would make the bar's stated measurements not the ones drawn; the label
+    keeps `.contentShape(Rectangle())` so the whole of it stays the click target.
+    The popover's colours are roles too — `accent` for the current row's glyph
+    and name, `textSecondary` for the section header, the path line and the empty
+    state, `textPrimary` for a non-current row's name — because gating rule one
+    is per *file* and this file obeys it whole. The popover's `Divider()` calls
+    deliberately **stay**: a divider names no colour, so no rule can see it, and
+    its ground is still the platform's material, on which a `hairline` rule would
+    be the mismatch rather than the cure. That deferral is recorded as inherited
+    work for the popovers' part in `core-theme.md`.
   - `ProblemsPanelView.swift` (macOS) — the Problems panel: every diagnostic the
     language servers currently hold, grouped by file. It observes `DiagnosticsModel`
     (`@ObservedObject` — this view is *for* that state and nothing else renders it)

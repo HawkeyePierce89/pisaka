@@ -92,6 +92,9 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         // Part three: the window's own chrome.
         "MainWindowChrome.swift",
         "ContentView.swift",
+        "ProjectSwitcherView.swift",
+        "BranchSwitcherView.swift",
+        "PullRequestIndicatorView.swift",
     ]
 
     func testEveryGatedFileExists() throws {

@@ -28,6 +28,11 @@ struct ProjectSwitcherView: View {
     /// that opened them.
     @Environment(\.interfaceMetrics) private var metrics
 
+    /// The chrome theme, read from the environment the window root injects. The
+    /// popover inherits it from this view, which is why the popover's own colours
+    /// are roles too (its rules are not — see the note on `popoverContent`).
+    @Environment(\.chromeTheme) private var theme
+
     var body: some View {
         Button {
             if !isPresented {
@@ -35,10 +40,22 @@ struct ProjectSwitcherView: View {
             }
             isPresented.toggle()
         } label: {
-            Label(currentLabel, systemImage: "folder")
-                .font(metrics.scaledFont(.callout))
-                .padding(.horizontal, metrics.scaled(8))
-                .padding(.vertical, metrics.scaled(3))
+            HStack(spacing: metrics.scaled(4)) {
+                Image(systemName: "folder")
+                    .foregroundStyle(theme.color(.textSecondary))
+                Text(currentLabel)
+                    .foregroundStyle(theme.color(.textPrimary))
+                // The caret the design draws on a widget that opens a list.
+                // Neither switcher carried one before this sweep.
+                Image(systemName: "chevron.down")
+                    .foregroundStyle(theme.color(.textSecondary))
+            }
+            .font(metrics.scaledFont(.callout))
+            // No padding of its own: the bottom bar owns the 14-point gaps
+            // between its widgets and its own height, so a padding here would
+            // make the bar's stated measurements not the ones drawn. The whole
+            // label stays the click target through `contentShape`.
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .help("Current project — click to switch")
@@ -54,6 +71,13 @@ struct ProjectSwitcherView: View {
         return "No Folder"
     }
 
+    /// The popover's *colours* are roles because the chrome rules are per file
+    /// and this file obeys them whole. Its `Divider()` calls deliberately stay:
+    /// a divider names no colour, so no rule can see it, and the fix is not
+    /// available yet — the popover's own ground is still the platform's material,
+    /// and a `hairline` rule painted on that ground would be the mismatch rather
+    /// than the cure. The rules go when the ground under them is swept, which is
+    /// recorded as inherited work in `core-theme.md`'s part-three record.
     private var popoverContent: some View {
         VStack(alignment: .leading, spacing: metrics.scaled(8)) {
             Button {
@@ -81,7 +105,7 @@ struct ProjectSwitcherView: View {
                 Divider()
                 Text("No recent projects")
                     .font(metrics.scaledFont(.callout))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(theme.color(.textSecondary))
                     .padding(.vertical, metrics.scaled(4))
             }
         }
@@ -92,7 +116,7 @@ struct ProjectSwitcherView: View {
     private func sectionHeader(_ title: String) -> some View {
         Text(title)
             .font(metrics.scaledFont(.caption, weight: .semibold))
-            .foregroundStyle(.secondary)
+            .foregroundStyle(theme.color(.textSecondary))
             .padding(.top, metrics.scaled(4))
     }
 
@@ -104,13 +128,13 @@ struct ProjectSwitcherView: View {
             HStack(spacing: metrics.scaled(6)) {
                 Image(systemName: row.isCurrent ? "checkmark" : "folder")
                     .frame(width: metrics.scaled(16))
-                    .foregroundStyle(row.isCurrent ? Color.accentColor : Color.secondary)
+                    .foregroundStyle(theme.color(row.isCurrent ? .accent : .textSecondary))
                 VStack(alignment: .leading, spacing: 0) {
                     Text(row.name)
-                        .foregroundStyle(row.isCurrent ? Color.accentColor : Color.primary)
+                        .foregroundStyle(theme.color(row.isCurrent ? .accent : .textPrimary))
                     Text(row.path)
                         .font(metrics.scaledFont(.caption))
-                        .foregroundStyle(Color.secondary)
+                        .foregroundStyle(theme.color(.textSecondary))
                         .lineLimit(1)
                         .truncationMode(.middle)
                 }

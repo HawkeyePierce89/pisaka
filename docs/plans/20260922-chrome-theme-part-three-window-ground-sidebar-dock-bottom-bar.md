@@ -295,27 +295,27 @@ as required.
 - Modify: `Tests/PisakaCoreTests/ChromeThemeSourceGatingTests.swift`
 - Modify: `docs/architecture/app-window.md`
 
-- [ ] each widget adds `@Environment(\.chromeTheme) private var theme` beside its
+- [x] each widget adds `@Environment(\.chromeTheme) private var theme` beside its
       existing `\.interfaceMetrics`.
-- [ ] project switcher: the name `textPrimary` at `.callout`, its folder icon and
+- [x] project switcher: the name `textPrimary` at `.callout`, its folder icon and
       its new trailing `chevron.down` `textSecondary`; drop its own paddings, keep
       `.contentShape(Rectangle())`.
-- [ ] branch switcher: the branch name, its icon and its new caret all
+- [x] branch switcher: the branch name, its icon and its new caret all
       `textSecondary` at `.callout`; the failure line `statusRed`; same padding
       treatment.
-- [ ] pull-request indicator: leading `arrow.triangle.merge` and `#N` in
+- [x] pull-request indicator: leading `arrow.triangle.merge` and `#N` in
       `textSecondary`; the checks mark from the four-case table of decision 4,
       coloured `statusGreen` / `statusRed` / `statusYellow` / `textSecondary`; the
       tooltip, the accessibility label and value, and the absent-rather-than-empty
       rule unchanged.
-- [ ] convert the two popovers' colours by the mechanical mapping of decision 5,
+- [x] convert the two popovers' colours by the mechanical mapping of decision 5,
       leaving layout, fonts and behaviour alone — including their `Divider()`
       calls, which stay for the reason decision 11 states; record that reason in
       each file's comment.
-- [ ] add all three file names to `gatedFiles`.
-- [ ] update the three widgets' entries in `app-window.md` with the roles they
+- [x] add all three file names to `gatedFiles`.
+- [x] update the three widgets' entries in `app-window.md` with the roles they
       spend.
-- [ ] run `swift test` and the app-layer bundle — must pass before task 6.
+- [x] run `swift test` and the app-layer bundle — must pass before task 6.
 
 ### Task 6: Documentation
 

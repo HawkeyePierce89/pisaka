@@ -32,20 +32,34 @@ struct PullRequestIndicatorView: View {
 
     @Environment(\.interfaceMetrics) private var metrics
 
+    /// The chrome theme, read from the environment the window root injects: the
+    /// widget's own colours are roles, the checks mark's three status roles
+    /// included.
+    @Environment(\.chromeTheme) private var theme
+
     var body: some View {
         if let pullRequest = model.currentBranchPullRequest {
             Button {
                 onOpen(pullRequest.number)
             } label: {
                 HStack(spacing: metrics.scaled(4)) {
-                    Image(systemName: Self.symbol(pullRequest.summary))
-                        .foregroundStyle(Self.color(pullRequest.summary))
+                    // Three elements: what this is, which one it is, and what
+                    // its checks say. The leading glyph is the one the Pull
+                    // Requests toggle uses — the two now sit at opposite ends of
+                    // the bar, so the adjacency that once argued against sharing
+                    // a glyph no longer applies.
+                    Image(systemName: "arrow.triangle.merge")
+                        .foregroundStyle(theme.color(.textSecondary))
                     Text("#\(pullRequest.number)")
                         .monospacedDigit()
+                        .foregroundStyle(theme.color(.textSecondary))
+                    Image(systemName: Self.symbol(pullRequest.summary))
+                        .foregroundStyle(theme.color(Self.role(pullRequest.summary)))
                 }
                 .font(metrics.scaledFont(.callout))
-                .padding(.horizontal, metrics.scaled(8))
-                .padding(.vertical, metrics.scaled(3))
+                // No padding of its own: the bottom bar owns the 14-point gaps
+                // between its widgets and its own height. The whole label stays
+                // the click target through `contentShape`.
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -62,21 +76,27 @@ struct PullRequestIndicatorView: View {
         "#\(pullRequest.number) \(pullRequest.title) — \(Self.summaryWords(pullRequest.summary))"
     }
 
+    /// The checks mark: four glyphs, one per summary. *No checks* draws `circle`
+    /// — the neutral member of the same `*.circle.fill` family failure and
+    /// success already use — rather than the pull-request glyph it used to
+    /// borrow, which now leads the widget.
     private static func symbol(_ summary: GitHubChecksSummary) -> String {
         switch summary {
-        case .noChecks: return "arrow.triangle.pull"
+        case .noChecks: return "circle"
         case .pending: return "clock"
         case .failure: return "xmark.circle.fill"
         case .success: return "checkmark.circle.fill"
         }
     }
 
-    private static func color(_ summary: GitHubChecksSummary) -> Color {
+    /// The mark's colour as a role, never a platform value: the three status
+    /// roles for the three answers, and `textSecondary` for the absence of one.
+    private static func role(_ summary: GitHubChecksSummary) -> ChromeColorRole {
         switch summary {
-        case .noChecks: return .secondary
-        case .pending: return .orange
-        case .failure: return .red
-        case .success: return .green
+        case .noChecks: return .textSecondary
+        case .pending: return .statusYellow
+        case .failure: return .statusRed
+        case .success: return .statusGreen
         }
     }
 

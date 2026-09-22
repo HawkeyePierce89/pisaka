@@ -39,14 +39,29 @@ struct BranchSwitcherView: View {
     /// that opened them.
     @Environment(\.interfaceMetrics) private var metrics
 
+    /// The chrome theme, read from the environment the window root injects. The
+    /// popover inherits it from this view, which is why the popover's own colours
+    /// are roles too (its rules are not — see the note on `popoverContent`).
+    @Environment(\.chromeTheme) private var theme
+
     var body: some View {
         Button {
             isPresented = true
         } label: {
-            Label(currentLabel, systemImage: "arrow.triangle.branch")
-                .font(metrics.scaledFont(.callout))
-                .padding(.horizontal, metrics.scaled(8))
-                .padding(.vertical, metrics.scaled(3))
+            HStack(spacing: metrics.scaled(4)) {
+                Image(systemName: "arrow.triangle.branch")
+                Text(currentLabel)
+                // The caret the design draws on a widget that opens a list.
+                // Neither switcher carried one before this sweep.
+                Image(systemName: "chevron.down")
+            }
+            .font(metrics.scaledFont(.callout))
+            .foregroundStyle(theme.color(.textSecondary))
+            // No padding of its own: the bottom bar owns the 14-point gaps
+            // between its widgets and its own height, so a padding here would
+            // make the bar's stated measurements not the ones drawn. The whole
+            // label stays the click target through `contentShape`.
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .disabled(model.root == nil)
@@ -63,6 +78,13 @@ struct BranchSwitcherView: View {
         return model.root == nil ? "No branch" : "Detached"
     }
 
+    /// The popover's *colours* are roles because the chrome rules are per file
+    /// and this file obeys them whole. Its `Divider()` calls deliberately stay:
+    /// a divider names no colour, so no rule can see it, and the fix is not
+    /// available yet — the popover's own ground is still the platform's material,
+    /// and a `hairline` rule painted on that ground would be the mismatch rather
+    /// than the cure. The rules go when the ground under them is swept, which is
+    /// recorded as inherited work in `core-theme.md`'s part-three record.
     private var popoverContent: some View {
         VStack(alignment: .leading, spacing: metrics.scaled(8)) {
             TextField("Filter branches", text: $model.filterText)
@@ -102,7 +124,7 @@ struct BranchSwitcherView: View {
                     if locals.isEmpty && remotes.isEmpty {
                         Text("No branches")
                             .font(metrics.scaledFont(.callout))
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(theme.color(.textSecondary))
                             .padding(.vertical, metrics.scaled(4))
                     }
                 }
@@ -113,7 +135,7 @@ struct BranchSwitcherView: View {
                 Divider()
                 Text(error)
                     .font(metrics.scaledFont(.caption))
-                    .foregroundStyle(.red)
+                    .foregroundStyle(theme.color(.statusRed))
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
@@ -124,7 +146,7 @@ struct BranchSwitcherView: View {
     private func sectionHeader(_ title: String) -> some View {
         Text(title)
             .font(metrics.scaledFont(.caption, weight: .semibold))
-            .foregroundStyle(.secondary)
+            .foregroundStyle(theme.color(.textSecondary))
             .padding(.top, metrics.scaled(4))
     }
 
@@ -133,9 +155,9 @@ struct BranchSwitcherView: View {
             HStack(spacing: metrics.scaled(6)) {
                 Image(systemName: rowIcon(for: branch))
                     .frame(width: metrics.scaled(16))
-                    .foregroundStyle(branch.isCurrent ? Color.accentColor : Color.secondary)
+                    .foregroundStyle(theme.color(branch.isCurrent ? .accent : .textSecondary))
                 Text(branch.shortName)
-                    .foregroundStyle(branch.isCurrent ? Color.accentColor : Color.primary)
+                    .foregroundStyle(theme.color(branch.isCurrent ? .accent : .textPrimary))
                 Spacer()
             }
             .font(metrics.scaledFont(.body))
@@ -162,9 +184,9 @@ struct BranchSwitcherView: View {
             HStack(spacing: metrics.scaled(6)) {
                 Image(systemName: rowIcon(for: branch))
                     .frame(width: metrics.scaled(16))
-                    .foregroundStyle(Color.secondary)
+                    .foregroundStyle(theme.color(.textSecondary))
                 Text(branch.shortName)
-                    .foregroundStyle(Color.primary)
+                    .foregroundStyle(theme.color(.textPrimary))
                 Spacer()
             }
             .font(metrics.scaledFont(.body))
