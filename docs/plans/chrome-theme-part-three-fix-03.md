@@ -65,16 +65,16 @@ Never pass a derived-data path inside the repository.
 
 **File:** `Tests/PisakaCoreTests/ChromeThemeSourceGatingTests.swift`
 
-- [ ] Keep the counting half — every `Image(systemName:)` in the two widget
+- [x] Keep the counting half — every `Image(systemName:)` in the two widget
       files is hidden — since it is what catches the original defect.
-- [ ] Add the half that was missing: each of those two files must also spell
+- [x] Add the half that was missing: each of those two files must also spell
       an accessibility **value** (the state carrier), so hiding a glyph cannot
       silently remove information again. A rule cannot detect which symbol
       encodes state, and it should not pretend to; what it can pin is that a
       file which hides every symbol it draws still says something about state.
-- [ ] Say in the rule's doc comment what it does *not* see, in the suite's own
+- [x] Say in the rule's doc comment what it does *not* see, in the suite's own
       idiom — the honest limit is part of the rule.
-- [ ] If the rule count or its wording changes, keep the suite's marker,
+- [x] If the rule count or its wording changes, keep the suite's marker,
       `core-theme.md`'s canonical list and `CLAUDE.md`'s invariant sentence in
       agreement; the suite checks all three against each other.
 

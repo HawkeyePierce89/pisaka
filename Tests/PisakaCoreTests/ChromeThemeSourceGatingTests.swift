@@ -61,7 +61,11 @@ import XCTest
 ///   unhidden `Image(systemName:)` supplies a name of its own instead — the
 ///   symbol's. A control that has quietly lost its title renders perfectly and
 ///   reads out as its glyph to VoiceOver — "square split bottom" where the
-///   command's name belongs — which no other gate here can see.
+///   command's name belongs — which no other gate here can see. The bar's
+///   widgets owe the same rule from the other side: they hide every symbol they
+///   draw *and* spell an accessibility value, because two of those glyphs were
+///   the row's state and hiding a state without speaking it is the same defect
+///   with the counts looking healthy.
 final class ChromeThemeSourceGatingTests: XCTestCase {
 
     // MARK: - The gated set
@@ -609,6 +613,24 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// each widget's `Image(systemName:` count must equal its
     /// `.accessibilityHidden(true)` count. A symbol added without a thought for
     /// the announcement moves one count and not the other.
+    ///
+    /// Counting alone was not enough, and the way it failed is the reason for
+    /// the second half. A widget's symbol is usually decoration, but two of
+    /// these are the row's **state** — `row.isCurrent ? "checkmark" : "folder"`
+    /// and the branch list's checkmark — and hiding *those* satisfies the count
+    /// while deleting the only thing that distinguished the current project, or
+    /// the checked-out branch, from every other row. The count went green on a
+    /// change that made the two lists unreadable without sight. So each of these
+    /// files must also spell an accessibility **value**: the state carrier a
+    /// hidden glyph owes back.
+    ///
+    /// What this rule does **not** see, said plainly because the honest limit is
+    /// part of it: it cannot tell which symbol encoded state and does not try.
+    /// A file could hide a state-bearing glyph and satisfy the value half with a
+    /// value on some *other* row. What it pins is the shape of the regression it
+    /// exists for — a file that hides every symbol it draws still says something
+    /// about state — and the rest is the reviewer's, as the sweep's own rule
+    /// says: a symbol whose name or colour varies with a value is state.
     private static let barWidgetFiles = [
         "ProjectSwitcherView.swift",
         "BranchSwitcherView.swift",
@@ -650,7 +672,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         )
     }
 
-    func testEveryBottomBarWidgetHidesItsDecorativeSymbols() throws {
+    func testEveryBottomBarWidgetHidesItsSymbolsAndSpeaksTheirState() throws {
         for name in Self.barWidgetFiles {
             let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
                 try Self.read(Self.source(named: name))
@@ -665,6 +687,14 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
                 """
                 \(name) must hide every Image(systemName:) it draws — a button combines its \
                 children, so an unhidden symbol folds its own name into the button's
+                """
+            )
+            XCTAssertTrue(
+                code.contains(".accessibilityValue("),
+                """
+                \(name) hides every symbol it draws and must therefore spell an \
+                .accessibilityValue( — two of these glyphs are the row's state, not decoration, \
+                and hiding a state without speaking it leaves the current row indistinguishable
                 """
             )
         }
