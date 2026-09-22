@@ -363,9 +363,17 @@ struct SyntaxTheme {
     /// It answers the *same* question `.plain` does, which is why this one value
     /// is spelled twice rather than all fourteen being hoisted into constants. A
     /// system semantic colour is forbidden here for the reason it is forbidden in
-    /// the chrome: it follows the *system* appearance and would ignore the app's
-    /// own Theme preference, leaving plain text disagreeing with everything drawn
-    /// around it.
+    /// the chrome, and the reason is the **value**, not the appearance it tracks.
+    /// `.labelColor` is itself a dynamic colour resolved against the window's
+    /// `NSAppearance` — the same signal `PlatformColor.dynamic(light:dark:)`
+    /// reads, since the Theme preference is applied as `.preferredColorScheme` at
+    /// each window root, which sets that appearance for every view inside it
+    /// (`ChromePalette.nsColor(_:)` says the same from its side; were it
+    /// otherwise, Theme = Dark under a Light system would have drawn black text
+    /// on the dark pane all through v1.0). What it is *not* is the design's
+    /// value: the label colour is pure black/white where the palette's plain row
+    /// is `#1d1d1f`/`#dfe1e5`, so plain text would sit a step off the table
+    /// beside every character the highlighter reaches.
     ///
     /// `internal` rather than `private` because the suite has to assert it
     /// directly: `SyntaxTokenKind` is closed and `table` is total over it, so no

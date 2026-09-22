@@ -12,6 +12,22 @@
 > `docs/architecture/core-theme.md` and on the palette row itself, and the
 > correction is `docs/plans/code-zone-palette-fix-01.md`, Task 1.
 
+> **Second correction, recorded after the fact.** This plan explains the refusal
+> of a system semantic colour in the code zone by saying such a colour "follows
+> the system appearance" and would therefore ignore the app's Theme preference.
+> That mechanism is wrong: the preference is applied as `.preferredColorScheme`
+> at each window root, which sets the window's `NSAppearance`, and a system
+> semantic colour is itself a dynamic colour resolved against exactly that — the
+> same signal `PlatformColor.dynamic(light:dark:)` reads. Were it otherwise,
+> Theme = Dark under a Light system would have drawn black text on the dark
+> editor pane all through v1.0. The refusal is right and stands, but its reason
+> is the **value**: `.labelColor` is pure black/white where the palette's plain
+> row is `#1d1d1f`/`#dfe1e5`, so uncovered text sat a step off the table in a
+> window already in the correct appearance. The sentences below are left as
+> written; the corrected statement lives in `docs/architecture/core-theme.md`,
+> `app-editor.md`, `app-editor-overlays.md`, `app-ios.md` and on
+> `SyntaxTheme.plainText` itself.
+
 ## Overview
 
 Replace the editor's syntax colour table with the project's own palette — fourteen

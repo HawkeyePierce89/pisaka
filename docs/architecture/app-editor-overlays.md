@@ -852,9 +852,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     **Two colour sources, one boundary** (the second part of the chrome sweep,
     `core-theme.md`). The view's own *chrome* takes the AppKit bridge, the ruler's
     path: the background is `ChromePalette.nsColor(.bgEditor)` over `bounds` —
-    replacing a half-opacity system text background, which disagreed with the pane
-    beside it the moment the Theme preference disagreed with the system
-    appearance — and the viewport indicator is `accentTint` filled and
+    replacing a half-opacity system text background, whose value disagreed with
+    the pane beside it in either appearance (the half opacity being the whole
+    departure — it tracked the window's appearance as faithfully as the role
+    does) — and the viewport indicator is `accentTint` filled and
     `accentTintStrong` stroked, **each wash carrying its own opacity in the
     table** so this view composes no alpha of its own. Both are *dynamic*
     `NSColor`s: nothing is cached and nothing watches for a *colour* change,
@@ -940,10 +941,15 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     The fallback that `color(for:)` used to spell as `.labelColor` / `.label` is
     now a value of its own, `plainText` (light `0x1D1D1F`, dark `0xDFE1E5`),
     answering the same question `.plain` does. A **system semantic colour is
-    forbidden here for the reason it is forbidden in the chrome**: it follows the
-    *system* appearance and would therefore ignore the app's own Theme
-    preference, which is exactly what a code zone drawn beside chrome that obeys
-    the preference must not do. It is `internal` rather than `private` because
+    forbidden here for the reason it is forbidden in the chrome**, and the reason
+    is the **value**, not the appearance it tracks: `.labelColor` is itself a
+    dynamic colour resolved against the window's `NSAppearance`, which the Theme
+    preference sets through `.preferredColorScheme` at the window root, so it
+    follows that preference exactly as a table row does (were it otherwise, Theme
+    = Dark under a Light system would have drawn black text on the dark pane all
+    through v1.0). What it is not is the design's value — pure black/white where
+    the plain row is `#1d1d1f`/`#dfe1e5` — so an uncovered character would sit a
+    step off the table beside every covered one and beside the chrome around it. It is `internal` rather than `private` because
     the suite has to assert it directly — the enum is closed and the table total,
     so no call to `color(for:)` can reach it.
     Three of the pairs are **numerically equal to chrome roles** — the body-text

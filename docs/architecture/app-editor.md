@@ -19,10 +19,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     the font in the configuration block and written by the no-grammar reset path
     over the whole storage — never the platform's `.labelColor`. A character no
     capture covers is the same question `.plain` answers, so it is read from the
-    one table rather than left on the text view's system-label default; a system
-    semantic colour follows the *system* appearance and would ignore the app's
-    own Theme preference, which is exactly what an unhighlighted file must not
-    do (`app-editor-overlays.md`). Both sites read
+    one table rather than left on the text view's system-label default. A system
+    semantic colour is refused for its **value**, not for the appearance it
+    tracks: `.labelColor` resolves against the window's `NSAppearance`, which the
+    Theme preference sets through `.preferredColorScheme` at the window root, so
+    it follows the preference exactly as a table row does — it is simply pure
+    black/white where the plain row is `#1d1d1f`/`#dfe1e5`, which would leave an
+    uncovered character a step off the table beside every covered one
+    (`core-theme.md`). Both sites read
     `SyntaxTheme.shared.color(for: .plain)`, so no second resolution point
     exists, and `SyntaxThemeTests`'
     `testUncoveredTextReadsThePlainRowInBothAppearances` pins **both sites at the

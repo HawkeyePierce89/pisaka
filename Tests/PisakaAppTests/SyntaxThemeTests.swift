@@ -112,11 +112,14 @@ final class SyntaxThemeTests: XCTestCase {
 
     /// No token kind resolves to a system semantic colour, in either appearance.
     ///
-    /// The defect this exists for: a system colour follows the *system*
-    /// appearance, so a kind left on one would ignore the app's own Theme
-    /// preference and disagree with every surface drawn around the code. The rule
-    /// is about that property, not about today's numbers — a later palette change
-    /// keeps it, and a row quietly replaced by `.labelColor` breaks it.
+    /// The defect this exists for is a **value**, not an appearance: a system
+    /// colour resolves against the window's appearance exactly as a table row
+    /// does (the Theme preference is applied as `.preferredColorScheme` at the
+    /// window root, which sets that appearance), so a kind left on one still
+    /// follows the preference — it just carries the platform's value instead of
+    /// the design's, a step off every row beside it. The rule is about that
+    /// property, not about today's numbers — a later palette change keeps it, and
+    /// a row quietly replaced by `.labelColor` breaks it.
     func testNoTokenKindResolvesToASystemSemanticColour() throws {
         let systemColours: [(name: String, colour: NSColor)] = [
             ("labelColor", .labelColor),
@@ -137,7 +140,7 @@ final class SyntaxThemeTests: XCTestCase {
                             && kindComponents.b == systemComponents.b
                             && abs(kindComponents.alpha - systemComponents.alpha) < 0.002,
                         "\(kind) resolves to \(system.name) under \(name.rawValue) — "
-                            + "a system colour follows the system appearance, not the app's Theme preference"
+                            + "a system colour carries the platform's value, not the design's"
                     )
                 }
             }

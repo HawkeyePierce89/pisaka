@@ -19,10 +19,14 @@ import XCTest
 /// What is checked, and why each rule is invisible to the compiler:
 ///
 /// - **No gated view names a system semantic colour.** `NSColor.labelColor` and
-///   `Color.secondary` compile, look plausible in whichever appearance the
-///   reviewer happens to be in, and quietly desert the palette the moment the
-///   Theme preference disagrees with the system one — which is the whole reason
-///   the roles exist.
+///   `Color.secondary` compile and look plausible in whichever appearance the
+///   reviewer happens to be in. They do *not* desert the Theme preference — that
+///   preference is applied as `.preferredColorScheme` at each window root, which
+///   sets the window's `NSAppearance`, and a dynamic system colour resolves
+///   against exactly that, the same signal a role does. What they desert is the
+///   **palette**: they carry the platform's values rather than the table's, so a
+///   view naming one draws a step off the roles beside it in *either* appearance
+///   — which is the whole reason the roles exist.
 /// - **No gated view spells a hex literal.** A colour written where it is drawn
 ///   is a colour nothing can re-theme; the table is the one place a value may
 ///   live, and `ChromePalette.swift` is checked by its own app-layer suite
@@ -97,8 +101,10 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// AppKit's semantic set plus SwiftUI's four hierarchical ones: a closed list
     /// rather than a pattern, because the point is to name the specific things a
     /// view reaches for when it wants "the usual text colour", each of which
-    /// resolves against the *system* appearance and so ignores the Theme
-    /// preference entirely.
+    /// resolves to the *platform's* value rather than the table's. They track the
+    /// window's appearance, and therefore the Theme preference, as faithfully as a
+    /// role does; the defect is the value, a step off the roles beside it in
+    /// either appearance.
     ///
     /// `clear` is deliberately absent and allowed: it is the absence of a colour,
     /// not a role, and a row that paints nothing when it is in no state is

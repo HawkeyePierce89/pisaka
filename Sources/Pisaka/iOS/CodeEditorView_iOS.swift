@@ -126,8 +126,11 @@ struct CodeEditorView_iOS: UIViewRepresentable {
         textView.font = editorFont()
         // The colour of a character no capture covers — the same question
         // `SyntaxTokenKind.plain` answers — so it is read from the one table
-        // rather than left on the text view's system-label default, which would
-        // follow the *system* appearance and ignore the app's Theme preference.
+        // rather than left on the text view's system-label default. That default
+        // is not the design's value: the palette's plain row is `#1d1d1f`/
+        // `#dfe1e5` and the label colour is pure black/white, so a character no
+        // capture covers would sit a step off the table beside every character
+        // one does.
         textView.textColor = SyntaxTheme.shared.color(for: .plain)
         textView.isEditable = true
         textView.isSelectable = true

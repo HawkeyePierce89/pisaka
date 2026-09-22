@@ -402,9 +402,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     on macOS: set beside the font in the configuration block and written by the
     coordinator's no-grammar reset path, never `UIColor.label`. A character no
     capture covers is the question `.plain` answers, so it is read from
-    `SyntaxTheme.shared.color(for: .plain)` — the one table — and an
-    unhighlighted file therefore follows the app's Theme preference rather than
-    the system appearance (`app-editor-overlays.md`).
+    `SyntaxTheme.shared.color(for: .plain)` — the one table — so an unhighlighted
+    file reads at the design's value rather than at `UIColor.label`'s pure
+    black/white. Both resolve against the same appearance; only the value differs,
+    and the difference is a visible step (`core-theme.md`).
     **`.editorconfig` is wired here exactly as on macOS** (the layer is
     `core-editorconfig.md`): the representable takes an undefaulted `editorConfig:
     EditorConfigModel` (any default worth writing would be a second live disk

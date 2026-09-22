@@ -738,8 +738,8 @@ below. All of it, with decisions D21–D24, is in `core-lsp.md`.
     control background. The generic `strip(_:)` helper gives all three questions
     one `bgPanel` ground and one bottom rule, drawn as a `hairline` **rectangle**
     rather than a `Divider()`: a divider is drawn in the *system's* separator
-    colour and would disagree with the strip above it the moment the Theme
-    preference disagrees with the system appearance. The question line is
+    value, which is not the table's, so it would disagree with the hairlines above
+    it in either appearance. The question line is
     `textPrimary`; the explanatory caption *and* the runtime-network note are
     `textSecondary`, being the same kind of fact; the leading symbol is `accent`.
     The two actions are where the strip states the sweep's rule about **mixed

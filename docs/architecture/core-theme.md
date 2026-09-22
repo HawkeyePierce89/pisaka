@@ -356,8 +356,8 @@ disagree.
   - **The language-server consent strip** — `LSPConsentBanner.swift`, the
     environment path. One `strip(_:)` helper gives all three questions one ground
     (`bgPanel`) and one bottom rule (a `hairline` rectangle, not a `Divider()`,
-    which would be drawn in the *system's* separator colour and disagree the
-    moment the Theme preference disagrees with the system appearance). The
+    which would be drawn in the *system's* separator value and so disagree with
+    the `hairline` rules beside it in either appearance). The
     question line is `textPrimary`; the explanatory caption and the runtime-network
     note are `textSecondary`, being the same kind of fact; the leading symbol is
     `accent`. The two actions are where the strip states the sweep's rule about
@@ -426,9 +426,13 @@ The eight rules, each invisible to the compiler:
    `controlBackgroundColor`, the `system…` hues, …) plus SwiftUI's
    `accentColor`/`primary`/`secondary`/`tertiary` — and, for the **views** only,
    SwiftUI's named hues. They compile, they look plausible in whichever
-   appearance the reviewer happens to be in, and they desert the palette the
-   moment the Theme preference disagrees with the system one, which is the whole
-   reason the roles exist. Two narrow carve-outs: the palette is exempt from the
+   appearance the reviewer happens to be in, and they desert **the palette** —
+   not the preference. A system semantic colour is itself dynamic, resolved
+   against the window's `NSAppearance`, which is precisely what
+   `.preferredColorScheme` at the window root sets, so it tracks the Theme
+   preference exactly as a role does; what it carries is the platform's value
+   rather than the table's, so a view naming one draws a step off the roles
+   beside it in *either* appearance, which is the whole reason the roles exist. Two narrow carve-outs: the palette is exempt from the
    *hue* half alone, because `red`/`green`/`blue` are argument labels of
    `Color(.sRGB, red:green:blue:opacity:)`; and lines constructing a `FileIcon(`
    are dropped before matching, because `FileIconColor`'s cases collide with the

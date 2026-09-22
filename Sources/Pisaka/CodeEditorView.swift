@@ -239,8 +239,10 @@ struct CodeEditorView: NSViewRepresentable {
     /// The two attributes every character starts from: the editor font, and the
     /// colour of a character no capture covers — the same question
     /// `SyntaxTokenKind.plain` answers, so it is read from the one table rather
-    /// than left on the text view's system-label default, which would follow the
-    /// *system* appearance and ignore the app's Theme preference.
+    /// than left on the text view's system-label default. That default is not
+    /// the design's value: the palette's plain row is `#1d1d1f`/`#dfe1e5` and
+    /// the label colour is pure black/white, so a character no capture covers
+    /// would sit a step off the table beside every character one does.
     ///
     /// `internal` rather than `private` for the same reason `SyntaxTheme.plainText`
     /// is: the suite has to assert *this site*, because asserting the expression
@@ -3596,8 +3598,9 @@ struct CodeEditorView: NSViewRepresentable {
                 // the temporary attributes must be cleared too.
                 //
                 // The colour restored is the theme's plain entry — not the
-                // platform's label colour — so an unhighlighted file follows the
-                // app's Theme preference like every other character does.
+                // platform's label colour, which is pure black/white rather than
+                // the palette's `#1d1d1f`/`#dfe1e5` — so an unhighlighted file
+                // reads at the table's own value like every covered character.
                 if let textStorage = textView.textStorage, textStorage.length > 0 {
                     let fullRange = NSRange(location: 0, length: textStorage.length)
                     textView.layoutManager?.setTemporaryAttributes([:], forCharacterRange: fullRange)

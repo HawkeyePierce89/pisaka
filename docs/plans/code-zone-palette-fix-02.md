@@ -105,21 +105,21 @@ actually fixes is a **value** mismatch: `.labelColor` is pure black/white, the
 palette's plain row is `#1d1d1f`/`#dfe1e5`, so uncovered text sat a step off the
 table in a window that was already in the correct appearance.
 
-- [ ] Replace the reason at every site the branch introduced it — the list in the
+- [x] Replace the reason at every site the branch introduced it — the list in the
       finding names ten, but find them by searching rather than by copying the
       list. The replacement says what is true: the platform colour is not the
       design's value, so a character no capture covers would sit a step off the
       table beside every character that is covered.
-- [ ] Correct the same over-claim where it **pre-exists**, in
+- [x] Correct the same over-claim where it **pre-exists**, in
       `docs/architecture/core-theme.md` ("they desert the palette the moment the
       Theme preference disagrees with the system one") and in the rationale of
       `ChromeThemeSourceGatingTests`' rule one. Fixing the copies while leaving
       the original is the worst outcome: the next reader finds the false version
       and treats the corrected ones as the mistake.
-- [ ] Do **not** weaken either rule while correcting its reason — neither the
+- [x] Do **not** weaken either rule while correcting its reason — neither the
       chrome gating rule nor `SyntaxThemeTests.testNoTokenKindResolvesToASystemSemanticColour`
       changes what it asserts. Only the prose changes.
-- [ ] **Sweep for the shape, not the site.** The construct is *a sentence
+- [x] **Sweep for the shape, not the site.** The construct is *a sentence
       explaining a rule by a mechanism the repository elsewhere contradicts*.
       Having corrected these, check that no remaining sentence in the branch
       explains a colour decision by appearance-tracking rather than by value.
