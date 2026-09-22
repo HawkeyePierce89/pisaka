@@ -324,37 +324,37 @@ as required.
 - Modify: `docs/architecture/core-theme.md`, `docs/architecture/app-window.md`,
   `docs/architecture/app-shell.md`, `CLAUDE.md`
 
-- [ ] `core-theme.md`: a **Part three** record in parts one and two's shape — each
+- [x] `core-theme.md`: a **Part three** record in parts one and two's shape — each
       file, the roles it spent, and which entries are *regressions* fixed rather
       than new surfaces (the two dividers, which were filling five points with the
       platform's separator colour, and the window root's empty states, which were
       platform-coloured outside any named surface).
-- [ ] `core-theme.md`: in the same part-three record, name the **inherited work**
+- [x] `core-theme.md`: in the same part-three record, name the **inherited work**
       this part knowingly leaves behind for the popovers' part — the two switcher
       popovers' `Divider()` rules and the platform material ground under them
       (decision 11) — so the later part finds it rather than rediscovers it; and
       state the placeholder pane's ground with its reason (decision 10).
-- [ ] `core-theme.md`: shrink "What is still waiting" to the six dock panels, the
+- [x] `core-theme.md`: shrink "What is still waiting" to the six dock panels, the
       dialogs and sheets, the separate windows, the Preferences surfaces and the
       terminal; record the dock's own tab row and the caret readout as deliberately
       deferred, and say that `dockTabRowHeight` stays unused until the tab row gets
       its design decision.
-- [ ] `core-theme.md`: correct the unused-role list — `bgCanvas` and `statusGreen`
+- [x] `core-theme.md`: correct the unused-role list — `bgCanvas` and `statusGreen`
       are spent here, leaving **six** (`bgPopover`, `currentLine`, `bracketMatch`,
       `diffAddedBackground`, `diffRemovedBackground`, `conflictBackground`), each
       still named with the surface it waits for. Verify the arithmetic against the
       `ChromeColorRole.swift` doc comment and correct that comment's own unused
       list to match.
-- [ ] `app-shell.md`: a full entry for `MainWindowChrome.swift` — what it sets, why
+- [x] `app-shell.md`: a full entry for `MainWindowChrome.swift` — what it sets, why
       the ground is `bgPanel`, why the colour is dynamic, and that it is a sibling
       of the frame marker rather than a change to it.
-- [ ] `app-window.md`: update the `ContentView.swift` entry for the bar's reversed
+- [x] `app-window.md`: update the `ContentView.swift` entry for the bar's reversed
       order, the toggles' new shape, the dock container and both dividers.
-- [ ] `CLAUDE.md`: the new index line for `MainWindowChrome.swift` under
+- [x] `CLAUDE.md`: the new index line for `MainWindowChrome.swift` under
       `app-shell.md`; the chrome invariant's surface count (seven → twelve, each
       named), its gated-file count (eleven → sixteen) and its rule count (already
       moved to ten in tasks 2 and 4 — verify the sentence is coherent as a whole).
-- [ ] run `swift test` — the suite's cross-file count rules must agree with both
+- [x] run `swift test` — the suite's cross-file count rules must agree with both
       documents.
 
 ### Task 7: Verify acceptance criteria

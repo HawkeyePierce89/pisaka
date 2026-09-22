@@ -12,12 +12,13 @@ import Foundation
 /// and the surface-by-surface sweep that follows adds *views*, never roles: a
 /// surface that appears to need a twenty-second role has instead found a design
 /// question, and the answer is to reuse one of these or to change the design —
-/// not to grow the table. Some roles are consequently unused by the three
-/// surfaces restyled first (`bgCanvas`, `bgPopover`, `onAccent`, `accentTint`,
-/// `currentLine`, `bracketMatch`, `statusGreen`, `diffAddedBackground`,
-/// `diffRemovedBackground`, `conflictBackground`); they are declared here
-/// nonetheless, because the table is the design, not an inventory of today's
-/// call sites.
+/// not to grow the table. Some roles are consequently still unused after the
+/// twelve surfaces restyled so far — six of them (`bgPopover`, `currentLine`,
+/// `bracketMatch`, `diffAddedBackground`, `diffRemovedBackground`,
+/// `conflictBackground`), each waiting for the surface that means it: the
+/// popovers, the code zone's two line overlays, and the diff and merge panes.
+/// They are declared here nonetheless, because the table is the design, not an
+/// inventory of today's call sites.
 ///
 /// The raw values are the stable names the gating suite and the palette test
 /// speak; they are not persisted anywhere, but renaming one is a documentation

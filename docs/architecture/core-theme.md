@@ -55,15 +55,15 @@ adds no write of any kind. Its only persisted input is the existing
     and no design system at all. Several roles are consequently still
     *unused*: the first part left ten of them so (`bgCanvas`, `bgPopover`,
     `onAccent`, `accentTint`, `currentLine`, `bracketMatch`, `statusGreen`,
-    `diffAddedBackground`, `diffRemovedBackground`, `conflictBackground`), and
-    the second part spent two of those — `onAccent` on the consent strip's
-    confirming action and `accentTint` on the minimap's viewport fill, which
-    leaves the other **eight**. `bgCanvas` and `bgPopover` wait for the window
-    ground and the popovers; `statusGreen` — the one status hue nothing draws
-    yet, its two siblings having been spent by the first part, `statusRed` on
-    the tree draft field's invalid name and the gutter's error marker and
-    `statusYellow` on the gutter's warning marker — and the three diff/merge
-    grounds wait for the surfaces that mean them;
+    `diffAddedBackground`, `diffRemovedBackground`, `conflictBackground`); the
+    second part spent two of those — `onAccent` on the consent strip's
+    confirming action and `accentTint` on the minimap's viewport fill — and the
+    third spent two more: `bgCanvas` on the window root, which is the surface
+    the role was named for, and `statusGreen` on the pull-request indicator's
+    checks mark, which completes the status trio. That leaves **six**.
+    `bgPopover` waits for the popovers (the two switchers' among them, parts
+    four to six); the three diff/merge grounds wait for the surfaces that mean
+    them;
     and **`currentLine` and `bracketMatch` are deliberately still unused** — both
     belong to the *code* zone, whose overlays are temporary text attributes on the
     editor's own theme (`SyntaxTheme`), so spending them is a decision about where
@@ -392,13 +392,147 @@ disagree.
     typed in the file behind the banner would start a download) still holds. Full
     entry in `core-provisioning.md`.
 
+#### Part three — the window's ground, the sidebar's host, the dock and the bottom bar
+
+The frame the swept panes sit in, taken as one piece for part two's reason: the
+title bar above, the sidebar's host on one side, the dock below and the bar
+under that all meet each other, and a part restyling one of them alone would
+have shipped a boundary where two grounds disagree. It spends the two roles the
+sweep had left waiting for a surface rather than for a decision — `bgCanvas` and
+`statusGreen` — and adds two gating rules (nine and ten) and five files to the
+gated set.
+
+  - **The window's ground and its title bar** — `MainWindowChrome.swift`, a new
+    file taking the AppKit bridge path through a marker rather than a view's
+    body. The title bar is made transparent and the window's background colour
+    set to `ChromePalette.nsColor(.bgPanel)`, the *dynamic* colour, so a Theme
+    change repaints it with no appearance observer and no cached value; the
+    title text and the window buttons are left to the framework, which draws
+    them against the window's appearance the content root already sets. The
+    ground is `bgPanel` while the content root paints `bgCanvas` on purpose: the
+    title bar is the topmost of the window's panel *strips*, sitting directly on
+    the tab strip and the sidebar header, and painting it the canvas value would
+    draw a band one step off the two surfaces it touches. It is a **sibling** of
+    `MainWindowFrameAutosave`, not a change to it — where the window sits and
+    what colour it is are unrelated questions, and the frame marker's contract
+    and its own gating suite are untouched. It is attached by *chaining* onto
+    the frame marker's existing `.background(...)` line, because
+    `PisakaApp.swift` sits exactly at its `file_length` ceiling. Full entry in
+    `app-shell.md`.
+  - **The window root** — `ContentView.swift`, the environment path, reached
+    through a `chromeColor(_:)` **role-to-colour function** rather than a stored
+    theme: a root cannot read the environment value it writes, so it resolves
+    from `SettingsStore.chromeTheme(systemPrefersDark:)` — that seam's first
+    consumer — and the function shape keeps the theme's *type* out of the file
+    (rule five), part one's `TreeRowBackground.color(for:resolving:)` again. The
+    body's root paints `bgCanvas`; the dock's panel slot `bgPanel` with **no
+    rule of its own**; and the three empty-state sentences the root draws — "No
+    problems", the usages invitation and "No file open" — `textSecondary`. Two
+    of these are *regressions* fixed rather than new surfaces, in part two's
+    gutter-fill sense: the empty states were platform-coloured text drawn
+    outside any named surface, and the two dividers below were filling five
+    points of window with the platform's `separatorColor`, which is a
+    five-point-wide rule in a value nothing beside it shares.
+  - **Both draggable dividers** — `ContentView.swift`. Each now fills `bgPanel`
+    and overlays a **one-point** `hairline` rectangle along the edge nearer the
+    editor: the dock divider's along its top, the preview divider's along its
+    leading side. The five-point drag target, the `contentShape`, the
+    hover/drag cursor sync and the whole drag gesture are verbatim — the change
+    is what is drawn, not what is dragged. The divider *is* the dock's top
+    edge, which is why the panel slot below draws no second rule: two hairlines
+    five points apart read as a double rule.
+  - **The bottom bar and its toggles** — `ContentView.swift`. The bar takes
+    `bottomBarHeight`, a `barPaddingX` inset, a `bgPanel` ground and its own
+    one-point `hairline` along its **top** edge, and the `Divider()` the body
+    used to place above it is gone (part two's precedent: a `Divider()` is drawn
+    in the system's separator value and disagrees with the `hairline` beside
+    it). Keeping a rule there at all is a stated deviation from the design,
+    which draws none: with the dock closed the editor's ground and the bar's are
+    one value apart in the dark theme, so without it the bar would have no
+    visible top edge. The **order is reversed** — the three widgets lead, then a
+    `Spacer()`, then the six panel toggles and the completion switch — with
+    14-point gaps between the widgets and 2 between the toggles, both bare local
+    numbers scaled once, because deriving either from a token would couple this
+    bar's spacing to a measurement that means something else (rule seven). All
+    seven controls became **icon-only squares**: `bottomBarToggleSide` on a
+    side, `bottomBarToggleRadius` of corner radius, the icon at `.body`, an
+    `accentTintStrong` ground with an `accent` icon when active and no ground
+    with a `textSecondary` icon when not. That visual decision is what rule ten
+    exists for: the `Label(title, systemImage:)` they carried *was* each one's
+    accessibility name, so every one of them now spells `.help(` and
+    `.accessibilityLabel(` — nothing misrenders without them, and the only
+    reader who notices is the one who cannot see the bar. Full entry in
+    `app-window.md`.
+  - **The sidebar's host and its header** — `ProjectTreeView.swift`, already
+    gated for its rows since part one, so this part added the surface *around*
+    them and no file to the set. Both branches of the body — the tree and the
+    open-a-folder placeholder pane — draw `bgPanel`; the header is a fixed strip
+    of `sidebarHeaderHeight` inset by `barPaddingX`, carrying the open folder's
+    name uppercased in `textSecondary` at `.subheadline`/`.semibold` with half a
+    point of tracking, a `Spacer()`, and the Refresh button at the trailing end
+    with a `textSecondary` icon at `.body`; and the header draws its own bottom
+    `hairline` in place of the `Divider()` that used to sit between it and the
+    tree. The Refresh button is a **deliberate deviation** — the design draws
+    the label alone, and a restyle does not remove a working control. Full entry
+    in `app-window.md`.
+  - **The bar's three widgets** — `ProjectSwitcherView.swift`,
+    `BranchSwitcherView.swift` and `PullRequestIndicatorView.swift`, the
+    environment path, each reading `\.chromeTheme` beside `\.interfaceMetrics`.
+    The project switcher draws its name `textPrimary` at `.callout`, its folder
+    glyph and a new trailing `chevron.down` `textSecondary`; the branch switcher
+    draws name, glyph and caret all `textSecondary` at `.callout` and its
+    failure line `statusRed`; the pull-request indicator is three elements — a
+    leading `arrow.triangle.merge` (the Pull Requests toggle's glyph, now at the
+    opposite end of the bar, so the old adjacency argument does not apply),
+    `#N`, and a trailing checks mark whose four glyphs are coloured
+    `statusGreen` / `statusRed` / `statusYellow` / `textSecondary`, the fourth
+    being *no checks*, drawn as the neutral member of the `*.circle.fill` family
+    its siblings already use. All three **drop their own paddings** so the bar's
+    stated gaps and height are the measurements actually drawn, each keeping
+    `.contentShape(Rectangle())` as its click target. Full entries in
+    `app-window.md`.
+
+**The caret both switchers gained is an addition, not a restyle**: neither drew
+one before, and a control that opens a list should say so. It is recorded here
+rather than passed off as a colour change.
+
+**The placeholder pane's ground is a stated divergence.** The open-a-folder pane
+draws `bgPanel`, not the window's `bgCanvas`. It reads as one of the places the
+window ground shows through, but it is in fact the sidebar's own surface — drawn
+by `ProjectTreeView` inside the sidebar's split slot, bounded by the same
+divider as the tree it replaces — and a pane whose ground changed with whether a
+folder happened to be open would read as a hole in the sidebar rather than as
+the window behind it. `bgCanvas` is spent regardless: the window root paints it,
+and it shows through at the no-file-open placeholder and the root's own empty
+states.
+
+**Inherited work, deliberately left for the popovers' part.** The two switchers'
+popovers had their *colours* converted here, mechanically (`.secondary` →
+`textSecondary`, `.primary` → `textPrimary`, `Color.accentColor` → `accent`,
+`.red` → `statusRed`), with layout, fonts and behaviour untouched — not because
+popovers belong to this part, but because gating rule one is per *file* and
+these files obey it whole. What was **not** converted is their `Divider()`
+calls. A `Divider()` names no colour, so no rule here can see one, and the fix
+is not available yet: the ground under those rules is still the platform's
+material, on which a `hairline` would be the mismatch rather than the cure. The
+part that sweeps the popovers' ground takes the rules with it. Written down here
+so that part finds the work rather than rediscovering it.
+
 #### What is still waiting
 
-The sidebar (the project tree's *host*, as against its rows), the bottom dock and
-the always-visible bottom bar, the six dock panels, the dialogs and sheets, the
-separate diff/merge/history/browser windows, the Preferences surfaces and the
-terminal. Each follows the six-step guide at the end of this document, on its
-own, with `gatedFiles` growing as part of the restyle rather than afterwards.
+The six dock panels, the dialogs and sheets, the separate
+diff/merge/history/browser windows, the Preferences surfaces and the terminal.
+Each follows the six-step guide at the end of this document, on its own, with
+`gatedFiles` growing as part of the restyle rather than afterwards.
+
+Two things inside surfaces part three *did* sweep are **deliberately deferred**
+rather than forgotten: the bottom dock's own tab row, which is chrome the dock
+panels draw and so belongs with them, and the caret readout beside it. Both wait
+on a design decision rather than on a file — which is also why
+`ChromeGeometry.dockTabRowHeight` stays declared and unspent: the token states
+the measurement the row will draw at, and the table is the design rather than an
+inventory of today's call sites. The switcher popovers' rules are inherited work
+too; the part-three record above says where.
 
 ### The monochrome-icon decision
 
@@ -432,7 +566,12 @@ deleted file fails rather than quietly losing its coverage:
 `LineNumberRulerView.swift`, `ProjectTreeView.swift`,
 `ProjectTreeDraftField.swift` — the first part's six — plus the second part's
 five: `TabListView.swift`, `TabRowView.swift`, `BreadcrumbBarView.swift`,
-`MinimapView.swift`, `LSPConsentBanner.swift`. The draft field is in the set
+`MinimapView.swift`, `LSPConsentBanner.swift` — plus the third part's five:
+`MainWindowChrome.swift`, `ContentView.swift`, `ProjectSwitcherView.swift`,
+`BranchSwitcherView.swift`, `PullRequestIndicatorView.swift`, **sixteen** in
+all. `ProjectTreeView.swift` is not among the third part's additions because it
+was already there: part three restyled the surface *around* the rows part one
+had swept, and a file joins this set once. The draft field is in the set
 although it is an editing affordance rather than a row: an inline draft
 *replaces* a tree row on screen and must read identically to the row it stands in
 for. `TabStripView.swift` covers `TabStatusMark` too, the slot view the two

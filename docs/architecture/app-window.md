@@ -122,7 +122,20 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     in `.horizontal` it simply lands under the tab strip — while the "No file
     open" branch is deliberately left bare (no bar without a file). The window
     body is a
-    `VStack(spacing: 0) { mainArea; Divider(); bottomBar }`: an always-visible
+    `VStack(spacing: 0) { mainArea; bottomBar }` — **no `Divider()` between
+    them** since part three: the bar draws its own one-point `hairline` along
+    its top edge, in the palette's value rather than the platform's. Keeping a
+    rule there at all is a stated deviation from the design, which draws none:
+    with the dock closed the editor's ground and the bar's are one value apart
+    in the dark theme, so without it the bar would have no visible top edge. The
+    body's root paints `chromeColor(.bgCanvas)`, the window's own ground, which
+    shows through wherever nothing paints over it — the no-file-open placeholder
+    and the root's own empty states, all three of which read `textSecondary`.
+    The colours are reached through a private `chromeColor(_:)`
+    **role-to-colour function** resolving `settings.chromeTheme(systemPrefersDark:)`
+    against `@Environment(\.colorScheme)`: a root cannot read the environment
+    value it writes, and the function shape keeps this file from naming
+    `ChromeTheme` (`core-theme.md`'s gating rule five). An always-visible
     `bottomBar` of six toggle buttons (Terminal / Git / Changes /
     Problems / Usages / Pull Requests, the active one highlighted,
     `arrow.triangle.pull` for Changes and — deliberately *not* the same glyph —
@@ -131,7 +144,47 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     says in a comment beside it; `exclamationmark.triangle` for Problems,
     `text.magnifyingglass` for Usages) sits flush at
     the bottom, and `mainArea` is the three-column `editorSplit` alone, or — when a
-    `BottomPanel` is shown — `editorSplit` over the panel. The bottom bar also hosts
+    `BottomPanel` is shown — `editorSplit` over the panel, that panel slot
+    painted `bgPanel` with **no rule of its own** (the divider above it carries
+    the boundary — see the dividers below).
+
+    **The bar since part three.** Its order is **reversed**: a leading group of
+    the three widgets at 14-point gaps, a `Spacer()`, then the six panel toggles
+    and the completion switch at 2-point gaps. The widgets say *where you are*
+    (project, branch, pull request) and now read first; the controls, which say
+    what you can open, collect at the trailing end beside the completion switch
+    they already sat next to. Both gaps are bare local numbers scaled once —
+    deriving either from a `ChromeGeometry` token would couple this bar's
+    spacing to a measurement that means something else (gating rule seven). The
+    bar itself takes `ChromeGeometry.bottomBarHeight`, a
+    `ChromeGeometry.barPaddingX` horizontal inset, a `bgPanel` ground and the
+    top `hairline` above. All seven controls — `bottomBarButton(…)` six times
+    and `completionToggleButton` — are **icon-only squares**:
+    `bottomBarToggleSide` on a side, `bottomBarToggleRadius` of corner radius,
+    the icon at `.body`, an `accentTintStrong` ground under an `accent` icon
+    while active and no ground under a `textSecondary` icon otherwise, each
+    keeping `.contentShape(Rectangle())`. **The visible titles are gone**, which
+    is what makes `.help(` and `.accessibilityLabel(` mandatory on every one of
+    them rather than polite: the `Label(title, systemImage:)` they used to carry
+    *was* each one's accessibility name, and an `Image` supplies none. Gating
+    rule ten pins both in the brace-matched bodies of `bottomBarButton(` and
+    `completionToggleButton`, and pins `bottomBarButton(` at exactly seven
+    occurrences — one declaration and one call per dock panel — so a seventh
+    panel is asked the question rather than shipping nameless.
+
+    **Both draggable dividers are drawn from the roles too.**
+    `panelDivider(available:)` fills `bgPanel` and overlays a one-point
+    `hairline` rectangle along its **top** edge;
+    `markdownPreviewDivider(available:)` does the same with the rule along its
+    **leading** edge. Each rule sits on the edge nearer the editor, which is the
+    boundary it states; the dock divider *is* the dock's top edge, which is why
+    the panel slot below draws no second rule (two hairlines five points apart
+    read as a double rule). The 5-point drag target, the `contentShape`, the
+    hover/drag cursor sync and the whole drag gesture below are unchanged — what
+    moved is what is drawn, and it is a regression fixed rather than a new
+    surface: each used to fill its five points with the platform's
+    `separatorColor`, a five-point-wide rule in a value nothing beside it
+    shares (`core-theme.md`). The bottom bar also hosts
     the `BranchSwitcherView` (the status-bar convention) showing the current
     branch, threaded through as the `branchSwitcher: BranchSwitcherModel` /
     `onSwitchBranch` / `onCreateBranch` parameters (owned by `PisakaApp`, defaulted
@@ -156,15 +209,16 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     actually drawn, each keeping `.contentShape(Rectangle())` as its click
     target; the indicator's tooltip, accessibility label and value and its
     absent-rather-than-empty rule are untouched.
-    At the **trailing end** of the same bar, after the branch widget, sits the
-    completion on/off switch (T-4): `completionToggleButton`, in the existing
-    `bottomBarButton` idiom (plain button style, accent tint when active,
-    secondary when not), showing `lightbulb` when on and `lightbulb.slash` when
-    off with a `.help(…)` naming the state ("Code completion: On" / "Code
-    completion: Off"). Unlike its siblings it is deliberately icon-only, so it
-    carries no `Label` title to serve as its accessibility name and `.help` is a
-    tooltip rather than a name: the label and the state are therefore spelled out
-    with `.accessibilityLabel("Code completion")` + `.accessibilityValue(…)`,
+    At the **trailing end** of the same bar, after the six panel toggles, sits
+    the completion on/off switch (T-4): `completionToggleButton`, in the
+    `bottomBarButton` idiom (the same square, the same two states, keyed on
+    `settings.completionEnabled`), showing `lightbulb` when on and
+    `lightbulb.slash` when off with a `.help(…)` naming the state ("Code
+    completion: On" / "Code completion: Off"). It has never carried a `Label`
+    title to serve as its accessibility name — and since part three its six
+    siblings have lost theirs too — while `.help` is a tooltip rather than a
+    name: the label and the state are therefore spelled out with
+    `.accessibilityLabel("Code completion")` + `.accessibilityValue(…)`,
     without which the one bottom-bar control that silently changes how the editor
     behaves could not be identified without sight. It writes **straight through** to
     `settings.completionEnabled` with no local `@State`, which is what makes it
