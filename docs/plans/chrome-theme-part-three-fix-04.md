@@ -72,7 +72,9 @@ Never pass a derived-data path inside the repository.
 
 ### Task 3: Gates
 
-- [ ] `swift test` green.
-- [ ] The app-layer bundle green on a macOS destination, derived data under
+- [x] `swift test` green. 5729 tests, 0 failures.
+- [x] The app-layer bundle green on a macOS destination, derived data under
       `~/Library/Developer/Xcode/DerivedData/pisaka-chrome-part-three`.
-- [ ] `swiftlint --strict` clean from the repository root.
+      118 tests, 0 failures, TEST SUCCEEDED.
+- [x] `swiftlint --strict` clean from the repository root. 0 violations in
+      583 files.
