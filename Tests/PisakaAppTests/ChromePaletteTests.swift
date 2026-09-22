@@ -219,6 +219,19 @@ final class ChromePaletteTests: XCTestCase {
         }
     }
 
+    /// The spellings by which the inactive-selection role becomes a colour.
+    ///
+    /// The construct, not the name: a role-producing arm (the shape
+    /// `ProjectTreeView.role(for:)` uses) or the role handed to one of the two
+    /// lookups that turn a role into a colour. A file merely *naming* the role —
+    /// in prose, in a string, or in the role enum's own declaration — matches
+    /// none of these, which is the point.
+    private static let paintingSpellings = [
+        "return .selectionInactive",
+        "(.selectionInactive)",
+        "(.selectionInactive,",
+    ]
+
     /// The row's comment names a consumer, and that consumer exists.
     ///
     /// The comment on `ChromePalette`'s `selectionInactive` row says the wash
@@ -231,8 +244,20 @@ final class ChromePaletteTests: XCTestCase {
     /// rather than the bare comment, because the assertion keeps the comment true
     /// as the tree moves; the comment alone would rot in silence.
     ///
-    /// Read over the raw text on purpose: half of what is checked *is* a comment,
-    /// so the repository's comment-stripping scanners would delete the subject.
+    /// **The two halves ask different questions and need different inputs.** The
+    /// half that checks the palette's own comment reads the palette **raw**: what
+    /// it is about *is* a comment, so a stripping scanner would delete its
+    /// subject. The half that finds the painting site reads every other file
+    /// **comment- and literal-stripped**, the way every other gating suite in the
+    /// repository does, and keys on the **construct that makes the role a
+    /// colour** — a role-producing `return`, or the role handed to a `color`
+    /// call — rather than on the bare name. Keyed on the bare name over raw text,
+    /// as it first was, the named defect stayed green: delete
+    /// `case .selectedUnfocused: return .selectionInactive` from
+    /// `ProjectTreeView.swift` and any prose in that file still spelling the role
+    /// kept the file in the consumer set, so the wash was painted by nothing and
+    /// every assertion passed. Both changes are needed — the stripping alone
+    /// would still be satisfied by a live mention that paints nothing.
     func testTheInactiveSelectionRowNamesTheFileThatPaintsIt() throws {
         let sources = Self.repositoryRoot.appendingPathComponent("Sources")
         let palettePath = "Sources/Pisaka/ChromePalette.swift"
@@ -243,8 +268,11 @@ final class ChromePaletteTests: XCTestCase {
         for case let url as URL in enumerator where url.pathExtension == "swift" {
             let relative = Self.relativePath(of: url)
             guard relative != palettePath else { continue }
-            guard let text = try? String(contentsOf: url, encoding: .utf8) else { continue }
-            if text.contains(".selectionInactive") { consumers.insert(relative) }
+            guard let raw = try? String(contentsOf: url, encoding: .utf8) else { continue }
+            let text = SyntaxBaseForegroundGatingTests.strippingCommentsAndStringLiterals(raw)
+            if Self.paintingSpellings.contains(where: { text.contains($0) }) {
+                consumers.insert(relative)
+            }
         }
         XCTAssertFalse(
             consumers.isEmpty,

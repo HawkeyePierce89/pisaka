@@ -163,7 +163,20 @@ the new pair beside it. A second assertion,
 honest the only way a comment can be kept honest — it names a *file*, and the
 test checks that the file still paints the role and that the comment still names
 it. That is why the row's comment was rewritten from a symptom into a consumer:
-a symptom is unfalsifiable prose, a file name is an assertion. `conflictBackground` was checked against the same design while this
+a symptom is unfalsifiable prose, a file name is an assertion. Its **two halves
+read different text**, because they ask different questions: the half about the
+palette's own comment reads the palette **raw** (stripping would delete its
+subject), while the half that finds the painting site reads every other file
+**comment- and literal-stripped** and keys on the **construct that makes the role
+a colour** — a role-producing `return`, or the role handed to a `color` call —
+never on the bare name. Keyed on the bare name over raw text, as it first was, it
+could not see the defect it is named for: deleting
+`case .selectedUnfocused: return .selectionInactive` from `ProjectTreeView.swift`
+while any prose in that file still spelled the role left the wash painted by
+nothing and the suite green. Both changes are load-bearing — stripping alone
+would still be satisfied by a live mention that paints nothing — and the pair was
+checked by removing that one `case` under a surviving mention and watching the
+test go red. `conflictBackground` was checked against the same design while this
 row was being changed and was **already correct**
 (`dark: 0xC9A35C, light: 0xA67C2E, alpha: 0x26`), so it is untouched. No gating
 rule is added by any of this: `ChromeThemeSourceGatingTests`' rule count is

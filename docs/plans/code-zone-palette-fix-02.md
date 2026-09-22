@@ -160,16 +160,16 @@ nowhere and every assertion passes.
 This test was introduced by the previous fix round, and it is the second test on
 this branch to claim coverage its body does not have.
 
-- [ ] Make the painting half read comment- and literal-stripped text, the way
+- [x] Make the painting half read comment- and literal-stripped text, the way
       every other gating suite in the repository does, while keeping the raw read
       for the half that checks the palette's own comment — the two halves ask
       different questions and need different inputs. Say that in the doc comment.
-- [ ] Better, if it is expressible: key the painting half on the assignment
+- [x] Better, if it is expressible: key the painting half on the assignment
       construct rather than on the bare role name, so the test fails when the
       `case` goes even if the role is named elsewhere in that file.
-- [ ] Prove it: confirm the test goes red when that one `case` line is removed
+- [x] Prove it: confirm the test goes red when that one `case` line is removed
       while a mention of the role remains in the file, and record that check.
-- [ ] **Sweep for the shape, not the site.** The construct is *a source-scanning
+- [x] **Sweep for the shape, not the site.** The construct is *a source-scanning
       assertion that reads raw text where it needs stripped text*. Check every
       scanning test this branch added or touched, including
       `SyntaxBaseForegroundGatingTests`, for the same confusion.
