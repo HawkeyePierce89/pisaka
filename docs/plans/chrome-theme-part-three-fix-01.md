@@ -127,17 +127,19 @@ two render inside `panelContent(_:)`, and this same change paints the panel slot
 consumer, so the sweep's accounting is unchanged — what is wrong is the claim,
 and the next part reads it to learn which ground its surfaces sit on.
 
-- [ ] Correct all six sites to say what is true: `bgCanvas` is the window root's
+- [x] Correct all six sites to say what is true: `bgCanvas` is the window root's
       ground, visible behind the no-file-open placeholder; the dock's two empty
       states sit on the dock's own `bgPanel`, which the panel slot paints under
       them.
-- [ ] Say it once and cross-reference it, rather than restating a six-way claim
-      that has now been wrong once.
-- [ ] No test: this is prose about which ground a sentence sits on, and the only
-      mechanizable form would pin the sentence to itself. Say so in the plan
-      record rather than inventing a pin.
-- [ ] Run `swift test` (the documents are read by the gating suites' count
-      rules).
+- [x] Say it once and cross-reference it, rather than restating a six-way claim
+      that has now been wrong once. The canonical statement is `core-theme.md`'s
+      part-three window-ground entry; the other five sites name it and point
+      there.
+- [x] No test: this is prose about which ground a sentence sits on, and the only
+      mechanizable form would pin the sentence to itself. Said so in the
+      canonical entry itself, so a reader finds the reason where the claim is.
+- [x] Run `swift test` (the documents are read by the gating suites' count
+      rules). Green: 5728 tests, 0 failures; `swiftlint --strict` clean.
 
 ### Task 5: Two per-file entries went stale, and one document contradicts itself
 

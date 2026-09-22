@@ -408,11 +408,13 @@ struct ContentView: View {
             // no visible top edge.
             bottomBar
         }
-        // The window's ground. It shows through wherever no surface paints over
-        // it — the no-file-open placeholder and the root's own empty states —
-        // and it is the one value in the window that is *not* a panel strip,
-        // which is what `bgCanvas` means. The title bar above it is `bgPanel`
-        // for the opposite reason (`MainWindowChrome`).
+        // The window's ground: the one value in the window that is *not* a
+        // panel strip, which is what `bgCanvas` means. Where it is actually
+        // *seen* is the no-file-open placeholder alone — the dock's two empty
+        // states read as canvas but are drawn inside `panelContent(_:)`, which
+        // paints `bgPanel` directly under them. The title bar above it is
+        // `bgPanel` for the opposite reason (`MainWindowChrome`); the whole
+        // accounting is in `core-theme.md`'s part-three window-ground entry.
         .background(chromeColor(.bgCanvas))
         // The window's own minimum content size, both axes, stated *here* rather
         // than on `editorSplit` — and scaled, because at 200% the chrome it has

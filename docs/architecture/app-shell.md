@@ -1508,8 +1508,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
 
     **Why the ground is `bgPanel` while `ContentView`'s root paints
     `bgCanvas`.** The window's ground *is* the canvas, and that is where the
-    role earns its name: it shows through at the no-file-open placeholder and at
-    the root's own empty states. The title bar is not that surface — it is the
+    role earns its name: it is seen at the no-file-open placeholder, the dock's
+    own empty states sitting on `bgPanel` instead (`core-theme.md` carries the
+    accounting). The title bar is not that surface — it is the
     topmost of the window's panel *strips*, sitting directly above the tab strip
     and the sidebar header, both of which draw `bgPanel`. Painting it the canvas
     value would draw a band one step off the strips it touches.

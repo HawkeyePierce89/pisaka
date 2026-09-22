@@ -128,9 +128,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     rule there at all is a stated deviation from the design, which draws none:
     with the dock closed the editor's ground and the bar's are one value apart
     in the dark theme, so without it the bar would have no visible top edge. The
-    body's root paints `chromeColor(.bgCanvas)`, the window's own ground, which
-    shows through wherever nothing paints over it — the no-file-open placeholder
-    and the root's own empty states, all three of which read `textSecondary`.
+    body's root paints `chromeColor(.bgCanvas)`, the window's own ground, seen
+    at the no-file-open placeholder; the dock's two empty states read as canvas
+    but sit on the panel slot's own `bgPanel` (`core-theme.md`'s part-three
+    window-ground entry carries the accounting). All three sentences read
+    `textSecondary`.
     The colours are reached through a private `chromeColor(_:)`
     **role-to-colour function** resolving `settings.chromeTheme(systemPrefersDark:)`
     against `@Environment(\.colorScheme)`: a root cannot read the environment

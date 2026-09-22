@@ -412,7 +412,20 @@ gated set.
     ground is `bgPanel` while the content root paints `bgCanvas` on purpose: the
     title bar is the topmost of the window's panel *strips*, sitting directly on
     the tab strip and the sidebar header, and painting it the canvas value would
-    draw a band one step off the two surfaces it touches. It is a **sibling** of
+    draw a band one step off the two surfaces it touches. **Where `bgCanvas` is
+    actually seen is the no-file-open placeholder, and nowhere else**: the
+    dock's two empty-state sentences — "No problems" and the usages invitation —
+    read as canvas but are drawn inside `panelContent(_:)`, which this part
+    paints `bgPanel` directly under, each sentence filling that slot through
+    `.frame(maxWidth: .infinity, maxHeight: .infinity)`. The role still has its
+    consumer — the window root paints it — so the sweep's accounting is
+    unchanged; what it does not have is three places it shows through. This is
+    the **canonical** statement of the pair: `ContentView.swift`,
+    `MainWindowChrome.swift`, `app-window.md`, `app-shell.md` and the
+    placeholder-pane paragraph below each name it and point here, rather than
+    restating a claim that was wrong in five places at once. No test pins it:
+    it is prose about which ground a sentence sits on, and the only mechanizable
+    form would pin the sentence to itself. It is a **sibling** of
     `MainWindowFrameAutosave`, not a change to it — where the window sits and
     what colour it is are unrelated questions, and the frame marker's contract
     and its own gating suite are untouched. It is attached by *chaining* onto
@@ -513,8 +526,8 @@ by `ProjectTreeView` inside the sidebar's split slot, bounded by the same
 divider as the tree it replaces — and a pane whose ground changed with whether a
 folder happened to be open would read as a hole in the sidebar rather than as
 the window behind it. `bgCanvas` is spent regardless: the window root paints it,
-and it shows through at the no-file-open placeholder and the root's own empty
-states.
+and it is seen at the no-file-open placeholder (the part-three window-ground
+entry above carries where it is, and is not, seen).
 
 **Inherited work, deliberately left for the popovers' part.** The two switchers'
 popovers had their *colours* converted here, mechanically (`.secondary` →

@@ -11,9 +11,11 @@
 //  explanation of why the framework's machinery is bypassed.
 //
 //  **Why the title bar is `bgPanel` while the content root paints `bgCanvas`.**
-//  The window's ground *is* the canvas: it shows through at the no-file-open
-//  placeholder and at the root's own empty states, which is where the role
-//  earns its name. The title bar is not that surface — it is the topmost of the
+//  The window's ground *is* the canvas, and it is seen at the no-file-open
+//  placeholder, which is where the role earns its name; the dock's own empty
+//  states read as canvas but sit on `bgPanel`, which the panel slot paints
+//  under them (`core-theme.md`'s part-three window-ground entry carries the
+//  accounting). The title bar is not that surface — it is the topmost of the
 //  window's panel strips, and it sits directly above the tab strip and the
 //  sidebar header, both of which draw `bgPanel`. Painting it the canvas value
 //  would draw a band one step off the strips it touches; painting it `bgPanel`
