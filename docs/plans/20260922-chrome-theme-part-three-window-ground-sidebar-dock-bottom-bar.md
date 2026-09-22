@@ -359,14 +359,14 @@ as required.
 
 ### Task 7: Verify acceptance criteria
 
-- [ ] `swift test` green.
-- [ ] app-layer bundle green on a macOS destination, with derived data under
+- [x] `swift test` green.
+- [x] app-layer bundle green on a macOS destination, with derived data under
       `~/Library/Developer/Xcode/DerivedData/pisaka-chrome-part-three`.
-- [ ] `swiftlint --strict` clean from the repository root.
-- [ ] confirm by search that no file among the swept set names a platform semantic
+- [x] `swiftlint --strict` clean from the repository root.
+- [x] confirm by search that no file among the swept set names a platform semantic
       colour or a hex literal (the gating suite's own rules, re-read as an
       acceptance check).
-- [ ] confirm `bgCanvas` and `statusGreen` each have a call site.
+- [x] confirm `bgCanvas` and `statusGreen` each have a call site.
 
 ## Post-Completion (manual verification)
 
