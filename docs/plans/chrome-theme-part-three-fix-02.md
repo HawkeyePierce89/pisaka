@@ -92,9 +92,9 @@ round just removed, or trusting a gate that does not exist.
 
 ### Task 3: Gates
 
-- [ ] `swift test` green.
-- [ ] The app-layer bundle green on a macOS destination, derived data under
+- [x] `swift test` green.
+- [x] The app-layer bundle green on a macOS destination, derived data under
       `~/Library/Developer/Xcode/DerivedData/pisaka-chrome-part-three`.
-- [ ] `swiftlint --strict` clean from the repository root.
-- [ ] Confirm the gating suite's rule count still agrees with `core-theme.md`'s
+- [x] `swiftlint --strict` clean from the repository root.
+- [x] Confirm the gating suite's rule count still agrees with `core-theme.md`'s
       canonical list and `CLAUDE.md`'s invariant sentence.
