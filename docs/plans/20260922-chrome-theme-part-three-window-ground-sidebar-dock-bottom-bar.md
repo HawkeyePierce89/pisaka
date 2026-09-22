@@ -219,27 +219,27 @@ as required.
 - Modify: `Sources/Pisaka/ProjectTreeView.swift`
 - Modify: `docs/architecture/app-window.md`
 
-- [ ] paint both branches of the body — the tree and the open-a-folder placeholder
+- [x] paint both branches of the body — the tree and the open-a-folder placeholder
       pane — with `theme.color(.bgPanel)` from the environment the file already
       reads (decision 10).
-- [ ] rebuild `header`: a `.frame(height:)` of `ChromeGeometry.sidebarHeaderHeight`
+- [x] rebuild `header`: a `.frame(height:)` of `ChromeGeometry.sidebarHeaderHeight`
       and a `.padding(.horizontal,)` of `ChromeGeometry.barPaddingX`, both scaled
       at the use site; a leading project label — the open folder's name uppercased,
       `textSecondary`, `metrics.scaledFont(.subheadline, weight: .semibold)`,
       `.tracking(metrics.scaled(0.5))`; a `Spacer()`; the Refresh button at the
       trailing end, its icon `textSecondary` at `.body`, its tooltip unchanged.
-- [ ] replace the header's `Divider()` with a one-point `hairline` rectangle drawn
+- [x] replace the header's `Divider()` with a one-point `hairline` rectangle drawn
       by the header itself along its bottom edge, so the rule agrees with the
       hairlines beside it in either appearance (part two's precedent).
-- [ ] record in the file's own comment that the Refresh button is a deliberate
+- [x] record in the file's own comment that the Refresh button is a deliberate
       deviation: the design draws the label alone, and a working control is not
       removed by a restyle; and that the placeholder pane draws the sidebar's
       ground (decision 10).
-- [ ] `ProjectTreeView.swift` is already gated, so the existing rules cover it; no
+- [x] `ProjectTreeView.swift` is already gated, so the existing rules cover it; no
       `gatedFiles` change.
-- [ ] update the `ProjectTreeView.swift` entry in `app-window.md` with the host's
+- [x] update the `ProjectTreeView.swift` entry in `app-window.md` with the host's
       ground and the header's contract.
-- [ ] run `swift test` and the app-layer bundle — must pass before task 4.
+- [x] run `swift test` and the app-layer bundle — must pass before task 4.
 
 ### Task 4: The window root — the dock, both dividers and the bottom bar
 

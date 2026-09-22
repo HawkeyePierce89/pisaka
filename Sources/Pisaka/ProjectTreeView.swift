@@ -88,8 +88,11 @@ struct ProjectTreeView: View {
         Group {
             if let root = model.projectRoot {
                 VStack(spacing: 0) {
+                    // The header draws its own bottom rule, so no `Divider()`
+                    // sits between it and the tree: a `Divider()` is painted in
+                    // the system's separator value, which disagrees with the
+                    // `hairline` role beside it in either appearance.
                     header
-                    Divider()
                     tree(root: root)
                 }
             } else {
@@ -106,13 +109,38 @@ struct ProjectTreeView: View {
                 .onTapGesture(perform: onOpenFolder)
             }
         }
+        // Both branches draw the **sidebar's** ground, not the window's.
+        //
+        // The open-a-folder placeholder is not a hole showing the window
+        // behind it: it stands inside the same split slot as the tree it
+        // replaces, and a pane whose ground changed depending on whether a
+        // folder happened to be open would read as a gap in the sidebar. It
+        // therefore takes `bgPanel` like the tree.
+        .background(theme.color(.bgPanel))
     }
 
     /// Shown only when a folder is open (the placeholder pane keeps no header so
-    /// its whole area stays the open-folder click target). Modeled on the
-    /// `LocalChangesView` header.
+    /// its whole area stays the open-folder click target).
+    ///
+    /// A fixed `sidebarHeaderHeight` strip, inset by `barPaddingX` — the one
+    /// measurement the bottom bar also draws — carrying the open folder's name
+    /// uppercased at the leading end and the Refresh button at the trailing one,
+    /// with its own one-point `hairline` along the bottom edge.
+    ///
+    /// **The Refresh button is a deliberate deviation from the design**, which
+    /// draws the project label alone: a restyle does not remove a working
+    /// control, and this button is the tree's only manual re-read path (the
+    /// watcher covers everything else, but not a buffer overflow or a network
+    /// volume).
     private var header: some View {
         HStack(spacing: metrics.scaled(8)) {
+            Text(model.projectRoot?.lastPathComponent.uppercased() ?? "")
+                .font(metrics.scaledFont(.subheadline, weight: .semibold))
+                .tracking(metrics.scaled(0.5))
+                .foregroundStyle(theme.color(.textSecondary))
+                .lineLimit(1)
+                .truncationMode(.middle)
+
             Spacer()
 
             Button {
@@ -122,12 +150,18 @@ struct ProjectTreeView: View {
             } label: {
                 Image(systemName: "arrow.clockwise")
                     .font(metrics.scaledFont(.body))
+                    .foregroundStyle(theme.color(.textSecondary))
             }
             .buttonStyle(.borderless)
             .help("Refresh project tree")
         }
-        .padding(.horizontal, metrics.scaled(8))
-        .padding(.vertical, metrics.scaled(6))
+        .padding(.horizontal, metrics.scaled(ChromeGeometry.barPaddingX))
+        .frame(height: metrics.scaled(ChromeGeometry.sidebarHeaderHeight))
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(theme.color(.hairline))
+                .frame(height: metrics.scaled(ChromeGeometry.hairlineWidth))
+        }
     }
 
     private func tree(root: URL) -> some View {

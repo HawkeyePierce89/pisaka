@@ -940,6 +940,28 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     is never an editor tab — and a file row passes `isDropTarget: false`, a file
     not being a drop destination. The empty-state hint and both icon columns take
     `textSecondary`.
+
+    Part three adds the surface *around* those rows. **The host** — both
+    branches of the body, the tree and the open-a-folder placeholder alike —
+    draws `bgPanel`. The placeholder is deliberately *not* the window's
+    `bgCanvas` showing through: it stands inside the same split slot as the tree
+    it replaces, bounded by the same divider, and a pane whose ground changed
+    with whether a folder happened to be open would read as a hole in the
+    sidebar rather than as the window behind it. **The header** is a fixed strip
+    of `ChromeGeometry.sidebarHeaderHeight` (32) inset by
+    `ChromeGeometry.barPaddingX` (12) — the same inset the bottom bar draws, and
+    deliberately not `rowPaddingX` (8), which is a row's padding inside its own
+    highlight — both scaled at the use site. It carries the open folder's name,
+    uppercased, in `textSecondary` at `.subheadline`/`.semibold` with
+    `metrics.scaled(0.5)` of tracking at the leading end; a `Spacer()`; and the
+    Refresh button at the trailing end, its icon `textSecondary` at `.body` and
+    its tooltip unchanged. The header draws its **own** one-point `hairline`
+    rectangle along its bottom edge and the `Divider()` that used to sit between
+    it and the tree is gone — part two's precedent: a `Divider()` is painted in
+    the system's separator value, which disagrees with the `hairline` role beside
+    it in either appearance. The Refresh button is a **deliberate deviation**:
+    the design draws the project label alone, but a restyle does not remove a
+    working control, and this is the tree's one manual re-read path.
   - `ProjectTreeDraftField.swift` — the AppKit-backed `NSTextField` behind
     the tree's inline naming, in five types: `TreeEditDraft` (what is being
     named), `TreeNameFieldView` (the row-shaped draft: icon column, field,
