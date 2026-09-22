@@ -183,9 +183,12 @@ and the next part reads it to learn which ground its surfaces sit on.
 
 ### Task 6: Gates
 
-- [ ] `swift test` green.
-- [ ] The app-layer bundle green on a macOS destination, derived data under
-      `~/Library/Developer/Xcode/DerivedData/pisaka-chrome-part-three`.
-- [ ] `swiftlint --strict` clean from the repository root.
-- [ ] Confirm the gating suite's rule count still agrees with `core-theme.md`'s
-      canonical list and `CLAUDE.md`'s invariant sentence.
+- [x] `swift test` green: 5728 tests, 0 failures.
+- [x] The app-layer bundle green on a macOS destination, derived data under
+      `~/Library/Developer/Xcode/DerivedData/pisaka-chrome-part-three`: 118
+      tests, 0 failures, `** TEST SUCCEEDED **`.
+- [x] `swiftlint --strict` clean from the repository root: 0 violations in 583 files.
+- [x] Confirm the gating suite's rule count still agrees with `core-theme.md`'s
+      canonical list and `CLAUDE.md`'s invariant sentence: ten rule markers, and
+      `testBothSummariesSpellTheSuitesOwnRuleCount` /
+      `testTheCanonicalListEnumeratesEveryRule` both green.
