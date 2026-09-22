@@ -154,6 +154,13 @@ struct ProjectTreeView: View {
             }
             .buttonStyle(.borderless)
             .help("Refresh project tree")
+            // A tooltip is not a name. This button's whole label is an
+            // `Image(systemName:)`, and a `Button` combines its children, so
+            // without an explicit label it announces the *symbol* — "arrow
+            // clockwise" — which is not the command. The same sentence the
+            // bottom bar's icon-only toggles carry, which is why both now
+            // spell both.
+            .accessibilityLabel("Refresh project tree")
         }
         .padding(.horizontal, metrics.scaled(ChromeGeometry.barPaddingX))
         .frame(height: metrics.scaled(ChromeGeometry.sidebarHeaderHeight))

@@ -61,11 +61,11 @@ Never pass a derived-data path inside the repository.
 
 **File:** `Sources/Pisaka/ProjectTreeView.swift`
 
-- [ ] Give the button an explicit accessibility label naming the command, so it
+- [x] Give the button an explicit accessibility label naming the command, so it
       is not announced by its glyph. Keep the tooltip as it is.
-- [ ] Record in one short comment that a tooltip is not a name — the same
+- [x] Record in one short comment that a tooltip is not a name — the same
       sentence the bottom bar's toggles carry, which is why both now spell both.
-- [ ] Sweep the construct in this file: any other control here whose whole label
+- [x] Sweep the construct in this file: any other control here whose whole label
       is an `Image(systemName:)` gets the same treatment in this commit, and if
       there is none, say so in the task's own commit message rather than
       leaving it unasked.
