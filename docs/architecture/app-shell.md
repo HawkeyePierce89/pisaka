@@ -1537,10 +1537,17 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     rule pins `titlebarAppearsTransparent` to this file by set equality in both
     directions: it is a property of the *window*, so two setters would compete
     silently, and a removed one hands the strip back to the framework's
-    material. `MainWindowChromeTests` (app bundle) drives a real `NSWindow`
-    through `apply(to:)` and asserts both properties in both appearances, plus
-    that the marker view is hit-test transparent and not an accessibility
-    element.
+    material. `MainWindowChromeTests` (app bundle) asserts both properties on a
+    real `NSWindow` — the ground in both appearances, which is what a frozen,
+    once-resolved colour would fail — twice over: through `apply(to:)`, and
+    again through the path the app actually takes, a marker added to the
+    window's content view with nobody calling the method. It also asserts the
+    marker is hit-test transparent. Its *other* rule, the
+    `setAccessibilityElement(false)` in the initialiser, is deliberately **not**
+    pinned: a plain `NSView` already answers `false`, so an assertion on it
+    would pass with the line deleted. The line stays because it states the
+    intent beside the hit-test override, and the suite says in its own comment
+    that it cannot pin it.
   - `SoftwareUpdater.swift` — the app's **entire** Sparkle 2 surface, wholly
     inside `#if os(macOS)`: a small `ObservableObject` owning one
     `SPUStandardUpdaterController`, plus `CheckForUpdatesCommand`, the one-button

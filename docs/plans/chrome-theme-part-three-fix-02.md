@@ -77,18 +77,18 @@ file, so a reader of the marker's initialiser is told a gate protects a line no
 gate protects. The realistic damage is re-adding the tautological assertion the
 round just removed, or trusting a gate that does not exist.
 
-- [ ] Correct the sentence: the suite drives a real window through the
+- [x] Correct the sentence: the suite drives a real window through the
       attachment path and asserts the title bar and the ground in both
       appearances plus hit-test transparency; the `setAccessibilityElement(false)`
       line is deliberately **not** pinned, and why.
-- [ ] **Sweep for the construct**: check every other document sentence that
+- [x] **Sweep for the construct**: check every other document sentence that
       credits a suite of this branch — `MainWindowChromeTests`,
       `ChromeThemeSourceGatingTests`' new rules, `ChromeThemeTests`' token set —
       with what it asserts, and correct any other claim the suites do not
       actually make. One wrong claim of this shape was written by the round that
       was fixing wrong claims; the question is whether it was the only one.
-- [ ] No new test, for task 1's reason.
-- [ ] Run `swift test`.
+- [x] No new test, for task 1's reason.
+- [x] Run `swift test`.
 
 ### Task 3: Gates
 

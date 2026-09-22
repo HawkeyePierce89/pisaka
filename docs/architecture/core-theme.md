@@ -517,7 +517,10 @@ its children — part one measured the same mechanism on a tree row
 `Image(systemName:)` both switchers draw, the two new carets included, carries
 `.accessibilityHidden(true)` in `ProjectTreeView`'s idiom, leaving each button
 named by its label alone. The third widget needs none: it states an explicit
-`.accessibilityLabel` and `.accessibilityValue`. Rule ten pins all three.
+`.accessibilityLabel` and `.accessibilityValue`. Rule ten pins all three, by
+two readings rather than one: the two switchers by counting their hidden symbols
+against the symbols they draw, the third by the presence of that explicit label —
+the value beside it is the widget's own decision and nothing asserts it.
 
 **The placeholder pane's ground is a stated divergence.** The open-a-folder pane
 draws `bgPanel`, not the window's `bgCanvas`. It reads as one of the places the
@@ -685,7 +688,12 @@ The ten rules, each invisible to the compiler:
    by whichever marker reached the window first. The other direction matters
    just as much: the transparency is what reveals the window's background
    colour, so a *removed* setter hands the strip back to the framework's own
-   material.
+   material. The rule has a **second half**, because a unique setter says
+   nothing about whether anything ever reaches the window: `MainWindowChrome(`
+   is pinned to `PisakaApp.swift` at exactly one occurrence, the scene's own
+   attachment, alongside the frame marker sharing that line — delete the
+   attachment and every other rule here stays green while the shipped window
+   keeps its platform title bar.
 10. **Every bottom-bar control is identifiable without sight.** Inside
    `ContentView.swift`, the brace-matched bodies of `bottomBarButton(` and
    `completionToggleButton` each spell `.help(` and `.accessibilityLabel(`, and
