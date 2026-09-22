@@ -23,6 +23,12 @@ import Foundation
 ///    `.callout` 12 and `.subheadline` 11, exactly the three sizes the chrome
 ///    draws with — reached through `InterfaceMetrics.font(_:)`. A second table
 ///    of those numbers would be a second opinion about them.
+///
+/// The inventory below is the whole table, and it is pinned by set equality in
+/// `ChromeThemeTests` — a token added here without its test fails the suite.
+/// Two of them are insets rather than sizes (`rowPaddingX`, `barPaddingX`) and
+/// they are deliberately distinct values for distinct measurements; see
+/// `barPaddingX`'s own comment.
 public enum ChromeGeometry {
     /// A tree or list row's total height, hover highlight included.
     public static let rowHeight: Double = 24
@@ -41,8 +47,16 @@ public enum ChromeGeometry {
     public static let verticalTabRowHeight: Double = 28
     /// One tab's height in the bottom dock's tab bar.
     public static let dockTabRowHeight: Double = 28
+    /// The project sidebar's header strip height.
+    public static let sidebarHeaderHeight: Double = 32
     /// The window's bottom bar height.
     public static let bottomBarHeight: Double = 28
+    /// The horizontal inset of a header or a bar — one measurement, drawn on the
+    /// sidebar header and on the bottom bar. Deliberately *not* `rowPaddingX`
+    /// (8), which is a row's padding inside its own highlight: a strip's inset
+    /// from the window edge and a row's inset from its highlight are two
+    /// measurements that happen to be small, not one measurement used twice.
+    public static let barPaddingX: Double = 12
     /// The breadcrumb strip's height, above the editor.
     public static let breadcrumbHeight: Double = 24
     /// The side of a square toggle button in the bottom bar.

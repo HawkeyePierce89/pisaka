@@ -152,18 +152,18 @@ as required.
 - Modify: `Sources/PisakaCore/ChromeGeometry.swift`
 - Modify: `Tests/PisakaCoreTests/ChromeThemeTests.swift`
 
-- [ ] add `sidebarHeaderHeight: Double = 32` — the project sidebar's header strip.
-- [ ] add `barPaddingX: Double = 12` — the horizontal inset of a header or bar,
+- [x] add `sidebarHeaderHeight: Double = 32` — the project sidebar's header strip.
+- [x] add `barPaddingX: Double = 12` — the horizontal inset of a header or bar,
       documented as one measurement drawn on the sidebar header and the bottom bar,
       and explicitly *not* `rowPaddingX` (8), which is a row's padding inside its
       highlight.
-- [ ] update the file's doc comment so the token inventory it recites stays true.
-- [ ] extend `testGeometryTokensCarryTheirTableValues` with both values.
-- [ ] extend `testGeometryDeclaresExactlyTheseTokensAndNoFontSize`'s set-equality
+- [x] update the file's doc comment so the token inventory it recites stays true.
+- [x] extend `testGeometryTokensCarryTheirTableValues` with both values.
+- [x] extend `testGeometryDeclaresExactlyTheseTokensAndNoFontSize`'s set-equality
       list with both names.
-- [ ] update `core-theme.md`'s `ChromeGeometry.swift` entry, which recites the
+- [x] update `core-theme.md`'s `ChromeGeometry.swift` entry, which recites the
       token inventory in prose.
-- [ ] run `swift test` — must pass before task 2.
+- [x] run `swift test` — must pass before task 2.
 
 ### Task 2: The window's ground and its title bar
 

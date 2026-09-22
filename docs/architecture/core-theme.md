@@ -73,8 +73,14 @@ adds no write of any kind. Its only persisted input is the existing
     change as much as a code change.
   - `ChromeGeometry.swift` — the chrome's measurements as unscaled point values:
     row height and horizontal padding, the tree's indent step, the maximum
-    corner radius, the hairline width, four row/strip/bar heights, the bottom
-    bar toggle's side and radius, and the accent indicator's thickness. Two
+    corner radius, the hairline width, five row/strip/bar heights (the tab
+    strip, the vertical tab row, the dock tab row, the **sidebar header** and the
+    bottom bar), the **header-or-bar horizontal inset**, the breadcrumb height,
+    the bottom bar toggle's side and radius, and the accent indicator's
+    thickness. The two insets are deliberately two values: `rowPaddingX` (8) is a
+    row's padding *inside its own highlight*, `barPaddingX` (12) is a strip's
+    inset *from the window edge* — one measurement drawn on the sidebar header
+    and on the bottom bar, not a second spelling of the first. Two
     rules, both load-bearing. **Every token is scaled at its use site**, through
     `InterfaceMetrics.scaled(_:)`: nothing here is pre-scaled and no view
     multiplies a token by anything of its own, because the interface zoom's
