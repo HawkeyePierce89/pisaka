@@ -117,19 +117,21 @@ final class MainWindowChromeTests: XCTestCase {
     }
 
     /// The marker is a marker: it must not take a click meant for the content
-    /// below it, and it must not appear to assistive technology as an element of
-    /// its own. `MainWindowFrameAutosave`'s two rules, and it is in that file's
-    /// mould deliberately.
+    /// below it. `MainWindowFrameAutosave`'s own rule, and this file is in that
+    /// file's mould deliberately.
+    ///
+    /// Its second rule — the `setAccessibilityElement(false)` in the
+    /// initialiser — is **not** asserted here, and deliberately so: a plain
+    /// `NSView` already answers `false`, so an assertion on it passes with the
+    /// line deleted. The line stays in the source because it states the intent
+    /// beside the hit-test override, but this suite cannot pin it and does not
+    /// pretend to.
     func testTheMarkerIsTransparentToTheUser() {
         let view = MainWindowChromeView()
         view.frame = NSRect(x: 0, y: 0, width: 100, height: 100)
         XCTAssertNil(
             view.hitTest(NSPoint(x: 50, y: 50)),
             "a marker that takes a click swallows one meant for the window's content"
-        )
-        XCTAssertFalse(
-            view.isAccessibilityElement(),
-            "a non-drawing marker announces nothing"
         )
     }
 }

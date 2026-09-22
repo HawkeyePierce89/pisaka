@@ -104,13 +104,13 @@ cannot fail — a plain `NSView` already answers `false`, so deleting
 assertion green and the stated rule unguarded. The repository's own review
 standard names a tautological test as a defect worth reporting.
 
-- [ ] Remove the assertion rather than dress it up, and say in the test's
+- [x] Remove the assertion rather than dress it up, and say in the test's
       comment what was learned: AppKit's default already answers `false`, so the
       initialiser's line is belt-and-braces and this suite cannot pin it. The
       `hitTest` half of the same test is real and stays exactly as it is.
-- [ ] Leave `setAccessibilityElement(false)` in the source — it mirrors the
+- [x] Leave `setAccessibilityElement(false)` in the source — it mirrors the
       frame marker's own idiom — but do not claim a test covers it.
-- [ ] Run the app-layer bundle.
+- [x] Run the app-layer bundle.
 
 ### Task 4: The canvas sentence is false for two of the three surfaces it names
 
