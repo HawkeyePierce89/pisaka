@@ -84,7 +84,7 @@ Never pass a derived-data path inside the repository.
 (and `app-git-views.md` if its branch-switcher entry states the row's
 announcement)
 
-- [ ] Record the correction in the part-three entry: the widgets hide their
+- [x] Record the correction in the part-three entry: the widgets hide their
       decorative symbols, and the two rows that encoded state in a glyph now
       speak it — with one sentence on why the counting rule alone was not
       enough, so the next part reusing this idiom does not repeat it.

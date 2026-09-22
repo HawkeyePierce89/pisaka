@@ -522,6 +522,25 @@ two readings rather than one: the two switchers by counting their hidden symbols
 against the symbols they draw, the third by the presence of that explicit label —
 the value beside it is the widget's own decision and nothing asserts it.
 
+**Hiding a glyph is a debt when the glyph was the state.** Two of the symbols
+the sweep silenced were not decoration: `ProjectSwitcherView`'s popover row
+draws `row.isCurrent ? "checkmark" : "folder"` and `BranchSwitcherView`'s local
+row a `checkmark` for the checked-out branch, and the only other carrier of that
+state is the `accent` on the row's text, which is no more readable without sight
+than the glyph that was hidden. So both rows now **speak** it, as an
+accessibility *value* ("Current project" / "Current branch") on the combined
+element the `Button` makes — the row's name stays its label, only the state is
+added — and the comment beside each hidden symbol says it is hidden *because the
+state it showed is now spoken*, not because it is decoration. The remote-branch
+row needs nothing and says so in a comment: its glyph does not vary with
+`isCurrent`, so it carries no state to owe back. The rule the sweep reads is the
+construct, not these two sites: **a symbol in these files whose name or colour is
+chosen by a condition is state**, and every such state needs a spoken carrier; a
+symbol that is the same in every state is decoration and stays hidden and
+silent. Rule ten gained the matching second half, and the reason it needed one is
+that counting alone went green on the change that removed the information —
+the count cannot tell a checkmark from a folder, and does not pretend to.
+
 **The placeholder pane's ground is a stated divergence.** The open-a-folder pane
 draws `bgPanel`, not the window's `bgCanvas`. It reads as one of the places the
 window ground shows through, but it is in fact the sidebar's own surface — drawn
@@ -716,7 +735,17 @@ The ten rules, each invisible to the compiler:
    draw, asserted by counting `Image(systemName:` against
    `.accessibilityHidden(true)` in each file, with
    `PullRequestIndicatorView.swift` the stated exception because it names itself
-   outright with an explicit `.accessibilityLabel(`.
+   outright with an explicit `.accessibilityLabel(`. That count has a **second
+   half**, because it went green on the change that broke the thing it exists
+   for: two of the hidden symbols were the row's *state* (the current project's
+   and the checked-out branch's checkmark), and hiding those satisfies the count
+   while leaving every row announcing the same words. So each of the two files
+   must additionally spell an `.accessibilityValue(` — the carrier a hidden glyph
+   owes back. What the rule does **not** see is stated with it: it cannot tell
+   which symbol encoded state, so a value on some other row would satisfy it; it
+   pins the shape of the regression, and the rest is the reviewer's, under the
+   sweep's own sentence — a symbol whose name or colour varies with a value is
+   state.
 
 Plus a **self-check** in the suite's own idiom: every gated file must actually
 *name* a `ChromeColorRole`, or the checks above have gone vacuous — with one

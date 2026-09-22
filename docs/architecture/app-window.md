@@ -564,7 +564,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     The popover's colours are roles too — `accent` for the current row's glyph
     and name, `textSecondary` for the section header, the path line and the empty
     state, `textPrimary` for a non-current row's name — because gating rule one
-    is per *file* and this file obeys it whole. The popover's `Divider()` calls
+    is per *file* and this file obeys it whole. Every symbol the file draws is
+    `.accessibilityHidden(true)` (a `Button` combines its children), and the
+    popover row's is hidden with a **debt paid**: its glyph is
+    `row.isCurrent ? "checkmark" : "folder"`, so the row states
+    `.accessibilityValue("Current project")` for the project that is open —
+    hiding the glyph without that left the current row announcing exactly what
+    every other row announced, since the `accent` beside it is no more readable
+    without sight (`core-theme.md`, rule ten's second half). The popover's `Divider()` calls
     deliberately **stay**: a divider names no colour, so no rule can see it, and
     its ground is still the platform's material, on which a `hairline` rule would
     be the mismatch rather than the cure. That deferral is recorded as inherited

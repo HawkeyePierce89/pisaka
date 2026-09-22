@@ -107,7 +107,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     the bar's gaps and height are the measurements actually drawn; and both
     decorative symbols carry `.accessibilityHidden(true)`, since a `Button`
     combines its children and would otherwise name itself after its glyphs
-    (`core-theme.md`'s rule ten). `app-window.md`'s part-three paragraph is the
+    (`core-theme.md`'s rule ten). The popover's **local** row hides a glyph that
+    was not decoration — the `checkmark` marking the checked-out branch — so it
+    speaks that state instead, as `.accessibilityValue("Current branch")` on the
+    row; the row's name stays its label. A remote row needs none and says so in a
+    comment: its glyph does not vary with `isCurrent`, so it carries no state to
+    speak. Hiding every symbol satisfied the counting rule while making the two
+    lists unreadable without sight, which is why that rule gained a second half
+    (`core-theme.md`). `app-window.md`'s part-three paragraph is the
     record for the bar as a whole; the behaviour below is unchanged by it. The
     popover's own `Divider()` rules are inherited work left for the part that
     sweeps the popovers' ground (`core-theme.md`). A remote-branch row is a two-item `Menu` — "Checkout" (git DWIM via
