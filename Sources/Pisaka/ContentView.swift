@@ -370,6 +370,28 @@ struct ContentView: View {
     /// `SettingsStore.interfaceMetrics`); every view below reads the environment.
     private var metrics: InterfaceMetrics { settings.interfaceMetrics }
 
+    /// The system's appearance, read for the one case that needs it:
+    /// `ThemePreference.system` carries none of its own. Under the two forced
+    /// preferences the answer is resolved without consulting this at all, so
+    /// whatever it reports there cannot change the result — `ChromeThemed`'s own
+    /// reasoning, spent here for the same reason.
+    @Environment(\.colorScheme) private var colorScheme
+
+    /// This view's chrome colours, as a **role-to-colour function**.
+    ///
+    /// The first consumer of `SettingsStore.chromeTheme(systemPrefersDark:)`.
+    /// A root cannot read the environment value it writes — `.chromeThemed(self)`
+    /// reaches descendants, not the view that applied it — so the window root
+    /// resolves the theme from the same store the modifier reads.
+    ///
+    /// Exposed as a function rather than as a stored `ChromeTheme` so this file
+    /// never names the type: gating rule five holds the theme's *name* to two
+    /// files, and part one's `TreeRowBackground.color(for:resolving:)` already
+    /// established the shape a view uses when it has to carry the theme around.
+    private func chromeColor(_ role: ChromeColorRole) -> Color {
+        settings.chromeTheme(systemPrefersDark: colorScheme == .dark).color(role)
+    }
+
     var body: some View {
         // The editor (or editor-over-panel split) fills the window above an
         // always-visible bottom bar of Terminal/Git/Changes/Problems toggle
@@ -380,6 +402,12 @@ struct ContentView: View {
             Divider()
             bottomBar
         }
+        // The window's ground. It shows through wherever no surface paints over
+        // it — the no-file-open placeholder and the root's own empty states —
+        // and it is the one value in the window that is *not* a panel strip,
+        // which is what `bgCanvas` means. The title bar above it is `bgPanel`
+        // for the opposite reason (`MainWindowChrome`).
+        .background(chromeColor(.bgCanvas))
         // The window's own minimum content size, both axes, stated *here* rather
         // than on `editorSplit` — and scaled, because at 200% the chrome it has
         // to hold is twice the size. On the split either floor reached the window

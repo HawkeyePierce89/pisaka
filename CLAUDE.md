@@ -735,12 +735,13 @@ ci.yml's `lint` job, and the version-bump procedure.
   live in both directions when the system appearance changed under it. A
   reader: it takes no writer gate, is gated by none and writes nothing.
   `ChromeThemeSourceGatingTests` pins which files obey the rule (eleven, by set
-  equality) and its eight rules — no system semantic colour, no hex literal
+  equality) and its nine rules — no system semantic colour, no hex literal
   outside the table, the three exemptions stay exemptions, the theme injected at
   the scale's roots, no view constructing a theme, the gutter's fill still going
   through its own rule (a seam pins nothing its call site does not spend, and
   that call site was this sweep's one regression), no geometry token derived by
-  arithmetic, and the tab icon rule spelled once — plus, beside the rules rather
+  arithmetic, the tab icon rule spelled once, and the window's chrome configured
+  in one file — plus, beside the rules rather
   than among them, the cross-file count that keeps this sentence and
   `core-theme.md`'s own list equal to the number of rules the suite declares —
   while **three files are exempt because they are not

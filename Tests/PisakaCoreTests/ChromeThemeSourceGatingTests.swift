@@ -52,6 +52,9 @@ import XCTest
 /// - **The tab icon rule is spelled once.** The untitled-buffer fallback was
 ///   pasted into both orientations; two spellings of one rule drift, and each
 ///   copy also buys itself a line exempt from the first rule above.
+/// - **The window's chrome is configured in one file.** A transparent title bar
+///   is a property of the *window*, so two markers setting it would compete for
+///   it silently — the ground decided by whichever reached the window first.
 final class ChromeThemeSourceGatingTests: XCTestCase {
 
     // MARK: - The gated set
@@ -80,6 +83,8 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         "BreadcrumbBarView.swift",
         "MinimapView.swift",
         "LSPConsentBanner.swift",
+        // Part three: the window's own chrome.
+        "MainWindowChrome.swift",
     ]
 
     func testEveryGatedFileExists() throws {
@@ -482,6 +487,32 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         )
     }
 
+    // MARK: - Rule nine: the window's chrome is configured in one file
+
+    /// The one file allowed to make a window's title bar transparent.
+    ///
+    /// `titlebarAppearsTransparent` is a property of the window, not of a view
+    /// tree: whoever sets it last wins, and nothing in the compiler — or in any
+    /// other gate here — can see two setters. A second one would not fail; it
+    /// would simply decide the title bar's ground on some launches and not
+    /// others, depending on which marker reached the window first. Pinned by set
+    /// equality in both directions, so a *removed* setter is a failure too: the
+    /// window's ground is the colour the transparency exists to reveal, and
+    /// without it the framework's own material covers it.
+    func testOnlyTheWindowChromeMakesATitleBarTransparent() throws {
+        var setters: Set<String> = []
+        for url in try Self.swiftSources() {
+            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            if LSPSourceGatingTests.containsToken("titlebarAppearsTransparent", in: code) {
+                setters.insert(url.lastPathComponent)
+            }
+        }
+        XCTAssertEqual(
+            setters, ["MainWindowChrome.swift"],
+            "the main window's chrome is configured in one file — a second setter competes with it"
+        )
+    }
+
     // MARK: - Self-check
 
     /// Every gated file draws with roles and must therefore name one — with a
@@ -513,7 +544,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// The numbered rules above, counted from their own markers, and the two
     /// documents that summarise them.
     ///
-    /// This is bookkeeping rather than a ninth rule: it gates no source file. It
+    /// This is bookkeeping rather than a rule of its own: it gates no source file. It
     /// exists because the rules above are the kind of thing a reader learns
     /// about from a summary and not from the suite, and both summaries have
     /// already drifted once — `core-theme.md`'s canonical list named five of

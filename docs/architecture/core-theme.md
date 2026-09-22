@@ -438,7 +438,7 @@ although it is an editing affordance rather than a row: an inline draft
 for. `TabStripView.swift` covers `TabStatusMark` too, the slot view the two
 orientations share, which is why that extraction did not add a seventh file.
 
-The eight rules, each invisible to the compiler:
+The nine rules, each invisible to the compiler:
 
 1. **No gated view names a system semantic colour.** A closed forbidden-token
    list — AppKit's semantic set (`labelColor`, `separatorColor`,
@@ -504,6 +504,15 @@ The eight rules, each invisible to the compiler:
    files carrying such a line are themselves a counted set of three
    (`ProjectTreeView.swift`, `ProjectTreeDraftField.swift`,
    `TabStripView.swift`).
+9. **The window's chrome is configured in one file.**
+   `titlebarAppearsTransparent` is spelled in `MainWindowChrome.swift` and
+   nowhere else under `Sources/`, by set equality in both directions. It is a
+   property of the *window* rather than of a view tree, so whoever sets it last
+   wins and two setters would compete silently — the title bar's ground decided
+   by whichever marker reached the window first. The other direction matters
+   just as much: the transparency is what reveals the window's background
+   colour, so a *removed* setter hands the strip back to the framework's own
+   material.
 
 Plus a **self-check** in the suite's own idiom: every gated file must actually
 *name* a `ChromeColorRole`, or the checks above have gone vacuous — with one

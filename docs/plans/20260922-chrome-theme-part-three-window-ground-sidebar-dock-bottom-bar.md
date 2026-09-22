@@ -176,7 +176,7 @@ as required.
 - Create: `Tests/PisakaAppTests/MainWindowChromeTests.swift`
 - Modify: `docs/architecture/core-theme.md`, `CLAUDE.md`
 
-- [ ] write `MainWindowChrome.swift` under `#if os(macOS)`: a non-drawing,
+- [x] write `MainWindowChrome.swift` under `#if os(macOS)`: a non-drawing,
       hit-test-transparent `NSViewRepresentable` marker in
       `MainWindowFrameAutosave`'s mould, whose view reaches the hosting window on
       `viewDidMoveToWindow` (skipping sheets) and applies the chrome through one
@@ -186,31 +186,31 @@ as required.
       window buttons are left alone. Document why the ground is `bgPanel` here
       while the content root paints `bgCanvas`: the title bar is a panel strip, and
       it must read as one surface with the strips below it.
-- [ ] attach it in the scene by chaining:
+- [x] attach it in the scene by chaining:
       `.background(MainWindowFrameAutosave()).background(MainWindowChrome())`, with
       a comment naming the `file_length` ceiling as the reason for the chain, as
       the neighbouring `.environmentObject` line already does.
-- [ ] in `ContentView`, add `@Environment(\.colorScheme) private var colorScheme`
+- [x] in `ContentView`, add `@Environment(\.colorScheme) private var colorScheme`
       and a `private func chromeColor(_ role: ChromeColorRole) -> Color` that
       resolves through `settings.chromeTheme(systemPrefersDark: colorScheme ==
       .dark)` — a role-to-colour function, so the file never names `ChromeTheme`
       and gating rule five is untouched. Document that this is the seam's first
       consumer and why a root cannot read the environment it writes.
-- [ ] paint the body's root `VStack` with `chromeColor(.bgCanvas)`.
-- [ ] add `"MainWindowChrome.swift"` and keep `ContentView.swift` **out** of
+- [x] paint the body's root `VStack` with `chromeColor(.bgCanvas)`.
+- [x] add `"MainWindowChrome.swift"` and keep `ContentView.swift` **out** of
       `gatedFiles` for now (it still carries platform colours until task 4).
-- [ ] add gating **rule nine**: the set of files under `Sources/` naming
+- [x] add gating **rule nine**: the set of files under `Sources/` naming
       `titlebarAppearsTransparent` equals `["MainWindowChrome.swift"]` — a second
       window-chrome setter would compete with this one and nothing in the compiler
       can see it. Add its `// MARK: - Rule nine:` marker, its doc-comment paragraph
       in the suite's numbered list, its item in `core-theme.md`'s canonical list,
       and bump `CLAUDE.md`'s "its eight rules" to nine.
-- [ ] write `MainWindowChromeTests.swift` in the app bundle: build a real
+- [x] write `MainWindowChromeTests.swift` in the app bundle: build a real
       `NSWindow`, call `MainWindowChrome.apply(to:)`, and assert the transparent
       title bar and that the background colour resolves to
       `ChromePalette.nsColor(.bgPanel, in:)`'s value in both appearances; assert
       the marker view is hit-test transparent and not an accessibility element.
-- [ ] run `swift test` and the app-layer bundle — must pass before task 3.
+- [x] run `swift test` and the app-layer bundle — must pass before task 3.
 
 ### Task 3: The sidebar — the tree's host and its header
 
