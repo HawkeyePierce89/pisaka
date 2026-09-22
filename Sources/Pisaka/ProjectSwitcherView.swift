@@ -129,6 +129,17 @@ struct ProjectSwitcherView: View {
             .padding(.top, metrics.scaled(4))
     }
 
+    /// A recent-project row.
+    ///
+    /// This row's glyph is the one symbol in this file whose *name and colour
+    /// are both chosen by a value* — `checkmark`/accent for the project that is
+    /// open, `folder`/secondary for every other. That is the row's **state**,
+    /// not decoration, and the accent on the name beside it carries the same
+    /// state in the same unreadable currency: colour. So the glyph stays hidden
+    /// — a spoken value says it better than a folded-in symbol name would — and
+    /// the state it showed is spoken by the row itself, as an accessibility
+    /// *value* on the combined element the `Button` makes of its children. A
+    /// non-current row has no state to report and says nothing.
     private func projectRow(_ row: RecentProject) -> some View {
         Button {
             isPresented = false
@@ -138,8 +149,9 @@ struct ProjectSwitcherView: View {
                 Image(systemName: row.isCurrent ? "checkmark" : "folder")
                     .frame(width: metrics.scaled(16))
                     .foregroundStyle(theme.color(row.isCurrent ? .accent : .textSecondary))
-                    // Decoration beside the row's own name, hidden for the
-                    // reason the bottom-bar label above states.
+                    // Hidden because the state it showed is now spoken: the
+                    // value below is the carrier, and an unhidden symbol would
+                    // fold its own name into the row's instead.
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 0) {
                     Text(row.name)
@@ -157,6 +169,7 @@ struct ProjectSwitcherView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityValue(row.isCurrent ? "Current project" : "")
     }
 }
 #endif

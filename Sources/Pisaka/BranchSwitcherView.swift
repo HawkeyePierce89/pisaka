@@ -159,14 +159,27 @@ struct BranchSwitcherView: View {
             .padding(.top, metrics.scaled(4))
     }
 
+    /// A local-branch row.
+    ///
+    /// This row's glyph is the one symbol in this file whose *name and colour
+    /// are both chosen by a value* — `checkmark`/accent for the branch that is
+    /// checked out, the branch symbol/secondary for every other. That is the
+    /// row's **state**, not decoration, and the accent on the name beside it
+    /// carries the same state in the same unreadable currency: colour. So the
+    /// glyph stays hidden — a spoken value says it better than a folded-in
+    /// symbol name would — and the state it showed is spoken by the row itself,
+    /// as an accessibility *value* on the combined element the `Button` makes
+    /// of its children. A non-current row has no state to report and says
+    /// nothing.
     private func branchRow(_ branch: BranchRef, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: metrics.scaled(6)) {
                 Image(systemName: rowIcon(for: branch))
                     .frame(width: metrics.scaled(16))
                     .foregroundStyle(theme.color(branch.isCurrent ? .accent : .textSecondary))
-                    // Decoration beside the row's own name, hidden for the
-                    // reason the bottom-bar label above states.
+                    // Hidden because the state it showed is now spoken: the
+                    // value below is the carrier, and an unhidden symbol would
+                    // fold its own name into the row's instead.
                     .accessibilityHidden(true)
                 Text(branch.shortName)
                     .foregroundStyle(theme.color(branch.isCurrent ? .accent : .textPrimary))
@@ -176,12 +189,21 @@ struct BranchSwitcherView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityValue(branch.isCurrent ? "Current branch" : "")
     }
 
     /// A remote-branch row: a two-item menu — Checkout (git DWIM: switch to the
     /// same-named local or create it from the remote ref, no fetch) and "New Branch
     /// from '…'…" (the create-with-a-pre-filled-name flow). Selecting either
     /// dismisses the popover before the handler runs.
+    ///
+    /// Unlike `branchRow(_:action:)` this row carries **no state**, and so owes
+    /// no spoken value: `BranchRef.parse` builds every remote ref with
+    /// `isCurrent: false` — HEAD is a local branch — so `rowIcon(for:)` answers
+    /// `cloud` here for every row and the colour is the same secondary on every
+    /// row. A glyph that is identical in every state is decoration, which is
+    /// what hiding it silently means; that is worth saying once, because the
+    /// shared `rowIcon(for:)` reads as though it varied.
     private func remoteBranchRow(_ branch: BranchRef) -> some View {
         Menu {
             Button("Checkout") {
@@ -197,8 +219,9 @@ struct BranchSwitcherView: View {
                 Image(systemName: rowIcon(for: branch))
                     .frame(width: metrics.scaled(16))
                     .foregroundStyle(theme.color(.textSecondary))
-                    // Decoration beside the row's own name, hidden for the
-                    // reason the bottom-bar label above states.
+                    // Decoration: the same glyph in the same colour on every
+                    // remote row, so hiding it removes nothing — see the note
+                    // on this declaration.
                     .accessibilityHidden(true)
                 Text(branch.shortName)
                     .foregroundStyle(theme.color(.textPrimary))
