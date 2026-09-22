@@ -9,8 +9,13 @@
 > stands — the design states it — but its reason is the design, not a visible
 > defect. The sentences below are left as written because this is a record of
 > what was planned; the corrected statement lives in
-> `docs/architecture/core-theme.md` and on the palette row itself, and the
-> correction is `docs/plans/code-zone-palette-fix-01.md`, Task 1.
+> `docs/architecture/core-theme.md` and on the palette row itself. What the
+> change actually does: `selectionInactive` is the wash of a **project-tree row
+> selected while its window is not key** — `ProjectTreeView.swift`'s
+> `case .selectedUnfocused`, its one consumer — and it was made a deliberate step
+> stronger because the design states that value, not because anything on screen
+> was hard to read. This correction came from revmux round `01-initial` on the
+> task `code-zone-palette-and-the-one-chrome-value`.
 
 > **Second correction, recorded after the fact.** This plan explains the refusal
 > of a system semantic colour in the code zone by saying such a colour "follows
@@ -395,14 +400,14 @@ duplication.
       file or test that satisfies it:
       - no token kind left on the old scheme — `SyntaxTheme.table` carries the
         fourteen new rows, restated and compared component for component in both
-        appearances by `SyntaxThemeTests.testEveryTokenKindResolvesToItsRow`;
+        appearances by `SyntaxThemeTests.testEveryTokenKindResolvesToItsTabledValueInBothAppearances`;
       - plain and unmapped text off any system colour — `SyntaxTheme.plainText`
         replaces the `.labelColor` / `.label` fallback, the two text-view
         configuration blocks (`CodeEditorView.applyBaseTypography(to:)`,
         `CodeEditorView_iOS.swift`) set the base foreground from `.plain`, and the
         two no-grammar reset paths read the same entry; pinned by
         `testNoTokenKindResolvesToASystemSemanticColour`,
-        `testPlainTextFallbackAndTheTablesTotality` and
+        `testThePlainTextFallbackIsThePlainRowAndIsUnreachableWhileTheTableIsTotal` and
         `testUncoveredTextReadsThePlainRowInBothAppearances`;
       - the preview's derivation intact and now pinned — `markdownPreviewTheme(prefersDark:)`
         is unchanged and `testThePreviewThemeCarriesTheEditorsPaletteInBothAppearances`

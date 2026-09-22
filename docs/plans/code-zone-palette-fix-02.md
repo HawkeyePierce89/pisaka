@@ -185,10 +185,10 @@ then deleted from the tree by design — fix plans do not reach the default bran
 — so the archived plan, which is the permanent record and *does* reach it, cites
 a path that will never exist there.
 
-- [ ] Rewrite the reference so it stands on its own: state the correction itself
+- [x] Rewrite the reference so it stands on its own: state the correction itself
       rather than pointing at a deleted document, and name the review round it
       came from instead of a file path.
-- [ ] Check the archived plan for any other reference to a fix plan by path, and
+- [x] Check the archived plan for any other reference to a fix plan by path, and
       for any reference to a file this branch removed.
 
 ### Task 6: Gates
