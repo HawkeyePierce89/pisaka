@@ -134,8 +134,8 @@ replaced. The parallel sentence on `table` *was* edited in this very commit,
 precisely to drop its "as before" clause; the identical clause forty lines above
 was left standing, on the function every AppKit attribute provider calls.
 
-- [ ] Correct the sentence.
-- [ ] **Sweep for the shape, not the site.** The construct is *a doc comment
+- [x] Correct the sentence.
+- [x] **Sweep for the shape, not the site.** The construct is *a doc comment
       asserting continuity with a previous state across a change that ended it*.
       Search the branch's diff for every remaining "as before", "unchanged",
       "still the same" and equivalent, and check each against what the branch did.

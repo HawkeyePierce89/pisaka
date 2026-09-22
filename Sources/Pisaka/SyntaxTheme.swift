@@ -35,8 +35,10 @@ struct SyntaxTheme {
     #if os(macOS)
     /// The appearance-aware `NSColor` for a token kind. Exposed for the
     /// `NSTextView` attribute provider, which needs an `NSColor` foreground. On
-    /// macOS `PlatformColor` is `NSColor`, so this is `color(for:)` unchanged —
-    /// the existing AppKit call sites keep the same dynamic `NSColor`s as before.
+    /// macOS `PlatformColor` is `NSColor`, so this converts nothing — it is
+    /// `color(for:)` under the name AppKit's call sites want, and every value it
+    /// hands back is whatever `table` says today, the fourteen rows having been
+    /// re-valued wholesale when the code zone took its own palette.
     func nsColor(for kind: SyntaxTokenKind) -> NSColor {
         color(for: kind)
     }
