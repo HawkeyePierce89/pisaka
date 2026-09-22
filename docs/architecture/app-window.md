@@ -141,9 +141,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `bottomBar` of six toggle buttons (Terminal / Git / Changes /
     Problems / Usages / Pull Requests, the active one highlighted,
     `arrow.triangle.pull` for Changes and — deliberately *not* the same glyph —
-    `arrow.triangle.merge` for Pull Requests, since two adjacent dock buttons
-    drawn with one symbol are indistinguishable at a glance, which `ContentView`
-    says in a comment beside it; `exclamationmark.triangle` for Problems,
+    `arrow.triangle.merge` for Pull Requests, since two dock buttons drawn with
+    one symbol are indistinguishable at a glance and, since part three made the
+    seven controls icon-only, the glyph is all there is (the part-three
+    paragraph below carries the current reason; the two are no longer
+    *adjacent*, which is why adjacency is not it);
+    `exclamationmark.triangle` for Problems,
     `text.magnifyingglass` for Usages) sits flush at
     the bottom, and `mainArea` is the three-column `editorSplit` alone, or — when a
     `BottomPanel` is shown — `editorSplit` over the panel, that panel slot
@@ -168,7 +171,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     keeping `.contentShape(Rectangle())`. **The visible titles are gone**, which
     is what makes `.help(` and `.accessibilityLabel(` mandatory on every one of
     them rather than polite: the `Label(title, systemImage:)` they used to carry
-    *was* each one's accessibility name, and an `Image` supplies none. Gating
+    *was* each one's accessibility name, while an unhidden `Image(systemName:)`
+    supplies a name of its own instead — the *symbol's* (`core-theme.md`'s rule
+    ten). Gating
     rule ten pins both in the brace-matched bodies of `bottomBarButton(` and
     `completionToggleButton`, and pins `bottomBarButton(` at exactly seven
     occurrences — one declaration and one call per dock panel — so a seventh

@@ -165,13 +165,13 @@ and the next part reads it to learn which ground its surfaces sit on.
    adjacency argument no longer applies. The document contradicts itself and
    attributes a quotation to a comment this change rewrote.
 
-- [ ] Bring the `core-github.md` and `app-git-views.md` entries in line with the
+- [x] Bring the `core-github.md` and `app-git-views.md` entries in line with the
       code — either directly or by a precise cross-reference to the part-three
       record — so no reader has to guess which document is current.
-- [ ] Fix `app-window.md:142`: drop the superseded adjacency argument and the
+- [x] Fix `app-window.md:142`: drop the superseded adjacency argument and the
       false attribution, and let the part-three paragraph carry the current
       reason.
-- [ ] **The pre-existing item this change is responsible for omitting**: a third
+- [x] **The pre-existing item this change is responsible for omitting**: a third
       platform-coloured `Divider()` survives in the now-gated `ContentView.swift`
       at line 1141 — the rule under the find bar. It is not this change's code,
       and gating rule one cannot see it (a `Divider()` names no colour), but the
@@ -179,7 +179,7 @@ and the next part reads it to learn which ground its surfaces sit on.
       places and left this one recorded nowhere. Add it to `core-theme.md`'s
       part-three inherited-work note beside them, naming the file, the line's
       surface (the find bar) and the part that will sweep it.
-- [ ] Run `swift test`.
+- [x] Run `swift test`. Green: 5728 tests, 0 failures; `swiftlint --strict` clean.
 
 ### Task 6: Gates
 

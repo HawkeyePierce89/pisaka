@@ -58,7 +58,8 @@ import XCTest
 /// - **Every bottom-bar toggle is identifiable without sight.** The six panel
 ///   toggles and the completion switch are icon-only squares; the `Label` that
 ///   used to supply each one's accessibility name for free is gone, and an
-///   `Image` supplies none. A control that has quietly gone nameless renders
+///   unhidden `Image(systemName:)` supplies a name of its own instead — the
+///   symbol's. A control that has quietly gone nameless renders
 ///   perfectly and reads as an unlabelled button to VoiceOver, which no other
 ///   gate here can see.
 final class ChromeThemeSourceGatingTests: XCTestCase {

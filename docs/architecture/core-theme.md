@@ -541,9 +541,20 @@ material, on which a `hairline` would be the mismatch rather than the cure. The
 part that sweeps the popovers' ground takes the rules with it. Written down here
 so that part finds the work rather than rediscovering it.
 
+A **third** such rule survives in a file part three *did* gate:
+`ContentView.swift`'s `Divider()` under the find/replace bar, drawn between
+`SearchBarView` and the editor. It is inherited code rather than this part's,
+and gating rule one cannot see it for the same reason as the two above — a
+`Divider()` names no colour — but its surroundings differ: the ground on either
+side of it is the editor zone's, not a popover's material, so the fix is
+available the moment the find bar itself is swept. The part that converts
+`SearchBarView.swift` takes this rule with it; recorded here beside the
+popovers' two so all three are found in one place.
+
 #### What is still waiting
 
-The six dock panels, the dialogs and sheets, the separate
+The six dock panels, the editor zone's find/replace bar, the dialogs and sheets,
+the separate
 diff/merge/history/browser windows, the Preferences surfaces and the terminal.
 Each follows the six-step guide at the end of this document, on its own, with
 `gatedFiles` growing as part of the restyle rather than afterwards.

@@ -96,10 +96,21 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     grammar) would let those dialogs adopt the same live validation with **no view
     change at all**, since `validator` is already threaded through.
   - `BranchSwitcherView.swift` — the macOS branch-switcher widget in the
-    always-visible bottom bar (the status-bar convention): the current branch
-    label, clicked to a popover with the Local/Remote branch list (the current one
+    always-visible bottom bar (the status-bar convention): its
+    `arrow.triangle.branch` glyph, the current branch label and — since the
+    chrome theme's part three — a trailing `chevron.down` caret, clicked to a
+    popover with the Local/Remote branch list (the current one
     marked), a filter field, and a "New Branch…" item (name only, created from
-    `HEAD`). A remote-branch row is a two-item `Menu` — "Checkout" (git DWIM via
+    `HEAD`). That part is what restyled it: the three elements are drawn in
+    `textSecondary` at `.callout` and the popover's failure line in `statusRed`,
+    both roles read from `\.chromeTheme`; the widget's own paddings are gone so
+    the bar's gaps and height are the measurements actually drawn; and both
+    decorative symbols carry `.accessibilityHidden(true)`, since a `Button`
+    combines its children and would otherwise name itself after its glyphs
+    (`core-theme.md`'s rule ten). `app-window.md`'s part-three paragraph is the
+    record for the bar as a whole; the behaviour below is unchanged by it. The
+    popover's own `Divider()` rules are inherited work left for the part that
+    sweeps the popovers' ground (`core-theme.md`). A remote-branch row is a two-item `Menu` — "Checkout" (git DWIM via
     `onCheckoutRemote`) and "New Branch from '\(shortName)'…" (the create dialog
     pre-filled with the default name, `origin/master` → `master`, via
     `onCreateFromRemote`), each dismissing the popover on selection; local-branch rows
