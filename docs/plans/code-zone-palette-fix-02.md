@@ -193,10 +193,42 @@ a path that will never exist there.
 
 ### Task 6: Gates
 
-- [ ] `swift test` — green, count recorded.
-- [ ] `xcodegen generate` then the macOS app-layer bundle — green, count recorded,
-      the re-keyed gating suite named.
-- [ ] `xcodebuild … -destination 'generic/platform=iOS' build` — succeeds.
-- [ ] `swiftlint --strict` — clean.
-- [ ] Re-read all six items against the diff and confirm each is answered at the
-      mechanism it names, not at the example it uses.
+- [x] `swift test` — green: 5724 tests, 0 failures.
+- [x] `xcodegen generate` then the macOS app-layer bundle — green: 114 tests, 0
+      failures. The re-keyed gating suite is `SyntaxBaseForegroundGatingTests`,
+      now seven tests, keyed on the code-zone declaration rather than on the
+      highlighter call: `testEveryCodeZoneSurfaceIsPinned` (set equality over the
+      tree), `testEveryExemptionNamesAPinnedSurface`,
+      `testEveryNonExemptSurfaceStatesABaseForeground`,
+      `testEveryBaseForegroundSiteIsPinned` (sites, not files),
+      `testEveryHighlighterAttachmentIsPinned`,
+      `testEveryIOSAttachingViewStatesItsBaseForeground` and
+      `testOnlyTheIOSEditorSplitsAcrossTwoFiles`.
+- [x] `xcodebuild … -destination 'generic/platform=iOS' build` — **BUILD
+      SUCCEEDED**.
+- [x] `swiftlint --strict` — clean: 0 violations, 0 serious in 581 files.
+- [x] Re-read all six items against the diff and confirm each is answered at the
+      mechanism it names, not at the example it uses. Confirmed, one by one:
+      Task 1 is answered by re-keying the rule on *what makes a surface the code
+      zone* (`codeZoneSurfaces` by set equality, `exemptSurfaces` carrying a
+      reason each, sites counted rather than files), not by adding `MergeView` to
+      a highlighter-keyed list — the pane's `textColor` and
+      `CommitUnifiedDiffView`'s `.foregroundStyle(… .plain)` are consequences of
+      the re-key, and `app-editor.md`'s enumeration was widened to the sentence
+      rather than the sentence narrowed. Task 2 is answered as a value claim at
+      every site, and the pre-existing over-claim was corrected at its origin too
+      (`core-theme.md` and `ChromeThemeSourceGatingTests`' rule-one rationale,
+      which now says the platform value is a step off the roles in *either*
+      appearance and that a dynamic system colour tracks the window appearance as
+      faithfully as a role does); the remaining "follows the system appearance"
+      sentences in the tree are descriptions of draw-time resolution, not reasons
+      for refusing a system colour. Neither assertion was weakened. Task 3's
+      sentence is corrected and no `as before` / `unchanged` / `still the same`
+      continuity claim survives in the branch's source or test diff. Task 4 is
+      answered by keying the painting half on the assignment construct
+      (`paintingSpellings`, the role-producing arm and the two lookups) over
+      stripped text, with the palette-comment half still reading raw because its
+      subject *is* a comment — both stated in the doc comment. Task 5's archived
+      header now states the correction and names the review round instead of
+      citing a deleted path, and the archive carries no other fix-plan path
+      reference.
