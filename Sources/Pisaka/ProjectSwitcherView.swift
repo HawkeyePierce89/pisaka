@@ -40,15 +40,24 @@ struct ProjectSwitcherView: View {
             }
             isPresented.toggle()
         } label: {
+            // A `Button`'s children are *combined* into one accessibility
+            // element, and an unhidden SF Symbol folds its own name into that
+            // element's name — the announcement part one recorded on the tree
+            // row ("chevron.right, folder fill, Sources") is the same mechanism
+            // read from the other side. Both symbols here are decoration beside
+            // a name that already says everything, so both are hidden, in
+            // `ProjectTreeView`'s idiom.
             HStack(spacing: metrics.scaled(4)) {
                 Image(systemName: "folder")
                     .foregroundStyle(theme.color(.textSecondary))
+                    .accessibilityHidden(true)
                 Text(currentLabel)
                     .foregroundStyle(theme.color(.textPrimary))
                 // The caret the design draws on a widget that opens a list.
                 // Neither switcher carried one before this sweep.
                 Image(systemName: "chevron.down")
                     .foregroundStyle(theme.color(.textSecondary))
+                    .accessibilityHidden(true)
             }
             .font(metrics.scaledFont(.callout))
             // No padding of its own: the bottom bar owns the 14-point gaps
@@ -129,6 +138,9 @@ struct ProjectSwitcherView: View {
                 Image(systemName: row.isCurrent ? "checkmark" : "folder")
                     .frame(width: metrics.scaled(16))
                     .foregroundStyle(theme.color(row.isCurrent ? .accent : .textSecondary))
+                    // Decoration beside the row's own name, hidden for the
+                    // reason the bottom-bar label above states.
+                    .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 0) {
                     Text(row.name)
                         .foregroundStyle(theme.color(row.isCurrent ? .accent : .textPrimary))

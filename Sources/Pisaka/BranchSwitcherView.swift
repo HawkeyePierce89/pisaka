@@ -48,12 +48,21 @@ struct BranchSwitcherView: View {
         Button {
             isPresented = true
         } label: {
+            // A `Button`'s children are *combined* into one accessibility
+            // element, and an unhidden SF Symbol folds its own name into that
+            // element's name — the announcement part one recorded on the tree
+            // row ("chevron.right, folder fill, Sources") is the same mechanism
+            // read from the other side. Both symbols here are decoration beside
+            // a name that already says everything, so both are hidden, in
+            // `ProjectTreeView`'s idiom.
             HStack(spacing: metrics.scaled(4)) {
                 Image(systemName: "arrow.triangle.branch")
+                    .accessibilityHidden(true)
                 Text(currentLabel)
                 // The caret the design draws on a widget that opens a list.
                 // Neither switcher carried one before this sweep.
                 Image(systemName: "chevron.down")
+                    .accessibilityHidden(true)
             }
             .font(metrics.scaledFont(.callout))
             .foregroundStyle(theme.color(.textSecondary))
@@ -156,6 +165,9 @@ struct BranchSwitcherView: View {
                 Image(systemName: rowIcon(for: branch))
                     .frame(width: metrics.scaled(16))
                     .foregroundStyle(theme.color(branch.isCurrent ? .accent : .textSecondary))
+                    // Decoration beside the row's own name, hidden for the
+                    // reason the bottom-bar label above states.
+                    .accessibilityHidden(true)
                 Text(branch.shortName)
                     .foregroundStyle(theme.color(branch.isCurrent ? .accent : .textPrimary))
                 Spacer()
@@ -185,6 +197,9 @@ struct BranchSwitcherView: View {
                 Image(systemName: rowIcon(for: branch))
                     .frame(width: metrics.scaled(16))
                     .foregroundStyle(theme.color(.textSecondary))
+                    // Decoration beside the row's own name, hidden for the
+                    // reason the bottom-bar label above states.
+                    .accessibilityHidden(true)
                 Text(branch.shortName)
                     .foregroundStyle(theme.color(.textPrimary))
                 Spacer()

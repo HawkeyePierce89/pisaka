@@ -537,18 +537,20 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         )
     }
 
-    // MARK: - Rule ten: every bottom-bar toggle is identifiable without sight
+    // MARK: - Rule ten: every bottom-bar control is identifiable without sight
 
     /// The window root, and the two toggle idioms whose bodies must each name a
     /// tooltip *and* an accessibility label.
     ///
     /// Part three made both icon-only. That is a visual decision with an
     /// invisible cost: a `Label(title, systemImage:)` is its own accessibility
-    /// name, an `Image(systemName:)` is not, so dropping the title silently
-    /// turns a named control into an unlabelled button — and `.help(` is a
-    /// *tooltip*, which VoiceOver does not read as a name. Nothing misrenders,
-    /// no test goes red, and the only reader who notices is the one who cannot
-    /// see the bar at all.
+    /// name, while an unhidden `Image(systemName:)` folds *its own symbol name*
+    /// into whatever element it is combined into — so dropping the title does
+    /// not leave the control nameless, it leaves it named after a glyph. Either
+    /// way the name the title carried is gone, and `.help(` is a *tooltip*,
+    /// which VoiceOver does not read as a name. Nothing misrenders, no test
+    /// goes red, and the only reader who notices is the one who cannot see the
+    /// bar at all.
     ///
     /// Read over the **brace-matched bodies** of the two declarations, in rule
     /// six's idiom, so a `.help(` somewhere else in this 1 400-line file cannot
@@ -556,6 +558,29 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// so a seventh dock panel arriving without a glance at this rule fails here
     /// rather than shipping nameless.
     private static let windowRootFile = "ContentView.swift"
+
+    /// The bar's three widgets, the same rule read from the other side.
+    ///
+    /// A `Button`'s children are combined into one element, so every
+    /// `Image(systemName:)` a widget draws contributes its symbol name to the
+    /// button's own — the announcement part one recorded on a tree row
+    /// ("chevron.right, folder fill, Sources") is exactly that. A widget is
+    /// therefore identifiable only if it either states its name outright with
+    /// `.accessibilityLabel(`, or hides every decorative symbol it draws.
+    ///
+    /// Asserted by counting, in this suite's own `occurrences(of:in:)` idiom:
+    /// each widget's `Image(systemName:` count must equal its
+    /// `.accessibilityHidden(true)` count. A symbol added without a thought for
+    /// the announcement moves one count and not the other.
+    private static let barWidgetFiles = [
+        "ProjectSwitcherView.swift",
+        "BranchSwitcherView.swift",
+    ]
+
+    /// The stated exception: the pull-request indicator names itself outright —
+    /// an explicit `.accessibilityLabel(` plus an `.accessibilityValue(` — so
+    /// what its two symbols would fold in never reaches the announcement.
+    private static let labelledBarWidgetFile = "PullRequestIndicatorView.swift"
 
     func testEveryBottomBarToggleCarriesATooltipAndALabel() throws {
         let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
@@ -584,6 +609,37 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
             """
             \(Self.windowRootFile) must spell bottomBarButton( exactly seven times — the declaration \
             and one call per bottom dock panel
+            """
+        )
+    }
+
+    func testEveryBottomBarWidgetHidesItsDecorativeSymbols() throws {
+        for name in Self.barWidgetFiles {
+            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
+                try Self.read(Self.source(named: name))
+            )
+            let symbols = Self.occurrences(of: "Image(systemName:", in: code)
+            XCTAssertGreaterThan(
+                symbols, 0,
+                "\(name) draws no SF Symbol any more — re-point this rule rather than losing it"
+            )
+            XCTAssertEqual(
+                Self.occurrences(of: ".accessibilityHidden(true)", in: code), symbols,
+                """
+                \(name) must hide every Image(systemName:) it draws — a button combines its \
+                children, so an unhidden symbol folds its own name into the button's
+                """
+            )
+        }
+
+        let labelled = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
+            try Self.read(Self.source(named: Self.labelledBarWidgetFile))
+        )
+        XCTAssertTrue(
+            labelled.contains(".accessibilityLabel("),
+            """
+            \(Self.labelledBarWidgetFile) is the stated exception because it names itself \
+            outright; without that label it owes the counting rule above
             """
         )
     }

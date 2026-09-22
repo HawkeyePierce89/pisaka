@@ -496,6 +496,16 @@ gated set.
 one before, and a control that opens a list should say so. It is recorded here
 rather than passed off as a colour change.
 
+**Both switchers hide their symbols from the announcement.** Replacing a
+`Label(title, systemImage:)` with an `HStack` of symbol and text moves each
+glyph *into* the button's own accessibility name, because a `Button` combines
+its children — part one measured the same mechanism on a tree row
+("chevron.right, folder fill, Sources", `app-window.md`). So every
+`Image(systemName:)` both switchers draw, the two new carets included, carries
+`.accessibilityHidden(true)` in `ProjectTreeView`'s idiom, leaving each button
+named by its label alone. The third widget needs none: it states an explicit
+`.accessibilityLabel` and `.accessibilityValue`. Rule ten pins all three.
+
 **The placeholder pane's ground is a stated divergence.** The open-a-folder pane
 draws `bgPanel`, not the window's `bgCanvas`. It reads as one of the places the
 window ground shows through, but it is in fact the sidebar's own surface — drawn
@@ -652,20 +662,29 @@ The ten rules, each invisible to the compiler:
    just as much: the transparency is what reveals the window's background
    colour, so a *removed* setter hands the strip back to the framework's own
    material.
-10. **Every bottom-bar toggle is identifiable without sight.** Inside
+10. **Every bottom-bar control is identifiable without sight.** Inside
    `ContentView.swift`, the brace-matched bodies of `bottomBarButton(` and
    `completionToggleButton` each spell `.help(` and `.accessibilityLabel(`, and
    `bottomBarButton(` occurs exactly seven times — one declaration and one call
    per bottom dock panel. Part three made all seven controls icon-only, and the
    `Label(title, systemImage:)` they used to carry *was* each one's
-   accessibility name; an `Image(systemName:)` supplies none, and `.help(` is a
-   tooltip VoiceOver does not read as a name. So the visual decision silently
-   turns named controls into unlabelled buttons: nothing misrenders, no other
-   gate goes red, and the only reader who notices is the one who cannot see the
-   bar. The bodies are read brace-matched, in rule six's idiom, so a `.help(`
-   elsewhere in a fourteen-hundred-line file cannot satisfy it; the call count
-   is pinned so a seventh dock panel is asked the question rather than shipping
-   nameless.
+   accessibility name; an unhidden `Image(systemName:)` supplies a name of its
+   own instead — the *symbol's* — and `.help(` is a tooltip VoiceOver does not
+   read as a name. So the visual decision silently renames named controls after
+   their glyphs: nothing misrenders, no other gate goes red, and the only reader
+   who notices is the one who cannot see the bar. The bodies are read
+   brace-matched, in rule six's idiom, so a `.help(` elsewhere in a
+   fourteen-hundred-line file cannot satisfy it; the call count is pinned so a
+   seventh dock panel is asked the question rather than shipping nameless. The
+   **same rule read from the other side** covers the bar's three widgets: a
+   `Button` combines its children, so each symbol a widget draws folds its name
+   into the button's — part one measured exactly that on a tree row
+   ("chevron.right, folder fill, Sources"). `ProjectSwitcherView.swift` and
+   `BranchSwitcherView.swift` must therefore hide every decorative symbol they
+   draw, asserted by counting `Image(systemName:` against
+   `.accessibilityHidden(true)` in each file, with
+   `PullRequestIndicatorView.swift` the stated exception because it names itself
+   outright with an explicit `.accessibilityLabel(`.
 
 Plus a **self-check** in the suite's own idiom: every gated file must actually
 *name* a `ChromeColorRole`, or the checks above have gone vacuous — with one

@@ -742,9 +742,12 @@ ci.yml's `lint` job, and the version-bump procedure.
   through its own rule (a seam pins nothing its call site does not spend, and
   that call site was this sweep's one regression), no geometry token derived by
   arithmetic, the tab icon rule spelled once, the window's chrome configured
-  in one file, and every bottom-bar toggle identifiable without sight (the
+  in one file, and every bottom-bar control identifiable without sight (the
   toggles are icon-only, so the `Label` that used to supply each one's
-  accessibility name for free is gone) — plus, beside the rules rather
+  accessibility name for free is gone, and the three widgets hide every
+  decorative symbol they draw, since a `Button` combines its children and an
+  unhidden SF Symbol folds its own name in — the pull-request indicator the
+  stated exception, naming itself outright) — plus, beside the rules rather
   than among them, the cross-file count that keeps this sentence and
   `core-theme.md`'s own list equal to the number of rules the suite declares —
   while **three files are exempt because they are not
