@@ -940,11 +940,17 @@ struct ContentView: View {
     /// one, and no ground with a `textSecondary` icon otherwise.
     ///
     /// **The visible titles are gone**, which is what makes both the `.help(` and
-    /// the `.accessibilityLabel(` below mandatory rather than polite: the `Label`
-    /// these buttons used to carry supplied the accessibility name for free, and
-    /// an icon alone supplies none. Gating rule ten pins both, in this body and
-    /// in `completionToggleButton`'s, because nothing in the compiler can see a
-    /// control that has gone nameless.
+    /// the `.accessibilityLabel(` below mandatory rather than polite: an
+    /// icon-only control whose `Label` is gone does not go silent — a `Button`
+    /// combines its children, so the bare `Image(systemName:)` folds the
+    /// *symbol's* own name into the announcement unless an explicit
+    /// `.accessibilityLabel` replaces it. "square split bottom" is not the name
+    /// of this command, which is why the label is mandatory here — and why a
+    /// symbol drawn as decoration *beside* a name is hidden instead, the same
+    /// rule read from the other side (`BranchSwitcherView`,
+    /// `ProjectSwitcherView`). Gating rule ten pins both, in this body and in
+    /// `completionToggleButton`'s, because nothing in the compiler can see a
+    /// control announcing its glyph.
     private func bottomBarButton(title: String, systemImage: String, panel: BottomPanel) -> some View {
         let isActive = bottomPanel.wrappedValue == panel
         return Button {

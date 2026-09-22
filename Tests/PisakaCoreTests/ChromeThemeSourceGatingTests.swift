@@ -59,9 +59,9 @@ import XCTest
 ///   toggles and the completion switch are icon-only squares; the `Label` that
 ///   used to supply each one's accessibility name for free is gone, and an
 ///   unhidden `Image(systemName:)` supplies a name of its own instead — the
-///   symbol's. A control that has quietly gone nameless renders
-///   perfectly and reads as an unlabelled button to VoiceOver, which no other
-///   gate here can see.
+///   symbol's. A control that has quietly lost its title renders perfectly and
+///   reads out as its glyph to VoiceOver — "square split bottom" where the
+///   command's name belongs — which no other gate here can see.
 final class ChromeThemeSourceGatingTests: XCTestCase {
 
     // MARK: - The gated set
@@ -593,7 +593,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// six's idiom, so a `.help(` somewhere else in this 1 400-line file cannot
     /// satisfy it. The call count is pinned too: one declaration plus six calls,
     /// so a seventh dock panel arriving without a glance at this rule fails here
-    /// rather than shipping nameless.
+    /// rather than shipping under its glyph's name.
     private static let windowRootFile = "ContentView.swift"
 
     /// The bar's three widgets, the same rule read from the other side.
@@ -633,7 +633,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
                     body.contains(required),
                     """
                     \(Self.windowRootFile)'s \(declaration) must spell \(required) — an icon-only \
-                    control carries no name of its own
+                    control is named after its glyph until an explicit label replaces that
                     """
                 )
             }

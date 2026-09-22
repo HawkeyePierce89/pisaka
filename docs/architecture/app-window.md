@@ -177,7 +177,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     rule ten pins both in the brace-matched bodies of `bottomBarButton(` and
     `completionToggleButton`, and pins `bottomBarButton(` at exactly seven
     occurrences — one declaration and one call per dock panel — so a seventh
-    panel is asked the question rather than shipping nameless.
+    panel is asked the question rather than shipping under its glyph's name.
 
     **Both draggable dividers are drawn from the roles too.**
     `panelDivider(available:)` fills `bgPanel` and overlays a one-point
