@@ -249,41 +249,41 @@ as required.
 - Modify: `Tests/PisakaCoreTests/ChromeThemeSourceGatingTests.swift`
 - Modify: `docs/architecture/core-theme.md`, `CLAUDE.md`
 
-- [ ] `panelDivider(available:)`: keep the 5-point drag target, the `contentShape`,
+- [x] `panelDivider(available:)`: keep the 5-point drag target, the `contentShape`,
       the hover/drag cursor sync and the whole drag gesture verbatim; fill
       `bgPanel` and overlay a one-point `hairline` rectangle along its **top** edge
       (decision 1).
-- [ ] `markdownPreviewDivider(available:)`: the same, keeping the 5-point width,
+- [x] `markdownPreviewDivider(available:)`: the same, keeping the 5-point width,
       with the rule along its **leading** edge (decision 2).
-- [ ] paint the dock's panel slot `bgPanel`, with no second rule of its own.
-- [ ] the three empty-state sentences the root draws — "No problems", the usages
+- [x] paint the dock's panel slot `bgPanel`, with no second rule of its own.
+- [x] the three empty-state sentences the root draws — "No problems", the usages
       invitation and "No file open" — read `textSecondary`.
-- [ ] `bottomBarButton(title:systemImage:panel:)` becomes an icon-only square:
+- [x] `bottomBarButton(title:systemImage:panel:)` becomes an icon-only square:
       `bottomBarToggleSide` on a side, `bottomBarToggleRadius` corner radius, its
       icon at `.body`; active draws an `accentTintStrong` ground with an `accent`
       icon, inactive no ground and a `textSecondary` icon; each carries
       `.help(title)` and `.accessibilityLabel(title)`, with a comment recording
       that the visible labels are gone and why both are now mandatory.
-- [ ] `completionToggleButton` takes the same idiom — same square, same two states
+- [x] `completionToggleButton` takes the same idiom — same square, same two states
       keyed on `settings.completionEnabled` — and keeps its existing `.help`,
       `.accessibilityLabel` and `.accessibilityValue`.
-- [ ] reverse the bar: a leading group of the three widgets at 14-point gaps, a
+- [x] reverse the bar: a leading group of the three widgets at 14-point gaps, a
       `Spacer()`, then a trailing group of the six panel toggles followed by the
       completion toggle at 2-point gaps. All gaps are bare local numbers scaled
       once (gating rule seven forbids deriving them from a token).
-- [ ] give the bar `bottomBarHeight`, a `barPaddingX` horizontal inset, a `bgPanel`
+- [x] give the bar `bottomBarHeight`, a `barPaddingX` horizontal inset, a `bgPanel`
       ground and a one-point `hairline` along its **top** edge; delete the
       `Divider()` the body used to place above it, recording the deviation (the
       design draws no rule there; the app keeps one because with the dock closed
       the editor and panel grounds are one value apart in the dark theme).
-- [ ] add `"ContentView.swift"` to `gatedFiles`.
-- [ ] add gating **rule ten**: inside `ContentView.swift`, the brace-matched bodies
+- [x] add `"ContentView.swift"` to `gatedFiles`.
+- [x] add gating **rule ten**: inside `ContentView.swift`, the brace-matched bodies
       of `bottomBarButton(` and `completionToggleButton` each spell `.help(` and
       `.accessibilityLabel(`, and `bottomBarButton(` occurs exactly seven times
       (one declaration, six calls). Use the suite's existing brace-matching helper
       idiom. Add its `// MARK:` marker, its doc-comment paragraph, its item in
       `core-theme.md`'s canonical list, and bump `CLAUDE.md`'s count to ten.
-- [ ] run `swift test` and the app-layer bundle — must pass before task 5.
+- [x] run `swift test` and the app-layer bundle — must pass before task 5.
 
 ### Task 5: The bar's three widgets
 

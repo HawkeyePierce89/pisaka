@@ -438,7 +438,7 @@ although it is an editing affordance rather than a row: an inline draft
 for. `TabStripView.swift` covers `TabStatusMark` too, the slot view the two
 orientations share, which is why that extraction did not add a seventh file.
 
-The nine rules, each invisible to the compiler:
+The ten rules, each invisible to the compiler:
 
 1. **No gated view names a system semantic colour.** A closed forbidden-token
    list — AppKit's semantic set (`labelColor`, `separatorColor`,
@@ -513,6 +513,20 @@ The nine rules, each invisible to the compiler:
    just as much: the transparency is what reveals the window's background
    colour, so a *removed* setter hands the strip back to the framework's own
    material.
+10. **Every bottom-bar toggle is identifiable without sight.** Inside
+   `ContentView.swift`, the brace-matched bodies of `bottomBarButton(` and
+   `completionToggleButton` each spell `.help(` and `.accessibilityLabel(`, and
+   `bottomBarButton(` occurs exactly seven times — one declaration and one call
+   per bottom dock panel. Part three made all seven controls icon-only, and the
+   `Label(title, systemImage:)` they used to carry *was* each one's
+   accessibility name; an `Image(systemName:)` supplies none, and `.help(` is a
+   tooltip VoiceOver does not read as a name. So the visual decision silently
+   turns named controls into unlabelled buttons: nothing misrenders, no other
+   gate goes red, and the only reader who notices is the one who cannot see the
+   bar. The bodies are read brace-matched, in rule six's idiom, so a `.help(`
+   elsewhere in a fourteen-hundred-line file cannot satisfy it; the call count
+   is pinned so a seventh dock panel is asked the question rather than shipping
+   nameless.
 
 Plus a **self-check** in the suite's own idiom: every gated file must actually
 *name* a `ChromeColorRole`, or the checks above have gone vacuous — with one

@@ -55,6 +55,12 @@ import XCTest
 /// - **The window's chrome is configured in one file.** A transparent title bar
 ///   is a property of the *window*, so two markers setting it would compete for
 ///   it silently — the ground decided by whichever reached the window first.
+/// - **Every bottom-bar toggle is identifiable without sight.** The six panel
+///   toggles and the completion switch are icon-only squares; the `Label` that
+///   used to supply each one's accessibility name for free is gone, and an
+///   `Image` supplies none. A control that has quietly gone nameless renders
+///   perfectly and reads as an unlabelled button to VoiceOver, which no other
+///   gate here can see.
 final class ChromeThemeSourceGatingTests: XCTestCase {
 
     // MARK: - The gated set
@@ -85,6 +91,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         "LSPConsentBanner.swift",
         // Part three: the window's own chrome.
         "MainWindowChrome.swift",
+        "ContentView.swift",
     ]
 
     func testEveryGatedFileExists() throws {
@@ -357,9 +364,14 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     }
 
     private static func rulerSource() throws -> URL {
+        try source(named: rulerFile)
+    }
+
+    /// The one file under `Sources/` with this name.
+    private static func source(named name: String) throws -> URL {
         try XCTUnwrap(
-            try swiftSources().first { $0.lastPathComponent == rulerFile },
-            "\(rulerFile) is gone or renamed"
+            try swiftSources().first { $0.lastPathComponent == name },
+            "\(name) is gone or renamed"
         )
     }
 
@@ -371,7 +383,16 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// declaration, so the rule above reads the drawing method alone and not the
     /// seam's own arithmetic beside it.
     private static func drawingBody(of code: String) -> String? {
-        guard let start = code.range(of: "func drawHashMarksAndLabels(") else { return nil }
+        matchedBody(after: "func drawHashMarksAndLabels(", in: code)
+    }
+
+    /// The brace-matched body following the first occurrence of `declaration`.
+    ///
+    /// Rule six's helper, generalized when rule ten needed the same reading of a
+    /// different declaration: one definition, so the two rules cannot come to
+    /// disagree about what "this declaration's body" means.
+    static func matchedBody(after declaration: String, in code: String) -> String? {
+        guard let start = code.range(of: declaration) else { return nil }
         guard let open = code[start.upperBound...].firstIndex(of: "{") else { return nil }
         var depth = 0
         var index = open
@@ -510,6 +531,57 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         XCTAssertEqual(
             setters, ["MainWindowChrome.swift"],
             "the main window's chrome is configured in one file — a second setter competes with it"
+        )
+    }
+
+    // MARK: - Rule ten: every bottom-bar toggle is identifiable without sight
+
+    /// The window root, and the two toggle idioms whose bodies must each name a
+    /// tooltip *and* an accessibility label.
+    ///
+    /// Part three made both icon-only. That is a visual decision with an
+    /// invisible cost: a `Label(title, systemImage:)` is its own accessibility
+    /// name, an `Image(systemName:)` is not, so dropping the title silently
+    /// turns a named control into an unlabelled button — and `.help(` is a
+    /// *tooltip*, which VoiceOver does not read as a name. Nothing misrenders,
+    /// no test goes red, and the only reader who notices is the one who cannot
+    /// see the bar at all.
+    ///
+    /// Read over the **brace-matched bodies** of the two declarations, in rule
+    /// six's idiom, so a `.help(` somewhere else in this 1 400-line file cannot
+    /// satisfy it. The call count is pinned too: one declaration plus six calls,
+    /// so a seventh dock panel arriving without a glance at this rule fails here
+    /// rather than shipping nameless.
+    private static let windowRootFile = "ContentView.swift"
+
+    func testEveryBottomBarToggleCarriesATooltipAndALabel() throws {
+        let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
+            try Self.read(Self.source(named: Self.windowRootFile))
+        )
+        for declaration in ["func bottomBarButton(", "var completionToggleButton"] {
+            let body = try XCTUnwrap(
+                Self.matchedBody(after: declaration, in: code),
+                "\(declaration) is gone or renamed — re-point this rule rather than losing it"
+            )
+            for required in [".help(", ".accessibilityLabel("] {
+                XCTAssertTrue(
+                    body.contains(required),
+                    """
+                    \(Self.windowRootFile)'s \(declaration) must spell \(required) — an icon-only \
+                    control carries no name of its own
+                    """
+                )
+            }
+        }
+        // One declaration and six calls — the six bottom dock panels. A seventh
+        // panel adds a call here, and this count is where it is asked whether
+        // the new toggle is named.
+        XCTAssertEqual(
+            Self.occurrences(of: "bottomBarButton(", in: code), 7,
+            """
+            \(Self.windowRootFile) must spell bottomBarButton( exactly seven times — the declaration \
+            and one call per bottom dock panel
+            """
         )
     }
 
