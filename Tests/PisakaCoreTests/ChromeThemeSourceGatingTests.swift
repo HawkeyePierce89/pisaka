@@ -537,6 +537,42 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         )
     }
 
+    /// The scene's **one** attachment site.
+    ///
+    /// The setter's uniqueness above says nothing about whether anything ever
+    /// reaches the window: `apply(to:)` is only ever called from the marker's
+    /// `viewDidMoveToWindow()`, and the marker only ever runs because the scene
+    /// attaches it. Delete `.background(MainWindowChrome())` and every other
+    /// gate here stays green while the shipped window keeps its platform title
+    /// bar — so the site is pinned by set equality, exactly as the frame
+    /// marker's own suite pins its sibling on the same line.
+    func testTheSceneAttachesTheWindowChromeExactlyOnce() throws {
+        var attachers: [String] = []
+        for url in try Self.swiftSources() {
+            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            let sites = Self.occurrences(of: "MainWindowChrome(", in: code)
+            if sites > 0 {
+                attachers.append(contentsOf: Array(repeating: url.lastPathComponent, count: sites))
+            }
+        }
+        XCTAssertEqual(
+            attachers, ["PisakaApp.swift"],
+            """
+            the main window's chrome is attached once, by the scene — a missing attachment \
+            leaves the window un-themed with every other rule here still green
+            """
+        )
+
+        let scene = try Self.read(
+            Self.document("Sources/Pisaka/PisakaApp.swift")
+        )
+        let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(scene)
+        XCTAssertTrue(
+            LSPSourceGatingTests.containsToken("MainWindowFrameAutosave", in: code),
+            "the frame marker sits beside the chrome marker on the same line — neither may be lost"
+        )
+    }
+
     // MARK: - Rule ten: every bottom-bar control is identifiable without sight
 
     /// The window root, and the two toggle idioms whose bodies must each name a

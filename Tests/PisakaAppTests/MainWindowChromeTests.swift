@@ -70,6 +70,52 @@ final class MainWindowChromeTests: XCTestCase {
         }
     }
 
+    /// The path the app actually takes: nobody calls `apply(to:)` — a marker is
+    /// attached to the scene's content and reaches its window on its own.
+    ///
+    /// The two property tests above call the static method, so both stay green
+    /// with `viewDidMoveToWindow()` emptied and the shipped window keeping its
+    /// platform title bar. This one drives the attachment instead: a real
+    /// window, asserted opaque and un-themed first, then a marker added to its
+    /// content view — which is the whole trigger — and the same two properties
+    /// read back.
+    func testAttachingTheMarkerAppliesTheChromeToItsWindow() throws {
+        let window = makeWindow()
+        let content = try XCTUnwrap(window.contentView)
+        XCTAssertFalse(
+            window.titlebarAppearsTransparent,
+            "a freshly built window is opaque — otherwise the attachment proves nothing"
+        )
+
+        let marker = MainWindowChromeView()
+        content.addSubview(marker)
+
+        XCTAssertTrue(
+            window.titlebarAppearsTransparent,
+            "the marker must configure the window it moved to, without anyone calling apply(to:)"
+        )
+        let background = try XCTUnwrap(window.backgroundColor)
+        let systemAppearance = try XCTUnwrap(NSAppearance(named: .darkAqua))
+        var resolved = NSColor.clear
+        var expected = NSColor.clear
+        systemAppearance.performAsCurrentDrawingAppearance {
+            resolved = background.usingColorSpace(.sRGB) ?? .clear
+            expected = ChromePalette.nsColor(.bgPanel, in: .dark).usingColorSpace(.sRGB) ?? .clear
+        }
+        XCTAssertEqual(
+            resolved.redComponent, expected.redComponent, accuracy: 0.001,
+            "the attached marker paints the window's ground the bgPanel role"
+        )
+        XCTAssertEqual(
+            resolved.greenComponent, expected.greenComponent, accuracy: 0.001,
+            "the attached marker paints the window's ground the bgPanel role"
+        )
+        XCTAssertEqual(
+            resolved.blueComponent, expected.blueComponent, accuracy: 0.001,
+            "the attached marker paints the window's ground the bgPanel role"
+        )
+    }
+
     /// The marker is a marker: it must not take a click meant for the content
     /// below it, and it must not appear to assistive technology as an element of
     /// its own. `MainWindowFrameAutosave`'s two rules, and it is in that file's

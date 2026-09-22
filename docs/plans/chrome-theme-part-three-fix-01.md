@@ -80,20 +80,20 @@ every source gate green while the shipped window keeps its platform title bar.
 The project's rule is that a behavioural change ships with the test that catches
 its absence; this suite does not.
 
-- [ ] Add a test driving the **attachment path** rather than the static method:
+- [x] Add a test driving the **attachment path** rather than the static method:
       build a real `NSWindow`, assert it is opaque and un-themed first (the
       suite's own existing discipline), then attach a `MainWindowChromeView` to
       the window's content view so `viewDidMoveToWindow()` runs, and assert the
       window came out with the transparent title bar and the panel ground. A
       test that passes without the call in the view is not the test asked for.
-- [ ] Add a gating rule (or extend rule nine, whichever keeps the suite's
+- [x] Add a gating rule (or extend rule nine, whichever keeps the suite's
       numbering honest) pinning the scene's **one** attachment site:
       `MainWindowChrome(` is spelled exactly once in `Sources/`, in
       `PisakaApp.swift`, and the frame-persistence marker's own site is
       unchanged beside it. Deleting the attachment must turn a gate red.
-- [ ] If the rule count moves, update `core-theme.md`'s canonical list and
+- [x] (rule count unchanged — rule nine gained a second test, not a new marker) If the rule count moves, update `core-theme.md`'s canonical list and
       `CLAUDE.md`'s invariant sentence in this same task.
-- [ ] Run `swift test` and the app-layer bundle.
+- [x] Run `swift test` and the app-layer bundle.
 
 ### Task 3: The marker's accessibility assertion is a tautology
 
