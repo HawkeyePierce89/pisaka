@@ -58,7 +58,15 @@ struct BranchSwitcherView: View {
             HStack(spacing: metrics.scaled(4)) {
                 Image(systemName: "arrow.triangle.branch")
                     .accessibilityHidden(true)
+                // One line, always. The bar states its own height now
+                // (`ChromeGeometry.bottomBarHeight`), and a flexible `Text` in a
+                // fixed-height frame does not make room for itself: a long
+                // branch name — the shape this widget meets most often — would
+                // wrap and be clipped in half rather than grow the bar.
+                // Truncating is the same answer the popover's own rows give.
                 Text(currentLabel)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
                 // The caret the design draws on a widget that opens a list.
                 // Neither switcher carried one before this sweep.
                 Image(systemName: "chevron.down")

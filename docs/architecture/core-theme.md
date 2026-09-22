@@ -633,7 +633,7 @@ although it is an editing affordance rather than a row: an inline draft
 for. `TabStripView.swift` covers `TabStatusMark` too, the slot view the two
 orientations share, which is why that extraction did not add a seventh file.
 
-The ten rules, each invisible to the compiler:
+The eleven rules, each invisible to the compiler:
 
 1. **No gated view names a system semantic colour.** A closed forbidden-token
    list — AppKit's semantic set (`labelColor`, `separatorColor`,
@@ -746,6 +746,23 @@ The ten rules, each invisible to the compiler:
    pins the shape of the regression, and the rest is the reviewer's, under the
    sweep's own sentence — a symbol whose name or colour varies with a value is
    state.
+11. **Every label the bottom bar draws stays on one line.** Part three gave the
+   bar `frame(height:)` on `ChromeGeometry.bottomBarHeight`, where its height
+   used to come from the padding around its content. A flexible `Text` in a
+   fixed-height frame does not make room for itself: a label long enough to wrap
+   — a deep project folder, and above all a branch name, the one string here
+   nobody chooses for its length — is laid out in two lines and drawn in one and
+   a half, clipped by the frame rather than growing it. So each of the three
+   files that draw a `Text` inside the bar — `ProjectSwitcherView.swift`,
+   `BranchSwitcherView.swift` and `PullRequestIndicatorView.swift` — must spell
+   `.lineLimit(1)`, the two switchers with a truncation mode beside it, the same
+   answer their own popover rows already give. The honest limit is stated with
+   the rule, as rule ten states its own: a source rule cannot see a layout. It
+   sees the line that prevents this one, and cannot tell which `Text` in the file
+   carries it, so a bar label that lost the limit while a popover row kept one
+   would satisfy it. What it pins is that the construct is known here at all —
+   which is exactly what the bar did not have, the limit being absent from all
+   three.
 
 Plus a **self-check** in the suite's own idiom: every gated file must actually
 *name* a `ChromeColorRole`, or the checks above have gone vacuous — with one

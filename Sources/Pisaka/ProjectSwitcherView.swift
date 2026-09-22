@@ -51,7 +51,15 @@ struct ProjectSwitcherView: View {
                 Image(systemName: "folder")
                     .foregroundStyle(theme.color(.textSecondary))
                     .accessibilityHidden(true)
+                // One line, always. The bar states its own height now
+                // (`ChromeGeometry.bottomBarHeight`), and a flexible `Text` in a
+                // fixed-height frame does not make room for itself: a folder
+                // name long enough to wrap on a narrow window is a name drawn in
+                // two lines and clipped to one and a half. Truncating is the
+                // same answer the popover's own rows give, for the same reason.
                 Text(currentLabel)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
                     .foregroundStyle(theme.color(.textPrimary))
                 // The caret the design draws on a widget that opens a list.
                 // Neither switcher carried one before this sweep.

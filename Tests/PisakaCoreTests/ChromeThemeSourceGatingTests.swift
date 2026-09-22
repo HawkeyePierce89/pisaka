@@ -711,6 +711,52 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         )
     }
 
+    // MARK: - Rule eleven: every label the bar draws stays on one line
+
+    /// The three widgets again, this time as the only files that draw a `Text`
+    /// inside the bar's own fixed-height frame.
+    ///
+    /// Part three gave the bottom bar `frame(height:)` on
+    /// `ChromeGeometry.bottomBarHeight`, where before its height came from the
+    /// padding around its content. In a fixed-height frame a flexible `Text`
+    /// does not make room for itself: a label long enough to wrap — a deep
+    /// project folder, and especially a branch name, which is the one string
+    /// here nobody chooses for its length — is laid out in two lines and drawn
+    /// in one and a half, clipped by the frame instead of growing it. Nothing
+    /// errors, nothing else goes red, and the bar looks right on every window
+    /// wide enough.
+    ///
+    /// So each widget file must spell `.lineLimit(1)`, asserted in this suite's
+    /// `contains` idiom over stripped source.
+    ///
+    /// The honest limit, stated with the rule as the two above state theirs: a
+    /// source rule cannot see a layout. It sees the line that prevents this one
+    /// — it cannot tell *which* `Text` in the file carries the limit, so a file
+    /// whose bar label lost it while a popover row kept one would satisfy this.
+    /// What it pins is that the construct is known here at all, which is what
+    /// the widgets did not have: the limit was absent from all three.
+    private static let barLabelFiles = [
+        "ProjectSwitcherView.swift",
+        "BranchSwitcherView.swift",
+        "PullRequestIndicatorView.swift",
+    ]
+
+    func testEveryBottomBarLabelIsSingleLine() throws {
+        for name in Self.barLabelFiles {
+            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
+                try Self.read(Self.source(named: name))
+            )
+            XCTAssertTrue(
+                code.contains(".lineLimit(1)"),
+                """
+                \(name) draws a Text inside the bottom bar's fixed-height frame and must limit it \
+                to one line — a label that wraps in a frame that cannot grow is a label drawn in \
+                two lines and clipped to one and a half
+                """
+            )
+        }
+    }
+
     // MARK: - Self-check
 
     /// Every gated file draws with roles and must therefore name one — with a

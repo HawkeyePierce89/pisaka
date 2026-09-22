@@ -736,7 +736,7 @@ ci.yml's `lint` job, and the version-bump procedure.
   live in both directions when the system appearance changed under it. A
   reader: it takes no writer gate, is gated by none and writes nothing.
   `ChromeThemeSourceGatingTests` pins which files obey the rule (sixteen, by set
-  equality) and its ten rules — no system semantic colour, no hex literal
+  equality) and its eleven rules — no system semantic colour, no hex literal
   outside the table, the three exemptions stay exemptions, the theme injected at
   the scale's roots, no view constructing a theme, the gutter's fill still going
   through its own rule (a seam pins nothing its call site does not spend, and
@@ -747,7 +747,9 @@ ci.yml's `lint` job, and the version-bump procedure.
   accessibility name for free is gone, and the three widgets hide every
   decorative symbol they draw, since a `Button` combines its children and an
   unhidden SF Symbol folds its own name in — the pull-request indicator the
-  stated exception, naming itself outright) — plus, beside the rules rather
+  stated exception, naming itself outright), and every label the bar draws
+  staying on one line (the bar states its own height now, so a label that wraps
+  is clipped rather than accommodated) — plus, beside the rules rather
   than among them, the cross-file count that keeps this sentence and
   `core-theme.md`'s own list equal to the number of rules the suite declares —
   while **three files are exempt because they are not

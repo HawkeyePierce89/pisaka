@@ -50,7 +50,14 @@ struct PullRequestIndicatorView: View {
                     // a glyph no longer applies.
                     Image(systemName: "arrow.triangle.merge")
                         .foregroundStyle(theme.color(.textSecondary))
+                    // The same single-line rule its two neighbours carry, swept
+                    // as a construct rather than fixed where it already hurts: a
+                    // number does not wrap today, but every `Text` drawn inside
+                    // the bar's fixed-height frame is clipped rather than
+                    // accommodated when it does, so the rule is the bar's, not
+                    // this string's.
                     Text("#\(pullRequest.number)")
+                        .lineLimit(1)
                         .monospacedDigit()
                         .foregroundStyle(theme.color(.textSecondary))
                     Image(systemName: Self.symbol(pullRequest.summary))
