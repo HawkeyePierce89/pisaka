@@ -140,7 +140,7 @@ Decisions settled during planning. Each one departs from the ticket's wording. T
 - Create: `Sources/Pisaka/CommitGraphPalette.swift`, `Tests/PisakaAppTests/CommitGraphPaletteTests.swift`
 - Modify: `Sources/Pisaka/CommitGraphView.swift`, `Sources/Pisaka/CommitLogView.swift` (gutter width only)
 
-- [ ] **Create `CommitGraphPalette`**: macOS-gated, one exhaustive light/dark table of eight lane identities. The values are today's eight system colours written out as light/dark pairs:
+- [x] **Create `CommitGraphPalette`**: macOS-gated, one exhaustive light/dark table of eight lane identities. The values are today's eight system colours written out as light/dark pairs:
   - blue 0x007AFF / 0x0A84FF
   - green 0x28CD41 / 0x32D74B
   - orange 0xFF9500 / 0xFF9F0A
@@ -149,21 +149,21 @@ Decisions settled during planning. Each one departs from the ticket's wording. T
   - teal 0x30B0C7 / 0x40C8E0
   - pink 0xFF2D55 / 0xFF375F
   - yellow 0xFFCC00 / 0xFFD60A
-- [ ] It answers `nsColor(forLane:)` with a dynamic `NSColor` resolved at draw time. The index wraps modulo the count, and negative indices still work, as today.
-- [ ] Its doc comment states:
+- [x] It answers `nsColor(forLane:)` with a dynamic `NSColor` resolved at draw time. The index wraps modulo the count, and negative indices still work, as today.
+- [x] Its doc comment states:
   - A lane colour is an identity token, not a chrome meaning (the ANSI-16 argument).
   - Pressing a lane into `statusRed` would be the misuse the closed vocabulary exists to prevent.
   - The design's two lane colours cannot tell several concurrent branches apart.
   - The eight hues are today's system values, carried over deliberately so this step changes nothing visually in the gutter. They were not chosen against the design's ground; choosing hues that sit on it is an open design question.
-- [ ] **`CommitGraphView`**:
+- [x] **`CommitGraphView`**:
   - It reads `CommitGraphPalette` and keeps no palette of its own. After this task it spells no colour at all.
   - Line width becomes 2 and node radius 3 (a 6 pt dot). Lane spacing stays 14.
-- [ ] **Gutter width in `CommitLogView`**: `max(40, laneCount × 14 + 6)`, scaled at the use site. The 40 is a minimum in a private `Layout` enum, not arithmetic on a token.
-- [ ] **App-layer test `CommitGraphPaletteTests`**:
+- [x] **Gutter width in `CommitLogView`**: `max(40, laneCount × 14 + 6)`, scaled at the use site. The 40 is a minimum in a private `Layout` enum, not arithmetic on a token.
+- [x] **App-layer test `CommitGraphPaletteTests`**:
   - Both sets have eight entries, pairwise distinct within each set.
   - The dynamic colour resolves to the light value under the light appearance and to the dark value under the dark appearance.
   - A negative index and index 8 both wrap.
-- [ ] Run `swift test` — must pass before Task 3. The app bundle runs in Task 8.
+- [x] Run `swift test` — must pass before Task 3. The app bundle runs in Task 8.
 
 ### Task 3: The Log panel — rows, header row, detail pane and filter bar
 

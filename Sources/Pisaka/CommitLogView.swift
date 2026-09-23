@@ -289,20 +289,34 @@ private struct CommitRow: View {
     /// The interface zone's metrics, inherited from the window root.
     @Environment(\.interfaceMetrics) private var metrics
 
-    /// Base spacing between the gutter's lanes, and the base margin after the
-    /// last one. Both are scaled below and handed to the AppKit cell, so the
-    /// gutter's own drawing keeps pace with the rows it sits beside.
-    private static let baseLaneSpacing: Double = 14
-    private static let baseGraphMargin: Double = 6
+    /// The gutter's base measurements, each scaled at its use site and handed to
+    /// the AppKit cell, so the gutter's own drawing keeps pace with the rows it
+    /// sits beside.
+    private enum Layout {
+        /// Spacing between the gutter's lanes.
+        static let laneSpacing: Double = 14
+        /// The margin after the last lane.
+        static let graphMargin: Double = 6
+        /// The gutter's minimum width: a short history still gets a gutter this
+        /// wide, and a wide one grows past it by lane count.
+        static let minGraphWidth: Double = 40
+        /// The commit node's radius (a 6 pt dot).
+        static let nodeRadius: Double = 3
+        /// The edge lines' stroke width.
+        static let lineWidth: Double = 2
+    }
 
     /// This row's height at the current interface scale.
     private var rowHeight: CGFloat { metrics.scaled(CommitLogView.baseRowHeight) }
 
-    /// Width reserved for the graph gutter: one lane's spacing per column, with a
-    /// small minimum so a single-lane history still shows its line.
+    /// Width reserved for the graph gutter: one lane's spacing per column plus
+    /// the trailing margin, never narrower than the stated minimum.
     private var graphWidth: CGFloat {
-        CGFloat(max(laneCount, 1)) * metrics.scaled(Self.baseLaneSpacing)
-            + metrics.scaled(Self.baseGraphMargin)
+        max(
+            metrics.scaled(Layout.minGraphWidth),
+            CGFloat(max(laneCount, 1)) * metrics.scaled(Layout.laneSpacing)
+                + metrics.scaled(Layout.graphMargin)
+        )
     }
 
     var body: some View {
@@ -313,9 +327,9 @@ private struct CommitRow: View {
                     incomingEdges: incomingEdges,
                     laneCount: max(laneCount, 1),
                     rowHeight: rowHeight,
-                    laneSpacing: metrics.scaled(Self.baseLaneSpacing),
-                    nodeRadius: metrics.scaled(3.5),
-                    lineWidth: metrics.scaled(1.5)
+                    laneSpacing: metrics.scaled(Layout.laneSpacing),
+                    nodeRadius: metrics.scaled(Layout.nodeRadius),
+                    lineWidth: metrics.scaled(Layout.lineWidth)
                 )
                 .frame(width: graphWidth, height: rowHeight)
             }
