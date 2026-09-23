@@ -26,8 +26,9 @@ import Foundation
 ///
 /// The inventory below is the whole table, and it is pinned by set equality in
 /// `ChromeThemeTests` — a token added here without its test fails the suite.
-/// Five of them are insets rather than sizes (`rowPaddingX`, `barPaddingX`,
-/// `panelHeaderPaddingX`, `dockTabRowPaddingX`, `dockTabLabelPaddingX`) and
+/// Six of them are insets rather than sizes (`rowPaddingX`, `barPaddingX`,
+/// `panelHeaderPaddingX`, `dockTabRowPaddingX`, `dockTabLabelPaddingX`,
+/// `buttonPaddingX`) and
 /// they are deliberately distinct tokens for distinct measurements, even where
 /// two values coincide; see `barPaddingX`'s own comment.
 public enum ChromeGeometry {
@@ -37,8 +38,10 @@ public enum ChromeGeometry {
     public static let rowPaddingX: Double = 8
     /// How far one level of nesting insets a project-tree child from its parent.
     public static let treeIndentStep: Double = 16
-    /// The largest corner radius the chrome uses. Chrome corners are either
-    /// square or this; there is no intermediate radius.
+    /// The largest corner radius the chrome uses. A chrome surface's corners are
+    /// either square or this; the only smaller radii are the small controls'
+    /// own, each a token of its own (`bottomBarToggleRadius`,
+    /// `buttonCornerRadius`) — never one computed from this.
     public static let cornerRadiusMax: Double = 6
     /// The width of a hairline separating two chrome zones.
     public static let hairlineWidth: Double = 1
@@ -81,4 +84,12 @@ public enum ChromeGeometry {
     public static let dockTabLabelPaddingX: Double = 10
     /// The thickness of the accent indicator marking the active tab.
     public static let accentIndicator: Double = 2
+    /// A chrome push button's horizontal padding around its label — one
+    /// measurement, drawn on the Local Changes toolbar and on the pull-request
+    /// rows. Deliberately *not* `dockTabRowPaddingX` / `dockTabLabelPaddingX`,
+    /// although all three are equal today: a button's box around its label is
+    /// a third measurement, the argument `barPaddingX`'s comment makes.
+    public static let buttonPaddingX: Double = 10
+    /// A chrome push button's corner radius.
+    public static let buttonCornerRadius: Double = 5
 }

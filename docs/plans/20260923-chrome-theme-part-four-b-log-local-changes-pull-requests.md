@@ -91,48 +91,48 @@ Decisions settled during planning. Each one departs from the ticket's wording. T
 - Modify: `Sources/PisakaCore/ChromeColorRole.swift`, `ChangedFile.swift`, `GitHubPullRequest.swift`, `LineDiff.swift`, `ChromeGeometry.swift`
 - Modify: `Tests/PisakaCoreTests/ChromeThemeTests.swift`, plus either the existing `ChangedFile`, GitHub-vocabulary and `LineDiff` test files or a new `ChromeRoleMappingTests.swift`
 
-- [ ] **`FileStatus` gains `letter` and `spokenName`:**
+- [x] **`FileStatus` gains `letter` and `spokenName`:**
   - `letter`: M/A/D/R/U/C for modified/added/deleted/renamed/untracked/conflicted.
   - `spokenName`: "Modified", "Added", "Deleted", "Renamed", "Untracked", "Conflicted".
   - The doc comment says the letter carries the identity and the colour carries the weight.
-- [ ] **`ChromeColorRole.changedFileRole(for: FileStatus)`**, in the same extension as `diagnosticRole(for:)`:
+- [x] **`ChromeColorRole.changedFileRole(for: FileStatus)`**, in the same extension as `diagnosticRole(for:)`:
   - added → `statusGreen`
   - modified, renamed → `statusYellow`
   - deleted, conflicted → `statusRed`
   - untracked → `textSecondary`
-- [ ] **`ChromeColorRole.checksRole(for: GitHubChecksSummary)`**:
+- [x] **`ChromeColorRole.checksRole(for: GitHubChecksSummary)`**:
   - noChecks → `textSecondary`
   - pending → `statusYellow`
   - failure → `statusRed`
   - success → `statusGreen`
-- [ ] **`ChromeColorRole.checksRole(for: GitHubCheckBucket)`**:
+- [x] **`ChromeColorRole.checksRole(for: GitHubCheckBucket)`**:
   - pass → `statusGreen`
   - fail → `statusRed`
   - pending → `statusYellow`
   - skipping, cancel → `textSecondary`
-- [ ] **The checks glyphs and words move to Core**, because the new case-label rule forbids views from spelling these cases:
+- [x] **The checks glyphs and words move to Core**, because the new case-label rule forbids views from spelling these cases:
   - `GitHubChecksSummary.symbolName`: noChecks "circle", pending "clock", failure "xmark.circle.fill", success "checkmark.circle.fill". "circle" is the indicator's documented choice, and the panel's "minus.circle" is unified onto it.
   - `GitHubChecksSummary.spokenWords`: "No checks" / "Checks running" / "Checks failed" / "Checks passed".
   - `GitHubCheckBucket.symbolName`: pass "checkmark.circle.fill", fail "xmark.circle.fill", pending "clock", skipping "minus.circle", cancel "slash.circle".
   - `GitHubCheckBucket.spokenWords`: "Passed" / "Failed" / "Running" / "Skipped" / "Cancelled".
-- [ ] **`public enum DiffSide { case old, new }`** in `LineDiff.swift`. This is the one definition of a diff side for the macOS surfaces; Task 5 deletes the app's `DiffTextView.Side` in its favour.
-- [ ] **The diff wash functions:**
+- [x] **`public enum DiffSide { case old, new }`** in `LineDiff.swift`. This is the one definition of a diff side for the macOS surfaces; Task 5 deletes the app's `DiffTextView.Side` in its favour.
+- [x] **The diff wash functions:**
   - `ChromeColorRole.diffWashRole(for: DiffRowKind, side: DiffSide) -> ChromeColorRole?`:
     - unchanged → nil
     - old side: removed and modified → `diffRemovedBackground`; added → nil (the filler row is plain)
     - new side: added and modified → `diffAddedBackground`; removed → nil
   - `diffWashRole(for: UnifiedDiffLine.Kind)`: context → nil, removed → `diffRemovedBackground`, added → `diffAddedBackground`.
   - `diffMarkerRole(for: DiffRowKind, side: DiffSide)`: `statusRed` on the old side for removed and modified, `statusGreen` on the new side for added and modified, nil otherwise.
-- [ ] **Update the `ChromeColorRole` doc comment's unspent list.** Six unspent roles become four: `bgPopover`, `currentLine`, `bracketMatch`, `conflictBackground`.
-- [ ] **Two new `ChromeGeometry` tokens**, each documented as its own measurement:
+- [x] **Update the `ChromeColorRole` doc comment's unspent list.** Six unspent roles become four: `bgPopover`, `currentLine`, `bracketMatch`, `conflictBackground`.
+- [x] **Two new `ChromeGeometry` tokens**, each documented as its own measurement:
   - `buttonPaddingX = 10`: a chrome push button's horizontal padding, shared by the Local Changes toolbar and the pull-request rows. It is deliberately a separate token from `dockTabRowPaddingX` / `dockTabLabelPaddingX`, even though the values are equal.
   - `buttonCornerRadius = 5`.
   - Amend `cornerRadiusMax`'s "square or this" sentence so it names the small control radii honestly.
-- [ ] **Tests:**
+- [x] **Tests:**
   - Pin every answer verbatim over `allCases`, both `DiffSide` cases included.
   - Assert the filler cases answer nil.
   - Add both tokens to `ChromeThemeTests`' inventory by set equality.
-- [ ] Run `swift test` — must pass before Task 2.
+- [x] Run `swift test` — must pass before Task 2.
 
 ### Task 2: The lane palette as the fourth exemption, and the gutter geometry
 

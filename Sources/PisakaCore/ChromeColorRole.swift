@@ -13,10 +13,11 @@ import Foundation
 /// surface that appears to need a twenty-second role has instead found a design
 /// question, and the answer is to reuse one of these or to change the design —
 /// not to grow the table. Some roles are consequently still unused after the
-/// sixteen surfaces restyled so far — six of them (`bgPopover`, `currentLine`,
-/// `bracketMatch`, `diffAddedBackground`, `diffRemovedBackground`,
-/// `conflictBackground`), each waiting for the surface that means it: the
-/// popovers, the code zone's two line overlays, and the diff and merge panes.
+/// surfaces restyled so far — four of them (`bgPopover`, `currentLine`,
+/// `bracketMatch`, `conflictBackground`), each waiting for the surface that
+/// means it: the popovers, the code zone's two line overlays, and the merge
+/// pane. The two diff backgrounds are spent by the diff pane and the unified
+/// diff, through `diffWashRole(for:side:)` / `diffWashRole(for:)`.
 /// They are declared here nonetheless, because the table is the design, not an
 /// inventory of today's call sites.
 ///
@@ -111,6 +112,77 @@ extension ChromeColorRole {
         case .warning: return .statusYellow
         case .information: return .accent
         case .hint: return .textSecondary
+        }
+    }
+
+    /// Changed-file status → the role its letter is drawn in. The chrome's **one**
+    /// answer, read by the Log's detail pane, the Local Changes panel and the
+    /// commit dialog; none of them keeps a table of its own. Colour carries the
+    /// weight, not the identity — `FileStatus.letter` does that — so two
+    /// statuses sharing a role is by design: a rename is as much a change as an
+    /// edit, and a conflict is as urgent as a deletion.
+    public static func changedFileRole(for status: FileStatus) -> ChromeColorRole {
+        switch status {
+        case .added: return .statusGreen
+        case .modified, .renamed: return .statusYellow
+        case .deleted, .conflicted: return .statusRed
+        case .untracked: return .textSecondary
+        }
+    }
+
+    /// A pull request's checks summary → its glyph's role. One answer for the
+    /// Pull Requests panel's rows and the bottom-bar indicator.
+    public static func checksRole(for summary: GitHubChecksSummary) -> ChromeColorRole {
+        switch summary {
+        case .noChecks: return .textSecondary
+        case .pending: return .statusYellow
+        case .failure: return .statusRed
+        case .success: return .statusGreen
+        }
+    }
+
+    /// One job's bucket → its glyph's role, in an expanded pull-request row. A
+    /// skipped or cancelled job is a remark, not a verdict, and is drawn in
+    /// `textSecondary`.
+    public static func checksRole(for bucket: GitHubCheckBucket) -> ChromeColorRole {
+        switch bucket {
+        case .pass: return .statusGreen
+        case .fail: return .statusRed
+        case .pending: return .statusYellow
+        case .skipping, .cancel: return .textSecondary
+        }
+    }
+
+    /// A side-by-side diff row's wash on one side, or `nil` for a plain row.
+    /// A modified row is washed on both sides; an added row only on the new
+    /// side and a removed row only on the old — the opposite side's filler row
+    /// stays plain.
+    public static func diffWashRole(for kind: DiffRowKind, side: DiffSide) -> ChromeColorRole? {
+        switch (kind, side) {
+        case (.unchanged, _): return nil
+        case (.removed, .old), (.modified, .old): return .diffRemovedBackground
+        case (.added, .new), (.modified, .new): return .diffAddedBackground
+        case (.added, .old), (.removed, .new): return nil
+        }
+    }
+
+    /// A unified diff line's wash, or `nil` for a context line.
+    public static func diffWashRole(for kind: UnifiedDiffLine.Kind) -> ChromeColorRole? {
+        switch kind {
+        case .context: return nil
+        case .removed: return .diffRemovedBackground
+        case .added: return .diffAddedBackground
+        }
+    }
+
+    /// The gutter marker's role on one side of a side-by-side diff row, or `nil`
+    /// where no marker is drawn: red on the old side of a removal or
+    /// modification, green on the new side of an addition or modification.
+    public static func diffMarkerRole(for kind: DiffRowKind, side: DiffSide) -> ChromeColorRole? {
+        switch (kind, side) {
+        case (.removed, .old), (.modified, .old): return .statusRed
+        case (.added, .new), (.modified, .new): return .statusGreen
+        case (.unchanged, _), (.added, .old), (.removed, .new): return nil
         }
     }
 }
