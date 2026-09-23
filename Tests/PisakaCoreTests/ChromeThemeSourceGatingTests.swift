@@ -1716,12 +1716,23 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// is drawn a second time inside a horizontal `ScrollView`, the branch that
     /// keeps every control reachable once the minimums no longer compose.
     /// Neither half proves the layout; each is the half that went missing.
+    ///
+    /// The fixed width is matched as a regular expression — `width:` as the
+    /// `.frame(`'s first argument whatever whitespace and newlines sit between
+    /// them — and not as a contiguous substring, because the file writes every
+    /// width site as a multi-line `.frame(` carrying three keys. The regression
+    /// this rule exists to catch therefore arrives as one of those keys being
+    /// changed to `width:`, not as a fresh single-line call; a contiguous match
+    /// saw only the historical spelling. The key must be exactly `width` — the
+    /// match starts right after the parenthesis and its whitespace, so
+    /// `minWidth:`, `idealWidth:` and `maxWidth:` never satisfy it.
     func testTheLogFilterBarStatesNoFixedWidthAndScrollsBelowItsFloor() throws {
         let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
             try Self.read(Self.source(named: "LogFilterBar.swift"))
         )
-        XCTAssertFalse(
-            code.contains(".frame(width:"),
+        let fixedWidth = try NSRegularExpression(pattern: #"\.frame\(\s*width\s*:"#)
+        XCTAssertNil(
+            fixedWidth.firstMatch(in: code, range: NSRange(code.startIndex..., in: code)),
             """
             LogFilterBar.swift states a fixed .frame(width: — a control that cannot shrink clips the \
             row below the window's minimum width; state minWidth/maxWidth instead
