@@ -395,6 +395,11 @@ struct CommitDialogView: View {
 /// status-tinted file icon, the name (with its directory dimmed beside it) and the
 /// one-letter status badge shared with the Local Changes panel.
 ///
+/// The letter, its colour and its spoken name are Core's one answer
+/// (`FileStatus.letter`, `ChromeColorRole.changedFileRole(for:)`,
+/// `FileStatus.spokenName`) — the same three the Local Changes panel and the Log's
+/// detail pane read. Nothing else in the dialog is on the chrome roles yet.
+///
 /// The checkbox is three-state only where a partial selection can exist: a file
 /// with no line units — binary, deleted, or differing only in line endings — is
 /// checked or unchecked and never mixed, which is `CheckboxState.of(_:)`'s rule
@@ -414,9 +419,12 @@ private struct CommitFileRow: View {
 
     /// The interface zone's metrics, inherited from the sheet's root.
     @Environment(\.interfaceMetrics) private var metrics
+    /// The chrome's colours, inherited from the sheet's root.
+    @Environment(\.chromeTheme) private var theme
 
     var body: some View {
         let status = selection.file.status
+        let statusColor = theme.color(ChromeColorRole.changedFileRole(for: status))
         let icon = FileIcon(
             for: DirectoryEntry(url: URL(fileURLWithPath: selection.path), isDirectory: false)
         )
@@ -429,7 +437,7 @@ private struct CommitFileRow: View {
             .help("Include this file in the commit")
             .disabled(!isMutable)
             Image(systemName: icon.symbolName)
-                .foregroundStyle(statusColor(status))
+                .foregroundStyle(statusColor)
             Text((selection.path as NSString).lastPathComponent)
             let directory = (selection.path as NSString).deletingLastPathComponent
             if !directory.isEmpty {
@@ -440,9 +448,10 @@ private struct CommitFileRow: View {
                     .truncationMode(.head)
             }
             Spacer(minLength: metrics.scaled(4))
-            Text(statusLetter(status))
+            Text(status.letter)
                 .font(metrics.scaledFont(.caption2, design: .monospaced))
-                .foregroundStyle(statusColor(status))
+                .foregroundStyle(statusColor)
+                .accessibilityValue(status.spokenName)
         }
         .font(metrics.scaledFont(.body))
         .lineLimit(1)

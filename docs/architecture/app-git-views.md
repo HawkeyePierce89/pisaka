@@ -366,9 +366,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     from a shell.
   - `CommitDialogView.swift` — the commit dialog: a modal **sheet** on
     the main window. Left, the changed files with three-state checkboxes and
-    status badges (reusing `LocalChangesView`'s `statusColor`/`statusLetter`,
-    which became internal for exactly that — two lists of changed files
-    disagreeing about what "M" looks like would be a needless inconsistency)
+    status badges (reading Core's one answer — `FileStatus.letter`,
+    `ChromeColorRole.changedFileRole(for:)` through `@Environment(\.chromeTheme)`,
+    and `FileStatus.spokenName` as the letter's accessibility value — the same
+    three the Local Changes panel and the Log's detail pane read, since two lists
+    of changed files disagreeing about what "M" looks like would be a needless
+    inconsistency; nothing else in the dialog is on the chrome roles yet)
     inside a `ScrollViewReader` whose one job is the **preselect**: opened from a
     file's Commit… item the single checked row is the only thing the user came for,
     and on a change list taller than the panel it would otherwise sit off screen
@@ -514,10 +517,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
   - `LocalChangesView.swift` — the Local Changes bottom dock panel (no longer a
     left-panel mode). Observes
     `LocalChangesModel` and renders `changedFiles` flat or grouped by folder
-    (`ChangeTree`, recursing in-memory `ChangeNode.children` via
-    `DisclosureGroup`s — no disk read), per `model.groupingMode`. A segmented
-    control toggles flat/by-folder and a button refreshes against the project
-    root; it also auto-refreshes on appear and on `projectRoot` change. That
+    (`ChangeTree`, recursing in-memory `ChangeNode.children` — no disk read), per
+    `model.groupingMode`. A two-segment glyph control in the toolbar toggles
+    flat/by-folder and a glyph refreshes against the project root; it also
+    auto-refreshes on appear and on `projectRoot` change. That
     **change handler refreshes the root its parameter carries**, never
     `self.projectRoot`: `projectRoot` is a plain stored property of the view value
     and macOS 13's `onChange(of:perform:)` runs the closure captured *before* the
@@ -530,9 +533,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     (`ChangedFileRow`, used by both the flat list and the by-folder
     `ChangeNodeView` leaf) shows a leading checkbox bound to
     `model.revertSelection` (toggled via `model.toggleChecked(file)`) for
-    multi-file revert, a `FileIcon(for:)` tinted by git status, plus a one-letter
-    badge (M/A/D/R/U/C), with VCS-convention colors (added → green, deleted → red,
-    modified → blue, renamed → orange, untracked → gray, conflicted → purple).
+    multi-file revert, a monochrome `FileIcon(for:)` glyph, the name, plus a
+    one-letter badge — `FileStatus.letter`, coloured by
+    `ChromeColorRole.changedFileRole(for:)` and spoken as `FileStatus.spokenName`
+    (Core's one answer; the letter carries the identity, the colour the weight).
     Four triggers share one activation path through `LocalChangesModel`: (1) a
     *double*-click (`.onTapGesture(count: 2)`, declared before the single-tap
     select) calls `onSelect()` first (so the panel focuses on that row) then
@@ -540,14 +544,15 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `onOpenDiff()` or `onResolveConflict()`; (2) the "Show Diff" context-menu
     item calls the same `activate()` (shown only when
     `LocalChangesModel.offersShowDiff(for:)` is true, i.e. not for conflicted
-    rows, which keep their existing "Resolve…" + `Divider()`); (3) Cmd+D while
+    rows, which keep their existing "Resolve…" in a section of its own); (3) Cmd+D while
     the panel has keyboard focus (see the focus anchor below); (4) the "Jump to
     Source" context-menu item (shown only when
     `LocalChangesModel.offersJumpToSource(for:)` is true, i.e. not for deleted
     rows) resolves the file against `model.root` and calls the same `onOpenFile`
     the project tree uses. The context menu order for non-conflicted rows is:
     Show Diff, Jump to Source, Commit…, Revert — non-destructive items above the
-    destructive one. A `.contextMenu` **Commit…**
+    destructive one, grouped by `Section`s (which render the same menu
+    separators the two `Divider()`s did; no `Divider()` remains). A `.contextMenu` **Commit…**
     item calls `onCommitFile(file)` and a **Revert**
     item calls `onRevert(file)`. The
     callbacks are threaded `PisakaApp → ContentView → LocalChangesView` down
@@ -603,15 +608,32 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     existing item in this menu (Show Diff, Resolve…, Commit…), which is
     pointer-driven activation and leaves keyboard focus where the user put it. The anchor is chrome, not a zoom surface — it draws at
     no font at all, so it does not declare `ZoomSurfaceProviding`. Placeholders
-    cover no-folder / error / no-changes. The header also holds a **Commit** button
-    (`checkmark.circle`) calling `onCommit()` — the same handler
+    cover no-folder / error / no-changes. The toolbar's primary button is
+    **Commit**, calling `onCommit()` — the same handler
     the ⌘K menu item runs, so button and command behave identically — disabled on
     exactly the one condition that item is (no project root; see there for why an
     empty change list deliberately does *not* disable it).
-    Its `statusColor(_:)`/`statusLetter(_:)` helpers are **internal** rather than
-    file-private so the commit dialog's file list draws the same badge: the mapping
-    is one rule, and two lists of changed files disagreeing about it would be a
-    needless inconsistency.
+    **On the chrome roles** since part four (b) of the chrome theme; the shared
+    `statusColor(_:)`/`statusLetter(_:)` helpers and the private `iconColor(for:)`
+    are gone, the status mapping being Core's. The measurements, in a private
+    `LocalChangesLayout`, scaled at the use site: the toolbar is 32 pt tall with
+    10 pt padding and an 8 pt gap and draws its own bottom `hairline`; Commit is an
+    `accent` ground with an `onAccent` `.subheadline` semibold label,
+    `ChromeGeometry.buttonPaddingX` and `buttonCornerRadius`; the grouping control
+    is two 22 pt glyph segments in a hairline-bordered box, the chosen one on
+    `accentTint`, each segment named and speaking its selection; refresh is a
+    15 pt `textSecondary` glyph with an accessibility label and its symbol hidden.
+    A folder header is drawn by hand rather than by a `DisclosureGroup` (whose
+    system triangle would bring its own colour): 22 pt tall, 10 pt padding, 6 pt
+    gap, a `textSecondary` chevron, the monochrome folder glyph and the name in
+    `.subheadline` monospaced, speaking expanded/collapsed as its value; each
+    level indents by `treeIndentStep`. A file row is `rowHeight` tall, inset 26 pt
+    under a folder (level with the folder's glyph) or 10 pt in the flat list; its
+    checkbox is drawn at 14 pt with a 3 pt radius — a `hairline` border off, an
+    `accent` ground with an `onAccent` check on — labelled with the file it
+    includes and speaking on/off; the status letter is `.callout` monospaced
+    semibold; the glyph is `textSecondary` and the name `textPrimary` `.body`.
+    Washes are `accentTintStrong` (selection) and `hoverTint` (hover).
   - `DiffView.swift` — `NSViewRepresentable` rendering a pre-computed `[DiffRow]`
     (`HEAD` left, working copy right) as two side-by-side read-only TextKit-1
     `NSTextView`s (no soft-wrap, so one logical line = one visual row and the

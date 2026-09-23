@@ -204,25 +204,25 @@ Decisions settled during planning. Each one departs from the ticket's wording. T
 **Files:**
 - Modify: `Sources/Pisaka/LocalChangesView.swift`, `Sources/Pisaka/CommitDialogView.swift`
 
-- [ ] **Delete the shared helpers**: the internal `statusColor(_:)` / `statusLetter(_:)` and the private `iconColor(for:)`.
+- [x] **Delete the shared helpers**: the internal `statusColor(_:)` / `statusLetter(_:)` and the private `iconColor(for:)`.
   - Local Changes and the commit dialog read `status.letter`, `theme.color(.changedFileRole(for:))` and `status.spokenName`.
   - The commit dialog changes nothing else.
-- [ ] **Toolbar**, replacing today's header:
+- [x] **Toolbar**, replacing today's header:
   - 32 pt tall, 10 pt padding, 8 pt gap (private), bottom hairline by overlay.
   - Commit becomes the primary button: `accent` ground, `onAccent` label in `.subheadline` semibold, `buttonPaddingX`, `buttonCornerRadius`.
   - The flat/by-folder picker is restyled.
   - Refresh is a 15 pt `textSecondary` glyph with an accessibility label and its symbol hidden.
-- [ ] **Folder header**: 22 pt tall, 10 pt padding, 6 pt gap. The folder glyph is `textSecondary` (monochrome, like the Problems headers); the name is `textSecondary` `.subheadline` monospaced.
-- [ ] **File row**: `rowHeight` (24).
+- [x] **Folder header**: 22 pt tall, 10 pt padding, 6 pt gap. The folder glyph is `textSecondary` (monochrome, like the Problems headers); the name is `textSecondary` `.subheadline` monospaced.
+- [x] **File row**: `rowHeight` (24).
   - Leading inset: 26 pt in the by-folder grouping, 10 pt in the flat one.
   - Checkbox: drawn at 14 pt with a 3 pt radius (private). Off, it has a `hairline` border; on, an `accent` ground with an `onAccent` check. Its accessibility label says whether the file is included, and it speaks on/off as its value.
   - Status letter: `.callout` monospaced semibold, in the status role, with `spokenName` as its accessibility value.
   - File glyph: `textSecondary`. File name: `textPrimary` `.body`.
-- [ ] **Row washes**: `accentTintStrong` / `hoverTint`.
-- [ ] **Dividers**: the header `Divider()` becomes a hairline. The two context-menu `Divider()`s become `Section` groupings, which render the same separators.
-- [ ] **No leftover platform colours** in `LocalChangesView.swift`.
-- [ ] **Tests**: Task 1 already covers the Core side. Confirm no Core test depended on the deleted helpers.
-- [ ] Run `swift test` — must pass before Task 5.
+- [x] **Row washes**: `accentTintStrong` / `hoverTint`.
+- [x] **Dividers**: the header `Divider()` becomes a hairline. The two context-menu `Divider()`s become `Section` groupings, which render the same separators.
+- [x] **No leftover platform colours** in `LocalChangesView.swift`.
+- [x] **Tests**: Task 1 already covers the Core side. Confirm no Core test depended on the deleted helpers.
+- [x] Run `swift test` — must pass before Task 5.
 
 ### Task 5: The diff pane and the unified diff's wash
 
