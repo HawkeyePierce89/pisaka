@@ -104,20 +104,20 @@ Dependencies: none.
 - Modify: `Tests/PisakaCoreTests/BottomPanelTests.swift`
 - Modify: `Tests/PisakaCoreTests/ChromeThemeTests.swift`
 
-- [ ] make `BottomPanel` `CaseIterable`. Document that the declaration order is the order of the bar's toggles and of the dock's tab row, and that neither keeps a second list.
-- [ ] add `public var title: String` with the six names from decision 3. Document it as the one name per panel that both the tooltip and the tab read.
-- [ ] add `DockTabActivation` and `tabActivation(_:tab:)` from decision 4.
+- [x] make `BottomPanel` `CaseIterable`. Document that the declaration order is the order of the bar's toggles and of the dock's tab row, and that neither keeps a second list.
+- [x] add `public var title: String` with the six names from decision 3. Document it as the one name per panel that both the tooltip and the tab read.
+- [x] add `DockTabActivation` and `tabActivation(_:tab:)` from decision 4.
   - The rule's doc says a tab selects and never collapses, and that collapsing belongs to the bar's toggle and the row's close action.
   - The type's doc says why it is not a second `BottomPanel?` (the opposite meanings of `nil`).
-- [ ] update the enum's doc comment ("Git Log" → "Log") so the prose uses the table's names.
-- [ ] tests:
+- [x] update the enum's doc comment ("Git Log" → "Log") so the prose uses the table's names.
+- [x] tests:
   - `allCases` equals the six cases in the bar's order.
   - each `title`, pinned verbatim, and the titles are distinct.
   - `tabActivation` returns `.alreadyShowing` for the showing tab, `.show(tab)` for any other tab, and `.show(tab)` when `current` is `nil`.
   - for every pair, a `.show(target)` answer passed through `toggled(current, selecting: target)` yields `target`: a tab never collapses through the funnel.
-- [ ] add `panelHeaderHeight` 28, `panelHeaderPaddingX` 14, `dockTabRowPaddingX` 10 and `dockTabLabelPaddingX` 10, each with its meaning. The last two carry the distinct-measurement note. Update the file's doc comment so its inventory stays true.
-- [ ] extend `ChromeThemeTests`' value test and its set-equality token list with the four new tokens.
-- [ ] run `swift test`. It must pass before task 2.
+- [x] add `panelHeaderHeight` 28, `panelHeaderPaddingX` 14, `dockTabRowPaddingX` 10 and `dockTabLabelPaddingX` 10, each with its meaning. The last two carry the distinct-measurement note. Update the file's doc comment so its inventory stays true.
+- [x] extend `ChromeThemeTests`' value test and its set-equality token list with the four new tokens.
+- [x] run `swift test`. It must pass before task 2.
 
 ### Task 2: The dock's tab row
 

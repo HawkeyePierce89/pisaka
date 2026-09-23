@@ -54,6 +54,10 @@ final class ChromeThemeTests: XCTestCase {
         XCTAssertEqual(ChromeGeometry.breadcrumbHeight, 24)
         XCTAssertEqual(ChromeGeometry.bottomBarToggleSide, 22)
         XCTAssertEqual(ChromeGeometry.bottomBarToggleRadius, 4)
+        XCTAssertEqual(ChromeGeometry.panelHeaderHeight, 28)
+        XCTAssertEqual(ChromeGeometry.panelHeaderPaddingX, 14)
+        XCTAssertEqual(ChromeGeometry.dockTabRowPaddingX, 10)
+        XCTAssertEqual(ChromeGeometry.dockTabLabelPaddingX, 10)
         XCTAssertEqual(ChromeGeometry.accentIndicator, 2)
     }
 
@@ -71,7 +75,8 @@ final class ChromeThemeTests: XCTestCase {
             "rowHeight", "rowPaddingX", "treeIndentStep", "cornerRadiusMax", "hairlineWidth",
             "tabStripHeight", "verticalTabRowHeight", "dockTabRowHeight", "sidebarHeaderHeight",
             "bottomBarHeight", "barPaddingX", "breadcrumbHeight", "bottomBarToggleSide",
-            "bottomBarToggleRadius", "accentIndicator",
+            "bottomBarToggleRadius", "panelHeaderHeight", "panelHeaderPaddingX", "dockTabRowPaddingX",
+            "dockTabLabelPaddingX", "accentIndicator",
         ])
         for suspect in ["font", "Font", "fontSize", "textSize"] {
             XCTAssertFalse(

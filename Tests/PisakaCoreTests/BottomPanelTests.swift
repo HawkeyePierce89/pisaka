@@ -32,4 +32,54 @@ final class BottomPanelTests: XCTestCase {
         XCTAssertEqual(BottomPanel.toggled(nil, selecting: .usages), .usages)
         XCTAssertEqual(BottomPanel.toggled(nil, selecting: .pullRequests), .pullRequests)
     }
+
+    // MARK: - The one table: order and names
+
+    func testAllCasesIsTheBarsOrder() {
+        XCTAssertEqual(BottomPanel.allCases, [.terminal, .log, .changes, .problems, .usages, .pullRequests])
+    }
+
+    func testEveryPanelHasItsOneTitle() {
+        XCTAssertEqual(BottomPanel.terminal.title, "Terminal")
+        XCTAssertEqual(BottomPanel.log.title, "Log")
+        XCTAssertEqual(BottomPanel.changes.title, "Local Changes")
+        XCTAssertEqual(BottomPanel.problems.title, "Problems")
+        XCTAssertEqual(BottomPanel.usages.title, "Usages")
+        XCTAssertEqual(BottomPanel.pullRequests.title, "Pull Requests")
+        XCTAssertEqual(Set(BottomPanel.allCases.map(\.title)).count, BottomPanel.allCases.count)
+    }
+
+    // MARK: - The tab rule
+
+    func testTheShowingTabIsAlreadyShowing() {
+        for panel in BottomPanel.allCases {
+            XCTAssertEqual(BottomPanel.tabActivation(panel, tab: panel), .alreadyShowing)
+        }
+    }
+
+    func testAnyOtherTabShowsItself() {
+        for current in BottomPanel.allCases {
+            for tab in BottomPanel.allCases where tab != current {
+                XCTAssertEqual(BottomPanel.tabActivation(current, tab: tab), .show(tab))
+            }
+        }
+    }
+
+    func testFromHiddenEveryTabShowsItself() {
+        for tab in BottomPanel.allCases {
+            XCTAssertEqual(BottomPanel.tabActivation(nil, tab: tab), .show(tab))
+        }
+    }
+
+    /// A tab's answer goes through the bar's funnel; for every pair, it never
+    /// collapses the dock.
+    func testATabNeverCollapsesThroughTheFunnel() {
+        let states: [BottomPanel?] = [nil] + BottomPanel.allCases.map { $0 }
+        for current in states {
+            for tab in BottomPanel.allCases {
+                guard case .show(let target) = BottomPanel.tabActivation(current, tab: tab) else { continue }
+                XCTAssertEqual(BottomPanel.toggled(current, selecting: target), target)
+            }
+        }
+    }
 }
