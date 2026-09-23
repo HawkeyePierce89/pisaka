@@ -225,17 +225,17 @@ Dependencies: none.
 - Modify: `Sources/Pisaka/TerminalPanelView.swift`
 - Modify: `Tests/PisakaCoreTests/ChromeThemeSourceGatingTests.swift`
 
-- [ ] add `@Environment(\.chromeTheme) private var theme`.
-- [ ] the session strip: remove its `Divider()`; use `panelHeaderHeight` (decision 9) in place of the bare 28; add a one-point `hairline` overlay along its bottom edge. Other numbers go in `private enum TerminalTabStripLayout`.
-- [ ] session tab:
+- [x] add `@Environment(\.chromeTheme) private var theme`.
+- [x] the session strip: remove its `Divider()`; use `panelHeaderHeight` (decision 9) in place of the bare 28; add a one-point `hairline` overlay along its bottom edge. Other numbers go in `private enum TerminalTabStripLayout`.
+- [x] session tab:
   - The selected ground is `accentTintStrong`, replacing `selectedControlColor`, clipped at `cornerRadiusMax`.
   - The title is `textPrimary` when selected and `textSecondary` otherwise.
   - The close glyph is `.subheadline` at bold weight in `textSecondary` (decision 7).
   - The `+` glyph is `textSecondary`.
-- [ ] the no-session placeholder draws `bgPanel` in place of `textBackgroundColor`.
-- [ ] `TerminalHostView`, the container view and the terminal palette stay untouched.
-- [ ] add the file to `gatedFiles`, to rule eleven's file list and to rule fourteen's `dockRuleOwners`.
-- [ ] run `swift test` and the app-layer bundle. Both must pass before task 6.
+- [x] the no-session placeholder draws `bgPanel` in place of `textBackgroundColor`.
+- [x] `TerminalHostView`, the container view and the terminal palette stay untouched.
+- [x] add the file to `gatedFiles`, to rule eleven's file list and to rule fourteen's `dockRuleOwners`.
+- [x] run `swift test` and the app-layer bundle. Both must pass before task 6.
 
 ### Task 6: Documentation
 

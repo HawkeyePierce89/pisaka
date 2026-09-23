@@ -116,6 +116,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         "DockTabRow.swift",
         "ProblemsPanelView.swift",
         "UsagesPanelView.swift",
+        "TerminalPanelView.swift",
     ]
 
     func testEveryGatedFileExists() throws {
@@ -768,6 +769,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         "DockTabRow.swift",
         "ProblemsPanelView.swift",
         "UsagesPanelView.swift",
+        "TerminalPanelView.swift",
     ]
 
     func testEveryBottomBarLabelIsSingleLine() throws {
@@ -924,6 +926,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         "DockTabRow.swift",
         "ProblemsPanelView.swift",
         "UsagesPanelView.swift",
+        "TerminalPanelView.swift",
     ]
 
     func testTheDocksSweptSurfacesDrawTheirOwnRules() throws {
