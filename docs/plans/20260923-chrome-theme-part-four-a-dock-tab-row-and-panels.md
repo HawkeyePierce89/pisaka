@@ -270,11 +270,11 @@ Dependencies: none.
 
 ### Task 7: Verify acceptance criteria
 
-- [ ] `swift test` is green.
-- [ ] the app-layer bundle is green on a macOS destination, with derived data under `~/Library/Developer/Xcode/DerivedData/pisaka-chrome-part-four-a`.
-- [ ] the macOS Release build and the iOS build (`generic/platform=iOS`) are green, under the same derived-data rule.
-- [ ] `swiftlint --strict` is clean from the repository root, with no in-file disables.
-- [ ] a search confirms:
+- [x] `swift test` is green.
+- [x] the app-layer bundle is green on a macOS destination, with derived data under `~/Library/Developer/Xcode/DerivedData/pisaka-chrome-part-four-a`.
+- [x] the macOS Release build and the iOS build (`generic/platform=iOS`) are green, under the same derived-data rule.
+- [x] `swiftlint --strict` is clean from the repository root, with no in-file disables.
+- [x] a search confirms:
   - no `Divider()`, system semantic colour or hex literal remains in the four swept files;
   - no app file declares `diagnosticRole`, and `ProblemsPanelView.swift` names no `SyntaxTheme`;
   - `ChromePalette.swift` is unchanged (`git diff --stat`);
