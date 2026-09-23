@@ -738,7 +738,8 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
 
     /// The files that draw a `Text` inside a fixed-height chrome strip: the
     /// bar's three widgets, and since part four (a) the dock's tab row and the
-    /// Problems and Usages panels, whose headers are `panelHeaderHeight` strips.
+    /// Problems, Usages and Terminal panels, whose headers are
+    /// `panelHeaderHeight` strips.
     ///
     /// Part three gave the bottom bar `frame(height:)` on
     /// `ChromeGeometry.bottomBarHeight`, where before its height came from the

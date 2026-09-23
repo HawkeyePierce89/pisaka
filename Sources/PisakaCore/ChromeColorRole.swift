@@ -13,7 +13,7 @@ import Foundation
 /// surface that appears to need a twenty-second role has instead found a design
 /// question, and the answer is to reuse one of these or to change the design —
 /// not to grow the table. Some roles are consequently still unused after the
-/// twelve surfaces restyled so far — six of them (`bgPopover`, `currentLine`,
+/// sixteen surfaces restyled so far — six of them (`bgPopover`, `currentLine`,
 /// `bracketMatch`, `diffAddedBackground`, `diffRemovedBackground`,
 /// `conflictBackground`), each waiting for the surface that means it: the
 /// popovers, the code zone's two line overlays, and the diff and merge panes.

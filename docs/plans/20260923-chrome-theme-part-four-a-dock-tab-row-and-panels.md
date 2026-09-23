@@ -243,30 +243,30 @@ Dependencies: none.
 
 - Modify: `docs/architecture/core-theme.md`, `docs/architecture/app-window.md`, `docs/architecture/app-terminal.md`, `docs/architecture/core-services.md`, `CLAUDE.md`
 
-- [ ] `core-theme.md`, a **Part four (a)** record in the shape of the earlier parts:
+- [x] `core-theme.md`, a **Part four (a)** record in the shape of the earlier parts:
   - each file and the roles it spends;
   - the tab row's contract;
   - decisions 2, 3 and 5, each with its reason. For decision 3 the reason is that menu titles belong to the part that sweeps menus.
   - the font-tier mapping (13 for primary text, 12 for secondary metadata, 11 for column headings and monospaced details, by tier and not by rounding), with the discrepancy from decision 7;
   - the one severity answer (decision 8), including which surface reads which table;
   - the terminal strip as its panel's header (decision 9).
-- [ ] `core-theme.md`: update the `ChromeColorRole.swift` entry for `diagnosticRole(for:)` and the `ChromeGeometry.swift` entry's token inventory.
-- [ ] `core-theme.md`, "What is still waiting":
+- [x] `core-theme.md`: update the `ChromeColorRole.swift` entry for `diagnosticRole(for:)` and the `ChromeGeometry.swift` entry's token inventory.
+- [x] `core-theme.md`, "What is still waiting":
   - Remove the tab row from the deferred items and say `dockTabRowHeight` is now spent.
   - List Log, Local Changes and Pull Requests as part four (b), which will follow the header-strip and rule-fourteen conventions set here.
   - Keep the caret readout, the dialogs, the popovers' `Divider()` calls, the find bar, the separate windows, Preferences and the terminal palette listed.
   - Re-verify the unused-role list and the swept-surface count against `ChromeColorRole.swift`'s doc comment, and correct both if either is wrong.
-- [ ] `app-window.md`:
+- [x] `app-window.md`:
   - a full entry for `DockTabRow.swift`;
   - update the `ContentView.swift` entry: the row in `panelContent(_:)`, and toggle titles read from `BottomPanel.title`;
   - update the `ProblemsPanelView.swift` entry (the header strip, the roles, and the severity answer read from Core, replacing "three surfaces" with the two tables) and the `UsagesPanelView.swift` entry.
-- [ ] `app-terminal.md`: update the `TerminalPanelView.swift` entry (the strip, the selected wash, the placeholder ground; the palette untouched).
-- [ ] `core-services.md`: update the `BottomPanel.swift` entry (`CaseIterable` order, `title`, `tabActivation` and `DockTabActivation` with the reason it is not a `BottomPanel?`).
-- [ ] `CLAUDE.md`:
+- [x] `app-terminal.md`: update the `TerminalPanelView.swift` entry (the strip, the selected wash, the placeholder ground; the palette untouched).
+- [x] `core-services.md`: update the `BottomPanel.swift` entry (`CaseIterable` order, `title`, `tabActivation` and `DockTabActivation` with the reason it is not a `BottomPanel?`).
+- [x] `CLAUDE.md`:
   - an index line for `DockTabRow.swift` under `app-window.md`;
   - update the index lines for `BottomPanel.swift` and `ChromeColorRole.swift`;
   - in the chrome invariant, update the gated-file count (sixteen → twenty), the rule count and enumeration (fifteen, checked for coherence as a whole) and the swept-surface count (twelve → sixteen, each surface named).
-- [ ] run `swift test`. The cross-file count rules must agree with both documents.
+- [x] run `swift test`. The cross-file count rules must agree with both documents.
 
 ### Task 7: Verify acceptance criteria
 

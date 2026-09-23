@@ -138,8 +138,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     against `@Environment(\.colorScheme)`: a root cannot read the environment
     value it writes, and the function shape keeps this file from naming
     `ChromeTheme` (`core-theme.md`'s gating rule five). An always-visible
-    `bottomBar` of six toggle buttons (Terminal / Git / Changes /
-    Problems / Usages / Pull Requests, the active one highlighted,
+    `bottomBar` of six toggle buttons (Terminal / Log / Local Changes /
+    Problems / Usages / Pull Requests — each name read from
+    `BottomPanel.title`, the one table the dock's tab row reads too, so
+    `bottomBarButton(systemImage:panel:)` takes no title of its own and a
+    tooltip cannot disagree with a tab; the active one highlighted,
     `arrow.triangle.pull` for Changes and — deliberately *not* the same glyph —
     `arrow.triangle.merge` for Pull Requests, since two dock buttons drawn with
     one symbol are indistinguishable at a glance and, since part three made the
@@ -152,6 +155,21 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `BottomPanel` is shown — `editorSplit` over the panel, that panel slot
     painted `bgPanel` with **no rule of its own** (the divider above it carries
     the boundary — see the dividers below).
+
+    **The dock's tab row sits inside `panelContent(_:)`** since part four (a):
+    the body is a `VStack(spacing: 0)` of `DockTabRow` above the existing
+    `switch`, because this is the one place every panel passes through — one
+    call site, every panel gets it, and the slot's pinned frame, its top
+    alignment, the clip, the divider and `panelHeightRule` are untouched (the
+    row is part of the slot's content, not a strip beside it, so
+    `BottomPanelSourceGatingTests`' pins on the call and the `switch` labels
+    read the same). `onSelect` asks `BottomPanel.tabActivation(bottomPanel
+    .wrappedValue, tab:)` and calls `onTogglePanel(target)` only on `case
+    .show(let target)` — `toggled` then yields the target and never collapses —
+    and `onClose` calls `onTogglePanel(panel)` with the showing panel, which
+    `toggled` collapses. Both paths go through the bar's own funnel, which is
+    also what creates the first terminal session, so the scene file gained no
+    line. Entry: `DockTabRow.swift` below.
 
     **The bar since part three.** Its order is **reversed**: a leading group of
     the three widgets at 14-point gaps, a `Spacer()`, then the six panel toggles
@@ -591,18 +609,33 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     two diagnostics differing in nothing the panel shows list once. The one-based
     display is the store's zero-based buffer geometry plus
     one, because the number beside a message must read as what the gutter shows;
-    severity colors come from `SyntaxTheme.diagnosticColor(for:)` — three surfaces,
-    one palette — and every size runs through `\.interfaceMetrics` like its sibling
-    panels. Activating a row calls back with `(url, range)`; the app wires that
+    severity colours are **two tables, one per zone**: the header badges and the
+    row glyphs are chrome and read `ChromeColorRole.diagnosticRole(for:)` — the
+    same answer the gutter's severity dot reads — while the squiggle under the
+    text is the code zone and reads `SyntaxTheme.diagnosticColor(for:)`; this file
+    names no `SyntaxTheme` at all (`core-theme.md`, rule fifteen). Every size
+    runs through `\.interfaceMetrics` like its sibling panels. Activating a row calls back with `(url, range)`; the app wires that
     straight to `activateSearchMatch(url:range:)` (`app-shell.md`), which already
     opens-or-reselects the tab and reveals the range for Find in Files and Go to
     Definition — the panel is that entry point's third caller, and inventing a
     second open-and-reveal path for it would be how the two stop agreeing. An empty
     list draws a centered "No problems" placeholder rather than collapsing, so the
     dock height does not jump when the last squiggle clears.
+    **On the chrome roles since part four (a)** (`core-theme.md`): the view and
+    its row read `\.chromeTheme`. The header is a `panelHeaderHeight` strip
+    inset by `panelHeaderPaddingX` that draws its own one-point `hairline` along
+    its bottom edge — the `Divider()` the stack used to place under it is gone
+    (rule fourteen) — with the title at `.body` semibold in `textPrimary` and
+    every header `Text` limited to one line (rule eleven: the strip's height is
+    fixed). The file-group header draws its icon `textSecondary` and its path
+    `textPrimary`; a row draws its message `textPrimary` and its `:line` at
+    `.subheadline` monospaced in `textSecondary` (it was an off-scale 10-point
+    `.caption`); the hover wash is `hoverTint`; row and group horizontal insets
+    spend `rowPaddingX`, and every other number lives in `private enum
+    ProblemsPanelLayout`; the placeholder is `textSecondary`.
   - `UsagesPanelView.swift` (macOS) — the Usages panel: every place the identifier
     the user asked about (⌃⌘U) is used, grouped by file. `ProblemsPanelView`'s shape
-    throughout — header, divider, one group per file, rows that activate through the
+    throughout — a header strip, one group per file, rows that activate through the
     app's single open-and-reveal entry point — because the two panels answer the
     same kind of question (where in this project is *this*) and a second row idiom
     would be a second thing to learn for nothing. It observes `FindUsagesModel`
@@ -638,6 +671,52 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     the panel a zoom surface its dock siblings are not), it declares **no** zoom
     surface, and it states no minimum height. `BottomPanelSourceGatingTests` pins
     all of that.
+    **On the chrome roles since part four (a)**, in Problems' shape: the same
+    `panelHeaderHeight` header drawing its own bottom `hairline` (no
+    `Divider()`), the title `.body` semibold in `textPrimary`, the identifier
+    `.callout` monospaced in `textPrimary`, the provenance note and the count at
+    `.subheadline` in `textSecondary` (both were off-scale 10-point `.caption`),
+    every header `Text` on one line; the file-group header and the `hoverTint`
+    wash as in Problems; the line number `.subheadline` monospaced in
+    `textSecondary`; the preview's hit `textPrimary` semibold between
+    `textSecondary` context; the placeholder `textSecondary`; local numbers in
+    `private enum UsagesPanelLayout`.
+  - `DockTabRow.swift` (macOS) — the bottom dock's own tab row: one row across
+    the top of the dock naming the panel on screen and offering the other five,
+    with a close action at the trailing end. **Its own file so it can be
+    gated**, the breadcrumb's and the tab strip's precedent, and called once,
+    from `ContentView.panelContent(_:)` (the entry above). A `View` taking
+    `selection: BottomPanel`, `onSelect: (BottomPanel) -> Void` and `onClose: ()
+    -> Void`, reading `\.interfaceMetrics` and `\.chromeTheme`. The row is
+    `ForEach(BottomPanel.allCases)` at a 2-point gap, a `Spacer` keeping at least
+    10 points, then the close action; horizontal padding `dockTabRowPaddingX`,
+    height `dockTabRowHeight`, **no minimum anywhere** (it sits inside the
+    fixed-height slot, and `BottomPanelSourceGatingTests` reads its type body
+    among the slot-facing ones), **no ground of its own** (the slot paints
+    `bgPanel`) and a one-point `hairline` overlay along its bottom edge. A tab is
+    a `.plain` `Button` over a `VStack(spacing: 0)`: the title from
+    `BottomPanel.title` at `.callout`, one line, padded by
+    `dockTabLabelPaddingX`, `textPrimary` selected and `textSecondary` otherwise,
+    regular weight in both states (a weight change would widen the label and
+    shift every tab after it); under it an `accentIndicator`-high strip,
+    `accent` selected and `Color.clear` otherwise, so selection never moves the
+    title. The tab carries `.accessibilityLabel(panel.title)` and
+    `.accessibilityValue("Selected"/"Not selected")`, and the strip is
+    `.accessibilityHidden(true)` — it *is* the selection, which the value
+    speaks. The close action is an `xmark` at `.body` in `textSecondary`, named
+    by `.help("Close panel")` and `.accessibilityLabel("Close panel")` rather
+    than by its glyph. **Three decisions live here**: six tabs, not the
+    design's seven, because the seventh names a panel the application does not
+    have and a tab that does nothing is a defect; a tab **selects and never
+    collapses** — the click is Core's `BottomPanel.tabActivation(_:tab:)`, whose
+    `.alreadyShowing` answer does nothing — while collapsing belongs to the bar's
+    toggle and to close; and close alone, because minimise and close would be
+    one action on a dock with one state. The gaps are bare local numbers in
+    `private enum DockTabRowLayout` (gating rule seven). Gating rules twelve
+    (reachability: the type is named only here and in `ContentView.swift`, built
+    exactly once inside `panelContent(`, and no hosted panel names it), thirteen
+    (the tab's label/value/hidden strip, the close action's help and label),
+    eleven and fourteen pin it (`core-theme.md`).
   - `DiffWindowContent.swift` — the SwiftUI content of a separate diff window
     (opened on double-click of a Local Changes row or a commit's file). Independent
     of the main window's selection: it takes `fileID`, `fileName`, a model-
