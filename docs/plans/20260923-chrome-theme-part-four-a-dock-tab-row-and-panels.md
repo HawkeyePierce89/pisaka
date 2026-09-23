@@ -169,15 +169,15 @@ Dependencies: none.
 - Modify: `Tests/PisakaAppTests/GutterFoldTests.swift`
 - Modify: `docs/architecture/app-editor-overlays.md`
 
-- [ ] move `diagnosticRole(for:)` to `ChromeColorRole` as `public static`, unchanged in its four answers (decision 8). The doc comment moves with it:
+- [x] move `diagnosticRole(for:)` to `ChromeColorRole` as `public static`, unchanged in its four answers (decision 8). The doc comment moves with it:
   - it keeps the information/hint reasoning and why it is deliberately not `SyntaxTheme`'s table;
   - it now also says who reads it (the gutter's severity dot, and the Problems panel's badges and row glyphs);
   - it says the squiggle alone stays on `SyntaxTheme`.
-- [ ] delete the ruler's copy. Its drawing site calls `ChromeColorRole.diagnosticRole(for:)`.
-- [ ] Core test in `ChromeThemeTests`: pin the four answers verbatim, and assert they are pairwise distinct roles. This is the first time the Core gate sees the mapping.
-- [ ] `GutterFoldTests.testEverySeverityResolvesToItsRole`: call the Core function. Its mapping table is now the Core test's, so keep the resolved-colour distinctness half under both appearances (the half only the app bundle can see) and update its doc to say so.
-- [ ] `app-editor-overlays.md`, the ruler's entry: name `ChromeColorRole.diagnosticRole(for:)` as the one answer and the Problems panel as its second reader. The Core suite pins the mapping and the app bundle pins distinct colours. `SyntaxTheme` answers for the squiggle alone; correct the entry's mention of the hover popover after confirming that no hover code reads `SyntaxTheme`'s severity table.
-- [ ] run `swift test` and the app-layer bundle. Both must pass before task 4.
+- [x] delete the ruler's copy. Its drawing site calls `ChromeColorRole.diagnosticRole(for:)`.
+- [x] Core test in `ChromeThemeTests`: pin the four answers verbatim, and assert they are pairwise distinct roles. This is the first time the Core gate sees the mapping.
+- [x] `GutterFoldTests.testEverySeverityResolvesToItsRole`: call the Core function. Its mapping table is now the Core test's, so keep the resolved-colour distinctness half under both appearances (the half only the app bundle can see) and update its doc to say so.
+- [x] `app-editor-overlays.md`, the ruler's entry: name `ChromeColorRole.diagnosticRole(for:)` as the one answer and the Problems panel as its second reader. The Core suite pins the mapping and the app bundle pins distinct colours. `SyntaxTheme` answers for the squiggle alone; correct the entry's mention of the hover popover after confirming that no hover code reads `SyntaxTheme`'s severity table.
+- [x] run `swift test` and the app-layer bundle. Both must pass before task 4.
 
 ### Task 4: Problems and Usages
 
