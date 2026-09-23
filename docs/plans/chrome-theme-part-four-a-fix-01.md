@@ -186,30 +186,30 @@ hard-coded literal and never reads the bar.
 - Modify: `Tests/PisakaCoreTests/BottomPanelTests.swift`, `Tests/PisakaCoreTests/ChromeThemeSourceGatingTests.swift`
 - Modify: `docs/architecture/core-services.md`, `docs/architecture/app-window.md`, `CLAUDE.md`
 
-- [ ] make the sentence true rather than softening it: give `BottomPanel` the
+- [x] make the sentence true rather than softening it: give `BottomPanel` the
       glyph beside the title, as one more column of the same table, and have the
       bar build its six toggles from `allCases`. A symbol name is a string, and
       Core already answers one for a file icon, so this stays Foundation-only
       and colour-free.
-- [ ] carry the existing reasoning across with the value: the comment explaining
+- [x] carry the existing reasoning across with the value: the comment explaining
       why Pull Requests draws a merge glyph rather than the one Local Changes
       already uses belongs beside the glyph it is about, now that the two sit in
       one table.
-- [ ] the completion toggle is not a panel and stays as it is. So does the
+- [x] the completion toggle is not a panel and stays as it is. So does the
       pull-request indicator in the bar's leading zone. Glyphs, order, spacing
       and styling of the six do not change.
-- [ ] `bottomBarButton` loses its `systemImage:` parameter and reads both the
+- [x] `bottomBarButton` loses its `systemImage:` parameter and reads both the
       glyph and the name from the panel.
-- [ ] **the test that would have caught it**: extend the bottom-bar gating rule
+- [x] **the test that would have caught it**: extend the bottom-bar gating rule
       — rule ten, which already owns the bar — with a clause that the bar builds
       its toggles from `allCases` and names no panel case literally in that
       body. A Core test cannot see the bar; the source rule can. Keep the
       existing `allCases`-order test and say in its doc that it pins the order
       and the source rule pins who reads it.
-- [ ] correct `BottomPanel.swift`'s doc comment and `core-services.md`'s entry
+- [x] correct `BottomPanel.swift`'s doc comment and `core-services.md`'s entry
       so both describe the table as it now is; update `app-window.md`'s
       `ContentView.swift` entry and `CLAUDE.md`'s `BottomPanel.swift` index line.
-- [ ] run `swift test` and the app bundle.
+- [x] run `swift test` and the app bundle.
 
 ### Task 5: The severity table's own entry still names readers it no longer has
 

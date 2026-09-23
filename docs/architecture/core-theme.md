@@ -684,7 +684,9 @@ a placeholder, so it is left out; the six are exactly `BottomPanel`'s cases.
 **One name per panel, as one Core table.** `BottomPanel.title` answers
 "Terminal", "Log", "Local Changes", "Problems", "Usages" and "Pull Requests",
 and both the tab row and the bar's toggles read it (`bottomBarButton` lost its
-`title:` parameter), so a tab and a tooltip cannot disagree — which is how "Git"
+`title:` parameter, and in the review round its `systemImage:` one too — the
+glyph is `BottomPanel.systemImage`, the same table's second column, and the bar
+builds its six toggles from `allCases`, so neither strip keeps a second list), so a tab and a tooltip cannot disagree — which is how "Git"
 and "Changes" became "Log" and "Local Changes" on the bar. The View menu's item
 titles ("Show Git Log" and its siblings) are **deliberately left alone**: menu
 titles belong to the part that sweeps menus. The scene file's line ceiling is
@@ -871,8 +873,11 @@ The sixteen rules, each invisible to the compiler:
 10. **Every bottom-bar control is identifiable without sight.** Inside
    `ContentView.swift`, the brace-matched bodies of `bottomBarButton(` and
    `completionToggleButton` each spell `.help(` and `.accessibilityLabel(`, and
-   `bottomBarButton(` occurs exactly seven times — one declaration and one call
-   per bottom dock panel. Part three made all seven controls icon-only, and the
+   `bottomBarButton(` occurs exactly twice — one declaration and one call inside
+   `panelToggles`, which `bottomBar` draws, which builds the toggles from
+   `BottomPanel.allCases` and names no panel case in its body, so the bar keeps
+   no second list of panels beside the one the dock's tab row reads
+   (`BottomPanelTests` pins the order; this rule pins who reads it). Part three made all seven controls icon-only, and the
    `Label(title, systemImage:)` they used to carry *was* each one's
    accessibility name; an unhidden `Image(systemName:)` supplies a name of its
    own instead — the *symbol's* — and `.help(` is a tooltip VoiceOver does not
@@ -881,7 +886,8 @@ The sixteen rules, each invisible to the compiler:
    who notices is the one who cannot see the bar. The bodies are read
    brace-matched, in rule six's idiom, so a `.help(` elsewhere in a
    fourteen-hundred-line file cannot satisfy it; the call count is pinned so a
-   seventh dock panel is asked the question rather than shipping nameless. The
+   seventh dock panel arrives through the one builder whose name the rule
+   already requires, rather than as a hand-written call shipping nameless. The
    **same rule read from the other side** covers the bar's three widgets: a
    `Button` combines its children, so each symbol a widget draws folds its name
    into the button's — part one measured exactly that on a tree row

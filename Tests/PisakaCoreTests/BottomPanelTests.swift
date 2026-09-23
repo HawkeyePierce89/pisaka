@@ -35,6 +35,9 @@ final class BottomPanelTests: XCTestCase {
 
     // MARK: - The one table: order and names
 
+    /// Pins the order. Who reads it — that the bar builds its toggles from
+    /// `allCases` rather than a list of its own — is a source rule, gating rule
+    /// ten in `ChromeThemeSourceGatingTests`, because no Core test can see the bar.
     func testAllCasesIsTheBarsOrder() {
         XCTAssertEqual(BottomPanel.allCases, [.terminal, .log, .changes, .problems, .usages, .pullRequests])
     }
@@ -47,6 +50,17 @@ final class BottomPanelTests: XCTestCase {
         XCTAssertEqual(BottomPanel.usages.title, "Usages")
         XCTAssertEqual(BottomPanel.pullRequests.title, "Pull Requests")
         XCTAssertEqual(Set(BottomPanel.allCases.map(\.title)).count, BottomPanel.allCases.count)
+    }
+
+    func testEveryPanelHasItsOneGlyph() {
+        XCTAssertEqual(BottomPanel.terminal.systemImage, "terminal")
+        XCTAssertEqual(BottomPanel.log.systemImage, "arrow.triangle.branch")
+        XCTAssertEqual(BottomPanel.changes.systemImage, "arrow.triangle.pull")
+        XCTAssertEqual(BottomPanel.problems.systemImage, "exclamationmark.triangle")
+        XCTAssertEqual(BottomPanel.usages.systemImage, "text.magnifyingglass")
+        XCTAssertEqual(BottomPanel.pullRequests.systemImage, "arrow.triangle.merge")
+        // Two toggles drawn with one glyph are indistinguishable at a glance.
+        XCTAssertEqual(Set(BottomPanel.allCases.map(\.systemImage)).count, BottomPanel.allCases.count)
     }
 
     // MARK: - The tab rule

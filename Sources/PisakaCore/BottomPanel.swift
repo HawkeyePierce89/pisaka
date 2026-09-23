@@ -9,7 +9,10 @@
 ///
 /// **The declaration order is the order on screen**, read through `allCases`:
 /// the bottom bar's toggles and the dock's tab row both list the panels in it,
-/// and neither keeps a second list.
+/// and neither keeps a second list. What each strip draws for a panel is a
+/// column of the same table — `title` (both strips) and `systemImage` (the
+/// bar's icon-only toggle) — so adding, removing or reordering a case changes
+/// both strips at once.
 public enum BottomPanel: Equatable, CaseIterable, Sendable {
     case terminal
     case log
@@ -44,6 +47,25 @@ public enum BottomPanel: Equatable, CaseIterable, Sendable {
         case .problems: "Problems"
         case .usages: "Usages"
         case .pullRequests: "Pull Requests"
+        }
+    }
+
+    /// The SF Symbol name the bottom bar's icon-only toggle draws for the panel.
+    ///
+    /// A symbol name is a string, as `FileIcon`'s is, so this stays
+    /// Foundation-only and colour-free; the bar reads it alongside `title`.
+    public var systemImage: String {
+        switch self {
+        case .terminal: "terminal"
+        case .log: "arrow.triangle.branch"
+        case .changes: "arrow.triangle.pull"
+        case .problems: "exclamationmark.triangle"
+        case .usages: "text.magnifyingglass"
+        // `arrow.triangle.merge` rather than `arrow.triangle.pull`, which Local
+        // Changes three toggles to the left already uses: two dock toggles
+        // drawn with one glyph are indistinguishable at a glance, and with the
+        // labels gone the glyph is all there is.
+        case .pullRequests: "arrow.triangle.merge"
         }
     }
 

@@ -111,9 +111,22 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     the `target` is shown — so a bottom-bar button and its matching View-menu
     command behave identically (the helper is generic over the case, so `.changes`
     needs no special handling). **The declaration order is the order on
-    screen**: the enum is `CaseIterable`, and the bottom bar's toggles and the
+    screen**: the enum is `CaseIterable`, and the bottom bar's toggles (built by
+    `ContentView.panelToggles` over `ForEach(BottomPanel.allCases)`) and the
     dock's tab row both list the panels through `allCases` — terminal, log,
-    changes, problems, usages, pullRequests — so neither keeps a second list.
+    changes, problems, usages, pullRequests — so neither keeps a second list;
+    `BottomPanelTests` pins the order and `core-theme.md`'s gating rule ten pins
+    that the bar reads it and names no case of its own. What a strip draws for
+    a panel is a column of the same table: `public var systemImage: String` is
+    the bar's glyph — `terminal`, `arrow.triangle.branch`,
+    `arrow.triangle.pull`, `exclamationmark.triangle`, `text.magnifyingglass`,
+    `arrow.triangle.merge` — a symbol name being a string, as `FileIcon`'s is,
+    so Core stays Foundation-only and colour-free. Pull Requests draws
+    `arrow.triangle.merge` rather than the `arrow.triangle.pull` Local Changes
+    already uses because two toggles drawn with one glyph are
+    indistinguishable at a glance, and with the labels gone the glyph is all
+    there is (that reason sits beside the value in the source too, and
+    `BottomPanelTests` pins the six glyphs distinct).
     `public var title: String` is **the one name per panel** — "Terminal",
     "Log", "Local Changes", "Problems", "Usages", "Pull Requests" — read by the
     bar's tooltip and accessibility label and by the tab row's tab, so the two

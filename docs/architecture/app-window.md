@@ -140,17 +140,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `ChromeTheme` (`core-theme.md`'s gating rule five). An always-visible
     `bottomBar` of six toggle buttons (Terminal / Log / Local Changes /
     Problems / Usages / Pull Requests — each name read from
-    `BottomPanel.title`, the one table the dock's tab row reads too, so
-    `bottomBarButton(systemImage:panel:)` takes no title of its own and a
-    tooltip cannot disagree with a tab; the active one highlighted,
-    `arrow.triangle.pull` for Changes and — deliberately *not* the same glyph —
-    `arrow.triangle.merge` for Pull Requests, since two dock buttons drawn with
-    one symbol are indistinguishable at a glance and, since part three made the
-    seven controls icon-only, the glyph is all there is (the part-three
-    paragraph below carries the current reason; the two are no longer
-    *adjacent*, which is why adjacency is not it);
-    `exclamationmark.triangle` for Problems,
-    `text.magnifyingglass` for Usages) sits flush at
+    `BottomPanel.title`, the one table the dock's tab row reads too, and each
+    glyph from `BottomPanel.systemImage`, the same table's second column — so
+    `bottomBarButton(panel:)` takes neither of its own, `panelToggles` builds
+    the six from `ForEach(BottomPanel.allCases)`, and neither a tooltip nor the
+    order can disagree with a tab; the active one highlighted. The glyphs, and
+    why Pull Requests draws `arrow.triangle.merge` rather than the
+    `arrow.triangle.pull` Local Changes uses, live beside the values in
+    `BottomPanel.swift` (`core-services.md`)) sits flush at
     the bottom, and `mainArea` is the three-column `editorSplit` alone, or — when a
     `BottomPanel` is shown — `editorSplit` over the panel, that panel slot
     painted `bgPanel` with **no rule of its own** (the divider above it carries
@@ -181,8 +178,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     spacing to a measurement that means something else (gating rule seven). The
     bar itself takes `ChromeGeometry.bottomBarHeight`, a
     `ChromeGeometry.barPaddingX` horizontal inset, a `bgPanel` ground and the
-    top `hairline` above. All seven controls — `bottomBarButton(…)` six times
-    and `completionToggleButton` — are **icon-only squares**:
+    top `hairline` above. All seven controls — `bottomBarButton(panel:)` once
+    per `BottomPanel.allCases` entry inside `panelToggles`, and
+    `completionToggleButton` — are **icon-only squares**:
     `bottomBarToggleSide` on a side, `bottomBarToggleRadius` of corner radius,
     the icon at `.body`, an `accentTintStrong` ground under an `accent` icon
     while active and no ground under a `textSecondary` icon otherwise, each
@@ -193,9 +191,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     supplies a name of its own instead — the *symbol's* (`core-theme.md`'s rule
     ten). Gating
     rule ten pins both in the brace-matched bodies of `bottomBarButton(` and
-    `completionToggleButton`, and pins `bottomBarButton(` at exactly seven
-    occurrences — one declaration and one call per dock panel — so a seventh
-    panel is asked the question rather than shipping under its glyph's name.
+    `completionToggleButton`, and pins `bottomBarButton(` at exactly two
+    occurrences — the declaration and the one call inside `panelToggles`, whose
+    body must read `BottomPanel.allCases` and name no panel case — so the bar
+    keeps no second list of panels and a seventh panel arrives through the one
+    builder whose name the rule already requires.
 
     **Both draggable dividers are drawn from the roles too.**
     `panelDivider(available:)` fills `bgPanel` and overlays a one-point

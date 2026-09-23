@@ -621,9 +621,13 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     ///
     /// Read over the **brace-matched bodies** of the two declarations, in rule
     /// six's idiom, so a `.help(` somewhere else in this 1 400-line file cannot
-    /// satisfy it. The call count is pinned too: one declaration plus six calls,
-    /// so a seventh dock panel arriving without a glance at this rule fails here
-    /// rather than shipping under its glyph's name.
+    /// satisfy it. The call count is pinned too: one declaration plus one call,
+    /// inside `panelToggles` — the bar builds its toggles from
+    /// `BottomPanel.allCases` and **names no panel case in that body**, so it
+    /// keeps no second list of panels beside the one the dock's tab row reads.
+    /// `BottomPanelTests` pins the order; this rule pins who reads it. A seventh
+    /// panel therefore arrives through the same builder whose name this rule
+    /// already requires.
     private static let windowRootFile = "ContentView.swift"
 
     /// The bar's three widgets, the same rule read from the other side.
@@ -686,16 +690,41 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
                 )
             }
         }
-        // One declaration and six calls — the six bottom dock panels. A seventh
-        // panel adds a call here, and this count is where it is asked whether
-        // the new toggle is named.
+        // One declaration and one call — the call inside `panelToggles`, over
+        // `allCases`. A hand-written seventh call is a second list of panels.
         XCTAssertEqual(
-            Self.occurrences(of: "bottomBarButton(", in: code), 7,
+            Self.occurrences(of: "bottomBarButton(", in: code), 2,
             """
-            \(Self.windowRootFile) must spell bottomBarButton( exactly seven times — the declaration \
-            and one call per bottom dock panel
+            \(Self.windowRootFile) must spell bottomBarButton( exactly twice — the declaration \
+            and the one call inside panelToggles, over BottomPanel.allCases
             """
         )
+        let bar = try XCTUnwrap(
+            Self.matchedBody(after: "var bottomBar:", in: code),
+            "bottomBar is gone or renamed — re-point this rule rather than losing it"
+        )
+        XCTAssertTrue(
+            LSPSourceGatingTests.containsToken("panelToggles", in: bar),
+            "bottomBar must draw its panel toggles through panelToggles"
+        )
+        let toggles = try XCTUnwrap(
+            Self.matchedBody(after: "var panelToggles:", in: code),
+            "panelToggles is gone or renamed — re-point this rule rather than losing it"
+        )
+        XCTAssertTrue(
+            toggles.contains("BottomPanel.allCases"),
+            "panelToggles must build the bar's toggles from BottomPanel.allCases — the dock's tab row's one list"
+        )
+        XCTAssertTrue(toggles.contains("bottomBarButton("), "panelToggles must call bottomBarButton(")
+        for panelCase in [".terminal", ".log", ".changes", ".problems", ".usages", ".pullRequests"] {
+            XCTAssertFalse(
+                toggles.contains(panelCase),
+                """
+                panelToggles names \(panelCase) — a panel spelled here is a second list beside \
+                BottomPanel.allCases, and reordering the enum would reorder the tab row alone
+                """
+            )
+        }
     }
 
     func testEveryBottomBarWidgetHidesItsSymbolsAndSpeaksTheirState() throws {

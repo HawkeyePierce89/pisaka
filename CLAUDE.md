@@ -232,7 +232,7 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
 `docs/architecture/core-services.md` — terminal/run/test, settings, session:
 - `TerminalLaunch.swift` / `TerminalTabs.swift` — shell/cwd resolution; tab-close math.
 - `RunCommand.swift` / `TestCommand.swift` / `ShellQuote.swift` — run/test command resolution, POSIX quoting.
-- `BottomPanel.swift` — bottom-dock toggle state; the panels' one order (`CaseIterable`) and one name each (`title`); the tab rule and its own answer type (`DockTabActivation`, not a second `BottomPanel?`).
+- `BottomPanel.swift` — bottom-dock toggle state; the panels' one order (`CaseIterable`, read by both strips) and one name and glyph each (`title`, `systemImage`); the tab rule and its own answer type (`DockTabActivation`, not a second `BottomPanel?`).
 - `BottomPanelHeightRule.swift` — the bottom dock panel's height authority: the two upper bounds and the degenerate case.
 - `DiffWindowTitle.swift` — diff-window titles.
 - `TabOrientation.swift` / `ThemePreference.swift` — persisted preference enums.

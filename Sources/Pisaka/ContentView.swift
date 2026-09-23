@@ -886,16 +886,7 @@ struct ContentView: View {
             }
             Spacer()
             HStack(spacing: metrics.scaled(2)) {
-                bottomBarButton(systemImage: "terminal", panel: .terminal)
-                bottomBarButton(systemImage: "arrow.triangle.branch", panel: .log)
-                bottomBarButton(systemImage: "arrow.triangle.pull", panel: .changes)
-                bottomBarButton(systemImage: "exclamationmark.triangle", panel: .problems)
-                bottomBarButton(systemImage: "text.magnifyingglass", panel: .usages)
-                // `arrow.triangle.merge` rather than `arrow.triangle.pull`, which
-                // Changes three buttons to the left already uses: two dock
-                // buttons drawn with one glyph are indistinguishable at a glance,
-                // and now that the labels are gone the glyph is all there is.
-                bottomBarButton(systemImage: "arrow.triangle.merge", panel: .pullRequests)
+                panelToggles
                 completionToggleButton
             }
         }
@@ -906,6 +897,17 @@ struct ContentView: View {
             Rectangle()
                 .fill(chromeColor(.hairline))
                 .frame(height: metrics.scaled(ChromeGeometry.hairlineWidth))
+        }
+    }
+
+    /// The six panel toggles, one per `BottomPanel` case in declaration order —
+    /// the same `allCases` the dock's tab row reads, so the bar keeps no second
+    /// list of panels and the two strips cannot come to disagree about order.
+    /// Each toggle's glyph and name come from the panel itself. Gating rule ten
+    /// pins that this body reads `allCases` and names no panel case.
+    private var panelToggles: some View {
+        ForEach(BottomPanel.allCases, id: \.self) { panel in
+            bottomBarButton(panel: panel)
         }
     }
 
@@ -962,13 +964,14 @@ struct ContentView: View {
     /// `ProjectSwitcherView`). Gating rule ten pins both, in this body and in
     /// `completionToggleButton`'s, because nothing in the compiler can see a
     /// control announcing its glyph. Both read `panel.title`, the one name the
-    /// dock's tab row draws too, so a tooltip and a tab cannot disagree.
-    private func bottomBarButton(systemImage: String, panel: BottomPanel) -> some View {
+    /// dock's tab row draws too, so a tooltip and a tab cannot disagree; the glyph
+    /// is `panel.systemImage`, the same table's other column.
+    private func bottomBarButton(panel: BottomPanel) -> some View {
         let isActive = bottomPanel.wrappedValue == panel
         return Button {
             onTogglePanel(panel)
         } label: {
-            Image(systemName: systemImage)
+            Image(systemName: panel.systemImage)
                 .font(metrics.scaledFont(.body))
                 .foregroundStyle(isActive ? chromeColor(.accent) : chromeColor(.textSecondary))
                 .frame(
