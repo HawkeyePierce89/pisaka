@@ -123,22 +123,22 @@ any of them leaves the suite green, because the older occurrence still matches.
 - Modify: `Tests/PisakaCoreTests/ChromeThemeSourceGatingTests.swift`
 - Modify: `docs/architecture/app-window.md`, `docs/architecture/core-theme.md`
 
-- [ ] narrow the rule for the files whose fixed-height strip is a *builder*
+- [x] narrow the rule for the files whose fixed-height strip is a *builder*
       rather than the whole view: read that builder's brace-matched body and
       require the limit inside it, the way rule ten reads the bottom bar's
       button builder. Name the builder in the test so renaming it fails loudly.
-- [ ] keep the whole-file form for the files where it is still the honest check,
+- [x] keep the whole-file form for the files where it is still the honest check,
       and say in the rule's doc which files take which form and why — the
       existing doc already states that a source rule cannot see a layout, and it
       must now also state that a file-level `contains` is satisfied by any older
       occurrence.
-- [ ] **the test that would have caught it**: this task *is* that test. Verify
+- [x] **the test that would have caught it**: this task *is* that test. Verify
       the narrowing bites by deleting one header's `.lineLimit(1)` locally,
       confirming the suite goes red, and restoring it. Say in the task's commit
       message that this was done.
-- [ ] correct `app-window.md:629` if the narrowed rule still does not cover
+- [x] correct `app-window.md:629` if the narrowed rule still does not cover
       everything that sentence claims.
-- [ ] run `swift test`.
+- [x] run `swift test`.
 
 ### Task 3: Rule fifteen cannot see an inline severity mapping
 

@@ -627,7 +627,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     its bottom edge — the `Divider()` the stack used to place under it is gone
     (rule fourteen) — with the title at `.body` semibold in `textPrimary` and
     every header `Text` limited to one line (rule eleven: the strip's height is
-    fixed). The file-group header draws its icon `textSecondary` and its path
+    fixed — pinned label by label inside the `header` and `severityBadge(…)`
+    builders, since the file already spelled the limit on its file-group path
+    and a file-level check was satisfied by that). The file-group header draws its icon `textSecondary` and its path
     `textPrimary`; a row draws its message `textPrimary` and its `:line` at
     `.subheadline` monospaced in `textSecondary` (it was an off-scale 10-point
     `.caption`); the hover wash is `hoverTint`; row and group horizontal insets
@@ -676,7 +678,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `Divider()`), the title `.body` semibold in `textPrimary`, the identifier
     `.callout` monospaced in `textPrimary`, the provenance note and the count at
     `.subheadline` in `textSecondary` (both were off-scale 10-point `.caption`),
-    every header `Text` on one line; the file-group header and the `hoverTint`
+    every header `Text` on one line (rule eleven, counted label by label inside
+    the `header` builder); the file-group header and the `hoverTint`
     wash as in Problems; the line number `.subheadline` monospaced in
     `textSecondary`; the preview's hit `textPrimary` semibold between
     `textSecondary` context; the placeholder `textSecondary`; local numbers in

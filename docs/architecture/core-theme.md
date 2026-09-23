@@ -921,7 +921,19 @@ The sixteen rules, each invisible to the compiler:
    `ChromeGeometry.dockTabRowHeight`, and the Problems, Usages and Terminal
    panels, whose headers sit in `panelHeaderHeight` — frames that cannot grow
    either, so the rule now reads as "every label a fixed-height chrome strip
-   draws".
+   draws". **The rule takes two forms since review round 01.** The whole-file
+   `contains` stays for the three widgets and the dock's tab row, where the
+   strip is the file's view. For the three panels it was satisfied by an older
+   occurrence — each already spelled `.lineLimit(1)` on master (a file-group
+   path, the identifier, a session title), so deleting the limit from a new
+   header label left the suite green, and a file-level `contains` is satisfied
+   by any older occurrence in the file. Those files now name their header-strip
+   builders (Problems' `header` and `severityBadge(…)`, Usages' `header`,
+   Terminal's `tab(for:)`), and inside each brace-matched body — rule ten's
+   reading — the count of `.lineLimit(1)` must equal the count of `Text(`; a
+   renamed builder fails loudly. What the counted form still cannot see: a
+   `Text` built outside the named builders, or a limit spelled once on a
+   container rather than on each label.
 12. **The dock's tab row is configured in one place.** `DockTabRow` is drawn
    once, above whichever panel is showing, from `ContentView.panelContent(_:)` —
    the one place every panel passes through, inside the fixed-height slot. Swift's

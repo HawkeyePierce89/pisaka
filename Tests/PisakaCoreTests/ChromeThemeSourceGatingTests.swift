@@ -757,23 +757,48 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// The dock's tab row is the same shape one strip up: its labels sit in
     /// `ChromeGeometry.dockTabRowHeight`, a frame that cannot grow either.
     ///
-    /// So each of these files must spell `.lineLimit(1)`, asserted in this suite's
-    /// `contains` idiom over stripped source.
+    /// The rule takes one of two forms per file, over stripped source.
+    ///
+    /// **Whole file** — `barLabelFiles` must each spell `.lineLimit(1)`
+    /// somewhere, in this suite's `contains` idiom. That is the honest check
+    /// where the strip *is* the file's view: the bar's three widgets, whose one
+    /// bar label the limit was absent from altogether, and the dock's tab row,
+    /// whose only `Text` is its tab label.
+    ///
+    /// **Header builder** — `headerBuilderFiles` name, per panel, the builders
+    /// that draw the panel's fixed-height header strip, and inside each one's
+    /// brace-matched body (rule ten's reading of the bar's button builder) the
+    /// count of `.lineLimit(1)` must equal the count of `Text(`: every label the
+    /// strip draws carries its own limit. A file-level `contains` cannot pin
+    /// these, and that is how it failed: each of the three panels already spelled
+    /// `.lineLimit(1)` on master — a file-group path, the identifier, a session
+    /// title — so the check was satisfied by an older occurrence and deleting the
+    /// limit from the new "Problems" title, the badge count, the provenance note
+    /// or the count label left the suite green. A builder renamed or removed
+    /// fails loudly rather than silently narrowing the rule to nothing.
     ///
     /// The honest limit, stated with the rule as the two above state theirs: a
-    /// source rule cannot see a layout. It sees the line that prevents this one
-    /// — it cannot tell *which* `Text` in the file carries the limit, so a file
-    /// whose bar label lost it while a popover row kept one would satisfy this.
-    /// What it pins is that the construct is known here at all, which is what
-    /// the widgets did not have: the limit was absent from all three.
+    /// source rule cannot see a layout. The whole-file form cannot tell *which*
+    /// `Text` in the file carries the limit, so a widget whose bar label lost it
+    /// while a popover row kept one would satisfy it — any older occurrence
+    /// satisfies a file-level `contains`. The builder form counts spellings, so
+    /// a `Text` built outside the named builders (or a limit spelled on a
+    /// container rather than on each label) is not what it sees; what it pins
+    /// is that each label the header draws is written with its limit beside it.
     private static let barLabelFiles = [
         "ProjectSwitcherView.swift",
         "BranchSwitcherView.swift",
         "PullRequestIndicatorView.swift",
         "DockTabRow.swift",
-        "ProblemsPanelView.swift",
-        "UsagesPanelView.swift",
-        "TerminalPanelView.swift",
+    ]
+
+    /// Each panel's header-strip builders, by declaration: the Problems header
+    /// and the severity badge it draws, the Usages header, and the Terminal
+    /// strip's per-session tab.
+    private static let headerBuilderFiles: [(file: String, builders: [String])] = [
+        ("ProblemsPanelView.swift", ["private var header: some View", "private func severityBadge("]),
+        ("UsagesPanelView.swift", ["private var header: some View"]),
+        ("TerminalPanelView.swift", ["private func tab(for session:"]),
     ]
 
     func testEveryBottomBarLabelIsSingleLine() throws {
@@ -789,6 +814,30 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
                 two lines and clipped to one and a half
                 """
             )
+        }
+        for (name, builders) in Self.headerBuilderFiles {
+            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
+                try Self.read(Self.source(named: name))
+            )
+            for builder in builders {
+                let body = try XCTUnwrap(
+                    Self.matchedBody(after: builder, in: code),
+                    "\(name)'s \(builder) is gone or renamed — re-point this rule rather than losing it"
+                )
+                let labels = Self.occurrences(of: "Text(", in: body)
+                XCTAssertGreaterThan(
+                    labels, 0,
+                    "\(name)'s \(builder) draws no Text any more — re-point this rule rather than losing it"
+                )
+                XCTAssertEqual(
+                    Self.occurrences(of: ".lineLimit(1)", in: body), labels,
+                    """
+                    \(name)'s \(builder) draws its Text labels inside a fixed-height header strip, \
+                    and each must carry its own .lineLimit(1) — an older occurrence elsewhere in the \
+                    file does not protect this one
+                    """
+                )
+            }
         }
     }
 
