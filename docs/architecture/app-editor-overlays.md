@@ -719,9 +719,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     table): the gutter and the panel are chrome and read from the palette, while
     the squiggle sits under the code and belongs to the code zone's own theme, so
     the two tables are two on purpose (`core-theme.md`). The
-    three-surfaces-one-severity rule recorded on `SyntaxTheme` below is therefore
-    now about the squiggle alone; the gutter dot and the panel have moved out of
-    it, and **the two tables disagree outright** — the palette's values are the
+    `SyntaxTheme` entry below therefore names the squiggle as its one reader; the
+    gutter dot and the panel have moved out of it, and **the two tables disagree outright** — the palette's values are the
     chrome design's own and the syntax theme's are the code zone's, so neither
     side may be read as a statement about the other. The same edit notification feeds Core's shift through the new
     `onEdit` closure — previous/post line-start tables, edited range and length
@@ -1006,8 +1005,15 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `diagnosticError/warning/information/hint`, all through
     `PlatformColor.dynamic(light:dark:)`, with `diagnosticColor(for:)` and an
     `nsDiagnosticColor(for:)` accessor mirroring the bracket set's shape — because
-    three surfaces (squiggle, gutter dot, panel icon) must draw one severity
-    identically and Core stays color-free by rule. The values are chosen against
+    the squiggle under the text must draw each severity identically wherever it
+    is painted (the underline writer and the stroke in
+    `BracketOverlayLayoutManager` are its two call sites, and its **only**
+    reader) and Core stays color-free by rule. The two other severity marks — the
+    gutter's dot and the Problems panel's badges and row glyphs — are chrome and
+    do not read this table at all: they read Core's one answer,
+    `ChromeColorRole.diagnosticRole(for:)`, through the chrome palette, so the two
+    tables are two on purpose and disagree outright (`core-theme.md`, rule
+    fifteen). The values are chosen against
     the existing palette rather than picked: error is a rose-leaning red
     (`#C01C5A`/`#FF7B85`) deliberately distinct from both `unmatchedBracketColor`
     and the `.string` red, so a red string and a red squiggle are never confused;

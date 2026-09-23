@@ -228,11 +228,11 @@ already pins the reader set.
 **Files:**
 - Modify: `docs/architecture/app-editor-overlays.md`
 
-- [ ] rewrite the entry's justification to name the one reader it has and to
+- [x] rewrite the entry's justification to name the one reader it has and to
       point at the Core answer the two chrome surfaces read instead.
-- [ ] sweep for the shape: grep the architecture documents for any other
+- [x] sweep for the shape: grep the architecture documents for any other
       sentence counting readers of that table, and fix each.
-- [ ] run `swift test` (the cross-file document rules).
+- [x] run `swift test` (the cross-file document rules).
 
 ### Task 6: The feature list names two buttons by names this branch removed
 
