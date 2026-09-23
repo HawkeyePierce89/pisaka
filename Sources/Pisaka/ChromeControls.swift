@@ -79,9 +79,13 @@ struct ChromeThemedTextField<FocusValue: Hashable>: View {
 
 /// The secondary button style: 28 high, a one-point `hairline` border, radius
 /// `buttonCornerRadius`, padding 14 and a `callout` label in `textPrimary`.
+///
+/// A disabled button dims rather than vanishing: the same colours at half
+/// opacity, so a *Replace All* that cannot run does not look actionable.
 struct ChromeSecondaryButtonStyle: ButtonStyle {
     @Environment(\.interfaceMetrics) private var metrics
     @Environment(\.chromeTheme) private var theme
+    @Environment(\.isEnabled) private var isEnabled
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
@@ -93,7 +97,7 @@ struct ChromeSecondaryButtonStyle: ButtonStyle {
                 RoundedRectangle(cornerRadius: metrics.scaled(ChromeGeometry.buttonCornerRadius))
                     .strokeBorder(theme.color(.hairline), lineWidth: metrics.scaled(ChromeGeometry.hairlineWidth))
             )
-            .opacity(configuration.isPressed ? 0.7 : 1)
+            .opacity(isEnabled ? (configuration.isPressed ? 0.7 : 1) : 0.5)
     }
 }
 

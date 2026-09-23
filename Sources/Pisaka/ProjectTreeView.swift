@@ -502,19 +502,26 @@ private struct DirectoryNodeView: View {
                 }(),
                 onMove: onMove
             ) {
-                Button("New File") {
-                    if mayBeginFileOperation() { draft = .create(parent: url, isFolder: false) }
-                }
-                Button("New Folder") {
-                    if mayBeginFileOperation() { draft = .create(parent: url, isFolder: true) }
+                // Grouped by `Section`s rather than separated by `Divider()`s: a menu
+                // renders the same separators between sections, and the dock's swept
+                // surfaces spell no `Divider()` at all.
+                Section {
+                    Button("New File") {
+                        if mayBeginFileOperation() { draft = .create(parent: url, isFolder: false) }
+                    }
+                    Button("New Folder") {
+                        if mayBeginFileOperation() { draft = .create(parent: url, isFolder: true) }
+                    }
                 }
                 if !isRoot {
-                    Button("Rename") {
-                        if mayBeginFileOperation() {
-                            draft = .rename(entry: DirectoryEntry(url: url, isDirectory: true))
+                    Section {
+                        Button("Rename") {
+                            if mayBeginFileOperation() {
+                                draft = .rename(entry: DirectoryEntry(url: url, isDirectory: true))
+                            }
                         }
+                        Button("Delete") { onDelete(url) }
                     }
-                    Button("Delete") { onDelete(url) }
                 }
             }
         )
@@ -1067,23 +1074,36 @@ private struct FileRowView: View {
         // Through the same helper the folder row uses, for the same reason: a
         // drafted row must have no menu at all, not an empty one.
         .projectTreeContextMenu(isEnabled: !isDraftedRow) {
-            if RunCommand.canRun(fileName: entry.name) {
-                Button {
-                    onRun()
-                } label: {
-                    Label("Run", systemImage: "play.fill")
+            // Grouped by `Section`s rather than separated by `Divider()`s: a menu
+            // renders the same separators between sections, and the dock's swept
+            // surfaces spell no `Divider()` at all — see the folder menu above and
+            // `LocalChangesView.swift` for the same idiom.
+            if RunCommand.canRun(fileName: entry.name)
+                || TestCommand.isTestFile(fileName: entry.name) {
+                Section {
+                    if RunCommand.canRun(fileName: entry.name) {
+                        Button {
+                            onRun()
+                        } label: {
+                            Label("Run", systemImage: "play.fill")
+                        }
+                    }
+                    if TestCommand.isTestFile(fileName: entry.name) {
+                        Button {
+                            onRunTest()
+                        } label: {
+                            Label("Run Test", systemImage: "checkmark.diamond")
+                        }
+                    }
                 }
             }
-            if TestCommand.isTestFile(fileName: entry.name) {
-                Button {
-                    onRunTest()
-                } label: {
-                    Label("Run Test", systemImage: "checkmark.diamond")
-                }
+            Section {
+                Button("Rename") { onBeginRename() }
+                Button("Delete") { onDelete() }
             }
-            Button("Rename") { onBeginRename() }
-            Button("Delete") { onDelete() }
-            Button("Local History") { onShowLocalHistory() }
+            Section {
+                Button("Local History") { onShowLocalHistory() }
+            }
         }
     }
 

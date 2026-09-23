@@ -84,7 +84,18 @@ struct ProjectSearchView: View {
     /// reason.
     private var metrics: InterfaceMetrics { settings.interfaceMetrics }
 
-    @Environment(\.chromeTheme) private var theme
+    @Environment(\.colorScheme) private var colorScheme
+
+    /// This view's chrome colours, as a **role-to-colour function**.
+    ///
+    /// The Find in Files window is a separate `NSHostingController` root that
+    /// injects `\.chromeTheme` for its descendants via `.chromeThemed(settings)`.
+    /// A root cannot read the environment value it writes, so this view resolves
+    /// the theme from the same store the modifier reads — the same shape
+    /// `ContentView` uses for its window root, and for the reason stated there.
+    private func chromeColor(_ role: ChromeColorRole) -> Color {
+        settings.chromeTheme(systemPrefersDark: colorScheme == .dark).color(role)
+    }
 
     private enum Field: Hashable {
         case query
@@ -98,13 +109,13 @@ struct ProjectSearchView: View {
             // The content draws its own hairline between the header and the
             // results, never a Divider.
             Rectangle()
-                .fill(theme.color(.hairline))
+                .fill(chromeColor(.hairline))
                 .frame(height: metrics.scaled(ChromeGeometry.hairlineWidth))
             resultsArea
             footer
         }
         .frame(minWidth: metrics.scaled(520), minHeight: metrics.scaled(320))
-        .background(theme.color(.bgPanel))
+        .background(chromeColor(.bgPanel))
         .preferredColorScheme(settings.themePreference.colorScheme)
         // Its own SwiftUI root (an `NSHostingController` made by
         // `ProjectSearchWindowController`), so it injects the interface scale
@@ -141,7 +152,7 @@ struct ProjectSearchView: View {
                 // — never as an alert: the pattern is being typed.
                 Text(error)
                     .font(metrics.scaledFont(.subheadline))
-                    .foregroundStyle(theme.color(.statusRed))
+                    .foregroundStyle(chromeColor(.statusRed))
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -161,7 +172,7 @@ struct ProjectSearchView: View {
             } label: {
                 Image(systemName: isReplaceExpanded ? "chevron.down" : "chevron.right")
                     .font(metrics.scaledFont(.body))
-                    .foregroundStyle(theme.color(.textSecondary))
+                    .foregroundStyle(chromeColor(.textSecondary))
                     .accessibilityHidden(true)
                     .frame(width: metrics.scaled(12))
             }
@@ -230,7 +241,7 @@ struct ProjectSearchView: View {
 
             Text("File mask")
                 .font(metrics.scaledFont(.callout))
-                .foregroundStyle(theme.color(.textSecondary))
+                .foregroundStyle(chromeColor(.textSecondary))
                 .lineLimit(1)
 
             ChromeThemedTextField(
@@ -276,11 +287,11 @@ struct ProjectSearchView: View {
                 .font(.system(size: metrics.scaled(SearchLayout.toggleFontSize), weight: .semibold, design: .monospaced))
                 .padding(.horizontal, metrics.scaled(5))
                 .padding(.vertical, metrics.scaled(2))
-                .background(isOn.wrappedValue ? theme.color(.accentTint) : Color.clear)
+                .background(isOn.wrappedValue ? chromeColor(.accentTint) : Color.clear)
                 .clipShape(RoundedRectangle(cornerRadius: metrics.scaled(4)))
         }
         .buttonStyle(.plain)
-        .foregroundStyle(isOn.wrappedValue ? theme.color(.accent) : theme.color(.textSecondary))
+        .foregroundStyle(isOn.wrappedValue ? chromeColor(.accent) : chromeColor(.textSecondary))
         .help(help)
         .accessibilityLabel(help)
         .accessibilityValue(isOn.wrappedValue ? "On" : "Off")
@@ -302,7 +313,7 @@ struct ProjectSearchView: View {
                             row(result: result, index: index)
                                 .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
                                 .listRowSeparator(.hidden)
-                                .listRowBackground(theme.color(.bgPanel))
+                                .listRowBackground(chromeColor(.bgPanel))
                         }
                     } header: {
                         groupHeader(for: result)
@@ -311,7 +322,7 @@ struct ProjectSearchView: View {
                 if model.truncated {
                     Text("Results truncated — narrow the query or the file mask to see the rest.")
                         .font(metrics.scaledFont(.callout))
-                        .foregroundStyle(theme.color(.textSecondary))
+                        .foregroundStyle(chromeColor(.textSecondary))
                         .listRowInsets(EdgeInsets(
                             top: 4,
                             leading: metrics.scaled(SearchLayout.contentPadding),
@@ -319,12 +330,12 @@ struct ProjectSearchView: View {
                             trailing: metrics.scaled(SearchLayout.contentPadding)
                         ))
                         .listRowSeparator(.hidden)
-                        .listRowBackground(theme.color(.bgPanel))
+                        .listRowBackground(chromeColor(.bgPanel))
                 }
             }
             .listStyle(.inset)
             .scrollContentBackground(.hidden)
-            .background(theme.color(.bgPanel))
+            .background(chromeColor(.bgPanel))
         }
     }
 
@@ -332,17 +343,17 @@ struct ProjectSearchView: View {
         HStack(spacing: metrics.scaled(6)) {
             Image(systemName: "doc")
                 .font(.system(size: metrics.scaled(SearchLayout.headerIconSize)))
-                .foregroundStyle(theme.color(.textSecondary))
+                .foregroundStyle(chromeColor(.textSecondary))
                 .accessibilityHidden(true)
             Text(result.relativePath)
                 .font(metrics.scaledFont(.callout))
-                .foregroundStyle(theme.color(.textSecondary))
+                .foregroundStyle(chromeColor(.textSecondary))
                 .lineLimit(1)
                 .truncationMode(.middle)
             Spacer(minLength: metrics.scaled(4))
             Text("\(result.matchCount)")
                 .font(metrics.scaledFont(.subheadline))
-                .foregroundStyle(theme.color(.textSecondary))
+                .foregroundStyle(chromeColor(.textSecondary))
                 .lineLimit(1)
         }
         .padding(.horizontal, metrics.scaled(SearchLayout.headerPadding))
@@ -365,7 +376,7 @@ struct ProjectSearchView: View {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text("\(result.matches[index].lineNumber)")
                     .font(.system(size: settings.fontSize - 2, design: .monospaced))
-                    .foregroundStyle(theme.color(.textSecondary))
+                    .foregroundStyle(chromeColor(.textSecondary))
                     .lineLimit(1)
                     .frame(minWidth: 44, alignment: .trailing)
 
@@ -417,28 +428,28 @@ struct ProjectSearchView: View {
     private var footer: some View {
         VStack(spacing: 0) {
             Rectangle()
-                .fill(theme.color(.hairline))
+                .fill(chromeColor(.hairline))
                 .frame(height: metrics.scaled(ChromeGeometry.hairlineWidth))
             HStack {
                 Text(summaryText)
                     .font(metrics.scaledFont(.callout))
-                    .foregroundStyle(theme.color(.textSecondary))
+                    .foregroundStyle(chromeColor(.textSecondary))
                     .lineLimit(1)
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, metrics.scaled(SearchLayout.footerPadding))
             .frame(height: metrics.scaled(SearchLayout.footerHeight))
-            .background(theme.color(.bgPanel))
+            .background(chromeColor(.bgPanel))
         }
     }
 
     private func placeholder(_ text: String) -> some View {
         Text(text)
             .font(metrics.scaledFont(.body))
-            .foregroundStyle(theme.color(.textSecondary))
+            .foregroundStyle(chromeColor(.textSecondary))
             .lineLimit(1)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(theme.color(.bgPanel))
+            .background(chromeColor(.bgPanel))
     }
 
     /// What to say when there are no rows: nothing typed yet, a search still
