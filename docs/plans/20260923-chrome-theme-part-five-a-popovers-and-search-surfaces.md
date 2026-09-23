@@ -227,22 +227,22 @@ matter.
 - Modify: `Sources/Pisaka/ContentView.swift`
 - Modify: `Tests/PisakaCoreTests/ChromeThemeSourceGatingTests.swift`
 
-- [ ] Give the bar a `bgPanel` ground and have it draw its own one-point `hairline` along its bottom edge. Remove the `Divider()` under it in `ContentView`, leaving a one-line comment in the style of the one at ~line 403.
-- [ ] The query and replace fields use the shared themed field. The system rounded-border style is gone.
-- [ ] Colours:
+- [x] Give the bar a `bgPanel` ground and have it draw its own one-point `hairline` along its bottom edge. Remove the `Divider()` under it in `ContentView`, leaving a one-line comment in the style of the one at ~line 403.
+- [x] The query and replace fields use the shared themed field. The system rounded-border style is gone.
+- [x] Colours:
   - The match counter and the labels are `textSecondary`.
   - The inline regular-expression error is `statusRed`.
   - The three query-mode toggles are `accent` on an `accentTint` ground while on, and `textPrimary` with no ground while off.
   - The navigation, close and disclosure glyphs take roles.
   - Replace and Replace All use the shared secondary button style.
   - The `.caption` text becomes `.subheadline`.
-- [ ] Accessibility:
+- [x] Accessibility:
   - Each toggle has a spoken name, a `.help` tooltip and an on/off `.accessibilityValue`.
   - Previous, Next, Close and the replace disclosure have a spoken name and a tooltip, and their symbols are hidden.
   - The fields speak their names.
-- [ ] In `SearchHistoryMenu`, the trigger glyph becomes `textSecondary` and is hidden from accessibility, and the menu keeps a spoken name. The menu's rows and its one `Divider()` are untouched. A comment names that separator as the one `Divider()` a gated file may spell.
-- [ ] Add `SearchBarView.swift` and `SearchHistoryMenu.swift` to `gatedFiles`.
-- [ ] Run `swift test` and the macOS build. Both must pass.
+- [x] In `SearchHistoryMenu`, the trigger glyph becomes `textSecondary` and is hidden from accessibility, and the menu keeps a spoken name. The menu's rows and its one `Divider()` are untouched. A comment names that separator as the one `Divider()` a gated file may spell.
+- [x] Add `SearchBarView.swift` and `SearchHistoryMenu.swift` to `gatedFiles`.
+- [x] Run `swift test` and the macOS build. Both must pass.
 
 ### Task 5: The Find in Files window
 

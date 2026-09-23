@@ -16,6 +16,15 @@ import PisakaCore
 /// `@ObservedObject` of the same state) and so reaches the controller through
 /// `updateNSView`. There is deliberately no debounce — see the type-level comment
 /// on `EditorSearchController` for that decision and its known headroom.
+///
+/// On the chrome roles since part five (a): `bgPanel` ground with its own
+/// bottom `hairline` (so no `Divider()` is needed below it), the two fields
+/// drawn through the shared `ChromeThemedTextField` (`bgEditor` ground,
+/// `hairline` border, `accent` on focus), toggles `accent` on `accentTint`
+/// while on and `textPrimary` while off, glyphs in `textSecondary`,
+/// `statusRed` for the inline regex error, the counter in `textSecondary`
+/// at `subheadline`, and the secondary button style for the two replace
+/// actions.
 struct SearchBarView: View {
     @ObservedObject var search: EditorSearchState
 
@@ -25,10 +34,10 @@ struct SearchBarView: View {
     /// the state's own business.
     @ObservedObject var settings: SettingsStore
 
-    /// Focus for the query field, driven by `EditorSearchState.focusRequest` so a
-    /// repeated ⌘F while the bar is already open re-focuses it (and selects its
+    /// Focus for the query/replace fields, driven by `EditorSearchState.focusRequest`
+    /// so a repeated ⌘F while the bar is already open re-focuses it (and selects its
     /// contents) rather than doing nothing.
-    @FocusState private var isQueryFocused: Bool
+    @FocusState private var focusedField: Field?
 
     /// The window this bar is drawn in, resolved by `WindowAccessor` below.
     ///
@@ -40,6 +49,12 @@ struct SearchBarView: View {
     /// chrome, not a code surface: it sits above the editor and grows with the
     /// rest of the interface rather than with the text it searches.
     @Environment(\.interfaceMetrics) private var metrics
+    @Environment(\.chromeTheme) private var theme
+
+    private enum Field: Hashable {
+        case find
+        case replace
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: metrics.scaled(4)) {
@@ -52,15 +67,20 @@ struct SearchBarView: View {
                 // red — never as an alert: the pattern is being typed, so a modal
                 // would fire on every intermediate keystroke.
                 Text(error)
-                    .font(metrics.scaledFont(.caption))
-                    .foregroundStyle(Color(NSColor.systemRed))
+                    .font(metrics.scaledFont(.subheadline))
+                    .foregroundStyle(theme.color(.statusRed))
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
         .padding(.horizontal, metrics.scaled(8))
         .padding(.vertical, metrics.scaled(5))
-        .background(Color(NSColor.controlBackgroundColor))
+        .background(theme.color(.bgPanel))
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(theme.color(.hairline))
+                .frame(height: metrics.scaled(ChromeGeometry.hairlineWidth))
+        }
         .background(WindowAccessor { window in
             // Identity-compared before writing: `updateNSView` runs on every pass,
             // and an unconditional `@State` write would invalidate the view that
@@ -87,19 +107,25 @@ struct SearchBarView: View {
             } label: {
                 Image(systemName: search.isReplaceExpanded ? "chevron.down" : "chevron.right")
                     .font(metrics.scaledFont(.body))
+                    .foregroundStyle(theme.color(.textSecondary))
+                    .accessibilityHidden(true)
                     .frame(width: metrics.scaled(12))
             }
             .buttonStyle(.plain)
             .help(search.isReplaceExpanded ? "Hide replace" : "Show replace")
+            .accessibilityLabel(search.isReplaceExpanded ? "Hide replace" : "Show replace")
+            .accessibilityValue(search.isReplaceExpanded ? "Expanded" : "Collapsed")
 
-            TextField("Find", text: $search.pattern)
-                .textFieldStyle(.roundedBorder)
-                .font(metrics.scaledFont(.body))
-                .frame(minWidth: metrics.scaled(160), idealWidth: metrics.scaled(240))
-                .focused($isQueryFocused)
-                // Enter steps to the next match, matching every other editor's
-                // find bar; the bar stays open and focused.
-                .onSubmit { search.findNext() }
+            ChromeThemedTextField(
+                title: "Find",
+                text: $search.pattern,
+                focus: $focusedField,
+                focusedEquals: .find
+            )
+            .frame(minWidth: metrics.scaled(160), idealWidth: metrics.scaled(240))
+            // Enter steps to the next match, matching every other editor's
+            // find bar; the bar stays open and focused.
+            .onSubmit { search.findNext() }
 
             SearchHistoryMenu(
                 entries: settings.searchQueryHistory.entries,
@@ -109,26 +135,35 @@ struct SearchBarView: View {
             )
 
             toggle("Aa", isOn: $search.caseSensitive, help: "Match case")
-            toggle("ab", isOn: $search.wholeWord, help: "Words")
+            toggle("ab", isOn: $search.wholeWord, help: "Whole word")
             toggle(".*", isOn: $search.isRegex, help: "Regular expression")
 
             Text(counterText)
-                .font(metrics.scaledFont(.caption))
-                .foregroundStyle(.secondary)
+                .font(metrics.scaledFont(.subheadline))
+                .foregroundStyle(theme.color(.textSecondary))
+                .lineLimit(1)
                 .frame(minWidth: metrics.scaled(64), alignment: .leading)
 
             Button { search.findPrevious() } label: {
                 Image(systemName: "chevron.up")
                     .font(metrics.scaledFont(.body))
+                    .foregroundStyle(theme.color(.textSecondary))
+                    .accessibilityHidden(true)
             }
+            .buttonStyle(.plain)
             .help("Find previous")
+            .accessibilityLabel("Find previous")
             .disabled(!search.hasMatches)
 
             Button { search.findNext() } label: {
                 Image(systemName: "chevron.down")
                     .font(metrics.scaledFont(.body))
+                    .foregroundStyle(theme.color(.textSecondary))
+                    .accessibilityHidden(true)
             }
+            .buttonStyle(.plain)
             .help("Find next")
+            .accessibilityLabel("Find next")
             .disabled(!search.hasMatches)
 
             Spacer(minLength: metrics.scaled(4))
@@ -136,9 +171,12 @@ struct SearchBarView: View {
             Button { search.close() } label: {
                 Image(systemName: "xmark")
                     .font(metrics.scaledFont(.body))
+                    .foregroundStyle(theme.color(.textSecondary))
+                    .accessibilityHidden(true)
             }
             .buttonStyle(.plain)
             .help("Close")
+            .accessibilityLabel("Close")
         }
     }
 
@@ -148,21 +186,28 @@ struct SearchBarView: View {
             // disclosure chevron.
             Spacer().frame(width: metrics.scaled(12))
 
-            TextField("Replace", text: $search.template)
-                .textFieldStyle(.roundedBorder)
-                .font(metrics.scaledFont(.body))
-                .frame(minWidth: metrics.scaled(160), idealWidth: metrics.scaled(240))
-                // Enter in the replace field replaces the current match, so the
-                // common "type, Enter, Enter, …" walk works without the mouse.
-                .onSubmit { search.replaceCurrent() }
+            ChromeThemedTextField(
+                title: "Replace",
+                text: $search.template,
+                focus: $focusedField,
+                focusedEquals: .replace
+            )
+            .frame(minWidth: metrics.scaled(160), idealWidth: metrics.scaled(240))
+            // Enter in the replace field replaces the current match, so the
+            // common "type, Enter, Enter, …" walk works without the mouse.
+            .onSubmit { search.replaceCurrent() }
 
             Button("Replace") { search.replaceCurrent() }
-                .font(metrics.scaledFont(.body))
+                .buttonStyle(.chromeSecondary)
                 .disabled(!search.hasMatches)
+                .accessibilityLabel("Replace")
+                .help("Replace")
 
             Button("Replace All") { search.replaceAll() }
-                .font(metrics.scaledFont(.body))
+                .buttonStyle(.chromeSecondary)
                 .disabled(!search.hasMatches)
+                .accessibilityLabel("Replace all")
+                .help("Replace all")
 
             Spacer(minLength: metrics.scaled(4))
         }
@@ -181,12 +226,14 @@ struct SearchBarView: View {
                 .font(metrics.scaledFont(.subheadline, weight: .semibold, design: .monospaced))
                 .padding(.horizontal, metrics.scaled(5))
                 .padding(.vertical, metrics.scaled(2))
-                .background(isOn.wrappedValue ? Color.accentColor.opacity(0.25) : Color.clear)
+                .background(isOn.wrappedValue ? theme.color(.accentTint) : Color.clear)
                 .clipShape(RoundedRectangle(cornerRadius: metrics.scaled(4)))
         }
         .buttonStyle(.plain)
-        .foregroundStyle(isOn.wrappedValue ? Color.accentColor : Color.primary)
+        .foregroundStyle(isOn.wrappedValue ? theme.color(.accent) : theme.color(.textPrimary))
         .help(help)
+        .accessibilityLabel(help)
+        .accessibilityValue(isOn.wrappedValue ? "On" : "Off")
     }
 
     /// The `3/17` match counter.
@@ -226,7 +273,7 @@ struct SearchBarView: View {
         search.isRegex = query.isRegex
         search.caseSensitive = query.caseSensitive
         search.wholeWord = query.wholeWord
-        isQueryFocused = true
+        focusedField = .find
     }
 
     // MARK: - Focus
@@ -257,7 +304,7 @@ struct SearchBarView: View {
     /// opens and asks for focus, it just does not reach into a window it does not
     /// own.
     private func takeFocus() {
-        isQueryFocused = true
+        focusedField = .find
         DispatchQueue.main.async {
             guard let window = barWindow, window.isKeyWindow,
                   let responder = window.firstResponder as? NSTextView,

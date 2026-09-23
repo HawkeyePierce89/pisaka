@@ -36,6 +36,8 @@ struct SearchHistoryMenu: View {
     /// Empty the shared history.
     let onClear: () -> Void
 
+    @Environment(\.chromeTheme) private var theme
+
     var body: some View {
         Menu {
             // Keyed on the pattern because the recording rule makes patterns
@@ -44,11 +46,15 @@ struct SearchHistoryMenu: View {
             ForEach(entries, id: \.pattern) { entry in
                 Button(SearchQueryHistory.menuLabel(for: entry)) { onPick(entry) }
             }
+            // The one `Divider()` a gated file may spell — a menu's separator is
+            // drawn by the system's menu machinery.
             Divider()
             Button("Clear History") { onClear() }
         } label: {
             Image(systemName: "clock.arrow.circlepath")
                 .font(metrics.scaledFont(.body))
+                .foregroundStyle(theme.color(.textSecondary))
+                .accessibilityHidden(true)
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
@@ -57,6 +63,7 @@ struct SearchHistoryMenu: View {
         // content the same way.
         .fixedSize()
         .help("Recent searches")
+        .accessibilityLabel("Recent searches")
         .disabled(entries.isEmpty)
     }
 }

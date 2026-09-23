@@ -1161,7 +1161,7 @@ struct ContentView: View {
         // `close()` asks the controller to do directly.
         if search.isVisible {
             SearchBarView(search: search, settings: settings)
-            Divider()
+            // No `Divider()` here: the bar draws its own one-point `hairline` along its bottom edge.
         }
         CodeEditorView(
             fileID: file.id,
