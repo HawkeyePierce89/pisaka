@@ -285,13 +285,13 @@ matter.
 This task adds no test of its own. Its net is rules twenty-three and
 twenty-four in Task 7, so this task is not complete until Task 7 is.
 
-- [ ] Draw both popovers' content on `bgPopover` with a content background:
+- [x] Draw both popovers' content on `bgPopover` with a content background:
   - There is no `presentationBackground` and no `#available` branch, which matches the Log calendar from Task 1.
   - Each file says in one line that the popover's arrow keeps the system material, because the content background cannot reach it.
-- [ ] Each `Divider()` becomes a one-point `hairline` rule that the content draws.
-- [ ] The branch switcher's filter field uses the shared themed field.
-- [ ] Rewrite the doc comments on `theme` and `popoverContent` in both files, which explain why the dividers had to stay, so that they say what is true now. No sentence describing the old material ground or the kept dividers remains.
-- [ ] Run `swift test` and the macOS build. Both must pass. `swift test` covers rules one and two and the bottom-bar rules, because both files are already gated.
+- [x] Each `Divider()` becomes a one-point `hairline` rule that the content draws.
+- [x] The branch switcher's filter field uses the shared themed field.
+- [x] Rewrite the doc comments on `theme` and `popoverContent` in both files, which explain why the dividers had to stay, so that they say what is true now. No sentence describing the old material ground or the kept dividers remains.
+- [x] Run `swift test` and the macOS build. Both must pass. `swift test` covers rules one and two and the bottom-bar rules, because both files are already gated.
 
 ### Task 7: Four new gating rules and the count bookkeeping
 

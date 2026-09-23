@@ -40,9 +40,15 @@ struct BranchSwitcherView: View {
     @Environment(\.interfaceMetrics) private var metrics
 
     /// The chrome theme, read from the environment the window root injects. The
-    /// popover inherits it from this view, which is why the popover's own colours
-    /// are roles too (its rules are not — see the note on `popoverContent`).
+    /// popover inherits it from this view, so its content is drawn on `bgPopover`
+    /// too.
     @Environment(\.chromeTheme) private var theme
+
+    @FocusState private var focusedField: Field?
+
+    private enum Field: Hashable {
+        case filter
+    }
 
     var body: some View {
         Button {
@@ -95,18 +101,17 @@ struct BranchSwitcherView: View {
         return model.root == nil ? "No branch" : "Detached"
     }
 
-    /// The popover's *colours* are roles because the chrome rules are per file
-    /// and this file obeys them whole. Its `Divider()` calls deliberately stay:
-    /// a divider names no colour, so no rule can see it, and the fix is not
-    /// available yet — the popover's own ground is still the platform's material,
-    /// and a `hairline` rule painted on that ground would be the mismatch rather
-    /// than the cure. The rules go when the ground under them is swept, which is
-    /// recorded as inherited work in `core-theme.md`'s part-three record.
+    /// The popover's content, drawn on `bgPopover`. The popover's arrow keeps the
+    /// system material, because the content background cannot reach it.
     private var popoverContent: some View {
+        // The popover's arrow keeps the system material, because the content background cannot reach it.
         VStack(alignment: .leading, spacing: metrics.scaled(8)) {
-            TextField("Filter branches", text: $model.filterText)
-                .textFieldStyle(.roundedBorder)
-                .font(metrics.scaledFont(.body))
+            ChromeThemedTextField(
+                title: "Filter branches",
+                text: $model.filterText,
+                focus: $focusedField,
+                focusedEquals: .filter
+            )
 
             Button {
                 isPresented = false
@@ -117,7 +122,9 @@ struct BranchSwitcherView: View {
             }
             .buttonStyle(.plain)
 
-            Divider()
+            Rectangle()
+                .fill(theme.color(.hairline))
+                .frame(height: metrics.scaled(ChromeGeometry.hairlineWidth))
 
             ScrollView {
                 VStack(alignment: .leading, spacing: metrics.scaled(2)) {
@@ -149,7 +156,9 @@ struct BranchSwitcherView: View {
             .frame(maxHeight: metrics.scaled(300))
 
             if let error = model.errorMessage {
-                Divider()
+                Rectangle()
+                    .fill(theme.color(.hairline))
+                    .frame(height: metrics.scaled(ChromeGeometry.hairlineWidth))
                 Text(error)
                     .font(metrics.scaledFont(.caption))
                     .foregroundStyle(theme.color(.statusRed))
@@ -158,6 +167,7 @@ struct BranchSwitcherView: View {
         }
         .padding(metrics.scaled(10))
         .frame(width: metrics.scaled(300))
+        .background(theme.color(.bgPopover))
     }
 
     private func sectionHeader(_ title: String) -> some View {
