@@ -390,6 +390,7 @@ headlessly in `Tests/PisakaAppTests`.
 - `ChromePalette.swift` — the one hex table (exhaustive `switch`, no `default`) + the dynamic-`NSColor` bridge and `ChromeTheme`.
 - `ChromeThemeEnvironment.swift` — `\.chromeTheme` + `.chromeThemed(_:)` at the interface scale's own eight roots.
 - `TabStripView.swift` — the horizontal tab strip, the first surface drawn wholly from the roles.
+- `CommitGraphPalette.swift` — the branch graph's eight lane colours: the fourth colour exemption (a lane is an identity token, not a chrome meaning).
 
 `docs/architecture/core-database-viewer.md` — the viewer's app surfaces (same doc as the Core half):
 - `Platform/DatabaseConnectionService.swift` — the one SQLite-importing file: one actor-serialized read-only connection, busy timeout, verbatim messages; `performWrite(_:)`'s separate short-lived read-write connection; the console's one prepare-by-tail loop, its bounded stepping and its transaction bracket.
@@ -770,7 +771,7 @@ ci.yml's `lint` job, and the version-bump procedure.
   chrome**: `SyntaxTheme.swift` (the code zone's own theme), `TerminalTheme.swift`
   (a protocol's ANSI-16 vocabulary), `FileIcon.swift` (a Core token iOS still
   paints) and `CommitGraphPalette.swift` (a lane colour is an identity token, not
-  a chrome meaning). Sixteen surfaces are swept so far — part one's tab strip, line-number
+  a chrome meaning). Twenty-three surfaces are swept so far — part one's tab strip, line-number
   ruler and project tree rows (the inline draft field with them), part two's
   vertical tab column, breadcrumb, minimap chrome and language-server consent
   strip, part three's window ground and title bar, sidebar host and header,
@@ -778,8 +779,12 @@ ci.yml's `lint` job, and the version-bump procedure.
   toggles, and the bar's three widgets — which spend the two roles that were
   waiting for a surface rather than a decision, `bgCanvas` at the window root
   and `statusGreen` on the pull-request indicator's checks mark, leaving six
-  unspent — and part four (a)'s dock tab row, Problems panel, Usages panel and
-  Terminal panel host, which spend no new role; the rest is the follow-up sweep, whose procedure
+  unspent — part four (a)'s dock tab row, Problems panel, Usages panel and
+  Terminal panel host, which spend no new role, and part four (b)'s Log panel,
+  its filter bar, its graph gutter, the Local Changes panel, the Pull Requests
+  panel, the side-by-side diff pane and the unified diff's wash, which spend the
+  two diff grounds and leave four roles unspent (`bgPopover`, `currentLine`,
+  `bracketMatch`, `conflictBackground`); the rest is the follow-up sweep, whose procedure
   and its one refusal ("a surface needing a twenty-second role has found a design
   question") are in `core-theme.md`.
 - **Zoom is three zones, one arithmetic, one pointer rule** (macOS only): `code`

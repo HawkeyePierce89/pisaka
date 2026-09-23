@@ -28,7 +28,9 @@ language-server consent strip — and corrected the gutter regression the first
 part shipped; the third took the frame those panes sit in (the window's ground,
 the sidebar's host, the dock and the bottom bar); and part four (a) gave the
 dock its own tab row and moved the Problems, Usages and Terminal panels onto the
-roles. The running record is
+roles; part four (b) finished the dock with the Log (its filter bar and graph
+gutter), Local Changes and Pull Requests panels, plus the side-by-side diff pane
+and the unified diff's wash. The running record is
 ["The surfaces restyled so far"](#the-surfaces-restyled-so-far) below; every
 surface not named there is deliberately untouched, waiting for the sweep
 described at the end of this document.
@@ -63,12 +65,14 @@ adds no write of any kind. Its only persisted input is the existing
     confirming action and `accentTint` on the minimap's viewport fill — and the
     third spent two more: `bgCanvas` on the window root, which is the surface
     the role was named for, and `statusGreen` on the pull-request indicator's
-    checks mark, which completes the status trio. That leaves **six**, and
+    checks mark, which completes the status trio. That left **six**, and
     part four (a) spent none — its four surfaces are drawn wholly from roles
-    already in use.
-    `bgPopover` waits for the popovers (the two switchers' among them, parts
-    four to six); the three diff/merge grounds wait for the surfaces that mean
-    them;
+    already in use. Part four (b) spent the two diff grounds —
+    `diffAddedBackground` and `diffRemovedBackground`, on the side-by-side diff
+    pane and the unified diff's rows — which leaves **four**: `bgPopover`,
+    `currentLine`, `bracketMatch` and `conflictBackground`.
+    `bgPopover` waits for the popovers (the two switchers' among them, a later
+    part); `conflictBackground` waits for the merge pane;
     and **`currentLine` and `bracketMatch` are deliberately still unused** — both
     belong to the *code* zone, whose overlays are temporary text attributes on the
     editor's own theme (`SyntaxTheme`), so spending them is a decision about where
@@ -92,6 +96,26 @@ adds no write of any kind. Its only persisted input is the existing
     pairwise distinct roles, while the app bundle's `GutterFoldTests` keeps the
     half only it can see — the four *resolved* colours pairwise distinct under
     both appearances. Gating rule fifteen keeps a second table from coming back.
+    **Three more one-answer mappings** joined it in part four (b), each in the
+    same extension, each total over a closed Core set, each pinned verbatim over
+    `allCases` by `ChromeThemeTests` and each with its readers pinned by a gating
+    rule (seventeen to nineteen): `changedFileRole(for: FileStatus)` — added
+    `statusGreen`, modified and renamed `statusYellow`, deleted and conflicted
+    `statusRed`, untracked `textSecondary` — beside `FileStatus.letter` and
+    `spokenName` (`core-git.md`), so the letter carries the identity and the
+    colour the weight; `checksRole(for:)` over `GitHubChecksSummary` (noChecks
+    `textSecondary`, pending `statusYellow`, failure `statusRed`, success
+    `statusGreen`) and over `GitHubCheckBucket` (pass `statusGreen`, fail
+    `statusRed`, pending `statusYellow`, skipping and cancel `textSecondary`),
+    beside the two types' `symbolName`/`spokenWords` (`core-github.md`); and the
+    diff wash — `diffWashRole(for: DiffRowKind, side: DiffSide)` (unchanged
+    nil; on the old side removed and modified `diffRemovedBackground`, added
+    nil, the plain filler row; on the new side added and modified
+    `diffAddedBackground`, removed nil), `diffWashRole(for: UnifiedDiffLine.Kind)`
+    (context nil, removed and added their grounds) and
+    `diffMarkerRole(for:side:)` (`statusRed` on the old side for removed and
+    modified, `statusGreen` on the new side for added and modified, nil
+    otherwise). `DiffSide` is Core's one diff-side type (`core-diff-merge.md`).
   - `ChromeGeometry.swift` — the chrome's measurements as unscaled point values:
     row height and horizontal padding, the tree's indent step, the maximum
     corner radius, the hairline width, five row/strip/bar heights (the tab
@@ -108,7 +132,15 @@ adds no write of any kind. Its only persisted input is the existing
     inset *from the window edge* — one measurement drawn on the sidebar header
     and on the bottom bar, not a second spelling of the first — and the two dock
     tab insets are two measurements that happen to share a value today, so
-    neither is spelled as the other. `dockTabRowHeight`, declared ahead of its
+    neither is spelled as the other. Part four (b) added a chrome **push
+    button's** two: `buttonPaddingX` (10), its horizontal padding, shared by the
+    Local Changes toolbar's Commit and the pull-request rows' buttons — a third
+    measurement equal in value to the two dock tab insets and deliberately not
+    spelled as either — and `buttonCornerRadius` (5). `cornerRadiusMax`'s own
+    comment names the small controls' radii honestly: a chrome surface's corners
+    are square or the maximum, and the only smaller radii are the small controls'
+    own tokens (`bottomBarToggleRadius`, `buttonCornerRadius`), never one computed
+    from it. `dockTabRowHeight`, declared ahead of its
     surface since part one, is spent since part four (a). Two
     rules, both load-bearing. **Every token is scaled at its use site**, through
     `InterfaceMetrics.scaled(_:)`: nothing here is pre-scaled and no view
@@ -262,6 +294,37 @@ Three accessors, one table:
     dynamic form.
   - `color(_ role:in:)` — the SwiftUI `Color` of one appearance, composed from
     the same row rather than converted from an `NSColor`.
+
+### The fourth exemption — `CommitGraphPalette.swift`
+
+The branch graph's lane colours, macOS-gated, and the chrome's **fourth stated
+colour exemption** beside `SyntaxTheme`, `TerminalTheme` and `FileIcon` (rule
+three). A lane colour is an **identity token, not a chrome meaning** — "this line
+is the same branch as that one" — which is the ANSI-16 argument read through a
+graph: pressing a lane into `statusRed` or `accent` would make a branch read as an
+error or a selection, exactly the misuse the closed role vocabulary exists to
+prevent. The design's own two lane colours cannot stand in either: two hues cannot
+tell several concurrent branches apart, which is the gutter's whole job.
+
+The table is `ChromePalette`'s shape: an exhaustive `switch` over eight `Lane`
+identities with no `default`, each a light/dark `Entry` — blue 0x007AFF /
+0x0A84FF, green 0x28CD41 / 0x32D74B, orange 0xFF9500 / 0xFF9F0A, purple 0xAF52DE /
+0xBF5AF2, red 0xFF3B30 / 0xFF453A, teal 0x30B0C7 / 0x40C8E0, pink 0xFF2D55 /
+0xFF375F, yellow 0xFFCC00 / 0xFFD60A. `nsColor(forLane:)` answers a **dynamic**
+`NSColor` through `PlatformColor.dynamic(light:dark:)`, resolved at draw time, so
+the gutter caches nothing and watches for no appearance change; the index wraps
+modulo eight, negative indices included, as the old palette did.
+`CommitGraphView.swift`, its one reader, spells no colour at all and is gated;
+this file is exempt, and rule three's disjointness assertion is what refuses the
+two sets meeting at that seam. `CommitGraphPaletteTests` (app bundle) restates the
+values, asserts each set of eight pairwise distinct, resolves the dynamic colour
+under both appearances and pins the wrap at -1 and 8.
+
+**The eight hues are today's system values, carried over deliberately**, so
+moving the gutter off the system colours changes nothing visually. Nobody chose
+them against the design's ground; **choosing hues that sit on it is an open design
+question**, recorded here and in the file's own comment rather than decided by
+this table.
 
 ### The SwiftUI path — `ChromeTheme` + `ChromeThemeEnvironment.swift`
 
@@ -723,25 +786,96 @@ gutter moved; the panel now names no `SyntaxTheme` at all, and rule fifteen pins
 that, the reader set and the absence of any severity case label outside the
 panel's one glyph table.
 
+#### Part four (b) — the Log, Local Changes and Pull Requests panels, and the two diffs
+
+The dock's interior, finished. Seven surfaces move onto the roles — the **Log
+panel**, its **filter bar** and its **graph gutter**, the **Local Changes panel**,
+the **Pull Requests panel**, the **side-by-side diff pane** and the **unified
+diff's wash** — and seven files join the gated set (`CommitLogView.swift`,
+`CommitGraphView.swift`, `LogFilterBar.swift`, `LocalChangesView.swift`,
+`DiffView.swift`, `CommitUnifiedDiffView.swift`, `PullRequestsPanelView.swift`),
+taking it from twenty to twenty-seven; the suite grows from sixteen rules to
+twenty. **No palette value changes and no role is added.** Two roles are spent,
+the diff grounds `diffAddedBackground` and `diffRemovedBackground`, leaving four
+unspent. `ChromeGeometry` gains `buttonPaddingX` (10) and `buttonCornerRadius`
+(5).
+
+**Four new Core answers**, each replacing tables that existed in more than one
+copy (the `ChromeColorRole.swift` entry above has the values): the changed-file
+status colour `changedFileRole(for:)` with its letter and spoken name
+(`FileStatus.letter`/`spokenName`) — read by the Local Changes panel, the Log's
+detail pane and the commit dialog, whose three former tables disagreed; the
+checks colour `checksRole(for:)` with the checks glyph and words
+(`symbolName`/`spokenWords` on `GitHubChecksSummary` and `GitHubCheckBucket`) —
+read by the panel and the bottom-bar indicator; and the diff wash
+`diffWashRole(for:side:)` / `diffWashRole(for:)` with its marker
+`diffMarkerRole(for:side:)` — read by the two diff surfaces, over Core's one
+`DiffSide`, which replaced the app's `DiffTextView.Side` outright. Rules
+seventeen to nineteen pin each answer's readers and forbid a case-label table in
+a view; rule twenty pins the three panels' accessibility.
+
+**The lane palette is the fourth exemption** (`CommitGraphPalette.swift`, above):
+a lane colour is an identity token, not a chrome meaning. Its eight hues are
+today's system values carried over so the gutter changes nothing visually;
+choosing hues that sit on the design's ground is an open design question.
+
+  - **The Log panel** — `CommitLogView.swift`, the environment path. The header
+    strip is the Problems panel's; a new static, non-interactive column-header
+    row (Hash / Message / Author / Date, 24 pt) reads the rows' own widths; rows
+    are 25 pt, 12 pt inset, 16 pt column gap; washes `accentTintStrong` /
+    `hoverTint`, ref badges `accent` on `accentTint`; the date keeps its short
+    date+time format. The graph column is `max(40, lanes × 14 + 6)` pt, scaled,
+    40 being a named minimum. The three `Divider()`s are the surface's own
+    hairlines — including the list/detail divide, which is therefore a hairline
+    with a drag strip rather than an `HSplitView`. Full entry in
+    `app-git-views.md`.
+  - **The graph gutter** — `CommitGraphView.swift`, AppKit, reading
+    `CommitGraphPalette` and spelling no colour; 2 pt lines, a 6 pt dot, 14 pt
+    lanes. Full entry in `app-git-views.md`.
+  - **The filter bar** — `LogFilterBar.swift`, the environment path: one
+    `panelHeaderHeight` strip on `bgPanel` keeping every control, each in a 22 pt
+    box (4 pt radius, `bgEditor`, a `hairline` border that becomes a two-point
+    `accent` one on focus). Full entry in `app-git-views.md`.
+  - **The Local Changes panel** — `LocalChangesView.swift`, the environment
+    path, keeping its single-list structure: a 32 pt toolbar whose Commit is the
+    primary button, a hand-drawn folder header, a drawn checkbox, the two
+    context-menu `Divider()`s become `Section`s rendering the same separators.
+    Full entry in `app-git-views.md`.
+  - **The Pull Requests panel** — `PullRequestsPanelView.swift`, the environment
+    path: 40 pt rows with primary and secondary buttons, the checks glyph and job
+    dots from Core, review decisions as bordered capsules; the indicator beside
+    the branch switcher, already gated, now reads the same Core answers. Full
+    entry in `core-github.md`.
+  - **The side-by-side diff pane** — `DiffView.swift`, the AppKit bridge: the row
+    wash and marker are Core's answers resolved through `ChromePalette.nsColor(_:)`,
+    the filler row carries no wash, gutter numbers are `textSecondary`, and the
+    divider between the panes is a plain view filled with `hairline` at
+    `hairlineWidth` **unscaled**, under the token's stated code-zoom exception.
+    The characters keep `SyntaxTheme`. Full entry in `app-git-views.md`.
+  - **The unified diff** — `CommitUnifiedDiffView.swift`, the environment path:
+    the row wash through `diffWashRole(for: UnifiedDiffLine.Kind)`, the checkbox
+    `accent`/`textSecondary`, line numbers `textSecondary`. Gated in full; the
+    commit dialog around it is untouched except for reading the status answer.
+    Full entry in `app-git-views.md`.
+
 #### What is still waiting
 
-The dock's three remaining panels — **Log, Local Changes and Pull Requests** —
-are part four (b), and follow the conventions this part set: a
-`panelHeaderHeight` header strip that draws its own bottom `hairline`, and a
-place in rule fourteen's `dockRuleOwners`. After them: the editor zone's
-find/replace bar, the dialogs and sheets, the separate
-diff/merge/history/browser windows, the Preferences surfaces and the terminal's
-own palette. Each follows the six-step guide at the end of this document, on its
-own, with `gatedFiles` growing as part of the restyle rather than afterwards.
+The dock is finished. After it: the editor zone's find/replace bar, the dialogs
+and sheets (the commit dialog among them — part five), the separate
+diff/merge/history/browser windows' own chrome (the side-by-side pane inside them
+is swept), the Preferences surfaces and the terminal's own palette. Each follows
+the six-step guide at the end of this document, on its own, with `gatedFiles`
+growing as part of the restyle rather than afterwards.
 
 The dock's tab row is **no longer deferred** — part four (a) drew it, and
 `ChromeGeometry.dockTabRowHeight` is spent. What stays deferred inside surfaces
 already swept is the **caret readout** beside the bar, which waits on a design
-decision rather than on a file, and the switcher popovers' `Divider()` calls
+decision rather than on a file, the switcher popovers' `Divider()` calls
 (the part-three record above says where, and why their fix waits for the
-popovers' ground). Six roles remain unspent — `bgPopover`, `currentLine`,
-`bracketMatch` and the three diff/merge grounds — after sixteen surfaces, the
-same six and the same count `ChromeColorRole.swift`'s own doc comment states.
+popovers' ground), and the **lane hues**, an open design question. Four roles
+remain unspent — `bgPopover`, `currentLine`, `bracketMatch` and
+`conflictBackground` — after twenty-three surfaces, the same four and the same
+count `ChromeColorRole.swift`'s own doc comment states.
 
 ### The monochrome-icon decision
 

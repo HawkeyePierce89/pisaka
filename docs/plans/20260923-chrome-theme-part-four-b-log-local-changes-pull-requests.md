@@ -363,7 +363,7 @@ Decisions settled during planning. Each one departs from the ticket's wording. T
 
 ### Task 9: Update documentation
 
-- [ ] **`docs/architecture/core-theme.md`**:
+- [x] **`docs/architecture/core-theme.md`**:
   - A new "Part four (b)" section:
     - the surfaces swept;
     - the diff roles spent, leaving four unspent;
@@ -372,7 +372,7 @@ Decisions settled during planning. Each one departs from the ticket's wording. T
     - the lane palette as the fourth exemption, with its reason.
   - The section records that the eight lane hues are today's system values, carried over deliberately so the gutter changes nothing visually. Choosing hues that sit on the design's ground is named as an open design question.
   - A `CommitGraphPalette.swift` entry. (Task 7 already updated the canonical list.)
-- [ ] **`app-git-views.md`**: entries for:
+- [x] **`app-git-views.md`**: entries for:
   - `CommitLogView`: the header row and the gutter minimum;
   - `CommitGraphView`: the geometry, and that it reads the lane table and spells no colour;
   - `LogFilterBar`;
@@ -380,14 +380,14 @@ Decisions settled during planning. Each one departs from the ticket's wording. T
   - `DiffView`: the roles, no filler wash, the unscaled hairline, and `DiffSide` replacing `DiffTextView.Side`. The entry notes that the iOS diff view keeps its own private side type;
   - `CommitUnifiedDiffView`;
   - `CommitDialogView`'s two reads.
-- [ ] **`core-github.md`**: the checks glyph, words and role now live in Core with three readers; the panel's restyle; the indicator's reads.
-- [ ] **`core-git.md`**: `FileStatus.letter` / `spokenName`.
-- [ ] **`core-diff-merge.md`**: `DiffSide`, the one diff-side type, which the macOS app uses directly. The entry notes that it is unrelated to `ThreeWayMerge`'s private merge-side enum.
-- [ ] **`CLAUDE.md`**:
+- [x] **`core-github.md`**: the checks glyph, words and role now live in Core with three readers; the panel's restyle; the indicator's reads.
+- [x] **`core-git.md`**: `FileStatus.letter` / `spokenName`.
+- [x] **`core-diff-merge.md`**: `DiffSide`, the one diff-side type, which the macOS app uses directly. The entry notes that it is unrelated to `ThreeWayMerge`'s private merge-side enum.
+- [x] **`CLAUDE.md`**:
   - Add an index line for `CommitGraphPalette.swift` under the chrome theme's app surfaces.
   - Update the chrome invariant:
     - twenty rules and twenty-seven gated files;
     - four exemptions, naming the lane palette and its reason;
     - twenty-three surfaces swept, adding the Log panel, its filter bar, its graph gutter, the Local Changes panel, the Pull Requests panel, the side-by-side diff pane and the unified diff's wash;
     - the diff roles spent, with four roles left unspent.
-- [ ] README unchanged: there is no user-facing feature change.
+- [x] README unchanged: there is no user-facing feature change.

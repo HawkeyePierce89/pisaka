@@ -722,6 +722,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     column when the gutter is drawn — it reads the rows' own widths from one
     private `CommitLogLayout` (hash 58, author 160, date 120, the subject column
     flexible), which is what keeps "Message" over the ref badges and subject.
+    The graph column is `max(40, laneCount × 14 + 6)` pt, scaled: it still grows
+    with the lane count, and 40 is a **minimum** named in `CommitLogLayout`
+    (`minGraphWidth`), not arithmetic on a token.
     A commit row is 25 pt (`baseRowHeight`, which the gutter cell shares), 12 pt
     inset, 16 pt column gap: message `textPrimary` `.body`, author and date
     `textSecondary` `.callout`, hash `textSecondary` `.subheadline` monospaced.
@@ -740,9 +743,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     flag so every push has exactly one pop.
   - `CommitGraphView.swift` — the branch-graph gutter, a thin color-resolving
     `NSViewRepresentable` (`CommitGraphRowNSView`) over the color-free
-    `CommitGraphLayout`, like the minimap: it consumes a `colorIndex` and maps it to
-    a concrete `NSColor` from a fixed palette at draw time so the graph follows the
-    system appearance. One flipped (y-down) fixed-height cell per row draws the
+    `CommitGraphLayout`, like the minimap: it consumes a `colorIndex` and asks
+    `CommitGraphPalette.nsColor(forLane:)` for that lane's **dynamic** `NSColor`,
+    resolved at draw time so the graph follows the appearance with nothing cached.
+    Since part four (b) of the chrome theme it keeps no palette of its own and
+    **spells no colour at all** — the lane table is the chrome's fourth stated
+    exemption (`core-theme.md`), and this file is gated for the two negative rules
+    it could still break. The geometry: 2 pt lines, a 6 pt node dot (radius 3),
+    lanes 14 pt apart, each value handed in scaled by `CommitLogView`. One flipped (y-down) fixed-height cell per row draws the
     node dot at the vertical center, this row's `edges` from center to the bottom
     edge, and the previous row's edges (`incomingEdges`) from the top edge to
     center — so a lane's bottom-half in one cell meets its top-half in the next to
