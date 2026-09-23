@@ -66,6 +66,12 @@ import XCTest
 ///   draw *and* spell an accessibility value, because two of those glyphs were
 ///   the row's state and hiding a state without speaking it is the same defect
 ///   with the counts looking healthy.
+/// - **The dock's tab row is configured in one place.** It is drawn once, from
+///   the slot every panel passes through; a second call site compiles and
+///   stacks a second row.
+/// - **Every dock tab and the close action are identifiable without sight.** A
+///   tab's selection is a shape, so it is spoken as a value; the close action is
+///   an icon-only glyph, so it is named outright.
 final class ChromeThemeSourceGatingTests: XCTestCase {
 
     // MARK: - The gated set
@@ -100,6 +106,8 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         "ProjectSwitcherView.swift",
         "BranchSwitcherView.swift",
         "PullRequestIndicatorView.swift",
+        // Part four (a): the dock's own chrome.
+        "DockTabRow.swift",
     ]
 
     func testEveryGatedFileExists() throws {
@@ -713,8 +721,8 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
 
     // MARK: - Rule eleven: every label the bar draws stays on one line
 
-    /// The three widgets again, this time as the only files that draw a `Text`
-    /// inside the bar's own fixed-height frame.
+    /// The files that draw a `Text` inside a fixed-height chrome strip: the
+    /// bar's three widgets, and since part four (a) the dock's tab row.
     ///
     /// Part three gave the bottom bar `frame(height:)` on
     /// `ChromeGeometry.bottomBarHeight`, where before its height came from the
@@ -726,7 +734,10 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// errors, nothing else goes red, and the bar looks right on every window
     /// wide enough.
     ///
-    /// So each widget file must spell `.lineLimit(1)`, asserted in this suite's
+    /// The dock's tab row is the same shape one strip up: its labels sit in
+    /// `ChromeGeometry.dockTabRowHeight`, a frame that cannot grow either.
+    ///
+    /// So each of these files must spell `.lineLimit(1)`, asserted in this suite's
     /// `contains` idiom over stripped source.
     ///
     /// The honest limit, stated with the rule as the two above state theirs: a
@@ -739,6 +750,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         "ProjectSwitcherView.swift",
         "BranchSwitcherView.swift",
         "PullRequestIndicatorView.swift",
+        "DockTabRow.swift",
     ]
 
     func testEveryBottomBarLabelIsSingleLine() throws {
@@ -749,11 +761,126 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
             XCTAssertTrue(
                 code.contains(".lineLimit(1)"),
                 """
-                \(name) draws a Text inside the bottom bar's fixed-height frame and must limit it \
+                \(name) draws a Text inside a fixed-height chrome strip and must limit it \
                 to one line — a label that wraps in a frame that cannot grow is a label drawn in \
                 two lines and clipped to one and a half
                 """
             )
+        }
+    }
+
+    // MARK: - Rule twelve: the dock's tab row is configured in one place
+
+    /// The dock's tab row is drawn once, above whichever panel is showing, from
+    /// `ContentView.panelContent(_:)` — the one place every panel passes
+    /// through, inside the fixed-height slot.
+    ///
+    /// Swift's `internal` cannot stop a panel file from naming the row, and a
+    /// second call site would compile and look deliberate: a panel drawing its
+    /// own copy would show two rows stacked in the slot, or one row where the
+    /// host's had been removed and five panels with none. So reachability is
+    /// pinned instead, over stripped source: the set of files naming the
+    /// `DockTabRow` token equals the row's own file (which declares it) and
+    /// `ContentView.swift`; the window root constructs it — `DockTabRow(` —
+    /// exactly once, inside `panelContent(`'s brace-matched body; and none of
+    /// the six hosted panel files names the type at all, which the set already
+    /// implies and is asserted per file so the failure names the panel.
+    private static let dockTabRowFile = "DockTabRow.swift"
+
+    /// The six views `panelContent(_:)` puts in the slot, one per panel.
+    private static let hostedPanelFiles = [
+        "TerminalPanelView.swift",
+        "CommitLogView.swift",
+        "LocalChangesView.swift",
+        "ProblemsPanelView.swift",
+        "UsagesPanelView.swift",
+        "PullRequestsPanelView.swift",
+    ]
+
+    func testTheDockTabRowIsConfiguredInOnePlace() throws {
+        var namers: Set<String> = []
+        for url in try Self.swiftSources() {
+            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            if LSPSourceGatingTests.containsToken("DockTabRow", in: code) {
+                namers.insert(url.lastPathComponent)
+            }
+            if Self.hostedPanelFiles.contains(url.lastPathComponent) {
+                XCTAssertFalse(
+                    LSPSourceGatingTests.containsToken("DockTabRow", in: code),
+                    """
+                    \(url.lastPathComponent) names DockTabRow — the row is the host's, drawn once \
+                    above every panel, and a panel drawing its own stacks a second one in the slot
+                    """
+                )
+            }
+        }
+        XCTAssertEqual(
+            namers, [Self.dockTabRowFile, Self.windowRootFile],
+            "DockTabRow must be named only in its own file and in \(Self.windowRootFile)"
+        )
+
+        let root = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
+            try Self.read(Self.source(named: Self.windowRootFile))
+        )
+        XCTAssertEqual(
+            Self.occurrences(of: "DockTabRow(", in: root), 1,
+            "\(Self.windowRootFile) must construct the dock's tab row exactly once"
+        )
+        let slot = try XCTUnwrap(
+            Self.matchedBody(after: "func panelContent(", in: root),
+            "panelContent( is gone or renamed — re-point this rule rather than losing it"
+        )
+        XCTAssertTrue(
+            slot.contains("DockTabRow("),
+            """
+            the dock's tab row must be constructed inside panelContent(_:) — the one place \
+            every panel passes through, inside the fixed-height slot
+            """
+        )
+    }
+
+    // MARK: - Rule thirteen: every dock tab and the close action are identifiable without sight
+
+    /// Rule ten read one strip up. A dock tab's selection is drawn as an accent
+    /// strip — a shape, not a word — so the tab must hide that strip *and* speak
+    /// the selection as its value, or the one fact that distinguishes the panel
+    /// on screen is invisible to anyone not looking. It must also carry its
+    /// panel's name as an explicit label, so what is announced is the table's
+    /// name rather than whatever the label's children fold together.
+    ///
+    /// The close action is an icon-only `xmark`, the case rule ten exists for: a
+    /// `Button` combines its children, so without an explicit label it
+    /// announces the glyph's own name — and `.help(` is a tooltip, not a name.
+    ///
+    /// Read over the **brace-matched bodies** of the two builders, both named
+    /// here so renaming either fails loudly rather than leaving the rule to pass
+    /// over a body it can no longer find.
+    private static let dockTabBuilder = "func tabButton("
+    private static let dockCloseBuilder = "var closeButton"
+
+    func testEveryDockTabAndTheCloseActionCarryAName() throws {
+        let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
+            try Self.read(Self.source(named: Self.dockTabRowFile))
+        )
+        let requirements = [
+            (Self.dockTabBuilder, [".accessibilityLabel(", ".accessibilityValue(", ".accessibilityHidden(true)"]),
+            (Self.dockCloseBuilder, [".help(", ".accessibilityLabel("]),
+        ]
+        for (builder, required) in requirements {
+            let body = try XCTUnwrap(
+                Self.matchedBody(after: builder, in: code),
+                "\(Self.dockTabRowFile)'s \(builder) is gone or renamed — re-point this rule rather than losing it"
+            )
+            for modifier in required {
+                XCTAssertTrue(
+                    body.contains(modifier),
+                    """
+                    \(Self.dockTabRowFile)'s \(builder) must spell \(modifier) — a dock control is \
+                    named after its glyph, and a selection drawn as a shape is unspoken, until \
+                    an explicit label and value replace them
+                    """
+                )
+            }
         }
     }
 
@@ -814,6 +941,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     private static let spelled = [
         1: "one", 2: "two", 3: "three", 4: "four", 5: "five", 6: "six",
         7: "seven", 8: "eight", 9: "nine", 10: "ten", 11: "eleven", 12: "twelve",
+        13: "thirteen", 14: "fourteen", 15: "fifteen",
     ]
 
     func testBothSummariesSpellTheSuitesOwnRuleCount() throws {

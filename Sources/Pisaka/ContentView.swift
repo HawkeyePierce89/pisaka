@@ -394,9 +394,10 @@ struct ContentView: View {
 
     var body: some View {
         // The editor (or editor-over-panel split) fills the window above an
-        // always-visible bottom bar of Terminal/Git/Changes/Problems toggle
-        // buttons. The bar is the reason `mainArea` clips: it owns the strip
-        // below `mainArea`, and nothing inside `mainArea` may paint over it.
+        // always-visible bottom bar of the six panel toggles (in `BottomPanel`'s
+        // own order, named by its `title`). The bar is the reason `mainArea`
+        // clips: it owns the strip below `mainArea`, and nothing inside
+        // `mainArea` may paint over it.
         VStack(spacing: 0) {
             mainArea
             // No `Divider()` here: the bar draws its own one-point `hairline`
@@ -733,42 +734,60 @@ struct ContentView: View {
         }
     }
 
-    @ViewBuilder
     private func panelContent(_ panel: BottomPanel) -> some View {
-        switch panel {
-        case .terminal:
-            TerminalPanelView(model: terminalSessions, projectRoot: model.projectRoot)
-        case .log:
-            // No minimum height here, and none in any sibling branch: the slot's
-            // height is `panelHeightRule`'s and is the only height this content
-            // has. A minimum stated *inside* a fixed-height slot can never be
-            // satisfied — the child cannot make the slot grow, so it can only
-            // overflow, over the divider above and the bottom bar below — and the
-            // rule's degenerate case deliberately goes below its own floor, where
-            // no per-panel number could be honored either. Nothing is lost: every
-            // panel here is a scrollable list, table or terminal.
-            CommitLogView(model: commitLog, projectRoot: model.projectRoot, onOpenCommitDiff: onOpenCommitDiff)
-        case .changes:
-            // Local Changes is now a bottom dock panel (beside Terminal/Git),
-            // rendered as the file list only — the diff opens in a separate window
-            // on double-click via `onOpenDiff`.
-            LocalChangesView(
-                model: localChanges,
-                projectRoot: model.projectRoot,
-                onRevert: onRevert,
-                onOpenDiff: onOpenDiff,
-                onResolveConflict: onResolveConflict,
-                onJumpToSource: jumpToSource,
-                onOpenFile: onOpenFile,
-                onCommit: onOpenCommitDialog,
-                onCommitFile: onCommitFile
+        // The dock's tab row sits here, above the switch, because this is the
+        // one place every panel passes through: one call site, every panel gets
+        // it, and the slot's pinned frame, its top alignment, the clip, the
+        // divider and `panelHeightRule` are untouched — the row is part of the
+        // slot's content, not a strip beside it. A tab asks Core's tab rule and
+        // hands a `.show` answer to the bar's own funnel (which also creates the
+        // first terminal session); close hands the showing panel to the same
+        // funnel, which collapses it.
+        VStack(spacing: 0) {
+            DockTabRow(
+                selection: panel,
+                onSelect: { tab in
+                    if case .show(let target) = BottomPanel.tabActivation(bottomPanel.wrappedValue, tab: tab) {
+                        onTogglePanel(target)
+                    }
+                },
+                onClose: { onTogglePanel(panel) }
             )
-        case .problems:
-            problemsPanel
-        case .usages:
-            usagesPanel
-        case .pullRequests:
-            PullRequestsPanelView(model: pullRequests.model, coordinator: pullRequests)
+            switch panel {
+            case .terminal:
+                TerminalPanelView(model: terminalSessions, projectRoot: model.projectRoot)
+            case .log:
+                // No minimum height here, and none in any sibling branch: the slot's
+                // height is `panelHeightRule`'s and is the only height this content
+                // has. A minimum stated *inside* a fixed-height slot can never be
+                // satisfied — the child cannot make the slot grow, so it can only
+                // overflow, over the divider above and the bottom bar below — and the
+                // rule's degenerate case deliberately goes below its own floor, where
+                // no per-panel number could be honored either. Nothing is lost: every
+                // panel here is a scrollable list, table or terminal.
+                CommitLogView(model: commitLog, projectRoot: model.projectRoot, onOpenCommitDiff: onOpenCommitDiff)
+            case .changes:
+                // Local Changes is now a bottom dock panel (beside Terminal and Log),
+                // rendered as the file list only — the diff opens in a separate window
+                // on double-click via `onOpenDiff`.
+                LocalChangesView(
+                    model: localChanges,
+                    projectRoot: model.projectRoot,
+                    onRevert: onRevert,
+                    onOpenDiff: onOpenDiff,
+                    onResolveConflict: onResolveConflict,
+                    onJumpToSource: jumpToSource,
+                    onOpenFile: onOpenFile,
+                    onCommit: onOpenCommitDialog,
+                    onCommitFile: onCommitFile
+                )
+            case .problems:
+                problemsPanel
+            case .usages:
+                usagesPanel
+            case .pullRequests:
+                PullRequestsPanelView(model: pullRequests.model, coordinator: pullRequests)
+            }
         }
     }
 
@@ -867,24 +886,16 @@ struct ContentView: View {
             }
             Spacer()
             HStack(spacing: metrics.scaled(2)) {
-                bottomBarButton(title: "Terminal", systemImage: "terminal", panel: .terminal)
-                bottomBarButton(title: "Git", systemImage: "arrow.triangle.branch", panel: .log)
-                bottomBarButton(title: "Changes", systemImage: "arrow.triangle.pull", panel: .changes)
-                bottomBarButton(
-                    title: "Problems",
-                    systemImage: "exclamationmark.triangle",
-                    panel: .problems
-                )
-                bottomBarButton(title: "Usages", systemImage: "text.magnifyingglass", panel: .usages)
+                bottomBarButton(systemImage: "terminal", panel: .terminal)
+                bottomBarButton(systemImage: "arrow.triangle.branch", panel: .log)
+                bottomBarButton(systemImage: "arrow.triangle.pull", panel: .changes)
+                bottomBarButton(systemImage: "exclamationmark.triangle", panel: .problems)
+                bottomBarButton(systemImage: "text.magnifyingglass", panel: .usages)
                 // `arrow.triangle.merge` rather than `arrow.triangle.pull`, which
                 // Changes three buttons to the left already uses: two dock
                 // buttons drawn with one glyph are indistinguishable at a glance,
                 // and now that the labels are gone the glyph is all there is.
-                bottomBarButton(
-                    title: "Pull Requests",
-                    systemImage: "arrow.triangle.merge",
-                    panel: .pullRequests
-                )
+                bottomBarButton(systemImage: "arrow.triangle.merge", panel: .pullRequests)
                 completionToggleButton
             }
         }
@@ -950,8 +961,9 @@ struct ContentView: View {
     /// rule read from the other side (`BranchSwitcherView`,
     /// `ProjectSwitcherView`). Gating rule ten pins both, in this body and in
     /// `completionToggleButton`'s, because nothing in the compiler can see a
-    /// control announcing its glyph.
-    private func bottomBarButton(title: String, systemImage: String, panel: BottomPanel) -> some View {
+    /// control announcing its glyph. Both read `panel.title`, the one name the
+    /// dock's tab row draws too, so a tooltip and a tab cannot disagree.
+    private func bottomBarButton(systemImage: String, panel: BottomPanel) -> some View {
         let isActive = bottomPanel.wrappedValue == panel
         return Button {
             onTogglePanel(panel)
@@ -970,8 +982,8 @@ struct ContentView: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help(title)
-        .accessibilityLabel(title)
+        .help(panel.title)
+        .accessibilityLabel(panel.title)
     }
 
     private var editorSplit: some View {

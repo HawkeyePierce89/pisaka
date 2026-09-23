@@ -154,6 +154,17 @@ final class BottomPanelSourceGatingTests: XCTestCase {
             ))
         }
 
+        // The dock's tab row, which `panelContent(_:)` stacks above every
+        // panel: it sits inside the same fixed-height slot, so a minimum stated
+        // on it reaches the slot exactly as one on a panel would.
+        slotFacingBodies.append((
+            "DockTabRow",
+            try XCTUnwrap(
+                Self.typeBody("DockTabRow", in: try appSource(named: "DockTabRow.swift")),
+                "DockTabRow is not declared in DockTabRow.swift — rename it and update this suite deliberately"
+            )
+        ))
+
         for (what, body) in slotFacingBodies {
             XCTAssertFalse(
                 body.contains("minHeight"),

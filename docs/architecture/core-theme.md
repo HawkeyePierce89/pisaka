@@ -624,8 +624,8 @@ deleted file fails rather than quietly losing its coverage:
 five: `TabListView.swift`, `TabRowView.swift`, `BreadcrumbBarView.swift`,
 `MinimapView.swift`, `LSPConsentBanner.swift` — plus the third part's five:
 `MainWindowChrome.swift`, `ContentView.swift`, `ProjectSwitcherView.swift`,
-`BranchSwitcherView.swift`, `PullRequestIndicatorView.swift`, **sixteen** in
-all. `ProjectTreeView.swift` is not among the third part's additions because it
+`BranchSwitcherView.swift`, `PullRequestIndicatorView.swift` — plus part four
+(a)'s `DockTabRow.swift`, **seventeen** in all. `ProjectTreeView.swift` is not among the third part's additions because it
 was already there: part three restyled the surface *around* the rows part one
 had swept, and a file joins this set once. The draft field is in the set
 although it is an editing affordance rather than a row: an inline draft
@@ -633,7 +633,7 @@ although it is an editing affordance rather than a row: an inline draft
 for. `TabStripView.swift` covers `TabStatusMark` too, the slot view the two
 orientations share, which is why that extraction did not add a seventh file.
 
-The eleven rules, each invisible to the compiler:
+The thirteen rules, each invisible to the compiler:
 
 1. **No gated view names a system semantic colour.** A closed forbidden-token
    list — AppKit's semantic set (`labelColor`, `separatorColor`,
@@ -762,7 +762,30 @@ The eleven rules, each invisible to the compiler:
    carries it, so a bar label that lost the limit while a popover row kept one
    would satisfy it. What it pins is that the construct is known here at all —
    which is exactly what the bar did not have, the limit being absent from all
-   three.
+   three. Part four (a) added the dock's tab row to the list, the same shape one
+   strip up: its labels sit in `ChromeGeometry.dockTabRowHeight`, a frame that
+   cannot grow either, so the rule now reads as "every label a fixed-height
+   chrome strip draws".
+12. **The dock's tab row is configured in one place.** `DockTabRow` is drawn
+   once, above whichever panel is showing, from `ContentView.panelContent(_:)` —
+   the one place every panel passes through, inside the fixed-height slot. Swift's
+   `internal` cannot stop a panel file from naming it, and a second call site
+   compiles and looks deliberate: a panel drawing its own copy stacks a second
+   row in the slot. So reachability is pinned over stripped source: the set of
+   files naming the `DockTabRow` token equals `{DockTabRow.swift,
+   ContentView.swift}`, the window root constructs it (`DockTabRow(`) exactly
+   once and inside `panelContent(`'s brace-matched body, and none of the six
+   hosted panel files names the type.
+13. **Every dock tab and the close action are identifiable without sight.**
+   Rule ten read one strip up. A tab's selection is drawn as an accent strip — a
+   shape, not a word — so the brace-matched body of `DockTabRow`'s
+   `tabButton(` must spell `.accessibilityLabel(` (the table's name, not whatever
+   the label's children fold together), `.accessibilityValue(` (the selection,
+   spoken) and `.accessibilityHidden(true)` (the strip that draws it). The close
+   action is an icon-only `xmark`, the case rule ten exists for, so
+   `closeButton`'s body must spell `.help(` and `.accessibilityLabel(`. Both
+   builders are named in the test, so renaming either fails loudly rather than
+   leaving the rule to pass over a body it can no longer find.
 
 Plus a **self-check** in the suite's own idiom: every gated file must actually
 *name* a `ChromeColorRole`, or the checks above have gone vacuous — with one

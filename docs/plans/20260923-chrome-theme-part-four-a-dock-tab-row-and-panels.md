@@ -129,7 +129,7 @@ Dependencies: none.
 - Modify: `Tests/PisakaCoreTests/BottomPanelSourceGatingTests.swift`
 - Modify: `docs/architecture/core-theme.md`, `CLAUDE.md`
 
-- [ ] write `DockTabRow.swift` under `#if os(macOS)`:
+- [x] write `DockTabRow.swift` under `#if os(macOS)`:
   - A `struct DockTabRow: View` taking `selection: BottomPanel`, `onSelect: (BottomPanel) -> Void` and `onClose: () -> Void`. It reads `\.interfaceMetrics` and `\.chromeTheme`.
   - The row: `ForEach(BottomPanel.allCases)`, gap 2, a `Spacer()`, then the close action. Horizontal padding is `dockTabRowPaddingX` and height is `dockTabRowHeight`, with no minimum anywhere.
   - A one-point `hairline` overlay along the bottom edge. The row has no ground of its own, because the slot already paints `bgPanel`.
@@ -140,24 +140,24 @@ Dependencies: none.
   - The close action is an `xmark` at `.body` in `textSecondary`, with `.help` and `.accessibilityLabel` ("Close panel").
   - Local gaps go in `private enum DockTabRowLayout`.
   - The doc comment records decisions 2, 4 and 5 and says why no weight changes.
-- [ ] in `ContentView.panelContent(_:)`, wrap the existing `switch` in a `VStack(spacing: 0)` with `DockTabRow` above it:
+- [x] in `ContentView.panelContent(_:)`, wrap the existing `switch` in a `VStack(spacing: 0)` with `DockTabRow` above it:
   - `onSelect: { tab in if case .show(let target) = BottomPanel.tabActivation(bottomPanel.wrappedValue, tab: tab) { onTogglePanel(target) } }`
   - `onClose: { onTogglePanel(panel) }`
   - Add a comment saying why the row sits here: it is one place, every panel gets it, and the pinned frame, its top alignment, the clip, the divider and `panelHeightRule` are untouched.
   - Change nothing else in `mainArea`.
-- [ ] `bottomBarButton(title:systemImage:panel:)` becomes `bottomBarButton(systemImage:panel:)`. `.help` and `.accessibilityLabel` read `panel.title`, and the six calls drop their titles. Glyphs, order and styling do not change. Fix the body comment that still says "Terminal/Git/Changes/Problems toggle buttons".
-- [ ] add `"DockTabRow.swift"` to `gatedFiles` and to rule eleven's file list. Reword that rule's doc from "the bar" to "a fixed-height chrome strip".
-- [ ] add **rule twelve** (`// MARK: - Rule twelve: the dock's tab row is configured in one place`):
+- [x] `bottomBarButton(title:systemImage:panel:)` becomes `bottomBarButton(systemImage:panel:)`. `.help` and `.accessibilityLabel` read `panel.title`, and the six calls drop their titles. Glyphs, order and styling do not change. Fix the body comment that still says "Terminal/Git/Changes/Problems toggle buttons".
+- [x] add `"DockTabRow.swift"` to `gatedFiles` and to rule eleven's file list. Reword that rule's doc from "the bar" to "a fixed-height chrome strip".
+- [x] add **rule twelve** (`// MARK: - Rule twelve: the dock's tab row is configured in one place`):
   - Over the stripped sources, the set of files spelling `DockTabRow(` equals `{"DockTabRow.swift", "ContentView.swift"}`.
   - `ContentView.swift` spells it exactly once, inside `panelContent(`'s matched body.
   - None of the six hosted panel files names `DockTabRow`.
-- [ ] add **rule thirteen** (`// MARK: - Rule thirteen: every dock tab and the close action are identifiable without sight`):
+- [x] add **rule thirteen** (`// MARK: - Rule thirteen: every dock tab and the close action are identifiable without sight`):
   - In `DockTabRow.swift`, the matched body of the tab builder spells `.accessibilityLabel(`, `.accessibilityValue(` and `.accessibilityHidden(true)`.
   - The matched body of the close builder spells `.help(` and `.accessibilityLabel(`.
   - Both builders are named in the test, so renaming either fails loudly.
-- [ ] for each rule: add its doc paragraph, its item in `core-theme.md`'s canonical list, and the `spelled` entries through "fifteen". Bump `CLAUDE.md`'s count to thirteen and add both rules to that sentence's enumeration.
-- [ ] `BottomPanelSourceGatingTests`: add `DockTabRow`'s type body to the slot-facing bodies checked for `minHeight`, with a comment saying the row sits inside the fixed-height slot.
-- [ ] run `swift test` and the app-layer bundle. Both must pass before task 3.
+- [x] for each rule: add its doc paragraph, its item in `core-theme.md`'s canonical list, and the `spelled` entries through "fifteen". Bump `CLAUDE.md`'s count to thirteen and add both rules to that sentence's enumeration.
+- [x] `BottomPanelSourceGatingTests`: add `DockTabRow`'s type body to the slot-facing bodies checked for `minHeight`, with a comment saying the row sits inside the fixed-height slot.
+- [x] run `swift test` and the app-layer bundle. Both must pass before task 3.
 
 ### Task 3: One severity answer, in Core
 
