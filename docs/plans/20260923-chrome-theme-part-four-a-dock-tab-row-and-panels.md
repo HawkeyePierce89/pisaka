@@ -187,12 +187,12 @@ Dependencies: none.
 - Modify: `Tests/PisakaCoreTests/ChromeThemeSourceGatingTests.swift`
 - Modify: `docs/architecture/core-theme.md`, `CLAUDE.md`
 
-- [ ] both files add `@Environment(\.chromeTheme) private var theme`, and so do their private row structs.
-- [ ] header strip, in both files:
+- [x] both files add `@Environment(\.chromeTheme) private var theme`, and so do their private row structs.
+- [x] header strip, in both files:
   - Replace `VStack { header; Divider(); content }` with the header plus its own one-point `hairline` overlay along its bottom edge.
   - Height `panelHeaderHeight`, horizontal padding `panelHeaderPaddingX`, gap 8 (local).
   - The title at `.body` semibold in `textPrimary`. Every `Text` in the header gets `.lineLimit(1)`.
-- [ ] Problems:
+- [x] Problems:
   - Header badges and row glyphs take `theme.color(ChromeColorRole.diagnosticRole(for:))` (decision 8).
   - Delete the `SyntaxTheme` severity helpers.
   - Correct the "three surfaces, one palette" comment and the file header to name the two tables and which surface is on which.
@@ -201,7 +201,7 @@ Dependencies: none.
   - Hover wash is `hoverTint`, replacing `accentColor.opacity(0.15)`.
   - Row and group horizontal insets are `rowPaddingX`. Other paddings go in `private enum ProblemsPanelLayout`.
   - The placeholder is `textSecondary`.
-- [ ] Usages:
+- [x] Usages:
   - The identifier stays `.callout` monospaced, in `textPrimary`.
   - The provenance note and the count move to `.subheadline` in `textSecondary`.
   - File-group header and hover wash are treated as in Problems.
@@ -209,14 +209,14 @@ Dependencies: none.
   - Preview: `before` and `after` are `textSecondary`; the hit is `textPrimary` semibold.
   - Local numbers go in `private enum UsagesPanelLayout`.
   - The placeholder is `textSecondary`.
-- [ ] neither file names a system semantic colour (`.primary`, `.secondary`, `Color.accentColor`) or a hex literal.
-- [ ] add both files to `gatedFiles` and to rule eleven's file list.
-- [ ] add **rule fourteen** (`// MARK: - Rule fourteen: the dock's swept surfaces draw their own rules`):
+- [x] neither file names a system semantic colour (`.primary`, `.secondary`, `Color.accentColor`) or a hex literal.
+- [x] add both files to `gatedFiles` and to rule eleven's file list.
+- [x] add **rule fourteen** (`// MARK: - Rule fourteen: the dock's swept surfaces draw their own rules`):
   - A named list `dockRuleOwners = ["DockTabRow.swift", "ProblemsPanelView.swift", "UsagesPanelView.swift"]`, each spelling no `Divider(` in stripped source.
   - Its doc says that part four (b) extends the list, and why a platform separator is wrong here.
-- [ ] add **rule fifteen** (`// MARK: - Rule fifteen: the severity mapping is Core's one answer`), with the three clauses of decision 11. Its doc names the regression it prevents: a second severity table reappearing in a view.
-- [ ] for both rules: add the doc paragraph and the canonical-list item, and bump `CLAUDE.md` to fifteen with both rules in its enumeration.
-- [ ] run `swift test` and the app-layer bundle. Both must pass before task 5.
+- [x] add **rule fifteen** (`// MARK: - Rule fifteen: the severity mapping is Core's one answer`), with the three clauses of decision 11. Its doc names the regression it prevents: a second severity table reappearing in a view.
+- [x] for both rules: add the doc paragraph and the canonical-list item, and bump `CLAUDE.md` to fifteen with both rules in its enumeration.
+- [x] run `swift test` and the app-layer bundle. Both must pass before task 5.
 
 ### Task 5: The Terminal panel's host
 

@@ -735,8 +735,8 @@ ci.yml's `lint` job, and the version-bump procedure.
   paints its own background and overrides nothing — was measured recolouring
   live in both directions when the system appearance changed under it. A
   reader: it takes no writer gate, is gated by none and writes nothing.
-  `ChromeThemeSourceGatingTests` pins which files obey the rule (seventeen, by set
-  equality) and its thirteen rules — no system semantic colour, no hex literal
+  `ChromeThemeSourceGatingTests` pins which files obey the rule (nineteen, by set
+  equality) and its fifteen rules — no system semantic colour, no hex literal
   outside the table, the three exemptions stay exemptions, the theme injected at
   the scale's roots, no view constructing a theme, the gutter's fill still going
   through its own rule (a seam pins nothing its call site does not spend, and
@@ -750,9 +750,12 @@ ci.yml's `lint` job, and the version-bump procedure.
   stated exception, naming itself outright), every label a fixed-height
   strip draws staying on one line (the bar states its own height now, so a label
   that wraps is clipped rather than accommodated), the dock's tab row configured
-  in one place (drawn once, from the slot every panel passes through), and every
+  in one place (drawn once, from the slot every panel passes through), every
   dock tab and the row's close action identifiable without sight (a tab speaks
-  its selection as a value, the close glyph is named outright) — plus, beside the rules rather
+  its selection as a value, the close glyph is named outright), the dock's
+  swept surfaces drawing their own hairlines (no `Divider()`), and the severity
+  mapping Core's one answer (`ChromeColorRole.diagnosticRole(for:)`, two known
+  readers, no second table in a view) — plus, beside the rules rather
   than among them, the cross-file count that keeps this sentence and
   `core-theme.md`'s own list equal to the number of rules the suite declares —
   while **three files are exempt because they are not

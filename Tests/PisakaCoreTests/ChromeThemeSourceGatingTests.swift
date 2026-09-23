@@ -72,6 +72,12 @@ import XCTest
 /// - **Every dock tab and the close action are identifiable without sight.** A
 ///   tab's selection is a shape, so it is spoken as a value; the close action is
 ///   an icon-only glyph, so it is named outright.
+/// - **The dock's swept surfaces draw their own rules.** A `Divider()` is the
+///   platform's separator colour, a step off the `hairline` role beside it, and
+///   it compiles and looks plausible in whichever appearance the reviewer is in.
+/// - **The severity mapping is Core's one answer.** A second severity table in a
+///   view compiles, draws four plausible colours, and drifts from the gutter's
+///   the first time either is touched.
 final class ChromeThemeSourceGatingTests: XCTestCase {
 
     // MARK: - The gated set
@@ -108,6 +114,8 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         "PullRequestIndicatorView.swift",
         // Part four (a): the dock's own chrome.
         "DockTabRow.swift",
+        "ProblemsPanelView.swift",
+        "UsagesPanelView.swift",
     ]
 
     func testEveryGatedFileExists() throws {
@@ -513,13 +521,19 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
             TabFileIcon exists to refuse
             """
         )
-        // Three, and named: the tree's rows, the inline draft field drawing the
-        // placeholder icon a real row would have, and the shared tab icon both
-        // orientations now ask. A fourth is a line that has quietly bought
-        // itself out of rule one.
+        // Five, and named: the tree's rows, the inline draft field drawing the
+        // placeholder icon a real row would have, the shared tab icon both
+        // orientations now ask, and — since part four (a) — the Problems and
+        // Usages panels' file-group headers, each of whose exempted line is a
+        // `let icon = FileIcon(…)` binding read for its symbol alone (the glyph
+        // is drawn in `textSecondary`, a role, on a line rule one still scans).
+        // A sixth is a line that has quietly bought itself out of rule one.
         XCTAssertEqual(
             iconNamers,
-            ["ProjectTreeDraftField.swift", "ProjectTreeView.swift", "TabStripView.swift"],
+            [
+                "ProjectTreeDraftField.swift", "ProjectTreeView.swift", "TabStripView.swift",
+                "ProblemsPanelView.swift", "UsagesPanelView.swift",
+            ],
             "a gated file naming FileIcon( carries a line exempt from rule one — keep the set small"
         )
     }
@@ -722,7 +736,8 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     // MARK: - Rule eleven: every label the bar draws stays on one line
 
     /// The files that draw a `Text` inside a fixed-height chrome strip: the
-    /// bar's three widgets, and since part four (a) the dock's tab row.
+    /// bar's three widgets, and since part four (a) the dock's tab row and the
+    /// Problems and Usages panels, whose headers are `panelHeaderHeight` strips.
     ///
     /// Part three gave the bottom bar `frame(height:)` on
     /// `ChromeGeometry.bottomBarHeight`, where before its height came from the
@@ -751,6 +766,8 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         "BranchSwitcherView.swift",
         "PullRequestIndicatorView.swift",
         "DockTabRow.swift",
+        "ProblemsPanelView.swift",
+        "UsagesPanelView.swift",
     ]
 
     func testEveryBottomBarLabelIsSingleLine() throws {
@@ -882,6 +899,98 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
                 )
             }
         }
+    }
+
+    // MARK: - Rule fourteen: the dock's swept surfaces draw their own rules
+
+    /// The dock's swept files draw every separating line themselves, as a
+    /// one-point `hairline` rectangle overlaid on the edge the surface owns —
+    /// part two's breadcrumb and part three's bar and dividers precedent — and
+    /// spell no `Divider(` at all.
+    ///
+    /// A platform separator is wrong here for rule one's reason read through a
+    /// view instead of a colour: `Divider()` draws the *system's* separator
+    /// colour at the system's thickness, a step off the `hairline` role the row
+    /// above and the panel beside it draw with, in either appearance. It
+    /// compiles, it looks plausible, and it is the one line in a restyled panel
+    /// that still reads the platform's palette. It is also a line *between* two
+    /// views, owned by neither, where the sweep's rule is that the surface that
+    /// owns an edge draws it.
+    ///
+    /// A named list rather than the whole gated set: the files outside the dock
+    /// were swept under their own parts, and part four (b) extends this list as
+    /// it sweeps the dock's remaining panels.
+    private static let dockRuleOwners = [
+        "DockTabRow.swift",
+        "ProblemsPanelView.swift",
+        "UsagesPanelView.swift",
+    ]
+
+    func testTheDocksSweptSurfacesDrawTheirOwnRules() throws {
+        for name in Self.dockRuleOwners {
+            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
+                try Self.read(Self.source(named: name))
+            )
+            XCTAssertFalse(
+                code.contains("Divider("),
+                """
+                \(name) spells Divider( — a swept dock surface draws its own one-point hairline \
+                on the edge it owns, never the platform's separator
+                """
+            )
+        }
+    }
+
+    // MARK: - Rule fifteen: the severity mapping is Core's one answer
+
+    /// Which chrome role a diagnostic severity is drawn in has one answer,
+    /// `ChromeColorRole.diagnosticRole(for:)` in Core, read by the gutter's
+    /// severity dot and by the Problems panel's badges and row glyphs.
+    ///
+    /// The regression it prevents is a **second severity table reappearing in a
+    /// view**: the mapping used to live in the ruler while the panel read the
+    /// code zone's own table, and a view that grows its own `switch` again
+    /// compiles, draws four plausible colours and drifts from the gutter's the
+    /// first time either side is touched. So, over stripped source:
+    ///
+    /// - no app file declares `func diagnosticRole` (the answer is Core's);
+    /// - the set of app files spelling `diagnosticRole(for:` equals the two known
+    ///   readers — a third reader is a deliberate edit here, not an accident;
+    /// - `ProblemsPanelView.swift` names no `SyntaxTheme`, whose severity table
+    ///   belongs to the squiggle under the text and to the code zone alone.
+    private static let severityReaders: Set<String> = [
+        "LineNumberRulerView.swift",
+        "ProblemsPanelView.swift",
+    ]
+
+    func testTheSeverityMappingIsCoresOneAnswer() throws {
+        var readers: Set<String> = []
+        for url in try Self.swiftSources() where url.path.contains("/Sources/Pisaka/") {
+            let name = url.lastPathComponent
+            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            XCTAssertFalse(
+                code.contains("func diagnosticRole"),
+                "\(name) declares its own diagnosticRole — the severity mapping is Core's one answer"
+            )
+            if code.contains("diagnosticRole(for:") {
+                readers.insert(name)
+            }
+        }
+        XCTAssertEqual(
+            readers, Self.severityReaders,
+            "the app files reading ChromeColorRole.diagnosticRole(for:) must be exactly its two known readers"
+        )
+
+        let panel = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
+            try Self.read(Self.source(named: "ProblemsPanelView.swift"))
+        )
+        XCTAssertFalse(
+            LSPSourceGatingTests.containsToken("SyntaxTheme", in: panel),
+            """
+            ProblemsPanelView.swift names SyntaxTheme — the panel is chrome and reads the severity's \
+            role; SyntaxTheme's table is the squiggle's alone
+            """
+        )
     }
 
     // MARK: - Self-check

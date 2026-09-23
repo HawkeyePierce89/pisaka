@@ -625,7 +625,8 @@ five: `TabListView.swift`, `TabRowView.swift`, `BreadcrumbBarView.swift`,
 `MinimapView.swift`, `LSPConsentBanner.swift` — plus the third part's five:
 `MainWindowChrome.swift`, `ContentView.swift`, `ProjectSwitcherView.swift`,
 `BranchSwitcherView.swift`, `PullRequestIndicatorView.swift` — plus part four
-(a)'s `DockTabRow.swift`, **seventeen** in all. `ProjectTreeView.swift` is not among the third part's additions because it
+(a)'s `DockTabRow.swift`, `ProblemsPanelView.swift` and `UsagesPanelView.swift`,
+**nineteen** in all. `ProjectTreeView.swift` is not among the third part's additions because it
 was already there: part three restyled the surface *around* the rows part one
 had swept, and a file joins this set once. The draft field is in the set
 although it is an editing affordance rather than a row: an inline draft
@@ -633,7 +634,7 @@ although it is an editing affordance rather than a row: an inline draft
 for. `TabStripView.swift` covers `TabStatusMark` too, the slot view the two
 orientations share, which is why that extraction did not add a seventh file.
 
-The thirteen rules, each invisible to the compiler:
+The fifteen rules, each invisible to the compiler:
 
 1. **No gated view names a system semantic colour.** A closed forbidden-token
    list — AppKit's semantic set (`labelColor`, `separatorColor`,
@@ -696,9 +697,12 @@ The thirteen rules, each invisible to the compiler:
    orientations once already. The paste had a second cost read from the other
    side: rule one drops every line naming `FileIcon(`, so each copy bought
    itself a line exempt from the no-system-colour check — which is why the gated
-   files carrying such a line are themselves a counted set of three
+   files carrying such a line are themselves a counted set of five
    (`ProjectTreeView.swift`, `ProjectTreeDraftField.swift`,
-   `TabStripView.swift`).
+   `TabStripView.swift`, and since part four (a) `ProblemsPanelView.swift` and
+   `UsagesPanelView.swift`, whose one exempted line each is the file-group
+   header's `let icon = FileIcon(…)` binding, read for its symbol alone — the
+   glyph is drawn in `textSecondary` on a line rule one still scans).
 9. **The window's chrome is configured in one file.**
    `titlebarAppearsTransparent` is spelled in `MainWindowChrome.swift` and
    nowhere else under `Sources/`, by set equality in both directions. It is a
@@ -786,6 +790,26 @@ The thirteen rules, each invisible to the compiler:
    `closeButton`'s body must spell `.help(` and `.accessibilityLabel(`. Both
    builders are named in the test, so renaming either fails loudly rather than
    leaving the rule to pass over a body it can no longer find.
+14. **The dock's swept surfaces draw their own rules.** Each file in the suite's
+   named `dockRuleOwners` list — `DockTabRow.swift`, `ProblemsPanelView.swift`
+   and `UsagesPanelView.swift` so far — spells no `Divider(` in stripped source;
+   a separating line is a one-point `hairline` rectangle overlaid on the edge the
+   surface owns, the breadcrumb's and the bar's precedent. A platform separator
+   is wrong here for rule one's reason read through a view: `Divider()` draws the
+   system's separator colour, a step off the `hairline` role beside it in either
+   appearance, and it is a line *between* two views that neither owns. A named
+   list rather than the whole gated set, because part four (b) extends it as it
+   sweeps the dock's remaining panels.
+15. **The severity mapping is Core's one answer.**
+   `ChromeColorRole.diagnosticRole(for:)` decides which role a diagnostic
+   severity is drawn in, and the regression this rule prevents is a second
+   severity table reappearing in a view — it compiles, draws four plausible
+   colours and drifts from the gutter's the first time either is touched. Over
+   stripped source: no app file declares `func diagnosticRole`; the set of app
+   files spelling `diagnosticRole(for:` equals `{LineNumberRulerView.swift,
+   ProblemsPanelView.swift}`, the two known readers; and
+   `ProblemsPanelView.swift` names no `SyntaxTheme`, whose severity table is the
+   squiggle's and the code zone's alone.
 
 Plus a **self-check** in the suite's own idiom: every gated file must actually
 *name* a `ChromeColorRole`, or the checks above have gone vacuous — with one
