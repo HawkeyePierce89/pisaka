@@ -256,10 +256,10 @@ load-bearing: a rule that is green while the code it names is broken.
 
 ### Task 6: Run the gates
 
-- [ ] `swift test` — report the count.
-- [ ] The app-layer bundle — report the count.
-- [ ] `swiftlint --strict` from the repository root — must be clean.
-- [ ] The macOS Release build and the iOS build — both must succeed.
-- [ ] Confirm the tree is clean and no mutation was left behind.
-- [ ] Confirm the suite's rule count, its gated-file count and its exemption
+- [x] `swift test` — report the count.
+- [x] The app-layer bundle — report the count.
+- [x] `swiftlint --strict` from the repository root — must be clean.
+- [x] The macOS Release build and the iOS build — both must succeed.
+- [x] Confirm the tree is clean and no mutation was left behind.
+- [x] Confirm the suite's rule count, its gated-file count and its exemption
       count agree across the suite, `core-theme.md` and `CLAUDE.md`.
