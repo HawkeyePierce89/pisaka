@@ -249,12 +249,12 @@ row and its close action — is missing from the document entirely.
 **Files:**
 - Modify: `docs/FEATURES.md`
 
-- [ ] bring every name in the document to the one the table now answers, and
+- [x] bring every name in the document to the one the table now answers, and
       sweep the whole file rather than the three quoted lines.
-- [ ] describe the dock's tab row and its close action where the document
+- [x] describe the dock's tab row and its close action where the document
       describes the dock, in the register the rest of the file uses.
-- [ ] check `README.md` for the same names and fix them there too if present.
-- [ ] run `swift test`.
+- [x] check `README.md` for the same names and fix them there too if present.
+- [x] run `swift test`.
 
 ### Task 7: Gates
 

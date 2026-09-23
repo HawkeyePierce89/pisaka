@@ -179,7 +179,7 @@ server fetching JSON schemas while it runs.
 | Cmd+U       | Run the active test file                   |
 | Cmd+Shift+P | Show/Hide the Markdown preview (macOS)     |
 | Cmd+Shift+B | Browse LeetCode problems                   |
-| Cmd+Shift+L | Show/Hide the Git Log panel                |
+| Cmd+Shift+L | Show/Hide the Log panel                    |
 | Cmd+Shift+T | Show/Hide the terminal panel               |
 | Cmd+Shift+C | Show/Hide the Local Changes panel          |
 | Cmd+Shift+M | Show/Hide the Problems panel               |
