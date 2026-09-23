@@ -141,7 +141,7 @@ extension ChromeColorRole {
         }
     }
 
-    /// One job's bucket → its glyph's role, in an expanded pull-request row. A
+    /// One job's bucket → its dot's role, in an expanded pull-request row. A
     /// skipped or cancelled job is a remark, not a verdict, and is drawn in
     /// `textSecondary`.
     public static func checksRole(for bucket: GitHubCheckBucket) -> ChromeColorRole {

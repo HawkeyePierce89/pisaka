@@ -111,19 +111,6 @@ public enum GitHubCheckBucket: String, CaseIterable, Sendable {
 }
 
 extension GitHubCheckBucket {
-    /// The SF Symbol an expanded job row draws for this bucket. Here rather than
-    /// in a view because the gated chrome files may not spell these cases; the
-    /// colour is `ChromeColorRole.checksRole(for:)`.
-    public var symbolName: String {
-        switch self {
-        case .pass: return "checkmark.circle.fill"
-        case .fail: return "xmark.circle.fill"
-        case .pending: return "clock"
-        case .skipping: return "minus.circle"
-        case .cancel: return "slash.circle"
-        }
-    }
-
     /// The bucket as words, spoken as the job row's accessibility value.
     public var spokenWords: String {
         switch self {

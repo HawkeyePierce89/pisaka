@@ -1328,8 +1328,9 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     // MARK: - Rule eighteen: the checks-state mapping is Core's one answer
 
     /// Which glyph, words and role a pull request's checks state is drawn with
-    /// has one answer in Core — `GitHubChecksSummary`'s and `GitHubCheckBucket`'s
-    /// `symbolName` / `spokenWords` and `ChromeColorRole.checksRole(for:)` — read
+    /// has one answer in Core — `GitHubChecksSummary`'s `symbolName` /
+    /// `spokenWords`, `GitHubCheckBucket`'s `spokenWords` (a job row draws a dot,
+    /// not a glyph) and `ChromeColorRole.checksRole(for:)` — read
     /// by the bottom-bar indicator and the Pull Requests panel, which used to
     /// keep one table each and could disagree about the same pull request.
     ///

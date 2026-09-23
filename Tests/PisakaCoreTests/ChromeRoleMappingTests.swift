@@ -54,17 +54,16 @@ final class ChromeRoleMappingTests: XCTestCase {
         }
     }
 
-    func testEveryCheckBucketHasItsGlyphWordsAndRole() {
-        let expected: [GitHubCheckBucket: (symbol: String, words: String, role: ChromeColorRole)] = [
-            .pass: ("checkmark.circle.fill", "Passed", .statusGreen),
-            .fail: ("xmark.circle.fill", "Failed", .statusRed),
-            .pending: ("clock", "Running", .statusYellow),
-            .skipping: ("minus.circle", "Skipped", .textSecondary),
-            .cancel: ("slash.circle", "Cancelled", .textSecondary),
+    func testEveryCheckBucketHasItsWordsAndRole() {
+        let expected: [GitHubCheckBucket: (words: String, role: ChromeColorRole)] = [
+            .pass: ("Passed", .statusGreen),
+            .fail: ("Failed", .statusRed),
+            .pending: ("Running", .statusYellow),
+            .skipping: ("Skipped", .textSecondary),
+            .cancel: ("Cancelled", .textSecondary),
         ]
         XCTAssertEqual(Set(expected.keys), Set(GitHubCheckBucket.allCases))
         for bucket in GitHubCheckBucket.allCases {
-            XCTAssertEqual(bucket.symbolName, expected[bucket]?.symbol, "\(bucket)")
             XCTAssertEqual(bucket.spokenWords, expected[bucket]?.words, "\(bucket)")
             XCTAssertEqual(ChromeColorRole.checksRole(for: bucket), expected[bucket]?.role, "\(bucket)")
         }

@@ -1159,10 +1159,15 @@ answers `circle` / `clock` / `xmark.circle.fill` / `checkmark.circle.fill` for
 noChecks / pending / failure / success — `circle` is the indicator's documented
 choice, and the panel's former `minus.circle` for no checks was unified onto it —
 and `spokenWords` "No checks" / "Checks running" / "Checks failed" / "Checks
-passed". `GitHubCheckBucket.symbolName` answers `checkmark.circle.fill` /
-`xmark.circle.fill` / `clock` / `minus.circle` / `slash.circle` for pass / fail /
-pending / skipping / cancel, and `spokenWords` "Passed" / "Failed" / "Running" /
-"Skipped" / "Cancelled". The colour of both is
+passed". A `GitHubCheckBucket` has **no glyph**: the expanded job row draws a
+6 pt dot in the bucket's role rather than a symbol, so the bucket answers only
+`spokenWords` — "Passed" / "Failed" / "Running" / "Skipped" / "Cancelled" for
+pass / fail / pending / skipping / cancel, spoken as the row's accessibility
+value while the dot itself is hidden. (A `symbolName` on the bucket shipped with
+part four (b) and was removed in its fix round: nothing drew it and only its own
+test read it. That was found by review, not by a gate — no rule can demand a
+production reader for every public Core answer without failing on the many
+legitimate members a view does not read.) The colour of both is
 `ChromeColorRole.checksRole(for:)` (`ChromeColorRole.swift`): pass/success
 `statusGreen`, fail/failure `statusRed`, pending `statusYellow`, everything else
 `textSecondary`. **Three reading sites, two files, no view table**: the

@@ -150,18 +150,18 @@ Re-derived here: the dot is the documented design — the plan and `core-github.
 both specify a 6-point dot in the bucket's role with the bucket's words spoken as
 the accessibility value — so the dot stays and the unread member goes.
 
-- [ ] **Delete `GitHubCheckBucket.symbolName`.** `GitHubChecksSummary.symbolName`
+- [x] **Delete `GitHubCheckBucket.symbolName`.** `GitHubChecksSummary.symbolName`
       is untouched: the pull-request row's checks glyph does read it.
-- [ ] **Drop its pins** from `ChromeRoleMappingTests`. Every other answer stays
+- [x] **Drop its pins** from `ChromeRoleMappingTests`. Every other answer stays
       pinned.
-- [ ] **Correct `core-github.md`** so it no longer lists five bucket glyphs as a
+- [x] **Correct `core-github.md`** so it no longer lists five bucket glyphs as a
       live answer, and says what the job row actually draws.
-- [ ] **The test that would have caught it** is the rule that a public Core
+- [x] **The test that would have caught it** is the rule that a public Core
       answer has a production reader. If the suite has no such rule, state in the
       commit and in `core-github.md` that this one was found by review rather
       than by a gate, and do not invent a rule that would fail on the many
       legitimate Core members a view does not read.
-- [ ] Run `swift test` — must pass before Task 4.
+- [x] Run `swift test` — must pass before Task 4.
 
 ### Task 4: Two gating rules that do not bite what they name
 
