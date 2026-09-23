@@ -34,8 +34,14 @@ and the unified diff's wash. The running record is
 ["The surfaces restyled so far"](#the-surfaces-restyled-so-far) below; every
 surface not named there is deliberately untouched, waiting for the sweep
 described at the end of this document.
-`ChromeThemeSourceGatingTests` (`swift test`) pins which files obey the rule and
-`ChromePaletteTests` (app bundle) pins the values themselves.
+`ChromeThemeSourceGatingTests` (`swift test`) pins which files obey the rule,
+`ChromeThemeTests` (`swift test`) pins the Core vocabulary itself — the role set,
+the geometry tokens, the appearance resolution, the tree row's states and
+`diagnosticRole(for:)` — `ChromeRoleMappingTests` (`swift test`, since part four
+(b)) pins the per-feature answers beside it — the changed-file status's letter,
+word and role, the pull-request checks' glyph, words and role, and the diff
+wash and marker — verbatim over `allCases`, and `ChromePaletteTests` (app
+bundle) pins the values themselves.
 
 The chrome theme is a **reader**: it takes no writer gate, is gated by none, and
 adds no write of any kind. Its only persisted input is the existing
@@ -98,7 +104,8 @@ adds no write of any kind. Its only persisted input is the existing
     both appearances. Gating rule fifteen keeps a second table from coming back.
     **Three more one-answer mappings** joined it in part four (b), each in the
     same extension, each total over a closed Core set, each pinned verbatim over
-    `allCases` by `ChromeThemeTests` and each with its readers pinned by a gating
+    `allCases` by `ChromeRoleMappingTests` (`ChromeThemeTests` pins only the part's
+two new geometry tokens) and each with its readers pinned by a gating
     rule (seventeen to nineteen): `changedFileRole(for: FileStatus)` — added
     `statusGreen`, modified and renamed `statusYellow`, deleted and conflicted
     `statusRed`, untracked `textSecondary` — beside `FileStatus.letter` and
@@ -107,7 +114,8 @@ adds no write of any kind. Its only persisted input is the existing
     `textSecondary`, pending `statusYellow`, failure `statusRed`, success
     `statusGreen`) and over `GitHubCheckBucket` (pass `statusGreen`, fail
     `statusRed`, pending `statusYellow`, skipping and cancel `textSecondary`),
-    beside the two types' `symbolName`/`spokenWords` (`core-github.md`); and the
+    beside the summary's `symbolName`/`spokenWords` and the bucket's `spokenWords`
+    alone — the job row draws a dot, not a glyph (`core-github.md`); and the
     diff wash — `diffWashRole(for: DiffRowKind, side: DiffSide)` (unchanged
     nil; on the old side removed and modified `diffRemovedBackground`, added
     nil, the plain filler row; on the new side added and modified

@@ -1172,7 +1172,7 @@ legitimate members a view does not read.) The colour of both is
 `statusGreen`, fail/failure `statusRed`, pending `statusYellow`, everything else
 `textSecondary`. **Three reading sites, two files, no view table**: the
 indicator's checks mark, the panel row's checks glyph and the expanded job row's
-dot; `ChromeThemeTests` pins every answer verbatim.
+dot; `ChromeRoleMappingTests` pins every answer verbatim.
 
 The wire half — which JSON key holds which of these, and which spelling maps to
 which case — stays in `GitHubAPI`, so the model, the panel and the indicator can

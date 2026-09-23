@@ -2,8 +2,9 @@ import XCTest
 @testable import PisakaCore
 
 /// The chrome's per-feature Core answers beside `diagnosticRole(for:)`: the
-/// changed-file status (letter, word and role), the pull-request checks (glyph,
-/// words and role, for both the summary and one job's bucket) and the diff row
+/// changed-file status (letter, word and role), the pull-request checks (the
+/// summary's glyph, words and role; one job's bucket's words and role — the job
+/// row draws a dot, not a glyph) and the diff row
 /// wash and marker. Every answer is pinned verbatim over `allCases`, so a case
 /// added to any of these vocabularies fails here until it is given one.
 final class ChromeRoleMappingTests: XCTestCase {

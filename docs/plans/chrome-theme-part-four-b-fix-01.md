@@ -222,37 +222,37 @@ load-bearing: a rule that is green while the code it names is broken.
 `docs/architecture/core-github.md`, `docs/architecture/app-ios.md`,
 `docs/FEATURES.md`
 
-- [ ] **Two sites still say the suite has three exemptions**
-      (minor). `MinimapView.swift:42` says "`SyntaxTheme.swift` is one of the
+- [x] **Two sites still say the suite has three exemptions**
+      (minor; already corrected in Task 4's sweep, re-verified here). `MinimapView.swift:42` says "`SyntaxTheme.swift` is one of the
       three exemptions" and `app-terminal.md:267` says "`TerminalTheme`, one of
       the chrome suite's three exemptions". `colorExemptions` now holds four.
       Correct both, and search for any other site stating that count.
-- [ ] **The documents name the wrong suite for the new pins**
+- [x] **The documents name the wrong suite for the new pins**
       (`core-theme.md:101`, minor, two sources). `core-theme.md:100–101` and
       `core-github.md:1170` say `ChromeThemeTests` pins the part four (b)
       mappings. It pins only the two new geometry tokens; every mapping is
       pinned in the new `ChromeRoleMappingTests`, which no architecture document
       names. Correct both sentences and give the new suite an entry where the
       other suites are described.
-- [ ] **`app-ios.md:16` states the opposite of what the code does**
+- [x] **`app-ios.md:16` states the opposite of what the code does**
       (minor). It says the diff-background palettes are "*not* routed through
       this bridge — on macOS the chrome roles … through `ChromePalette`", but
       `ChromePalette.nsColor(_:)` is implemented as `PlatformColor.dynamic(...)`
       (`ChromePalette.swift:140`), so on macOS the wash *is* routed through it.
       Only the iOS half of the sentence is still true. Rewrite it to say what is
       true of each platform.
-- [ ] **`FEATURES.md` describes the old macOS Local Changes row**
+- [x] **`FEATURES.md` describes the old macOS Local Changes row**
       (`docs/FEATURES.md:900`, minor). Line 900–901 says each file shows "a type
       icon tinted by its git status"; line 985 says a conflicted file "shows a
       purple \"C\" badge". On macOS the row now draws a monochrome secondary
       glyph and a conflicted file's letter is the red status role. The iOS view
       still tints and still uses purple, and neither sentence says which platform
       it means. Say which is which.
-- [ ] **The test that would have caught it** does not exist and is not worth
+- [x] **The test that would have caught it** does not exist and is not worth
       inventing: no gate reads `FEATURES.md` or a prose sentence in an
       architecture document for agreement with a colour. Say so plainly in the
       commit message rather than adding a rule that cannot hold.
-- [ ] Run `swift test` — must pass before Task 6.
+- [x] Run `swift test` — must pass before Task 6.
 
 ### Task 6: Run the gates
 
