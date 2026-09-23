@@ -159,6 +159,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         "CommitUnifiedDiffView.swift",
         "PullRequestsPanelView.swift",
         "ChromeControls.swift",
+        "CompletionPanel.swift",
     ]
 
     func testEveryGatedFileExists() throws {

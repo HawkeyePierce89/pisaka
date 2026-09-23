@@ -195,17 +195,17 @@ matter.
 - Modify: `Tests/PisakaCoreTests/CompletionPopupTests.swift`
 - Modify: `Tests/PisakaCoreTests/ChromeThemeSourceGatingTests.swift`
 
-- [ ] Remove `color` from `CompletionPopup.Badge`: the stored property, the initializer parameter and every table entry's colour. `init(symbolName:)` and `init(source:)` remain. `FileIconColor` stays, because `FileIcon` still uses it.
-- [ ] `CompletionPopupTests` still asserts a badge for every `SymbolKind`, plus the keyword and word badges, by symbol name only. Confirm by grep that nothing in `Sources/` reads a badge colour.
-- [ ] Replace the panel's vibrancy background with a flat `bgPopover` layer fill: a one-point `hairline` border, corner radius `cornerRadiusMax`, and the window's shadow kept. The floating non-activating behaviour, the pass-through parent matching and the refusal of key status do not change.
-- [ ] In `match(_:to:)`, set both layer colours inside `performAsCurrentDrawingAppearance`: `borderColor` from `ChromePalette.nsColor(.hairline)` and `backgroundColor` from `ChromePalette.nsColor(.bgPopover)`. Nothing else in the file sets a layer colour. Extend the existing comment to say that the background is a `CGColor` too, so it carries the same trap as the border.
-- [ ] Row colours:
+- [x] Remove `color` from `CompletionPopup.Badge`: the stored property, the initializer parameter and every table entry's colour. `init(symbolName:)` and `init(source:)` remain. `FileIconColor` stays, because `FileIcon` still uses it.
+- [x] `CompletionPopupTests` still asserts a badge for every `SymbolKind`, plus the keyword and word badges, by symbol name only. Confirm by grep that nothing in `Sources/` reads a badge colour.
+- [x] Replace the panel's vibrancy background with a flat `bgPopover` layer fill: a one-point `hairline` border, corner radius `cornerRadiusMax`, and the window's shadow kept. The floating non-activating behaviour, the pass-through parent matching and the refusal of key status do not change.
+- [x] In `match(_:to:)`, set both layer colours inside `performAsCurrentDrawingAppearance`: `borderColor` from `ChromePalette.nsColor(.hairline)` and `backgroundColor` from `ChromePalette.nsColor(.bgPopover)`. Nothing else in the file sets a layer colour. Extend the existing comment to say that the background is a `CGColor` too, so it carries the same trap as the border.
+- [x] Row colours:
   - Row text is `textPrimary`.
   - The selected row has an `accent` ground and `onAccent` text.
   - The badge is monochrome: `textSecondary` on an ordinary row, `onAccent` on the selected one.
   - The private `color(for:)` hue table is deleted.
-- [ ] Add `CompletionPanel.swift` to `gatedFiles`.
-- [ ] Run `swift test` and the macOS build. Both must pass, including `ZoomSourceGatingTests`' completion-panel rules, unchanged.
+- [x] Add `CompletionPanel.swift` to `gatedFiles`.
+- [x] Run `swift test` and the macOS build. Both must pass, including `ZoomSourceGatingTests`' completion-panel rules, unchanged.
 
 ### Task 3: The hover popover on `bgPopover`
 

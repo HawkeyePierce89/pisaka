@@ -127,8 +127,12 @@ final class CompletionPanel {
         let appearance = parent?.effectiveAppearance ?? NSApp.effectiveAppearance
         guard panel.appearance?.name != appearance.name else { return }
         panel.appearance = appearance
+        // Both are CGColors, so they are resolved once at assignment and must be
+        // reset when the appearance changes — the same trap as the border, now
+        // true of the background as well.
         appearance.performAsCurrentDrawingAppearance {
-            panel.contentView?.layer?.borderColor = NSColor.separatorColor.cgColor
+            panel.contentView?.layer?.borderColor = ChromePalette.nsColor(.hairline).cgColor
+            panel.contentView?.layer?.backgroundColor = ChromePalette.nsColor(.bgPopover).cgColor
         }
     }
 
@@ -151,13 +155,10 @@ final class CompletionPanel {
         panel.animationBehavior = .none
         panel.collectionBehavior = [.transient, .ignoresCycle]
 
-        let background = NSVisualEffectView()
-        background.material = .popover
-        background.state = .active
-        background.blendingMode = .behindWindow
+        let background = NSView()
         background.wantsLayer = true
-        background.layer?.cornerRadius = 6
-        background.layer?.borderWidth = 1
+        background.layer?.cornerRadius = ChromeGeometry.cornerRadiusMax
+        background.layer?.borderWidth = ChromeGeometry.hairlineWidth
         background.layer?.masksToBounds = true
 
         let contentView = CompletionListContentView()
@@ -320,7 +321,7 @@ private final class CompletionListContentView: NSView, ZoomSurfaceProviding {
             guard dirtyRect.intersects(rect) else { continue }
 
             if index == selection {
-                NSColor.selectedContentBackgroundColor.setFill()
+                ChromePalette.nsColor(.accent).setFill()
                 rect.fill()
             }
 
@@ -335,36 +336,23 @@ private final class CompletionListContentView: NSView, ZoomSurfaceProviding {
                 height: badgeSide
             )
             if let image = NSImage(systemSymbolName: row.badge.symbolName, accessibilityDescription: nil) {
-                let nsColor = color(for: row.badge.color)
+                let badgeColor = (index == selection)
+                    ? ChromePalette.nsColor(.onAccent) : ChromePalette.nsColor(.textSecondary)
                 let symbolConfig = NSImage.SymbolConfiguration(
                     pointSize: CGFloat(metrics.pt(12)),
                     weight: .regular
                 )
-                .applying(.init(paletteColors: [nsColor]))
+                .applying(.init(paletteColors: [badgeColor]))
                 let configuredImage = image.withSymbolConfiguration(symbolConfig) ?? image
                 configuredImage.draw(in: badgeRect)
             }
 
-            let color = (index == selection) ? NSColor.selectedControlTextColor : NSColor.labelColor
+            let color = (index == selection) ? ChromePalette.nsColor(.onAccent) : ChromePalette.nsColor(.textPrimary)
             let attr = NSAttributedString(string: Self.singleLineDisplay(row.displayText), attributes: [
                 .font: codeFont,
                 .foregroundColor: color,
             ])
             attr.draw(at: NSPoint(x: CGFloat(metrics.pt(28)), y: originY + (rHeight - attr.size().height) / 2))
-        }
-    }
-
-    private func color(for token: FileIconColor) -> NSColor {
-        switch token {
-        case .orange: return .systemOrange
-        case .yellow: return .systemYellow
-        case .blue: return .systemBlue
-        case .green: return .systemGreen
-        case .purple: return .systemPurple
-        case .red: return .systemRed
-        case .pink: return .systemPink
-        case .gray: return .systemGray
-        case .accent: return .controlAccentColor
         }
     }
 }

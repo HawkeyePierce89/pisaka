@@ -46,29 +46,27 @@ public enum CompletionPopup {
     /// The visual badge for a row.
     public struct Badge: Equatable, Sendable {
         public let symbolName: String
-        public let color: FileIconColor
 
         /// One badge per `SymbolKind`, in the `FileIcon` mould: the mapping is
         /// data, not control flow. Totality over the closed enum is pinned by
         /// `CompletionPopupTests.testBadgesForEverySymbolKind`, which iterates
         /// `allCases` — a new kind without an entry fails there first.
         private static let symbolBadges: [SymbolKind: CompletionBadge] = [
-            .type: .init(symbolName: "t.square", color: .purple),
-            .function: .init(symbolName: "f.cursive", color: .purple),
-            .method: .init(symbolName: "f.cursive", color: .purple),
-            .property: .init(symbolName: "p.square", color: .blue),
-            .constant: .init(symbolName: "c.square", color: .blue),
-            .variable: .init(symbolName: "v.square", color: .blue),
-            .heading: .init(symbolName: "number", color: .gray),
-            .selector: .init(symbolName: "s.square", color: .pink),
-            .key: .init(symbolName: "k.square", color: .yellow),
-            .stage: .init(symbolName: "shippingbox", color: .orange),
-            .anchor: .init(symbolName: "link", color: .gray),
+            .type: .init(symbolName: "t.square"),
+            .function: .init(symbolName: "f.cursive"),
+            .method: .init(symbolName: "f.cursive"),
+            .property: .init(symbolName: "p.square"),
+            .constant: .init(symbolName: "c.square"),
+            .variable: .init(symbolName: "v.square"),
+            .heading: .init(symbolName: "number"),
+            .selector: .init(symbolName: "s.square"),
+            .key: .init(symbolName: "k.square"),
+            .stage: .init(symbolName: "shippingbox"),
+            .anchor: .init(symbolName: "link"),
         ]
 
-        public init(symbolName: String, color: FileIconColor) {
+        public init(symbolName: String) {
             self.symbolName = symbolName
-            self.color = color
         }
 
         public init(source: RowSource) {
@@ -76,9 +74,9 @@ public enum CompletionPopup {
             case .symbol(let kind):
                 self = Self.symbolBadges[kind]!
             case .keyword:
-                self.init(symbolName: "k.circle", color: .pink)
+                self.init(symbolName: "k.circle")
             case .word:
-                self.init(symbolName: "text.word.spacing", color: .gray)
+                self.init(symbolName: "text.word.spacing")
             }
         }
     }
