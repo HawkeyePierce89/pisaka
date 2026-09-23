@@ -257,12 +257,12 @@ Decisions settled during planning. Each one departs from the ticket's wording. T
 **Files:**
 - Modify: `Sources/Pisaka/PullRequestsPanelView.swift`, `Sources/Pisaka/PullRequestIndicatorView.swift`
 
-- [ ] **Delete the view tables**: `summarySymbol`, `summaryColor`, `summaryHelp`, `bucketSymbol` and `bucketColor` go from the panel; `symbol`, `role` and `summaryWords` go from the indicator. Both files read the Core glyph, role and words.
-- [ ] **Header strip**:
+- [x] **Delete the view tables**: `summarySymbol`, `summaryColor`, `summaryHelp`, `bucketSymbol` and `bucketColor` go from the panel; `symbol`, `role` and `summaryWords` go from the indicator. Both files read the Core glyph, role and words.
+- [x] **Header strip**:
   - `panelHeaderHeight` / `panelHeaderPaddingX`, bottom hairline by overlay.
   - Repository and open count: `textPrimary` `.body` semibold, one line.
   - A trailing refresh glyph in `textSecondary`, with an accessibility label and its symbol hidden.
-- [ ] **Pull-request row**: 40 pt tall, 14 pt padding, 12 pt gap (private), bottom hairline. Parts in order:
+- [x] **Pull-request row**: 40 pt tall, 14 pt padding, 12 pt gap (private), bottom hairline. Parts in order:
   - a disclosure chevron, named "Expand"/"Collapse" and speaking expanded as its value;
   - the number: `textSecondary` `.callout` monospaced;
   - the title: `textPrimary` `.body`;
@@ -271,19 +271,19 @@ Decisions settled during planning. Each one departs from the ticket's wording. T
   - the checks glyph in `checksRole(for:)`, labelled "Checks" with `spokenWords` as its value;
   - a secondary button: `hairline` border, `textPrimary` `.subheadline`, `buttonCornerRadius`, `buttonPaddingX`;
   - a primary button: `accent` ground, `onAccent` `.subheadline` semibold.
-- [ ] **Row washes**: `accentTintStrong` / `hoverTint`. The 0.18 / 0.10 opacities go.
-- [ ] **Expanded job row**:
+- [x] **Row washes**: `accentTintStrong` / `hoverTint`. The 0.18 / 0.10 opacities go.
+- [x] **Expanded job row**:
   - 22 pt tall, leading inset 58 (private).
   - A 6 pt dot in `checksRole(for: bucket)`, hidden from accessibility. The row speaks the bucket's `spokenWords` as its value.
   - Name: `textPrimary` `.subheadline` monospaced. Workflow and description: `textSecondary` `.subheadline`.
-- [ ] **Message and wait-ending strips**: the orange glyph becomes `statusYellow` on a `bgPanel` ground with a bottom hairline. The orange 0.12 / 0.08 washes go, as does the secondary 0.12 wash.
-- [ ] **Tags**:
+- [x] **Message and wait-ending strips**: the orange glyph becomes `statusYellow` on a `bgPanel` ground with a bottom hairline. The orange 0.12 / 0.08 washes go, as does the secondary 0.12 wash.
+- [x] **Tags**:
   - Review decisions are drawn as role-coloured text inside a `hairline`-bordered capsule with no fill: approved `statusGreen`, changes requested `statusRed`, review required `statusYellow`.
   - Neutral tags use `textSecondary`.
-- [ ] **Divider**: the one `Divider()` becomes a hairline.
-- [ ] **No leftover platform colours** in `PullRequestsPanelView.swift`. The indicator stays gated and clean.
-- [ ] **Tests**: Task 1's Core tests cover the glyphs, words and roles.
-- [ ] Run `swift test` — must pass before Task 7.
+- [x] **Divider**: the one `Divider()` becomes a hairline.
+- [x] **No leftover platform colours** in `PullRequestsPanelView.swift`. The indicator stays gated and clean.
+- [x] **Tests**: Task 1's Core tests cover the glyphs, words and roles.
+- [x] Run `swift test` — must pass before Task 7.
 
 ### Task 7: The gating suite — sixteen rules become twenty, each shown to bite
 

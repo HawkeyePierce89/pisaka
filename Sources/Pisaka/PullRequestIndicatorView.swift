@@ -60,8 +60,11 @@ struct PullRequestIndicatorView: View {
                         .lineLimit(1)
                         .monospacedDigit()
                         .foregroundStyle(theme.color(.textSecondary))
-                    Image(systemName: Self.symbol(pullRequest.summary))
-                        .foregroundStyle(theme.color(Self.role(pullRequest.summary)))
+                    // Glyph, role and words are Core's one answer, shared with the
+                    // panel's row: `circle` for no checks is this widget's own
+                    // earlier choice, now the panel's too.
+                    Image(systemName: pullRequest.summary.symbolName)
+                        .foregroundStyle(theme.color(.checksRole(for: pullRequest.summary)))
                 }
                 .font(metrics.scaledFont(.callout))
                 // No padding of its own: the bottom bar owns the 14-point gaps
@@ -72,7 +75,7 @@ struct PullRequestIndicatorView: View {
             .buttonStyle(.plain)
             .help(helpText(pullRequest))
             .accessibilityLabel("Pull request #\(pullRequest.number)")
-            .accessibilityValue(Self.summaryWords(pullRequest.summary))
+            .accessibilityValue(pullRequest.summary.spokenWords)
         }
     }
 
@@ -80,40 +83,7 @@ struct PullRequestIndicatorView: View {
     /// characters wide and the number alone identifies a pull request only to
     /// somebody who already knows which one it is.
     private func helpText(_ pullRequest: GitHubPullRequest) -> String {
-        "#\(pullRequest.number) \(pullRequest.title) — \(Self.summaryWords(pullRequest.summary))"
-    }
-
-    /// The checks mark: four glyphs, one per summary. *No checks* draws `circle`
-    /// — the neutral member of the same `*.circle.fill` family failure and
-    /// success already use — rather than the pull-request glyph it used to
-    /// borrow, which now leads the widget.
-    private static func symbol(_ summary: GitHubChecksSummary) -> String {
-        switch summary {
-        case .noChecks: return "circle"
-        case .pending: return "clock"
-        case .failure: return "xmark.circle.fill"
-        case .success: return "checkmark.circle.fill"
-        }
-    }
-
-    /// The mark's colour as a role, never a platform value: the three status
-    /// roles for the three answers, and `textSecondary` for the absence of one.
-    private static func role(_ summary: GitHubChecksSummary) -> ChromeColorRole {
-        switch summary {
-        case .noChecks: return .textSecondary
-        case .pending: return .statusYellow
-        case .failure: return .statusRed
-        case .success: return .statusGreen
-        }
-    }
-
-    private static func summaryWords(_ summary: GitHubChecksSummary) -> String {
-        switch summary {
-        case .noChecks: return "No checks"
-        case .pending: return "Checks running"
-        case .failure: return "Checks failed"
-        case .success: return "Checks passed"
-        }
+        "#\(pullRequest.number) \(pullRequest.title) — \(pullRequest.summary.spokenWords)"
     }
 }
 

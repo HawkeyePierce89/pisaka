@@ -6,7 +6,7 @@ import PisakaCore
 /// The Pull Requests panel in the bottom dock: what GitHub says about this
 /// repository's open pull requests, read through the user's own `gh`.
 ///
-/// `UsagesPanelView`'s shape — a header, a divider, and a scrolling list of rows
+/// `UsagesPanelView`'s shape — a header strip, and a scrolling list of rows
 /// — because it is the same kind of surface: a list of things elsewhere, each of
 /// which the reader may act on. What it adds is a **not-ready state with a next
 /// step**: `gh` is not a library this app ships, it is a binary the reader either
@@ -86,10 +86,13 @@ struct PullRequestsPanelView: View {
     /// The interface zone's metrics, inherited from the window root.
     @Environment(\.interfaceMetrics) private var metrics
 
+    /// The chrome theme, read from the environment the window root injects: every
+    /// colour the panel draws is a role, the checks marks' status roles included.
+    @Environment(\.chromeTheme) private var theme
+
     var body: some View {
         VStack(spacing: 0) {
             header
-            Divider()
             content
         }
         // The panel-shown trigger, and the whole of it. `.onAppear` fires when
@@ -106,44 +109,58 @@ struct PullRequestsPanelView: View {
 
     // MARK: - Header
 
+    /// The header strip: the repository and its open count, New Pull Request as
+    /// a secondary button, and the refresh glyph. It draws its own bottom
+    /// `hairline` rather than leaving a `Divider()` to the stack.
     private var header: some View {
-        HStack(spacing: metrics.scaled(8)) {
-            Text("Pull Requests")
-                .font(metrics.scaledFont(.headline, weight: .semibold))
+        HStack(spacing: metrics.scaled(PullRequestsLayout.headerGap)) {
+            Text(headerTitle)
+                .font(metrics.scaledFont(.body, weight: .semibold))
+                .monospacedDigit()
+                .foregroundStyle(theme.color(.textPrimary))
+                .lineLimit(1)
+                .truncationMode(.middle)
             if model.isLoading {
                 ProgressView()
                     .controlSize(.small)
-            }
-            if !model.pullRequests.isEmpty {
-                Text(countLabel)
-                    .font(metrics.scaledFont(.caption))
-                    .monospacedDigit()
-                    .foregroundStyle(.secondary)
             }
             Spacer()
             Button {
                 isCreating = true
             } label: {
-                Label("New Pull Request", systemImage: "plus")
-                    .font(metrics.scaledFont(.callout))
+                PullRequestButtonLabel(title: "New Pull Request", isPrimary: false)
             }
             .buttonStyle(.plain)
             .disabled(!model.isReady || model.isWriteInFlight)
+            .opacity(!model.isReady || model.isWriteInFlight ? PullRequestsLayout.disabledOpacity : 1)
             .help("Open a pull request from the current branch")
 
             Button {
                 coordinator.refresh()
             } label: {
                 Image(systemName: "arrow.clockwise")
-                    .font(metrics.scaledFont(.callout))
+                    .font(metrics.scaledFont(.body))
+                    .foregroundStyle(theme.color(.textSecondary))
+                    .frame(width: metrics.scaled(PullRequestsLayout.glyphSide))
+                    .accessibilityHidden(true)
             }
             .buttonStyle(.plain)
             .disabled(model.isWriteInFlight)
             .help("Re-read the list from GitHub")
             .accessibilityLabel("Refresh pull requests")
         }
-        .padding(.horizontal, metrics.scaled(10))
-        .padding(.vertical, metrics.scaled(6))
+        .padding(.horizontal, metrics.scaled(ChromeGeometry.panelHeaderPaddingX))
+        .frame(height: metrics.scaled(ChromeGeometry.panelHeaderHeight))
+        .overlay(alignment: .bottom) { hairline }
+    }
+
+    /// The repository as `gh` spells it, once any read has named it, and the
+    /// open count once there is one. Before the repository is known the panel's
+    /// own name stands in rather than an empty strip.
+    private var headerTitle: String {
+        let name = model.repository?.nameWithOwner ?? "Pull Requests"
+        if model.pullRequests.isEmpty { return name }
+        return "\(name) · \(countLabel)"
     }
 
     /// The header's count — `50+` at the cap, because `pr list` asks for
@@ -157,6 +174,13 @@ struct PullRequestsPanelView: View {
         let count = model.pullRequests.count
         if count >= GitHubCommands.openListLimit { return "\(count)+ open" }
         return "\(count) open"
+    }
+
+    /// A one-`hairlineWidth` rule in `hairline`, laid over a strip's bottom edge.
+    private var hairline: some View {
+        Rectangle()
+            .fill(theme.color(.hairline))
+            .frame(height: metrics.scaled(ChromeGeometry.hairlineWidth))
     }
 
     // MARK: - Content
@@ -185,19 +209,18 @@ struct PullRequestsPanelView: View {
     /// list standing (the model's own rule), and a message that replaced the rows
     /// would throw away the only context it has.
     private func messageStrip(_ message: String) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: metrics.scaled(6)) {
+        HStack(alignment: .firstTextBaseline, spacing: metrics.scaled(PullRequestsLayout.stripGap)) {
             Image(systemName: "exclamationmark.triangle")
-                .foregroundStyle(Color.orange)
+                .foregroundStyle(theme.color(.statusYellow))
+                .accessibilityHidden(true)
             Text(message)
-                .font(metrics.scaledFont(.caption))
+                .font(metrics.scaledFont(.subheadline))
+                .foregroundStyle(theme.color(.textPrimary))
                 .textSelection(.enabled)
                 .lineLimit(3)
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, metrics.scaled(10))
-        .padding(.vertical, metrics.scaled(4))
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.orange.opacity(0.12))
+        .modifier(PullRequestStrip())
     }
 
     /// How the last armed wait ended, when it ended with something to say.
@@ -210,11 +233,13 @@ struct PullRequestsPanelView: View {
     /// reason: nothing on the ready path clears a sentence about an event that is
     /// over, and the only other thing that does is arming the next wait.
     private func endingStrip(_ message: String) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: metrics.scaled(6)) {
+        HStack(alignment: .firstTextBaseline, spacing: metrics.scaled(PullRequestsLayout.stripGap)) {
             Image(systemName: "clock.badge.exclamationmark")
-                .foregroundStyle(Color.orange)
+                .foregroundStyle(theme.color(.statusYellow))
+                .accessibilityHidden(true)
             Text(message)
-                .font(metrics.scaledFont(.caption))
+                .font(metrics.scaledFont(.subheadline))
+                .foregroundStyle(theme.color(.textPrimary))
                 .textSelection(.enabled)
                 .lineLimit(3)
             Spacer(minLength: 0)
@@ -222,41 +247,45 @@ struct PullRequestsPanelView: View {
                 wait.acknowledgeEnding()
             } label: {
                 Image(systemName: "xmark")
-                    .font(metrics.scaledFont(.caption))
+                    .font(metrics.scaledFont(.subheadline))
+                    .foregroundStyle(theme.color(.textSecondary))
+                    .accessibilityHidden(true)
             }
             .buttonStyle(.plain)
-            .foregroundStyle(Color.secondary)
             .accessibilityLabel("Dismiss this message")
         }
-        .padding(.horizontal, metrics.scaled(10))
-        .padding(.vertical, metrics.scaled(4))
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.orange.opacity(0.08))
+        .modifier(PullRequestStrip())
     }
 
     /// The three states in which there is nothing to list, each with the exact
     /// next step. Both strings are `GitHubAvailability`'s — the command is
     /// selectable so it can be copied into the terminal one tab away rather than
-    /// retyped.
+    /// retyped. The command sits in a `hairline`-bordered box with no fill.
     private func notReady(_ availability: GitHubAvailability) -> some View {
-        VStack(spacing: metrics.scaled(8)) {
+        VStack(spacing: metrics.scaled(PullRequestsLayout.notReadyGap)) {
             Spacer()
             Text(availability.message)
                 .font(metrics.scaledFont(.callout))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(theme.color(.textSecondary))
                 .multilineTextAlignment(.center)
             if let step = availability.nextStep {
                 Text(step)
                     .font(metrics.scaledFont(.body, design: .monospaced))
+                    .foregroundStyle(theme.color(.textPrimary))
                     .textSelection(.enabled)
-                    .padding(.horizontal, metrics.scaled(8))
-                    .padding(.vertical, metrics.scaled(4))
-                    .background(Color.secondary.opacity(0.12))
-                    .clipShape(RoundedRectangle(cornerRadius: metrics.scaled(5)))
+                    .padding(.horizontal, metrics.scaled(ChromeGeometry.buttonPaddingX))
+                    .padding(.vertical, metrics.scaled(PullRequestsLayout.stepPaddingY))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: metrics.scaled(ChromeGeometry.buttonCornerRadius))
+                            .strokeBorder(
+                                theme.color(.hairline),
+                                lineWidth: metrics.scaled(ChromeGeometry.hairlineWidth)
+                            )
+                    )
             }
             Spacer()
         }
-        .padding(metrics.scaled(16))
+        .padding(metrics.scaled(PullRequestsLayout.placeholderPadding))
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
@@ -309,7 +338,6 @@ struct PullRequestsPanelView: View {
                     )
                 }
             }
-            .padding(.vertical, metrics.scaled(4))
         }
     }
 
@@ -317,13 +345,64 @@ struct PullRequestsPanelView: View {
         VStack {
             Spacer()
             Text(text)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(theme.color(.textSecondary))
                 .font(metrics.scaledFont(.callout))
                 .multilineTextAlignment(.center)
-                .padding(metrics.scaled(16))
+                .padding(metrics.scaled(PullRequestsLayout.placeholderPadding))
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+/// The ground both sentence strips share: `bgPanel` with a bottom `hairline`,
+/// so the strip reads as part of the panel rather than a coloured alert — the
+/// glyph's `statusYellow` carries the weight.
+private struct PullRequestStrip: ViewModifier {
+    @Environment(\.interfaceMetrics) private var metrics
+    @Environment(\.chromeTheme) private var theme
+
+    func body(content: Content) -> some View {
+        content
+            .padding(.horizontal, metrics.scaled(ChromeGeometry.panelHeaderPaddingX))
+            .padding(.vertical, metrics.scaled(PullRequestsLayout.stripPaddingY))
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(theme.color(.bgPanel))
+            .overlay(alignment: .bottom) {
+                Rectangle()
+                    .fill(theme.color(.hairline))
+                    .frame(height: metrics.scaled(ChromeGeometry.hairlineWidth))
+            }
+    }
+}
+
+/// A chrome push button's label, in the two kinds the panel draws: primary
+/// (`onAccent` on the `accent` ground) and secondary (`textPrimary` inside a
+/// `hairline` border, no fill). Both use `buttonPaddingX` and
+/// `buttonCornerRadius`, the Local Changes toolbar's Commit button's measurements.
+private struct PullRequestButtonLabel: View {
+    let title: String
+    let isPrimary: Bool
+
+    @Environment(\.interfaceMetrics) private var metrics
+    @Environment(\.chromeTheme) private var theme
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: metrics.scaled(ChromeGeometry.buttonCornerRadius))
+        Text(title)
+            .font(metrics.scaledFont(.subheadline, weight: isPrimary ? .semibold : .regular))
+            .foregroundStyle(theme.color(isPrimary ? .onAccent : .textPrimary))
+            .lineLimit(1)
+            .padding(.horizontal, metrics.scaled(ChromeGeometry.buttonPaddingX))
+            .frame(height: metrics.scaled(PullRequestsLayout.buttonHeight))
+            .background(shape.fill(isPrimary ? theme.color(.accent) : Color.clear))
+            .overlay(
+                shape.strokeBorder(
+                    isPrimary ? Color.clear : theme.color(.hairline),
+                    lineWidth: metrics.scaled(ChromeGeometry.hairlineWidth)
+                )
+            )
+            .contentShape(shape)
     }
 }
 
@@ -361,6 +440,7 @@ private struct PullRequestRow: View {
     @State private var isHovering = false
 
     @Environment(\.interfaceMetrics) private var metrics
+    @Environment(\.chromeTheme) private var theme
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -369,60 +449,62 @@ private struct PullRequestRow: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(background)
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(theme.color(.hairline))
+                .frame(height: metrics.scaled(ChromeGeometry.hairlineWidth))
+        }
     }
 
     private var background: Color {
-        if isSelected { return Color.accentColor.opacity(0.18) }
-        return isHovering ? Color.accentColor.opacity(0.10) : Color.clear
+        if isSelected { return theme.color(.accentTintStrong) }
+        return isHovering ? theme.color(.hoverTint) : Color.clear
     }
 
     private var summaryLine: some View {
-        HStack(spacing: metrics.scaled(6)) {
-            Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                .font(metrics.scaledFont(.caption))
-                .foregroundStyle(Color.secondary)
-                .frame(width: metrics.scaled(12))
-
-            Image(systemName: Self.summarySymbol(pullRequest.summary))
-                .foregroundStyle(Self.summaryColor(pullRequest.summary))
-                .help(Self.summaryHelp(pullRequest.summary))
+        HStack(spacing: metrics.scaled(PullRequestsLayout.rowGap)) {
+            disclosure
 
             Text("#\(pullRequest.number)")
-                .font(metrics.scaledFont(.body, design: .monospaced))
+                .font(metrics.scaledFont(.callout, design: .monospaced))
                 .monospacedDigit()
-                .foregroundStyle(Color.secondary)
+                .foregroundStyle(theme.color(.textSecondary))
 
             Text(pullRequest.title)
-                .font(metrics.scaledFont(.body, weight: .medium))
+                .font(metrics.scaledFont(.body))
+                .foregroundStyle(theme.color(.textPrimary))
                 .lineLimit(1)
                 .truncationMode(.tail)
 
             if pullRequest.isDraft {
-                tag("Draft", color: .secondary)
+                tag("Draft", role: .textSecondary)
             }
             if let review = Self.reviewLabel(pullRequest.reviewDecision) {
-                tag(review.text, color: review.color)
+                tag(review.text, role: review.role)
             }
 
-            Spacer(minLength: metrics.scaled(6))
+            Text(pullRequest.authorLogin)
+                .font(metrics.scaledFont(.callout))
+                .foregroundStyle(theme.color(.textSecondary))
+                .lineLimit(1)
+
+            Spacer(minLength: metrics.scaled(PullRequestsLayout.rowGap))
 
             Text(branchLabel)
-                .font(metrics.scaledFont(.caption, design: .monospaced))
-                .foregroundStyle(Color.secondary)
+                .font(metrics.scaledFont(.subheadline, design: .monospaced))
+                .foregroundStyle(theme.color(.textSecondary))
                 .lineLimit(1)
                 .truncationMode(.middle)
 
-            Text(pullRequest.authorLogin)
-                .font(metrics.scaledFont(.caption))
-                .foregroundStyle(Color.secondary)
-                .lineLimit(1)
+            checksMark
 
-            Button("Checkout", action: onCheckout)
-                .font(metrics.scaledFont(.caption))
-                .buttonStyle(.plain)
-                .foregroundStyle(Color.accentColor)
-                .disabled(isWriteInFlight)
-                .help("Check this pull request's branch out into the working tree")
+            Button(action: onCheckout) {
+                PullRequestButtonLabel(title: "Checkout", isPrimary: false)
+            }
+            .buttonStyle(.plain)
+            .disabled(isWriteInFlight)
+            .opacity(isWriteInFlight ? PullRequestsLayout.disabledOpacity : 1)
+            .help("Check this pull request's branch out into the working tree")
 
             mergeControl
 
@@ -430,18 +512,45 @@ private struct PullRequestRow: View {
                 openInBrowser(pullRequest.url)
             } label: {
                 Image(systemName: "safari")
-                    .font(metrics.scaledFont(.caption))
+                    .font(metrics.scaledFont(.callout))
+                    .foregroundStyle(theme.color(.textSecondary))
+                    .accessibilityHidden(true)
             }
             .buttonStyle(.plain)
-            .foregroundStyle(Color.secondary)
             .help("Open on GitHub")
             .accessibilityLabel("Open pull request on GitHub")
         }
-        .padding(.horizontal, metrics.scaled(8))
-        .padding(.vertical, metrics.scaled(3))
+        .padding(.horizontal, metrics.scaled(PullRequestsLayout.rowPaddingX))
+        .frame(height: metrics.scaled(PullRequestsLayout.rowHeight))
         .contentShape(Rectangle())
         .onTapGesture(perform: onToggle)
         .onHover { isHovering = $0 }
+    }
+
+    /// The disclosure chevron: the row's tap target, stated as a control of its
+    /// own so a listener hears what it does and whether the row is open.
+    private var disclosure: some View {
+        Button(action: onToggle) {
+            Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                .font(metrics.scaledFont(.subheadline))
+                .foregroundStyle(theme.color(.textSecondary))
+                .frame(width: metrics.scaled(PullRequestsLayout.chevronWidth))
+                .accessibilityHidden(true)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(isExpanded ? "Collapse" : "Expand")
+        .accessibilityValue(isExpanded ? "Expanded" : "Collapsed")
+    }
+
+    /// The checks summary: Core's glyph, role and words — the bottom-bar
+    /// indicator reads the same three, so the two surfaces cannot disagree.
+    private var checksMark: some View {
+        Image(systemName: pullRequest.summary.symbolName)
+            .font(metrics.scaledFont(.callout))
+            .foregroundStyle(theme.color(.checksRole(for: pullRequest.summary)))
+            .help(pullRequest.summary.spokenWords)
+            .accessibilityLabel("Checks")
+            .accessibilityValue(pullRequest.summary.spokenWords)
     }
 
     /// The row's second action: Merge, or — while a wait is armed on this row —
@@ -453,31 +562,32 @@ private struct PullRequestRow: View {
     @ViewBuilder
     private var mergeControl: some View {
         if isWaiting {
-            HStack(spacing: metrics.scaled(4)) {
+            HStack(spacing: metrics.scaled(PullRequestsLayout.waitGap)) {
                 ProgressView().controlSize(.small)
                 Text(waitElapsed)
-                    .font(metrics.scaledFont(.caption))
+                    .font(metrics.scaledFont(.subheadline))
                     .monospacedDigit()
-                    .foregroundStyle(Color.secondary)
+                    .foregroundStyle(theme.color(.textSecondary))
                     .help("Waiting for this pull request's checks to pass")
-                Button("Cancel", action: onCancelWait)
-                    .font(metrics.scaledFont(.caption))
-                    .buttonStyle(.plain)
-                    .foregroundStyle(Color.accentColor)
-                    // Not "nothing will be merged": `PullRequestMergeWait`
-                    // publishes the merged ending past a moved token on purpose,
-                    // because a Cancel pressed while `gh pr merge` is already in
-                    // flight cannot un-send it — and that merge still owes its
-                    // post-merge tail. The sentence says what the press does.
-                    .help("Stop waiting. A merge already sent will still finish.")
+                Button(action: onCancelWait) {
+                    PullRequestButtonLabel(title: "Cancel", isPrimary: false)
+                }
+                .buttonStyle(.plain)
+                // Not "nothing will be merged": `PullRequestMergeWait`
+                // publishes the merged ending past a moved token on purpose,
+                // because a Cancel pressed while `gh pr merge` is already in
+                // flight cannot un-send it — and that merge still owes its
+                // post-merge tail. The sentence says what the press does.
+                .help("Stop waiting. A merge already sent will still finish.")
             }
         } else {
-            Button("Merge", action: onMerge)
-                .font(metrics.scaledFont(.caption))
-                .buttonStyle(.plain)
-                .foregroundStyle(Color.accentColor)
-                .disabled(!mergeIsAvailable)
-                .help("Merge this pull request on GitHub")
+            Button(action: onMerge) {
+                PullRequestButtonLabel(title: "Merge", isPrimary: true)
+            }
+            .buttonStyle(.plain)
+            .disabled(!mergeIsAvailable)
+            .opacity(mergeIsAvailable ? 1 : PullRequestsLayout.disabledOpacity)
+            .help("Merge this pull request on GitHub")
         }
     }
 
@@ -485,14 +595,20 @@ private struct PullRequestRow: View {
         "\(pullRequest.headRefName) → \(pullRequest.baseRefName)"
     }
 
-    private func tag(_ text: String, color: Color) -> some View {
+    /// A tag: role-coloured text inside a `hairline`-bordered capsule, no fill.
+    private func tag(_ text: String, role: ChromeColorRole) -> some View {
         Text(text)
-            .font(metrics.scaledFont(.caption2))
-            .padding(.horizontal, metrics.scaled(5))
-            .padding(.vertical, metrics.scaled(1))
-            .background(color.opacity(0.18))
-            .foregroundStyle(color)
-            .clipShape(Capsule())
+            .font(metrics.scaledFont(.subheadline))
+            .foregroundStyle(theme.color(role))
+            .lineLimit(1)
+            .padding(.horizontal, metrics.scaled(PullRequestsLayout.tagPaddingX))
+            .padding(.vertical, metrics.scaled(PullRequestsLayout.tagPaddingY))
+            .overlay(
+                Capsule().strokeBorder(
+                    theme.color(.hairline),
+                    lineWidth: metrics.scaled(ChromeGeometry.hairlineWidth)
+                )
+            )
     }
 
     /// The per-job list of the expanded row. `nil` is "still reading" and an
@@ -507,18 +623,10 @@ private struct PullRequestRow: View {
     @ViewBuilder
     private var checksList: some View {
         if checksFailed {
-            Text("Could not read checks")
-                .font(metrics.scaledFont(.caption))
-                .foregroundStyle(.secondary)
-                .padding(.leading, metrics.scaled(34))
-                .padding(.bottom, metrics.scaled(4))
+            jobNote("Could not read checks")
         } else if let checks {
             if checks.isEmpty {
-                Text("No checks reported")
-                    .font(metrics.scaledFont(.caption))
-                    .foregroundStyle(.secondary)
-                    .padding(.leading, metrics.scaled(34))
-                    .padding(.bottom, metrics.scaled(4))
+                jobNote("No checks reported")
             } else {
                 VStack(alignment: .leading, spacing: 0) {
                     // Identified by position, not by name: two jobs of two
@@ -528,59 +636,75 @@ private struct PullRequestRow: View {
                         checkRow(row)
                     }
                 }
-                .padding(.bottom, metrics.scaled(4))
             }
         } else {
-            HStack(spacing: metrics.scaled(6)) {
+            HStack(spacing: metrics.scaled(PullRequestsLayout.jobGap)) {
                 ProgressView().controlSize(.small)
                 Text("Reading checks…")
-                    .font(metrics.scaledFont(.caption))
-                    .foregroundStyle(.secondary)
+                    .font(metrics.scaledFont(.subheadline))
+                    .foregroundStyle(theme.color(.textSecondary))
             }
-            .padding(.leading, metrics.scaled(34))
-            .padding(.bottom, metrics.scaled(4))
+            .modifier(PullRequestJobRow())
         }
     }
 
+    private func jobNote(_ text: String) -> some View {
+        Text(text)
+            .font(metrics.scaledFont(.subheadline))
+            .foregroundStyle(theme.color(.textSecondary))
+            .modifier(PullRequestJobRow())
+    }
+
+    /// One job: a dot in the bucket's role, the name, the workflow and the
+    /// description, and the link out when there is one. The dot is hidden; the
+    /// row's text speaks the bucket's words as its value instead.
     private func checkRow(_ row: GitHubCheckRow) -> some View {
-        HStack(spacing: metrics.scaled(6)) {
-            Image(systemName: Self.bucketSymbol(row.bucket))
-                .font(metrics.scaledFont(.caption))
-                .foregroundStyle(Self.bucketColor(row.bucket))
-            Text(row.name)
-                .font(metrics.scaledFont(.caption))
-                .lineLimit(1)
-            if !row.workflow.isEmpty {
-                Text(row.workflow)
-                    .font(metrics.scaledFont(.caption2))
-                    .foregroundStyle(.secondary)
+        HStack(spacing: metrics.scaled(PullRequestsLayout.jobGap)) {
+            HStack(spacing: metrics.scaled(PullRequestsLayout.jobGap)) {
+                Circle()
+                    .fill(theme.color(.checksRole(for: row.bucket)))
+                    .frame(
+                        width: metrics.scaled(PullRequestsLayout.jobDotSide),
+                        height: metrics.scaled(PullRequestsLayout.jobDotSide)
+                    )
+                    .accessibilityHidden(true)
+                Text(row.name)
+                    .font(metrics.scaledFont(.subheadline, design: .monospaced))
+                    .foregroundStyle(theme.color(.textPrimary))
                     .lineLimit(1)
+                if !row.workflow.isEmpty {
+                    Text(row.workflow)
+                        .font(metrics.scaledFont(.subheadline))
+                        .foregroundStyle(theme.color(.textSecondary))
+                        .lineLimit(1)
+                }
+                if !row.description.isEmpty {
+                    Text(row.description)
+                        .font(metrics.scaledFont(.subheadline))
+                        .foregroundStyle(theme.color(.textSecondary))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
             }
-            if !row.description.isEmpty {
-                Text(row.description)
-                    .font(metrics.scaledFont(.caption2))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-            }
-            Spacer(minLength: metrics.scaled(4))
+            .help(row.bucket.spokenWords)
+            .accessibilityElement(children: .combine)
+            .accessibilityValue(row.bucket.spokenWords)
+            Spacer(minLength: metrics.scaled(PullRequestsLayout.jobGap))
             if !row.link.isEmpty {
                 Button {
                     openInBrowser(row.link)
                 } label: {
                     Image(systemName: "arrow.up.right.square")
-                        .font(metrics.scaledFont(.caption))
+                        .font(metrics.scaledFont(.subheadline))
+                        .foregroundStyle(theme.color(.textSecondary))
+                        .accessibilityHidden(true)
                 }
                 .buttonStyle(.plain)
-                .foregroundStyle(Color.secondary)
                 .help("Open this check on GitHub")
                 .accessibilityLabel("Open check \(row.name) on GitHub")
             }
         }
-        .padding(.leading, metrics.scaled(34))
-        .padding(.trailing, metrics.scaled(8))
-        .padding(.vertical, metrics.scaled(1))
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .modifier(PullRequestJobRow())
     }
 
     /// The one place this feature opens a browser, reached from two buttons that
@@ -602,66 +726,78 @@ private struct PullRequestRow: View {
         NSWorkspace.shared.open(url)
     }
 
-    // MARK: - The vocabulary, drawn
-
-    private static func summarySymbol(_ summary: GitHubChecksSummary) -> String {
-        switch summary {
-        case .noChecks: return "minus.circle"
-        case .pending: return "clock"
-        case .failure: return "xmark.circle.fill"
-        case .success: return "checkmark.circle.fill"
-        }
-    }
-
-    private static func summaryColor(_ summary: GitHubChecksSummary) -> Color {
-        switch summary {
-        case .noChecks: return .secondary
-        case .pending: return .orange
-        case .failure: return .red
-        case .success: return .green
-        }
-    }
-
-    private static func summaryHelp(_ summary: GitHubChecksSummary) -> String {
-        switch summary {
-        case .noChecks: return "No checks"
-        case .pending: return "Checks running"
-        case .failure: return "Checks failed"
-        case .success: return "Checks passed"
-        }
-    }
-
-    private static func bucketSymbol(_ bucket: GitHubCheckBucket) -> String {
-        switch bucket {
-        case .pass: return "checkmark.circle.fill"
-        case .fail: return "xmark.circle.fill"
-        case .pending: return "clock"
-        case .skipping: return "minus.circle"
-        case .cancel: return "slash.circle"
-        }
-    }
-
-    private static func bucketColor(_ bucket: GitHubCheckBucket) -> Color {
-        switch bucket {
-        case .pass: return .green
-        case .fail: return .red
-        case .pending: return .orange
-        case .skipping, .cancel: return .secondary
-        }
-    }
-
     /// The review decision as a tag, or `nil` for the one case that is not a
     /// decision at all: `""`, which `GitHubReviewDecision.none` carries and which
     /// means no review has been asked for. A tag reading "None" would look like a
     /// verdict.
-    private static func reviewLabel(_ decision: GitHubReviewDecision) -> (text: String, color: Color)? {
+    private static func reviewLabel(_ decision: GitHubReviewDecision) -> (text: String, role: ChromeColorRole)? {
         switch decision {
         case .none: return nil
-        case .approved: return ("Approved", .green)
-        case .changesRequested: return ("Changes requested", .red)
-        case .reviewRequired: return ("Review required", .orange)
+        case .approved: return ("Approved", .statusGreen)
+        case .changesRequested: return ("Changes requested", .statusRed)
+        case .reviewRequired: return ("Review required", .statusYellow)
         }
     }
+}
+
+/// An expanded job row's frame: 22 pt tall, inset past the summary line's
+/// chevron and number so the jobs read as the row's children.
+private struct PullRequestJobRow: ViewModifier {
+    @Environment(\.interfaceMetrics) private var metrics
+
+    func body(content: Content) -> some View {
+        content
+            .padding(.leading, metrics.scaled(PullRequestsLayout.jobInset))
+            .padding(.trailing, metrics.scaled(PullRequestsLayout.rowPaddingX))
+            .frame(height: metrics.scaled(PullRequestsLayout.jobRowHeight))
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// The panel's own measurements, private because nothing else draws them.
+private enum PullRequestsLayout {
+    /// Between the header's parts.
+    static let headerGap: Double = 8
+    /// The refresh glyph's box.
+    static let glyphSide: Double = 15
+    /// A push button's height.
+    static let buttonHeight: Double = 22
+    /// A disabled button's opacity: the whole control dimmed, its colours still
+    /// the roles.
+    static let disabledOpacity: Double = 0.5
+    /// Between a strip's glyph, sentence and dismiss control.
+    static let stripGap: Double = 6
+    /// A strip's vertical inset.
+    static let stripPaddingY: Double = 4
+    /// Between the not-ready sentence and its command.
+    static let notReadyGap: Double = 8
+    /// The not-ready command box's vertical inset.
+    static let stepPaddingY: Double = 4
+    /// Around an empty or not-ready state.
+    static let placeholderPadding: Double = 16
+    /// A pull-request row's height.
+    static let rowHeight: Double = 40
+    /// A pull-request row's horizontal inset.
+    static let rowPaddingX: Double = 14
+    /// Between a pull-request row's parts.
+    static let rowGap: Double = 12
+    /// The disclosure chevron's box, so the number after it sits still as it
+    /// turns.
+    static let chevronWidth: Double = 10
+    /// Between the armed wait's spinner, elapsed time and Cancel.
+    static let waitGap: Double = 6
+    /// A tag's horizontal inset inside its capsule.
+    static let tagPaddingX: Double = 6
+    /// A tag's vertical inset inside its capsule.
+    static let tagPaddingY: Double = 1
+    /// An expanded job row's height.
+    static let jobRowHeight: Double = 22
+    /// An expanded job row's leading inset.
+    static let jobInset: Double = 58
+    /// Between a job row's parts.
+    static let jobGap: Double = 6
+    /// A job's state dot.
+    static let jobDotSide: Double = 6
 }
 
 #endif
