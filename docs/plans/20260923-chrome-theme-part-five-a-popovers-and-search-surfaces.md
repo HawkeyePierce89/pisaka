@@ -213,11 +213,11 @@ matter.
 - Modify: `Sources/Pisaka/HoverPanel.swift`
 - Modify: `Tests/PisakaCoreTests/ChromeThemeSourceGatingTests.swift`
 
-- [ ] Replace the vibrancy background with a flat `bgPopover` layer fill, on the same terms as Task 2: a one-point `hairline`, radius `cornerRadiusMax`, shadow kept. Both layer colours (border and background) are set only inside `match(_:to:)`'s drawing-appearance block. That block keeps its existing explanation, updated to cover the background.
-- [ ] Prose is `textSecondary`, code segments are `textPrimary`, and the truncation marker is `textSecondary`. The doc comment states that the chrome has two text tones.
-- [ ] `ignoresMouseEvents`, the absence of a zoom surface and the exclusion from the window cycle all stay unchanged.
-- [ ] Add `HoverPanel.swift` to `gatedFiles`.
-- [ ] Run `swift test` and the macOS build. Both must pass, including the hover pass-through rules in `ZoomSourceGatingTests`.
+- [x] Replace the vibrancy background with a flat `bgPopover` layer fill, on the same terms as Task 2: a one-point `hairline`, radius `cornerRadiusMax`, shadow kept. Both layer colours (border and background) are set only inside `match(_:to:)`'s drawing-appearance block. That block keeps its existing explanation, updated to cover the background.
+- [x] Prose is `textSecondary`, code segments are `textPrimary`, and the truncation marker is `textSecondary`. The doc comment states that the chrome has two text tones.
+- [x] `ignoresMouseEvents`, the absence of a zoom surface and the exclusion from the window cycle all stay unchanged.
+- [x] Add `HoverPanel.swift` to `gatedFiles`.
+- [x] Run `swift test` and the macOS build. Both must pass, including the hover pass-through rules in `ZoomSourceGatingTests`.
 
 ### Task 4: The find/replace bar and the recent-searches menu
 

@@ -160,6 +160,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         "PullRequestsPanelView.swift",
         "ChromeControls.swift",
         "CompletionPanel.swift",
+        "HoverPanel.swift",
     ]
 
     func testEveryGatedFileExists() throws {
