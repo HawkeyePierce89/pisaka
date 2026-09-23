@@ -921,7 +921,7 @@ although it is an editing affordance rather than a row: an inline draft
 for. `TabStripView.swift` covers `TabStatusMark` too, the slot view the two
 orientations share, which is why that extraction did not add a seventh file.
 
-The twenty-one rules, each invisible to the compiler:
+The twenty-two rules, each invisible to the compiler:
 
 1. **No gated view names a system semantic colour.** A closed forbidden-token
    list — AppKit's semantic set (`labelColor`, `separatorColor`,
@@ -1214,6 +1214,19 @@ The twenty-one rules, each invisible to the compiler:
    panel column clipped the branch menu, the message search, the Log header's
    refresh button and the rows' date column. Stated limit: neither half proves
    the layout; each is the half that went missing.
+22. **A pushed resize cursor does not outlive its view.** In every gated file,
+   each function whose body pushes an `NSCursor` is called from inside an
+   `.onDisappear {` block in the same file, and no `.push()` sits outside such a
+   function. A hand-rolled divider balances its push from `onHover(false)` and
+   the drag's `onEnded`; neither arrives when the divider leaves the tree with
+   the pointer on it or mid-drag — the Log's list/detail divide goes when the
+   model clears its selection or the dock switches tabs — and `NSCursor`'s stack
+   is global, so the cursor stays pushed after the flag that would have popped
+   it is gone. The set of pushing functions is pinned by equality (the Log
+   divide's and the two `ContentView` dividers'), so a scanner that stopped
+   finding them fails rather than going vacuous. Stated limit: the rule sees the
+   call, not that the handler clears the hover and drag state before it — a
+   handler calling the sync with both still set pops nothing.
 
 Plus a **self-check** in the suite's own idiom: every gated file must actually
 *name* a `ChromeColorRole`, or the checks above have gone vacuous — with two

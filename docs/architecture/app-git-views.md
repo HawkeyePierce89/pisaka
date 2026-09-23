@@ -740,7 +740,16 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     separator value): the list owns a trailing hairline with a 5 pt drag strip
     over it that resizes the detail pane (`@State`, clamped so the list keeps
     360 pt and the pane 280 pt; ideal 360), pushing the resize cursor off one
-    flag so every push has exactly one pop.
+    flag so every push has exactly one pop — from `onHover(false)`, from the
+    drag's `onEnded`, or from the strip's own `onDisappear`. The last is not
+    optional: the strip exists only while a commit is selected, the model clears
+    `selected` on its refresh paths and a dock tab switch takes the whole panel
+    away, and either can land with the pointer on the strip (no `onHover(false)`
+    arrives) or mid-drag (no `onEnded` arrives). The disappearance handler clears
+    the hover and the drag's start width before syncing, so the pop happens and
+    the next drag does not begin from an abandoned width — the bottom dock
+    divider's rule, pinned for every cursor-pushing gated file by rule
+    twenty-two of `ChromeThemeSourceGatingTests`.
   - `CommitGraphView.swift` — the branch-graph gutter, a thin color-resolving
     `NSViewRepresentable` (`CommitGraphRowNSView`) over the color-free
     `CommitGraphLayout`, like the minimap: it consumes a `colorIndex` and asks

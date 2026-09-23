@@ -110,24 +110,24 @@ The defect, as the review stated it — `CommitLogView.swift:171`, minor:
 > `detailDragStartWidth` also stays set, so the next drag starts from a stale
 > width.
 
-- [ ] **Balance the push on disappearance.** When the divide's view leaves the
+- [x] **Balance the push on disappearance.** When the divide's view leaves the
       tree, pop the cursor if this view pushed it and clear the drag's start
       width. The promise in the comment and in the document becomes true for
       every way the view can go away, not only for the two callbacks.
-- [ ] **Say why the hand-rolled split exists** in the same doc comment, if it is
+- [x] **Say why the hand-rolled split exists** in the same doc comment, if it is
       not already stated: the system divider cannot be drawn in a role, which is
       what the dock's own-hairline rule requires.
-- [ ] **The test that would have caught it**: an app-layer test is not available
+- [x] **The test that would have caught it**: an app-layer test is not available
       for a SwiftUI lifetime callback, so pin it textually instead — the gating
       suite asserts that every `NSCursor` push site in the gated files has a pop
       reachable from a disappearance handler in the same file. If that cannot be
       expressed honestly over stripped text, say so in the doc comment and pin
       the narrower thing that can be: the file declares an `onDisappear` that
       names the push flag.
-- [ ] **Show it bites**, as Task 1 does.
-- [ ] **Correct `app-git-views.md:743`** so the promise names the disappearance
+- [x] **Show it bites**, as Task 1 does.
+- [x] **Correct `app-git-views.md:743`** so the promise names the disappearance
       path too.
-- [ ] Run `swift test` — must pass before Task 3.
+- [x] Run `swift test` — must pass before Task 3.
 
 ### Task 3: A public Core member with no reader, and the documents that describe it as live
 

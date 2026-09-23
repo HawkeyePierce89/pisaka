@@ -59,7 +59,10 @@ struct CommitLogView: View {
     /// Whether the pointer is inside the divide's hit strip.
     @State private var isDivideHovering = false
     /// Whether this view has pushed the resize cursor — one flag, written only by
-    /// `syncDivideCursor()`, so every push is balanced by exactly one pop.
+    /// `syncDivideCursor()`, so every push is balanced by exactly one pop: from
+    /// `onHover(false)`, from the drag's `onEnded`, or — when the strip leaves the
+    /// tree with the pointer on it or mid-drag, where neither callback arrives —
+    /// from the handle's `onDisappear`.
     @State private var divideCursorPushed = false
 
     /// The interface zone's metrics, inherited from the window root.
@@ -195,6 +198,10 @@ struct CommitLogView: View {
 
     /// The invisible strip over the divide that resizes the detail pane. What is
     /// drawn is the list's hairline; this is only what is dragged.
+    ///
+    /// Hand-rolled because the system divider cannot be drawn in a role, and the
+    /// dock's swept surfaces draw their own hairlines — which is also why the
+    /// cursor is this view's to push and to pop, on every way the strip can go.
     private func divideHandle(total: CGFloat) -> some View {
         Color.clear
             .frame(width: metrics.scaled(CommitLogLayout.divideHitWidth))
@@ -219,6 +226,18 @@ struct CommitLogView: View {
                         syncDivideCursor()
                     }
             )
+            .onDisappear {
+                // The strip exists only while a commit is selected, and the model
+                // clears `selected` on its refresh paths; a dock tab switch takes
+                // the whole panel away. Either can land with the pointer on the
+                // strip, where no `onHover(false)` arrives, or mid-drag, where no
+                // `onEnded` does — so the push is released here, and the drag's
+                // start width dropped, or the next drag would begin from a width
+                // the user abandoned.
+                isDivideHovering = false
+                detailDragStartWidth = nil
+                syncDivideCursor()
+            }
     }
 
     /// Push the resize cursor while the divide is hovered or dragged, pop it

@@ -1619,6 +1619,75 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         )
     }
 
+    // MARK: - Rule twenty-two: a pushed resize cursor does not outlive its view
+
+    /// The functions, per gated file, that push an `NSCursor` — pinned by
+    /// equality so a scanner that stopped finding them fails instead of passing
+    /// vacuously, and a new hand-rolled divider joins the rule deliberately.
+    static let cursorPushingFunctions: Set<String> = [
+        "CommitLogView.swift: syncDivideCursor",
+        "ContentView.swift: syncPanelDividerCursor",
+        "ContentView.swift: syncMarkdownDividerCursor",
+    ]
+
+    /// A hand-rolled divider pushes the resize cursor from hover and drag state
+    /// and pops it from `onHover(false)` or the drag's `onEnded`. Neither arrives
+    /// when the divider leaves the tree with the pointer on it or mid-drag — the
+    /// Log's list/detail divide exists only while a commit is selected, the model
+    /// clears the selection on its refresh paths, and a dock tab switch takes the
+    /// whole panel away — and `NSCursor`'s stack is global, so the cursor stays
+    /// pushed after the flag that would have balanced it is gone. The defect
+    /// shipped once, in the Log's divide; the two `ContentView` dividers already
+    /// released from `onDisappear`, which is the rule this states for all three.
+    ///
+    /// Over stripped source, in every gated file: each function whose body
+    /// pushes an `NSCursor` is called from inside an `.onDisappear {` block in the
+    /// same file, and every `.push()` in the file sits inside such a function —
+    /// so a push added inline, beside the sync function rather than through it,
+    /// fails too. Stated limit: the rule sees the *call*, not that the handler
+    /// clears the hover and drag state before it; a handler calling the sync with
+    /// both still set would pop nothing. That half is not expressible honestly
+    /// over text, and each handler's own comment says why it clears both.
+    func testAPushedResizeCursorIsReleasedWhenItsViewDisappears() throws {
+        var found: Set<String> = []
+        for url in try Self.swiftSources() where Self.gatedFiles.contains(url.lastPathComponent) {
+            let file = url.lastPathComponent
+            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            guard code.contains("NSCursor") else { continue }
+
+            let declarations = try NSRegularExpression(pattern: "func ([A-Za-z0-9_]+)\\(")
+            let range = NSRange(code.startIndex..<code.endIndex, in: code)
+            var pushesInFunctions = 0
+            // The declaration stops short of the brace: `matchedBody(after:in:)`
+            // brace-matches from the first `{` *after* what it is given.
+            let disappearances = Self.matchedBodies(after: ".onDisappear ", in: code)
+            for match in declarations.matches(in: code, range: range) {
+                guard let nameRange = Range(match.range(at: 1), in: code) else { continue }
+                let name = String(code[nameRange])
+                guard let body = Self.matchedBody(after: "func \(name)(", in: code),
+                      body.contains("NSCursor"), body.contains(".push()") else { continue }
+                found.insert("\(file): \(name)")
+                pushesInFunctions += Self.occurrences(of: ".push()", in: body)
+                XCTAssertTrue(
+                    disappearances.contains { $0.contains("\(name)(") },
+                    """
+                    \(file): \(name) pushes an NSCursor but no .onDisappear { block calls it — a view \
+                    leaving the tree with the pointer on it, or mid-drag, gets neither onHover(false) nor \
+                    onEnded, and the cursor stays pushed after its flag is gone
+                    """
+                )
+            }
+            XCTAssertEqual(
+                Self.occurrences(of: ".push()", in: code), pushesInFunctions,
+                "\(file) pushes an NSCursor outside the sync function a disappearance handler can reach"
+            )
+        }
+        XCTAssertEqual(
+            found, Self.cursorPushingFunctions,
+            "the gated files' cursor-pushing functions changed — pin the new set deliberately"
+        )
+    }
+
     // MARK: - Self-check
 
     /// Every gated file draws with roles and must therefore name one — with two
@@ -1683,6 +1752,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         7: "seven", 8: "eight", 9: "nine", 10: "ten", 11: "eleven", 12: "twelve",
         13: "thirteen", 14: "fourteen", 15: "fifteen", 16: "sixteen", 17: "seventeen",
         18: "eighteen", 19: "nineteen", 20: "twenty", 21: "twenty-one",
+        22: "twenty-two",
     ]
 
     func testBothSummariesSpellTheSuitesOwnRuleCount() throws {
