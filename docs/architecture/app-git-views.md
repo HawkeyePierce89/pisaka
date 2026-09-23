@@ -663,7 +663,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `refresh(root:)`. Selecting
     a commit opens `CommitDetailPane` — now a *files-list only* (the old `VSplitView`
     over an inline `CommitDiffPane` is gone; the `CommitDiffPane` struct was removed)
-    — beside the list in an `HSplitView`. Double-clicking a `CommitFileRow` calls a
+    — beside the list, behind a drag-resizable divide the list draws itself (see *Chrome* below). Double-clicking a `CommitFileRow` calls a
     threaded `onOpenCommitDiff(file, commit)` that opens the commit-vs-first-parent
     diff in a separate window (single-click selects/highlights). The file list
     (`model.changes(for:)`) is still cached behind a `@State` generation token like
@@ -675,6 +675,32 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     the previous commit's files. `onOpenCommitDiff` is threaded `PisakaApp →
     ContentView → CommitLogView → CommitDetailPane → CommitFileRow`. The
     filter/search bar (`LogFilterBar`) sits above the table once a repo is open.
+    **Chrome (part four (b)).** Every colour is a `ChromeColorRole` read from
+    `\.chromeTheme`; the gutter's lane hues (`CommitGraphPalette`) are the one
+    table it does not read. The header strip is the Problems panel's shape
+    (`panelHeaderHeight`, `panelHeaderPaddingX`, its own bottom `hairline` by
+    overlay); below the filter bar a static, non-interactive **column header row**
+    (24 pt, 12 pt inset, 16 pt gap, bottom hairline) labels Hash / Message /
+    Author / Date in `textSecondary` `.subheadline` semibold over an empty graph
+    column when the gutter is drawn — it reads the rows' own widths from one
+    private `CommitLogLayout` (hash 58, author 160, date 120, the subject column
+    flexible), which is what keeps "Message" over the ref badges and subject.
+    A commit row is 25 pt (`baseRowHeight`, which the gutter cell shares), 12 pt
+    inset, 16 pt column gap: message `textPrimary` `.body`, author and date
+    `textSecondary` `.callout`, hash `textSecondary` `.subheadline` monospaced.
+    Row washes are `accentTintStrong` (selected) / `hoverTint` (pointer); a
+    selection keeps its wash when the window is not key — the Problems panel's
+    precedent, which has no inactive state. Ref badges are `accentTint` under
+    `accent` text. The detail pane's file rows read Core's one changed-file
+    answer — `FileStatus.letter`, `ChromeColorRole.changedFileRole(for:)` and
+    `FileStatus.spokenName` as the accessibility value — so no private table
+    remains. **No `Divider()`:** the header, the detail pane's subject and the
+    list/detail divide each draw their own `hairline` by overlay. The divide is
+    therefore no longer an `HSplitView` (whose divider the system draws in its
+    separator value): the list owns a trailing hairline with a 5 pt drag strip
+    over it that resizes the detail pane (`@State`, clamped so the list keeps
+    360 pt and the pane 280 pt; ideal 360), pushing the resize cursor off one
+    flag so every push has exactly one pop.
   - `CommitGraphView.swift` — the branch-graph gutter, a thin color-resolving
     `NSViewRepresentable` (`CommitGraphRowNSView`) over the color-free
     `CommitGraphLayout`, like the minimap: it consumes a `colorIndex` and maps it to
@@ -758,4 +784,19 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     testable
     argument-building/search/normalization logic lives in `PisakaCore.LogFilter` and
     `PisakaCore.LogFilterDraft`.
+    **Chrome (part four (b)).** One `panelHeaderHeight` strip (10 pt inset and
+    gap, `bgPanel` ground, bottom `hairline` by overlay) holding every control
+    in one line — branch, author, path, Since, Until, then the message search —
+    each in one 22 pt box: 4 pt radius, `bgEditor` ground, one-point `hairline`
+    border, a two-point `accent` border while a text field holds focus
+    (`@FocusState`), 8 pt inset and 6 pt inner gap. The text fields are drawn
+    `.plain` with their own `textSecondary` `.callout` placeholder (a plain
+    field's own is the system's value) and `textPrimary` text; widths author 140,
+    path 160, search 220. The branch menu keeps the system picker (inline, inside
+    a borderless `Menu`) beside a `textSecondary` chevron; each date bound keeps
+    its checkbox and the system date field, an `NSDatePicker` drawn with no
+    bezel, border or background (`BorderlessDateField`, coloured from the theme
+    as a concrete value) plus a chevron opening a graphical calendar popover.
+    Programmatic `dateValue` writes send no action, so the seeding rule above
+    still holds: only a user edit reaches `draftBinding(for:)`'s setter.
 

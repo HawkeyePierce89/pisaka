@@ -170,23 +170,23 @@ Decisions settled during planning. Each one departs from the ticket's wording. T
 **Files:**
 - Modify: `Sources/Pisaka/CommitLogView.swift`, `Sources/Pisaka/LogFilterBar.swift`
 
-- [ ] **Remove the private tables.** Delete `commitStatusColor` / `commitStatusLetter`. The detail pane's file rows read `status.letter` and `theme.color(.changedFileRole(for:))`, with `status.spokenName` as the accessibility value.
-- [ ] **Row washes**:
+- [x] **Remove the private tables.** Delete `commitStatusColor` / `commitStatusLetter`. The detail pane's file rows read `status.letter` and `theme.color(.changedFileRole(for:))`, with `status.spokenName` as the accessibility value.
+- [x] **Row washes**:
   - Selection is `accentTintStrong`, hover is `hoverTint`.
   - A selection in a window that is not key follows the Problems panel's precedent.
   - The 0.25 / 0.15 accent opacities are deleted.
-- [ ] **Ref badges**: `accentTint` ground and `accent` text. No opacity is computed.
-- [ ] **Commit row**: 25 pt tall, 12 pt horizontal padding and a 16 pt column gap, in a private `Layout`, scaled. Text:
+- [x] **Ref badges**: `accentTint` ground and `accent` text. No opacity is computed.
+- [x] **Commit row**: 25 pt tall, 12 pt horizontal padding and a 16 pt column gap, in a private `Layout`, scaled. Text:
   - message: `textPrimary`, `.body`
   - author and date: `textSecondary`, `.callout`
   - hash: `textSecondary`, `.subheadline`, monospaced
-- [ ] **Static header row** above the rows:
+- [x] **Static header row** above the rows:
   - 24 pt tall, 12 pt padding, 16 pt gap, bottom hairline by overlay.
   - Labels Hash / Message / Author / Date in `textSecondary`, `.subheadline`, semibold, one line each, over an empty graph column.
   - It uses the rows' own column widths. "Message" sits where the ref badges and subject start.
   - It is non-interactive.
-- [ ] **Replace the three `Divider()`s** with the owning surface's own `hairline`: an overlay on the bottom or trailing edge, `hairlineWidth` scaled. This includes the divide between the list and the detail pane.
-- [ ] **Filter bar strip**:
+- [x] **Replace the three `Divider()`s** with the owning surface's own `hairline`: an overlay on the bottom or trailing edge, `hairlineWidth` scaled. This includes the divide between the list and the detail pane.
+- [x] **Filter bar strip**:
   - Height `panelHeaderHeight` (28, the panel's header strip), private padding 10 and gap 10, `bgPanel` ground, bottom hairline by overlay.
   - Text fields: the message search is 220 × 22; the author and path fields keep their current widths at 22 tall. Each field has:
     - a 4 pt radius (private), a `bgEditor` ground and a 1 pt `hairline` border;
@@ -195,9 +195,9 @@ Decisions settled during planning. Each one departs from the ticket's wording. T
     - on focus, a 2 pt `accent` border in place of the hairline.
   - The branch picker and the two date pickers use the same 22 pt box, radius, border, padding and inner gap. The label is `textPrimary` `.callout`, the chevron `textSecondary`, and the system control inside is drawn borderless.
   - Every label stays on one line.
-- [ ] **No leftover platform colours**: neither file keeps a system semantic colour, the accent colour, an opacity computed off a system colour, or a hex literal.
-- [ ] **Tests**: extend the Core tests only if Task 1 missed a case this view reads. This task is view glue; its rules are pinned in Task 7.
-- [ ] Run `swift test` — must pass before Task 4.
+- [x] **No leftover platform colours**: neither file keeps a system semantic colour, the accent colour, an opacity computed off a system colour, or a hex literal.
+- [x] **Tests**: extend the Core tests only if Task 1 missed a case this view reads. This task is view glue; its rules are pinned in Task 7.
+- [x] Run `swift test` — must pass before Task 4.
 
 ### Task 4: The Local Changes panel (and the commit dialog's two reads)
 
