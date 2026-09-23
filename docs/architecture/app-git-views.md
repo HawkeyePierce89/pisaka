@@ -455,6 +455,13 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     the row's own spacing and padding) is deliberately on *neither* scale: it is
     chrome belonging to a code row, and scaling it with the interface would make
     the two zones interact (`docs/architecture/core-zoom.md`).
+    **Colour.** Every colour is a chrome role read through `\.chromeTheme`
+    (the text itself stays `SyntaxTheme`'s `.plain`): the row wash is Core's
+    `ChromeColorRole.diffWashRole(for: UnifiedDiffLine.Kind)` — the same two
+    `diffRemovedBackground`/`diffAddedBackground` roles the side-by-side pane
+    spends, a context line drawing none — the checkbox is `accent` when on and
+    `textSecondary` when off, and the line numbers and the placeholder are
+    `textSecondary`. The dialog around the panel is untouched.
   - `MergeView.swift` — the 3-pane conflict-resolution editor (`ours | result |
     theirs`): the left/right panes are read-only views of each side's full content
     (stable regions plus that side's version of every conflict hunk), the middle
@@ -639,12 +646,18 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `NSTextView`s (no soft-wrap, so one logical line = one visual row and the
     panes stay aligned). Each row maps to exactly one line in *both* panes (a
     `nil` side becomes an empty filler line). `DiffTextView` overrides
-    `drawBackground` to paint a full-width per-row background by `DiffRowKind`
-    (removed/changed → red on the left, added/changed → green on the right,
-    filler → neutral gray), iterating only the visible glyph range and mapping a
+    `drawBackground` to paint a full-width per-row wash by `DiffRowKind` —
+    Core's `ChromeColorRole.diffWashRole(for:side:)` resolved through the dynamic
+    `ChromePalette.nsColor(_:)` (removed/changed on the old side, added/changed
+    on the new side, a filler row plain) — iterating only the visible glyph range and mapping a
     glyph's char index to its row via a `LineStartIndex`-built offset cache.
     `DiffGutterView` (an `NSRulerView`, like `LineNumberRulerView`) draws this
-    side's 1-based numbers (blank for a filler line) plus a thin change marker.
+    side's 1-based numbers (blank for a filler line, `textSecondary`) plus a thin
+    change marker (`ChromeColorRole.diffMarkerRole(for:side:)`). **A macOS diff
+    side is one type**: the panes, the gutters and both Core answers speak Core's
+    `DiffSide` (`.old`/`.new`) directly — the app's own `DiffTextView.Side` is
+    gone, so no mapping site exists to drift. The iOS view's private `Side` and
+    `ThreeWayMerge`'s private ours/theirs side are unrelated and untouched.
     `DiffTextView` and `DiffGutterView` both declare `zoomSurfaceKind = .code`
     (`ZoomSurfaceProviding`); the pane no longer overrides `scrollWheel` for the
     font step, and the gutter needs its own conformance because an `NSRulerView`
@@ -657,9 +670,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     foreground beside the font, so uncovered text agrees with the editor instead
     of sitting on the platform label colour; `SyntaxBaseForegroundGatingTests`),
     detaching the outgoing highlighters before a buffer swap to avoid the stale
-    cross-language race. `DiffColors` keeps the row/marker color scheme in the
-    view layer so Core stays color-free; `DiffContainerView` lays the two panes
-    side by side with a hairline divider.
+    cross-language race. `DiffContainerView` lays the two panes side by side
+    with a hairline divider — a plain `DiffDividerView` filling itself with the
+    `hairline` role, `ChromeGeometry.hairlineWidth` wide and *unscaled* under
+    the token's stated code-zoom exception (the panes have no interface scale to
+    ask).
   - `CommitLogView.swift` — the Git Log view (shown in the bottom dock panel): a
     a read-only
     commit table (a fixed-`rowHeight` list of short hash, ref badges, subject,

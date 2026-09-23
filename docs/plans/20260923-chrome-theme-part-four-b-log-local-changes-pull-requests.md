@@ -229,28 +229,28 @@ Decisions settled during planning. Each one departs from the ticket's wording. T
 **Files:**
 - Modify: `Sources/Pisaka/DiffView.swift`, `Sources/Pisaka/CommitUnifiedDiffView.swift`
 
-- [ ] **Delete `DiffTextView.Side`.** Today it is declared and used in `DiffView.swift` alone:
+- [x] **Delete `DiffTextView.Side`.** Today it is declared and used in `DiffView.swift` alone:
   - the declaration at line 281;
   - `makePane(side:)`;
   - the gutter's stored `side` and its `init`;
   - `background(for:side:)` and `markerColor(for:side:)`.
 
   All of these now name Core's `DiffSide`, and the `.left`/`.right` calls become `.old`/`.new`. After this, the macOS diff surfaces have one side type with one definition, and no mapping site. `Sources/Pisaka/iOS/DiffView_iOS.swift`'s private `enum Side` and Core's private `ThreeWayMerge.Side` are not touched.
-- [ ] **Delete the local tables.** `DiffColors` goes.
+- [x] **Delete the local tables.** `DiffColors` goes.
   - The row background reads `ChromePalette.nsColor(_:)` of `ChromeColorRole.diffWashRole(for:side:)`.
   - The marker strip reads `diffMarkerRole(for:side:)`.
   - The filler row carries no wash; the grey at 0.12 goes.
-- [ ] **Gutter and divider**:
+- [x] **Gutter and divider**:
   - Gutter line numbers use `nsColor(.textSecondary)` instead of `secondaryLabelColor`.
   - The `NSBox` separator between the panes becomes a plain view filled with `nsColor(.hairline)`, `hairlineWidth` wide, drawn unscaled under the stated code-zoom exception.
   - The characters keep `SyntaxTheme`.
-- [ ] **`CommitUnifiedDiffView`**:
+- [x] **`CommitUnifiedDiffView`**:
   - The row background reads `diffWashRole(for: UnifiedDiffLine.Kind)` through the theme. The 0.14 alphas go.
   - Its three other colour sites become roles: the checkbox (`accent` / `textSecondary`) and the line number (`textSecondary`).
   - Nothing else in the dialog changes.
-- [ ] **No leftover platform colours** in either file, and no `withAlphaComponent`.
-- [ ] **Tests**: Task 1's wash and marker tests cover both `DiffSide` cases. Search to confirm that neither `DiffView.swift` nor `CommitUnifiedDiffView.swift` declares a `Side` enum, and that no macOS file under `Sources/Pisaka` (outside `Sources/Pisaka/iOS/`) spells `DiffTextView.Side`. Task 7 pins this as a gating rule.
-- [ ] Run `swift test` — must pass before Task 6.
+- [x] **No leftover platform colours** in either file, and no `withAlphaComponent`.
+- [x] **Tests**: Task 1's wash and marker tests cover both `DiffSide` cases. Search to confirm that neither `DiffView.swift` nor `CommitUnifiedDiffView.swift` declares a `Side` enum, and that no macOS file under `Sources/Pisaka` (outside `Sources/Pisaka/iOS/`) spells `DiffTextView.Side`. Task 7 pins this as a gating rule.
+- [x] Run `swift test` — must pass before Task 6.
 
 ### Task 6: The Pull Requests panel and the indicator's reads
 

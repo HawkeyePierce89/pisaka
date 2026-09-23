@@ -11,10 +11,11 @@ import PisakaCore
 /// Two read-only `NSTextView`s sit side by side. Each row maps to exactly one
 /// visual line in *both* panes — a `nil` side becomes an empty filler line — so
 /// the two panes stay vertically aligned line-for-line. Each `DiffTextView` paints
-/// a full-width per-row background by `DiffRowKind` (removed/changed → red on the
-/// left, added/changed → green on the right, filler → a neutral "absent" tint),
-/// and a `DiffGutterView` draws that side's 1-based line numbers (blank for a
-/// filler line) plus a thin change marker. Vertical scrolling is mirrored between
+/// a full-width per-row wash by `DiffRowKind` (removed/changed on the old side,
+/// added/changed on the new side, a filler line plain — Core's
+/// `ChromeColorRole.diffWashRole(for:side:)`), and a `DiffGutterView` draws that
+/// side's 1-based line numbers (blank for a filler line) plus a thin change marker
+/// (`ChromeColorRole.diffMarkerRole(for:side:)`). Vertical scrolling is mirrored between
 /// the panes, and both panes get the same Neon tree-sitter highlighting the editor
 /// uses (`SyntaxLanguageConfiguration` + `SyntaxTheme`).
 ///
@@ -44,8 +45,8 @@ struct DiffView: NSViewRepresentable {
     func makeNSView(context: Context) -> DiffContainerView {
         let coordinator = context.coordinator
 
-        let (leftScroll, leftText, leftGutter) = makePane(side: .left)
-        let (rightScroll, rightText, rightGutter) = makePane(side: .right)
+        let (leftScroll, leftText, leftGutter) = makePane(side: .old)
+        let (rightScroll, rightText, rightGutter) = makePane(side: .new)
 
         coordinator.attach(
             leftScroll: leftScroll, leftText: leftText, leftGutter: leftGutter,
@@ -95,7 +96,7 @@ struct DiffView: NSViewRepresentable {
     /// scroll view with a `DiffGutterView` line-number ruler. Mirrors
     /// `CodeEditorView`'s TextKit 1 / no-soft-wrap setup so a logical line occupies
     /// exactly one visual row (the row-to-line alignment the diff depends on).
-    private func makePane(side: DiffTextView.Side) -> (NSScrollView, DiffTextView, DiffGutterView) {
+    private func makePane(side: DiffSide) -> (NSScrollView, DiffTextView, DiffGutterView) {
         let textView = DiffTextView(usingTextLayoutManager: false)
         textView.side = side
 
@@ -273,14 +274,15 @@ struct DiffView: NSViewRepresentable {
 }
 
 /// A read-only diff pane. Beyond an ordinary `NSTextView` it paints a full-width
-/// per-row background by `DiffRowKind` (so removed/added/changed/filler rows read
-/// at a glance) behind the glyphs and Neon's syntax colors.
+/// per-row wash by `DiffRowKind` (so removed/added/changed rows read at a glance)
+/// behind the glyphs and Neon's syntax colors. The wash is Core's answer,
+/// `ChromeColorRole.diffWashRole(for:side:)`, resolved through the dynamic
+/// `ChromePalette.nsColor(_:)`; a filler row carries none.
 @MainActor
 final class DiffTextView: NSTextView, ZoomSurfaceProviding {
-    /// Which side of the diff this pane shows.
-    enum Side { case left, right }
-
-    var side: Side = .left
+    /// Which side of the diff this pane shows — Core's `DiffSide`, the one
+    /// definition of a diff side, so the wash below asks Core with no mapping.
+    var side: DiffSide = .old
 
     /// A diff pane draws with the shared editor font, so it is a *code* surface:
     /// a zoom gesture over it grows the code zone, exactly as one over the editor
@@ -345,7 +347,7 @@ final class DiffTextView: NSTextView, ZoomSurfaceProviding {
             let row = self.lineIndex(forCharacterAt: charIndex)
             guard
                 row < self.diffRows.count,
-                let color = DiffColors.background(for: self.diffRows[row], side: self.side)
+                let role = ChromeColorRole.diffWashRole(for: self.diffRows[row].kind, side: self.side)
             else { return }
             let fill = NSRect(
                 x: 0,
@@ -353,7 +355,7 @@ final class DiffTextView: NSTextView, ZoomSurfaceProviding {
                 width: self.bounds.width,
                 height: fragmentRect.height
             )
-            color.setFill()
+            ChromePalette.nsColor(role).setFill()
             fill.fill()
         }
     }
@@ -373,12 +375,12 @@ final class DiffGutterView: NSRulerView, ZoomSurfaceProviding {
     let zoomSurfaceKind: ZoomSurfaceKind = .code
 
     private weak var diffTextView: DiffTextView?
-    private let side: DiffTextView.Side
+    private let side: DiffSide
     private let horizontalPadding: CGFloat = 4
     /// Width of the change marker strip drawn at the gutter's inner edge.
     private let markerWidth: CGFloat = 2
 
-    init(scrollView: NSScrollView, textView: DiffTextView, side: DiffTextView.Side) {
+    init(scrollView: NSScrollView, textView: DiffTextView, side: DiffSide) {
         self.diffTextView = textView
         self.side = side
         super.init(scrollView: scrollView, orientation: .verticalRuler)
@@ -422,7 +424,7 @@ final class DiffGutterView: NSRulerView, ZoomSurfaceProviding {
 
     private func updateThickness() {
         let widestNumber = diffTextView?.diffRows.reduce(0) { current, row in
-            let number = (side == .left ? row.left?.number : row.right?.number) ?? 0
+            let number = (side == .old ? row.left?.number : row.right?.number) ?? 0
             return max(current, number)
         } ?? 0
         let widest = "\(max(1, widestNumber))" as NSString
@@ -443,7 +445,7 @@ final class DiffGutterView: NSRulerView, ZoomSurfaceProviding {
 
         let attributes: [NSAttributedString.Key: Any] = [
             .font: rulerFont,
-            .foregroundColor: NSColor.secondaryLabelColor,
+            .foregroundColor: ChromePalette.nsColor(.textSecondary),
         ]
         let textOrigin = textView.textContainerOrigin
         let relativePoint = convert(NSPoint.zero, from: textView)
@@ -464,8 +466,8 @@ final class DiffGutterView: NSRulerView, ZoomSurfaceProviding {
             let y = relativePoint.y + textOrigin.y + fragmentRect.minY
 
             // Change marker: a thin colored strip at the gutter's inner edge.
-            if let markerColor = DiffColors.markerColor(for: row, side: self.side) {
-                markerColor.setFill()
+            if let markerRole = ChromeColorRole.diffMarkerRole(for: row.kind, side: self.side) {
+                ChromePalette.nsColor(markerRole).setFill()
                 NSRect(
                     x: self.ruleThickness - self.markerWidth,
                     y: y,
@@ -475,7 +477,7 @@ final class DiffGutterView: NSRulerView, ZoomSurfaceProviding {
             }
 
             // Line number for this side (filler lines have none).
-            guard let line = (self.side == .left ? row.left : row.right) else { return }
+            guard let line = (self.side == .old ? row.left : row.right) else { return }
             let label = "\(line.number)" as NSString
             let labelSize = label.size(withAttributes: attributes)
             let labelY = y + (fragmentRect.height - labelSize.height) / 2
@@ -486,17 +488,21 @@ final class DiffGutterView: NSRulerView, ZoomSurfaceProviding {
 }
 
 /// Lays out the two diff panes side by side, split evenly with a hairline divider.
+///
+/// The divider is a plain view filled with the `hairline` role, drawn
+/// `ChromeGeometry.hairlineWidth` wide *unscaled*: the panes are a code-zoom
+/// surface with no interface scale to ask, which is the token's one stated
+/// exception (`LineNumberRulerView`'s own edge rule, for the same reason).
 @MainActor
 final class DiffContainerView: NSView {
     private let leftScroll: NSScrollView
     private let rightScroll: NSScrollView
-    private let divider = NSBox()
+    private let divider = DiffDividerView()
 
     init(leftScroll: NSScrollView, rightScroll: NSScrollView) {
         self.leftScroll = leftScroll
         self.rightScroll = rightScroll
         super.init(frame: .zero)
-        divider.boxType = .separator
         addSubview(leftScroll)
         addSubview(divider)
         addSubview(rightScroll)
@@ -510,7 +516,7 @@ final class DiffContainerView: NSView {
         super.layout()
         let width = bounds.width
         let height = bounds.height
-        let dividerWidth: CGFloat = 1
+        let dividerWidth = CGFloat(ChromeGeometry.hairlineWidth)
         let paneWidth = max(0, (width - dividerWidth) / 2)
         leftScroll.frame = NSRect(x: 0, y: 0, width: paneWidth, height: height)
         divider.frame = NSRect(x: paneWidth, y: 0, width: dividerWidth, height: height)
@@ -518,51 +524,14 @@ final class DiffContainerView: NSView {
     }
 }
 
-/// The diff's color scheme: a full-width row background and a gutter change marker
-/// per `DiffRow`/side. Kept in the view layer (like `SyntaxTheme`) so `PisakaCore`
-/// stays color-free. Tones follow common VCS conventions — removed/changed on the
-/// old side read red, added/changed on the new side read green, and a filler
-/// (absent) line reads a neutral gray.
-enum DiffColors {
-    /// Full-width background for a row on the given side, or `nil` for an
-    /// unchanged row (no fill).
-    static func background(for row: DiffRow, side: DiffTextView.Side) -> NSColor? {
-        switch side {
-        case .left:
-            switch row.kind {
-            case .unchanged: return nil
-            case .removed, .modified: return removed
-            case .added: return filler // left side is an absent filler line
-            }
-        case .right:
-            switch row.kind {
-            case .unchanged: return nil
-            case .added, .modified: return added
-            case .removed: return filler // right side is an absent filler line
-            }
-        }
+/// The hairline between the two panes. Fills itself on every draw, so the
+/// dynamic colour resolves against the current appearance with no observer.
+@MainActor
+final class DiffDividerView: NSView {
+    override func draw(_ dirtyRect: NSRect) {
+        ChromePalette.nsColor(.hairline).setFill()
+        dirtyRect.fill()
     }
-
-    /// The gutter change-marker color for a row on the given side, or `nil` when
-    /// there is no marker (unchanged, or this side is a filler).
-    static func markerColor(for row: DiffRow, side: DiffTextView.Side) -> NSColor? {
-        switch side {
-        case .left:
-            switch row.kind {
-            case .unchanged, .added: return nil
-            case .removed, .modified: return .systemRed
-            }
-        case .right:
-            switch row.kind {
-            case .unchanged, .removed: return nil
-            case .added, .modified: return .systemGreen
-            }
-        }
-    }
-
-    private static let removed = NSColor.systemRed.withAlphaComponent(0.15)
-    private static let added = NSColor.systemGreen.withAlphaComponent(0.15)
-    private static let filler = NSColor.gray.withAlphaComponent(0.12)
 }
 
 #endif

@@ -170,8 +170,8 @@ private enum MergeLineKind {
     case conflictResolved
 }
 
-/// The merge panes' color scheme (kept in the view layer like `DiffColors`/
-/// `SyntaxTheme`, so `PisakaCore` stays color-free).
+/// The merge panes' color scheme (kept in the view layer like `SyntaxTheme`, so
+/// `PisakaCore` stays color-free).
 private enum MergeColors {
     static func background(for kind: MergeLineKind) -> NSColor? {
         switch kind {

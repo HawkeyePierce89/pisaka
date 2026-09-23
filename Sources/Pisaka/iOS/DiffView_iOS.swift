@@ -406,9 +406,9 @@ final class DiffContainerView_iOS: UIView {
 
 /// The diff's color scheme on iOS — a full-width row background and a gutter change
 /// marker per `DiffRow`/side. Kept in the view layer (like `SyntaxTheme`) so
-/// `PisakaCore` stays color-free, mirroring the macOS `DiffColors` tones (removed/
-/// changed read red on the old side, added/changed read green on the new side, a
-/// filler/absent line reads a neutral gray).
+/// `PisakaCore` stays color-free (removed/changed read red on the old side,
+/// added/changed read green on the new side, a filler/absent line reads a neutral
+/// gray). iOS has no chrome palette, so this table is not the macOS roles.
 enum DiffColors_iOS {
     static func background(for row: DiffRow, side: DiffTextView_iOS.Side) -> UIColor? {
         switch side {
