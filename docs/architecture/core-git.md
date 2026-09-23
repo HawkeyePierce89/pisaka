@@ -149,9 +149,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `ChromeColorRole.changedFileRole(for:)` (added `statusGreen`,
     modified/renamed `statusYellow`, deleted/conflicted `statusRed`, untracked
     `textSecondary`; `core-theme.md`). These are Core's one answer, read by the
-    Local Changes panel, the Log's detail pane and the commit dialog — the three
-    view tables that used to exist had already drifted — and chrome gating rule
-    seventeen keeps a fourth from coming back. And
+    Local Changes panel, the Log's detail pane and the commit dialog — two
+    identical view tables used to exist, the dialog calling one of them, and the
+    point was to keep them from drifting rather than to repair a drift — and
+    chrome gating rule seventeen keeps a third from coming back. And
     `ChangedFile` (a single file differing from `HEAD`: repo-relative `path` —
     the new path for a rename — `status`, `oldPath` set only for renames, and
     `id == path` for stable identity across refreshes).

@@ -39,7 +39,7 @@ import PisakaCore
 /// the syntax highlighting does — a token kind names the code zone's own theme,
 /// which no chrome role can stand in for. That is the same boundary
 /// `ChromeThemeSourceGatingTests` records from the other side, where
-/// `SyntaxTheme.swift` is one of the three exemptions. Both sources are resolved
+/// `SyntaxTheme.swift` is one of the four exemptions. Both sources are resolved
 /// at *draw time*, so the minimap follows the appearance like the editor.
 ///
 /// It declares itself a **code** zoom surface. The minimap is a *sibling* of the

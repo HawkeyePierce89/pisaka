@@ -264,5 +264,5 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     borderless button would otherwise tint them itself. The no-session
     placeholder draws `bgPanel` rather than the platform's `textBackgroundColor`.
     `TerminalHostView`, the container view and the terminal palette
-    (`TerminalTheme`, one of the chrome suite's three exemptions) are
+    (`TerminalTheme`, one of the chrome suite's four exemptions) are
     **untouched**: they are the terminal zone, not chrome.

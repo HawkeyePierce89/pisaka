@@ -795,7 +795,8 @@ diff's wash** — and seven files join the gated set (`CommitLogView.swift`,
 `CommitGraphView.swift`, `LogFilterBar.swift`, `LocalChangesView.swift`,
 `DiffView.swift`, `CommitUnifiedDiffView.swift`, `PullRequestsPanelView.swift`),
 taking it from twenty to twenty-seven; the suite grows from sixteen rules to
-twenty. **No palette value changes and no role is added.** Two roles are spent,
+twenty (and, with the fix round's filter-bar and resize-cursor rules, to
+twenty-two). **No palette value changes and no role is added.** Two roles are spent,
 the diff grounds `diffAddedBackground` and `diffRemovedBackground`, leaving four
 unspent. `ChromeGeometry` gains `buttonPaddingX` (10) and `buttonCornerRadius`
 (5).
@@ -804,7 +805,8 @@ unspent. `ChromeGeometry` gains `buttonPaddingX` (10) and `buttonCornerRadius`
 copy (the `ChromeColorRole.swift` entry above has the values): the changed-file
 status colour `changedFileRole(for:)` with its letter and spoken name
 (`FileStatus.letter`/`spokenName`) — read by the Local Changes panel, the Log's
-detail pane and the commit dialog, whose three former tables disagreed; the
+detail pane and the commit dialog, where two identical tables used to live
+(the dialog calling one of them); the
 checks colour `checksRole(for:)` with the checks glyph and words
 (`symbolName`/`spokenWords` on `GitHubChecksSummary` and `GitHubCheckBucket`) —
 read by the panel and the bottom-bar indicator; and the diff wash
@@ -1158,7 +1160,10 @@ The twenty-two rules, each invisible to the compiler:
    part of being drawn.
 17. **The changed-file status mapping is Core's one answer.** `FileStatus.letter`
    and `ChromeColorRole.changedFileRole(for:)` decide what a status is drawn as;
-   the three views that used to keep a table each had already drifted. Rule
+   before part four (b) the mapping was written out twice, byte for byte (the
+   Log's detail pane and Local Changes, whose helpers the commit dialog called),
+   and the rule prevents a third table and the drift two copies invite rather
+   than repairing a drift that had happened. Rule
    fifteen's shape over stripped source: no app file declares `func
    changedFileRole` or a `letter` table (`var letter` / `func letter`); the app
    files spelling `changedFileRole(for:` equal `{CommitLogView.swift,
@@ -1198,11 +1203,16 @@ The twenty-two rules, each invisible to the compiler:
    type's `body`): each icon-only control's builder spells
    `.accessibilityLabel(`; the checks glyph, the status letter, the checkbox and
    the disclosure chevrons spell `.accessibilityValue(`; and inside a labelled
-   control's body every `Image(systemName:` is followed by
-   `.accessibilityHidden(true)` — on the image or on a container around it. The
+   control's body every `Image(systemName:` carries an
+   `.accessibilityHidden(true)` of its own — in the postfix modifier chain on
+   the image, or in the chain on a container brace-enclosing it. The
    checks glyph is the one entry exempt from the last clause, the image being
-   the element itself. A renamed builder fails loudly. Stated limit: "followed
-   by" is textual, so one hidden container after two symbols satisfies both.
+   the element itself. A renamed builder fails loudly. The binding is the rule:
+   its first shape searched all the text after each image, so in `endingStrip`
+   the dismiss glyph's modifier satisfied the warning glyph before it, and
+   removing the warning's own modifier stayed green. Stated limit: a container
+   hidden by a modifier outside the builder's own text is not seen, and fails
+   rather than passes.
 21. **The Log's filter bar fits the window it lives in.** The requirement,
    stated in `LogFilterBar.swift`'s doc comment: at the main window's minimum
    width, at every interface scale, every control in the bar is reachable and

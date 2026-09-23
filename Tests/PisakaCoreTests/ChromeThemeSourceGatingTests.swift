@@ -67,6 +67,9 @@ import XCTest
 ///   draw *and* spell an accessibility value, because two of those glyphs were
 ///   the row's state and hiding a state without speaking it is the same defect
 ///   with the counts looking healthy.
+/// - **Every label the bar draws stays on one line.** The bar states its own
+///   height, so a label that wraps is clipped rather than accommodated — and it
+///   wraps only at the width, scale or project name the reviewer did not try.
 /// - **The dock's tab row is configured in one place.** It is drawn once, from
 ///   the slot every panel passes through; a second call site compiles and
 ///   stacks a second row.
@@ -82,6 +85,27 @@ import XCTest
 /// - **An indicator strip's bottom rule is drawn behind its tabs.** An overlaid
 ///   rule paints over the lower point of the active tab's accent indicator — a
 ///   one-point overlap no compiler or headless test can see.
+/// - **The changed-file status mapping is Core's one answer.** The letter and
+///   role a status is drawn in were written out twice before; a view growing a
+///   third `switch` compiles and disagrees with the panel beside it the first
+///   time either is touched.
+/// - **The checks-state mapping is Core's one answer.** The panel and the
+///   bottom-bar indicator draw the same state; a second table in either drifts
+///   from the other without a sound.
+/// - **The diff wash is Core's one answer, and a diff side is one type.** The
+///   two diff surfaces wash their rows from `diffWashRole`, over Core's one
+///   `DiffSide` — a second side enum in the app is the seam the old one was.
+/// - **The three panels' controls are identifiable without sight.** The Log,
+///   Local Changes and Pull Requests panels' icon-only controls are named, their
+///   state carriers speak a value, and every symbol inside a labelled control is
+///   hidden by a modifier of its own — not a later sibling's.
+/// - **The Log's filter bar states no fixed width and scrolls below its floor.**
+///   A fixed width clipped the row, and the branch menu and message search with
+///   it, below roughly 1000 points; it renders perfectly at a reviewer's width.
+/// - **A pushed resize cursor is released when its view disappears.** A divider
+///   leaving the tree gets neither `onHover(false)` nor `onEnded`, and
+///   `NSCursor`'s stack is global, so the cursor stays pushed after the flag
+///   that would have balanced it is gone.
 final class ChromeThemeSourceGatingTests: XCTestCase {
 
     // MARK: - The gated set
@@ -1240,15 +1264,24 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         }
     }
 
-    /// Every brace-matched body following an occurrence of `declaration`, in
+    /// Every trailing-closure body following an occurrence of `declaration`, in
     /// order — `matchedBody(after:in:)` read at each occurrence rather than the
     /// first alone.
+    ///
+    /// Every caller names a *modifier*, whose closure opens immediately after
+    /// it, so an occurrence followed by anything but whitespace before its `{` is
+    /// skipped rather than bound to whichever block comes next in the file — a
+    /// body "somewhere later" is another construct's, and a rule reading it
+    /// passes or fails on text it does not name.
     private static func matchedBodies(after declaration: String, in code: String) -> [String] {
         var bodies: [String] = []
         var rest = Substring(code)
         while let found = rest.range(of: declaration) {
-            let tail = String(rest[found.lowerBound...])
-            if let body = matchedBody(after: declaration, in: tail) { bodies.append(body) }
+            let gap = rest[found.upperBound...].prefix { $0 != "{" }
+            if gap.allSatisfy(\.isWhitespace), gap.endIndex < rest.endIndex {
+                let tail = String(rest[found.lowerBound...])
+                if let body = matchedBody(after: declaration, in: tail) { bodies.append(body) }
+            }
             rest = rest[found.upperBound...]
         }
         return bodies
@@ -1261,10 +1294,14 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// `ChromeColorRole.changedFileRole(for:)` — read by the Log's changed-file
     /// rows, Local Changes' rows and the commit dialog's file list.
     ///
-    /// Before part four (b) each of those carried its own table, and the three
-    /// had already drifted: a view growing its own `switch` again compiles,
-    /// draws six plausible colours and disagrees with the panel beside it the
-    /// first time either is touched. Rule fifteen's shape, over stripped source:
+    /// Before part four (b) the mapping was written out twice, byte for byte —
+    /// once in the Log's detail pane and once in Local Changes, whose internal
+    /// helpers the commit dialog called rather than keeping a third copy. The two
+    /// had not drifted; the rule exists so they cannot: a view growing its own
+    /// `switch` again compiles, draws six plausible colours and disagrees with
+    /// the panel beside it the first time either is touched, and a third table is
+    /// the copy nobody remembers to update. Rule fifteen's shape, over stripped
+    /// source:
     ///
     /// - no app file declares `func changedFileRole` or a `letter` table
     ///   (`var letter` / `func letter`);
@@ -1483,18 +1520,25 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     ///   row's value in the Log, as its own in Local Changes), the checkbox and
     ///   the disclosure chevrons — spells `.accessibilityValue(`, since a colour
     ///   or a shape is unspoken;
-    /// - inside a **labelled control's** body every `Image(systemName:` is
-    ///   followed by an `.accessibilityHidden(true)` — on the image itself or on
-    ///   a container around it, which in SwiftUI hides its children too — since
-    ///   an unhidden symbol folds its own name into the control's.
+    /// - inside a **labelled control's** body every `Image(systemName:` carries
+    ///   an `.accessibilityHidden(true)` of its own — in the modifier chain
+    ///   applied to the image itself, or in the chain applied to a container
+    ///   brace-enclosing it, which in SwiftUI hides its children too — since an
+    ///   unhidden symbol folds its own name into the control's.
     ///
     /// The checks glyph is the one entry not held to the last clause: the image
     /// *is* the element, named and valued outright. A renamed builder fails
     /// loudly rather than narrowing the rule to nothing.
     ///
-    /// Stated limit: "followed by" is textual — one hidden container after two
-    /// symbols satisfies both, which is correct when it encloses them and not
-    /// something a source rule can tell apart when it does not.
+    /// The binding is the rule's substance. Its first shape searched all of the
+    /// text after each image, so the dismiss glyph's modifier in `endingStrip`
+    /// satisfied the warning glyph before it: removing the warning's own
+    /// `.accessibilityHidden(true)` stayed green while that symbol became an
+    /// extra announcement. A chain is read as postfix `.name(…)` links (a
+    /// same-line trailing closure included) and ends at the first token that is
+    /// not one — the next sibling view. Stated limit: a container hidden by a
+    /// modifier applied *outside* the builder's own text is not seen, and fails
+    /// loudly rather than passing.
     private struct ControlBuilder {
         let path: [String]
         let required: [String]
@@ -1562,19 +1606,91 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
                     )
                 }
                 guard builder.hidesSymbols else { continue }
-                var rest = Substring(found)
-                while let symbol = rest.range(of: "Image(systemName:") {
-                    rest = rest[symbol.upperBound...]
+                var searchFrom = found.startIndex
+                while let symbol = found.range(of: "Image(systemName:", range: searchFrom..<found.endIndex) {
+                    searchFrom = symbol.upperBound
                     XCTAssertTrue(
-                        rest.contains(".accessibilityHidden(true)"),
+                        Self.isHiddenByItsOwnChain(imageAt: symbol.lowerBound, in: found),
                         """
-                        \(name)'s \(described) draws an Image(systemName:) no .accessibilityHidden(true) \
-                        follows — an unhidden symbol folds its own name into the labelled control's
+                        \(name)'s \(described) draws an Image(systemName:) whose own modifier chain — and \
+                        every enclosing container's — carries no .accessibilityHidden(true); an unhidden \
+                        symbol folds its own name into the labelled control's
                         """
                     )
                 }
             }
         }
+    }
+
+    /// Whether the image starting at `image` is hidden by a modifier that is
+    /// *its own*: one in the chain applied to the image itself, or in the chain
+    /// applied to a container brace-enclosing it within `code`. A later sibling's
+    /// modifier is in neither — which is the case the rule's first shape, a search
+    /// of all the remaining text, accepted.
+    private static func isHiddenByItsOwnChain(imageAt image: String.Index, in code: String) -> Bool {
+        let hidden = ".accessibilityHidden(true)"
+        guard let open = code[image...].firstIndex(of: "("),
+              let callEnd = balancedEnd(from: open, in: code) else { return false }
+        if modifierChain(from: callEnd, in: code).contains(hidden) { return true }
+        var depth = 0
+        var index = image
+        while index > code.startIndex {
+            index = code.index(before: index)
+            if code[index] == "}" { depth += 1 }
+            if code[index] == "{" {
+                if depth > 0 { depth -= 1; continue }
+                guard let blockEnd = balancedEnd(from: index, in: code) else { return false }
+                if modifierChain(from: blockEnd, in: code).contains(hidden) { return true }
+            }
+        }
+        return false
+    }
+
+    /// The index just past the bracket matching the one at `open` (`(` or `{`).
+    private static func balancedEnd(from open: String.Index, in code: String) -> String.Index? {
+        let opening = code[open]
+        let closing: Character = opening == "(" ? ")" : "}"
+        var depth = 0
+        var index = open
+        while index < code.endIndex {
+            if code[index] == opening { depth += 1 }
+            if code[index] == closing {
+                depth -= 1
+                if depth == 0 { return code.index(after: index) }
+            }
+            index = code.index(after: index)
+        }
+        return nil
+    }
+
+    /// The postfix modifier chain starting at `start` — `.name`, optionally
+    /// followed by a parenthesised argument list and a same-line trailing
+    /// closure, repeated — and nothing past its last link. A sibling view on the
+    /// next line starts with no dot, which is where the chain ends.
+    private static func modifierChain(from start: String.Index, in code: String) -> Substring {
+        var index = start
+        var end = start
+        func skip(_ allowed: (Character) -> Bool) {
+            while index < code.endIndex, allowed(code[index]) { index = code.index(after: index) }
+        }
+        while true {
+            skip { $0.isWhitespace }
+            guard index < code.endIndex, code[index] == "." else { break }
+            index = code.index(after: index)
+            skip { $0.isLetter || $0.isNumber || $0 == "_" }
+            if index < code.endIndex, code[index] == "(" {
+                guard let past = balancedEnd(from: index, in: code) else { break }
+                index = past
+            }
+            end = index
+            skip { $0 == " " || $0 == "\t" }
+            if index < code.endIndex, code[index] == "{" {
+                guard let past = balancedEnd(from: index, in: code) else { break }
+                index = past
+                end = index
+            }
+        }
+        return code[start..<end]
     }
 
     // MARK: - Rule twenty-one: the Log's filter bar fits the window it lives in

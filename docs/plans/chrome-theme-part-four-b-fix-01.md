@@ -171,7 +171,7 @@ the accessibility value — so the dot stays and the unread member goes.
 Three findings, all in the suite. This is the class this project treats as
 load-bearing: a rule that is green while the code it names is broken.
 
-- [ ] **The symbol-hiding check accepts a later image's modifier**
+- [x] **The symbol-hiding check accepts a later image's modifier**
       (`ChromeThemeSourceGatingTests.swift:1568`, minor). As stated:
 
   > For each image, the test searches all of the remaining builder text for
@@ -183,11 +183,11 @@ load-bearing: a rule that is green while the code it names is broken.
   Bind each image to its own modifier rather than to any later one in the
   builder — the match must fall inside that image's own modifier chain, ending
   at the next `Image(systemName:` or the builder's end, whichever comes first.
-- [ ] **Show it bites on the case that defeated it**: remove
+- [x] **Show it bites on the case that defeated it**: remove
       `.accessibilityHidden(true)` from the *warning* image in `endingStrip`
       specifically — the site with a later image still carrying one — and
       confirm red, then restore and confirm green.
-- [ ] **Rule seventeen's recorded rationale is false**
+- [x] **Rule seventeen's recorded rationale is false**
       (`ChromeThemeSourceGatingTests.swift:1264`, minor, two sources). As stated:
 
   > The claim that three view tables "had already drifted" appears in four
@@ -202,18 +202,18 @@ load-bearing: a rule that is green while the code it names is broken.
   drift two copies invite, rather than repairing a drift that had happened.
   **A recorded reason that is not true is worse than none — it is what the next
   reader will believe.**
-- [ ] **The suite's header list has no bullets for rules seventeen to twenty**
+- [x] **The suite's header list has no bullets for rules seventeen to twenty**
       (`ChromeThemeSourceGatingTests.swift:19`, minor). Add one bullet per new
       rule — the changed-file status mapping, the checks-state mapping, the diff
       wash with `DiffSide`, and the three panels' accessibility — plus whichever
       rules Tasks 1 and 2 add. The suite's own comment warns that the rules it
       omits are the newest ones, which is exactly what happened.
-- [ ] **Sweep for the shape, not the site.** Before committing: search the suite
+- [x] **Sweep for the shape, not the site.** Before committing: search the suite
       for every other rule whose match is "somewhere later in the text" rather
       than "inside the construct it names", and for every other count sentence
       that this part's four new rules and four exemptions made stale. Fix what
       the search finds in the same commit.
-- [ ] Run `swift test` — must pass before Task 5.
+- [x] Run `swift test` — must pass before Task 5.
 
 ### Task 5: Six recorded statements that are no longer true
 
