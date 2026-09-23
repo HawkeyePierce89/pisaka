@@ -738,7 +738,7 @@ ci.yml's `lint` job, and the version-bump procedure.
   live in both directions when the system appearance changed under it. A
   reader: it takes no writer gate, is gated by none and writes nothing.
   `ChromeThemeSourceGatingTests` pins which files obey the rule (twenty-seven, by set
-  equality) and its twenty-two rules — no system semantic colour, no hex literal
+  equality) and its twenty-six rules — no system semantic colour, no hex literal
   outside the table, the four exemptions stay exemptions, the theme injected at
   the scale's roots, no view constructing a theme, the gutter's fill still going
   through its own rule (a seam pins nothing its call site does not spend, and
@@ -766,9 +766,9 @@ ci.yml's `lint` job, and the version-bump procedure.
   side Core's one `DiffSide`, the Log, Local Changes and Pull Requests
   panels' controls identifiable without sight, and the Log's filter bar
   stating no fixed width and scrolling below its floor (a row that cannot
-  shrink is clipped under the window's minimum width), and every pushed resize
+  shrink is clipped under the window's minimum width), every pushed resize
   cursor released from a disappearance handler (a divider leaving the tree gets
-  neither `onHover(false)` nor `onEnded`) — plus, beside the rules rather
+  neither `onHover(false)` nor `onEnded`), a popover surface names `bgPopover`, `Divider()` in exactly one place (the menu's), AppKit layer colours are set only inside the drawing appearance, and one field shape — plus, beside the rules rather
   than among them, the cross-file count that keeps this sentence and
   `core-theme.md`'s own list equal to the number of rules the suite declares —
   while **four files are exempt because they are not

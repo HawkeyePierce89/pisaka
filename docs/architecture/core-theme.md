@@ -931,7 +931,7 @@ although it is an editing affordance rather than a row: an inline draft
 for. `TabStripView.swift` covers `TabStatusMark` too, the slot view the two
 orientations share, which is why that extraction did not add a seventh file.
 
-The twenty-two rules, each invisible to the compiler:
+The twenty-six rules, each invisible to the compiler:
 
 1. **No gated view names a system semantic colour.** A closed forbidden-token
    list — AppKit's semantic set (`labelColor`, `separatorColor`,
@@ -1245,6 +1245,38 @@ The twenty-two rules, each invisible to the compiler:
    finding them fails rather than going vacuous. Stated limit: the rule sees the
    call, not that the handler clears the hover and drag state before it — a
    handler calling the sync with both still set pops nothing.
+23. **A popover surface names `bgPopover`.** The gated files naming `bgPopover`
+   equal `{CompletionPanel.swift, HoverPanel.swift, BranchSwitcherView.swift,
+   ProjectSwitcherView.swift, LogFilterBar.swift}`; every gated file presenting a
+   popover (`.popover(`) or declaring an `NSPanel` is in that set, which is what
+   lets the rule see a sixth popover appearing on a system material; and no gated
+   file spells `NSVisualEffectView`, a `.material` assignment or
+   `presentationBackground`. The five popovers' content is drawn on `bgPopover`
+   as a background, with no availability branch, and each file says in one line
+   that the arrow keeps the system material because the content background cannot
+   reach it.
+24. **`Divider()` in exactly one place.** The gated files spelling `Divider(`
+   equal `{SearchHistoryMenu.swift}`, with exactly one occurrence there. The doc
+   comment names the reason: a menu's separator is drawn by the system's menu
+   machinery. A swept surface draws its own one-point `hairline` on the edge it
+   owns.
+25. **AppKit layer colours are set only inside the drawing appearance.** In
+   `CompletionPanel.swift` and `HoverPanel.swift`, every layer `borderColor`
+   assignment and every layer `backgroundColor` assignment lies inside a
+   brace-matched `performAsCurrentDrawingAppearance` body; a body containing a
+   `borderColor` assignment names `hairline` and a body containing a
+   `backgroundColor` assignment names `bgPopover`; each file has at least one of
+   each, so the rule cannot pass vacuously; matching tolerates whitespace around
+   `.` and `=`.
+26. **One field shape.** No gated file spells the rounded-border style:
+   `.textFieldStyle(` followed by `.roundedBorder` across any whitespace, or
+   `RoundedBorderTextFieldStyle`. The set of files constructing the shared field
+   or box equals `{LogFilterBar.swift, SearchBarView.swift,
+   ProjectSearchView.swift, BranchSwitcherView.swift}`, plus
+   `ChromeControls.swift`, where the box is composed into the field. The shared
+   box has a `bgEditor` ground, a one-point `hairline` border and `accent` at the
+   focused width while focused, and takes its horizontal inset as a parameter
+   with no height; the themed field is a plain `TextField` over it.
 
 Plus a **self-check** in the suite's own idiom: every gated file must actually
 *name* a `ChromeColorRole`, or the checks above have gone vacuous — with two

@@ -300,37 +300,37 @@ twenty-four in Task 7, so this task is not complete until Task 7 is.
 - Modify: `docs/architecture/core-theme.md` (the canonical list and its opening count)
 - Modify: `CLAUDE.md` (the rule-count sentence)
 
-- [ ] **Rule twenty-three — a popover surface names `bgPopover`.**
+- [x] **Rule twenty-three — a popover surface names `bgPopover`.**
   - The gated files naming `bgPopover` equal {`CompletionPanel.swift`, `HoverPanel.swift`, `BranchSwitcherView.swift`, `ProjectSwitcherView.swift`, `LogFilterBar.swift`}.
   - Every gated file that presents a popover (`.popover(`) or declares an `NSPanel` is in that set. This clause is what lets the rule see a sixth popover appearing on a system material, and it stays.
   - No gated file spells `NSVisualEffectView`, a `.material` assignment or `presentationBackground`.
-- [ ] **Rule twenty-four — `Divider()` in exactly one place.**
+- [x] **Rule twenty-four — `Divider()` in exactly one place.**
   - The gated files spelling `Divider(` equal {`SearchHistoryMenu.swift`}, with exactly one occurrence there.
   - The doc comment names the reason: a menu's separator is drawn by the system's menu machinery.
-- [ ] **Rule twenty-five — AppKit layer colours are set only inside the drawing appearance.**
+- [x] **Rule twenty-five — AppKit layer colours are set only inside the drawing appearance.**
   - In `CompletionPanel.swift` and `HoverPanel.swift`, every layer `borderColor` assignment *and* every layer `backgroundColor` assignment lies inside a brace-matched `performAsCurrentDrawingAppearance` body.
   - A body containing a `borderColor` assignment names `hairline`, and a body containing a `backgroundColor` assignment names `bgPopover`.
   - Non-vacuity is checked per file per property: each file has at least one `borderColor` and at least one `backgroundColor` assignment.
   - Matching tolerates whitespace around `.` and `=`.
-- [ ] **Rule twenty-six — one field shape.**
+- [x] **Rule twenty-six — one field shape.**
   - No gated file spells the rounded-border style: `.textFieldStyle(` followed by `.roundedBorder` across any whitespace, or `RoundedBorderTextFieldStyle`.
   - The set of files constructing the shared field or box equals {`LogFilterBar.swift`, `SearchBarView.swift`, `ProjectSearchView.swift`, `BranchSwitcherView.swift`}, plus `ChromeControls.swift`, where the box is composed into the field.
-- [ ] Extend rule twenty's control-builder table to the two search surfaces' toggles and buttons. It keeps its name, value and hidden-symbol checks and its "Rule twenty:" marker.
-- [ ] Show each new rule red against a deliberately broken local edit, then revert. The edits:
+- [x] Extend rule twenty's control-builder table to the two search surfaces' toggles and buttons. It keeps its name, value and hidden-symbol checks and its "Rule twenty:" marker.
+- [x] Show each new rule red against a deliberately broken local edit, then revert. The edits:
   - a border colour set outside the block;
   - a background colour set outside the block;
   - a multi-line `.textFieldStyle(\n .roundedBorder)`;
   - a `Divider()` put back in a switcher;
   - the Log calendar popover's `bgPopover` removed;
   - a `presentationBackground` added to a switcher.
-- [ ] Update the suite's header bullet list with the four rules, and extend `spelled` to 26.
-- [ ] Update `core-theme.md`'s canonical list to open with "The twenty-six rules, each invisible to the compiler:" and to include items 23–26.
-- [ ] Update `CLAUDE.md`'s sentence to "and its twenty-six rules", listing the four.
-- [ ] Run `swift test`. It must pass.
+- [x] Update the suite's header bullet list with the four rules, and extend `spelled` to 26.
+- [x] Update `core-theme.md`'s canonical list to open with "The twenty-six rules, each invisible to the compiler:" and to include items 23–26.
+- [x] Update `CLAUDE.md`'s sentence to "and its twenty-six rules", listing the four.
+- [x] Run `swift test`. It must pass.
 
 ### Task 8: Verify acceptance criteria
 
-- [ ] Run `swift test`. It must be green.
+- [x] Run `swift test`. It must be green.
 - [ ] Run `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' -derivedDataPath ~/Library/Developer/Xcode/DerivedData/pisaka-test test`. It must be green.
 - [ ] Build macOS with `-configuration Release`, and iOS for `generic/platform=iOS` (Debug), both with derived data outside the repository.
 - [ ] Run `swiftlint --strict` from the repository root. It must be clean.
@@ -362,7 +362,7 @@ twenty-four in Task 7, so this task is not complete until Task 7 is.
   - `app-git-views.md`: BranchSwitcherView, and the Log filter bar's shared field and calendar ground.
   - `core-intelligence.md`: `CompletionPopup.Badge` is symbol-only.
   - `core-search.md`: the history menu's trigger and its one separator.
-- [ ] Update `CLAUDE.md`:
+- [x] Update `CLAUDE.md`:
   - The chrome-theme invariant says thirty-four gated files and twenty-six rules.
   - The swept-surfaces sentence adds this part's surfaces and ends with three unspent roles.
   - The chrome-theme index gains one line for `ChromeControls.swift`.

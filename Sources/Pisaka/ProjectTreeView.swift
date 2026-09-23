@@ -509,7 +509,6 @@ private struct DirectoryNodeView: View {
                     if mayBeginFileOperation() { draft = .create(parent: url, isFolder: true) }
                 }
                 if !isRoot {
-                    Divider()
                     Button("Rename") {
                         if mayBeginFileOperation() {
                             draft = .rename(entry: DirectoryEntry(url: url, isDirectory: true))
@@ -1082,13 +1081,8 @@ private struct FileRowView: View {
                     Label("Run Test", systemImage: "checkmark.diamond")
                 }
             }
-            if RunCommand.canRun(fileName: entry.name)
-                || TestCommand.isTestFile(fileName: entry.name) {
-                Divider()
-            }
             Button("Rename") { onBeginRename() }
             Button("Delete") { onDelete() }
-            Divider()
             Button("Local History") { onShowLocalHistory() }
         }
     }
