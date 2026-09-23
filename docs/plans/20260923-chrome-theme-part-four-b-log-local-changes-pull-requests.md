@@ -291,30 +291,30 @@ Decisions settled during planning. Each one departs from the ticket's wording. T
 - Modify: `Tests/PisakaCoreTests/ChromeThemeSourceGatingTests.swift`
 - Modify: `docs/architecture/core-theme.md` (canonical list), `CLAUDE.md` (the rule-count sentence)
 
-- [ ] **`gatedFiles` grows from twenty to twenty-seven.** Add `CommitLogView.swift`, `CommitGraphView.swift`, `LogFilterBar.swift`, `LocalChangesView.swift`, `DiffView.swift`, `CommitUnifiedDiffView.swift` and `PullRequestsPanelView.swift`.
+- [x] **`gatedFiles` grows from twenty to twenty-seven.** Add `CommitLogView.swift`, `CommitGraphView.swift`, `LogFilterBar.swift`, `LocalChangesView.swift`, `DiffView.swift`, `CommitUnifiedDiffView.swift` and `PullRequestsPanelView.swift`.
   - `CommitGraphView.swift` is gated unconditionally. Being in the set enforces only the two negative rules (`testNoGatedFileNamesASystemSemanticColor`, `testOnlyThePaletteSpellsAHexColorLiteral`), and nothing requires a gated file to name a role.
   - After Task 2 the graph view spells no colour at all, which is the point.
   - It never enters `colorExemptions`: rule three asserts the two sets are disjoint.
-- [ ] **Rule three: the four exemptions.**
+- [x] **Rule three: the four exemptions.**
   - `colorExemptions` gains `CommitGraphPalette.swift`, with its reason: a lane colour is an identity token, not a chrome meaning.
   - The rule's wording and messages change from three to four.
-- [ ] **Existing lists grow**, each by name:
+- [x] **Existing lists grow**, each by name:
   - `iconNamers` goes from five to seven (`CommitLogView.swift`, `LocalChangesView.swift`).
   - `dockRuleOwners` gains the four panel files plus `LogFilterBar.swift`.
   - A new clause: `DiffView.swift` spells no `NSBox`.
   - The single-line rule's `headerBuilderFiles` gains the PR header and row builders, the filter bar, the Log header row and the Local Changes toolbar.
   - `indicatorStripFiles` is unchanged.
-- [ ] **New rule seventeen: the changed-file status mapping is Core's one answer.**
+- [x] **New rule seventeen: the changed-file status mapping is Core's one answer.**
   - No app file declares `func changedFileRole` or a `letter` table.
   - The readers of `changedFileRole(for:` equal `{CommitLogView.swift, LocalChangesView.swift, CommitDialogView.swift}`.
   - No gated file spells a case label naming `.renamed`, `.untracked` or `.conflicted`, or a qualified `FileStatus.` case.
   - Stated limit: `.added`, `.modified` and `.deleted` are also diff-kind case names, so the rule does not match them.
-- [ ] **New rule eighteen: the checks-state mapping is Core's one answer.**
+- [x] **New rule eighteen: the checks-state mapping is Core's one answer.**
   - No app file declares `func checksRole`.
   - The readers equal `{PullRequestIndicatorView.swift, PullRequestsPanelView.swift}`.
   - No gated file spells a case label naming noChecks, pending, failure, success, pass, fail, skipping or cancel, or a qualified `GitHubChecksSummary.` / `GitHubCheckBucket.` case.
   - Stated limit: the same case-label shapes rule fifteen cannot see.
-- [ ] **New rule nineteen: the diff row wash is Core's one answer, and a macOS diff side is Core's one type.**
+- [x] **New rule nineteen: the diff row wash is Core's one answer, and a macOS diff side is Core's one type.**
   - No app file names `diffAddedBackground` / `diffRemovedBackground` directly.
   - No app file declares `func diffWashRole` / `func diffMarkerRole`.
   - The readers of `diffWashRole(for:` equal `{DiffView.swift, CommitUnifiedDiffView.swift}`.
@@ -326,16 +326,16 @@ Decisions settled during planning. Each one departs from the ticket's wording. T
   - The rule's own message states both limits:
     - The iOS diff view has no chrome palette to read and is not gated, so its private `Side` is not the duplicate this rule is about.
     - Core's private `ThreeWayMerge.Side` names merge sides, not diff sides, and is a different question.
-- [ ] **New rule twenty: the three panels' controls are identifiable without sight.** It keeps a named builder list per panel file, in the same shape as rule ten:
+- [x] **New rule twenty: the three panels' controls are identifiable without sight.** It keeps a named builder list per panel file, in the same shape as rule ten:
   - each icon-only control's builder carries `.accessibilityLabel(`;
   - the checks glyph, the status letter, the checkbox and the disclosure chevron carry `.accessibilityValue(`;
   - every `Image(systemName:` inside a labelled control's body is followed by `.accessibilityHidden(true)`;
   - a renamed builder fails loudly.
-- [ ] **Bookkeeping**:
+- [x] **Bookkeeping**:
   - Extend `spelled` to twenty.
   - Update `core-theme.md`'s canonical list to "The twenty rules, each invisible to the compiler:" with items 1–20. Rule three names four exemptions; rules 17–20 are new.
   - Update `CLAUDE.md`'s "and its twenty rules".
-- [ ] **Live mutation for each new or grown rule.** For each one: break the named code, run `swift test --filter ChromeThemeSourceGatingTests` and confirm red. Then restore it, confirm green, and check that `git status` shows no source changes. The breaks:
+- [x] **Live mutation for each new or grown rule.** For each one: break the named code, run `swift test --filter ChromeThemeSourceGatingTests` and confirm red. Then restore it, confirm green, and check that `git status` shows no source changes. The breaks:
   - re-add a local status `switch` in `LocalChangesView`;
   - add a `case .pending` colour table to the panel;
   - add a `withAlphaComponent` wash to `DiffView`;
@@ -345,8 +345,8 @@ Decisions settled during planning. Each one departs from the ticket's wording. T
   - put a `Divider()` back in `LogFilterBar`;
   - add `CommitGraphPalette.swift` to `gatedFiles` (the disjointness collision);
   - put an `NSBox` back in `DiffView`.
-- [ ] Also confirm rule nineteen is green against today's `Sources/Pisaka/iOS/DiffView_iOS.swift` (line 218's `enum Side`) and `Sources/PisakaCore/ThreeWayMerge.swift` (line 29's `enum Side`), both unchanged.
-- [ ] Run `swift test` — must pass before Task 8.
+- [x] Also confirm rule nineteen is green against today's `Sources/Pisaka/iOS/DiffView_iOS.swift` (line 218's `enum Side`) and `Sources/PisakaCore/ThreeWayMerge.swift` (line 29's `enum Side`), both unchanged.
+- [x] Run `swift test` — must pass before Task 8.
 
 ### Task 8: Verify acceptance criteria
 

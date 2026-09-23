@@ -469,6 +469,7 @@ private struct PullRequestRow: View {
                 .font(metrics.scaledFont(.callout, design: .monospaced))
                 .monospacedDigit()
                 .foregroundStyle(theme.color(.textSecondary))
+                .lineLimit(1)
 
             Text(pullRequest.title)
                 .font(metrics.scaledFont(.body))

@@ -787,7 +787,7 @@ although it is an editing affordance rather than a row: an inline draft
 for. `TabStripView.swift` covers `TabStatusMark` too, the slot view the two
 orientations share, which is why that extraction did not add a seventh file.
 
-The sixteen rules, each invisible to the compiler:
+The twenty rules, each invisible to the compiler:
 
 1. **No gated view names a system semantic colour.** A closed forbidden-token
    list — AppKit's semantic set (`labelColor`, `separatorColor`,
@@ -812,13 +812,19 @@ The sixteen rules, each invisible to the compiler:
    `["ChromePalette.swift"]` — in both directions, because a *second* speller is
    a colour nothing can re-theme and a palette that has stopped spelling any is a
    table that has stopped being one.
-3. **The three exemptions stay exemptions**, disjoint from the gated set and
+3. **The four exemptions stay exemptions**, disjoint from the gated set and
    still present in the tree: `SyntaxTheme.swift` (a token-kind colour table
    belongs to the *code* zone, which is the editor's own theme, not the chrome's
    design system), `TerminalTheme.swift` (an ANSI-16 palette is a protocol's
    vocabulary — the numbers mean what the escape sequences say, and a role cannot
-   stand in for one) and `FileIcon.swift` (a Core semantic token iOS still
-   paints, so it cannot move behind a macOS-only palette).
+   stand in for one), `FileIcon.swift` (a Core semantic token iOS still
+   paints, so it cannot move behind a macOS-only palette) and, since part four
+   (b), `CommitGraphPalette.swift` (a lane colour is an identity token — "this
+   line is the same branch as that one" — not a chrome meaning; its eight hues
+   are the former system values carried over as light/dark pairs and pinned by
+   `CommitGraphPaletteTests`). `CommitGraphView.swift`, which asks that table
+   for every lane and spells no colour itself, is *gated*, so the two sets
+   meeting at that seam is exactly what the disjointness assertion refuses.
 4. **The theme is injected at the interface scale's own roots**, read from
    `ZoomSourceGatingTests.interfaceScaledRoots` rather than restated (see above).
 5. **No view constructs a theme inline.** `ChromeTheme(` appears only in
@@ -850,12 +856,14 @@ The sixteen rules, each invisible to the compiler:
    orientations once already. The paste had a second cost read from the other
    side: rule one drops every line naming `FileIcon(`, so each copy bought
    itself a line exempt from the no-system-colour check — which is why the gated
-   files carrying such a line are themselves a counted set of five
+   files carrying such a line are themselves a counted set of seven
    (`ProjectTreeView.swift`, `ProjectTreeDraftField.swift`,
-   `TabStripView.swift`, and since part four (a) `ProblemsPanelView.swift` and
+   `TabStripView.swift`, since part four (a) `ProblemsPanelView.swift` and
    `UsagesPanelView.swift`, whose one exempted line each is the file-group
    header's `let icon = FileIcon(…)` binding, read for its symbol alone — the
-   glyph is drawn in `textSecondary` on a line rule one still scans).
+   glyph is drawn in `textSecondary` on a line rule one still scans — and since
+   part four (b) `CommitLogView.swift` and `LocalChangesView.swift`, whose
+   changed-file rows and folder headers carry the same binding).
 9. **The window's chrome is configured in one file.**
    `titlebarAppearsTransparent` is spelled in `MainWindowChrome.swift` and
    nowhere else under `Sources/`, by set equality in both directions. It is a
@@ -938,8 +946,12 @@ The sixteen rules, each invisible to the compiler:
    builders (Problems' `header` and `severityBadge(…)`, Usages' `header`,
    Terminal's `tab(for:)`), and inside each brace-matched body — rule ten's
    reading — the count of `.lineLimit(1)` must equal the count of `Text(`; a
-   renamed builder fails loudly. What the counted form still cannot see: a
-   `Text` built outside the named builders, or a limit spelled once on a
+   renamed builder fails loudly. Part four (b) named its own: the Log's
+   `header` and its column-header row's `label(_:)`, the filter bar's
+   `filterField(…)` and `dateBound(…)` (the branch picker's menu items are menu
+   rows, not strip labels), Local Changes' `toolbar`, and the Pull Requests
+   panel's `header` and row `summaryLine`. What the counted form still cannot
+   see: a `Text` built outside the named builders, or a limit spelled once on a
    container rather than on each label.
 12. **The dock's tab row is configured in one place.** `DockTabRow` is drawn
    once, above whichever panel is showing, from `ContentView.panelContent(_:)` —
@@ -963,14 +975,18 @@ The sixteen rules, each invisible to the compiler:
    leaving the rule to pass over a body it can no longer find.
 14. **The dock's swept surfaces draw their own rules.** Each file in the suite's
    named `dockRuleOwners` list — `DockTabRow.swift`, `ProblemsPanelView.swift`,
-   `UsagesPanelView.swift` and `TerminalPanelView.swift` so far — spells no `Divider(` in stripped source;
+   `UsagesPanelView.swift`, `TerminalPanelView.swift` and, since part four (b),
+   `CommitLogView.swift`, `LocalChangesView.swift`, `PullRequestsPanelView.swift`,
+   `DiffView.swift` and `LogFilterBar.swift` — spells no `Divider(` in stripped
+   source, and the AppKit diff pane spells no `NSBox`, the same platform
+   separator in AppKit's spelling;
    a separating line is a one-point `hairline` rectangle overlaid on the edge the
    surface owns, the breadcrumb's and the bar's precedent. A platform separator
    is wrong here for rule one's reason read through a view: `Divider()` draws the
    system's separator colour, a step off the `hairline` role beside it in either
    appearance, and it is a line *between* two views that neither owns. A named
-   list rather than the whole gated set, because part four (b) extends it as it
-   sweeps the dock's remaining panels.
+   list rather than the whole gated set: the files outside the dock were swept
+   under their own parts.
 15. **The severity mapping is Core's one answer.**
    `ChromeColorRole.diagnosticRole(for:)` decides which role a diagnostic
    severity is drawn in, and the regression this rule prevents is a second
@@ -1006,12 +1022,60 @@ The sixteen rules, each invisible to the compiler:
    not the rule, and stays allowed. Named rather than the whole gated set, rule
    fourteen's shape: a third strip with a bottom-edge indicator joins the list as
    part of being drawn.
+17. **The changed-file status mapping is Core's one answer.** `FileStatus.letter`
+   and `ChromeColorRole.changedFileRole(for:)` decide what a status is drawn as;
+   the three views that used to keep a table each had already drifted. Rule
+   fifteen's shape over stripped source: no app file declares `func
+   changedFileRole` or a `letter` table (`var letter` / `func letter`); the app
+   files spelling `changedFileRole(for:` equal `{CommitLogView.swift,
+   LocalChangesView.swift, CommitDialogView.swift}` — the commit dialog is a
+   reader although not yet gated; and no gated file spells a status case label
+   (`case` followed on the same line by `.renamed`, `.untracked` or
+   `.conflicted`) or a `FileStatus.`-qualified case. Stated limit: `.added`,
+   `.modified` and `.deleted` are also the diff kinds' case names, which the
+   diff surfaces legitimately switch over, so those three are not matched bare;
+   a status table must name one of the other three to be caught, and one is
+   enough.
+18. **The checks-state mapping is Core's one answer.** The glyph, words and
+   role of a checks summary and of a job bucket are Core's
+   (`symbolName`/`spokenWords`, `ChromeColorRole.checksRole(for:)`). No app file
+   declares `func checksRole`; the app files spelling `checksRole(for:` equal
+   `{PullRequestIndicatorView.swift, PullRequestsPanelView.swift}`; and no gated
+   file spells a case label naming `.noChecks`, `.pending`, `.failure`,
+   `.success`, `.pass`, `.fail`, `.skipping` or `.cancel`, or a
+   `GitHubChecksSummary.`/`GitHubCheckBucket.`-qualified one. Stated limit: rule
+   fifteen's — a dictionary literal, an `==` chain, a `case` list continued past
+   its first line.
+19. **The diff row wash is Core's one answer, and a macOS diff side is one
+   type.** No app file but the palette names `diffAddedBackground` /
+   `diffRemovedBackground`; none declares `func diffWashRole` / `func
+   diffMarkerRole`; the app files spelling `diffWashRole(for:` equal
+   `{DiffView.swift, CommitUnifiedDiffView.swift}`, and neither spells
+   `withAlphaComponent(` or `.opacity(` — the wash's alpha is the palette's.
+   The side clause: neither reader declares an `enum Side`, and no file under
+   `Sources/Pisaka` outside `Sources/Pisaka/iOS/` spells `DiffTextView.Side`, so
+   a new macOS caller cannot bring the old type back. Both limits are in the
+   rule's own message: the iOS diff view's private `Side` has no chrome palette
+   to read and is not gated, and Core's private `ThreeWayMerge.Side` names merge
+   sides, not diff sides — the clause never reads `Sources/PisakaCore`.
+20. **The three panels' controls are identifiable without sight.** Rule ten
+   read over the Log, Local Changes and Pull Requests panels, by a named builder
+   list per file (a declaration, narrowed through a path where the builder is a
+   type's `body`): each icon-only control's builder spells
+   `.accessibilityLabel(`; the checks glyph, the status letter, the checkbox and
+   the disclosure chevrons spell `.accessibilityValue(`; and inside a labelled
+   control's body every `Image(systemName:` is followed by
+   `.accessibilityHidden(true)` — on the image or on a container around it. The
+   checks glyph is the one entry exempt from the last clause, the image being
+   the element itself. A renamed builder fails loudly. Stated limit: "followed
+   by" is textual, so one hidden container after two symbols satisfies both.
 
 Plus a **self-check** in the suite's own idiom: every gated file must actually
-*name* a `ChromeColorRole`, or the checks above have gone vacuous — with one
-exception, `ChromeThemeEnvironment.swift`, which carries the appearance down the
-tree and paints nothing, so it names no role by construction while staying gated
-for the two rules it *can* break.
+*name* a `ChromeColorRole`, or the checks above have gone vacuous — with two
+exceptions: `ChromeThemeEnvironment.swift`, which carries the appearance down the
+tree and paints nothing, and `CommitGraphView.swift`, which draws only lanes in
+`CommitGraphPalette`'s colours; each names no role by construction while staying
+gated for the two rules it *can* break.
 
 And, beside the rules rather than among them, a **cross-file count**: the suite
 counts its own numbered rule markers and asserts that both summaries of it — the

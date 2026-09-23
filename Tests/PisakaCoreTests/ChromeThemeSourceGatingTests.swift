@@ -31,9 +31,10 @@ import XCTest
 ///   is a colour nothing can re-theme; the table is the one place a value may
 ///   live, and `ChromePalette.swift` is checked by its own app-layer suite
 ///   instead.
-/// - **The three exemptions stay exemptions.** A token-kind colour table, an
-///   ANSI-16 palette and a Core icon token are three things that are *not*
-///   chrome; the sweep that follows must not quietly fold them in.
+/// - **The four exemptions stay exemptions.** A token-kind colour table, an
+///   ANSI-16 palette, a Core icon token and the branch graph's lane palette are
+///   four things that are *not* chrome; the sweep that follows must not quietly
+///   fold them in.
 /// - **The theme is injected wherever the interface scale is.** A root that
 ///   gains one modifier and forgets the other draws its whole window in the
 ///   resting appearance: no error, no warning, and it looks right until the
@@ -120,6 +121,19 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         "ProblemsPanelView.swift",
         "UsagesPanelView.swift",
         "TerminalPanelView.swift",
+        // Part four (b): the dock's remaining panels, the diff pane and the
+        // unified diff's wash. `CommitGraphView.swift` is gated although it
+        // spells no colour at all: it asks `CommitGraphPalette` (the fourth
+        // exemption) for every lane, so what being here enforces is the two
+        // negative rules — no system colour, no hex literal — and that the
+        // lane table never moves back into the view.
+        "CommitLogView.swift",
+        "CommitGraphView.swift",
+        "LogFilterBar.swift",
+        "LocalChangesView.swift",
+        "DiffView.swift",
+        "CommitUnifiedDiffView.swift",
+        "PullRequestsPanelView.swift",
     ]
 
     func testEveryGatedFileExists() throws {
@@ -262,7 +276,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         )
     }
 
-    // MARK: - Rule three: the three exemptions stay out of the gated set
+    // MARK: - Rule three: the four exemptions stay out of the gated set
 
     /// Files that spell colours and are deliberately **not** chrome.
     ///
@@ -273,23 +287,28 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     ///   cannot stand in for one.
     /// - `FileIcon.swift` — a Core semantic token that iOS still paints, so it
     ///   cannot move behind a macOS-only palette.
+    /// - `CommitGraphPalette.swift` — a lane colour is an identity token, not a
+    ///   chrome meaning: it says "this line is the same branch as that one", and
+    ///   no role names that. The eight hues are today's system values carried
+    ///   over as light/dark pairs; `CommitGraphPaletteTests` pins them.
     static let colorExemptions: Set<String> = [
         "SyntaxTheme.swift",
         "TerminalTheme.swift",
         "FileIcon.swift",
+        "CommitGraphPalette.swift",
     ]
 
     func testTheExemptionsAreNotGated() throws {
         XCTAssertTrue(
             Self.colorExemptions.isDisjoint(with: Self.gatedFiles),
-            "an exemption cannot also be gated — decide which it is, in the doc comment above"
+            "one of the four exemptions is also gated — decide which it is, in the doc comment above"
         )
         // They must still be there: an exemption naming a file that is gone is a
         // reason nobody will re-read.
         let present = Set(try Self.swiftSources().map(\.lastPathComponent))
         XCTAssertTrue(
             Self.colorExemptions.isSubset(of: present),
-            "an exempted file is gone — update colorExemptions with the reason it no longer applies"
+            "one of the four exempted files is gone — update colorExemptions with the reason it no longer applies"
         )
     }
 
@@ -525,18 +544,21 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
             TabFileIcon exists to refuse
             """
         )
-        // Five, and named: the tree's rows, the inline draft field drawing the
+        // Seven, and named: the tree's rows, the inline draft field drawing the
         // placeholder icon a real row would have, the shared tab icon both
         // orientations now ask, and — since part four (a) — the Problems and
         // Usages panels' file-group headers, each of whose exempted line is a
         // `let icon = FileIcon(…)` binding read for its symbol alone (the glyph
         // is drawn in `textSecondary`, a role, on a line rule one still scans).
-        // A sixth is a line that has quietly bought itself out of rule one.
+        // Part four (b) adds the Log's changed-file row and Local Changes' rows
+        // and folder headers, whose exempted lines are the same binding.
+        // An eighth is a line that has quietly bought itself out of rule one.
         XCTAssertEqual(
             iconNamers,
             [
                 "ProjectTreeDraftField.swift", "ProjectTreeView.swift", "TabStripView.swift",
                 "ProblemsPanelView.swift", "UsagesPanelView.swift",
+                "CommitLogView.swift", "LocalChangesView.swift",
             ],
             "a gated file naming FileIcon( carries a line exempt from rule one — keep the set small"
         )
@@ -824,10 +846,20 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// Each panel's header-strip builders, by declaration: the Problems header
     /// and the severity badge it draws, the Usages header, and the Terminal
     /// strip's per-session tab.
+    ///
+    /// Part four (b) adds the Log's header strip and its static column-header
+    /// row's `label(_:)`, the filter bar's two label builders (the field and the
+    /// date bound — the branch picker's menu items are menu rows, not strip
+    /// labels, so `refPicker` is not named), the Local Changes toolbar, and the
+    /// Pull Requests header and row line.
     private static let headerBuilderFiles: [(file: String, builders: [String])] = [
         ("ProblemsPanelView.swift", ["private var header: some View", "private func severityBadge("]),
         ("UsagesPanelView.swift", ["private var header: some View"]),
         ("TerminalPanelView.swift", ["private func tab(for session:"]),
+        ("CommitLogView.swift", ["private var header: some View", "private func label(_ text: String)"]),
+        ("LogFilterBar.swift", ["private func filterField(", "private func dateBound("]),
+        ("LocalChangesView.swift", ["private var toolbar: some View"]),
+        ("PullRequestsPanelView.swift", ["private var header: some View", "private var summaryLine: some View"]),
     ]
 
     func testEveryBottomBarLabelIsSingleLine() throws {
@@ -1002,14 +1034,26 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// owns an edge draws it.
     ///
     /// A named list rather than the whole gated set: the files outside the dock
-    /// were swept under their own parts, and part four (b) extends this list as
-    /// it sweeps the dock's remaining panels.
+    /// were swept under their own parts. Part four (b) added the dock's
+    /// remaining panels — the Log, Local Changes and Pull Requests panels, the
+    /// diff pane they open — and the Log's filter bar.
+    ///
+    /// The diff pane is AppKit, where the platform's separator is an `NSBox`
+    /// rather than a `Divider()`, so `DiffView.swift` must spell neither.
     private static let dockRuleOwners = [
         "DockTabRow.swift",
         "ProblemsPanelView.swift",
         "UsagesPanelView.swift",
         "TerminalPanelView.swift",
+        "CommitLogView.swift",
+        "LocalChangesView.swift",
+        "PullRequestsPanelView.swift",
+        "DiffView.swift",
+        "LogFilterBar.swift",
     ]
+
+    /// The AppKit dock surface, held to the platform separator's AppKit spelling.
+    private static let appKitDockRuleOwner = "DiffView.swift"
 
     func testTheDocksSweptSurfacesDrawTheirOwnRules() throws {
         for name in Self.dockRuleOwners {
@@ -1024,6 +1068,16 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
                 """
             )
         }
+        let pane = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
+            try Self.read(Self.source(named: Self.appKitDockRuleOwner))
+        )
+        XCTAssertFalse(
+            LSPSourceGatingTests.containsToken("NSBox", in: pane),
+            """
+            \(Self.appKitDockRuleOwner) spells NSBox — the AppKit platform separator draws the \
+            system's colour, a step off the hairline role; draw the rule as the surface's own
+            """
+        )
     }
 
     // MARK: - Rule fifteen: the severity mapping is Core's one answer
@@ -1200,18 +1254,345 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         return bodies
     }
 
+    // MARK: - Rule seventeen: the changed-file status mapping is Core's one answer
+
+    /// Which letter a changed file's status is drawn as, and in which role, has
+    /// one answer in Core — `FileStatus.letter` and
+    /// `ChromeColorRole.changedFileRole(for:)` — read by the Log's changed-file
+    /// rows, Local Changes' rows and the commit dialog's file list.
+    ///
+    /// Before part four (b) each of those carried its own table, and the three
+    /// had already drifted: a view growing its own `switch` again compiles,
+    /// draws six plausible colours and disagrees with the panel beside it the
+    /// first time either is touched. Rule fifteen's shape, over stripped source:
+    ///
+    /// - no app file declares `func changedFileRole` or a `letter` table
+    ///   (`var letter` / `func letter`);
+    /// - the app files spelling `changedFileRole(for:` equal the three known
+    ///   readers — the commit dialog is one although it is not yet gated, since
+    ///   it shares the answer rather than keeping a fourth copy;
+    /// - no gated file spells a status case label — `case` followed, on the same
+    ///   line, by `.renamed`, `.untracked` or `.conflicted` — or qualifies any
+    ///   status case as `FileStatus.`.
+    ///
+    /// Stated limit: `.added`, `.modified` and `.deleted` are also the diff
+    /// kinds' case names (`DiffRowKind`, `UnifiedDiffLine.Kind`), which the diff
+    /// surfaces legitimately switch over, so a bare label naming one of those
+    /// three is not matched; a status table must name one of the other three to
+    /// be caught, and one is enough. Rule fifteen's other limits apply as stated
+    /// there: a dictionary literal, an `==` chain, a `case` list continued past
+    /// its first line.
+    private static let changedFileRoleReaders: Set<String> = [
+        "CommitLogView.swift",
+        "LocalChangesView.swift",
+        "CommitDialogView.swift",
+    ]
+
+    func testTheChangedFileStatusMappingIsCoresOneAnswer() throws {
+        let letterTable = try NSRegularExpression(pattern: "\\b(var|func)\\s+letter\\b")
+        var readers: Set<String> = []
+        for url in try Self.swiftSources() where url.path.contains("/Sources/Pisaka/") {
+            let name = url.lastPathComponent
+            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            XCTAssertFalse(
+                code.contains("func changedFileRole"),
+                "\(name) declares its own changedFileRole — the status colour is Core's one answer"
+            )
+            XCTAssertNil(
+                letterTable.firstMatch(in: code, range: NSRange(code.startIndex..., in: code)),
+                "\(name) declares its own status letter table — read FileStatus.letter"
+            )
+            if code.contains("changedFileRole(for:") { readers.insert(name) }
+        }
+        XCTAssertEqual(
+            readers, Self.changedFileRoleReaders,
+            "the app files reading ChromeColorRole.changedFileRole(for:) must be exactly its three known readers"
+        )
+
+        let labels = try NSRegularExpression(
+            pattern: "\\bcase\\b[^:\\n]*\\.(renamed|untracked|conflicted)\\b"
+                + "|\\bFileStatus\\.(modified|added|deleted|renamed|untracked|conflicted)\\b"
+        )
+        for url in try Self.swiftSources() where Self.gatedFiles.contains(url.lastPathComponent) {
+            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            XCTAssertNil(
+                labels.firstMatch(in: code, range: NSRange(code.startIndex..., in: code)),
+                """
+                \(url.lastPathComponent) spells a FileStatus case label — a status mapping in a view is a \
+                second table; read FileStatus.letter and ChromeColorRole.changedFileRole(for:)
+                """
+            )
+        }
+    }
+
+    // MARK: - Rule eighteen: the checks-state mapping is Core's one answer
+
+    /// Which glyph, words and role a pull request's checks state is drawn with
+    /// has one answer in Core — `GitHubChecksSummary`'s and `GitHubCheckBucket`'s
+    /// `symbolName` / `spokenWords` and `ChromeColorRole.checksRole(for:)` — read
+    /// by the bottom-bar indicator and the Pull Requests panel, which used to
+    /// keep one table each and could disagree about the same pull request.
+    ///
+    /// Over stripped source: no app file declares `func checksRole`; the app
+    /// files spelling `checksRole(for:` equal the two known readers; and no gated
+    /// file spells a checks case label — `case` followed on the same line by
+    /// `.noChecks`, `.pending`, `.failure`, `.success`, `.pass`, `.fail`,
+    /// `.skipping` or `.cancel` — or qualifies one as `GitHubChecksSummary.` or
+    /// `GitHubCheckBucket.`.
+    ///
+    /// Stated limit: rule fifteen's — the clause sees a `switch`'s labels, not a
+    /// dictionary literal keyed by the same values, a chain of `==` comparisons,
+    /// or a `case` list continued past its first line.
+    private static let checksRoleReaders: Set<String> = [
+        "PullRequestIndicatorView.swift",
+        "PullRequestsPanelView.swift",
+    ]
+
+    func testTheChecksStateMappingIsCoresOneAnswer() throws {
+        var readers: Set<String> = []
+        for url in try Self.swiftSources() where url.path.contains("/Sources/Pisaka/") {
+            let name = url.lastPathComponent
+            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            XCTAssertFalse(
+                code.contains("func checksRole"),
+                "\(name) declares its own checksRole — the checks colour is Core's one answer"
+            )
+            if code.contains("checksRole(for:") { readers.insert(name) }
+        }
+        XCTAssertEqual(
+            readers, Self.checksRoleReaders,
+            "the app files reading ChromeColorRole.checksRole(for:) must be exactly its two known readers"
+        )
+
+        let cases = "(noChecks|pending|failure|success|pass|fail|skipping|cancel)"
+        let labels = try NSRegularExpression(
+            pattern: "\\bcase\\b[^:\\n]*\\.\(cases)\\b"
+                + "|\\b(GitHubChecksSummary|GitHubCheckBucket)\\.\(cases)\\b"
+        )
+        for url in try Self.swiftSources() where Self.gatedFiles.contains(url.lastPathComponent) {
+            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            XCTAssertNil(
+                labels.firstMatch(in: code, range: NSRange(code.startIndex..., in: code)),
+                """
+                \(url.lastPathComponent) spells a checks-state case label — a checks mapping in a view is a \
+                second table; read the Core glyph, words and ChromeColorRole.checksRole(for:)
+                """
+            )
+        }
+    }
+
+    // MARK: - Rule nineteen: the diff row wash is Core's one answer, and a diff side one type
+
+    /// Which role a diff row is washed in — and which marker the gutter draws —
+    /// has one answer in Core, `ChromeColorRole.diffWashRole(for:…)` and
+    /// `diffMarkerRole(for:side:)`, read by the side-by-side pane and the unified
+    /// diff. Both used to compose their own tint by alpha over a system colour,
+    /// each with its own opacity, so the same added line was two greens.
+    ///
+    /// Over stripped source:
+    ///
+    /// - no app file other than the palette names `diffAddedBackground` or
+    ///   `diffRemovedBackground` — the table gives each role its value, and every
+    ///   drawing site reaches them through the Core answer;
+    /// - no app file declares `func diffWashRole` or `func diffMarkerRole`;
+    /// - the app files spelling `diffWashRole(for:` equal the two readers;
+    /// - neither reader spells `withAlphaComponent(` or `.opacity(` — the wash's
+    ///   alpha is the palette's, one value over either background.
+    ///
+    /// **A macOS diff side is one type**, Core's `DiffSide`: neither reader
+    /// declares an `enum Side`, and no file under `Sources/Pisaka` outside
+    /// `Sources/Pisaka/iOS/` spells `DiffTextView.Side` — the old type's
+    /// qualified name, which a new macOS caller would bring back with it.
+    ///
+    /// Both limits are stated rather than implied. The iOS diff view keeps a
+    /// private `Side` of its own: it has no chrome palette to read and is not
+    /// gated, so it is not the duplicate this rule is about. And Core's private
+    /// `ThreeWayMerge.Side` names *merge* sides (ours/theirs), not diff sides —
+    /// a different question — so the clause never reads `Sources/PisakaCore`.
+    private static let diffWashReaders: Set<String> = [
+        "DiffView.swift",
+        "CommitUnifiedDiffView.swift",
+    ]
+
+    func testTheDiffWashIsCoresOneAnswerAndADiffSideIsOneType() throws {
+        var readers: Set<String> = []
+        for url in try Self.swiftSources() where url.path.contains("/Sources/Pisaka/") {
+            let name = url.lastPathComponent
+            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            if name != "ChromePalette.swift" {
+                for role in ["diffAddedBackground", "diffRemovedBackground"] {
+                    XCTAssertFalse(
+                        LSPSourceGatingTests.containsToken(role, in: code),
+                        "\(name) names \(role) directly — a diff wash is ChromeColorRole.diffWashRole(for:)'s answer"
+                    )
+                }
+            }
+            for declaration in ["func diffWashRole", "func diffMarkerRole"] {
+                XCTAssertFalse(
+                    code.contains(declaration),
+                    "\(name) declares its own \(declaration) — the diff wash is Core's one answer"
+                )
+            }
+            if code.contains("diffWashRole(for:") { readers.insert(name) }
+            if !url.path.contains("/Sources/Pisaka/iOS/") {
+                XCTAssertFalse(
+                    code.contains("DiffTextView.Side"),
+                    """
+                    \(name) spells DiffTextView.Side — a macOS diff side is Core's DiffSide, one type with \
+                    no mapping site to drift (the iOS view's private Side is not gated and is not this)
+                    """
+                )
+            }
+        }
+        XCTAssertEqual(
+            readers, Self.diffWashReaders,
+            "the app files reading ChromeColorRole.diffWashRole(for:) must be exactly its two known readers"
+        )
+
+        let sideEnum = try NSRegularExpression(pattern: "\\benum\\s+Side\\b")
+        for name in Self.diffWashReaders.sorted() {
+            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
+                try Self.read(Self.source(named: name))
+            )
+            for alpha in ["withAlphaComponent(", ".opacity("] {
+                XCTAssertFalse(
+                    code.contains(alpha),
+                    "\(name) spells \(alpha) — a diff wash's alpha is the palette's, not a second one composed here"
+                )
+            }
+            XCTAssertNil(
+                sideEnum.firstMatch(in: code, range: NSRange(code.startIndex..., in: code)),
+                "\(name) declares an enum Side — a macOS diff side is Core's DiffSide"
+            )
+        }
+    }
+
+    // MARK: - Rule twenty: the three panels' controls are identifiable without sight
+
+    /// Rule ten read over the Log, Local Changes and Pull Requests panels.
+    ///
+    /// Each panel's controls are named here by builder — a brace-matched body
+    /// found by its declaration, narrowed through a path where the builder is a
+    /// type's `body` — and each carries what it owes:
+    ///
+    /// - an **icon-only control** (the refresh glyphs, the grouping segments, the
+    ///   open-in-browser and dismiss glyphs) spells `.accessibilityLabel(`, since
+    ///   without one it is announced as its glyph;
+    /// - a **state carrier** — the checks glyph, the status letter (spoken as the
+    ///   row's value in the Log, as its own in Local Changes), the checkbox and
+    ///   the disclosure chevrons — spells `.accessibilityValue(`, since a colour
+    ///   or a shape is unspoken;
+    /// - inside a **labelled control's** body every `Image(systemName:` is
+    ///   followed by an `.accessibilityHidden(true)` — on the image itself or on
+    ///   a container around it, which in SwiftUI hides its children too — since
+    ///   an unhidden symbol folds its own name into the control's.
+    ///
+    /// The checks glyph is the one entry not held to the last clause: the image
+    /// *is* the element, named and valued outright. A renamed builder fails
+    /// loudly rather than narrowing the rule to nothing.
+    ///
+    /// Stated limit: "followed by" is textual — one hidden container after two
+    /// symbols satisfies both, which is correct when it encloses them and not
+    /// something a source rule can tell apart when it does not.
+    private struct ControlBuilder {
+        let path: [String]
+        let required: [String]
+        let hidesSymbols: Bool
+    }
+
+    private static let panelControlBuilders: [(file: String, builders: [ControlBuilder])] = [
+        ("CommitLogView.swift", [
+            ControlBuilder(path: ["private var header: some View"],
+                           required: [".accessibilityLabel("], hidesSymbols: true),
+            ControlBuilder(path: ["private struct CommitFileRow", "var body: some View"],
+                           required: [".accessibilityValue("], hidesSymbols: true),
+        ]),
+        ("LocalChangesView.swift", [
+            ControlBuilder(path: ["private var toolbar: some View"],
+                           required: [".accessibilityLabel("], hidesSymbols: true),
+            ControlBuilder(path: ["private func groupingSegment("],
+                           required: [".accessibilityLabel("], hidesSymbols: true),
+            ControlBuilder(path: ["private var folderHeader: some View"],
+                           required: [".accessibilityLabel(", ".accessibilityValue("], hidesSymbols: true),
+            ControlBuilder(path: ["private struct ChangedFileRow", "var body: some View"],
+                           required: [".accessibilityValue("], hidesSymbols: true),
+            ControlBuilder(path: ["private var checkbox: some View"],
+                           required: [".accessibilityLabel(", ".accessibilityValue("], hidesSymbols: true),
+        ]),
+        ("PullRequestsPanelView.swift", [
+            ControlBuilder(path: ["private var header: some View"],
+                           required: [".accessibilityLabel("], hidesSymbols: true),
+            ControlBuilder(path: ["private func endingStrip("],
+                           required: [".accessibilityLabel("], hidesSymbols: true),
+            ControlBuilder(path: ["private var summaryLine: some View"],
+                           required: [".accessibilityLabel("], hidesSymbols: true),
+            ControlBuilder(path: ["private var disclosure: some View"],
+                           required: [".accessibilityLabel(", ".accessibilityValue("], hidesSymbols: true),
+            ControlBuilder(path: ["private var checksMark: some View"],
+                           required: [".accessibilityLabel(", ".accessibilityValue("], hidesSymbols: false),
+            ControlBuilder(path: ["private func checkRow("],
+                           required: [".accessibilityLabel(", ".accessibilityValue("], hidesSymbols: true),
+        ]),
+    ]
+
+    func testThePanelsControlsAreIdentifiableWithoutSight() throws {
+        for (name, builders) in Self.panelControlBuilders {
+            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
+                try Self.read(Self.source(named: name))
+            )
+            for builder in builders {
+                var body: String? = code
+                for step in builder.path {
+                    body = body.flatMap { Self.matchedBody(after: step, in: $0) }
+                }
+                let described = builder.path.joined(separator: " › ")
+                let found = try XCTUnwrap(
+                    body,
+                    "\(name)'s \(described) is gone or renamed — re-point this rule rather than losing it"
+                )
+                for modifier in builder.required {
+                    XCTAssertTrue(
+                        found.contains(modifier),
+                        """
+                        \(name)'s \(described) must spell \(modifier) — a panel control is named after its \
+                        glyph, and a state drawn as a colour or a shape is unspoken, until an explicit label \
+                        and value replace them
+                        """
+                    )
+                }
+                guard builder.hidesSymbols else { continue }
+                var rest = Substring(found)
+                while let symbol = rest.range(of: "Image(systemName:") {
+                    rest = rest[symbol.upperBound...]
+                    XCTAssertTrue(
+                        rest.contains(".accessibilityHidden(true)"),
+                        """
+                        \(name)'s \(described) draws an Image(systemName:) no .accessibilityHidden(true) \
+                        follows — an unhidden symbol folds its own name into the labelled control's
+                        """
+                    )
+                }
+            }
+        }
+    }
+
     // MARK: - Self-check
 
-    /// Every gated file draws with roles and must therefore name one — with a
-    /// single exception: `ChromeThemeEnvironment.swift` carries the *appearance*
-    /// down the tree and paints nothing, so it names no role by construction. It
-    /// stays gated for the two rules above, which is what it can break.
-    private static let roleNamingExemption = "ChromeThemeEnvironment.swift"
+    /// Every gated file draws with roles and must therefore name one — with two
+    /// exceptions: `ChromeThemeEnvironment.swift` carries the *appearance* down
+    /// the tree and paints nothing, and `CommitGraphView.swift` draws only lanes,
+    /// whose colours are `CommitGraphPalette`'s (the fourth exemption) rather
+    /// than roles — so each names no role by construction. Both stay gated for
+    /// rules one and two, which is what they can break.
+    private static let roleNamingExemptions: Set<String> = [
+        "ChromeThemeEnvironment.swift",
+        "CommitGraphView.swift",
+    ]
 
     func testEveryGatedFileActuallyNamesARole() throws {
         for url in try Self.swiftSources()
         where Self.gatedFiles.contains(url.lastPathComponent)
-            && url.lastPathComponent != Self.roleNamingExemption {
+            && !Self.roleNamingExemptions.contains(url.lastPathComponent) {
             let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
             let namesRole = ChromeColorRole.allCases.contains {
                 LSPSourceGatingTests.containsToken($0.rawValue, in: code)
@@ -1257,7 +1638,8 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     private static let spelled = [
         1: "one", 2: "two", 3: "three", 4: "four", 5: "five", 6: "six",
         7: "seven", 8: "eight", 9: "nine", 10: "ten", 11: "eleven", 12: "twelve",
-        13: "thirteen", 14: "fourteen", 15: "fifteen", 16: "sixteen",
+        13: "thirteen", 14: "fourteen", 15: "fifteen", 16: "sixteen", 17: "seventeen",
+        18: "eighteen", 19: "nineteen", 20: "twenty",
     ]
 
     func testBothSummariesSpellTheSuitesOwnRuleCount() throws {

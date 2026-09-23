@@ -123,6 +123,7 @@ struct CommitLogView: View {
                 Image(systemName: "arrow.clockwise")
                     .font(metrics.scaledFont(.body))
                     .foregroundStyle(theme.color(.textSecondary))
+                    .accessibilityHidden(true)
             }
             .buttonStyle(.borderless)
             .disabled(projectRoot == nil)
