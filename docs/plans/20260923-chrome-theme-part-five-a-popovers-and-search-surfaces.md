@@ -331,10 +331,10 @@ twenty-four in Task 7, so this task is not complete until Task 7 is.
 ### Task 8: Verify acceptance criteria
 
 - [x] Run `swift test`. It must be green.
-- [ ] Run `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' -derivedDataPath ~/Library/Developer/Xcode/DerivedData/pisaka-test test`. It must be green.
-- [ ] Build macOS with `-configuration Release`, and iOS for `generic/platform=iOS` (Debug), both with derived data outside the repository.
-- [ ] Run `swiftlint --strict` from the repository root. It must be clean.
-- [ ] Confirm by grep:
+- [x] Run `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' -derivedDataPath ~/Library/Developer/Xcode/DerivedData/pisaka-test test`. It must be green.
+- [x] Build macOS with `-configuration Release`, and iOS for `generic/platform=iOS` (Debug), both with derived data outside the repository.
+- [x] Run `swiftlint --strict` from the repository root. It must be clean.
+- [x] Confirm by grep:
   - `gatedFiles` has 34 entries, and the exemptions and `roleNamingExemptions` are unchanged.
   - `bgPopover` has five readers.
   - No `Badge.color` reader remains.
