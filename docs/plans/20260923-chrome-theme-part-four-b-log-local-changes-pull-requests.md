@@ -350,12 +350,12 @@ Decisions settled during planning. Each one departs from the ticket's wording. T
 
 ### Task 8: Verify acceptance criteria
 
-- [ ] Run `swift test` and report the counts.
-- [ ] Run `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' -derivedDataPath ~/Library/Developer/Xcode/DerivedData/pisaka-test test` and report the app-bundle counts, including `CommitGraphPaletteTests`.
-- [ ] Run `swiftlint --strict` from the repository root; it must be clean.
-- [ ] Run the macOS Release build (`-configuration Release`) and the iOS build (`generic/platform=iOS`), both with derived data outside the repository.
-- [ ] Search the seven newly gated files: no `Color.accentColor`, no system semantic colour, no hex literal, no `Divider()`.
-- [ ] Confirm that:
+- [x] Run `swift test` and report the counts.
+- [x] Run `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' -derivedDataPath ~/Library/Developer/Xcode/DerivedData/pisaka-test test` and report the app-bundle counts, including `CommitGraphPaletteTests`.
+- [x] Run `swiftlint --strict` from the repository root; it must be clean.
+- [x] Run the macOS Release build (`-configuration Release`) and the iOS build (`generic/platform=iOS`), both with derived data outside the repository.
+- [x] Search the seven newly gated files: no `Color.accentColor`, no system semantic colour, no hex literal, no `Divider()`.
+- [x] Confirm that:
   - each new Core answer (status colour, status letter, checks colour, diff wash) has exactly one definition;
   - the two diff roles have readers;
   - `DiffSide` is the only diff-side type on the macOS diff surfaces;
