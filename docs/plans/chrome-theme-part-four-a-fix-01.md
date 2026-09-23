@@ -153,20 +153,20 @@ three, and that is the second table the rule says it prevents.
 - Modify: `Tests/PisakaCoreTests/ChromeThemeSourceGatingTests.swift`
 - Modify: `docs/architecture/core-theme.md`
 
-- [ ] add a clause that catches the mapping by its shape rather than by a
+- [x] add a clause that catches the mapping by its shape rather than by a
       function name: no gated app file may spell the severity vocabulary's own
       case labels. Choose the spelling that is total over the closed severity
       set, so a mapping that handles three of the four is caught as well.
-- [ ] state the limit honestly in the rule's doc, whatever it turns out to be —
+- [x] state the limit honestly in the rule's doc, whatever it turns out to be —
       a source rule can see a switch's labels and cannot see a dictionary
       literal keyed by the same values, and a rule that claims more than it
       checks is the defect this finding is about.
-- [ ] **the test that would have caught it**: this task is that test. Verify it
+- [x] **the test that would have caught it**: this task is that test. Verify it
       bites by adding a local severity switch to a gated file, confirming red,
       and removing it. Say so in the commit message.
-- [ ] update `core-theme.md`'s canonical list entry for rule fifteen so its
+- [x] update `core-theme.md`'s canonical list entry for rule fifteen so its
       wording matches what the rule now checks.
-- [ ] run `swift test`.
+- [x] run `swift test`.
 
 ### Task 4: The bottom bar keeps a second list of panels while two documents say it does not
 

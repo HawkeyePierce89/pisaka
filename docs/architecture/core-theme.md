@@ -718,7 +718,8 @@ above), and the **code** mark — the squiggle under the text — reads
 `SyntaxTheme`'s table under a comment calling it "three surfaces, one palette"
 while the gutter had already moved to roles, so the claim was false the day the
 gutter moved; the panel now names no `SyntaxTheme` at all, and rule fifteen pins
-that and the reader set.
+that, the reader set and the absence of any severity case label outside the
+panel's one glyph table.
 
 #### What is still waiting
 
@@ -973,7 +974,18 @@ The sixteen rules, each invisible to the compiler:
    files spelling `diagnosticRole(for:` equals `{LineNumberRulerView.swift,
    ProblemsPanelView.swift}`, the two known readers; and
    `ProblemsPanelView.swift` names no `SyntaxTheme`, whose severity table is the
-   squiggle's and the code zone's alone.
+   squiggle's and the code zone's alone; and — the clause that catches the table
+   by its shape rather than its name, added in the review round because a local
+   `switch` returning roles satisfied the other three — no gated file spells a
+   severity case label: `case` followed on the same line by `.error`,
+   `.warning`, `.information` or `.hint`, or `DiagnosticSeverity.` qualifying
+   any of the four. One label is enough to fail, so a mapping covering three of
+   the four behind a `default` is caught too. The one exemption is
+   `ProblemsPanelView.swift`'s `severitySymbol`, a glyph table (which SF Symbol,
+   no colour), named by its declaration and cut out before matching; its body
+   must name no `theme`, `ChromeColorRole` or `Color`. Stated limit: the clause
+   sees a `switch`'s labels, not a dictionary literal keyed by the same values,
+   a chain of `==` comparisons, or a `case` list continued past its first line.
 16. **An indicator strip's bottom rule is drawn behind its tabs.** Each file in
    the suite's named `indicatorStripFiles` list — `TabStripView.swift` and
    `DockTabRow.swift` — draws an accent indicator on the strip's own bottom edge

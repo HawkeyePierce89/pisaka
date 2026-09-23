@@ -1013,11 +1013,38 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// - the set of app files spelling `diagnosticRole(for:` equals the two known
     ///   readers — a third reader is a deliberate edit here, not an accident;
     /// - `ProblemsPanelView.swift` names no `SyntaxTheme`, whose severity table
-    ///   belongs to the squiggle under the text and to the code zone alone.
+    ///   belongs to the squiggle under the text and to the code zone alone;
+    /// - no gated file spells a severity **case label** — `case` followed, on
+    ///   the same line, by `.error`, `.warning`, `.information` or `.hint`, or
+    ///   the qualified `DiagnosticSeverity.` spelling of any of the four. That is
+    ///   the table's shape rather than its name: a local `switch` returning roles
+    ///   passes the three clauses above, and any one of the four labels is enough
+    ///   to fail this one, so a mapping handling three of the four (with a
+    ///   `default`) is caught as well.
+    ///
+    /// The one severity `switch` a gated file may keep is
+    /// `ProblemsPanelView.swift`'s `severitySymbol`, a **glyph** table — which
+    /// SF Symbol a row draws, no colour — named here by its declaration so a
+    /// rename fails loudly; its body is cut out before the labels are looked for,
+    /// and must itself name no colour (`theme`, `ChromeColorRole`, `Color`).
+    ///
+    /// What the last clause cannot see, stated rather than implied: a dictionary
+    /// literal keyed by the same values (`[.error: .statusRed]`), a chain of
+    /// `==` comparisons, and a `case` list continued onto a second line past its
+    /// first label. It sees a `switch`'s labels, which is the shape the
+    /// regression took before; a rule claiming more than that would be the
+    /// defect it exists to prevent.
     private static let severityReaders: Set<String> = [
         "LineNumberRulerView.swift",
         "ProblemsPanelView.swift",
     ]
+
+    /// The glyph table the severity-label clause exempts, by file and
+    /// declaration.
+    private static let severityGlyphTable = (
+        file: "ProblemsPanelView.swift",
+        declaration: "private var severitySymbol: String"
+    )
 
     func testTheSeverityMappingIsCoresOneAnswer() throws {
         var readers: Set<String> = []
@@ -1047,6 +1074,37 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
             role; SyntaxTheme's table is the squiggle's alone
             """
         )
+
+        let labels = try NSRegularExpression(
+            pattern: "\\bcase\\b[^:\\n]*\\.(error|warning|information|hint)\\b"
+                + "|\\bDiagnosticSeverity\\.(error|warning|information|hint)\\b"
+        )
+        for url in try Self.swiftSources() where Self.gatedFiles.contains(url.lastPathComponent) {
+            let name = url.lastPathComponent
+            var code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            if name == Self.severityGlyphTable.file {
+                let declaration = Self.severityGlyphTable.declaration
+                let glyphs = try XCTUnwrap(
+                    Self.matchedBody(after: declaration, in: code),
+                    "\(name) no longer declares `\(declaration)` — update the exemption rather than losing it"
+                )
+                for colour in ["theme", "ChromeColorRole", "Color"] {
+                    XCTAssertFalse(
+                        LSPSourceGatingTests.containsToken(colour, in: glyphs),
+                        "\(name)'s severity glyph table names \(colour) — it answers a symbol, never a colour"
+                    )
+                }
+                code = code.replacingOccurrences(of: glyphs, with: "")
+            }
+            let range = NSRange(code.startIndex..., in: code)
+            XCTAssertNil(
+                labels.firstMatch(in: code, range: range),
+                """
+                \(name) spells a DiagnosticSeverity case label — a severity mapping in a view is a second \
+                table; read ChromeColorRole.diagnosticRole(for:)
+                """
+            )
+        }
     }
 
     // MARK: - Rule sixteen: an indicator strip's bottom rule is drawn behind it
