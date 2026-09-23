@@ -693,7 +693,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     height `dockTabRowHeight`, **no minimum anywhere** (it sits inside the
     fixed-height slot, and `BottomPanelSourceGatingTests` reads its type body
     among the slot-facing ones), **no ground of its own** (the slot paints
-    `bgPanel`) and a one-point `hairline` overlay along its bottom edge. A tab is
+    `bgPanel`) and a one-point `hairline` along its bottom edge, drawn
+    **behind** the tabs with `.background(alignment: .bottom)` — never as an
+    overlay, which paints over the lower point of the selected tab's two-point
+    accent strip (the first cut's defect; gating rule sixteen). A tab is
     a `.plain` `Button` over a `VStack(spacing: 0)`: the title from
     `BottomPanel.title` at `.callout`, one line, padded by
     `dockTabLabelPaddingX`, `textPrimary` selected and `textSecondary` otherwise,
@@ -716,7 +719,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     (reachability: the type is named only here and in `ContentView.swift`, built
     exactly once inside `panelContent(`, and no hosted panel names it), thirteen
     (the tab's label/value/hidden strip, the close action's help and label),
-    eleven and fourteen pin it (`core-theme.md`).
+    eleven, fourteen and sixteen pin it (`core-theme.md`).
   - `DiffWindowContent.swift` — the SwiftUI content of a separate diff window
     (opened on double-click of a Local Changes row or a commit's file). Independent
     of the main window's selection: it takes `fileID`, `fileName`, a model-
@@ -1409,10 +1412,16 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `.frame(height:)` nor a `Divider()`: the strip states its own height
     (`ChromeGeometry.tabStripHeight`) and draws its own bottom hairline, so the
     two cannot disagree. The strip is `bgPanel` behind a horizontal
-    `ScrollView`/`LazyHStack` of `TabStripCell`s; the hairline is an *overlay* on
-    the strip's bottom edge so the active tab — filled in `bgEditor`, to read as
-    the top edge of the editor rather than as a highlighted row — sits above it
-    and merges into the editor below. A cell carries `TabFileIcon`, a view of its
+    `ScrollView`/`LazyHStack` of `TabStripCell`s; the hairline is drawn *behind*
+    the cells on the strip's bottom edge (`.background(alignment: .bottom)`,
+    layered between the `bgPanel` ground and the cells) so the active tab —
+    filled in `bgEditor`, to read as the top edge of the editor rather than as a
+    highlighted row — sits above it and merges into the editor below, its accent
+    underline interrupting the rule for the tab's width. It was an *overlay*
+    until part four (a)'s review round: an overlay covers its whole content, so
+    it painted over the active tab's fill and the lower point of its underline,
+    the opposite of what the comment beside it claimed. Gating rule sixteen pins
+    the construct here and in `DockTabRow.swift`. A cell carries `TabFileIcon`, a view of its
     own in this file and the **second** of the two things the vertical column
     shares with the strip: a monochrome file icon
     (`textSecondary`; `FileIcon`'s tint is deliberately unread — see the

@@ -78,6 +78,9 @@ import XCTest
 /// - **The severity mapping is Core's one answer.** A second severity table in a
 ///   view compiles, draws four plausible colours, and drifts from the gutter's
 ///   the first time either is touched.
+/// - **An indicator strip's bottom rule is drawn behind its tabs.** An overlaid
+///   rule paints over the lower point of the active tab's accent indicator — a
+///   one-point overlap no compiler or headless test can see.
 final class ChromeThemeSourceGatingTests: XCTestCase {
 
     // MARK: - The gated set
@@ -997,6 +1000,70 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         )
     }
 
+    // MARK: - Rule sixteen: an indicator strip's bottom rule is drawn behind it
+
+    /// The strips whose tabs draw an accent indicator on the strip's own bottom
+    /// edge: the tab strip above the editor and the dock's tab row.
+    ///
+    /// The defect this pins is one point tall. Such a strip also draws its own
+    /// one-point `hairline` along that same edge, and when the rule was an
+    /// `.overlay(alignment: .bottom)` on the strip it was drawn **on top of**
+    /// every tab — an overlay covers its whole content — so the selected tab
+    /// showed one point of accent over one point of grey instead of its
+    /// two-point bar, and the tab strip's active tab, filled in the editor's own
+    /// background to merge into it, was cut off from the editor by the very
+    /// rule its comment said it sat above. Nothing in the compiler or in a
+    /// headless test can see a one-point overlap, and it looks nearly right.
+    ///
+    /// So, over stripped source, in each listed file: no
+    /// `.overlay(alignment: .bottom)` whose brace-matched body names `hairline`,
+    /// and at least one `.background(alignment: .bottom)` whose body does — the
+    /// second half so the first cannot pass on a strip that lost its rule
+    /// altogether. An overlay at the bottom that draws the *accent* itself (the
+    /// tab strip's cell does) is the indicator, not the rule, and is allowed.
+    ///
+    /// A named list, rule fourteen's shape: a third strip with a bottom-edge
+    /// indicator is added here as part of drawing it, rather than left unguarded.
+    private static let indicatorStripFiles = [
+        "TabStripView.swift",
+        "DockTabRow.swift",
+    ]
+
+    func testAnIndicatorStripsBottomRuleIsDrawnBehindItsTabs() throws {
+        for name in Self.indicatorStripFiles {
+            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
+                try Self.read(Self.source(named: name))
+            )
+            let overlays = Self.matchedBodies(after: ".overlay(alignment: .bottom)", in: code)
+            XCTAssertFalse(
+                overlays.contains { LSPSourceGatingTests.containsToken("hairline", in: $0) },
+                """
+                \(name) overlays its bottom hairline — an overlay paints over the active tab's \
+                accent indicator; draw the rule with .background(alignment: .bottom) instead
+                """
+            )
+            let backgrounds = Self.matchedBodies(after: ".background(alignment: .bottom)", in: code)
+            XCTAssertTrue(
+                backgrounds.contains { LSPSourceGatingTests.containsToken("hairline", in: $0) },
+                "\(name) draws no bottom hairline behind its tabs — re-point this rule rather than losing it"
+            )
+        }
+    }
+
+    /// Every brace-matched body following an occurrence of `declaration`, in
+    /// order — `matchedBody(after:in:)` read at each occurrence rather than the
+    /// first alone.
+    private static func matchedBodies(after declaration: String, in code: String) -> [String] {
+        var bodies: [String] = []
+        var rest = Substring(code)
+        while let found = rest.range(of: declaration) {
+            let tail = String(rest[found.lowerBound...])
+            if let body = matchedBody(after: declaration, in: tail) { bodies.append(body) }
+            rest = rest[found.upperBound...]
+        }
+        return bodies
+    }
+
     // MARK: - Self-check
 
     /// Every gated file draws with roles and must therefore name one — with a
@@ -1054,7 +1121,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     private static let spelled = [
         1: "one", 2: "two", 3: "three", 4: "four", 5: "five", 6: "six",
         7: "seven", 8: "eight", 9: "nine", 10: "ten", 11: "eleven", 12: "twelve",
-        13: "thirteen", 14: "fourteen", 15: "fifteen",
+        13: "thirteen", 14: "fourteen", 15: "fifteen", 16: "sixteen",
     ]
 
     func testBothSummariesSpellTheSuitesOwnRuleCount() throws {

@@ -39,16 +39,19 @@ struct TabStripView: View {
             }
         }
         .frame(height: metrics.scaled(ChromeGeometry.tabStripHeight))
-        .background(theme.color(.bgPanel))
-        // The rule between the strip and the editor. Drawn as an overlay on the
-        // strip's own bottom edge so an active tab — which is filled in the
-        // editor's own background, to read as part of it — can sit *above* it
-        // and merge into the editor below.
-        .overlay(alignment: .bottom) {
+        // The rule between the strip and the editor, drawn *behind* the tabs on
+        // the strip's own bottom edge so an active tab — filled in the editor's
+        // own background, to read as part of it — sits above it and merges into
+        // the editor below, its accent underline interrupting the rule for the
+        // tab's width. An overlay here would cover the tab's fill and the lower
+        // half of its underline (gating rule sixteen). Layered ground furthest
+        // back, then the rule, then the tabs.
+        .background(alignment: .bottom) {
             Rectangle()
                 .fill(theme.color(.hairline))
                 .frame(height: metrics.scaled(ChromeGeometry.hairlineWidth))
         }
+        .background(theme.color(.bgPanel))
     }
 }
 

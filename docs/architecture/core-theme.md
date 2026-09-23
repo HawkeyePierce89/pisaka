@@ -612,7 +612,7 @@ roles, and moves the severity mapping into Core. **No palette value changes and
 no new role is spent**; `ChromeGeometry` gains four tokens and spends two it
 already declared (`dockTabRowHeight`, `accentIndicator`). Four files join the
 gated set — one of them, the row, new — and the suite grows from eleven rules to
-fifteen.
+fifteen, then to sixteen with the review round's fix below.
 
   - **The dock's tab row** — `DockTabRow.swift`, a new file on the environment
     path, spending `textPrimary`, `textSecondary`, `accent` and `hairline`. Its
@@ -624,7 +624,13 @@ fifteen.
     own order, each named by `BottomPanel.title`; the row is
     `dockTabRowHeight` tall, inset by `dockTabRowPaddingX`, has **no ground of
     its own** (the slot already paints `bgPanel`) and draws its own one-point
-    `hairline` along its bottom edge. A tab is a plain button whose label is the
+    `hairline` along its bottom edge — **behind** the tabs, not over them. The
+    first cut drew it as an overlay, which painted over the lower point of the
+    selected tab's two-point accent strip; the review round moved it behind, so
+    the strip interrupts the rule for the tab's width, and fixed the same
+    construct in `TabStripView.swift`, where the overlay also covered the active
+    tab's `bgEditor` fill and defeated the comment explaining why the rule sat
+    where it did. Gating rule sixteen pins both. A tab is a plain button whose label is the
     title at `.callout` — `textPrimary` when selected, `textSecondary` otherwise,
     **regular weight in both states**, because a label that turned semibold would
     widen and shift every tab after it on each click — padded by
@@ -778,7 +784,7 @@ although it is an editing affordance rather than a row: an inline draft
 for. `TabStripView.swift` covers `TabStatusMark` too, the slot view the two
 orientations share, which is why that extraction did not add a seventh file.
 
-The fifteen rules, each invisible to the compiler:
+The sixteen rules, each invisible to the compiler:
 
 1. **No gated view names a system semantic colour.** A closed forbidden-token
    list — AppKit's semantic set (`labelColor`, `separatorColor`,
@@ -956,6 +962,20 @@ The fifteen rules, each invisible to the compiler:
    ProblemsPanelView.swift}`, the two known readers; and
    `ProblemsPanelView.swift` names no `SyntaxTheme`, whose severity table is the
    squiggle's and the code zone's alone.
+16. **An indicator strip's bottom rule is drawn behind its tabs.** Each file in
+   the suite's named `indicatorStripFiles` list — `TabStripView.swift` and
+   `DockTabRow.swift` — draws an accent indicator on the strip's own bottom edge
+   and a one-point `hairline` along that same edge, and over stripped source
+   spells no `.overlay(alignment: .bottom)` whose brace-matched body names
+   `hairline`, while at least one `.background(alignment: .bottom)` body does (so
+   a strip that lost its rule altogether cannot pass). An overlay covers its
+   whole content, so an overlaid rule painted over the lower point of the
+   selected tab's two-point indicator — and, in the tab strip, cut the active
+   tab's `bgEditor` fill off from the editor it is meant to merge into. A bottom
+   overlay drawing the *accent* itself (the strip's cell does) is the indicator,
+   not the rule, and stays allowed. Named rather than the whole gated set, rule
+   fourteen's shape: a third strip with a bottom-edge indicator joins the list as
+   part of being drawn.
 
 Plus a **self-check** in the suite's own idiom: every gated file must actually
 *name* a `ChromeColorRole`, or the checks above have gone vacuous — with one

@@ -37,7 +37,13 @@ import PisakaCore
 ///
 /// The row has no ground of its own — the slot already paints `bgPanel` under
 /// it — and draws its own one-point `hairline` along its bottom edge rather than
-/// leaving a `Divider()` to its host (part two's precedent).
+/// leaving a `Divider()` to its host (part two's precedent). That rule is drawn
+/// **behind** the tabs, never over them: each tab's accent strip sits on the
+/// row's very bottom edge, so a rule overlaid there would paint over the lower
+/// point of the selected tab's two-point indicator. Behind, the indicator
+/// interrupts the rule for its own width, which is the look the design asks for
+/// (gating rule sixteen; the tab strip above the editor draws its rule the same
+/// way for the same reason).
 struct DockTabRow: View {
     /// The panel on screen.
     let selection: BottomPanel
@@ -63,7 +69,7 @@ struct DockTabRow: View {
         }
         .padding(.horizontal, metrics.scaled(ChromeGeometry.dockTabRowPaddingX))
         .frame(height: metrics.scaled(ChromeGeometry.dockTabRowHeight))
-        .overlay(alignment: .bottom) {
+        .background(alignment: .bottom) {
             Rectangle()
                 .fill(theme.color(.hairline))
                 .frame(height: metrics.scaled(ChromeGeometry.hairlineWidth))
