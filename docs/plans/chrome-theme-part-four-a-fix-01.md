@@ -258,9 +258,9 @@ row and its close action — is missing from the document entirely.
 
 ### Task 7: Gates
 
-- [ ] `swift test` is green.
-- [ ] the app-layer bundle is green on a macOS destination.
-- [ ] the macOS Release build and the iOS build are green.
-- [ ] `swiftlint --strict` is clean from the repository root.
-- [ ] the chrome suite's rule count agrees with `core-theme.md` and `CLAUDE.md`.
-- [ ] `ChromePalette.swift` is still unchanged against the default branch.
+- [x] `swift test` is green.
+- [x] the app-layer bundle is green on a macOS destination.
+- [x] the macOS Release build and the iOS build are green.
+- [x] `swiftlint --strict` is clean from the repository root.
+- [x] the chrome suite's rule count agrees with `core-theme.md` and `CLAUDE.md`.
+- [x] `ChromePalette.swift` is still unchanged against the default branch.
