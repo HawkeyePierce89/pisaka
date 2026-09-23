@@ -897,8 +897,11 @@ user sees it.
 - Local Changes: a collapsible bottom panel (toggle with "Show/Hide Local
   Changes" in the View menu, the Local Changes button on the bottom bar, or
   Cmd+Shift+C) listing files differing from `HEAD` (via `git`).
-  View the list flat or grouped by folder; each file shows a type icon tinted by
-  its git status plus a one-letter badge (M/A/D/R/U/C). Double-click a file to open
+  View the list flat or grouped by folder; each file shows a type icon plus a
+  one-letter status badge (M/A/D/R/U/C). On macOS the icon is a monochrome
+  secondary glyph and the letter carries the status colour (green added,
+  yellow modified or renamed, red deleted or conflicted, grey untracked); on
+  iPhone and iPad the icon itself is tinted by its git status. Double-click a file to open
   a side-by-side diff (`HEAD` vs working copy) in a separate
   window, with aligned panes, red/green row backgrounds, per-side line-number
   gutters, change markers, synced scrolling, and syntax highlighting. A
@@ -982,8 +985,8 @@ user sees it.
   console job — and that check is repeated against a fresh read at the moment you
   commit, so a merge started in the terminal while the dialog is open blocks it
   too.
-- Conflict resolution: a file left in a merge-conflict state shows a purple "C"
-  badge in Local Changes; double-clicking it (or choosing "Resolve…" from its
+- Conflict resolution: a file left in a merge-conflict state shows a "C" badge
+  in Local Changes — red on macOS, purple on iPhone and iPad; double-clicking it (or choosing "Resolve…" from its
   context menu) opens a 3-pane merge editor in a separate window
   — ours on the left, the editable merged result in the middle, theirs on the
   right — sourced from git's merge index stages (`:1` base, `:2` ours, `:3`

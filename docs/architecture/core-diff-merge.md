@@ -100,6 +100,18 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     splitter: it is a one-line *projection* of `TerminatedLines.split` (see the
     next entry), because the commit dialog indexes one splitter's output with the
     other's indices.
+    **`DiffSide`** (`old`, `new`) lives here too: which pane of a side-by-side
+    diff a line is drawn in, `old` the left (`HEAD` or the earlier revision) and
+    `new` the right. It is **the one diff-side type** — since part four (b) of the
+    chrome theme the macOS diff pane (`DiffView.swift`: the panes, their gutters)
+    and the chrome's wash and marker answers
+    (`ChromeColorRole.diffWashRole(for:side:)` / `diffMarkerRole(for:side:)`,
+    `core-theme.md`) all speak it directly; the app's former `DiffTextView.Side`
+    is deleted, so no mapping site exists between two spellings to drift, and
+    chrome gating rule nineteen keeps it from coming back. It is **unrelated to
+    `ThreeWayMerge`'s private ours/theirs side**, which names merge sides rather
+    than diff sides and answers a different question; the iOS diff view's own
+    private side type is likewise untouched (it has no chrome palette to read).
   - `TerminatedLines.swift` — the single line representation shared by the diff
     and the partial-commit builder (Foundation-only). `TerminatedLine`
     (`content` — the separator-stripped text a `DiffRow` compares — plus

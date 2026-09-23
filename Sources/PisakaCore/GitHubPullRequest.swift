@@ -110,6 +110,19 @@ public enum GitHubCheckBucket: String, CaseIterable, Sendable {
     case cancel
 }
 
+extension GitHubCheckBucket {
+    /// The bucket as words, spoken as the job row's accessibility value.
+    public var spokenWords: String {
+        switch self {
+        case .pass: return "Passed"
+        case .fail: return "Failed"
+        case .pending: return "Running"
+        case .skipping: return "Skipped"
+        case .cancel: return "Cancelled"
+        }
+    }
+}
+
 /// A pull request's `reviewDecision`.
 ///
 /// `""` is the ordinary answer, not a violation: a repository with no required
@@ -266,6 +279,31 @@ public enum GitHubChecksSummary: String, CaseIterable, Sendable {
     case failure
     /// Every job finished and every one of them passed or was skipped.
     case success
+}
+
+extension GitHubChecksSummary {
+    /// The SF Symbol both the panel's row and the bottom-bar indicator draw for
+    /// this summary — one answer for the two surfaces. `noChecks` is a plain
+    /// `circle`, the indicator's documented choice, onto which the panel's former
+    /// `minus.circle` was unified. The colour is `ChromeColorRole.checksRole(for:)`.
+    public var symbolName: String {
+        switch self {
+        case .noChecks: return "circle"
+        case .pending: return "clock"
+        case .failure: return "xmark.circle.fill"
+        case .success: return "checkmark.circle.fill"
+        }
+    }
+
+    /// The summary as words: the glyph's help text and accessibility value.
+    public var spokenWords: String {
+        switch self {
+        case .noChecks: return "No checks"
+        case .pending: return "Checks running"
+        case .failure: return "Checks failed"
+        case .success: return "Checks passed"
+        }
+    }
 }
 
 // MARK: - The values the surfaces read

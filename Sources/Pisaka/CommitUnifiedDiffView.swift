@@ -53,6 +53,9 @@ struct CommitUnifiedDiffView: View {
     /// interact, which is the Find in Files result rows' rule and the one thing
     /// the three-zone split exists to prevent.
     @Environment(\.interfaceMetrics) private var metrics
+    /// The chrome palette: the row wash (Core's `diffWashRole(for:)`), the
+    /// checkbox, the line numbers and the placeholder read their colours from it.
+    @Environment(\.chromeTheme) private var theme
 
     var body: some View {
         if let wholeOnlyMessage {
@@ -69,10 +72,10 @@ struct CommitUnifiedDiffView: View {
             Spacer()
             Image(systemName: "doc.fill")
                 .font(metrics.scaledFont(.largeTitle))
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(theme.color(.textSecondary))
             Text(text)
                 .font(metrics.scaledFont(.callout))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(theme.color(.textSecondary))
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, metrics.scaled(24))
             Spacer()
@@ -145,7 +148,7 @@ struct CommitUnifiedDiffView: View {
             let isOn = selectedUnits.contains(unit)
             Button { onToggleUnit(unit) } label: {
                 Image(systemName: isOn ? "checkmark.square.fill" : "square")
-                    .foregroundStyle(isOn ? Color.accentColor : Color.secondary)
+                    .foregroundStyle(theme.color(isOn ? .accent : .textSecondary))
             }
             .buttonStyle(.borderless)
             .help("Include this change in the commit")
@@ -159,7 +162,7 @@ struct CommitUnifiedDiffView: View {
     private func number(_ value: Int?) -> some View {
         Text(value.map(String.init) ?? "")
             .font(.system(size: max(9, fontSize - 2), design: .monospaced))
-            .foregroundStyle(.secondary)
+            .foregroundStyle(theme.color(.textSecondary))
             .frame(width: 34, alignment: .trailing)
     }
 
@@ -171,12 +174,9 @@ struct CommitUnifiedDiffView: View {
         }
     }
 
+    /// The row's wash: Core's one answer, `nil` (a context line) drawing none.
     private func background(_ kind: UnifiedDiffLine.Kind) -> Color {
-        switch kind {
-        case .context: return .clear
-        case .removed: return Color.red.opacity(0.14)
-        case .added: return Color.green.opacity(0.14)
-        }
+        ChromeColorRole.diffWashRole(for: kind).map { theme.color($0) } ?? .clear
     }
 }
 

@@ -6,11 +6,24 @@ import Foundation
 /// layer maps each case to a row background. `unchanged` and `modified` rows
 /// carry both sides; `added` carries only the right (new) side; `removed` only
 /// the left (old) side.
-public enum DiffRowKind: Equatable {
+public enum DiffRowKind: Equatable, CaseIterable {
     case unchanged
     case added
     case removed
     case modified
+}
+
+/// Which pane of a side-by-side diff a line is drawn in: `old` is the left
+/// (`HEAD`, or the earlier revision), `new` the right.
+///
+/// The one definition of a diff side for the macOS surfaces — the diff pane and
+/// the chrome's wash and marker answers (`ChromeColorRole.diffWashRole(for:side:)`)
+/// both speak it, so there is no mapping site between two spellings to drift.
+/// Deliberately not `ThreeWayMerge`'s private ours/theirs side, which answers a
+/// different question.
+public enum DiffSide: Equatable, CaseIterable, Sendable {
+    case old
+    case new
 }
 
 /// One line on one side of a diff: its 1-based line number within that side and

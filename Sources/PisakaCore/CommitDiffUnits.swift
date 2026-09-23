@@ -110,7 +110,7 @@ public enum FileCommitEligibility: Equatable {
 /// change and one checkbox, exactly as the underlying `DiffRow` is one selection
 /// unit. A context line carries no `unitIndex`, so it can never be checked.
 public struct UnifiedDiffLine: Equatable {
-    public enum Kind: Equatable {
+    public enum Kind: Equatable, CaseIterable {
         case context
         case removed
         case added

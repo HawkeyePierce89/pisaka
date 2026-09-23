@@ -7,9 +7,10 @@ import PisakaCore
 /// beside the row's text columns in `CommitLogView`.
 ///
 /// The pure lane/edge layout lives in `PisakaCore.CommitGraphLayout` (color-free,
-/// unit-tested); this view is the thin, color-resolving counterpart — like the
-/// minimap, it consumes a color *index* and maps it to a concrete `NSColor` from
-/// a fixed palette at draw time so it follows the system appearance.
+/// unit-tested); this view is the thin, color-resolving counterpart — it consumes
+/// a color *index* and asks `CommitGraphPalette` for that lane's dynamic
+/// `NSColor` at draw time, so it follows the appearance. It keeps no palette of
+/// its own and spells no colour.
 ///
 /// Each cell draws exactly one row of the graph in a fixed `rowHeight`. The node
 /// sits at the vertical center; the row's own `edges` (the segments leaving the
@@ -83,11 +84,11 @@ final class CommitGraphRowNSView: NSView {
         didSet { needsDisplay = true }
     }
     /// Radius of the commit node dot.
-    var nodeRadius: CGFloat = 3.5 {
+    var nodeRadius: CGFloat = 3 {
         didSet { needsDisplay = true }
     }
     /// Stroke width of the edge lines.
-    var lineWidth: CGFloat = 1.5 {
+    var lineWidth: CGFloat = 2 {
         didSet { needsDisplay = true }
     }
 
@@ -141,19 +142,10 @@ final class CommitGraphRowNSView: NSView {
         context.strokePath()
     }
 
-    /// Resolve a stable color index to a concrete color from a fixed palette,
-    /// cycling if there are more lanes than palette entries. Resolved at draw time
-    /// so the graph follows light/dark appearance.
+    /// A lane's color, from the one lane table.
     private func color(for index: Int) -> NSColor {
-        Self.palette[((index % Self.palette.count) + Self.palette.count) % Self.palette.count]
+        CommitGraphPalette.nsColor(forLane: index)
     }
-
-    /// A small, visually distinct lane palette (the view layer owns color; Core
-    /// stays color-free).
-    private static let palette: [NSColor] = [
-        .systemBlue, .systemGreen, .systemOrange, .systemPurple,
-        .systemRed, .systemTeal, .systemPink, .systemYellow,
-    ]
 }
 
 #endif

@@ -1152,6 +1152,28 @@ and `GitHubRepository` (carrying the four merge-policy values). Behaviour here i
 summary rule asks — `isFinished` and `isPassing` — and the conservative direction
 of the second is stated on it: an unrecognised-but-finished state is not a pass.
 
+**The checks glyph, words and colour are Core's** since part four (b) of the
+chrome theme, because the chrome gating suite forbids a gated view from spelling
+these cases (`core-theme.md`, rule eighteen). `GitHubChecksSummary.symbolName`
+answers `circle` / `clock` / `xmark.circle.fill` / `checkmark.circle.fill` for
+noChecks / pending / failure / success — `circle` is the indicator's documented
+choice, and the panel's former `minus.circle` for no checks was unified onto it —
+and `spokenWords` "No checks" / "Checks running" / "Checks failed" / "Checks
+passed". A `GitHubCheckBucket` has **no glyph**: the expanded job row draws a
+6 pt dot in the bucket's role rather than a symbol, so the bucket answers only
+`spokenWords` — "Passed" / "Failed" / "Running" / "Skipped" / "Cancelled" for
+pass / fail / pending / skipping / cancel, spoken as the row's accessibility
+value while the dot itself is hidden. (A `symbolName` on the bucket shipped with
+part four (b) and was removed in its fix round: nothing drew it and only its own
+test read it. That was found by review, not by a gate — no rule can demand a
+production reader for every public Core answer without failing on the many
+legitimate members a view does not read.) The colour of both is
+`ChromeColorRole.checksRole(for:)` (`ChromeColorRole.swift`): pass/success
+`statusGreen`, fail/failure `statusRed`, pending `statusYellow`, everything else
+`textSecondary`. **Three reading sites, two files, no view table**: the
+indicator's checks mark, the panel row's checks glyph and the expanded job row's
+dot; `ChromeRoleMappingTests` pins every answer verbatim.
+
 The wire half — which JSON key holds which of these, and which spelling maps to
 which case — stays in `GitHubAPI`, so the model, the panel and the indicator can
 speak about a review decision or a checks summary without ever having seen a JSON
@@ -1551,6 +1573,34 @@ slot. The panel-shown trigger is the single
 `BottomPanelSourceGatingTests`' per-panel rule, pinned by set equality against the
 switch's case labels.
 
+**On the chrome roles** since part four (b) of the chrome theme: every colour
+is a `ChromeColorRole` read from `\.chromeTheme`, and the view's own tables
+(`summarySymbol`, `summaryColor`, `summaryHelp`, `bucketSymbol`, `bucketColor`)
+are gone in favour of Core's glyph, words and role. The header is the Problems
+panel's strip (`panelHeaderHeight`, `panelHeaderPaddingX`, its own bottom
+`hairline`), the repository and open count in `textPrimary` `.body` semibold on
+one line, with a trailing 15 pt `textSecondary` refresh glyph that is labelled and
+hides its symbol. A row is 40 pt tall with 14 pt padding and a 12 pt gap and a
+bottom hairline: a disclosure chevron named "Expand"/"Collapse" and speaking its
+expansion as its value, the number (`textSecondary` `.callout` monospaced), the
+title (`textPrimary` `.body`), the author (`textSecondary` `.callout`), the branch
+pair (`textSecondary` `.subheadline` monospaced), the checks glyph labelled
+"Checks" with `spokenWords` as its value, a secondary button (`hairline` border,
+`textPrimary` `.subheadline`) and a primary one (`accent` ground, `onAccent`
+`.subheadline` semibold), both at `ChromeGeometry.buttonPaddingX` and
+`buttonCornerRadius`. Washes are `accentTintStrong` / `hoverTint`. An expanded
+job row is 22 pt, inset 58 pt, with a 6 pt dot in `checksRole(for: bucket)`
+hidden from accessibility while the row speaks the bucket's words; the name in
+`textPrimary` `.subheadline` monospaced, workflow and description
+`textSecondary` `.subheadline` — today's text, and no duration, which
+`GitHubCheckRow` does not carry. The message and wait-ending strips draw a
+`statusYellow` glyph on `bgPanel` with a bottom hairline (the orange and
+secondary washes are gone). Review decisions are role-coloured text in a
+`hairline`-bordered capsule with no fill — approved `statusGreen`, changes
+requested `statusRed`, review required `statusYellow` — and neutral tags are
+`textSecondary`. No `Divider()` remains. Rules eighteen and twenty of the chrome
+suite pin the reads and the accessibility (`core-theme.md`).
+
 ### `NewPullRequestSheet.swift`
 
 `CommitDialogView`'s shape: title (pre-filled from `HEAD`'s subject), body, the
@@ -1589,7 +1639,12 @@ colours are now `ChromeColorRole`s read from `\.chromeTheme` (the checks mark's
 first consumer — `noChecks` moved off `arrow.triangle.pull` onto `circle` there
 too), and its own paddings are gone so the bar's gaps and height are the
 measurements actually drawn. `app-window.md`'s part-three paragraph is the
-record; what follows here is the behaviour, which that part left untouched. **Absent rather than empty** — nothing is drawn when the branch has no
+record; what follows here is the behaviour, which that part left untouched.
+Since part four (b) the mark's glyph, colour and words are read from Core —
+`GitHubChecksSummary.symbolName`, `ChromeColorRole.checksRole(for:)` and
+`spokenWords` — rather than from the indicator's own `symbol`/`role`/
+`summaryWords`, which are gone, so the indicator and the panel cannot disagree
+about what a summary looks like. **Absent rather than empty** — nothing is drawn when the branch has no
 open pull request, when `gh` is not ready, or on a detached HEAD, all three of
 which are `currentBranchPullRequest == nil`. Clicking opens the panel with that
 row expanded. It reads the same model the panel does: one `gh` answer, two

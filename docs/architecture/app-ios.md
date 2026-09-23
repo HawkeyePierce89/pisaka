@@ -13,9 +13,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     macOS, `UIColor` on iOS) + `init(rgb:)` / `dynamic(light:dark:)` so
     `SyntaxTheme` resolves appearance-aware colors on both platforms (macOS output
     stays byte-identical — `PlatformColor == NSColor`). The diff-background
-    palettes stay per-platform and are *not* routed through this bridge —
-    `DiffColors` (raw `NSColor`) on macOS, a parallel `DiffColors_iOS` (raw
-    `UIColor`) on iOS — using the system semantic colors directly.
+    palettes stay per-platform. On macOS the wash is the chrome roles
+    (`ChromeColorRole.diffWashRole(for:side:)`), coloured by `ChromePalette`,
+    whose `nsColor(_:)` *is* this bridge — `PlatformColor.dynamic(...)` — so the
+    macOS wash is routed through it. On iOS it is not: a private
+    `DiffColors_iOS` (raw `UIColor`) uses the system semantic colors directly,
+    since iOS has no chrome palette.
     A second, **alpha-carrying** form — `dynamic(light:dark:alpha:)` — is the
     primitive, and the two-argument one is it at `alpha: 1`, so the opaque path is
     unchanged by construction. It exists because the alpha must be applied to each

@@ -12,6 +12,15 @@ import PisakaCore
 /// commit-vs-parent diff in a separate window. Clicking a row sets
 /// `model.selected`. The view holds no domain logic — it observes
 /// `CommitLogModel` and renders its published state, mirroring `LocalChangesView`.
+///
+/// On the chrome roles and tokens since part four (b) of the chrome theme: every
+/// colour is a role read from `\.chromeTheme`, each strip draws its own one-point
+/// `hairline` by overlay rather than leaving a `Divider()` to the stack, and a
+/// changed file's letter, colour and spoken name are Core's one answer
+/// (`FileStatus.letter`, `ChromeColorRole.changedFileRole(for:)`,
+/// `FileStatus.spokenName`). The branch-graph gutter's lane hues are the one
+/// colour table this panel does not read from the roles — `CommitGraphPalette`,
+/// the fourth stated exemption.
 struct CommitLogView: View {
     @ObservedObject var model: CommitLogModel
     /// The current project root, used as the repository root for refresh. `nil`
@@ -37,15 +46,33 @@ struct CommitLogView: View {
     /// row and its gutter cell both scale it through the same
     /// `InterfaceMetrics.pt`, so they stay aligned at every scale — an unscaled
     /// gutter beside scaled rows is the one way this graph can visibly break.
-    static let baseRowHeight: Double = 24
+    static let baseRowHeight: Double = 25
+
+    /// The detail pane's width, in scaled points, once the divide beside it has
+    /// been dragged; `nil` until then, which lays the pane out at its ideal width.
+    /// `@State` only, like the other panels' split positions: it lives as long as
+    /// the panel does.
+    @State private var detailWidth: CGFloat?
+    /// The detail width captured at the start of a divide drag, so the cumulative
+    /// translation is applied to the width the drag started from.
+    @State private var detailDragStartWidth: CGFloat?
+    /// Whether the pointer is inside the divide's hit strip.
+    @State private var isDivideHovering = false
+    /// Whether this view has pushed the resize cursor — one flag, written only by
+    /// `syncDivideCursor()`, so every push is balanced by exactly one pop: from
+    /// `onHover(false)`, from the drag's `onEnded`, or — when the strip leaves the
+    /// tree with the pointer on it or mid-drag, where neither callback arrives —
+    /// from the handle's `onDisappear`.
+    @State private var divideCursorPushed = false
 
     /// The interface zone's metrics, inherited from the window root.
     @Environment(\.interfaceMetrics) private var metrics
+    /// The chrome's colours, inherited from the window root.
+    @Environment(\.chromeTheme) private var theme
 
     var body: some View {
         VStack(spacing: 0) {
             header
-            Divider()
             // The filter/search bar sits above the list once a repo is open. Its
             // server-side dimensions re-fetch (generation-guarded); the message
             // search filters the loaded commits client-side.
@@ -57,7 +84,6 @@ struct CommitLogView: View {
                     onApplyFilter: applyFilter,
                     onSearch: { model.setSearchQuery($0) }
                 )
-                Divider()
             }
             content
         }
@@ -83,10 +109,14 @@ struct CommitLogView: View {
         }
     }
 
+    /// The panel's header strip: the Problems panel's shape — a
+    /// `panelHeaderHeight` strip drawing its own bottom `hairline`.
     private var header: some View {
-        HStack(spacing: metrics.scaled(8)) {
+        HStack(spacing: metrics.scaled(CommitLogLayout.headerGap)) {
             Text("History")
-                .font(metrics.scaledFont(.headline, weight: .semibold))
+                .font(metrics.scaledFont(.body, weight: .semibold))
+                .foregroundStyle(theme.color(.textPrimary))
+                .lineLimit(1)
             if model.isLoading {
                 ProgressView()
                     .controlSize(.small)
@@ -95,13 +125,28 @@ struct CommitLogView: View {
             Button(action: refreshIfPossible) {
                 Image(systemName: "arrow.clockwise")
                     .font(metrics.scaledFont(.body))
+                    .foregroundStyle(theme.color(.textSecondary))
+                    .accessibilityHidden(true)
             }
             .buttonStyle(.borderless)
             .disabled(projectRoot == nil)
             .help("Refresh commit history")
+            .accessibilityLabel("Refresh commit history")
         }
-        .padding(.horizontal, metrics.scaled(10))
-        .padding(.vertical, metrics.scaled(6))
+        .padding(.horizontal, metrics.scaled(ChromeGeometry.panelHeaderPaddingX))
+        .frame(height: metrics.scaled(ChromeGeometry.panelHeaderHeight))
+        .overlay(alignment: .bottom) { hairline(horizontal: true) }
+    }
+
+    /// The one-point rule a strip draws along its own edge: a horizontal rule
+    /// when `horizontal` is true, a vertical one otherwise.
+    private func hairline(horizontal: Bool) -> some View {
+        Rectangle()
+            .fill(theme.color(.hairline))
+            .frame(
+                width: horizontal ? nil : metrics.scaled(ChromeGeometry.hairlineWidth),
+                height: horizontal ? metrics.scaled(ChromeGeometry.hairlineWidth) : nil
+            )
     }
 
     @ViewBuilder
@@ -116,18 +161,96 @@ struct CommitLogView: View {
             // Full width when nothing is selected; once a commit is selected the
             // detail pane (changed files only; the diff opens in a separate
             // window on double-click) opens beside the list.
-            HSplitView {
-                commitList
-                    .frame(
-                        minWidth: metrics.scaled(360),
-                        idealWidth: metrics.scaled(520),
-                        maxWidth: .infinity
-                    )
-                if let selected = model.selected {
-                    CommitDetailPane(model: model, commit: selected, onOpenCommitDiff: onOpenCommitDiff)
-                        .frame(minWidth: metrics.scaled(280), maxWidth: .infinity)
+            //
+            // Not an `HSplitView`: its divider is drawn by the system in the
+            // platform's separator value, which no role can reach. The list owns
+            // the divide instead — a trailing `hairline` by overlay, with a
+            // drag strip over it that resizes the pane.
+            GeometryReader { geo in
+                HStack(spacing: 0) {
+                    commitList
+                        .frame(minWidth: metrics.scaled(CommitLogLayout.listMinWidth), maxWidth: .infinity)
+                        .overlay(alignment: .trailing) {
+                            if model.selected != nil {
+                                ZStack {
+                                    hairline(horizontal: false)
+                                    divideHandle(total: geo.size.width)
+                                }
+                            }
+                        }
+                    if let selected = model.selected {
+                        CommitDetailPane(model: model, commit: selected, onOpenCommitDiff: onOpenCommitDiff)
+                            .frame(width: clampedDetailWidth(total: geo.size.width))
+                    }
                 }
             }
+        }
+    }
+
+    /// The detail pane's width: the dragged width, or the ideal one, clamped so
+    /// neither the pane nor the list drops below its minimum.
+    private func clampedDetailWidth(total: CGFloat) -> CGFloat {
+        let minimum = metrics.scaled(CommitLogLayout.detailMinWidth)
+        let maximum = max(minimum, total - metrics.scaled(CommitLogLayout.listMinWidth))
+        let wanted = detailWidth ?? metrics.scaled(CommitLogLayout.detailIdealWidth)
+        return min(max(wanted, minimum), maximum)
+    }
+
+    /// The invisible strip over the divide that resizes the detail pane. What is
+    /// drawn is the list's hairline; this is only what is dragged.
+    ///
+    /// Hand-rolled because the system divider cannot be drawn in a role, and the
+    /// dock's swept surfaces draw their own hairlines — which is also why the
+    /// cursor is this view's to push and to pop, on every way the strip can go.
+    private func divideHandle(total: CGFloat) -> some View {
+        Color.clear
+            .frame(width: metrics.scaled(CommitLogLayout.divideHitWidth))
+            .contentShape(Rectangle())
+            .onHover { inside in
+                isDivideHovering = inside
+                syncDivideCursor()
+            }
+            .gesture(
+                DragGesture(minimumDistance: 1, coordinateSpace: .global)
+                    .onChanged { value in
+                        let start = detailDragStartWidth ?? clampedDetailWidth(total: total)
+                        if detailDragStartWidth == nil {
+                            detailDragStartWidth = start
+                            syncDivideCursor()
+                        }
+                        detailWidth = start - value.translation.width
+                    }
+                    .onEnded { _ in
+                        detailWidth = clampedDetailWidth(total: total)
+                        detailDragStartWidth = nil
+                        syncDivideCursor()
+                    }
+            )
+            .onDisappear {
+                // The strip exists only while a commit is selected, and the model
+                // clears `selected` on its refresh paths; a dock tab switch takes
+                // the whole panel away. Either can land with the pointer on the
+                // strip, where no `onHover(false)` arrives, or mid-drag, where no
+                // `onEnded` does — so the push is released here, and the drag's
+                // start width dropped, or the next drag would begin from a width
+                // the user abandoned.
+                isDivideHovering = false
+                detailDragStartWidth = nil
+                syncDivideCursor()
+            }
+    }
+
+    /// Push the resize cursor while the divide is hovered or dragged, pop it
+    /// otherwise — off the one flag, so a push is never doubled nor a pop spent
+    /// on a cursor this view did not push.
+    private func syncDivideCursor() {
+        let wanted = isDivideHovering || detailDragStartWidth != nil
+        if wanted, !divideCursorPushed {
+            NSCursor.resizeLeftRight.push()
+            divideCursorPushed = true
+        } else if !wanted, divideCursorPushed {
+            NSCursor.pop()
+            divideCursorPushed = false
         }
     }
 
@@ -151,7 +274,14 @@ struct CommitLogView: View {
         // with real history.
         let shown = model.visibleCommits
         let graph = CommitGraphLayout.layout(shouldSuppressGraph ? [] : shown)
-        return ScrollView {
+        return VStack(spacing: 0) {
+            CommitColumnHeader(showsGraph: !graph.rows.isEmpty, laneCount: graph.width)
+            commitRows(shown, graph: graph)
+        }
+    }
+
+    private func commitRows(_ shown: [Commit], graph: CommitGraph) -> some View {
+        ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
                 ForEach(Array(shown.enumerated()), id: \.element.id) { index, commit in
                     CommitRow(
@@ -195,6 +325,8 @@ struct CommitLogView: View {
                     } else {
                         Text("Load more")
                             .font(metrics.scaledFont(.callout))
+                            .foregroundStyle(theme.color(.accent))
+                            .lineLimit(1)
                     }
                     Spacer()
                 }
@@ -210,12 +342,12 @@ struct CommitLogView: View {
         VStack {
             Spacer()
             Text(text)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(theme.color(.textSecondary))
                 .font(metrics.scaledFont(.callout))
                 .multilineTextAlignment(.center)
                 // The default `.padding()` inset, stated so it scales with the
                 // rest of the Log instead of staying a fixed 16pt.
-                .padding(metrics.scaled(16))
+                .padding(metrics.scaled(CommitLogLayout.placeholderPadding))
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -270,8 +402,112 @@ struct CommitLogView: View {
     }
 }
 
+/// The Log's own measurements, bare numbers scaled once at the use site. The
+/// rows and the column header read the same widths, which is what keeps the
+/// header's labels over the columns they name (gating rule seven: none of these
+/// is derived from a `ChromeGeometry` token).
+private enum CommitLogLayout {
+    /// The column header row's height.
+    static let headerRowHeight: Double = 24
+    /// A commit row's and the header row's horizontal inset.
+    static let rowPaddingX: Double = 12
+    /// Between a commit row's columns (and the header's labels).
+    static let columnGap: Double = 16
+    /// Between a row's ref badges and its subject.
+    static let badgeGap: Double = 6
+    /// The short-hash column.
+    static let hashWidth: Double = 58
+    /// The author column.
+    static let authorWidth: Double = 160
+    /// The date column.
+    static let dateWidth: Double = 120
+    /// Spacing between the gutter's lanes.
+    static let laneSpacing: Double = 14
+    /// The margin after the last lane.
+    static let graphMargin: Double = 6
+    /// The gutter's minimum width: a short history still gets a gutter this
+    /// wide, and a wide one grows past it by lane count.
+    static let minGraphWidth: Double = 40
+    /// The commit node's radius (a 6 pt dot).
+    static let nodeRadius: Double = 3
+    /// The edge lines' stroke width.
+    static let lineWidth: Double = 2
+    /// Between the header strip's title and its spinner and refresh glyph.
+    static let headerGap: Double = 8
+    /// Around the empty-state sentence: the default `.padding()` inset.
+    static let placeholderPadding: Double = 16
+    /// The commit list's narrowest width beside the detail pane.
+    static let listMinWidth: Double = 360
+    /// The detail pane's narrowest width.
+    static let detailMinWidth: Double = 280
+    /// The detail pane's width before its divide is first dragged.
+    static let detailIdealWidth: Double = 360
+    /// The divide's drag strip: wider than the hairline it sits over, so it
+    /// can be grabbed.
+    static let divideHitWidth: Double = 5
+
+    /// Width reserved for the graph gutter: one lane's spacing per column plus
+    /// the trailing margin, never narrower than the stated minimum.
+    static func graphWidth(laneCount: Int, metrics: InterfaceMetrics) -> CGFloat {
+        max(
+            metrics.scaled(minGraphWidth),
+            CGFloat(max(laneCount, 1)) * metrics.scaled(laneSpacing) + metrics.scaled(graphMargin)
+        )
+    }
+}
+
+/// The static column header above the commit rows: Hash, Message, Author, Date,
+/// over an empty graph column when the gutter is drawn. It lays its labels out
+/// through the rows' own widths, so "Message" sits where the ref badges and the
+/// subject start. Non-interactive: there is no sorting.
+private struct CommitColumnHeader: View {
+    let showsGraph: Bool
+    let laneCount: Int
+
+    /// The interface zone's metrics, inherited from the window root.
+    @Environment(\.interfaceMetrics) private var metrics
+    /// The chrome's colours, inherited from the window root.
+    @Environment(\.chromeTheme) private var theme
+
+    var body: some View {
+        HStack(spacing: metrics.scaled(CommitLogLayout.columnGap)) {
+            if showsGraph {
+                Color.clear
+                    .frame(width: CommitLogLayout.graphWidth(laneCount: laneCount, metrics: metrics))
+            }
+            label("Hash")
+                .frame(width: metrics.scaled(CommitLogLayout.hashWidth), alignment: .leading)
+            label("Message")
+                .frame(maxWidth: .infinity, alignment: .leading)
+            label("Author")
+                .frame(width: metrics.scaled(CommitLogLayout.authorWidth), alignment: .trailing)
+            label("Date")
+                .frame(width: metrics.scaled(CommitLogLayout.dateWidth), alignment: .trailing)
+        }
+        .padding(.horizontal, metrics.scaled(CommitLogLayout.rowPaddingX))
+        .frame(height: metrics.scaled(CommitLogLayout.headerRowHeight))
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(theme.color(.hairline))
+                .frame(height: metrics.scaled(ChromeGeometry.hairlineWidth))
+        }
+        .allowsHitTesting(false)
+    }
+
+    private func label(_ text: String) -> some View {
+        Text(text)
+            .font(metrics.scaledFont(.subheadline, weight: .semibold))
+            .foregroundStyle(theme.color(.textSecondary))
+            .lineLimit(1)
+    }
+}
+
 /// One commit row: short hash, any ref badges, the subject, the author, and the
 /// formatted date. Clicking selects the commit.
+///
+/// The selection wash is `accentTintStrong` whether or not the window is key —
+/// the Problems panel's precedent, whose rows carry no second, inactive state —
+/// and the pointer's is `hoverTint`.
 private struct CommitRow: View {
     let commit: Commit
     let isSelected: Bool
@@ -288,66 +524,61 @@ private struct CommitRow: View {
 
     /// The interface zone's metrics, inherited from the window root.
     @Environment(\.interfaceMetrics) private var metrics
-
-    /// Base spacing between the gutter's lanes, and the base margin after the
-    /// last one. Both are scaled below and handed to the AppKit cell, so the
-    /// gutter's own drawing keeps pace with the rows it sits beside.
-    private static let baseLaneSpacing: Double = 14
-    private static let baseGraphMargin: Double = 6
+    /// The chrome's colours, inherited from the window root.
+    @Environment(\.chromeTheme) private var theme
 
     /// This row's height at the current interface scale.
     private var rowHeight: CGFloat { metrics.scaled(CommitLogView.baseRowHeight) }
 
-    /// Width reserved for the graph gutter: one lane's spacing per column, with a
-    /// small minimum so a single-lane history still shows its line.
-    private var graphWidth: CGFloat {
-        CGFloat(max(laneCount, 1)) * metrics.scaled(Self.baseLaneSpacing)
-            + metrics.scaled(Self.baseGraphMargin)
-    }
-
     var body: some View {
-        HStack(spacing: metrics.scaled(8)) {
+        HStack(spacing: metrics.scaled(CommitLogLayout.columnGap)) {
             if let graphRow {
+                // The gutter's base measurements, each scaled here and handed to
+                // the AppKit cell, so its own drawing keeps pace with the rows.
                 CommitGraphView(
                     row: graphRow,
                     incomingEdges: incomingEdges,
                     laneCount: max(laneCount, 1),
                     rowHeight: rowHeight,
-                    laneSpacing: metrics.scaled(Self.baseLaneSpacing),
-                    nodeRadius: metrics.scaled(3.5),
-                    lineWidth: metrics.scaled(1.5)
+                    laneSpacing: metrics.scaled(CommitLogLayout.laneSpacing),
+                    nodeRadius: metrics.scaled(CommitLogLayout.nodeRadius),
+                    lineWidth: metrics.scaled(CommitLogLayout.lineWidth)
                 )
-                .frame(width: graphWidth, height: rowHeight)
+                .frame(width: CommitLogLayout.graphWidth(laneCount: laneCount, metrics: metrics), height: rowHeight)
             }
 
             Text(shortHash)
-                .font(metrics.scaledFont(.caption, design: .monospaced))
-                .foregroundStyle(.secondary)
-                .frame(width: metrics.scaled(58), alignment: .leading)
-
-            ForEach(commit.refs, id: \.self) { ref in
-                RefBadge(name: ref)
-            }
-
-            Text(commit.subject)
-                .font(metrics.scaledFont(.body))
+                .font(metrics.scaledFont(.subheadline, design: .monospaced))
+                .foregroundStyle(theme.color(.textSecondary))
                 .lineLimit(1)
-                .truncationMode(.tail)
+                .frame(width: metrics.scaled(CommitLogLayout.hashWidth), alignment: .leading)
 
-            Spacer(minLength: metrics.scaled(8))
+            HStack(spacing: metrics.scaled(CommitLogLayout.badgeGap)) {
+                ForEach(commit.refs, id: \.self) { ref in
+                    RefBadge(name: ref)
+                }
+                Text(commit.subject)
+                    .font(metrics.scaledFont(.body))
+                    .foregroundStyle(theme.color(.textPrimary))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
 
             Text(commit.author)
-                .font(metrics.scaledFont(.caption))
-                .foregroundStyle(.secondary)
+                .font(metrics.scaledFont(.callout))
+                .foregroundStyle(theme.color(.textSecondary))
                 .lineLimit(1)
-                .frame(maxWidth: metrics.scaled(160), alignment: .trailing)
+                .frame(width: metrics.scaled(CommitLogLayout.authorWidth), alignment: .trailing)
 
             Text(displayDate)
-                .font(metrics.scaledFont(.caption, design: .monospaced))
-                .foregroundStyle(.secondary)
-                .frame(width: metrics.scaled(120), alignment: .trailing)
+                .font(metrics.scaledFont(.callout))
+                .monospacedDigit()
+                .foregroundStyle(theme.color(.textSecondary))
+                .lineLimit(1)
+                .frame(width: metrics.scaled(CommitLogLayout.dateWidth), alignment: .trailing)
         }
-        .padding(.horizontal, metrics.scaled(10))
+        .padding(.horizontal, metrics.scaled(CommitLogLayout.rowPaddingX))
         .frame(maxWidth: .infinity, minHeight: rowHeight,
                maxHeight: rowHeight, alignment: .leading)
         .background(rowBackground)
@@ -359,8 +590,8 @@ private struct CommitRow: View {
     private var shortHash: String { String(commit.hash.prefix(7)) }
 
     private var rowBackground: Color {
-        if isSelected { return Color.accentColor.opacity(0.25) }
-        if isHovering { return Color.accentColor.opacity(0.15) }
+        if isSelected { return theme.color(.accentTintStrong) }
+        if isHovering { return theme.color(.hoverTint) }
         return .clear
     }
 
@@ -381,12 +612,15 @@ private struct CommitRow: View {
     }()
 }
 
-/// A small pill for a branch/tag ref decoration attached to a commit.
+/// A small pill for a branch/tag ref decoration attached to a commit: the
+/// `accentTint` ground under `accent` text, both roles, no opacity computed.
 private struct RefBadge: View {
     let name: String
 
     /// The interface zone's metrics, inherited from the window root.
     @Environment(\.interfaceMetrics) private var metrics
+    /// The chrome's colours, inherited from the window root.
+    @Environment(\.chromeTheme) private var theme
 
     var body: some View {
         Text(name)
@@ -394,8 +628,8 @@ private struct RefBadge: View {
             .lineLimit(1)
             .padding(.horizontal, metrics.scaled(5))
             .padding(.vertical, metrics.scaled(1))
-            .background(Color.accentColor.opacity(0.2))
-            .foregroundStyle(Color.accentColor)
+            .background(theme.color(.accentTint))
+            .foregroundStyle(theme.color(.accent))
             .clipShape(Capsule())
     }
 }
@@ -423,6 +657,8 @@ private struct CommitDetailPane: View {
 
     /// The interface zone's metrics, inherited from the window root.
     @Environment(\.interfaceMetrics) private var metrics
+    /// The chrome's colours, inherited from the window root.
+    @Environment(\.chromeTheme) private var theme
 
     var body: some View {
         filesList
@@ -433,15 +669,21 @@ private struct CommitDetailPane: View {
     private var filesList: some View {
         VStack(alignment: .leading, spacing: 0) {
             Text(commit.subject)
-                .font(metrics.scaledFont(.headline, weight: .semibold))
+                .font(metrics.scaledFont(.body, weight: .semibold))
+                .foregroundStyle(theme.color(.textPrimary))
                 .lineLimit(2)
                 .padding(.horizontal, metrics.scaled(10))
                 .padding(.top, metrics.scaled(8))
                 .padding(.bottom, metrics.scaled(4))
-            Divider()
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .overlay(alignment: .bottom) {
+                    Rectangle()
+                        .fill(theme.color(.hairline))
+                        .frame(height: metrics.scaled(ChromeGeometry.hairlineWidth))
+                }
             if files.isEmpty {
                 Text("No changed files")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(theme.color(.textSecondary))
                     .font(metrics.scaledFont(.callout))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
@@ -482,6 +724,11 @@ private struct CommitDetailPane: View {
 /// One changed-file row in the commit detail: a status-tinted icon, the path, and
 /// a one-letter status badge. Single-click selects the row; double-click opens its
 /// diff in a separate window.
+///
+/// The letter, its colour and its spoken name are Core's one answer
+/// (`FileStatus.letter`, `ChromeColorRole.changedFileRole(for:)`,
+/// `FileStatus.spokenName`): the letter carries the identity, the colour the
+/// weight, so the row reads the same to someone who cannot tell the colours apart.
 private struct CommitFileRow: View {
     let file: ChangedFile
     let isSelected: Bool
@@ -492,20 +739,23 @@ private struct CommitFileRow: View {
 
     /// The interface zone's metrics, inherited from the window root.
     @Environment(\.interfaceMetrics) private var metrics
+    /// The chrome's colours, inherited from the window root.
+    @Environment(\.chromeTheme) private var theme
 
     var body: some View {
-        let icon = FileIcon(for: DirectoryEntry(
-            url: URL(fileURLWithPath: file.path),
-            isDirectory: false
-        ))
+        let icon = FileIcon(for: DirectoryEntry(url: URL(fileURLWithPath: file.path), isDirectory: false))
+        let statusColor = theme.color(ChromeColorRole.changedFileRole(for: file.status))
         HStack(spacing: metrics.scaled(4)) {
             Image(systemName: icon.symbolName)
-                .foregroundStyle(commitStatusColor(file.status))
+                .foregroundStyle(statusColor)
+                .accessibilityHidden(true)
             Text(file.path)
+                .foregroundStyle(theme.color(.textPrimary))
             Spacer(minLength: metrics.scaled(4))
-            Text(commitStatusLetter(file.status))
+            Text(file.status.letter)
                 .font(metrics.scaledFont(.caption2, design: .monospaced))
-                .foregroundStyle(commitStatusColor(file.status))
+                .foregroundStyle(statusColor)
+                .accessibilityHidden(true)
         }
         .font(metrics.scaledFont(.body))
         .lineLimit(1)
@@ -515,6 +765,8 @@ private struct CommitFileRow: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(rowBackground)
         .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
+        .accessibilityValue(file.status.spokenName)
         // Double-click opens the diff window; declared before the single-tap so a
         // two-click sequence prefers it while one click still selects.
         .onTapGesture(count: 2, perform: onOpenDiff)
@@ -523,34 +775,9 @@ private struct CommitFileRow: View {
     }
 
     private var rowBackground: Color {
-        if isSelected { return Color.accentColor.opacity(0.25) }
-        if isHovering { return Color.accentColor.opacity(0.15) }
+        if isSelected { return theme.color(.accentTintStrong) }
+        if isHovering { return theme.color(.hoverTint) }
         return .clear
-    }
-}
-
-/// Semantic color for a git `FileStatus` in the commit detail, matching the Local
-/// Changes view's VCS-convention colors.
-private func commitStatusColor(_ status: FileStatus) -> Color {
-    switch status {
-    case .modified: return .blue
-    case .added: return .green
-    case .deleted: return .red
-    case .renamed: return .orange
-    case .untracked: return .gray
-    case .conflicted: return .purple
-    }
-}
-
-/// One-letter status badge, mirroring `git`'s short codes.
-private func commitStatusLetter(_ status: FileStatus) -> String {
-    switch status {
-    case .modified: return "M"
-    case .added: return "A"
-    case .deleted: return "D"
-    case .renamed: return "R"
-    case .untracked: return "U"
-    case .conflicted: return "C"
     }
 }
 
