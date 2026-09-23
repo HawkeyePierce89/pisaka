@@ -702,24 +702,27 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     like the numbers beside them (`zoomSurfaceKind == .code` unchanged), and are
     re-measured by the same `editorFontChanged()` path. A line carrying the worst
     severity draws one dot in that severity's **chrome role** —
-    `LineNumberRulerView.diagnosticRole(for:)`, total over the closed severity
-    set: `error` → `statusRed`, `warning` → `statusYellow`, `information` →
-    `accent`, `hint` → `textSecondary`; clean lines draw nothing. Two of the four
-    are not status roles, and deliberately so: the chrome has exactly one blue —
-    the accent — which is what a notice is drawn in, and a hint is a remark
-    rather than a condition, so it takes the same tone as the line numbers beside
-    it. The app-bundle gutter suite pins the mapping **and** that the four
-    resolve to four visibly different colours under both appearances, which is
-    the property the column actually has to have. That is a **deliberate
-    duplication away from `SyntaxTheme`**, which still answers the same question
-    for the squiggle and the hover popover: the gutter is chrome and reads from
-    the palette, while the squiggle sits under the code and belongs to the code
-    zone's own theme, so the two tables are two on purpose (`core-theme.md`).
-    The three-surfaces-one-severity rule recorded on `SyntaxTheme` below is
-    therefore now about the squiggle and the panel icon; the gutter dot has moved
-    out of it, and **the two tables now disagree outright** — the palette's
-    values are the chrome design's own and the syntax theme's are the code
-    zone's, so neither side may be read as a statement about the other. The same edit notification feeds Core's shift through the new
+    `ChromeColorRole.diagnosticRole(for:)`, Core's one answer, total over the
+    closed severity set: `error` → `statusRed`, `warning` → `statusYellow`,
+    `information` → `accent`, `hint` → `textSecondary`; clean lines draw nothing.
+    The ruler keeps no copy of it, and the Problems panel's header badges and row
+    glyphs are its second reader. Two of the four are not status roles, and
+    deliberately so: the chrome has exactly one blue — the accent — which is
+    what a notice is drawn in, and a hint is a remark rather than a condition, so
+    it takes the same tone as the line numbers beside it. The Core suite
+    (`ChromeThemeTests`) pins the mapping and that the four roles are pairwise
+    distinct; the app-bundle gutter suite pins what only it can see — that the
+    four **resolve** to four visibly different colours under both appearances,
+    which is the property the column actually has to have. That is a
+    **deliberate duplication away from `SyntaxTheme`**, which now answers the
+    same question for the squiggle alone (no hover code reads its severity
+    table): the gutter and the panel are chrome and read from the palette, while
+    the squiggle sits under the code and belongs to the code zone's own theme, so
+    the two tables are two on purpose (`core-theme.md`). The
+    `SyntaxTheme` entry below therefore names the squiggle as its one reader; the
+    gutter dot and the panel have moved out of it, and **the two tables disagree outright** — the palette's values are the
+    chrome design's own and the syntax theme's are the code zone's, so neither
+    side may be read as a statement about the other. The same edit notification feeds Core's shift through the new
     `onEdit` closure — previous/post line-start tables, edited range and length
     delta, exactly `DiagnosticShift.updated`'s inputs, so the diagnostics channel
     never re-derives geometry this class already computed — captured **weakly**
@@ -1002,8 +1005,15 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `diagnosticError/warning/information/hint`, all through
     `PlatformColor.dynamic(light:dark:)`, with `diagnosticColor(for:)` and an
     `nsDiagnosticColor(for:)` accessor mirroring the bracket set's shape — because
-    three surfaces (squiggle, gutter dot, panel icon) must draw one severity
-    identically and Core stays color-free by rule. The values are chosen against
+    the squiggle under the text must draw each severity identically wherever it
+    is painted (the underline writer and the stroke in
+    `BracketOverlayLayoutManager` are its two call sites, and its **only**
+    reader) and Core stays color-free by rule. The two other severity marks — the
+    gutter's dot and the Problems panel's badges and row glyphs — are chrome and
+    do not read this table at all: they read Core's one answer,
+    `ChromeColorRole.diagnosticRole(for:)`, through the chrome palette, so the two
+    tables are two on purpose and disagree outright (`core-theme.md`, rule
+    fifteen). The values are chosen against
     the existing palette rather than picked: error is a rose-leaning red
     (`#C01C5A`/`#FF7B85`) deliberately distinct from both `unmatchedBracketColor`
     and the `.string` red, so a red string and a red squiggle are never confused;

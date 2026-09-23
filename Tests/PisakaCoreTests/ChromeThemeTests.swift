@@ -2,7 +2,8 @@ import XCTest
 @testable import PisakaCore
 
 /// The chrome design system's Core half: the closed role set, the geometry
-/// tokens, the appearance resolution and the tree-row state rule.
+/// tokens, the appearance resolution, the tree-row state rule and the
+/// severity → role mapping.
 final class ChromeThemeTests: XCTestCase {
 
     // MARK: - Roles
@@ -54,6 +55,10 @@ final class ChromeThemeTests: XCTestCase {
         XCTAssertEqual(ChromeGeometry.breadcrumbHeight, 24)
         XCTAssertEqual(ChromeGeometry.bottomBarToggleSide, 22)
         XCTAssertEqual(ChromeGeometry.bottomBarToggleRadius, 4)
+        XCTAssertEqual(ChromeGeometry.panelHeaderHeight, 28)
+        XCTAssertEqual(ChromeGeometry.panelHeaderPaddingX, 14)
+        XCTAssertEqual(ChromeGeometry.dockTabRowPaddingX, 10)
+        XCTAssertEqual(ChromeGeometry.dockTabLabelPaddingX, 10)
         XCTAssertEqual(ChromeGeometry.accentIndicator, 2)
     }
 
@@ -71,7 +76,8 @@ final class ChromeThemeTests: XCTestCase {
             "rowHeight", "rowPaddingX", "treeIndentStep", "cornerRadiusMax", "hairlineWidth",
             "tabStripHeight", "verticalTabRowHeight", "dockTabRowHeight", "sidebarHeaderHeight",
             "bottomBarHeight", "barPaddingX", "breadcrumbHeight", "bottomBarToggleSide",
-            "bottomBarToggleRadius", "accentIndicator",
+            "bottomBarToggleRadius", "panelHeaderHeight", "panelHeaderPaddingX", "dockTabRowPaddingX",
+            "dockTabLabelPaddingX", "accentIndicator",
         ])
         for suspect in ["font", "Font", "fontSize", "textSize"] {
             XCTAssertFalse(
@@ -200,6 +206,31 @@ final class ChromeThemeTests: XCTestCase {
             TreeRowState.state(isSelected: true, isWindowKey: true, isHovering: true, isDropTarget: true),
             .dropTarget
         )
+    }
+
+    // MARK: - Severity
+
+    /// Severity → chrome role, the one answer both the gutter's dot and the
+    /// Problems panel read: the four answers pinned verbatim, and **pairwise
+    /// distinct** as roles, so two severities can never share a mark. The app
+    /// bundle's gutter suite pins the other half the Core gate cannot see — that
+    /// the four roles also *resolve* to four different colours under both
+    /// appearances.
+    func testEverySeverityMapsToItsChromeRole() {
+        let expected: [(DiagnosticSeverity, ChromeColorRole)] = [
+            (.error, .statusRed),
+            (.warning, .statusYellow),
+            (.information, .accent),
+            (.hint, .textSecondary),
+        ]
+        for (severity, role) in expected {
+            XCTAssertEqual(
+                ChromeColorRole.diagnosticRole(for: severity), role,
+                "\(severity) should be drawn in \(role.rawValue)"
+            )
+        }
+        let answers = expected.map { ChromeColorRole.diagnosticRole(for: $0.0) }
+        XCTAssertEqual(Set(answers).count, answers.count, "two severities share one role: \(answers)")
     }
 
     // MARK: - Reading the source file

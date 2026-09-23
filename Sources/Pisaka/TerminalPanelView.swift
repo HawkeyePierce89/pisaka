@@ -2,6 +2,7 @@
 import SwiftUI
 import AppKit
 import SwiftTerm
+import PisakaCore
 
 /// The embedded terminal panel: a tab bar above the active session's terminal
 /// view. Hosting one persistent `LocalProcessTerminalView` per session means
@@ -15,6 +16,15 @@ import SwiftTerm
 /// the **interface** zone: zooming the terminal must not move the tabs, which is
 /// exactly what the pointer rule produces, since the tabs are not a
 /// `ZoomSurfaceProviding` view.
+///
+/// On the chrome roles and tokens since part four (a) of the chrome theme: the
+/// session strip is this panel's header strip — a `panelHeaderHeight` strip that
+/// draws its own one-point `hairline` along its bottom edge rather than leaving a
+/// `Divider()` to the stack (gating rule fourteen) — the selected session tab is
+/// an `accentTintStrong` wash at `cornerRadiusMax`, and every glyph states its
+/// role, since a borderless button would otherwise tint it itself. The hosted
+/// terminal views, their container and the terminal palette are untouched: they
+/// are the terminal zone, not chrome.
 struct TerminalPanelView: View {
     @ObservedObject var model: TerminalSessionsModel
 
@@ -26,6 +36,9 @@ struct TerminalPanelView: View {
     /// the tab strip and nothing else: the hosted terminal views are the
     /// *terminal* zone and take their size from `TerminalSessionsModel`.
     @Environment(\.interfaceMetrics) private var metrics
+    /// The chrome's colours, inherited from the window root. Like the metrics,
+    /// they reach the strip and the empty ground only.
+    @Environment(\.chromeTheme) private var theme
 
     /// No minimum height here — the panel is rendered into a slot of exactly
     /// `BottomPanelHeightRule`'s height, and a minimum stated inside a
@@ -38,26 +51,25 @@ struct TerminalPanelView: View {
     var body: some View {
         VStack(spacing: 0) {
             tabBar
-            Divider()
             if let active = model.activeSession {
                 TerminalHostView(session: active, model: model)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                Color(nsColor: .textBackgroundColor)
+                theme.color(.bgPanel)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
     }
 
     private var tabBar: some View {
-        HStack(spacing: metrics.scaled(4)) {
+        HStack(spacing: metrics.scaled(TerminalTabStripLayout.gap)) {
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: metrics.scaled(4)) {
+                HStack(spacing: metrics.scaled(TerminalTabStripLayout.gap)) {
                     ForEach(model.sessions) { session in
                         tab(for: session)
                     }
                 }
-                .padding(.horizontal, metrics.scaled(6))
+                .padding(.horizontal, metrics.scaled(TerminalTabStripLayout.edgeInset))
             }
 
             Spacer(minLength: 0)
@@ -67,39 +79,65 @@ struct TerminalPanelView: View {
             } label: {
                 Image(systemName: "plus")
                     .font(metrics.scaledFont(.body))
+                    .foregroundStyle(theme.color(.textSecondary))
             }
             .buttonStyle(.borderless)
             .help("New terminal")
-            .padding(.trailing, metrics.scaled(6))
+            .padding(.trailing, metrics.scaled(TerminalTabStripLayout.edgeInset))
         }
-        .padding(.vertical, metrics.scaled(4))
-        .frame(height: metrics.scaled(28))
+        .padding(.vertical, metrics.scaled(TerminalTabStripLayout.stripPaddingY))
+        .frame(height: metrics.scaled(ChromeGeometry.panelHeaderHeight))
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(theme.color(.hairline))
+                .frame(height: metrics.scaled(ChromeGeometry.hairlineWidth))
+        }
     }
 
     private func tab(for session: TerminalSession) -> some View {
         let isActive = session.id == model.activeID
-        return HStack(spacing: metrics.scaled(4)) {
+        return HStack(spacing: metrics.scaled(TerminalTabStripLayout.gap)) {
             Text(session.title)
                 // 11pt — `subheadline`'s base size, so the strip is unchanged at
                 // 100% and follows the interface zone above it.
                 .font(metrics.scaledFont(.subheadline))
+                .foregroundStyle(theme.color(isActive ? .textPrimary : .textSecondary))
                 .lineLimit(1)
             Button {
                 model.close(id: session.id)
             } label: {
+                // `subheadline` at bold weight, matching the label beside it:
+                // the old 8pt glyph sat off the chrome's type scale.
                 Image(systemName: "xmark")
-                    .font(.system(size: metrics.scaled(8), weight: .bold))
+                    .font(metrics.scaledFont(.subheadline, weight: .bold))
+                    .foregroundStyle(theme.color(.textSecondary))
             }
             .buttonStyle(.borderless)
             .help("Close terminal")
         }
-        .padding(.horizontal, metrics.scaled(8))
-        .padding(.vertical, metrics.scaled(3))
-        .background(isActive ? Color(nsColor: .selectedControlColor) : Color.clear)
-        .clipShape(RoundedRectangle(cornerRadius: metrics.scaled(4)))
+        .padding(.horizontal, metrics.scaled(TerminalTabStripLayout.tabPaddingX))
+        .padding(.vertical, metrics.scaled(TerminalTabStripLayout.tabPaddingY))
+        .background(isActive ? theme.color(.accentTintStrong) : Color.clear)
+        .clipShape(RoundedRectangle(cornerRadius: metrics.scaled(ChromeGeometry.cornerRadiusMax)))
         .contentShape(Rectangle())
         .onTapGesture { model.activate(id: session.id) }
     }
+}
+
+/// The session strip's own numbers — gaps and insets that belong to this panel
+/// alone, kept local rather than promoted to `ChromeGeometry` tokens and scaled
+/// once at the use site (gating rule seven forbids deriving them from a token).
+private enum TerminalTabStripLayout {
+    /// Between two session tabs, and between a tab's title and its close glyph.
+    static let gap: Double = 4
+    /// The strip's leading inset before the first tab and trailing inset after `+`.
+    static let edgeInset: Double = 6
+    /// Above and below the tabs inside the strip.
+    static let stripPaddingY: Double = 4
+    /// A session tab's horizontal inset inside its wash.
+    static let tabPaddingX: Double = 8
+    /// A session tab's vertical inset inside its wash.
+    static let tabPaddingY: Double = 3
 }
 
 /// The host's container view, subclassed purely for the appearance hook: AppKit

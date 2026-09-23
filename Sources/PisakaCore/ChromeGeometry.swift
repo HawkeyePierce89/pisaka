@@ -26,9 +26,10 @@ import Foundation
 ///
 /// The inventory below is the whole table, and it is pinned by set equality in
 /// `ChromeThemeTests` — a token added here without its test fails the suite.
-/// Two of them are insets rather than sizes (`rowPaddingX`, `barPaddingX`) and
-/// they are deliberately distinct values for distinct measurements; see
-/// `barPaddingX`'s own comment.
+/// Five of them are insets rather than sizes (`rowPaddingX`, `barPaddingX`,
+/// `panelHeaderPaddingX`, `dockTabRowPaddingX`, `dockTabLabelPaddingX`) and
+/// they are deliberately distinct tokens for distinct measurements, even where
+/// two values coincide; see `barPaddingX`'s own comment.
 public enum ChromeGeometry {
     /// A tree or list row's total height, hover highlight included.
     public static let rowHeight: Double = 24
@@ -63,6 +64,21 @@ public enum ChromeGeometry {
     public static let bottomBarToggleSide: Double = 22
     /// That toggle's corner radius.
     public static let bottomBarToggleRadius: Double = 4
+    /// A dock panel's header strip height — the strip across the top of a
+    /// panel's interior that carries its title and its own controls.
+    public static let panelHeaderHeight: Double = 28
+    /// A dock panel header's horizontal inset from the panel's edge. Its own
+    /// measurement, like `barPaddingX`: a panel header is not the bottom bar.
+    public static let panelHeaderPaddingX: Double = 14
+    /// The dock tab row's horizontal inset from the dock's edge. Deliberately
+    /// *not* `dockTabLabelPaddingX`, although the two are equal today: the row's
+    /// inset from the window edge and a label's box around its text are two
+    /// measurements, the argument `barPaddingX`'s comment makes.
+    public static let dockTabRowPaddingX: Double = 10
+    /// A dock tab's horizontal padding around its label — the box the accent
+    /// indicator spans. Deliberately *not* `dockTabRowPaddingX`; see that
+    /// token's comment.
+    public static let dockTabLabelPaddingX: Double = 10
     /// The thickness of the accent indicator marking the active tab.
     public static let accentIndicator: Double = 2
 }

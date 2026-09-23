@@ -5,7 +5,7 @@ import PisakaCore
 /// The Usages panel in the bottom dock: every place the identifier the user
 /// asked about is used, grouped by file.
 ///
-/// `ProblemsPanelView`'s shape throughout — a header, a divider, and one group
+/// `ProblemsPanelView`'s shape throughout — a header strip, and one group
 /// per file over rows that activate through the app's single
 /// `activateSearchMatch(url:range:)`-style entry point — because the two panels
 /// answer the same kind of question (where in this project is *this*) and a
@@ -26,6 +26,11 @@ import PisakaCore
 /// interface zone like every other panel in the dock. It states no minimum
 /// height either — the slot's height is `BottomPanelHeightRule`'s and a minimum
 /// inside it can only overflow (`BottomPanelSourceGatingTests` pins both rules).
+///
+/// On the chrome roles and tokens since part four (a) of the chrome theme, in
+/// Problems' shape: a `panelHeaderHeight` header drawing its own one-point
+/// `hairline` along its bottom edge rather than a `Divider()` (gating rule
+/// fourteen), and every colour a role.
 struct UsagesPanelView: View {
     @ObservedObject var model: FindUsagesModel
     /// Invoked when a row is activated, with the row itself rather than a
@@ -38,29 +43,34 @@ struct UsagesPanelView: View {
 
     /// The interface zone's metrics, inherited from the window root.
     @Environment(\.interfaceMetrics) private var metrics
+    /// The chrome's colours, inherited from the window root.
+    @Environment(\.chromeTheme) private var theme
 
     var body: some View {
         VStack(spacing: 0) {
             header
-            Divider()
             content
         }
     }
 
     private var header: some View {
-        HStack(spacing: metrics.scaled(8)) {
+        HStack(spacing: metrics.scaled(UsagesPanelLayout.headerGap)) {
             Text("Usages")
-                .font(metrics.scaledFont(.headline, weight: .semibold))
+                .font(metrics.scaledFont(.body, weight: .semibold))
+                .foregroundStyle(theme.color(.textPrimary))
+                .lineLimit(1)
             if !model.identifier.isEmpty {
                 Text(model.identifier)
                     .font(metrics.scaledFont(.callout, design: .monospaced))
+                    .foregroundStyle(theme.color(.textPrimary))
                     .lineLimit(1)
                     .truncationMode(.middle)
             }
             if let note = provenanceNote {
                 Text(note)
-                    .font(metrics.scaledFont(.caption))
-                    .foregroundStyle(.secondary)
+                    .font(metrics.scaledFont(.subheadline))
+                    .foregroundStyle(theme.color(.textSecondary))
+                    .lineLimit(1)
             }
             if model.isSearching {
                 ProgressView()
@@ -69,13 +79,19 @@ struct UsagesPanelView: View {
             Spacer()
             if !model.groups.isEmpty {
                 Text(countLabel)
-                    .font(metrics.scaledFont(.caption))
+                    .font(metrics.scaledFont(.subheadline))
                     .monospacedDigit()
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(theme.color(.textSecondary))
+                    .lineLimit(1)
             }
         }
-        .padding(.horizontal, metrics.scaled(10))
-        .padding(.vertical, metrics.scaled(6))
+        .padding(.horizontal, metrics.scaled(ChromeGeometry.panelHeaderPaddingX))
+        .frame(height: metrics.scaled(ChromeGeometry.panelHeaderHeight))
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(theme.color(.hairline))
+                .frame(height: metrics.scaled(ChromeGeometry.hairlineWidth))
+        }
     }
 
     /// What the rows mean, in words. Absent until a question has been *answered*:
@@ -119,7 +135,7 @@ struct UsagesPanelView: View {
                         fileGroup(group)
                     }
                 }
-                .padding(.vertical, metrics.scaled(4))
+                .padding(.vertical, metrics.scaled(UsagesPanelLayout.listPaddingY))
             }
         }
     }
@@ -137,18 +153,18 @@ struct UsagesPanelView: View {
 
     private func fileGroup(_ group: UsageFileGroup) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: metrics.scaled(4)) {
+            HStack(spacing: metrics.scaled(UsagesPanelLayout.groupGap)) {
                 let icon = FileIcon(for: DirectoryEntry(url: group.fileURL, isDirectory: false))
                 Image(systemName: icon.symbolName)
-                    .foregroundStyle(Color.secondary)
+                    .foregroundStyle(theme.color(.textSecondary))
                 Text(group.relativePath)
+                    .foregroundStyle(theme.color(.textPrimary))
                     .lineLimit(1)
                     .truncationMode(.middle)
             }
             .font(metrics.scaledFont(.body, weight: .medium))
-            .foregroundStyle(Color.primary)
-            .padding(.horizontal, metrics.scaled(6))
-            .padding(.vertical, metrics.scaled(3))
+            .padding(.horizontal, metrics.scaled(ChromeGeometry.rowPaddingX))
+            .padding(.vertical, metrics.scaled(UsagesPanelLayout.groupPaddingY))
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
 
@@ -165,12 +181,10 @@ struct UsagesPanelView: View {
         VStack {
             Spacer()
             Text(text)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(theme.color(.textSecondary))
                 .font(metrics.scaledFont(.callout))
                 .multilineTextAlignment(.center)
-                // The default `.padding()` inset, stated so it scales with the
-                // rest of the panel instead of staying a fixed 16pt.
-                .padding(metrics.scaled(16))
+                .padding(metrics.scaled(UsagesPanelLayout.placeholderPadding))
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -193,24 +207,26 @@ private struct UsageRow: View {
 
     /// The interface zone's metrics, inherited from the window root.
     @Environment(\.interfaceMetrics) private var metrics
+    /// The chrome's colours, inherited from the window root.
+    @Environment(\.chromeTheme) private var theme
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: metrics.scaled(6)) {
+        HStack(alignment: .firstTextBaseline, spacing: metrics.scaled(UsagesPanelLayout.rowGap)) {
             Text("\(row.line)")
-                .font(metrics.scaledFont(.caption, design: .monospaced))
-                .foregroundStyle(Color.secondary)
-                .frame(minWidth: metrics.scaled(34), alignment: .trailing)
+                .font(metrics.scaledFont(.subheadline, design: .monospaced))
+                .foregroundStyle(theme.color(.textSecondary))
+                .frame(minWidth: metrics.scaled(UsagesPanelLayout.lineNumberWidth), alignment: .trailing)
             preview
                 .font(metrics.scaledFont(.body, design: .monospaced))
                 .lineLimit(1)
                 .truncationMode(.tail)
-            Spacer(minLength: metrics.scaled(4))
+            Spacer(minLength: metrics.scaled(UsagesPanelLayout.trailingGap))
         }
-        .padding(.leading, metrics.scaled(16))
-        .padding(.trailing, metrics.scaled(6))
-        .padding(.vertical, metrics.scaled(2))
+        .padding(.leading, metrics.scaled(UsagesPanelLayout.rowIndent))
+        .padding(.trailing, metrics.scaled(ChromeGeometry.rowPaddingX))
+        .padding(.vertical, metrics.scaled(UsagesPanelLayout.rowPaddingY))
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(isHovering ? Color.accentColor.opacity(0.15) : Color.clear)
+        .background(isHovering ? theme.color(.hoverTint) : Color.clear)
         .contentShape(Rectangle())
         .onTapGesture(perform: onActivate)
         .onHover { isHovering = $0 }
@@ -225,15 +241,43 @@ private struct UsageRow: View {
         let text = row.preview.text as NSString
         let match = row.preview.matchRange
         guard match.location >= 0, NSMaxRange(match) <= text.length else {
-            return Text(row.preview.text).foregroundColor(.primary)
+            return Text(row.preview.text).foregroundColor(theme.color(.textPrimary))
         }
         let before = text.substring(to: match.location)
         let hit = text.substring(with: match)
         let after = text.substring(from: NSMaxRange(match))
-        return Text(before).foregroundColor(.secondary)
-            + Text(hit).foregroundColor(.primary).fontWeight(.semibold)
-            + Text(after).foregroundColor(.secondary)
+        return Text(before).foregroundColor(theme.color(.textSecondary))
+            + Text(hit).foregroundColor(theme.color(.textPrimary)).fontWeight(.semibold)
+            + Text(after).foregroundColor(theme.color(.textSecondary))
     }
+}
+
+/// The panel's own measurements, bare numbers scaled once at the use site. They
+/// belong to this panel alone, so deriving them from a `ChromeGeometry` token
+/// would couple them to a measurement that means something else (gating rule
+/// seven).
+private enum UsagesPanelLayout {
+    /// Between a file group's icon and its path.
+    static let groupGap: Double = 4
+    /// Around the empty-state sentence: the default `.padding()` inset, stated
+    /// so it scales with the rest of the panel instead of staying a fixed 16pt.
+    static let placeholderPadding: Double = 16
+    /// Between the header's title, identifier, note and count.
+    static let headerGap: Double = 8
+    /// Above and below the list inside its scroll view.
+    static let listPaddingY: Double = 4
+    /// A file group's vertical inset.
+    static let groupPaddingY: Double = 3
+    /// Between a row's line number and its preview.
+    static let rowGap: Double = 6
+    /// The line-number column's least width, so previews align down a group.
+    static let lineNumberWidth: Double = 34
+    /// The least room kept after a row's preview.
+    static let trailingGap: Double = 4
+    /// A row's leading inset: it sits under its file group's name.
+    static let rowIndent: Double = 16
+    /// A row's vertical inset.
+    static let rowPaddingY: Double = 2
 }
 
 #endif

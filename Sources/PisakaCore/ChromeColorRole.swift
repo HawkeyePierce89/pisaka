@@ -13,7 +13,7 @@ import Foundation
 /// surface that appears to need a twenty-second role has instead found a design
 /// question, and the answer is to reuse one of these or to change the design —
 /// not to grow the table. Some roles are consequently still unused after the
-/// twelve surfaces restyled so far — six of them (`bgPopover`, `currentLine`,
+/// sixteen surfaces restyled so far — six of them (`bgPopover`, `currentLine`,
 /// `bracketMatch`, `diffAddedBackground`, `diffRemovedBackground`,
 /// `conflictBackground`), each waiting for the surface that means it: the
 /// popovers, the code zone's two line overlays, and the diff and merge panes.
@@ -87,4 +87,30 @@ public enum ChromeColorRole: String, CaseIterable, Hashable, Sendable {
     case diffRemovedBackground
     /// A conflicted region in the merge editor.
     case conflictBackground
+}
+
+extension ChromeColorRole {
+    /// Severity → the chrome role a severity mark is drawn in. Total over the
+    /// closed severity set, like `SyntaxTheme`'s own answer — and deliberately
+    /// *not* that one: the squiggle under the text is the code zone and stays on
+    /// `SyntaxTheme.diagnosticColor(for:)` alone, so a chrome severity mark and
+    /// the underline below it read from two tables on purpose.
+    ///
+    /// This is the chrome's **one** answer, and two surfaces read it: the
+    /// gutter's severity dot (`LineNumberRulerView`) and the Problems panel's
+    /// header badges and row glyphs. Neither keeps a table of its own.
+    ///
+    /// The four answers are three status roles and one text role. *Information*
+    /// takes `accent` — the chrome has exactly one blue, and a notice is the
+    /// thing the accent is for — and a *hint* takes `textSecondary`, because a
+    /// hint is a remark rather than a condition and is drawn in the same tone the
+    /// line numbers beside it are.
+    public static func diagnosticRole(for severity: DiagnosticSeverity) -> ChromeColorRole {
+        switch severity {
+        case .error: return .statusRed
+        case .warning: return .statusYellow
+        case .information: return .accent
+        case .hint: return .textSecondary
+        }
+    }
 }

@@ -612,7 +612,7 @@ user sees it.
   code, a small severity dot in the gutter beside each affected line, and a
   **Problems** panel in the bottom dock listing every open file's findings. The
   panel toggles with "Show/Hide Problems" in the View menu, the ⚠ button on the
-  bottom bar, or Cmd+Shift+M, and shares that one dock with Terminal, Git Log,
+  bottom bar, or Cmd+Shift+M, and shares that one dock with Terminal, Log,
   Local Changes, Usages and Pull Requests. Its header counts errors and warnings across all files; rows
   are grouped by file (path relative to the opened folder) showing severity icon,
   message and line number, ordered top-to-bottom through each file with the most
@@ -895,7 +895,7 @@ user sees it.
   retargets it.
 - Closing a file with unsaved changes shows a Save / Don't Save / Cancel dialog.
 - Local Changes: a collapsible bottom panel (toggle with "Show/Hide Local
-  Changes" in the View menu, the Changes button on the bottom bar, or
+  Changes" in the View menu, the Local Changes button on the bottom bar, or
   Cmd+Shift+C) listing files differing from `HEAD` (via `git`).
   View the list flat or grouped by folder; each file shows a type icon tinted by
   its git status plus a one-letter badge (M/A/D/R/U/C). Double-click a file to open
@@ -994,8 +994,8 @@ user sees it.
   the three panes. "Apply" (enabled only once every conflict is resolved) writes
   the resolved text to the working file, stages it (`git add`), refreshes Local
   Changes, and closes the window. Non-binary text files only.
-- Git Log: a read-only commit history shown in a collapsible bottom panel (toggle
-  with "Show/Hide Git Log" in the View menu, the Git button on the bottom bar, or
+- Git Log: a read-only commit history shown in the **Log** bottom panel (toggle
+  with "Show/Hide Git Log" in the View menu, the Log button on the bottom bar, or
   Cmd+Shift+L). It shows a commit table — short
   hash, ref/branch/tag badges, subject, author, and date — with a colored branch
   graph in the left gutter that draws lanes for branches and merges. A "Load
@@ -1145,8 +1145,15 @@ user sees it.
   restarts a running shell. Shells are terminated when you close their tab and
   when you quit, so no processes leak. Closing the last terminal tab collapses the
   panel (no empty gap), and a repeat click / Cmd+Shift+T reopens it. The Terminal,
-  Git Log, Local Changes, Problems, Usages and Pull Requests panels share one
-  bottom dock — opening one replaces whichever was shown. The terminal follows the app theme — the system light/dark
+  Log, Local Changes, Problems, Usages and Pull Requests panels share one
+  bottom dock — opening one replaces whichever was shown. The bottom bar's six
+  panel buttons are icons only; resting the pointer on one shows the panel's
+  name, and screen readers speak it. Across the top of the dock runs a **tab
+  row** naming the same six panels in the bar's order, the one on screen
+  underlined in the accent colour: clicking another tab switches the dock to
+  that panel, clicking the tab already showing does nothing, and the **×** at
+  the row's right end closes the dock (the same as clicking the showing
+  panel's bar button again). The terminal follows the app theme — the system light/dark
   appearance, or a theme forced in Settings — and recolors live, without restarting
   the shell or losing scrollback; every open tab is recolored, including inactive
   ones.

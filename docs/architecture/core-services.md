@@ -97,9 +97,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     metacharacters cannot reach the command line at all.
   - `BottomPanel.swift` — pure, testable bottom-dock-panel state
     (Foundation-free — semantic enum only, the `FileIconColor`/`LogFilter`
-    precedent). A `public enum BottomPanel: Equatable { case terminal, log,
+    precedent). A `public enum BottomPanel: Equatable, CaseIterable, Sendable { case terminal, log,
     changes, problems, usages, pullRequests }` (which panel, if any, sits in the bottom dock above the
-    always-visible bar; a `BottomPanel?` of `nil` = hidden — Terminal, Git Log,
+    always-visible bar; a `BottomPanel?` of `nil` = hidden — Terminal, Log,
     Local Changes, Problems, Usages and Pull Requests share the one dock. `usages` is a *sibling*
     of `problems` rather than a mode of it: both are lists of places in the
     project, but one is what a server volunteered about the code and the other is
@@ -110,7 +110,41 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     -> BottomPanel?`: re-selecting the shown panel collapses it (`nil`), otherwise
     the `target` is shown — so a bottom-bar button and its matching View-menu
     command behave identically (the helper is generic over the case, so `.changes`
-    needs no special handling). Unit-tested in `BottomPanelTests`.
+    needs no special handling). **The declaration order is the order on
+    screen**: the enum is `CaseIterable`, and the bottom bar's toggles (built by
+    `ContentView.panelToggles` over `ForEach(BottomPanel.allCases)`) and the
+    dock's tab row both list the panels through `allCases` — terminal, log,
+    changes, problems, usages, pullRequests — so neither keeps a second list;
+    `BottomPanelTests` pins the order and `core-theme.md`'s gating rule ten pins
+    that the bar reads it and names no case of its own. What a strip draws for
+    a panel is a column of the same table: `public var systemImage: String` is
+    the bar's glyph — `terminal`, `arrow.triangle.branch`,
+    `arrow.triangle.pull`, `exclamationmark.triangle`, `text.magnifyingglass`,
+    `arrow.triangle.merge` — a symbol name being a string, as `FileIcon`'s is,
+    so Core stays Foundation-only and colour-free. Pull Requests draws
+    `arrow.triangle.merge` rather than the `arrow.triangle.pull` Local Changes
+    already uses because two toggles drawn with one glyph are
+    indistinguishable at a glance, and with the labels gone the glyph is all
+    there is (that reason sits beside the value in the source too, and
+    `BottomPanelTests` pins the six glyphs distinct).
+    `public var title: String` is **the one name per panel** — "Terminal",
+    "Log", "Local Changes", "Problems", "Usages", "Pull Requests" — read by the
+    bar's tooltip and accessibility label and by the tab row's tab, so the two
+    cannot disagree. `static func tabActivation(_ current: BottomPanel?, tab:
+    BottomPanel) -> DockTabActivation` is the tab rule: **a tab selects and never
+    collapses** — the showing tab answers `.alreadyShowing`, any other tab (or
+    any tab while nothing is showing) `.show(tab)`, which the view hands to the
+    same funnel as the bar, where `toggled` yields the target; collapsing is the
+    bar's toggle's and the row's close action's. `public enum DockTabActivation:
+    Equatable, Sendable { case show(BottomPanel); case alreadyShowing }` is
+    declared beside it and is deliberately **not** a second `BottomPanel?`:
+    `toggled` already returns one whose `nil` means "collapse", and a sibling
+    whose `nil` meant "nothing to do" could be handed to `toggled`'s `current:`
+    parameter and compile, reading "nothing to do" as "no panel showing" — a
+    distinct type makes that a compile error rather than a test's job.
+    Unit-tested in `BottomPanelTests` (the order, each title verbatim and
+    distinct, the three tab answers, and that every `.show` answer passed
+    through `toggled` yields its target).
   - `BottomPanelHeightRule.swift` — pure, testable height authority for the bottom
     dock panel, sitting beside `BottomPanel.swift`: that enum decides *which*
     panel, this value type decides *how tall*. A `Sendable`/`Equatable`/`Hashable`

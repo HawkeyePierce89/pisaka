@@ -66,6 +66,21 @@ import XCTest
 ///   draw *and* spell an accessibility value, because two of those glyphs were
 ///   the row's state and hiding a state without speaking it is the same defect
 ///   with the counts looking healthy.
+/// - **The dock's tab row is configured in one place.** It is drawn once, from
+///   the slot every panel passes through; a second call site compiles and
+///   stacks a second row.
+/// - **Every dock tab and the close action are identifiable without sight.** A
+///   tab's selection is a shape, so it is spoken as a value; the close action is
+///   an icon-only glyph, so it is named outright.
+/// - **The dock's swept surfaces draw their own rules.** A `Divider()` is the
+///   platform's separator colour, a step off the `hairline` role beside it, and
+///   it compiles and looks plausible in whichever appearance the reviewer is in.
+/// - **The severity mapping is Core's one answer.** A second severity table in a
+///   view compiles, draws four plausible colours, and drifts from the gutter's
+///   the first time either is touched.
+/// - **An indicator strip's bottom rule is drawn behind its tabs.** An overlaid
+///   rule paints over the lower point of the active tab's accent indicator — a
+///   one-point overlap no compiler or headless test can see.
 final class ChromeThemeSourceGatingTests: XCTestCase {
 
     // MARK: - The gated set
@@ -100,6 +115,11 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         "ProjectSwitcherView.swift",
         "BranchSwitcherView.swift",
         "PullRequestIndicatorView.swift",
+        // Part four (a): the dock's own chrome.
+        "DockTabRow.swift",
+        "ProblemsPanelView.swift",
+        "UsagesPanelView.swift",
+        "TerminalPanelView.swift",
     ]
 
     func testEveryGatedFileExists() throws {
@@ -505,13 +525,19 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
             TabFileIcon exists to refuse
             """
         )
-        // Three, and named: the tree's rows, the inline draft field drawing the
-        // placeholder icon a real row would have, and the shared tab icon both
-        // orientations now ask. A fourth is a line that has quietly bought
-        // itself out of rule one.
+        // Five, and named: the tree's rows, the inline draft field drawing the
+        // placeholder icon a real row would have, the shared tab icon both
+        // orientations now ask, and — since part four (a) — the Problems and
+        // Usages panels' file-group headers, each of whose exempted line is a
+        // `let icon = FileIcon(…)` binding read for its symbol alone (the glyph
+        // is drawn in `textSecondary`, a role, on a line rule one still scans).
+        // A sixth is a line that has quietly bought itself out of rule one.
         XCTAssertEqual(
             iconNamers,
-            ["ProjectTreeDraftField.swift", "ProjectTreeView.swift", "TabStripView.swift"],
+            [
+                "ProjectTreeDraftField.swift", "ProjectTreeView.swift", "TabStripView.swift",
+                "ProblemsPanelView.swift", "UsagesPanelView.swift",
+            ],
             "a gated file naming FileIcon( carries a line exempt from rule one — keep the set small"
         )
     }
@@ -595,9 +621,13 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     ///
     /// Read over the **brace-matched bodies** of the two declarations, in rule
     /// six's idiom, so a `.help(` somewhere else in this 1 400-line file cannot
-    /// satisfy it. The call count is pinned too: one declaration plus six calls,
-    /// so a seventh dock panel arriving without a glance at this rule fails here
-    /// rather than shipping under its glyph's name.
+    /// satisfy it. The call count is pinned too: one declaration plus one call,
+    /// inside `panelToggles` — the bar builds its toggles from
+    /// `BottomPanel.allCases` and **names no panel case in that body**, so it
+    /// keeps no second list of panels beside the one the dock's tab row reads.
+    /// `BottomPanelTests` pins the order; this rule pins who reads it. A seventh
+    /// panel therefore arrives through the same builder whose name this rule
+    /// already requires.
     private static let windowRootFile = "ContentView.swift"
 
     /// The bar's three widgets, the same rule read from the other side.
@@ -660,16 +690,41 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
                 )
             }
         }
-        // One declaration and six calls — the six bottom dock panels. A seventh
-        // panel adds a call here, and this count is where it is asked whether
-        // the new toggle is named.
+        // One declaration and one call — the call inside `panelToggles`, over
+        // `allCases`. A hand-written seventh call is a second list of panels.
         XCTAssertEqual(
-            Self.occurrences(of: "bottomBarButton(", in: code), 7,
+            Self.occurrences(of: "bottomBarButton(", in: code), 2,
             """
-            \(Self.windowRootFile) must spell bottomBarButton( exactly seven times — the declaration \
-            and one call per bottom dock panel
+            \(Self.windowRootFile) must spell bottomBarButton( exactly twice — the declaration \
+            and the one call inside panelToggles, over BottomPanel.allCases
             """
         )
+        let bar = try XCTUnwrap(
+            Self.matchedBody(after: "var bottomBar:", in: code),
+            "bottomBar is gone or renamed — re-point this rule rather than losing it"
+        )
+        XCTAssertTrue(
+            LSPSourceGatingTests.containsToken("panelToggles", in: bar),
+            "bottomBar must draw its panel toggles through panelToggles"
+        )
+        let toggles = try XCTUnwrap(
+            Self.matchedBody(after: "var panelToggles:", in: code),
+            "panelToggles is gone or renamed — re-point this rule rather than losing it"
+        )
+        XCTAssertTrue(
+            toggles.contains("BottomPanel.allCases"),
+            "panelToggles must build the bar's toggles from BottomPanel.allCases — the dock's tab row's one list"
+        )
+        XCTAssertTrue(toggles.contains("bottomBarButton("), "panelToggles must call bottomBarButton(")
+        for panelCase in [".terminal", ".log", ".changes", ".problems", ".usages", ".pullRequests"] {
+            XCTAssertFalse(
+                toggles.contains(panelCase),
+                """
+                panelToggles names \(panelCase) — a panel spelled here is a second list beside \
+                BottomPanel.allCases, and reordering the enum would reorder the tab row alone
+                """
+            )
+        }
     }
 
     func testEveryBottomBarWidgetHidesItsSymbolsAndSpeaksTheirState() throws {
@@ -713,8 +768,10 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
 
     // MARK: - Rule eleven: every label the bar draws stays on one line
 
-    /// The three widgets again, this time as the only files that draw a `Text`
-    /// inside the bar's own fixed-height frame.
+    /// The files that draw a `Text` inside a fixed-height chrome strip: the
+    /// bar's three widgets, and since part four (a) the dock's tab row and the
+    /// Problems, Usages and Terminal panels, whose headers are
+    /// `panelHeaderHeight` strips.
     ///
     /// Part three gave the bottom bar `frame(height:)` on
     /// `ChromeGeometry.bottomBarHeight`, where before its height came from the
@@ -726,19 +783,51 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// errors, nothing else goes red, and the bar looks right on every window
     /// wide enough.
     ///
-    /// So each widget file must spell `.lineLimit(1)`, asserted in this suite's
-    /// `contains` idiom over stripped source.
+    /// The dock's tab row is the same shape one strip up: its labels sit in
+    /// `ChromeGeometry.dockTabRowHeight`, a frame that cannot grow either.
+    ///
+    /// The rule takes one of two forms per file, over stripped source.
+    ///
+    /// **Whole file** — `barLabelFiles` must each spell `.lineLimit(1)`
+    /// somewhere, in this suite's `contains` idiom. That is the honest check
+    /// where the strip *is* the file's view: the bar's three widgets, whose one
+    /// bar label the limit was absent from altogether, and the dock's tab row,
+    /// whose only `Text` is its tab label.
+    ///
+    /// **Header builder** — `headerBuilderFiles` name, per panel, the builders
+    /// that draw the panel's fixed-height header strip, and inside each one's
+    /// brace-matched body (rule ten's reading of the bar's button builder) the
+    /// count of `.lineLimit(1)` must equal the count of `Text(`: every label the
+    /// strip draws carries its own limit. A file-level `contains` cannot pin
+    /// these, and that is how it failed: each of the three panels already spelled
+    /// `.lineLimit(1)` on master — a file-group path, the identifier, a session
+    /// title — so the check was satisfied by an older occurrence and deleting the
+    /// limit from the new "Problems" title, the badge count, the provenance note
+    /// or the count label left the suite green. A builder renamed or removed
+    /// fails loudly rather than silently narrowing the rule to nothing.
     ///
     /// The honest limit, stated with the rule as the two above state theirs: a
-    /// source rule cannot see a layout. It sees the line that prevents this one
-    /// — it cannot tell *which* `Text` in the file carries the limit, so a file
-    /// whose bar label lost it while a popover row kept one would satisfy this.
-    /// What it pins is that the construct is known here at all, which is what
-    /// the widgets did not have: the limit was absent from all three.
+    /// source rule cannot see a layout. The whole-file form cannot tell *which*
+    /// `Text` in the file carries the limit, so a widget whose bar label lost it
+    /// while a popover row kept one would satisfy it — any older occurrence
+    /// satisfies a file-level `contains`. The builder form counts spellings, so
+    /// a `Text` built outside the named builders (or a limit spelled on a
+    /// container rather than on each label) is not what it sees; what it pins
+    /// is that each label the header draws is written with its limit beside it.
     private static let barLabelFiles = [
         "ProjectSwitcherView.swift",
         "BranchSwitcherView.swift",
         "PullRequestIndicatorView.swift",
+        "DockTabRow.swift",
+    ]
+
+    /// Each panel's header-strip builders, by declaration: the Problems header
+    /// and the severity badge it draws, the Usages header, and the Terminal
+    /// strip's per-session tab.
+    private static let headerBuilderFiles: [(file: String, builders: [String])] = [
+        ("ProblemsPanelView.swift", ["private var header: some View", "private func severityBadge("]),
+        ("UsagesPanelView.swift", ["private var header: some View"]),
+        ("TerminalPanelView.swift", ["private func tab(for session:"]),
     ]
 
     func testEveryBottomBarLabelIsSingleLine() throws {
@@ -749,12 +838,366 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
             XCTAssertTrue(
                 code.contains(".lineLimit(1)"),
                 """
-                \(name) draws a Text inside the bottom bar's fixed-height frame and must limit it \
+                \(name) draws a Text inside a fixed-height chrome strip and must limit it \
                 to one line — a label that wraps in a frame that cannot grow is a label drawn in \
                 two lines and clipped to one and a half
                 """
             )
         }
+        for (name, builders) in Self.headerBuilderFiles {
+            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
+                try Self.read(Self.source(named: name))
+            )
+            for builder in builders {
+                let body = try XCTUnwrap(
+                    Self.matchedBody(after: builder, in: code),
+                    "\(name)'s \(builder) is gone or renamed — re-point this rule rather than losing it"
+                )
+                let labels = Self.occurrences(of: "Text(", in: body)
+                XCTAssertGreaterThan(
+                    labels, 0,
+                    "\(name)'s \(builder) draws no Text any more — re-point this rule rather than losing it"
+                )
+                XCTAssertEqual(
+                    Self.occurrences(of: ".lineLimit(1)", in: body), labels,
+                    """
+                    \(name)'s \(builder) draws its Text labels inside a fixed-height header strip, \
+                    and each must carry its own .lineLimit(1) — an older occurrence elsewhere in the \
+                    file does not protect this one
+                    """
+                )
+            }
+        }
+    }
+
+    // MARK: - Rule twelve: the dock's tab row is configured in one place
+
+    /// The dock's tab row is drawn once, above whichever panel is showing, from
+    /// `ContentView.panelContent(_:)` — the one place every panel passes
+    /// through, inside the fixed-height slot.
+    ///
+    /// Swift's `internal` cannot stop a panel file from naming the row, and a
+    /// second call site would compile and look deliberate: a panel drawing its
+    /// own copy would show two rows stacked in the slot, or one row where the
+    /// host's had been removed and five panels with none. So reachability is
+    /// pinned instead, over stripped source: the set of files naming the
+    /// `DockTabRow` token equals the row's own file (which declares it) and
+    /// `ContentView.swift`; the window root constructs it — `DockTabRow(` —
+    /// exactly once, inside `panelContent(`'s brace-matched body; and none of
+    /// the six hosted panel files names the type at all, which the set already
+    /// implies and is asserted per file so the failure names the panel.
+    private static let dockTabRowFile = "DockTabRow.swift"
+
+    /// The six views `panelContent(_:)` puts in the slot, one per panel.
+    private static let hostedPanelFiles = [
+        "TerminalPanelView.swift",
+        "CommitLogView.swift",
+        "LocalChangesView.swift",
+        "ProblemsPanelView.swift",
+        "UsagesPanelView.swift",
+        "PullRequestsPanelView.swift",
+    ]
+
+    func testTheDockTabRowIsConfiguredInOnePlace() throws {
+        var namers: Set<String> = []
+        for url in try Self.swiftSources() {
+            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            if LSPSourceGatingTests.containsToken("DockTabRow", in: code) {
+                namers.insert(url.lastPathComponent)
+            }
+            if Self.hostedPanelFiles.contains(url.lastPathComponent) {
+                XCTAssertFalse(
+                    LSPSourceGatingTests.containsToken("DockTabRow", in: code),
+                    """
+                    \(url.lastPathComponent) names DockTabRow — the row is the host's, drawn once \
+                    above every panel, and a panel drawing its own stacks a second one in the slot
+                    """
+                )
+            }
+        }
+        XCTAssertEqual(
+            namers, [Self.dockTabRowFile, Self.windowRootFile],
+            "DockTabRow must be named only in its own file and in \(Self.windowRootFile)"
+        )
+
+        let root = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
+            try Self.read(Self.source(named: Self.windowRootFile))
+        )
+        XCTAssertEqual(
+            Self.occurrences(of: "DockTabRow(", in: root), 1,
+            "\(Self.windowRootFile) must construct the dock's tab row exactly once"
+        )
+        let slot = try XCTUnwrap(
+            Self.matchedBody(after: "func panelContent(", in: root),
+            "panelContent( is gone or renamed — re-point this rule rather than losing it"
+        )
+        XCTAssertTrue(
+            slot.contains("DockTabRow("),
+            """
+            the dock's tab row must be constructed inside panelContent(_:) — the one place \
+            every panel passes through, inside the fixed-height slot
+            """
+        )
+    }
+
+    // MARK: - Rule thirteen: every dock tab and the close action are identifiable without sight
+
+    /// Rule ten read one strip up. A dock tab's selection is drawn as an accent
+    /// strip — a shape, not a word — so the tab must hide that strip *and* speak
+    /// the selection as its value, or the one fact that distinguishes the panel
+    /// on screen is invisible to anyone not looking. It must also carry its
+    /// panel's name as an explicit label, so what is announced is the table's
+    /// name rather than whatever the label's children fold together.
+    ///
+    /// The close action is an icon-only `xmark`, the case rule ten exists for: a
+    /// `Button` combines its children, so without an explicit label it
+    /// announces the glyph's own name — and `.help(` is a tooltip, not a name.
+    ///
+    /// Read over the **brace-matched bodies** of the two builders, both named
+    /// here so renaming either fails loudly rather than leaving the rule to pass
+    /// over a body it can no longer find.
+    private static let dockTabBuilder = "func tabButton("
+    private static let dockCloseBuilder = "var closeButton"
+
+    func testEveryDockTabAndTheCloseActionCarryAName() throws {
+        let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
+            try Self.read(Self.source(named: Self.dockTabRowFile))
+        )
+        let requirements = [
+            (Self.dockTabBuilder, [".accessibilityLabel(", ".accessibilityValue(", ".accessibilityHidden(true)"]),
+            (Self.dockCloseBuilder, [".help(", ".accessibilityLabel("]),
+        ]
+        for (builder, required) in requirements {
+            let body = try XCTUnwrap(
+                Self.matchedBody(after: builder, in: code),
+                "\(Self.dockTabRowFile)'s \(builder) is gone or renamed — re-point this rule rather than losing it"
+            )
+            for modifier in required {
+                XCTAssertTrue(
+                    body.contains(modifier),
+                    """
+                    \(Self.dockTabRowFile)'s \(builder) must spell \(modifier) — a dock control is \
+                    named after its glyph, and a selection drawn as a shape is unspoken, until \
+                    an explicit label and value replace them
+                    """
+                )
+            }
+        }
+    }
+
+    // MARK: - Rule fourteen: the dock's swept surfaces draw their own rules
+
+    /// The dock's swept files draw every separating line themselves, as a
+    /// one-point `hairline` rectangle overlaid on the edge the surface owns —
+    /// part two's breadcrumb and part three's bar and dividers precedent — and
+    /// spell no `Divider(` at all.
+    ///
+    /// A platform separator is wrong here for rule one's reason read through a
+    /// view instead of a colour: `Divider()` draws the *system's* separator
+    /// colour at the system's thickness, a step off the `hairline` role the row
+    /// above and the panel beside it draw with, in either appearance. It
+    /// compiles, it looks plausible, and it is the one line in a restyled panel
+    /// that still reads the platform's palette. It is also a line *between* two
+    /// views, owned by neither, where the sweep's rule is that the surface that
+    /// owns an edge draws it.
+    ///
+    /// A named list rather than the whole gated set: the files outside the dock
+    /// were swept under their own parts, and part four (b) extends this list as
+    /// it sweeps the dock's remaining panels.
+    private static let dockRuleOwners = [
+        "DockTabRow.swift",
+        "ProblemsPanelView.swift",
+        "UsagesPanelView.swift",
+        "TerminalPanelView.swift",
+    ]
+
+    func testTheDocksSweptSurfacesDrawTheirOwnRules() throws {
+        for name in Self.dockRuleOwners {
+            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
+                try Self.read(Self.source(named: name))
+            )
+            XCTAssertFalse(
+                code.contains("Divider("),
+                """
+                \(name) spells Divider( — a swept dock surface draws its own one-point hairline \
+                on the edge it owns, never the platform's separator
+                """
+            )
+        }
+    }
+
+    // MARK: - Rule fifteen: the severity mapping is Core's one answer
+
+    /// Which chrome role a diagnostic severity is drawn in has one answer,
+    /// `ChromeColorRole.diagnosticRole(for:)` in Core, read by the gutter's
+    /// severity dot and by the Problems panel's badges and row glyphs.
+    ///
+    /// The regression it prevents is a **second severity table reappearing in a
+    /// view**: the mapping used to live in the ruler while the panel read the
+    /// code zone's own table, and a view that grows its own `switch` again
+    /// compiles, draws four plausible colours and drifts from the gutter's the
+    /// first time either side is touched. So, over stripped source:
+    ///
+    /// - no app file declares `func diagnosticRole` (the answer is Core's);
+    /// - the set of app files spelling `diagnosticRole(for:` equals the two known
+    ///   readers — a third reader is a deliberate edit here, not an accident;
+    /// - `ProblemsPanelView.swift` names no `SyntaxTheme`, whose severity table
+    ///   belongs to the squiggle under the text and to the code zone alone;
+    /// - no gated file spells a severity **case label** — `case` followed, on
+    ///   the same line, by `.error`, `.warning`, `.information` or `.hint`, or
+    ///   the qualified `DiagnosticSeverity.` spelling of any of the four. That is
+    ///   the table's shape rather than its name: a local `switch` returning roles
+    ///   passes the three clauses above, and any one of the four labels is enough
+    ///   to fail this one, so a mapping handling three of the four (with a
+    ///   `default`) is caught as well.
+    ///
+    /// The one severity `switch` a gated file may keep is
+    /// `ProblemsPanelView.swift`'s `severitySymbol`, a **glyph** table — which
+    /// SF Symbol a row draws, no colour — named here by its declaration so a
+    /// rename fails loudly; its body is cut out before the labels are looked for,
+    /// and must itself name no colour (`theme`, `ChromeColorRole`, `Color`).
+    ///
+    /// What the last clause cannot see, stated rather than implied: a dictionary
+    /// literal keyed by the same values (`[.error: .statusRed]`), a chain of
+    /// `==` comparisons, and a `case` list continued onto a second line past its
+    /// first label. It sees a `switch`'s labels, which is the shape the
+    /// regression took before; a rule claiming more than that would be the
+    /// defect it exists to prevent.
+    private static let severityReaders: Set<String> = [
+        "LineNumberRulerView.swift",
+        "ProblemsPanelView.swift",
+    ]
+
+    /// The glyph table the severity-label clause exempts, by file and
+    /// declaration.
+    private static let severityGlyphTable = (
+        file: "ProblemsPanelView.swift",
+        declaration: "private var severitySymbol: String"
+    )
+
+    func testTheSeverityMappingIsCoresOneAnswer() throws {
+        var readers: Set<String> = []
+        for url in try Self.swiftSources() where url.path.contains("/Sources/Pisaka/") {
+            let name = url.lastPathComponent
+            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            XCTAssertFalse(
+                code.contains("func diagnosticRole"),
+                "\(name) declares its own diagnosticRole — the severity mapping is Core's one answer"
+            )
+            if code.contains("diagnosticRole(for:") {
+                readers.insert(name)
+            }
+        }
+        XCTAssertEqual(
+            readers, Self.severityReaders,
+            "the app files reading ChromeColorRole.diagnosticRole(for:) must be exactly its two known readers"
+        )
+
+        let panel = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
+            try Self.read(Self.source(named: "ProblemsPanelView.swift"))
+        )
+        XCTAssertFalse(
+            LSPSourceGatingTests.containsToken("SyntaxTheme", in: panel),
+            """
+            ProblemsPanelView.swift names SyntaxTheme — the panel is chrome and reads the severity's \
+            role; SyntaxTheme's table is the squiggle's alone
+            """
+        )
+
+        let labels = try NSRegularExpression(
+            pattern: "\\bcase\\b[^:\\n]*\\.(error|warning|information|hint)\\b"
+                + "|\\bDiagnosticSeverity\\.(error|warning|information|hint)\\b"
+        )
+        for url in try Self.swiftSources() where Self.gatedFiles.contains(url.lastPathComponent) {
+            let name = url.lastPathComponent
+            var code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            if name == Self.severityGlyphTable.file {
+                let declaration = Self.severityGlyphTable.declaration
+                let glyphs = try XCTUnwrap(
+                    Self.matchedBody(after: declaration, in: code),
+                    "\(name) no longer declares `\(declaration)` — update the exemption rather than losing it"
+                )
+                for colour in ["theme", "ChromeColorRole", "Color"] {
+                    XCTAssertFalse(
+                        LSPSourceGatingTests.containsToken(colour, in: glyphs),
+                        "\(name)'s severity glyph table names \(colour) — it answers a symbol, never a colour"
+                    )
+                }
+                code = code.replacingOccurrences(of: glyphs, with: "")
+            }
+            let range = NSRange(code.startIndex..., in: code)
+            XCTAssertNil(
+                labels.firstMatch(in: code, range: range),
+                """
+                \(name) spells a DiagnosticSeverity case label — a severity mapping in a view is a second \
+                table; read ChromeColorRole.diagnosticRole(for:)
+                """
+            )
+        }
+    }
+
+    // MARK: - Rule sixteen: an indicator strip's bottom rule is drawn behind it
+
+    /// The strips whose tabs draw an accent indicator on the strip's own bottom
+    /// edge: the tab strip above the editor and the dock's tab row.
+    ///
+    /// The defect this pins is one point tall. Such a strip also draws its own
+    /// one-point `hairline` along that same edge, and when the rule was an
+    /// `.overlay(alignment: .bottom)` on the strip it was drawn **on top of**
+    /// every tab — an overlay covers its whole content — so the selected tab
+    /// showed one point of accent over one point of grey instead of its
+    /// two-point bar, and the tab strip's active tab, filled in the editor's own
+    /// background to merge into it, was cut off from the editor by the very
+    /// rule its comment said it sat above. Nothing in the compiler or in a
+    /// headless test can see a one-point overlap, and it looks nearly right.
+    ///
+    /// So, over stripped source, in each listed file: no
+    /// `.overlay(alignment: .bottom)` whose brace-matched body names `hairline`,
+    /// and at least one `.background(alignment: .bottom)` whose body does — the
+    /// second half so the first cannot pass on a strip that lost its rule
+    /// altogether. An overlay at the bottom that draws the *accent* itself (the
+    /// tab strip's cell does) is the indicator, not the rule, and is allowed.
+    ///
+    /// A named list, rule fourteen's shape: a third strip with a bottom-edge
+    /// indicator is added here as part of drawing it, rather than left unguarded.
+    private static let indicatorStripFiles = [
+        "TabStripView.swift",
+        "DockTabRow.swift",
+    ]
+
+    func testAnIndicatorStripsBottomRuleIsDrawnBehindItsTabs() throws {
+        for name in Self.indicatorStripFiles {
+            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
+                try Self.read(Self.source(named: name))
+            )
+            let overlays = Self.matchedBodies(after: ".overlay(alignment: .bottom)", in: code)
+            XCTAssertFalse(
+                overlays.contains { LSPSourceGatingTests.containsToken("hairline", in: $0) },
+                """
+                \(name) overlays its bottom hairline — an overlay paints over the active tab's \
+                accent indicator; draw the rule with .background(alignment: .bottom) instead
+                """
+            )
+            let backgrounds = Self.matchedBodies(after: ".background(alignment: .bottom)", in: code)
+            XCTAssertTrue(
+                backgrounds.contains { LSPSourceGatingTests.containsToken("hairline", in: $0) },
+                "\(name) draws no bottom hairline behind its tabs — re-point this rule rather than losing it"
+            )
+        }
+    }
+
+    /// Every brace-matched body following an occurrence of `declaration`, in
+    /// order — `matchedBody(after:in:)` read at each occurrence rather than the
+    /// first alone.
+    private static func matchedBodies(after declaration: String, in code: String) -> [String] {
+        var bodies: [String] = []
+        var rest = Substring(code)
+        while let found = rest.range(of: declaration) {
+            let tail = String(rest[found.lowerBound...])
+            if let body = matchedBody(after: declaration, in: tail) { bodies.append(body) }
+            rest = rest[found.upperBound...]
+        }
+        return bodies
     }
 
     // MARK: - Self-check
@@ -814,6 +1257,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     private static let spelled = [
         1: "one", 2: "two", 3: "three", 4: "four", 5: "five", 6: "six",
         7: "seven", 8: "eight", 9: "nine", 10: "ten", 11: "eleven", 12: "twelve",
+        13: "thirteen", 14: "fourteen", 15: "fifteen", 16: "sixteen",
     ]
 
     func testBothSummariesSpellTheSuitesOwnRuleCount() throws {

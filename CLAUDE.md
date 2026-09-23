@@ -232,7 +232,7 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
 `docs/architecture/core-services.md` — terminal/run/test, settings, session:
 - `TerminalLaunch.swift` / `TerminalTabs.swift` — shell/cwd resolution; tab-close math.
 - `RunCommand.swift` / `TestCommand.swift` / `ShellQuote.swift` — run/test command resolution, POSIX quoting.
-- `BottomPanel.swift` — bottom-dock toggle state.
+- `BottomPanel.swift` — bottom-dock toggle state; the panels' one order (`CaseIterable`, read by both strips) and one name and glyph each (`title`, `systemImage`); the tab rule and its own answer type (`DockTabActivation`, not a second `BottomPanel?`).
 - `BottomPanelHeightRule.swift` — the bottom dock panel's height authority: the two upper bounds and the degenerate case.
 - `DiffWindowTitle.swift` — diff-window titles.
 - `TabOrientation.swift` / `ThemePreference.swift` — persisted preference enums.
@@ -287,7 +287,7 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
 - `InterfaceMetrics.swift` — `InterfaceTextStyle` base sizes; scaled fonts/metrics.
 
 `docs/architecture/core-theme.md` — the chrome theme (macOS; Core + app halves):
-- `ChromeColorRole.swift` — the closed 21-role colour vocabulary; a role names a meaning, never a value.
+- `ChromeColorRole.swift` — the closed 21-role colour vocabulary; a role names a meaning, never a value; `diagnosticRole(for:)`, the chrome's one severity answer.
 - `ChromeGeometry.swift` — the chrome's point tokens, scaled at the use site; no font size, ever.
 - `ChromeAppearance.swift` — `dark`/`light` + the third `resolved(_:systemPrefersDark:)`.
 - `TreeRowState.swift` — the tree row's four-plus-drop states and their precedence; selection and focus are derived.
@@ -411,6 +411,7 @@ headlessly in `Tests/PisakaAppTests`.
 - `ProjectSwitcherView.swift` — bottom-bar project switcher; read-at-open, empty state, delegates actions.
 - `ProblemsPanelView.swift` — the Problems dock panel: grouped rows, counts header, open-and-reveal callback.
 - `UsagesPanelView.swift` — the Usages dock panel beside Problems: the identifier header, the semantic/textual honesty line, grouped rows, row activation as a whole `UsageResult`.
+- `DockTabRow.swift` — the dock's own tab row, drawn once inside the panel slot: six tabs from `BottomPanel`, select-never-collapse, close alone.
 - `DiffWindowContent.swift` / `DiffWindowController.swift` — separate diff windows.
 - `SourceViewerWindowController.swift` / `SourceViewerContent.swift` — the read-only out-of-project definition window.
 - `ProjectTreeView.swift` — project tree (lazy children, `treeRevision` reloads).
@@ -735,8 +736,8 @@ ci.yml's `lint` job, and the version-bump procedure.
   paints its own background and overrides nothing — was measured recolouring
   live in both directions when the system appearance changed under it. A
   reader: it takes no writer gate, is gated by none and writes nothing.
-  `ChromeThemeSourceGatingTests` pins which files obey the rule (sixteen, by set
-  equality) and its eleven rules — no system semantic colour, no hex literal
+  `ChromeThemeSourceGatingTests` pins which files obey the rule (twenty, by set
+  equality) and its sixteen rules — no system semantic colour, no hex literal
   outside the table, the three exemptions stay exemptions, the theme injected at
   the scale's roots, no view constructing a theme, the gutter's fill still going
   through its own rule (a seam pins nothing its call site does not spend, and
@@ -747,23 +748,32 @@ ci.yml's `lint` job, and the version-bump procedure.
   accessibility name for free is gone, and the three widgets hide every
   decorative symbol they draw, since a `Button` combines its children and an
   unhidden SF Symbol folds its own name in — the pull-request indicator the
-  stated exception, naming itself outright), and every label the bar draws
-  staying on one line (the bar states its own height now, so a label that wraps
-  is clipped rather than accommodated) — plus, beside the rules rather
+  stated exception, naming itself outright), every label a fixed-height
+  strip draws staying on one line (the bar states its own height now, so a label
+  that wraps is clipped rather than accommodated), the dock's tab row configured
+  in one place (drawn once, from the slot every panel passes through), every
+  dock tab and the row's close action identifiable without sight (a tab speaks
+  its selection as a value, the close glyph is named outright), the dock's
+  swept surfaces drawing their own hairlines (no `Divider()`), and the severity
+  mapping Core's one answer (`ChromeColorRole.diagnosticRole(for:)`, two known
+  readers, no second table in a view), and an indicator strip's bottom rule
+  drawn behind its tabs (an overlaid one paints over the active tab's accent
+  bar, a one-point overlap nothing else can see) — plus, beside the rules rather
   than among them, the cross-file count that keeps this sentence and
   `core-theme.md`'s own list equal to the number of rules the suite declares —
   while **three files are exempt because they are not
   chrome**: `SyntaxTheme.swift` (the code zone's own theme), `TerminalTheme.swift`
   (a protocol's ANSI-16 vocabulary) and `FileIcon.swift` (a Core token iOS still
-  paints). Twelve surfaces are swept so far — part one's tab strip, line-number
+  paints). Sixteen surfaces are swept so far — part one's tab strip, line-number
   ruler and project tree rows (the inline draft field with them), part two's
   vertical tab column, breadcrumb, minimap chrome and language-server consent
-  strip, and part three's window ground and title bar, sidebar host and header,
+  strip, part three's window ground and title bar, sidebar host and header,
   bottom dock container with its two dividers, bottom bar with its icon-only
   toggles, and the bar's three widgets — which spend the two roles that were
   waiting for a surface rather than a decision, `bgCanvas` at the window root
   and `statusGreen` on the pull-request indicator's checks mark, leaving six
-  unspent; the rest is the follow-up sweep, whose procedure
+  unspent — and part four (a)'s dock tab row, Problems panel, Usages panel and
+  Terminal panel host, which spend no new role; the rest is the follow-up sweep, whose procedure
   and its one refusal ("a surface needing a twenty-second role has found a design
   question") are in `core-theme.md`.
 - **Zoom is three zones, one arithmetic, one pointer rule** (macOS only): `code`

@@ -771,26 +771,6 @@ final class LineNumberRulerView: NSRulerView, ZoomSurfaceProviding {
         ]
     }
 
-    /// Severity → the chrome role its dot is filled with. Total over the closed
-    /// severity set, like `SyntaxTheme`'s own answer — and deliberately *not*
-    /// that one: the squiggle under the text and the hover popover are code
-    /// surfaces this ticket leaves alone, so the gutter's marker and the
-    /// underline below it now read from two tables on purpose.
-    ///
-    /// The four answers are three status roles and one text role. *Information*
-    /// takes `accent` — the chrome has exactly one blue, and a notice is the
-    /// thing the accent is for — and a *hint* takes `textSecondary`, because a
-    /// hint is a remark rather than a condition and is drawn in the same tone the
-    /// line numbers beside it are.
-    static func diagnosticRole(for severity: DiagnosticSeverity) -> ChromeColorRole {
-        switch severity {
-        case .error: return .statusRed
-        case .warning: return .statusYellow
-        case .information: return .accent
-        case .hint: return .textSecondary
-        }
-    }
-
     /// The rectangle the gutter's background fill covers, given the rectangle
     /// `drawHashMarksAndLabels` was handed and the gutter's own width.
     ///
@@ -992,7 +972,7 @@ final class LineNumberRulerView: NSRulerView, ZoomSurfaceProviding {
         let x = chevronColumnMinX - diagnosticGap - side
         let y = relativePoint.y + textOrigin.y + fragmentRect.minY
             + (fragmentRect.height - side) / 2
-        ChromePalette.nsColor(Self.diagnosticRole(for: severity)).setFill()
+        ChromePalette.nsColor(ChromeColorRole.diagnosticRole(for: severity)).setFill()
         NSBezierPath(ovalIn: NSRect(x: x, y: y, width: side, height: side)).fill()
     }
 

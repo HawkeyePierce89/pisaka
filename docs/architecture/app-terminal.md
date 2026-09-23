@@ -248,3 +248,21 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     that touches neither the hierarchy nor the responder chain, so it cannot
     re-enter the focus path. The recolor goes to every live session (see
     `TerminalSessionsModel.applyTheme`), not just the hosted one.
+    **The host is on the chrome roles since part four (a)** (`core-theme.md`):
+    the view reads `\.chromeTheme` beside `\.interfaceMetrics`, and like the
+    metrics it reaches the strip and the empty ground only. **The session strip
+    is this panel's header strip**: it spends `ChromeGeometry.panelHeaderHeight`
+    where it used to spell a bare 28, and draws its own one-point `hairline`
+    along its bottom edge in place of the `Divider()` that sat under it (gating
+    rule fourteen); its gaps and insets are bare local numbers in `private enum
+    TerminalTabStripLayout`. The selected session tab is an `accentTintStrong`
+    wash — it was the platform's `selectedControlColor` — clipped at
+    `cornerRadiusMax`, the chrome's one radius; a title is `textPrimary` when
+    selected and `textSecondary` otherwise; the close glyph moved off a bare
+    8-point bold onto `.subheadline` bold, matching the label beside it; and
+    the `+` and `xmark` glyphs state `textSecondary` explicitly, because a
+    borderless button would otherwise tint them itself. The no-session
+    placeholder draws `bgPanel` rather than the platform's `textBackgroundColor`.
+    `TerminalHostView`, the container view and the terminal palette
+    (`TerminalTheme`, one of the chrome suite's three exemptions) are
+    **untouched**: they are the terminal zone, not chrome.

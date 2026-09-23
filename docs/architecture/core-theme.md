@@ -25,7 +25,10 @@ parts: the first restyled the horizontal tab strip, the line-number ruler and
 the project tree rows; the second took the rest of the **editor pane's** own
 chrome — the vertical tab column, the breadcrumb, the minimap's chrome and the
 language-server consent strip — and corrected the gutter regression the first
-part shipped. The running record is
+part shipped; the third took the frame those panes sit in (the window's ground,
+the sidebar's host, the dock and the bottom bar); and part four (a) gave the
+dock its own tab row and moved the Problems, Usages and Terminal panels onto the
+roles. The running record is
 ["The surfaces restyled so far"](#the-surfaces-restyled-so-far) below; every
 surface not named there is deliberately untouched, waiting for the sweep
 described at the end of this document.
@@ -60,7 +63,9 @@ adds no write of any kind. Its only persisted input is the existing
     confirming action and `accentTint` on the minimap's viewport fill — and the
     third spent two more: `bgCanvas` on the window root, which is the surface
     the role was named for, and `statusGreen` on the pull-request indicator's
-    checks mark, which completes the status trio. That leaves **six**.
+    checks mark, which completes the status trio. That leaves **six**, and
+    part four (a) spent none — its four surfaces are drawn wholly from roles
+    already in use.
     `bgPopover` waits for the popovers (the two switchers' among them, parts
     four to six); the three diff/merge grounds wait for the surfaces that mean
     them;
@@ -71,16 +76,40 @@ adds no write of any kind. Its only persisted input is the existing
     the table is the design rather than an inventory of today's call sites. The raw values are the stable names the
     gating suite and the palette test speak; renaming one is a documentation
     change as much as a code change.
+    **`diagnosticRole(for:)` — the chrome's one severity answer**, moved here in
+    part four (a) from `LineNumberRulerView`, unchanged in its four answers:
+    error → `statusRed`, warning → `statusYellow`, information → `accent` (the
+    chrome has exactly one blue, and a notice is what the accent is for), hint →
+    `textSecondary` (a hint is a remark rather than a condition, drawn in the
+    tone of the line numbers beside it). It is total over the closed
+    `DiagnosticSeverity` set and deliberately **not** `SyntaxTheme`'s table: the
+    squiggle under the text is the code zone and stays on
+    `SyntaxTheme.diagnosticColor(for:)` alone. Two surfaces read this one — the
+    gutter's severity dot and the Problems panel's header badges and row glyphs —
+    and neither keeps a table of its own. Both types already lived in Core, so
+    the move cost nothing and let the Core gate see the mapping for the first
+    time: `ChromeThemeTests` pins the four answers verbatim and that they are
+    pairwise distinct roles, while the app bundle's `GutterFoldTests` keeps the
+    half only it can see — the four *resolved* colours pairwise distinct under
+    both appearances. Gating rule fifteen keeps a second table from coming back.
   - `ChromeGeometry.swift` — the chrome's measurements as unscaled point values:
     row height and horizontal padding, the tree's indent step, the maximum
     corner radius, the hairline width, five row/strip/bar heights (the tab
     strip, the vertical tab row, the dock tab row, the **sidebar header** and the
     bottom bar), the **header-or-bar horizontal inset**, the breadcrumb height,
-    the bottom bar toggle's side and radius, and the accent indicator's
-    thickness. The two insets are deliberately two values: `rowPaddingX` (8) is a
+    the bottom bar toggle's side and radius, since part four (a) a dock panel's
+    **header strip** — `panelHeaderHeight` (28) and its inset
+    `panelHeaderPaddingX` (14) — and the dock tab row's two insets,
+    `dockTabRowPaddingX` (10, the row from the dock's edge) and
+    `dockTabLabelPaddingX` (10, a tab's box around its label, the width the
+    accent indicator spans), and the accent indicator's
+    thickness. The insets are deliberately distinct tokens: `rowPaddingX` (8) is a
     row's padding *inside its own highlight*, `barPaddingX` (12) is a strip's
     inset *from the window edge* — one measurement drawn on the sidebar header
-    and on the bottom bar, not a second spelling of the first. Two
+    and on the bottom bar, not a second spelling of the first — and the two dock
+    tab insets are two measurements that happen to share a value today, so
+    neither is spelled as the other. `dockTabRowHeight`, declared ahead of its
+    surface since part one, is spent since part four (a). Two
     rules, both load-bearing. **Every token is scaled at its use site**, through
     `InterfaceMetrics.scaled(_:)`: nothing here is pre-scaled and no view
     multiplies a token by anything of its own, because the interface zoom's
@@ -573,22 +602,146 @@ available the moment the find bar itself is swept. The part that converts
 `SearchBarView.swift` takes this rule with it; recorded here beside the
 popovers' two so all three are found in one place.
 
+#### Part four (a) — the dock's own tab row, and the Problems, Usages and Terminal panels
+
+The dock's interior, begun: part three drew the dock's *frame* (the slot's
+ground, the divider above it, the bar below) and deferred the row that names
+what the dock is showing, because that row is chrome the panels draw and so
+belongs with them. This part draws it, moves three panels' interiors onto the
+roles, and moves the severity mapping into Core. **No palette value changes and
+no new role is spent**; `ChromeGeometry` gains four tokens and spends two it
+already declared (`dockTabRowHeight`, `accentIndicator`). Four files join the
+gated set — one of them, the row, new — and the suite grows from eleven rules to
+fifteen, then to sixteen with the review round's fix below.
+
+  - **The dock's tab row** — `DockTabRow.swift`, a new file on the environment
+    path, spending `textPrimary`, `textSecondary`, `accent` and `hairline`. Its
+    contract: one row across the top of the dock, drawn **once**, from
+    `ContentView.panelContent(_:)`, above whichever panel is showing — inside the
+    fixed-height slot, so the slot's pinned frame, its top alignment, the clip,
+    the divider and `BottomPanelHeightRule` are all untouched and the row states
+    no minimum height anywhere. The tabs are `BottomPanel.allCases` in the bar's
+    own order, each named by `BottomPanel.title`; the row is
+    `dockTabRowHeight` tall, inset by `dockTabRowPaddingX`, has **no ground of
+    its own** (the slot already paints `bgPanel`) and draws its own one-point
+    `hairline` along its bottom edge — **behind** the tabs, not over them. The
+    first cut drew it as an overlay, which painted over the lower point of the
+    selected tab's two-point accent strip; the review round moved it behind, so
+    the strip interrupts the rule for the tab's width, and fixed the same
+    construct in `TabStripView.swift`, where the overlay also covered the active
+    tab's `bgEditor` fill and defeated the comment explaining why the rule sat
+    where it did. Gating rule sixteen pins both. A tab is a plain button whose label is the
+    title at `.callout` — `textPrimary` when selected, `textSecondary` otherwise,
+    **regular weight in both states**, because a label that turned semibold would
+    widen and shift every tab after it on each click — padded by
+    `dockTabLabelPaddingX`, above an `accentIndicator`-thick strip spanning the
+    tab: `accent` when selected, `Color.clear` otherwise, so the tab's height
+    never changes with selection. A click asks Core's
+    `BottomPanel.tabActivation(_:tab:)` and hands a `.show` answer to the bar's
+    own funnel, `onTogglePanel` — which is also what creates the first terminal
+    session, so the scene file was not touched; the showing tab answers
+    `.alreadyShowing` and does nothing. **A tab selects and never collapses**;
+    collapsing is the bar's toggle's and the close action's, and the close
+    action hands the showing panel to the same funnel, which collapses it. Each
+    tab speaks its name as its label and its selection as its value ("Selected" /
+    "Not selected"); the strip that *draws* the selection is hidden, and the
+    icon-only close action is named outright ("Close panel", tooltip and label
+    both). Gating rules twelve and thirteen pin the reachability and the
+    accessibility. Full entry in `app-window.md`.
+  - **The Problems panel** — `ProblemsPanelView.swift`, the environment path.
+    The header is a `panelHeaderHeight` strip inset by `panelHeaderPaddingX`,
+    drawing its own bottom `hairline` in place of the `Divider()` the stack used
+    to place under it; the title is `.body` semibold in `textPrimary`. Header
+    badges and row glyphs take `ChromeColorRole.diagnosticRole(for:)`; the
+    file-group header draws its icon `textSecondary` and its path
+    `textPrimary`; a row draws its message `textPrimary` and its `:line`
+    `textSecondary`; the hover wash is `hoverTint` (it was the platform accent at
+    15 %); row and group insets spend `rowPaddingX`; the placeholder is
+    `textSecondary`. Full entry in `app-window.md`.
+  - **The Usages panel** — `UsagesPanelView.swift`, the environment path, in
+    Problems' shape: the same header strip and hairline, the identifier at
+    `.callout` monospaced in `textPrimary`, the provenance note and the count in
+    `textSecondary`, the same file-group header and hover wash, the line number
+    `textSecondary`, and the preview's hit `textPrimary` semibold between
+    `textSecondary` context. Full entry in `app-window.md`.
+  - **The Terminal panel's host** — `TerminalPanelView.swift`, the environment
+    path. **The session strip is this panel's header strip**: it spends
+    `panelHeaderHeight` where it used to spell a bare 28 and draws its own bottom
+    `hairline` in place of its `Divider()`. The selected session tab is an
+    `accentTintStrong` wash (it was the platform's selected-control colour)
+    clipped at `cornerRadiusMax`, the chrome's one radius; titles are
+    `textPrimary` selected and `textSecondary` otherwise; the `+` and `xmark`
+    glyphs state `textSecondary` explicitly, because a borderless button would
+    otherwise tint them itself. The no-session placeholder draws `bgPanel`
+    rather than the platform's text background. The hosted terminal views, their
+    container and the terminal palette are **untouched**: they are the terminal
+    zone, not chrome. Full entry in `app-terminal.md`.
+
+**Six tabs, not seven.** The design draws a seventh tab naming a panel this
+application does not have. A tab that does nothing when clicked is a defect, not
+a placeholder, so it is left out; the six are exactly `BottomPanel`'s cases.
+
+**One name per panel, as one Core table.** `BottomPanel.title` answers
+"Terminal", "Log", "Local Changes", "Problems", "Usages" and "Pull Requests",
+and both the tab row and the bar's toggles read it (`bottomBarButton` lost its
+`title:` parameter, and in the review round its `systemImage:` one too — the
+glyph is `BottomPanel.systemImage`, the same table's second column, and the bar
+builds its six toggles from `allCases`, so neither strip keeps a second list), so a tab and a tooltip cannot disagree — which is how "Git"
+and "Changes" became "Log" and "Local Changes" on the bar. The View menu's item
+titles ("Show Git Log" and its siblings) are **deliberately left alone**: menu
+titles belong to the part that sweeps menus. The scene file's line ceiling is
+*not* the reason — editing a string literal in place adds no line.
+
+**Close alone.** The design draws minimise and close; on a dock with one state
+the two would perform the same action, so only close is drawn, as an `xmark`.
+
+**The font tiers.** The chrome's three sizes are assigned by *tier*, not by
+rounding an old size to the nearest one: **13** (`.body`) for primary text — a
+panel's title (`.headline` before, the same 13 points under the chrome's own
+style name, now semibold `.body`), a row's message, a file group's path; **12**
+(`.callout`) for secondary metadata — a dock tab's label, a severity badge's
+count, the identifier, the empty-state sentence; **11** (`.subheadline`) for
+column headings and monospaced details — a terminal session's title, the
+provenance note and the count, the line numbers. Every size already on the
+scale stays. **A discrepancy is reported rather than resolved silently**: the
+ticket counted two off-scale labels to move (Usages' two 10-point `.caption`
+labels, now `.subheadline`), and the files carried three more — Problems'
+`:line` and Usages' line number, both `.caption` monospaced, which take
+`.subheadline` monospaced as monospaced details, and the terminal session tab's
+close glyph at a bare 8-point bold, which takes `.subheadline` bold so it
+matches the label beside it. All five moved.
+
+**One severity answer, and which surface reads which table.** Two tables, one
+per zone, and no third: the **chrome** marks — the gutter's severity dot and the
+Problems panel's badges and row glyphs — read
+`ChromeColorRole.diagnosticRole(for:)` (the `ChromeColorRole.swift` entry
+above), and the **code** mark — the squiggle under the text — reads
+`SyntaxTheme.diagnosticColor(for:)`. Before this part the panel read
+`SyntaxTheme`'s table under a comment calling it "three surfaces, one palette"
+while the gutter had already moved to roles, so the claim was false the day the
+gutter moved; the panel now names no `SyntaxTheme` at all, and rule fifteen pins
+that, the reader set and the absence of any severity case label outside the
+panel's one glyph table.
+
 #### What is still waiting
 
-The six dock panels, the editor zone's find/replace bar, the dialogs and sheets,
-the separate
-diff/merge/history/browser windows, the Preferences surfaces and the terminal.
-Each follows the six-step guide at the end of this document, on its own, with
-`gatedFiles` growing as part of the restyle rather than afterwards.
+The dock's three remaining panels — **Log, Local Changes and Pull Requests** —
+are part four (b), and follow the conventions this part set: a
+`panelHeaderHeight` header strip that draws its own bottom `hairline`, and a
+place in rule fourteen's `dockRuleOwners`. After them: the editor zone's
+find/replace bar, the dialogs and sheets, the separate
+diff/merge/history/browser windows, the Preferences surfaces and the terminal's
+own palette. Each follows the six-step guide at the end of this document, on its
+own, with `gatedFiles` growing as part of the restyle rather than afterwards.
 
-Two things inside surfaces part three *did* sweep are **deliberately deferred**
-rather than forgotten: the bottom dock's own tab row, which is chrome the dock
-panels draw and so belongs with them, and the caret readout beside it. Both wait
-on a design decision rather than on a file — which is also why
-`ChromeGeometry.dockTabRowHeight` stays declared and unspent: the token states
-the measurement the row will draw at, and the table is the design rather than an
-inventory of today's call sites. The switcher popovers' rules are inherited work
-too; the part-three record above says where.
+The dock's tab row is **no longer deferred** — part four (a) drew it, and
+`ChromeGeometry.dockTabRowHeight` is spent. What stays deferred inside surfaces
+already swept is the **caret readout** beside the bar, which waits on a design
+decision rather than on a file, and the switcher popovers' `Divider()` calls
+(the part-three record above says where, and why their fix waits for the
+popovers' ground). Six roles remain unspent — `bgPopover`, `currentLine`,
+`bracketMatch` and the three diff/merge grounds — after sixteen surfaces, the
+same six and the same count `ChromeColorRole.swift`'s own doc comment states.
 
 ### The monochrome-icon decision
 
@@ -624,8 +777,9 @@ deleted file fails rather than quietly losing its coverage:
 five: `TabListView.swift`, `TabRowView.swift`, `BreadcrumbBarView.swift`,
 `MinimapView.swift`, `LSPConsentBanner.swift` — plus the third part's five:
 `MainWindowChrome.swift`, `ContentView.swift`, `ProjectSwitcherView.swift`,
-`BranchSwitcherView.swift`, `PullRequestIndicatorView.swift`, **sixteen** in
-all. `ProjectTreeView.swift` is not among the third part's additions because it
+`BranchSwitcherView.swift`, `PullRequestIndicatorView.swift` — plus part four
+(a)'s `DockTabRow.swift`, `ProblemsPanelView.swift`, `UsagesPanelView.swift` and
+`TerminalPanelView.swift`, **twenty** in all. `ProjectTreeView.swift` is not among the third part's additions because it
 was already there: part three restyled the surface *around* the rows part one
 had swept, and a file joins this set once. The draft field is in the set
 although it is an editing affordance rather than a row: an inline draft
@@ -633,7 +787,7 @@ although it is an editing affordance rather than a row: an inline draft
 for. `TabStripView.swift` covers `TabStatusMark` too, the slot view the two
 orientations share, which is why that extraction did not add a seventh file.
 
-The eleven rules, each invisible to the compiler:
+The sixteen rules, each invisible to the compiler:
 
 1. **No gated view names a system semantic colour.** A closed forbidden-token
    list — AppKit's semantic set (`labelColor`, `separatorColor`,
@@ -696,9 +850,12 @@ The eleven rules, each invisible to the compiler:
    orientations once already. The paste had a second cost read from the other
    side: rule one drops every line naming `FileIcon(`, so each copy bought
    itself a line exempt from the no-system-colour check — which is why the gated
-   files carrying such a line are themselves a counted set of three
+   files carrying such a line are themselves a counted set of five
    (`ProjectTreeView.swift`, `ProjectTreeDraftField.swift`,
-   `TabStripView.swift`).
+   `TabStripView.swift`, and since part four (a) `ProblemsPanelView.swift` and
+   `UsagesPanelView.swift`, whose one exempted line each is the file-group
+   header's `let icon = FileIcon(…)` binding, read for its symbol alone — the
+   glyph is drawn in `textSecondary` on a line rule one still scans).
 9. **The window's chrome is configured in one file.**
    `titlebarAppearsTransparent` is spelled in `MainWindowChrome.swift` and
    nowhere else under `Sources/`, by set equality in both directions. It is a
@@ -716,8 +873,11 @@ The eleven rules, each invisible to the compiler:
 10. **Every bottom-bar control is identifiable without sight.** Inside
    `ContentView.swift`, the brace-matched bodies of `bottomBarButton(` and
    `completionToggleButton` each spell `.help(` and `.accessibilityLabel(`, and
-   `bottomBarButton(` occurs exactly seven times — one declaration and one call
-   per bottom dock panel. Part three made all seven controls icon-only, and the
+   `bottomBarButton(` occurs exactly twice — one declaration and one call inside
+   `panelToggles`, which `bottomBar` draws, which builds the toggles from
+   `BottomPanel.allCases` and names no panel case in its body, so the bar keeps
+   no second list of panels beside the one the dock's tab row reads
+   (`BottomPanelTests` pins the order; this rule pins who reads it). Part three made all seven controls icon-only, and the
    `Label(title, systemImage:)` they used to carry *was* each one's
    accessibility name; an unhidden `Image(systemName:)` supplies a name of its
    own instead — the *symbol's* — and `.help(` is a tooltip VoiceOver does not
@@ -726,7 +886,8 @@ The eleven rules, each invisible to the compiler:
    who notices is the one who cannot see the bar. The bodies are read
    brace-matched, in rule six's idiom, so a `.help(` elsewhere in a
    fourteen-hundred-line file cannot satisfy it; the call count is pinned so a
-   seventh dock panel is asked the question rather than shipping nameless. The
+   seventh dock panel arrives through the one builder whose name the rule
+   already requires, rather than as a hand-written call shipping nameless. The
    **same rule read from the other side** covers the bar's three widgets: a
    `Button` combines its children, so each symbol a widget draws folds its name
    into the button's — part one measured exactly that on a tree row
@@ -762,7 +923,89 @@ The eleven rules, each invisible to the compiler:
    carries it, so a bar label that lost the limit while a popover row kept one
    would satisfy it. What it pins is that the construct is known here at all —
    which is exactly what the bar did not have, the limit being absent from all
-   three.
+   three. Part four (a) added its four fixed-height surfaces to the list, the
+   same shape one strip up: the dock's tab row, whose labels sit in
+   `ChromeGeometry.dockTabRowHeight`, and the Problems, Usages and Terminal
+   panels, whose headers sit in `panelHeaderHeight` — frames that cannot grow
+   either, so the rule now reads as "every label a fixed-height chrome strip
+   draws". **The rule takes two forms since review round 01.** The whole-file
+   `contains` stays for the three widgets and the dock's tab row, where the
+   strip is the file's view. For the three panels it was satisfied by an older
+   occurrence — each already spelled `.lineLimit(1)` on master (a file-group
+   path, the identifier, a session title), so deleting the limit from a new
+   header label left the suite green, and a file-level `contains` is satisfied
+   by any older occurrence in the file. Those files now name their header-strip
+   builders (Problems' `header` and `severityBadge(…)`, Usages' `header`,
+   Terminal's `tab(for:)`), and inside each brace-matched body — rule ten's
+   reading — the count of `.lineLimit(1)` must equal the count of `Text(`; a
+   renamed builder fails loudly. What the counted form still cannot see: a
+   `Text` built outside the named builders, or a limit spelled once on a
+   container rather than on each label.
+12. **The dock's tab row is configured in one place.** `DockTabRow` is drawn
+   once, above whichever panel is showing, from `ContentView.panelContent(_:)` —
+   the one place every panel passes through, inside the fixed-height slot. Swift's
+   `internal` cannot stop a panel file from naming it, and a second call site
+   compiles and looks deliberate: a panel drawing its own copy stacks a second
+   row in the slot. So reachability is pinned over stripped source: the set of
+   files naming the `DockTabRow` token equals `{DockTabRow.swift,
+   ContentView.swift}`, the window root constructs it (`DockTabRow(`) exactly
+   once and inside `panelContent(`'s brace-matched body, and none of the six
+   hosted panel files names the type.
+13. **Every dock tab and the close action are identifiable without sight.**
+   Rule ten read one strip up. A tab's selection is drawn as an accent strip — a
+   shape, not a word — so the brace-matched body of `DockTabRow`'s
+   `tabButton(` must spell `.accessibilityLabel(` (the table's name, not whatever
+   the label's children fold together), `.accessibilityValue(` (the selection,
+   spoken) and `.accessibilityHidden(true)` (the strip that draws it). The close
+   action is an icon-only `xmark`, the case rule ten exists for, so
+   `closeButton`'s body must spell `.help(` and `.accessibilityLabel(`. Both
+   builders are named in the test, so renaming either fails loudly rather than
+   leaving the rule to pass over a body it can no longer find.
+14. **The dock's swept surfaces draw their own rules.** Each file in the suite's
+   named `dockRuleOwners` list — `DockTabRow.swift`, `ProblemsPanelView.swift`,
+   `UsagesPanelView.swift` and `TerminalPanelView.swift` so far — spells no `Divider(` in stripped source;
+   a separating line is a one-point `hairline` rectangle overlaid on the edge the
+   surface owns, the breadcrumb's and the bar's precedent. A platform separator
+   is wrong here for rule one's reason read through a view: `Divider()` draws the
+   system's separator colour, a step off the `hairline` role beside it in either
+   appearance, and it is a line *between* two views that neither owns. A named
+   list rather than the whole gated set, because part four (b) extends it as it
+   sweeps the dock's remaining panels.
+15. **The severity mapping is Core's one answer.**
+   `ChromeColorRole.diagnosticRole(for:)` decides which role a diagnostic
+   severity is drawn in, and the regression this rule prevents is a second
+   severity table reappearing in a view — it compiles, draws four plausible
+   colours and drifts from the gutter's the first time either is touched. Over
+   stripped source: no app file declares `func diagnosticRole`; the set of app
+   files spelling `diagnosticRole(for:` equals `{LineNumberRulerView.swift,
+   ProblemsPanelView.swift}`, the two known readers; and
+   `ProblemsPanelView.swift` names no `SyntaxTheme`, whose severity table is the
+   squiggle's and the code zone's alone; and — the clause that catches the table
+   by its shape rather than its name, added in the review round because a local
+   `switch` returning roles satisfied the other three — no gated file spells a
+   severity case label: `case` followed on the same line by `.error`,
+   `.warning`, `.information` or `.hint`, or `DiagnosticSeverity.` qualifying
+   any of the four. One label is enough to fail, so a mapping covering three of
+   the four behind a `default` is caught too. The one exemption is
+   `ProblemsPanelView.swift`'s `severitySymbol`, a glyph table (which SF Symbol,
+   no colour), named by its declaration and cut out before matching; its body
+   must name no `theme`, `ChromeColorRole` or `Color`. Stated limit: the clause
+   sees a `switch`'s labels, not a dictionary literal keyed by the same values,
+   a chain of `==` comparisons, or a `case` list continued past its first line.
+16. **An indicator strip's bottom rule is drawn behind its tabs.** Each file in
+   the suite's named `indicatorStripFiles` list — `TabStripView.swift` and
+   `DockTabRow.swift` — draws an accent indicator on the strip's own bottom edge
+   and a one-point `hairline` along that same edge, and over stripped source
+   spells no `.overlay(alignment: .bottom)` whose brace-matched body names
+   `hairline`, while at least one `.background(alignment: .bottom)` body does (so
+   a strip that lost its rule altogether cannot pass). An overlay covers its
+   whole content, so an overlaid rule painted over the lower point of the
+   selected tab's two-point indicator — and, in the tab strip, cut the active
+   tab's `bgEditor` fill off from the editor it is meant to merge into. A bottom
+   overlay drawing the *accent* itself (the strip's cell does) is the indicator,
+   not the rule, and stays allowed. Named rather than the whole gated set, rule
+   fourteen's shape: a third strip with a bottom-edge indicator joins the list as
+   part of being drawn.
 
 Plus a **self-check** in the suite's own idiom: every gated file must actually
 *name* a `ChromeColorRole`, or the checks above have gone vacuous — with one
