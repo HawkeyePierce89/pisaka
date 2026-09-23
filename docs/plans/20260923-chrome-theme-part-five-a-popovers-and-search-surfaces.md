@@ -251,8 +251,8 @@ matter.
 - Modify: `Sources/Pisaka/ProjectSearchWindowController.swift`
 - Modify: `Tests/PisakaCoreTests/ChromeThemeSourceGatingTests.swift`
 
-- [ ] The root is `bgPanel`. The window controller paints the window's own background through `ChromePalette.nsColor(.bgPanel)`. The standard title bar and its style mask are unchanged.
-- [ ] Apply the design values:
+- [x] The root is `bgPanel`. The window controller paints the window's own background through `ChromePalette.nsColor(.bgPanel)`. The standard title bar and its style mask are unchanged.
+- [x] Apply the design values:
   - **Content body:** padding 16 at the top and on both sides, 0 at the bottom, gap 12 between rows.
   - **Query row:** 33 high in the shared field, with three 16-point toggles at its trailing end, gap 10, in `textSecondary`.
   - **Replace row:** the shared field, gap 8, then *Replace All* in the secondary button style.
@@ -263,18 +263,18 @@ matter.
   - **Footer:** 32 high, with its own top `hairline`, padding 16, and the summary in `callout` `textSecondary`.
   - The file-mask field is also the shared field.
   - The `Divider()` between the header and the results is replaced by a `hairline` rule the content draws.
-- [ ] Numbers with no `ChromeGeometry` home live in a private layout enum in this file. Existing tokens are reused where they fit.
-- [ ] The group header icon stays monochrome `textSecondary`, following the monochrome-icon decision and the tab icon rule.
-- [ ] The match row keeps its zones:
+- [x] Numbers with no `ChromeGeometry` home live in a private layout enum in this file. Existing tokens are reused where they fit.
+- [x] The group header icon stays monochrome `textSecondary`, following the monochrome-icon decision and the tab icon rule.
+- [x] The match row keeps its zones:
   - The preview text stays on the code font in `SyntaxTheme`'s plain colour, and the highlight keeps the editor's current-match background.
   - The line number stays on the code font and takes `textSecondary`.
   - The row keeps its `ZoomSurfaceMarker(kind: .code)`.
   - Nothing sized by the code font is multiplied by the interface scale, and nothing sized by the interface reads `settings.fontSize`.
   - No selection state is added.
-- [ ] The regular-expression and validation error is `statusRed`.
-- [ ] Accessibility: the fields, the toggles (name, tooltip, value) and *Replace All* are named, and decorative symbols are hidden.
-- [ ] Add `ProjectSearchView.swift` and `ProjectSearchWindowController.swift` to `gatedFiles`.
-- [ ] Run `swift test` and the macOS build. Both must pass, and `ZoomSourceGatingTests`' surface and root sets must pass unchanged.
+- [x] The regular-expression and validation error is `statusRed`.
+- [x] Accessibility: the fields, the toggles (name, tooltip, value) and *Replace All* are named, and decorative symbols are hidden.
+- [x] Add `ProjectSearchView.swift` and `ProjectSearchWindowController.swift` to `gatedFiles`.
+- [x] Run `swift test` and the macOS build. Both must pass, and `ZoomSourceGatingTests`' surface and root sets must pass unchanged.
 
 ### Task 6: The two bottom-bar popovers get their ground and lose their dividers
 
