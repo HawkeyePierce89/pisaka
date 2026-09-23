@@ -30,10 +30,11 @@ import PisakaCore
 /// On the chrome roles and tokens since part four (b) of the chrome theme: one
 /// `panelHeaderHeight` strip on a `bgPanel` ground drawing its own bottom
 /// `hairline`, every control in one 22 pt box (`bgEditor` ground, one-point
-/// `hairline` border, a two-point `accent` border on focus). The text fields are
-/// drawn plain inside the box with their own `textSecondary` placeholder; the
-/// branch menu and the two date fields keep their system controls, drawn
-/// borderless inside the same box beside a `textSecondary` chevron.
+/// `hairline` border, a two-point `accent` border on focus) — the box shape is
+/// shared (`ChromeControls.swift`). The text fields are drawn plain inside the
+/// box with their own `textSecondary` placeholder; the branch menu and the two
+/// date fields keep their system controls, drawn borderless inside the same box
+/// beside a `textSecondary` chevron.
 ///
 /// **Requirement: at the window's minimum width, at every interface scale, every
 /// control in the bar is reachable and nothing is clipped.** The single 28 pt row
@@ -208,7 +209,7 @@ struct LogFilterBar: View {
     /// The branch menu: the system picker, drawn borderless inside the bar's
     /// control box, labelled with the current choice beside a chevron.
     private var refPicker: some View {
-        controlBox(focused: false) {
+        ChromeControlBox(isFocused: false, horizontalPadding: FilterBarLayout.controlPaddingX) {
             HStack(spacing: metrics.scaled(FilterBarLayout.innerGap)) {
                 Menu {
                     Picker("Branch", selection: refSelectionBinding) {
@@ -235,6 +236,7 @@ struct LogFilterBar: View {
                 chevron
             }
         }
+        .frame(height: metrics.scaled(FilterBarLayout.controlHeight))
         .frame(
             minWidth: metrics.scaled(FilterBarLayout.branchMinWidth),
             maxWidth: metrics.scaled(FilterBarLayout.branchMaxWidth)
@@ -257,63 +259,6 @@ struct LogFilterBar: View {
             .accessibilityHidden(true)
     }
 
-    /// The bar's one control box: 22 pt tall, the private radius, a `bgEditor`
-    /// ground and a one-point `hairline` border — two points of `accent` while
-    /// the control inside holds focus.
-    private func controlBox<Content: View>(
-        focused: Bool,
-        @ViewBuilder content: () -> Content
-    ) -> some View {
-        let shape = RoundedRectangle(cornerRadius: metrics.scaled(FilterBarLayout.controlRadius))
-        return content()
-            .padding(.horizontal, metrics.scaled(FilterBarLayout.controlPaddingX))
-            .frame(height: metrics.scaled(FilterBarLayout.controlHeight))
-            .background(shape.fill(theme.color(.bgEditor)))
-            .overlay(
-                shape.strokeBorder(
-                    theme.color(focused ? .accent : .hairline),
-                    lineWidth: focused
-                        ? metrics.scaled(FilterBarLayout.focusBorderWidth)
-                        : metrics.scaled(ChromeGeometry.hairlineWidth)
-                )
-            )
-    }
-
-    /// A plain text field inside the control box, with its own `textSecondary`
-    /// placeholder (a plain field's own is drawn in the system's value) and an
-    /// optional leading glyph.
-    private func filterField(
-        _ title: String,
-        text: Binding<String>,
-        field: FilterField,
-        glyph: String? = nil
-    ) -> some View {
-        controlBox(focused: focusedField == field) {
-            HStack(spacing: metrics.scaled(FilterBarLayout.innerGap)) {
-                if let glyph {
-                    Image(systemName: glyph)
-                        .foregroundStyle(theme.color(.textSecondary))
-                        .accessibilityHidden(true)
-                }
-                ZStack(alignment: .leading) {
-                    if text.wrappedValue.isEmpty {
-                        Text(title)
-                            .foregroundStyle(theme.color(.textSecondary))
-                            .lineLimit(1)
-                            .allowsHitTesting(false)
-                            .accessibilityHidden(true)
-                    }
-                    TextField("", text: text)
-                        .textFieldStyle(.plain)
-                        .foregroundStyle(theme.color(.textPrimary))
-                        .focused($focusedField, equals: field)
-                        .accessibilityLabel(title)
-                }
-            }
-            .font(metrics.scaledFont(.callout))
-        }
-    }
-
     /// The user-facing label for a full refname: strip the `refs/heads/`,
     /// `refs/remotes/`, and `refs/tags/` namespace prefixes so the picker shows
     /// `main` / `origin/main` / `v1.0` while the underlying value stays the full,
@@ -334,25 +279,39 @@ struct LogFilterBar: View {
     }
 
     private var authorField: some View {
-        filterField("Author", text: draftAuthorBinding, field: .author)
-            .frame(
-                minWidth: metrics.scaled(FilterBarLayout.authorMinWidth),
-                idealWidth: metrics.scaled(FilterBarLayout.authorMinWidth),
-                maxWidth: metrics.scaled(FilterBarLayout.authorWidth)
-            )
-            .onSubmit { onApplyFilter(draft.filter()) }
-            .help("Filter by author (press Return to apply)")
+        ChromeThemedTextField(
+            title: "Author",
+            text: draftAuthorBinding,
+            focus: $focusedField,
+            focusedEquals: .author,
+            horizontalPadding: FilterBarLayout.controlPaddingX
+        )
+        .frame(height: metrics.scaled(FilterBarLayout.controlHeight))
+        .frame(
+            minWidth: metrics.scaled(FilterBarLayout.authorMinWidth),
+            idealWidth: metrics.scaled(FilterBarLayout.authorMinWidth),
+            maxWidth: metrics.scaled(FilterBarLayout.authorWidth)
+        )
+        .onSubmit { onApplyFilter(draft.filter()) }
+        .help("Filter by author (press Return to apply)")
     }
 
     private var pathField: some View {
-        filterField("Path", text: draftPathBinding, field: .path)
-            .frame(
-                minWidth: metrics.scaled(FilterBarLayout.pathMinWidth),
-                idealWidth: metrics.scaled(FilterBarLayout.pathMinWidth),
-                maxWidth: metrics.scaled(FilterBarLayout.pathWidth)
-            )
-            .onSubmit { onApplyFilter(draft.filter()) }
-            .help("Limit to commits touching this path (press Return to apply)")
+        ChromeThemedTextField(
+            title: "Path",
+            text: draftPathBinding,
+            focus: $focusedField,
+            focusedEquals: .path,
+            horizontalPadding: FilterBarLayout.controlPaddingX
+        )
+        .frame(height: metrics.scaled(FilterBarLayout.controlHeight))
+        .frame(
+            minWidth: metrics.scaled(FilterBarLayout.pathMinWidth),
+            idealWidth: metrics.scaled(FilterBarLayout.pathMinWidth),
+            maxWidth: metrics.scaled(FilterBarLayout.pathWidth)
+        )
+        .onSubmit { onApplyFilter(draft.filter()) }
+        .help("Limit to commits touching this path (press Return to apply)")
     }
 
     /// Plain draft projections for text fields that must not re-fetch on every
@@ -366,12 +325,20 @@ struct LogFilterBar: View {
     }
 
     private var searchField: some View {
-        filterField("Filter by message", text: searchBinding, field: .search, glyph: "magnifyingglass")
-            .frame(
-                minWidth: metrics.scaled(FilterBarLayout.searchMinWidth),
-                idealWidth: metrics.scaled(FilterBarLayout.searchMinWidth),
-                maxWidth: metrics.scaled(FilterBarLayout.searchWidth)
-            )
+        ChromeThemedTextField(
+            title: "Filter by message",
+            text: searchBinding,
+            glyph: "magnifyingglass",
+            focus: $focusedField,
+            focusedEquals: .search,
+            horizontalPadding: FilterBarLayout.controlPaddingX
+        )
+        .frame(height: metrics.scaled(FilterBarLayout.controlHeight))
+        .frame(
+            minWidth: metrics.scaled(FilterBarLayout.searchMinWidth),
+            idealWidth: metrics.scaled(FilterBarLayout.searchMinWidth),
+            maxWidth: metrics.scaled(FilterBarLayout.searchWidth)
+        )
     }
 
     /// Search is live, client-side — cheap, so apply on every keystroke — but
@@ -393,7 +360,7 @@ struct LogFilterBar: View {
         enabled: Binding<Bool>,
         date: Binding<Date>
     ) -> some View {
-        controlBox(focused: false) {
+        ChromeControlBox(isFocused: false, horizontalPadding: FilterBarLayout.controlPaddingX) {
             HStack(spacing: metrics.scaled(FilterBarLayout.innerGap)) {
                 Toggle(isOn: enabled) {
                     Text(label)
@@ -419,13 +386,16 @@ struct LogFilterBar: View {
                 .disabled(!enabled.wrappedValue)
                 .accessibilityLabel("\(label) calendar")
                 .popover(isPresented: calendarBinding(for: bound)) {
+                    // The popover's arrow keeps the system material, because the content background cannot reach it.
                     DatePicker("", selection: date, displayedComponents: .date)
                         .datePickerStyle(.graphical)
                         .labelsHidden()
                         .padding(metrics.scaled(FilterBarLayout.padding))
+                        .background(theme.color(.bgPopover))
                 }
             }
         }
+        .frame(height: metrics.scaled(FilterBarLayout.controlHeight))
     }
 
     /// Whether `bound`'s calendar popover is open; closing it clears the state.
@@ -463,14 +433,10 @@ private enum FilterBarLayout {
     static let gap: Double = 10
     /// Every control box's height.
     static let controlHeight: Double = 22
-    /// Every control box's corner radius.
-    static let controlRadius: Double = 4
     /// A control box's horizontal inset.
     static let controlPaddingX: Double = 8
     /// Between a glyph (or a checkbox, or a chevron) and the text beside it.
     static let innerGap: Double = 6
-    /// The focused field's border.
-    static let focusBorderWidth: Double = 2
     /// The branch menu's widest.
     static let branchMaxWidth: Double = 200
     /// The branch menu's narrowest, below which its label truncates to nothing.

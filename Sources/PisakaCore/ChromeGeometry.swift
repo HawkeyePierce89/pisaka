@@ -92,4 +92,14 @@ public enum ChromeGeometry {
     public static let buttonPaddingX: Double = 10
     /// A chrome push button's corner radius.
     public static let buttonCornerRadius: Double = 5
+    /// A text field's corner radius.
+    public static let fieldCornerRadius: Double = 4
+    /// A focused text field's border width.
+    public static let fieldFocusedBorderWidth: Double = 2
+    /// A text field's horizontal padding.
+    public static let fieldPaddingX: Double = 10
+    /// A secondary button's height.
+    public static let secondaryButtonHeight: Double = 28
+    /// A secondary button's horizontal padding.
+    public static let secondaryButtonPaddingX: Double = 14
 }

@@ -167,25 +167,25 @@ matter.
 - Modify: `Tests/PisakaCoreTests/ChromeThemeTests.swift`
 - Modify: `Tests/PisakaCoreTests/ChromeThemeSourceGatingTests.swift`
 
-- [ ] Add five tokens to `ChromeGeometry`, the numbers the lifted shape and the button need: field corner radius 4, focused border width 2, field horizontal padding 10, secondary button height 28 and secondary button horizontal padding 14. Each is a distinct token with a one-line comment, and none is derived from another.
-- [ ] Update `ChromeThemeTests`' set-equality token inventory to include them.
-- [ ] Create `ChromeControls.swift` (macOS-gated) with three pieces:
+- [x] Add five tokens to `ChromeGeometry`, the numbers the lifted shape and the button need: field corner radius 4, focused border width 2, field horizontal padding 10, secondary button height 28 and secondary button horizontal padding 14. Each is a distinct token with a one-line comment, and none is derived from another.
+- [x] Update `ChromeThemeTests`' set-equality token inventory to include them.
+- [x] Create `ChromeControls.swift` (macOS-gated) with three pieces:
   - **A control box.** It has a `bgEditor` ground, a one-point `hairline` border, `accent` at the focused width while focused, and the new corner-radius token. It takes its horizontal inset as a parameter and states **no height**, so the container decides: 22 in a filter strip, 33 in Find in Files.
   - **A themed text field built on that box.** It is a plain `TextField` with `textPrimary` content, a `textSecondary` placeholder, an optional leading glyph hidden from accessibility, and a spoken label. Focus comes in as a `FocusState` binding plus the value it equals, so each caller keeps its own focus enum.
   - **A secondary button style.** It is 28 high, with a one-point `hairline` border, radius `buttonCornerRadius`, padding 14 and a `callout` label in `textPrimary`.
   - Everything is scaled through `InterfaceMetrics`, and colours come from `\.chromeTheme`.
-- [ ] Move `LogFilterBar.swift` onto the shared box:
+- [x] Move `LogFilterBar.swift` onto the shared box:
   - It draws its text fields and its three boxed system controls (the branch menu and the two date bounds) through the box.
   - It passes its own 22-point height and its own horizontal inset, so its pixels are unchanged.
   - Delete its private `controlBox`/`filterField` and the `FilterBarLayout` entries that become unused, so no second copy survives.
   - Its doc comment says the shape is shared.
-- [ ] Draw the Log filter bar's date-picker calendar popover (~line 421) on `bgPopover`:
+- [x] Draw the Log filter bar's date-picker calendar popover (~line 421) on `bgPopover`:
   - The popover's content gets a `bgPopover` background. There is no `presentationBackground` and no availability branch.
   - One line in the file says that the popover's arrow keeps the system material, because the content background cannot reach it.
   - The graphical date picker's own drawing is left to the system.
-- [ ] Add `ChromeControls.swift` to `gatedFiles`.
-- [ ] Rule twenty-one must stay red when a fixed `.frame(width:` is reintroduced. Confirm this against a local edit, then revert.
-- [ ] Run `swift test` and the macOS build. Both must pass.
+- [x] Add `ChromeControls.swift` to `gatedFiles`.
+- [x] Rule twenty-one must stay red when a fixed `.frame(width:` is reintroduced. Confirm this against a local edit, then revert.
+- [x] Run `swift test` and the macOS build. Both must pass.
 
 ### Task 2: The completion panel on `bgPopover`, and the badge's colour leaves Core
 

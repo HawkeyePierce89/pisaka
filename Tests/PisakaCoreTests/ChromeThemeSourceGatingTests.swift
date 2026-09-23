@@ -158,6 +158,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         "DiffView.swift",
         "CommitUnifiedDiffView.swift",
         "PullRequestsPanelView.swift",
+        "ChromeControls.swift",
     ]
 
     func testEveryGatedFileExists() throws {
@@ -881,7 +882,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         ("UsagesPanelView.swift", ["private var header: some View"]),
         ("TerminalPanelView.swift", ["private func tab(for session:"]),
         ("CommitLogView.swift", ["private var header: some View", "private func label(_ text: String)"]),
-        ("LogFilterBar.swift", ["private func filterField(", "private func dateBound("]),
+        ("LogFilterBar.swift", ["private func dateBound("]),
         ("LocalChangesView.swift", ["private var toolbar: some View"]),
         ("PullRequestsPanelView.swift", ["private var header: some View", "private var summaryLine: some View"]),
     ]
