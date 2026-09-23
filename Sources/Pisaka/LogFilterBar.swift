@@ -34,6 +34,23 @@ import PisakaCore
 /// drawn plain inside the box with their own `textSecondary` placeholder; the
 /// branch menu and the two date fields keep their system controls, drawn
 /// borderless inside the same box beside a `textSecondary` chevron.
+///
+/// **Requirement: at the window's minimum width, at every interface scale, every
+/// control in the bar is reachable and nothing is clipped.** The single 28 pt row
+/// is the shape at a comfortable width, not a floor the window is obliged to
+/// provide — the main window's minimum is `metrics.scaled(640)`, well under what
+/// the row's design widths add up to. So the design widths are *preferred*
+/// widths: the author, path and search fields each take `maxWidth` at the
+/// design's figure over a stated minimum, the branch menu is capped and
+/// truncates its label, and each date bound's label truncates (the date itself
+/// keeps its intrinsic width — its text is the control's value). The row is laid
+/// out through `ViewThatFits`: while the minimums compose into the strip, the
+/// row fills it and the fields grow back toward their design widths; below that
+/// floor the same row, at its minimums, sits in a horizontal scroll view with no
+/// scroller furniture, so it scrolls rather than clipping and the strip's
+/// height, ground and bottom hairline are unchanged. Crossing the floor while a
+/// field holds focus swaps the row and drops the focus — the cost of the two
+/// shapes, and harmless (the draft lives in `@State` above both).
 struct LogFilterBar: View {
     /// The branch/tag refs offered in the ref picker — **full** refnames (e.g.
     /// `refs/heads/main`, `refs/tags/v1.0`) sourced from the service. The full name
@@ -80,27 +97,13 @@ struct LogFilterBar: View {
     }
 
     var body: some View {
-        HStack(spacing: metrics.scaled(FilterBarLayout.gap)) {
-            refPicker
-            authorField
-            pathField
-            dateBound(
-                .since,
-                label: "Since",
-                enabled: draftBinding(for: \.sinceEnabled),
-                date: draftBinding(for: \.since)
-            )
-            dateBound(
-                .until,
-                label: "Until",
-                enabled: draftBinding(for: \.untilEnabled),
-                date: draftBinding(for: \.until)
-            )
-            Spacer(minLength: metrics.scaled(FilterBarLayout.gap))
-            searchField
+        ViewThatFits(in: .horizontal) {
+            filterRow
+            ScrollView(.horizontal, showsIndicators: false) {
+                filterRow
+            }
         }
         .font(metrics.scaledFont(.callout))
-        .padding(.horizontal, metrics.scaled(FilterBarLayout.padding))
         .frame(height: metrics.scaled(ChromeGeometry.panelHeaderHeight))
         .background(theme.color(.bgPanel))
         .overlay(alignment: .bottom) {
@@ -136,6 +139,34 @@ struct LogFilterBar: View {
         // the iOS bar uses, which is why the two bars are spelled differently).
         .onChange(of: filter) { newFilter in seed(from: newFilter) }
         .onChange(of: searchQuery) { newQuery in search = newQuery }
+    }
+
+    /// The bar's one row, drawn by both of `body`'s shapes. Its ideal width is
+    /// the sum of the controls' minimums, which is what `ViewThatFits` tests
+    /// against the strip; offered more, the fields grow toward their design
+    /// widths and the spacer takes the rest.
+    private var filterRow: some View {
+        HStack(spacing: metrics.scaled(FilterBarLayout.gap)) {
+            refPicker
+            authorField
+            pathField
+            dateBound(
+                .since,
+                label: "Since",
+                enabled: draftBinding(for: \.sinceEnabled),
+                date: draftBinding(for: \.since)
+            )
+            dateBound(
+                .until,
+                label: "Until",
+                enabled: draftBinding(for: \.untilEnabled),
+                date: draftBinding(for: \.until)
+            )
+            Spacer(minLength: metrics.scaled(FilterBarLayout.gap))
+            searchField
+        }
+        .padding(.horizontal, metrics.scaled(FilterBarLayout.padding))
+        .frame(maxHeight: .infinity)
     }
 
     /// `references` order-preserving, with later duplicates dropped.
@@ -201,11 +232,13 @@ struct LogFilterBar: View {
                 }
                 .menuStyle(.borderlessButton)
                 .menuIndicator(.hidden)
-                .fixedSize()
                 chevron
             }
         }
-        .frame(maxWidth: metrics.scaled(FilterBarLayout.branchMaxWidth))
+        .frame(
+            minWidth: metrics.scaled(FilterBarLayout.branchMinWidth),
+            maxWidth: metrics.scaled(FilterBarLayout.branchMaxWidth)
+        )
         .help("Branch / ref to show history for")
         .accessibilityLabel("Branch")
     }
@@ -302,14 +335,22 @@ struct LogFilterBar: View {
 
     private var authorField: some View {
         filterField("Author", text: draftAuthorBinding, field: .author)
-            .frame(width: metrics.scaled(FilterBarLayout.authorWidth))
+            .frame(
+                minWidth: metrics.scaled(FilterBarLayout.authorMinWidth),
+                idealWidth: metrics.scaled(FilterBarLayout.authorMinWidth),
+                maxWidth: metrics.scaled(FilterBarLayout.authorWidth)
+            )
             .onSubmit { onApplyFilter(draft.filter()) }
             .help("Filter by author (press Return to apply)")
     }
 
     private var pathField: some View {
         filterField("Path", text: draftPathBinding, field: .path)
-            .frame(width: metrics.scaled(FilterBarLayout.pathWidth))
+            .frame(
+                minWidth: metrics.scaled(FilterBarLayout.pathMinWidth),
+                idealWidth: metrics.scaled(FilterBarLayout.pathMinWidth),
+                maxWidth: metrics.scaled(FilterBarLayout.pathWidth)
+            )
             .onSubmit { onApplyFilter(draft.filter()) }
             .help("Limit to commits touching this path (press Return to apply)")
     }
@@ -326,7 +367,11 @@ struct LogFilterBar: View {
 
     private var searchField: some View {
         filterField("Filter by message", text: searchBinding, field: .search, glyph: "magnifyingglass")
-            .frame(width: metrics.scaled(FilterBarLayout.searchWidth))
+            .frame(
+                minWidth: metrics.scaled(FilterBarLayout.searchMinWidth),
+                idealWidth: metrics.scaled(FilterBarLayout.searchMinWidth),
+                maxWidth: metrics.scaled(FilterBarLayout.searchWidth)
+            )
     }
 
     /// Search is live, client-side — cheap, so apply on every keystroke — but
@@ -428,12 +473,20 @@ private enum FilterBarLayout {
     static let focusBorderWidth: Double = 2
     /// The branch menu's widest.
     static let branchMaxWidth: Double = 200
-    /// The author field.
+    /// The branch menu's narrowest, below which its label truncates to nothing.
+    static let branchMinWidth: Double = 70
+    /// The author field's preferred (design) width.
     static let authorWidth: Double = 140
-    /// The path field.
+    /// The author field's narrowest.
+    static let authorMinWidth: Double = 80
+    /// The path field's preferred (design) width.
     static let pathWidth: Double = 160
-    /// The message search field.
+    /// The path field's narrowest.
+    static let pathMinWidth: Double = 80
+    /// The message search field's preferred (design) width.
     static let searchWidth: Double = 220
+    /// The message search field's narrowest.
+    static let searchMinWidth: Double = 120
 }
 
 /// The system date field, drawn borderless so the bar's control box is the only

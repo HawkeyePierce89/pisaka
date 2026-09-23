@@ -921,7 +921,7 @@ although it is an editing affordance rather than a row: an inline draft
 for. `TabStripView.swift` covers `TabStatusMark` too, the slot view the two
 orientations share, which is why that extraction did not add a seventh file.
 
-The twenty rules, each invisible to the compiler:
+The twenty-one rules, each invisible to the compiler:
 
 1. **No gated view names a system semantic colour.** A closed forbidden-token
    list — AppKit's semantic set (`labelColor`, `separatorColor`,
@@ -1203,6 +1203,17 @@ The twenty rules, each invisible to the compiler:
    checks glyph is the one entry exempt from the last clause, the image being
    the element itself. A renamed builder fails loudly. Stated limit: "followed
    by" is textual, so one hidden container after two symbols satisfies both.
+21. **The Log's filter bar fits the window it lives in.** The requirement,
+   stated in `LogFilterBar.swift`'s doc comment: at the main window's minimum
+   width, at every interface scale, every control in the bar is reachable and
+   nothing is clipped. Over stripped source, the file spells no
+   `.frame(width:` — a width there is `minWidth`/`idealWidth`/`maxWidth` — and
+   it spells `ScrollView(.horizontal`, the branch that keeps the row reachable
+   once its minimums no longer compose. The defect shipped once: fixed widths
+   made the row ≈1000 points at scale 1 against a 640-point window, and the
+   panel column clipped the branch menu, the message search, the Log header's
+   refresh button and the rows' date column. Stated limit: neither half proves
+   the layout; each is the half that went missing.
 
 Plus a **self-check** in the suite's own idiom: every gated file must actually
 *name* a `ChromeColorRole`, or the checks above have gone vacuous — with two

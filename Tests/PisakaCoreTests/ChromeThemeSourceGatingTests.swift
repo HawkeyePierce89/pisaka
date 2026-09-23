@@ -1576,6 +1576,49 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         }
     }
 
+    // MARK: - Rule twenty-one: the Log's filter bar fits the window it lives in
+
+    /// The requirement, stated in `LogFilterBar.swift`'s own doc comment: at the
+    /// main window's minimum width (`metrics.scaled(640)`), at every interface
+    /// scale, every control in the filter bar is reachable and nothing is
+    /// clipped.
+    ///
+    /// The defect this pins shipped once. Part four (b) redrew the bar as one
+    /// row whose fields stated fixed widths (`.frame(width:)` at 140, 160 and
+    /// 220) beside a branch menu and two date bounds forced to their intrinsic
+    /// widths, so the row could not shrink below roughly 1000 points at scale 1
+    /// — and between that and the window's 640 the panel column clipped it, and
+    /// the branch menu, the message search, the Log header's refresh button and
+    /// the commit rows' date column went out of reach. Nothing else in the
+    /// pipeline can see it: it compiles, it renders perfectly at the width the
+    /// reviewer happens to use, and no headless test lays out a SwiftUI row.
+    ///
+    /// What *is* textually visible is the shape of the fix, so that is what is
+    /// pinned, over stripped source: the file states no fixed `.frame(width:` at
+    /// all — a width in it is a `minWidth`/`idealWidth`/`maxWidth` — and the row
+    /// is drawn a second time inside a horizontal `ScrollView`, the branch that
+    /// keeps every control reachable once the minimums no longer compose.
+    /// Neither half proves the layout; each is the half that went missing.
+    func testTheLogFilterBarStatesNoFixedWidthAndScrollsBelowItsFloor() throws {
+        let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
+            try Self.read(Self.source(named: "LogFilterBar.swift"))
+        )
+        XCTAssertFalse(
+            code.contains(".frame(width:"),
+            """
+            LogFilterBar.swift states a fixed .frame(width: — a control that cannot shrink clips the \
+            row below the window's minimum width; state minWidth/maxWidth instead
+            """
+        )
+        XCTAssertTrue(
+            code.contains("ScrollView(.horizontal"),
+            """
+            LogFilterBar.swift draws its row in no horizontal ScrollView — below the floor its \
+            minimums compose, the row must scroll rather than clip
+            """
+        )
+    }
+
     // MARK: - Self-check
 
     /// Every gated file draws with roles and must therefore name one — with two
@@ -1626,7 +1669,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// in the file.
     static func declaredRuleCount() throws -> Int {
         let source = try read(URL(fileURLWithPath: #filePath))
-        let markers = try NSRegularExpression(pattern: "(?m)^\\s*// MARK: - Rule [a-z]+:")
+        let markers = try NSRegularExpression(pattern: "(?m)^\\s*// MARK: - Rule [a-z-]+:")
         let range = NSRange(source.startIndex..<source.endIndex, in: source)
         let count = markers.numberOfMatches(in: source, range: range)
         XCTAssertGreaterThan(count, 0, "the rule markers are gone or reworded — re-point this count")
@@ -1639,7 +1682,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         1: "one", 2: "two", 3: "three", 4: "four", 5: "five", 6: "six",
         7: "seven", 8: "eight", 9: "nine", 10: "ten", 11: "eleven", 12: "twelve",
         13: "thirteen", 14: "fourteen", 15: "fifteen", 16: "sixteen", 17: "seventeen",
-        18: "eighteen", 19: "nineteen", 20: "twenty",
+        18: "eighteen", 19: "nineteen", 20: "twenty", 21: "twenty-one",
     ]
 
     func testBothSummariesSpellTheSuitesOwnRuleCount() throws {

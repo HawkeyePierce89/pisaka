@@ -844,4 +844,27 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     as a concrete value) plus a chevron opening a graphical calendar popover.
     Programmatic `dateValue` writes send no action, so the seeding rule above
     still holds: only a user edit reaches `draftBinding(for:)`'s setter.
+    **Width (fix round 01).** The requirement, stated in the file's doc comment:
+    at the main window's minimum width (`metrics.scaled(640)`), at every
+    interface scale, every control is reachable and nothing is clipped — the
+    28 pt single row is the shape at a comfortable width, not a floor the window
+    owes. The figures above are therefore *preferred* widths: author, path and
+    search are `.frame(minWidth:idealWidth:maxWidth:)` with the design figure as
+    `maxWidth` over minimums of 80, 80 and 120 (the ideal is the minimum); the
+    branch menu no longer `fixedSize()`s its label and is capped between 70 and
+    200, truncating; each date bound's checkbox label truncates while the date
+    itself keeps its intrinsic width (its text is the value); the trailing
+    spacer keeps its 10 pt minimum and may collapse to it. `body` lays the one
+    `filterRow` out through `ViewThatFits(in: .horizontal)`: while the
+    minimums compose into the strip the row fills it and the fields grow back
+    toward their design widths; below that floor the same row sits in a
+    `ScrollView(.horizontal, showsIndicators: false)` at its minimums and
+    scrolls rather than clipping. Strip height, padding, gap, control height,
+    radius, border and focus border are unchanged, and the strip's ground and
+    hairline sit outside both shapes. Crossing the floor with a field focused
+    swaps the row and drops focus — harmless, the draft being `@State` above
+    both. The fixed widths it replaced (≈1000 points at scale 1) clipped the
+    branch menu, the search, the Log header's refresh button and the rows' date
+    column below that; `ChromeThemeSourceGatingTests` rule twenty-one pins the
+    shape (`core-theme.md`).
 
