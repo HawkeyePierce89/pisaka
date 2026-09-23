@@ -116,8 +116,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     lists unreadable without sight, which is why that rule gained a second half
     (`core-theme.md`). `app-window.md`'s part-three paragraph is the
     record for the bar as a whole; the behaviour below is unchanged by it. The
-    popover's own `Divider()` rules are inherited work left for the part that
-    sweeps the popovers' ground (`core-theme.md`). A remote-branch row is a two-item `Menu` — "Checkout" (git DWIM via
+    popover's content since part five (a) is drawn on `bgPopover` with no
+    `presentationBackground` and no `#available` branch (one line saying the arrow
+    keeps the system material), each `Divider()` is a one-point `hairline` rule,
+    and the filter field is the shared themed field (`core-theme.md`). A remote-branch row is a two-item `Menu` — "Checkout" (git DWIM via
     `onCheckoutRemote`) and "New Branch from '\(shortName)'…" (the create dialog
     pre-filled with the default name, `origin/master` → `master`, via
     `onCreateFromRemote`), each dismissing the popover on selection; local-branch rows

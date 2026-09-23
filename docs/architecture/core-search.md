@@ -392,4 +392,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `clear()`, `init(entries:)` normalizing a dirty list, both round trips, each
     decode-failure shape, and `menuLabel` for a short pattern, a 200-character
     one and every flag combination. The two surfaces that record into it and the
-    one menu view that draws it are in `app-editor.md`.
+    one menu view that draws it are in `app-editor.md`. The menu view
+    (`SearchHistoryMenu.swift`) draws its trigger glyph in `textSecondary` hidden
+    from accessibility with a spoken menu name, and its one `Divider()` is the
+    single `Divider()` a gated file may spell — a comment names it as such
+    (`core-theme.md`, rule twenty-four).

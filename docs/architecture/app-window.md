@@ -113,15 +113,17 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     (it publishes nothing) and — unlike `editorConfig` — optional and defaulted, so
     `nil` in previews and tests simply transforms nothing and `model` +
     `editorConfig` stay the only two required arguments.
-    The breadcrumb is no longer private to this file: it is
-    `BreadcrumbBarView.swift`, with its own entry below. `ContentView` hosts it and
-    adds **no** `Divider()` under it, exactly as it adds none under the horizontal
-    tab strip — the strip draws its own bottom rule, so a host-drawn one would be a
-    second rule nothing keeps in step with the height above it. Because the
-    breadcrumb lives inside `editorZone` it covers **both** tab layouts at once —
-    in `.horizontal` it simply lands under the tab strip — while the "No file
-    open" branch is deliberately left bare (no bar without a file). The window
-    body is a
+     The breadcrumb is no longer private to this file: it is
+     `BreadcrumbBarView.swift`, with its own entry below. `ContentView` hosts it and
+     adds **no** `Divider()` under it, exactly as it adds none under the horizontal
+     tab strip — the strip draws its own bottom rule, so a host-drawn one would be a
+     second rule nothing keeps in step with the height above it. The `Divider()`
+     under `SearchBarView` is gone since part five (a) for the same reason: the bar
+     draws its own `hairline` along its bottom edge, leaving a one-line comment in
+     the style of the one at ~line 403. Because the breadcrumb lives inside
+     `editorZone` it covers **both** tab layouts at once — in `.horizontal` it
+     simply lands under the tab strip — while the "No file open" branch is
+     deliberately left bare (no bar without a file). The window body is a
     `VStack(spacing: 0) { mainArea; bottomBar }` — **no `Divider()` between
     them** since part three: the bar draws its own one-point `hairline` along
     its top edge, in the palette's value rather than the platform's. Keeping a
@@ -584,16 +586,17 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     state, `textPrimary` for a non-current row's name — because gating rule one
     is per *file* and this file obeys it whole. Every symbol the file draws is
     `.accessibilityHidden(true)` (a `Button` combines its children), and the
-    popover row's is hidden with a **debt paid**: its glyph is
-    `row.isCurrent ? "checkmark" : "folder"`, so the row states
-    `.accessibilityValue("Current project")` for the project that is open —
-    hiding the glyph without that left the current row announcing exactly what
-    every other row announced, since the `accent` beside it is no more readable
-    without sight (`core-theme.md`, rule ten's second half). The popover's `Divider()` calls
-    deliberately **stay**: a divider names no colour, so no rule can see it, and
-    its ground is still the platform's material, on which a `hairline` rule would
-    be the mismatch rather than the cure. That deferral is recorded as inherited
-    work for the popovers' part in `core-theme.md`.
+     popover row's is hidden with a **debt paid**: its glyph is
+     `row.isCurrent ? "checkmark" : "folder"`, so the row states
+     `.accessibilityValue("Current project")` for the project that is open —
+     hiding the glyph without that left the current row announcing exactly what
+     every other row announced, since the `accent` beside it is no more readable
+     without sight (`core-theme.md`, rule ten's second half). On the chrome roles
+     since part five (a): the popover's content is drawn on `bgPopover` with no
+     `presentationBackground` and no `#available` branch, the arrow keeps the
+     system material (one line says so), each `Divider()` is a one-point `hairline`
+     rule the content draws, and the popover's filter field is the shared themed
+     field.
   - `ProblemsPanelView.swift` (macOS) — the Problems panel: every diagnostic the
     language servers currently hold, grouped by file. It observes `DiagnosticsModel`
     (`@ObservedObject` — this view is *for* that state and nothing else renders it)

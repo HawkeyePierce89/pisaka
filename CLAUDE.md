@@ -291,6 +291,7 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
 - `ChromeGeometry.swift` — the chrome's point tokens, scaled at the use site; no font size, ever.
 - `ChromeAppearance.swift` — `dark`/`light` + the third `resolved(_:systemPrefersDark:)`.
 - `TreeRowState.swift` — the tree row's four-plus-drop states and their precedence; selection and focus are derived.
+- `ChromeControls.swift` — the shared field shape and secondary button style (the `bgPopover` part's field).
 
 `docs/architecture/core-database-viewer.md` — the database viewer tab (macOS; reads, plus two writes — the inline cell edit and the SQL console's confirmed mutation):
 - `DatabaseFileRule.swift` — the one recognized-extension rule; last extension only.
@@ -737,7 +738,7 @@ ci.yml's `lint` job, and the version-bump procedure.
   paints its own background and overrides nothing — was measured recolouring
   live in both directions when the system appearance changed under it. A
   reader: it takes no writer gate, is gated by none and writes nothing.
-  `ChromeThemeSourceGatingTests` pins which files obey the rule (twenty-seven, by set
+  `ChromeThemeSourceGatingTests` pins which files obey the rule (thirty-four, by set
   equality) and its twenty-six rules — no system semantic colour, no hex literal
   outside the table, the four exemptions stay exemptions, the theme injected at
   the scale's roots, no view constructing a theme, the gutter's fill still going
@@ -775,7 +776,7 @@ ci.yml's `lint` job, and the version-bump procedure.
   chrome**: `SyntaxTheme.swift` (the code zone's own theme), `TerminalTheme.swift`
   (a protocol's ANSI-16 vocabulary), `FileIcon.swift` (a Core token iOS still
   paints) and `CommitGraphPalette.swift` (a lane colour is an identity token, not
-  a chrome meaning). Twenty-three surfaces are swept so far — part one's tab strip, line-number
+  a chrome meaning). Thirty surfaces are swept so far — part one's tab strip, line-number
   ruler and project tree rows (the inline draft field with them), part two's
   vertical tab column, breadcrumb, minimap chrome and language-server consent
   strip, part three's window ground and title bar, sidebar host and header,
@@ -787,8 +788,7 @@ ci.yml's `lint` job, and the version-bump procedure.
   Terminal panel host, which spend no new role, and part four (b)'s Log panel,
   its filter bar, its graph gutter, the Local Changes panel, the Pull Requests
   panel, the side-by-side diff pane and the unified diff's wash, which spend the
-  two diff grounds and leave four roles unspent (`bgPopover`, `currentLine`,
-  `bracketMatch`, `conflictBackground`); the rest is the follow-up sweep, whose procedure
+  two diff grounds leaving four roles unspent (`bgPopover`, `currentLine`, `bracketMatch`, `conflictBackground`), and part five (a)'s completion panel, hover popover, find/replace bar, Find in Files window and its window controller, recent-searches menu, two bottom-bar popovers and Log calendar popover on `bgPopover`, the badge monochrome and the shared field shape, which spend `bgPopover` and leave three roles unspent (`currentLine`, `bracketMatch`, `conflictBackground`); the rest is the follow-up sweep, whose procedure
   and its one refusal ("a surface needing a twenty-second role has found a design
   question") are in `core-theme.md`.
 - **Zoom is three zones, one arithmetic, one pointer rule** (macOS only): `code`

@@ -344,7 +344,7 @@ twenty-four in Task 7, so this task is not complete until Task 7 is.
 
 ### Task 9: Update documentation
 
-- [ ] Add the part five (a) record to `core-theme.md`:
+- [x] Add the part five (a) record to `core-theme.md`:
   - the surfaces swept (including the Log calendar popover), with the gated set at thirty-four;
   - `bgPopover` spent;
   - how the three SwiftUI popovers carry the ground: on their content, with no availability branch, and the arrow on the system material;
@@ -355,8 +355,8 @@ twenty-four in Task 7, so this task is not complete until Task 7 is.
   - `ChromeControls.swift` and its callers;
   - the new tokens;
   - the four rules, with rule twenty-five covering both layer colours.
-- [ ] Update the "unspent" paragraphs in `core-theme.md` and the doc comment in `ChromeColorRole.swift` to three roles: `currentLine`, `bracketMatch`, `conflictBackground`.
-- [ ] Update the other architecture docs:
+- [x] Update the "unspent" paragraphs in `core-theme.md` and the doc comment in `ChromeColorRole.swift` to three roles: `currentLine`, `bracketMatch`, `conflictBackground`.
+- [x] Update the other architecture docs:
   - `app-editor.md`: CompletionPanel, HoverPanel, SearchBarView, ProjectSearchView and its window controller, SearchHistoryMenu.
   - `app-window.md`: ProjectSwitcherView, and ContentView's removed divider.
   - `app-git-views.md`: BranchSwitcherView, and the Log filter bar's shared field and calendar ground.
@@ -366,4 +366,4 @@ twenty-four in Task 7, so this task is not complete until Task 7 is.
   - The chrome-theme invariant says thirty-four gated files and twenty-six rules.
   - The swept-surfaces sentence adds this part's surfaces and ends with three unspent roles.
   - The chrome-theme index gains one line for `ChromeControls.swift`.
-- [ ] Make no README change: nothing user-facing changes beyond appearance and accessibility.
+- [x] Make no README change: nothing user-facing changes beyond appearance and accessibility.
