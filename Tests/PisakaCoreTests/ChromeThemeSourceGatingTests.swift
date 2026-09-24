@@ -911,12 +911,16 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// date bound — the branch picker's menu items are menu rows, not strip
     /// labels, so `refPicker` is not named), the Local Changes toolbar, and the
     /// Pull Requests header and row line.
+    ///
+    /// Part five (b) moved the date bound's label into the shared checkbox's
+    /// trailing title, so the filter bar's entry is re-pointed at
+    /// `ChromeCheckbox`, the one place that label is now drawn.
     private static let headerBuilderFiles: [(file: String, builders: [String])] = [
         ("ProblemsPanelView.swift", ["private var header: some View", "private func severityBadge("]),
         ("UsagesPanelView.swift", ["private var header: some View"]),
         ("TerminalPanelView.swift", ["private func tab(for session:"]),
         ("CommitLogView.swift", ["private var header: some View", "private func label(_ text: String)"]),
-        ("LogFilterBar.swift", ["private func dateBound("]),
+        ("ChromeControls.swift", ["struct ChromeCheckbox"]),
         ("LocalChangesView.swift", ["private var toolbar: some View"]),
         ("PullRequestsPanelView.swift", ["private var header: some View", "private var summaryLine: some View"]),
     ]
@@ -1596,8 +1600,6 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
                            required: [".accessibilityLabel(", ".accessibilityValue("], hidesSymbols: true),
             ControlBuilder(path: ["private struct ChangedFileRow", "var body: some View"],
                            required: [".accessibilityValue("], hidesSymbols: true),
-            ControlBuilder(path: ["private var checkbox: some View"],
-                           required: [".accessibilityLabel(", ".accessibilityValue("], hidesSymbols: true),
         ]),
         ("PullRequestsPanelView.swift", [
             ControlBuilder(path: ["private var header: some View"],
@@ -1616,6 +1618,10 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         ("ChromeControls.swift", [
             ControlBuilder(path: ["struct ChromeQueryToggle"],
                            required: [".accessibilityLabel(", ".accessibilityValue("], hidesSymbols: false),
+            // Local Changes' revert checkbox, lifted here in part five (b): the
+            // label and value it owed moved with it.
+            ControlBuilder(path: ["struct ChromeCheckbox"],
+                           required: [".accessibilityLabel(", ".accessibilityValue("], hidesSymbols: true),
         ]),
         ("SearchBarView.swift", [
             ControlBuilder(path: ["private var findRow: some View"],

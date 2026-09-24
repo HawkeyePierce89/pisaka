@@ -2,11 +2,12 @@
 import SwiftUI
 import PisakaCore
 
-/// The shared chrome field and button shapes.
+/// The shared chrome field, button and checkbox shapes.
 ///
-/// Two chrome decisions, one file: the field box — `bgEditor` ground, a
-/// one-point `hairline` border and two points of `accent` on focus — and the
-/// secondary button. The Log filter bar was the shape lifted; every later
+/// One file for the chrome's controls: the field box — `bgEditor` ground, a
+/// one-point `hairline` border and two points of `accent` on focus — the
+/// primary and secondary buttons, and the checkbox. The Log filter bar was the
+/// field lifted, Local Changes' revert checkbox the checkbox; every later
 /// caller uses these rather than a second copy.
 struct ChromeControlBox<Content: View>: View {
     let isFocused: Bool
@@ -105,6 +106,130 @@ struct ChromeSecondaryButtonStyle: ButtonStyle {
 
 extension ButtonStyle where Self == ChromeSecondaryButtonStyle {
     static var chromeSecondary: ChromeSecondaryButtonStyle { ChromeSecondaryButtonStyle() }
+}
+
+/// The primary button style: the secondary's geometry — 28 high, radius
+/// `buttonCornerRadius`, padding 14 — with a `callout` semibold label in
+/// `onAccent` on an `accent` ground.
+///
+/// It dims exactly as the secondary style does: half opacity disabled, 0.7
+/// while pressed.
+struct ChromePrimaryButtonStyle: ButtonStyle {
+    @Environment(\.interfaceMetrics) private var metrics
+    @Environment(\.chromeTheme) private var theme
+    @Environment(\.isEnabled) private var isEnabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(metrics.scaledFont(.callout, weight: .semibold))
+            .foregroundStyle(theme.color(.onAccent))
+            .padding(.horizontal, metrics.scaled(ChromeGeometry.secondaryButtonPaddingX))
+            .frame(height: metrics.scaled(ChromeGeometry.secondaryButtonHeight))
+            .background(
+                RoundedRectangle(cornerRadius: metrics.scaled(ChromeGeometry.buttonCornerRadius))
+                    .fill(theme.color(.accent))
+            )
+            .opacity(isEnabled ? (configuration.isPressed ? 0.7 : 1) : 0.5)
+    }
+}
+
+extension ButtonStyle where Self == ChromePrimaryButtonStyle {
+    static var chromePrimary: ChromePrimaryButtonStyle { ChromePrimaryButtonStyle() }
+}
+
+/// The one chrome checkbox, lifted from Local Changes' revert checkbox.
+///
+/// A `checkboxSide` square with `checkboxCornerRadius`: off is a `hairline`
+/// border and no ground, on an `accent` ground with an `onAccent` check, mixed
+/// the same ground with an `onAccent` dash. The box is hidden from
+/// accessibility; the control speaks its label and "On", "Off" or "Mixed" as
+/// its value. An optional trailing title (the Amend and Push rows, a Log date
+/// bound) is part of the click target. Disabled, the whole control dims.
+struct ChromeCheckbox: View {
+    enum State: Equatable {
+        case on, off, mixed
+    }
+
+    let state: State
+    /// The spoken name, which may say more than the visible title.
+    let label: String
+    var title: String?
+    let action: () -> Void
+
+    @Environment(\.interfaceMetrics) private var metrics
+    @Environment(\.chromeTheme) private var theme
+    @Environment(\.isEnabled) private var isEnabled
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: metrics.scaled(ChromeGeometry.checkboxCornerRadius))
+        Button(action: action) {
+            HStack(spacing: metrics.scaled(ChromeCheckboxLayout.titleGap)) {
+                ZStack {
+                    if state == .off {
+                        shape.strokeBorder(
+                            theme.color(.hairline),
+                            lineWidth: metrics.scaled(ChromeGeometry.hairlineWidth)
+                        )
+                    } else {
+                        shape.fill(theme.color(.accent))
+                        Image(systemName: state == .on ? "checkmark" : "minus")
+                            .resizable()
+                            .scaledToFit()
+                            .foregroundStyle(theme.color(.onAccent))
+                            .frame(width: metrics.scaled(ChromeCheckboxLayout.glyphSide))
+                    }
+                }
+                .frame(
+                    width: metrics.scaled(ChromeGeometry.checkboxSide),
+                    height: metrics.scaled(ChromeGeometry.checkboxSide)
+                )
+                .accessibilityHidden(true)
+                if let title {
+                    Text(title)
+                        .font(metrics.scaledFont(.callout))
+                        .foregroundStyle(theme.color(.textPrimary))
+                        .lineLimit(1)
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .opacity(isEnabled ? 1 : 0.5)
+        .accessibilityLabel(label)
+        .accessibilityValue(spokenValue)
+    }
+
+    private var spokenValue: String {
+        switch state {
+        case .on: "On"
+        case .off: "Off"
+        case .mixed: "Mixed"
+        }
+    }
+}
+
+extension ChromeCheckbox.State {
+    /// The commit plan's three states, read as the checkbox draws them.
+    init(_ state: CheckboxState) {
+        switch state {
+        case .checked: self = .on
+        case .unchecked: self = .off
+        case .mixed: self = .mixed
+        }
+    }
+}
+
+/// The checkbox's own numbers: they belong to the one shape, so they are named
+/// here rather than as `ChromeGeometry` tokens.
+private enum ChromeCheckboxLayout {
+    /// The check's (and the dash's) width inside the 14-point box. 10 is the
+    /// design's check; Local Changes' former 8 was a private choice for one
+    /// caller, made before the shape was shared and never checked against the
+    /// drawing. One shape serving five callers takes the drawing's value, so the
+    /// revert checkbox's check grew by two points.
+    static let glyphSide: Double = 10
+    /// Between the box and its trailing title.
+    static let titleGap: Double = 6
 }
 
 /// The query-mode toggle (`Aa`, `ab`, `.*`), drawn once for the two shapes that

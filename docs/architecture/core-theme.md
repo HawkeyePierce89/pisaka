@@ -905,7 +905,21 @@ on/off value both surfaces already had. `ChromeSecondaryButtonStyle`
 is 28 high (`secondaryButtonHeight`), with a one-point `hairline` border, radius
 `buttonCornerRadius`, padding `secondaryButtonPaddingX` and a `callout` label in
 `textPrimary`. Everything is scaled through `InterfaceMetrics` and colours come
-from `\.chromeTheme`. Callers: `LogFilterBar.swift` (its text fields and its
+from `\.chromeTheme`. Part five (b) adds `ChromePrimaryButtonStyle` (`.chromePrimary`: the
+secondary's geometry, a `callout` semibold `onAccent` label on an `accent`
+ground, dimming as the secondary does) and `ChromeCheckbox`, lifted from Local
+Changes' revert checkbox: a three-case state (on/off/mixed, with an initializer
+from Core's `CheckboxState`), a spoken label, an optional trailing `callout`
+title inside the click target, a `checkboxSide` square at `checkboxCornerRadius`
+(off: `hairline` border; on: `accent` + `onAccent` check; mixed: the same ground
++ an `onAccent` dash), the box hidden from accessibility and the control
+speaking "On"/"Off"/"Mixed", dimmed when disabled. The glyph is 10 points, a
+named private constant (`ChromeCheckboxLayout.glyphSide`): the design's check
+inside the 14-point box, taken over Local Changes' former private 8, so the
+revert checkbox's check grew two points. Its first callers are the revert
+checkbox (the private builder and its three `LocalChangesLayout` numbers
+deleted) and the Log filter bar's two date bounds, which replaced a platform
+`Toggle`. Callers: `LogFilterBar.swift` (its text fields and its
 three boxed system controls — the branch menu and the two date bounds — through
 the box at 22 high and its own inset, plus the box as the filter-field baseline
 with its private `controlBox`/`filterField` and the `FilterBarLayout` entries

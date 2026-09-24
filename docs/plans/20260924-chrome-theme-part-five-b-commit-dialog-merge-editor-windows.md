@@ -307,12 +307,12 @@ one is recorded in `core-theme.md`:
 - Modify: `Sources/Pisaka/LogFilterBar.swift`
 - Modify: `Tests/PisakaCoreTests/ChromeThemeSourceGatingTests.swift`
 
-- [ ] Add `ChromePrimaryButtonStyle` plus `.chromePrimary`:
+- [x] Add `ChromePrimaryButtonStyle` plus `.chromePrimary`:
   - label: `callout` semibold in `onAccent` on an `accent` ground;
   - geometry: `buttonCornerRadius`, `secondaryButtonHeight` and
     `secondaryButtonPaddingX`, all scaled through `InterfaceMetrics`;
   - disabled and pressed: dims exactly as the secondary style does.
-- [ ] Add `ChromeCheckbox`, lifted from `LocalChangesView`'s revert checkbox:
+- [x] Add `ChromeCheckbox`, lifted from `LocalChangesView`'s revert checkbox:
   - It takes a three-case state (on, off, mixed), an action, a spoken label, and an
     optional trailing text label for the Amend and Push rows.
   - Geometry: a `checkboxSide` square with `checkboxCornerRadius`, both from the shared
@@ -330,16 +330,16 @@ one is recorded in `core-theme.md`:
   - The box is hidden from accessibility. The control carries `.accessibilityLabel` plus
     `.accessibilityValue` ("On", "Off" or "Mixed").
   - It honours `isEnabled` by dimming.
-- [ ] `LocalChangesView` draws its revert checkbox through `ChromeCheckbox`. Delete
+- [x] `LocalChangesView` draws its revert checkbox through `ChromeCheckbox`. Delete
   `LocalChangesLayout.checkboxSide`, `checkboxRadius` and `checkmarkSide` and the private
   builder (~491–510, ~572–576). Keep its label ("Include <name> in revert") and its help
   text.
-- [ ] `LogFilterBar.dateBound` (~365–371) replaces `Toggle(…).toggleStyle(.checkbox)`
+- [x] `LogFilterBar.dateBound` (~365–371) replaces `Toggle(…).toggleStyle(.checkbox)`
   with `ChromeCheckbox` plus its label, inside the same control box. The label, colour
   and layout are otherwise unchanged. This is the one already-gated file the new toggle
   ban would otherwise find red on day one. The token scan confirms that the only other
   `Toggle` spellings in gated files today are in comments, which the stripped text drops.
-- [ ] Run `swift test` and the macOS build. Both must pass. `LocalChangesView`'s and
+- [x] Run `swift test` and the macOS build. Both must pass. `LocalChangesView`'s and
   `LogFilterBar`'s existing rules (rules nineteen and twenty-one, and the panel-controls
   rule) must stay green unchanged, or be re-pointed deliberately with the reason stated.
 

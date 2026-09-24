@@ -362,13 +362,9 @@ struct LogFilterBar: View {
     ) -> some View {
         ChromeControlBox(isFocused: false, horizontalPadding: FilterBarLayout.controlPaddingX) {
             HStack(spacing: metrics.scaled(FilterBarLayout.innerGap)) {
-                Toggle(isOn: enabled) {
-                    Text(label)
-                        .font(metrics.scaledFont(.callout))
-                        .foregroundStyle(theme.color(.textPrimary))
-                        .lineLimit(1)
+                ChromeCheckbox(state: enabled.wrappedValue ? .on : .off, label: label, title: label) {
+                    enabled.wrappedValue.toggle()
                 }
-                .toggleStyle(.checkbox)
                 BorderlessDateField(
                     date: date,
                     isEnabled: enabled.wrappedValue,
