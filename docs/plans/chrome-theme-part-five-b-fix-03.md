@@ -193,22 +193,22 @@ every one of these passes while drawing an opaque background on the selected row
 - Modify: `Tests/PisakaCoreTests/ChromeThemeSourceGatingTests.swift`
 - Modify: `docs/architecture/core-theme.md`
 
-- [ ] The file-level doc comment (~149) is the rule inventory `CLAUDE.md` sends
+- [x] The file-level doc comment (~149) is the rule inventory `CLAUDE.md` sends
       readers to. It ends at rule thirty-four and has no entry for thirty-five, and
       its rule thirty-four bullet still says a glyph is sized by "a scaled font or
       frame" — the wording the previous round removed, since a metrics frame now
       counts only beside `.resizable()`. Correct both.
-- [ ] Rule thirty-five added a second top-level comma splitter beside the one the
+- [x] Rule thirty-five added a second top-level comma splitter beside the one the
       rule thirty-one work had just added. Task 1 deletes much of that machinery;
       once it has, keep exactly one splitter and route both callers through it, or
       state in a comment why two are needed.
-- [ ] Extend `testBothSummariesSpellTheSuitesOwnRuleCount`, or add a sibling check,
+- [x] Extend `testBothSummariesSpellTheSuitesOwnRuleCount`, or add a sibling check,
       so the **suite's own header** is compared against the declared rule count too.
       The header drifted precisely because nothing read it; the two documents are
       checked and it was not.
-- [ ] Mutation-verify the new header check: remove a bullet and confirm red;
+- [x] Mutation-verify the new header check: remove a bullet and confirm red;
       restore and confirm green, with a clean `git status`.
-- [ ] Run `swift test`. It must pass.
+- [x] Run `swift test`. It must pass.
 
 ### Task 4: Write down the convention that would have prevented this
 

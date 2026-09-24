@@ -1943,8 +1943,11 @@ ground rule).
 And, beside the rules rather than among them, a **cross-file count**: the suite
 counts its own numbered rule markers and asserts that both summaries of it — the
 list above and `CLAUDE.md`'s chrome-theme invariant — spell that number in the
-sentence naming it, and that the list above enumerates exactly that many items
-in order. It gates no source file; it exists because both summaries had already
+sentence naming it, that the list above enumerates exactly that many items
+in order, and that the suite's own header inventory — the doc comment
+`CLAUDE.md` sends readers to — carries one bolded bullet per rule. The header
+was added to the check after it had ended at rule thirty-four with thirty-five
+declared: nothing read it while both documents were checked. It gates no source file; it exists because both summaries had already
 drifted, each correct on the day it was written, and a count that drifts tells a
 reader the sweep is smaller than it is while omitting the newest rules. Same
 shape as `LintConfigurationTests`' style-version pair: one source of truth, every

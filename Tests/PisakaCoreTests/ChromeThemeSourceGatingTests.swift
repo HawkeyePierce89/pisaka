@@ -149,8 +149,15 @@ import XCTest
 ///   merge strip's chevrons are named.
 /// - **Every chrome glyph is sized in the interface zone.** A symbol with no
 ///   font of its own draws at the system default, which follows neither zoom;
-///   each glyph carries a scaled font or frame, or sits in a pinned declaration
-///   whose container font, button style or stated off-scale reason is re-checked.
+///   each glyph carries a scaled font of its own, or a scaled frame beside
+///   `.resizable()` (a frame alone does not size a symbol that is not resizable),
+///   or sits in a pinned declaration whose container font, button style or stated
+///   off-scale reason is re-checked.
+/// - **A selectable list yields its selected row's background.** On macOS a row
+///   background is drawn over the platform's selection box, so every
+///   `listRowBackground` under a `List` binding `selection:` is a conditional
+///   whose condition is the row equal to the selection and whose branch taken
+///   then names `clear`; a background written another way fails by design.
 final class ChromeThemeSourceGatingTests: XCTestCase {
 
     // MARK: - The gated set
@@ -3346,7 +3353,9 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     }
 
     /// The top-level, comma-separated arguments of an argument list's inside —
-    /// a comma nested in parentheses, brackets or braces does not split.
+    /// a comma nested in parentheses, brackets or braces does not split. The
+    /// suite's one comma splitter: a rule needing top-level arguments goes
+    /// through here rather than growing a second.
     private static func topLevelArguments(_ arguments: String) -> [String] {
         var parts: [String] = []
         var depth = 0
@@ -3528,6 +3537,32 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         XCTAssertTrue(
             index.contains("and its \(word) rules"),
             "CLAUDE.md's chrome-theme invariant must name the suite's own rule count (\(count))"
+        )
+    }
+
+    /// The suite's own header is the rule inventory `CLAUDE.md` sends readers
+    /// to, and it drifted — ending at rule thirty-four after thirty-five was
+    /// declared — precisely because nothing read it while both documents were
+    /// checked. One bolded bullet per rule, between the inventory's opening
+    /// sentence and the class declaration.
+    func testTheSuitesHeaderInventoriesEveryRule() throws {
+        let count = try Self.declaredRuleCount()
+        let source = try Self.read(URL(fileURLWithPath: #filePath))
+        let opening = try XCTUnwrap(
+            source.range(of: "/// What is checked, and why each rule is invisible to the compiler:"),
+            "the header inventory's opening sentence is gone — re-point this check rather than losing it"
+        )
+        let rest = source[opening.upperBound...]
+        let end = try XCTUnwrap(
+            rest.range(of: "\nfinal class ChromeThemeSourceGatingTests"),
+            "the class declaration after the header inventory is gone — re-point this check"
+        )
+        let bullets = rest[..<end.lowerBound]
+            .split(separator: "\n")
+            .filter { $0.hasPrefix("/// - **") }
+        XCTAssertEqual(
+            bullets.count, count,
+            "the suite's header must carry one bolded bullet per declared rule (\(count)), in the same order"
         )
     }
 
