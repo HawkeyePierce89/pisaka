@@ -268,13 +268,17 @@ Two entries drifted from the sets they describe:
 
 ### Task 5: Verify the gates
 
-- [ ] Run every command in **Validation Commands**. All must pass. Report exact
+- [x] Run every command in **Validation Commands**. All must pass. Report exact
       counts: the Core test total, the app-bundle total, the SwiftLint violation
       count and file count, and both build verdicts.
-- [ ] Confirm the rule count agrees in all three places it is spelled — the suite's
+      (Core: 5771 tests, 0 failures. App bundle: 122 tests, 0 failures.
+      SwiftLint --strict: 0 violations in 589 files. macOS Release build and
+      generic iOS build: BUILD SUCCEEDED.)
+- [x] Confirm the rule count agrees in all three places it is spelled — the suite's
       own marker count, `core-theme.md`'s canonical list and `CLAUDE.md`'s chrome
       invariant sentence.
-- [ ] Confirm `git status --porcelain` is empty.
+      (Thirty-four in all three; the two count self-checks passed in `swift test`.)
+- [x] Confirm `git status --porcelain` is empty.
 
 ## Post-Completion
 
