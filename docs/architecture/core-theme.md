@@ -1172,12 +1172,12 @@ rule thirty-five from the third.
    `CodePaneGround.apply` directly), and leaving that copy would have
    made "one definition" false on the day it was written.
    `CodeEditorView.swift` stays outside the gated set but inside the rule's
-   reach. The clause (rule thirty-one) is scoped to **a code pane's ground** — a
-   text view, a scroll view or its clip view — rather than to every
-   `backgroundColor`, because `CompletionPanel.swift` and `HoverPanel.swift` set
-   `panel.backgroundColor = .clear` on an `NSPanel` and must: a borderless panel
-   has to be clear for its own rounded layer to draw, and a panel is not a code
-   pane. The scoping is by what is painted, not by a list of exempt files. The
+   reach. The clause (rule thirty-one) covers **every** view `backgroundColor`
+   assignment rather than deciding which receiver is a code pane: outside
+   `CodePaneGround`'s body only five sites are allowed, pinned by file and count
+   with their reasons — among them `CompletionPanel.swift` and `HoverPanel.swift`,
+   whose `panel.backgroundColor = .clear` on an `NSPanel` must stay (a borderless
+   panel has to be clear for its own rounded layer to draw). The
    merge container's dividers are `DiffDividerView`s too (the `NSBox` separators
    deleted), `dividerWidth` the hairline token unscaled for the reason
    `DiffContainerView` states.
@@ -1838,20 +1838,22 @@ The thirty-five rules, each invisible to the compiler:
     `buttonStyle` count, each file's number stated.
 31. **A code pane's ground goes through one definition.** `CodePaneGround.apply(`
     is called in exactly `CodeEditorView.swift`, `SourceViewerContent.swift`,
-    `DiffView.swift` and `MergeView.swift`; across the gated set plus
-    `CodeEditorView.swift`, no `backgroundColor` assignment whose receiver is a
-    code pane — decided by the **type the receiver is declared with** in its
-    file (`NSTextView`, `NSScrollView`, `NSClipView` or a subclass, including a
-    factory's tuple binding and the element of a `for` over an array of them),
-    a pane's `contentView`, a name ending in `textview`/`scrollview` as the
-    fallback for a name the file declares nowhere, or a bare/`self.` assignment
-    inside a pane subclass — appears outside `CodePaneGround`'s body. The type
-    replaced an earlier name-only test that the guarded files' own names
-    (`leftText`, `oursScroll`, a loop's `scroll`) walked straight past. A
-    subscripted or call-result receiver fails as unresolvable rather than
-    passing. The two panels' `panel.backgroundColor = .clear` are outside the
-    clause by what they paint (a borderless panel must be clear), window grounds
-    are rule twenty-eight's and layer colours rule twenty-five's. No gated file
+    `DiffView.swift` and `MergeView.swift`; the rule is **total and resolves no
+    types**: across the gated set plus `CodeEditorView.swift`, every
+    `backgroundColor` assignment that is not a layer's (`layer.`/`layer?.`, rule
+    twenty-five's) lies inside `CodePaneGround`'s brace-matched body or is one of
+    five sites pinned by file **and count** — so a second assignment in a pinned
+    file fails too — each pin carrying its reason: `EscClosableWindow.swift`, the
+    secondary window's ground (rule twenty-eight); `MainWindowChrome.swift`, the
+    main window's ground, owned by the window-chrome rule;
+    `CompletionPanel.swift` and `HoverPanel.swift`, `.clear` on a borderless
+    `NSPanel`, which must stay clear for its own rounded layer to draw and is not
+    a code pane; `ProjectSearchView.swift`, a text attribute's background rather
+    than a view's. What it no longer claims: it does not identify which object is
+    a code pane, because it no longer needs to — it forbids the assignment
+    outright outside the sanctioned sites. The earlier form resolved each
+    receiver's declared type, and a clip view bound from a pane's property, an
+    unwrapped alias and a misread name suffix each walked past it. No gated file
     spells `NSBox`, and `MergeView.swift` spells `DiffDividerView`. The prose
     is held to the same set: every architecture passage enumerating the
     callers — this entry, decision 2 of part five (b) and `app-git-views.md`'s

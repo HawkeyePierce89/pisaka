@@ -137,7 +137,8 @@ import XCTest
 ///   every button in part five (b)'s files is styled. A platform control
 ///   compiles and looks plausible in whichever appearance the reviewer is in.
 /// - **A code pane's ground goes through one definition.** `CodePaneGround` has
-///   four callers and no code pane's `backgroundColor` is set anywhere else; no
+///   four callers, and no view's `backgroundColor` is set outside its body but
+///   at five sites pinned by file and count, each with its reason; no
 ///   gated file draws an `NSBox`; the architecture documents name the same four
 ///   callers and never the deleted helper. A second ground drifts from the gutter's.
 /// - **A window root resolves the theme the root way.** A root's struct never
@@ -2565,24 +2566,35 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         "MergeView.swift",
     ]
 
-    /// What is deliberately outside the pane-ground clause is so by what a
-    /// pane's ground *is*, not by a list of exempt files: `CompletionPanel.swift`
-    /// and `HoverPanel.swift` set `panel.backgroundColor = .clear` on an
-    /// `NSPanel`, and must — a borderless panel has to be clear for its own
-    /// rounded layer to draw — and a panel is not a code pane. A window's ground
-    /// is rule twenty-eight's; a layer's `backgroundColor` takes a `CGColor` and
-    /// is rule twenty-five's.
+    /// Every non-layer `backgroundColor` assignment the rule allows outside
+    /// `CodePaneGround`'s body, by file **and count** — so a second assignment
+    /// in a pinned file fails as surely as a first one anywhere else. Each pin
+    /// carries its reason: removing one later is a decision somebody reads.
+    private static let pinnedBackgroundAssignments: [String: (count: Int, reason: String)] = [
+        "EscClosableWindow.swift": (1, "the secondary window's ground, set in the subclass (rule twenty-eight)"),
+        "MainWindowChrome.swift": (1, "the main window's ground, owned by the window-chrome rule"),
+        "CompletionPanel.swift": (
+            1, "`.clear` on a borderless NSPanel, which must stay clear for its own rounded layer to draw — not a code pane"
+        ),
+        "HoverPanel.swift": (
+            1, "`.clear` on a borderless NSPanel, which must stay clear for its own rounded layer to draw — not a code pane"
+        ),
+        "ProjectSearchView.swift": (1, "a text attribute's background, not a view's"),
+    ]
+
+    /// **Total, and it resolves no types.** Across the gated set plus
+    /// `CodeEditorView.swift`, every `backgroundColor` assignment that is not a
+    /// layer's (a layer's takes a `CGColor` and is rule twenty-five's) lies
+    /// inside `CodePaneGround`'s brace-matched body or is one of
+    /// `pinnedBackgroundAssignments`, matched by file and exact count.
     ///
-    /// The receiver classification is a pattern, not a token: the clause is about
-    /// *which object is being painted*, which the identifier `backgroundColor`
-    /// cannot see. A receiver is a code pane by the **type it is declared with**
-    /// in its file (`NSTextView`, `NSScrollView`, `NSClipView` or a subclass,
-    /// incl. a factory's tuple binding and a `for` element over an array of
-    /// them), or a pane's `contentView`, or — the fallback for a name declared
-    /// nowhere in the file — a name ending in `textview`/`scrollview`; or the
-    /// assignment is bare (or `self.`) inside a pane subclass. A subscripted or
-    /// call-result receiver fails loudly as unresolvable. Why the type, not the
-    /// name: `codePaneGroundAssignments(in:paneTypes:)`.
+    /// What it no longer claims: it does not identify which object is a code
+    /// pane, because it no longer needs to — it forbids the assignment outright
+    /// outside the sanctioned sites. The earlier form resolved each receiver's
+    /// type from its declarations and, three rounds running, let through a
+    /// receiver it could not follow (a clip view bound from a pane's property,
+    /// an unwrapped alias, a name the suffix fallback misread). A receiver
+    /// spelled any way at all is now the same assignment to this rule.
     func testACodePanesGroundGoesThroughOneDefinition() throws {
         let call = try NSRegularExpression(pattern: "\\bCodePaneGround\\s*\\.\\s*apply\\s*\\(")
         var callers: Set<String> = []
@@ -2604,19 +2616,8 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
                 try Self.read(Self.source(named: "CodeEditorView.swift"))
             )
         ))
-        // Pane subclasses declared anywhere, so a receiver typed with a pane
-        // subclass from another file still resolves.
-        let paneSubclass = try NSRegularExpression(
-            pattern: "\\bclass\\s+([A-Za-z_][A-Za-z0-9_]*)\\s*:\\s*(?:NSTextView|NSScrollView|NSClipView)\\b"
-        )
-        var paneTypes: Set<String> = []
-        for url in try Self.swiftSources() {
-            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
-            for match in paneSubclass.matches(in: code, range: NSRange(code.startIndex..., in: code)) {
-                if let range = Range(match.range(at: 1), in: code) { paneTypes.insert(String(code[range])) }
-            }
-        }
         var sawDefinition = false
+        var counted: [String: Int] = [:]
         for (name, original) in scanned {
             var code = original
             if name == "DiffView.swift" {
@@ -2631,20 +2632,26 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
                 LSPSourceGatingTests.containsToken("NSBox", in: code),
                 "\(name) spells NSBox — a pane divider is DiffDividerView, a hairline on the role"
             )
-            for found in try Self.codePaneGroundAssignments(in: code, paneTypes: paneTypes) {
-                if found.resolved {
-                    XCTFail(
-                        "\(name) paints \(found.receiver)'s backgroundColor outside CodePaneGround — a code pane's ground has one definition"
-                    )
-                } else {
-                    XCTFail(
-                        "\(name) assigns a backgroundColor through a subscript or a call result (\(found.receiver)) — "
-                            + "the rule cannot tell whether that is a code pane; bind the receiver to a named, typed value first"
-                    )
-                }
-            }
+            let found = try Self.viewBackgroundAssignmentCount(in: code)
+            if found > 0 { counted[name] = found }
         }
         XCTAssertTrue(sawDefinition, "DiffView.swift is no longer gated — re-point this rule rather than losing it")
+
+        for name in Set(counted.keys).union(Self.pinnedBackgroundAssignments.keys).sorted() {
+            let found = counted[name] ?? 0
+            guard let pin = Self.pinnedBackgroundAssignments[name] else {
+                XCTFail(
+                    "\(name) assigns a view's backgroundColor \(found) time(s) outside CodePaneGround — "
+                        + "a code pane's ground has one definition, and no other site is sanctioned"
+                )
+                continue
+            }
+            XCTAssertEqual(
+                found, pin.count,
+                "\(name) must assign a view's backgroundColor exactly \(pin.count) time(s) (\(pin.reason)); "
+                    + "a second assignment is a second ground, a missing one means the pin is stale"
+            )
+        }
 
         let merge = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
             try Self.read(Self.source(named: "MergeView.swift"))
@@ -2653,6 +2660,16 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
             LSPSourceGatingTests.containsToken("DiffDividerView", in: merge),
             "MergeView.swift no longer builds its dividers from DiffDividerView — the pane divider is one view"
         )
+    }
+
+    /// The `backgroundColor` assignments in `code` that are not a layer's: every
+    /// `backgroundColor =` minus those written `layer.`/`layer?.`/`layer!.`. The
+    /// receiver is otherwise not read at all — that is the rule's whole point.
+    static func viewBackgroundAssignmentCount(in code: String) throws -> Int {
+        let range = NSRange(code.startIndex..., in: code)
+        let all = try NSRegularExpression(pattern: "\\bbackgroundColor\\s*=(?!=)")
+        let layer = try NSRegularExpression(pattern: "\\blayer\\s*[?!]?\\s*\\.\\s*backgroundColor\\s*=(?!=)")
+        return all.numberOfMatches(in: code, range: range) - layer.numberOfMatches(in: code, range: range)
     }
 
     /// Part five (b) deleted the editor's private pane-ground helper when
@@ -2731,268 +2748,6 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
                 "\(passage.document)'s list after \(passage.start) must name exactly the CodePaneGround callers the suite pins"
             )
         }
-    }
-
-    /// One `backgroundColor` assignment rule thirty-one objects to: either a
-    /// receiver resolved as a code pane, or one whose type the rule cannot
-    /// resolve at all (`resolved == false`).
-    struct PaneGroundAssignment: Equatable {
-        let receiver: String
-        let resolved: Bool
-    }
-
-    /// The pane base types: a text view, a scroll view and a scroll view's clip.
-    private static let paneBaseTypes: Set<String> = ["NSTextView", "NSScrollView", "NSClipView"]
-
-    /// Every `backgroundColor` assignment in `code` that paints a code pane, plus
-    /// every one whose receiver the rule cannot type (see the rule's comment).
-    ///
-    /// **A receiver is a pane by the type it is declared with, not by how it is
-    /// spelled.** The first version of this rule asked the receiver's last name
-    /// segment whether it ended in `textview` or `scrollview` — and the two
-    /// files it guards spell their panes `leftText`/`rightText`,
-    /// `leftScroll`/`rightScroll`, `oursScroll`/`resultScroll`/`theirsScroll`
-    /// and `scroll` (bound by a `for` over `scrolls`), none of which ends in
-    /// either suffix. `coordinator.leftText?.backgroundColor = …` in the diff
-    /// pane or `scroll.backgroundColor = …` in the merge panes' loop — the
-    /// competing second ground the rule exists to forbid — passed it. Do not put
-    /// the name test back as a simplification: it was the hole. The name test
-    /// survives only as the **fallback** for a receiver declared nowhere in the
-    /// file (a parameter of a closure, a property inherited from elsewhere).
-    ///
-    /// An identifier is a pane when this file declares it with a pane type
-    /// (`NSTextView`, `NSScrollView`, `NSClipView`, or a class subclassing one —
-    /// in this file or in `paneTypes`): a typed property or parameter, an
-    /// initializer call, an `as?`/`as!` cast, a single or tuple binding from a
-    /// function in this file returning those types, or the element a `for`
-    /// binds over an array of them (declared `[PaneType]`, or a literal array
-    /// holding a pane). Resolution is by name across the file, not by scope — an
-    /// over-approximation that can only err toward the rule firing.
-    ///
-    /// A receiver that is a subscript or a call result (`scrolls[i]`,
-    /// `pane().`) is **unresolvable**, and is reported as such rather than
-    /// passed: a rule that cannot decide must not decide in favour of the code.
-    static func codePaneGroundAssignments(
-        in code: String,
-        paneTypes extraPaneTypes: Set<String> = []
-    ) throws -> [PaneGroundAssignment] {
-        let whole = NSRange(code.startIndex..., in: code)
-        func captures(_ pattern: String, _ group: Int = 1) throws -> [String] {
-            let regex = try NSRegularExpression(pattern: pattern)
-            return regex.matches(in: code, range: whole).compactMap { match in
-                Range(match.range(at: group), in: code).map { String(code[$0]) }
-            }
-        }
-
-        let types = paneTypes(in: code, extra: extraPaneTypes)
-        let typeAlternation = "(?:" + types.sorted().joined(separator: "|") + ")"
-        let identifier = "[A-Za-z_][A-Za-z0-9_]*"
-        let factories = try paneFactories(in: code)
-
-        var panes: Set<String> = []
-        var paneArrays: Set<String> = []
-        panes.formUnion(try captures("\\b(\(identifier))\\s*:\\s*\(typeAlternation)\\b"))
-        paneArrays.formUnion(try captures("\\b(\(identifier))\\s*:\\s*\\[\\s*\(typeAlternation)\\s*[?!]?\\s*\\]"))
-        panes.formUnion(try captures("\\b(?:let|var)\\s+(\(identifier))\\s*=\\s*\(typeAlternation)\\s*\\("))
-        panes.formUnion(try captures("\\b(?:let|var)\\s+(\(identifier))\\s*=[^\\n;]*?\\bas\\s*[?!]?\\s*\(typeAlternation)\\b"))
-
-        let callee = "(?:(?:Self|self|\(identifier))\\s*\\.\\s*)?(\(identifier))\\s*\\("
-        let tuple = try NSRegularExpression(pattern: "\\b(?:let|var)\\s*\\(([^()]*)\\)\\s*=\\s*" + callee)
-        for match in tuple.matches(in: code, range: whole) {
-            guard let names = Range(match.range(at: 1), in: code),
-                  let name = Range(match.range(at: 2), in: code),
-                  let returned = factories[String(code[name])] else { continue }
-            let bound = code[names].split(separator: ",").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            for (binding, type) in zip(bound, returned) where types.contains(type) {
-                panes.insert(binding)
-            }
-        }
-        let single = try NSRegularExpression(pattern: "\\b(?:let|var)\\s+(\(identifier))\\s*=\\s*" + callee)
-        for match in single.matches(in: code, range: whole) {
-            guard let binding = Range(match.range(at: 1), in: code),
-                  let name = Range(match.range(at: 2), in: code),
-                  let returned = factories[String(code[name])],
-                  returned.count == 1, types.contains(returned[0]) else { continue }
-            panes.insert(String(code[binding]))
-        }
-
-        func components(_ chain: String) -> [String] {
-            chain.components(separatedBy: CharacterSet(charactersIn: ".?! \t\n")).filter { !$0.isEmpty }
-        }
-        func isPane(_ parts: [String]) -> Bool {
-            guard let last = parts.last else { return false }
-            if panes.contains(last) { return true }
-            let lowered = last.lowercased()
-            if lowered.hasSuffix("textview") || lowered.hasSuffix("scrollview") { return true }
-            if last == "enclosingScrollView" { return true }
-            if last == "contentView" || last == "documentView" { return isPane(Array(parts.dropLast())) }
-            return false
-        }
-        func literalHoldsPane(_ literal: String) -> Bool {
-            topLevelElements(of: literal, closing: "]").contains { isPane(components($0)) }
-        }
-
-        // Arrays and loop elements, to a fixpoint: a loop can bind the element
-        // of an array literal holding the element of another loop.
-        let arrayLiteral = try NSRegularExpression(pattern: "\\b(?:let|var)\\s+(\(identifier))\\s*(?::[^=\\n]*)?=\\s*\\[")
-        let loop = try NSRegularExpression(
-            pattern: "\\bfor\\s+(?:\\(\\s*\(identifier)\\s*,\\s*)?(\(identifier))\\s*\\)?\\s+in\\s+"
-        )
-        var changed = true
-        while changed {
-            let before = (panes.count, paneArrays.count)
-            for match in arrayLiteral.matches(in: code, range: whole) {
-                guard let name = Range(match.range(at: 1), in: code),
-                      let full = Range(match.range, in: code) else { continue }
-                if literalHoldsPane(String(code[full.upperBound...])) { paneArrays.insert(String(code[name])) }
-            }
-            for match in loop.matches(in: code, range: whole) {
-                guard let name = Range(match.range(at: 1), in: code),
-                      let full = Range(match.range, in: code) else { continue }
-                let sequence = code[full.upperBound...]
-                if sequence.hasPrefix("[") {
-                    if literalHoldsPane(String(sequence.dropFirst())) { panes.insert(String(code[name])) }
-                    continue
-                }
-                let head = sequence.prefix { $0.isLetter || $0.isNumber || "_.?! ".contains($0) }
-                if components(String(head)).contains(where: paneArrays.contains) { panes.insert(String(code[name])) }
-            }
-            changed = (panes.count, paneArrays.count) != before
-        }
-
-        let assignment = try NSRegularExpression(
-            pattern: "(?:(\(identifier)(?:\\s*[?!]?\\s*\\.\\s*\(identifier))*)\\s*[?!]?\\s*\\.\\s*)?"
-                + "\\bbackgroundColor\\s*=(?!=)"
-        )
-        /// Whether the text just before `start` is `].`/`).` (optionally `?.`/`!.`):
-        /// the receiver is a subscript or a call result.
-        func followsSubscriptOrCall(_ start: String.Index, in text: String) -> Bool {
-            var index = start
-            func back(over allowed: (Character) -> Bool) {
-                while index > text.startIndex, allowed(text[text.index(before: index)]) {
-                    index = text.index(before: index)
-                }
-            }
-            back { $0.isWhitespace }
-            guard index > text.startIndex, text[text.index(before: index)] == "." else { return false }
-            index = text.index(before: index)
-            back { $0.isWhitespace || $0 == "?" || $0 == "!" }
-            guard index > text.startIndex else { return false }
-            let previous = text[text.index(before: index)]
-            return previous == "]" || previous == ")"
-        }
-        func assignments(in text: String) -> [(receiver: String?, unresolved: Bool, snippet: String)] {
-            assignment.matches(in: text, range: NSRange(text.startIndex..., in: text)).compactMap { match in
-                guard let full = Range(match.range, in: text) else { return nil }
-                let receiver = Range(match.range(at: 1), in: text).map { String(text[$0]) }
-                let viewOfUnknown = receiver.map { components($0).allSatisfy { ["contentView", "documentView"].contains($0) } } ?? true
-                let unresolved = viewOfUnknown && followsSubscriptOrCall(full.lowerBound, in: text)
-                let lineStart = text[..<full.lowerBound].lastIndex(of: "\n").map { text.index(after: $0) } ?? text.startIndex
-                let snippet = text[lineStart..<full.upperBound].trimmingCharacters(in: .whitespaces)
-                return (receiver, unresolved, snippet)
-            }
-        }
-
-        var painted: [PaneGroundAssignment] = []
-        for found in assignments(in: code) {
-            if found.unresolved {
-                painted.append(PaneGroundAssignment(receiver: found.snippet, resolved: false))
-            } else if let receiver = found.receiver, isPane(components(receiver)) {
-                painted.append(PaneGroundAssignment(receiver: receiver, resolved: true))
-            }
-        }
-        let paneSubclass = try NSRegularExpression(
-            pattern: "\\bclass\\s+\(identifier)\\s*:\\s*\(typeAlternation)\\b"
-        )
-        for match in paneSubclass.matches(in: code, range: whole) {
-            guard let range = Range(match.range, in: code),
-                  let body = matchedBody(after: String(code[range]), in: code) else { continue }
-            for found in assignments(in: body) where !found.unresolved && (found.receiver == nil || found.receiver == "self") {
-                painted.append(PaneGroundAssignment(receiver: found.receiver ?? "self", resolved: true))
-            }
-        }
-        return painted
-    }
-
-    /// The pane types `code` can declare a receiver with: the bases, the given
-    /// ones, and every class in `code` subclassing one of them, to a fixpoint.
-    private static func paneTypes(in code: String, extra: Set<String>) -> Set<String> {
-        let whole = NSRange(code.startIndex..., in: code)
-        var types = paneBaseTypes.union(extra)
-        guard let subclass = try? NSRegularExpression(
-            pattern: "\\bclass\\s+([A-Za-z_][A-Za-z0-9_]*)\\s*:\\s*([A-Za-z_][A-Za-z0-9_]*)"
-        ) else { return types }
-        var grew = true
-        while grew {
-            grew = false
-            for match in subclass.matches(in: code, range: whole) {
-                guard let name = Range(match.range(at: 1), in: code),
-                      let base = Range(match.range(at: 2), in: code),
-                      types.contains(String(code[base])),
-                      types.insert(String(code[name])).inserted else { continue }
-                grew = true
-            }
-        }
-        return types
-    }
-
-    /// Every function in `code`, by the positional types it returns (a tuple's
-    /// elements in order, labels dropped, optionality stripped).
-    private static func paneFactories(in code: String) throws -> [String: [String]] {
-        let whole = NSRange(code.startIndex..., in: code)
-        let identifier = "[A-Za-z_][A-Za-z0-9_]*"
-        // Functions returning pane types, by the positional types they return.
-        var factories: [String: [String]] = [:]
-        let function = try NSRegularExpression(pattern: "\\bfunc\\s+(\(identifier))\\s*(?:<[^>]*>)?\\s*\\(")
-        for match in function.matches(in: code, range: whole) {
-            guard let name = Range(match.range(at: 1), in: code),
-                  let full = Range(match.range, in: code),
-                  let close = balancedEnd(from: code.index(before: full.upperBound), in: code) else { continue }
-            var index = close
-            var header = ""
-            while index < code.endIndex, code[index] != "{", header.count < 400 {
-                header.append(code[index])
-                index = code.index(after: index)
-            }
-            guard let arrow = header.range(of: "->") else { continue }
-            let returned = header[arrow.upperBound...].trimmingCharacters(in: .whitespacesAndNewlines)
-            var elements: [String]
-            if returned.hasPrefix("(") {
-                elements = topLevelElements(of: String(returned.dropFirst()), closing: ")")
-            } else {
-                elements = [returned]
-            }
-            elements = elements.map { element in
-                let typed = element.split(separator: ":", maxSplits: 1).last.map(String.init) ?? element
-                return typed.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: "?!")))
-            }
-            factories[String(code[name])] = elements
-        }
-
-        return factories
-    }
-
-    /// The top-level comma-separated elements of the text starting just inside
-    /// an opening bracket and running to its `closing` partner.
-    private static func topLevelElements(of text: String, closing: Character) -> [String] {
-        var depth = 0
-        var elements: [String] = []
-        var current = ""
-        for character in text {
-            if "([{".contains(character) { depth += 1 }
-            if ")]}".contains(character) {
-                if depth == 0, character == closing { break }
-                depth -= 1
-            }
-            if character == ",", depth == 0 {
-                elements.append(current)
-                current = ""
-            } else {
-                current.append(character)
-            }
-        }
-        elements.append(current)
-        return elements.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
     }
 
     // MARK: - Rule thirty-two: a window root resolves the theme the root way
