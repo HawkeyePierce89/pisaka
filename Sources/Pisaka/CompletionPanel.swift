@@ -46,6 +46,11 @@ final class CompletionPanel {
         guard let panel, let contentView = listContentView else { return }
 
         Self.match(panel, to: parent)
+        // The corner radius rides the interface scale with every other chrome
+        // measurement in this panel (the width cap below does the same). It is
+        // a plain number, not a resolved CGColor, so it does not belong inside
+        // the appearance block.
+        panel.contentView?.layer?.cornerRadius = CGFloat(metrics.pt(ChromeGeometry.cornerRadiusMax))
 
         contentView.onCommit = { [weak self] index in
             self?.onCommit?(index)
@@ -157,7 +162,11 @@ final class CompletionPanel {
 
         let background = NSView()
         background.wantsLayer = true
-        background.layer?.cornerRadius = ChromeGeometry.cornerRadiusMax
+        // The hairline stays unscaled: one point by definition, the stated
+        // exception in `ChromeGeometry`'s header (a code-zoom surface has no
+        // interface metrics, and a hairline is not a measurement that grows).
+        // The corner radius is not an exception and is scaled in `show(…)` where
+        // the interface metrics are known.
         background.layer?.borderWidth = ChromeGeometry.hairlineWidth
         background.layer?.masksToBounds = true
 

@@ -179,14 +179,14 @@ raised interface scale the popover keeps six-point corners while everything
 drawn inside it grows. The stated exception for an unscaled token covers
 `hairlineWidth` — a hairline is one point by definition — and not a radius.
 
-- [ ] Set the corner radius where the interface metrics are known. Both panels
+- [x] Set the corner radius where the interface metrics are known. Both panels
       receive `InterfaceMetrics` in their `show(…)` path and not in `makePanel()`,
       so the radius is applied there, beside the size the panel is already given.
       It is a plain number rather than a `CGColor`, so it does not belong inside
       the drawing-appearance block and must not be moved into one.
-- [ ] The border width stays unscaled, and the comment says why: the hairline is
+- [x] The border width stays unscaled, and the comment says why: the hairline is
       the stated exception, the radius was not.
-- [ ] Run `swift test` and the macOS build.
+- [x] Run `swift test` and the macOS build.
 
 ### Task 5: The menu joins the `Section` idiom, and rule twenty-four loses its exception
 

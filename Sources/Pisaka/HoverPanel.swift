@@ -115,6 +115,11 @@ final class HoverPanel {
         let panel = panel ?? makePanel()
         self.panel = panel
         Self.match(panel, to: parent)
+        // The corner radius rides the interface scale with every other chrome
+        // measurement in this panel (the insets and width cap above do the
+        // same). It is a plain number, not a resolved CGColor, so it does not
+        // belong inside the appearance block.
+        panel.contentView?.layer?.cornerRadius = CGFloat(metrics.pt(ChromeGeometry.cornerRadiusMax))
         panel.setContentSize(
             NSSize(width: contentSize.width + inset * 2, height: contentSize.height + inset * 2)
         )
@@ -222,7 +227,11 @@ final class HoverPanel {
 
         let background = NSView()
         background.wantsLayer = true
-        background.layer?.cornerRadius = ChromeGeometry.cornerRadiusMax
+        // The hairline stays unscaled: one point by definition, the stated
+        // exception in `ChromeGeometry`'s header (a code-zoom surface has no
+        // interface metrics, and a hairline is not a measurement that grows).
+        // The corner radius is not an exception and is scaled in `show(…)` where
+        // the interface metrics are known.
         background.layer?.borderWidth = ChromeGeometry.hairlineWidth
         // The border's and background's *colours* are set by `match(_:to:)` on every show, in the
         // appearance the popover is about to draw in. Both are CGColors, so they
