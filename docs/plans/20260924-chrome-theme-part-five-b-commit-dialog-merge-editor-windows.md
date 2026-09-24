@@ -240,7 +240,7 @@ one is recorded in `core-theme.md`:
 - Modify: `Sources/Pisaka/ProjectSearchWindowController.swift`
 - Modify: `Tests/PisakaCoreTests/ChromeThemeSourceGatingTests.swift`
 
-- [ ] Override `EscClosableWindow`'s designated initializer
+- [x] Override `EscClosableWindow`'s designated initializer
   `init(contentRect:styleMask:backing:defer:)`: call super, then set
   `backgroundColor = ChromePalette.nsColor(.bgPanel)`.
   - `NSWindow(contentViewController:)` is a convenience initializer that goes through
@@ -250,16 +250,16 @@ one is recorded in `core-theme.md`:
     the window, and two setters compete silently. This is the sibling of
     `MainWindowChrome.swift`'s rule.
   - Update the comment's list of users to all six controllers.
-- [ ] Remove `window.backgroundColor = …` from `ProjectSearchWindowController.swift`
+- [x] Remove `window.backgroundColor = …` from `ProjectSearchWindowController.swift`
   (~58) and move its live-resize rationale into the subclass's comment.
-- [ ] Add five files to `gatedFiles`: `EscClosableWindow.swift`,
+- [x] Add five files to `gatedFiles`: `EscClosableWindow.swift`,
   `DiffWindowController.swift`, `MergeWindowController.swift`,
   `SourceViewerWindowController.swift` and `LocalHistoryWindowController.swift`.
-- [ ] Add the four new controllers **and** `ProjectSearchWindowController.swift` to
+- [x] Add the four new controllers **and** `ProjectSearchWindowController.swift` to
   `roleNamingExemptions`. After this change none of them names a role. The comment says
   they are gated for rules one and two and for the window-ground rule (Task 8), which
   are exactly the rules they can break.
-- [ ] Run `swift test` and the macOS build. Both must pass.
+- [x] Run `swift test` and the macOS build. Both must pass.
 
 ### Task 3: One code-pane ground, one pane divider, and the merge wash through Core
 

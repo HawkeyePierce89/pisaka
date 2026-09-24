@@ -183,6 +183,12 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         "SearchHistoryMenu.swift",
         "ProjectSearchView.swift",
         "ProjectSearchWindowController.swift",
+        // Part five (b): the secondary windows' one ground, set in the subclass.
+        "EscClosableWindow.swift",
+        "DiffWindowController.swift",
+        "MergeWindowController.swift",
+        "SourceViewerWindowController.swift",
+        "LocalHistoryWindowController.swift",
     ]
 
     func testEveryGatedFileExists() throws {
@@ -2206,9 +2212,20 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// whose colours are `CommitGraphPalette`'s (the fourth exemption) rather
     /// than roles — so each names no role by construction. Both stay gated for
     /// rules one and two, which is what they can break.
+    ///
+    /// The five window controllers are exempt for the same reason: since the
+    /// window's ground moved into `EscClosableWindow`, none of them names a role.
+    /// They are gated for rules one and two and for the window-ground rule —
+    /// which are exactly the rules a controller can break, by painting a system
+    /// colour or setting a second, competing ground.
     private static let roleNamingExemptions: Set<String> = [
         "ChromeThemeEnvironment.swift",
         "CommitGraphView.swift",
+        "DiffWindowController.swift",
+        "MergeWindowController.swift",
+        "SourceViewerWindowController.swift",
+        "LocalHistoryWindowController.swift",
+        "ProjectSearchWindowController.swift",
     ]
 
     func testEveryGatedFileActuallyNamesARole() throws {
