@@ -167,21 +167,21 @@ declared rule (N), **in the same order**". Neither order nor correspondence is
 tested, so swapping two bullets stays green, and so does dropping a real rule's
 bullet while keeping one for a rule that no longer exists.
 
-- [ ] Prefer the stronger fix if it is cheap: compare the **ordered list of bolded
+- [x] Prefer the stronger fix if it is cheap: compare the **ordered list of bolded
       bullet titles** against the **ordered list of rule-marker titles**, both
       normalized. This is two ordered lists compared, which is the set-equality
       shape, not expression analysis — it does not violate the convention.
-- [ ] If the two vocabularies cannot be made to match without rewording every rule
+- [x] If the two vocabularies cannot be made to match without rewording every rule
       marker or every bullet, do not force it: state the check honestly as a count
       instead, drop "in the same order" from the message and from `core-theme.md`,
       and say in the comment what the count does not catch. **Do not leave the
       stronger claim beside the weaker test.**
-- [ ] Say in the commit message which of the two was done and why.
-- [ ] Mutation-verify whichever landed: for the ordered comparison, swap two bullets
+- [x] Say in the commit message which of the two was done and why.
+- [x] Mutation-verify whichever landed: for the ordered comparison, swap two bullets
       and confirm red, and replace one bullet's title with a rule that does not
       exist and confirm red; for the count, remove a bullet and confirm red. Revert
       and confirm green, with a clean `git status`.
-- [ ] Run `swift test`. It must pass.
+- [x] Run `swift test`. It must pass.
 
 ### Task 4: Verify the gates
 

@@ -262,7 +262,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         )
     }
 
-    // MARK: - Rule one: no system semantic colour
+    // MARK: - Rule one: no gated view names a system semantic colour
 
     /// The semantic colours **no** gated file may name, the table included.
     ///
@@ -368,7 +368,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         return pattern.firstMatch(in: line, range: range) != nil
     }
 
-    // MARK: - Rule two: no hex literal outside the table
+    // MARK: - Rule two: no gated view spells a hex literal
 
     func testOnlyThePaletteSpellsAHexColorLiteral() throws {
         let hex = try NSRegularExpression(pattern: "0x[0-9A-Fa-f]{6}")
@@ -390,7 +390,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         )
     }
 
-    // MARK: - Rule three: the four exemptions stay out of the gated set
+    // MARK: - Rule three: the four exemptions stay exemptions
 
     /// Files that spell colours and are deliberately **not** chrome.
     ///
@@ -426,7 +426,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         )
     }
 
-    // MARK: - Rule four: injected at the interface scale's own roots
+    // MARK: - Rule four: the theme is injected wherever the interface scale is
 
     func testTheThemeIsInjectedAtTheInterfaceScaleRoots() throws {
         var found: Set<String> = []
@@ -444,7 +444,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         )
     }
 
-    // MARK: - Rule five: no view constructs a theme
+    // MARK: - Rule five: no view constructs a theme inline
 
     func testOnlyThePlumbingConstructsATheme() throws {
         var constructors: Set<String> = []
@@ -471,7 +471,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         )
     }
 
-    // MARK: - Rule six: the gutter's fill goes through its own rule
+    // MARK: - Rule six: the gutter's fill still goes through its own rule
 
     /// The ruler file, and the two spellings of the rule its background fill
     /// must go through.
@@ -570,7 +570,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         return nil
     }
 
-    // MARK: - Rule seven: no geometry token is derived by arithmetic
+    // MARK: - Rule seven: no gated view derives a geometry value by arithmetic on a token
 
     /// `ChromeGeometry`'s first rule says it in words: every token is scaled at
     /// its use site, and **no view multiplies one of these numbers by anything
@@ -746,7 +746,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         )
     }
 
-    // MARK: - Rule ten: every bottom-bar control is identifiable without sight
+    // MARK: - Rule ten: every bottom-bar toggle is identifiable without sight
 
     /// The window root, and the two toggle idioms whose bodies must each name a
     /// tooltip *and* an accessibility label.
@@ -1314,7 +1314,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         }
     }
 
-    // MARK: - Rule sixteen: an indicator strip's bottom rule is drawn behind it
+    // MARK: - Rule sixteen: an indicator strip's bottom rule is drawn behind its tabs
 
     /// The strips whose tabs draw an accent indicator on the strip's own bottom
     /// edge: the tab strip above the editor and the dock's tab row.
@@ -1532,7 +1532,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         }
     }
 
-    // MARK: - Rule nineteen: the diff row wash is Core's one answer, and a diff side one type
+    // MARK: - Rule nineteen: the diff wash is Core's one answer, and a diff side is one type
 
     /// Which role a diff row is washed in — and which marker the gutter draws —
     /// has one answer in Core, `ChromeColorRole.diffWashRole(for:…)` and
@@ -1822,7 +1822,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         return code[start..<end]
     }
 
-    // MARK: - Rule twenty-one: the Log's filter bar fits the window it lives in
+    // MARK: - Rule twenty-one: the Log's filter bar states no fixed width and scrolls below its floor
 
     /// The requirement, stated in `LogFilterBar.swift`'s own doc comment: at the
     /// main window's minimum width (`metrics.scaled(640)`), at every interface
@@ -1876,7 +1876,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         )
     }
 
-    // MARK: - Rule twenty-two: a pushed resize cursor does not outlive its view
+    // MARK: - Rule twenty-two: a pushed resize cursor is released when its view disappears
 
     /// The functions, per gated file, that push an `NSCursor` — pinned by
     /// equality so a scanner that stopped finding them fails instead of passing
@@ -3485,9 +3485,13 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// to, and it drifted — ending at rule thirty-four after thirty-five was
     /// declared — precisely because nothing read it while both documents were
     /// checked. One bolded bullet per rule, between the inventory's opening
-    /// sentence and the class declaration.
+    /// sentence and the class declaration, **titled as its marker is and in the
+    /// markers' order**: the two ordered lists of titles are compared whole, so a
+    /// swapped pair, a dropped rule's bullet or a bullet for a rule that no longer
+    /// exists each fails, where a count alone passes all three. Both sides are
+    /// normalized the same way — lower-cased, backticks and a trailing full stop
+    /// dropped — and nothing else: a marker and its bullet are worded alike.
     func testTheSuitesHeaderInventoriesEveryRule() throws {
-        let count = try Self.declaredRuleCount()
         let source = try Self.read(URL(fileURLWithPath: #filePath))
         let opening = try XCTUnwrap(
             source.range(of: "/// What is checked, and why each rule is invisible to the compiler:"),
@@ -3498,12 +3502,31 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
             rest.range(of: "\nfinal class ChromeThemeSourceGatingTests"),
             "the class declaration after the header inventory is gone — re-point this check"
         )
+        func normalized(_ title: Substring) -> String {
+            var title = title.lowercased().replacingOccurrences(of: "`", with: "")
+            if title.hasSuffix(".") { title.removeLast() }
+            return title.trimmingCharacters(in: .whitespaces)
+        }
         let bullets = rest[..<end.lowerBound]
             .split(separator: "\n")
             .filter { $0.hasPrefix("/// - **") }
+            .compactMap { line -> String? in
+                let body = line.dropFirst("/// - **".count)
+                guard let close = body.range(of: "**") else { return nil }
+                return normalized(body[..<close.lowerBound])
+            }
+        let markers = try NSRegularExpression(pattern: "(?m)^\\s*// MARK: - Rule [a-z-]+: (.+)$")
+        let range = NSRange(source.startIndex..<source.endIndex, in: source)
+        let titles = markers.matches(in: source, range: range).compactMap { match in
+            Range(match.range(at: 1), in: source).map { normalized(source[$0]) }
+        }
+        XCTAssertEqual(titles.count, try Self.declaredRuleCount(), "the marker titles must be read whole")
         XCTAssertEqual(
-            bullets.count, count,
-            "the suite's header must carry one bolded bullet per declared rule (\(count)), in the same order"
+            bullets, titles,
+            """
+            the suite's header must carry one bolded bullet per declared rule (\(titles.count)), titled as \
+            that rule's marker and in the markers' order
+            """
         )
     }
 

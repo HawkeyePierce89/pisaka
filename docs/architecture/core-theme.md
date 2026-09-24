@@ -1943,7 +1943,12 @@ counts its own numbered rule markers and asserts that both summaries of it — t
 list above and `CLAUDE.md`'s chrome-theme invariant — spell that number in the
 sentence naming it, that the list above enumerates exactly that many items
 in order, and that the suite's own header inventory — the doc comment
-`CLAUDE.md` sends readers to — carries one bolded bullet per rule. The header
+`CLAUDE.md` sends readers to — carries one bolded bullet per rule, titled as
+that rule's marker and in the markers' order. The header check compares the two
+ordered title lists whole (lower-cased, backticks and a trailing full stop
+dropped), so a swapped pair, a dropped rule's bullet or a bullet for a rule that
+no longer exists each fails where a count would pass; the markers were reworded
+to the bullets' titles to make that comparison possible. The header
 was added to the check after it had ended at rule thirty-four with thirty-five
 declared: nothing read it while both documents were checked. It gates no source file; it exists because both summaries had already
 drifted, each correct on the day it was written, and a count that drifts tells a
