@@ -1905,11 +1905,24 @@ The thirty-five rules, each invisible to the compiler:
     `selection:` — found through the suite's whitespace-tolerant call matcher,
     so a paren on the next line is still a construction — every
     `listRowBackground` in its content closure (argument list read
-    brace-matched) names the identifier handed to `selection:` and yields
-    `clear`; an absent row background also passes. On macOS a row background
-    is drawn over the platform's selection box, so an unconditional one hides
-    the selection outright — the Local History revisions list shipped that way,
-    and its selected row is the one Restore applies.
+    brace-matched) is written in **one anchored shape**: a conditional whose
+    condition — the text before the first top-level ternary `?` — is exactly
+    `row == binding` in either order (`row` the content closure's named
+    parameter or a member chain off it, `binding` the identifier handed to
+    `selection:`, optionally `.wrappedValue`), and whose branch taken when that
+    comparison holds — the text up to the matching top-level `:` — names
+    `clear`. Nothing past that is evaluated, so a background written any other
+    way (`!=` with the branches swapped, a comparison against `nil`, a helper
+    call, an unnamed `$0` row) **fails by design** with a message asking for
+    the shape; a rule that cannot decide does not decide in favour of the code.
+    An absent row background also passes. The gated files constructing a
+    selectable `List` are pinned by set equality (today `LocalHistoryView.swift`
+    alone), so a new one is a deliberate addition, and the revisions list's
+    background must still be seen, so the rule cannot go vacuous. On macOS a
+    row background is drawn over the platform's selection box, so an
+    unconditional one hides the selection outright — the Local History
+    revisions list shipped that way, and its selected row is the one Restore
+    applies.
 
 Plus a **self-check** in the suite's own idiom: every gated file must actually
 *name* a `ChromeColorRole`, or the checks above have gone vacuous — with eight

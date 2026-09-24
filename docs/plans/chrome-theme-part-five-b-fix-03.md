@@ -168,24 +168,24 @@ every one of these passes while drawing an opaque background on the selected row
 .listRowBackground(selection.wrappedValue == nil ? Color.clear : chromeColor(.bgPanel))
 ```
 
-- [ ] Anchor the check to one shape instead of searching the argument: the
+- [x] Anchor the check to one shape instead of searching the argument: the
       argument is a conditional whose **condition compares the row's identity with
       the selection binding**, and whose branch taken **when that comparison holds**
       names `clear`. Take the condition as the text before the first top-level `?`
       and the true branch as the text between that `?` and its matching top-level
       `:`; do not attempt to evaluate anything beyond that.
-- [ ] Where the shape cannot be recognized, **fail** with a message asking for the
+- [x] Where the shape cannot be recognized, **fail** with a message asking for the
       background to be written in that shape. A rule that cannot decide does not
       decide in favour of the code.
-- [ ] Keep the existing non-vacuity anchor (the revisions list must still be seen)
+- [x] Keep the existing non-vacuity anchor (the revisions list must still be seen)
       and add set equality over the gated files that construct a selectable `List`,
       so a new one is a deliberate addition rather than a silent pass.
-- [ ] Mutation-verify with **all three forms above**, each separately: each must go
+- [x] Mutation-verify with **all three forms above**, each separately: each must go
       red. Then the correct form must be green. Revert and confirm a clean
       `git status`.
-- [ ] Update rule thirty-five's canonical entry to describe the anchored shape and
+- [x] Update rule thirty-five's canonical entry to describe the anchored shape and
       to say plainly that a background written another way fails by design.
-- [ ] Run `swift test` and the macOS build. Both must pass.
+- [x] Run `swift test` and the macOS build. Both must pass.
 
 ### Task 3: The suite's own inventory catches up, and the duplicate splitter goes
 

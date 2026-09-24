@@ -3205,6 +3205,11 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
 
     // MARK: - Rule thirty-five: a selectable list yields its selected row's background
 
+    /// The gated files that construct a `List` binding `selection:` — pinned by
+    /// set equality, so a new selectable list is a deliberate addition read
+    /// against this rule rather than a silent pass.
+    private static let selectableListFiles: Set<String> = ["LocalHistoryView.swift"]
+
     /// On macOS a `listRowBackground` is drawn **over** the selection box the
     /// platform draws for its row, so a list that binds `selection:` and gives
     /// every row a background shows no selection at all. The Local History
@@ -3215,14 +3220,24 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     ///
     /// So for every `List` construction in a gated file whose argument list
     /// names `selection:`, every `listRowBackground` in its content closure must
-    /// name the selection it is conditioned on — the identifier handed to
-    /// `selection:`, `$` dropped — and yield its selected row a clear
-    /// background. An absent row background is the other passing shape. The
-    /// construction is found through `callRanges(_:in:)`, so a `List` whose
+    /// be written in **one shape**: a conditional `condition ? whenTrue :
+    /// whenFalse` whose condition is exactly `row == binding` (either order, the
+    /// binding optionally `.wrappedValue`) — `row` being the content closure's
+    /// named parameter or a member chain off it, `binding` the identifier handed
+    /// to `selection:` with `$` dropped — and whose `whenTrue` names `clear`. The
+    /// condition is the text before the first top-level ternary `?`, `whenTrue`
+    /// the text up to its matching top-level `:`; nothing is evaluated past that.
+    /// A background written any other way — `!=` with the branches swapped, a
+    /// comparison against `nil`, a helper call — **fails by design**, asking to
+    /// be rewritten in the shape: a rule that cannot decide does not decide in
+    /// favour of the code. An absent row background is the other passing shape.
+    /// The construction is found through `callRanges(_:in:)`, so a `List` whose
     /// paren sits on the next line is still seen, and each background's argument
     /// list is read brace-matched, so a multi-line conditional is read whole.
     func testASelectableListYieldsItsSelectedRowsBackground() throws {
         let selectionLabel = try NSRegularExpression(pattern: "^selection\\s*:\\s*\\$?([A-Za-z_][A-Za-z0-9_]*)")
+        let rowParameter = try NSRegularExpression(pattern: "^\\{\\s*([A-Za-z_][A-Za-z0-9_]*)\\s+in\\b")
+        var selectableSites: Set<String> = []
         var conditionedSites: Set<String> = []
         for (name, code) in try Self.strippedGatedSources() {
             for call in Self.callRanges("List(", in: code) {
@@ -3230,34 +3245,46 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
                 guard let close = Self.balancedEnd(from: open, in: code) else { continue }
                 let arguments = String(code[code.index(after: open)..<code.index(before: close)])
                 let labels = Self.topLevelArguments(arguments).compactMap { argument -> String? in
-                    let range = NSRange(argument.startIndex..., in: argument)
-                    guard let match = selectionLabel.firstMatch(in: argument, range: range),
-                          let bound = Range(match.range(at: 1), in: argument) else { return nil }
-                    return String(argument[bound])
+                    Self.firstCapture(of: selectionLabel, in: argument)
                 }
                 guard let binding = labels.first else { continue }
+                selectableSites.insert(name)
                 var cursor = close
                 while cursor < code.endIndex, code[cursor].isWhitespace { cursor = code.index(after: cursor) }
                 guard cursor < code.endIndex, code[cursor] == "{",
                       let contentEnd = Self.balancedEnd(from: cursor, in: code) else { continue }
                 let content = String(code[cursor..<contentEnd])
+                let row = Self.firstCapture(of: rowParameter, in: content)
                 for background in Self.matchedArguments(after: ".listRowBackground", in: content) {
-                    XCTAssertTrue(
-                        LSPSourceGatingTests.containsToken(binding, in: background),
-                        """
-                        \(name) has a List binding selection: \(binding) whose listRowBackground does not name \
-                        \(binding) — a row background is drawn over the selection box, so the selected row must \
-                        yield its background (Color.clear) for the platform's selection to show
-                        """
-                    )
-                    XCTAssertTrue(
-                        LSPSourceGatingTests.containsToken("clear", in: background),
-                        "\(name)'s selectable List conditions its row background but never yields it (Color.clear)"
-                    )
                     conditionedSites.insert(name)
+                    let inside = String(background.dropFirst().dropLast())
+                    guard let row,
+                          let parts = Self.ternaryParts(inside),
+                          Self.comparesRow(row, withSelection: binding, condition: parts.condition) else {
+                        XCTFail(
+                            """
+                            \(name) has a List binding selection: \(binding) whose listRowBackground is not written \
+                            as `row == \(binding).wrappedValue ? Color.clear : <background>` over a named row \
+                            parameter — a row background is drawn over the selection box, and this rule reads only \
+                            that shape; rewrite the background in it
+                            """
+                        )
+                        continue
+                    }
+                    XCTAssertTrue(
+                        LSPSourceGatingTests.containsToken("clear", in: parts.whenTrue),
+                        """
+                        \(name)'s selectable List gives its selected row a background (the branch taken when the \
+                        row equals \(binding) does not name clear) — the platform's selection box is drawn under it
+                        """
+                    )
                 }
             }
         }
+        XCTAssertEqual(
+            selectableSites, Self.selectableListFiles,
+            "the gated files constructing a selectable List changed; read the new one against this rule and pin it"
+        )
         XCTAssertTrue(
             conditionedSites.contains("LocalHistoryView.swift"),
             """
@@ -3265,6 +3292,57 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
             listRowBackground moved out of reach; re-point this rule rather than letting it go vacuous
             """
         )
+    }
+
+    /// The first capture group of `pattern`'s first match in `text`.
+    private static func firstCapture(of pattern: NSRegularExpression, in text: String) -> String? {
+        let range = NSRange(text.startIndex..., in: text)
+        guard let match = pattern.firstMatch(in: text, range: range),
+              let bound = Range(match.range(at: 1), in: text) else { return nil }
+        return String(text[bound])
+    }
+
+    /// `condition ? whenTrue : whenFalse`, split at the first top-level ternary
+    /// `?` and its matching top-level `:` — a ternary operator is the one led by
+    /// whitespace (Swift requires it; `a?.b` is optional chaining), and a nested
+    /// ternary inside `whenTrue` is skipped by counting. `nil` when the text is
+    /// not in that shape.
+    private static func ternaryParts(_ text: String) -> (condition: String, whenTrue: String, whenFalse: String)? {
+        let characters = Array(text)
+        var depth = 0
+        var question: Int?
+        var nested = 0
+        for (offset, character) in characters.enumerated() {
+            if "([{".contains(character) { depth += 1 }
+            if ")]}".contains(character) { depth -= 1 }
+            guard depth == 0, offset > 0, characters[offset - 1].isWhitespace else { continue }
+            if character == "?" {
+                if question == nil { question = offset } else { nested += 1 }
+            } else if character == ":", let question {
+                if nested > 0 { nested -= 1; continue }
+                func part(_ range: Range<Int>) -> String {
+                    String(characters[range]).trimmingCharacters(in: .whitespacesAndNewlines)
+                }
+                return (part(0..<question), part((question + 1)..<offset), part((offset + 1)..<characters.count))
+            }
+        }
+        return nil
+    }
+
+    /// Whether `condition` is exactly `row == binding` in either order — `row`
+    /// the closure parameter or a member chain off it, `binding` the selection's
+    /// identifier optionally followed by `.wrappedValue`.
+    private static func comparesRow(_ row: String, withSelection binding: String, condition: String) -> Bool {
+        let operands = condition.components(separatedBy: "==")
+        guard operands.count == 2 else { return false }
+        let sides = operands.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        let member = "(\\.[A-Za-z_][A-Za-z0-9_]*)*"
+        func matches(_ pattern: String, _ text: String) -> Bool {
+            text.range(of: "^" + pattern + "$", options: .regularExpression) != nil
+        }
+        let isRow = { matches(NSRegularExpression.escapedPattern(for: row) + member, $0) }
+        let isBinding = { matches(NSRegularExpression.escapedPattern(for: binding) + "(\\.wrappedValue)?", $0) }
+        return (isRow(sides[0]) && isBinding(sides[1])) || (isBinding(sides[0]) && isRow(sides[1]))
     }
 
     /// The top-level, comma-separated arguments of an argument list's inside —
