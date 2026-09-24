@@ -142,17 +142,17 @@ one as permitted.
 After Task 1 the contradiction has a clean resolution: rule thirty-five is a pinned
 set, which *is* the first shape.
 
-- [ ] Correct the passage to say rule thirty-five was reduced to a pinned set, not
+- [x] Correct the passage to say rule thirty-five was reduced to a pinned set, not
       to an anchored conditional. The three shapes stand; no fourth is added and no
       exception is granted.
-- [ ] Keep rule thirty-four named as the one rule that still reads a modifier chain,
+- [x] Keep rule thirty-four named as the one rule that still reads a modifier chain,
       and keep it flagged as narrowed rather than extended — that part was accurate.
-- [ ] Make the same corrections in the suite's own header, which carries the
+- [x] Make the same corrections in the suite's own header, which carries the
       convention twice.
-- [ ] Re-read the whole passage once it is edited and confirm no sentence in it now
+- [x] Re-read the whole passage once it is edited and confirm no sentence in it now
       describes a rule that does not exist in that form. Report anything else it
       claims that the suite does not do.
-- [ ] No new test: this is prose. Confirm `swift test` stays green — the count and
+- [x] No new test: this is prose. Confirm `swift test` stays green — the count and
       canonical-list self-checks read this document.
 
 ### Task 3: The header self-check claims exactly what it tests

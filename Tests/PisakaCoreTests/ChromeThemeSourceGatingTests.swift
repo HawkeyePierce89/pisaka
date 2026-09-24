@@ -164,9 +164,13 @@ import XCTest
 /// brace-matched body and do one of those inside it. A rule does not resolve
 /// types, evaluate conditionals or decide which of two branches runs — the three
 /// that tried (thirty-one, thirty-four, thirty-five) each missed the regression
-/// it named across three review rounds, while no set or token rule failed. A
-/// property this cannot express belongs in the app-layer bundle or the
-/// acceptance review, not here (`core-theme.md`, beside the rules).
+/// it named across three review rounds, while no set or token rule failed.
+/// Thirty-one is now a total ban with its sites pinned by file and count, and
+/// thirty-five a pinned set of row-background expressions that reads no
+/// conditional; thirty-four is the one rule still reading a modifier chain,
+/// narrowed rather than extended. No fourth shape, no exception. A property
+/// this cannot express belongs in the app-layer bundle or the acceptance
+/// review, not here (`core-theme.md`, beside the rules).
 final class ChromeThemeSourceGatingTests: XCTestCase {
 
     // MARK: - The gated set

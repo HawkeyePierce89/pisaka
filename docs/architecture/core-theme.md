@@ -1968,10 +1968,14 @@ thirty-four decided what sizes a glyph from the modifier chain around it and
 counted a frame that sizes nothing; rule thirty-five searched a
 `listRowBackground` argument for two tokens and passed the reversed
 conditional. Over the same rounds no set-equality or token rule here failed.
-Thirty-one and thirty-five have since been rewritten into the permitted
-shapes — a total ban with pinned sites, one anchored conditional that fails
-when it cannot be read — and thirty-four stays the one rule reading a chain,
-narrowed rather than extended. **Those three are the precedents not to copy.**
+Those three attempts are **the precedents not to copy**. Two of the rules
+have since been reduced to the first shape: thirty-one is a total ban on the
+assignment with its sanctioned sites pinned by file and count, and thirty-five
+pins every selectable list's `listRowBackground` expression by set equality and
+no longer reads the conditional at all, so any changed expression fails and a
+person re-confirms it. Thirty-four stays the one rule still reading a modifier
+chain, narrowed rather than extended. No fourth shape is permitted and no rule
+is excepted from the three.
 
 The consequence, stated plainly: a property that cannot be expressed this way
 is **not pinned by this suite at all**. It belongs in the app-layer bundle
