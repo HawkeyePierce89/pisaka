@@ -564,7 +564,9 @@ private struct CommitFileRow: View {
     }
 
     /// The row's wash, asked of `TreeRowState` (a file row is never a drop
-    /// target) and painted in the three roles the tree's rows use.
+    /// target) and painted through `TreeRowBackground.color(for:resolving:)` —
+    /// the tree's one state-to-colour mapping, called rather than copied, so the
+    /// day the tree's answer changes this row changes with it.
     private var background: Color {
         let rowState = TreeRowState.state(
             isSelected: isSelected,
@@ -572,12 +574,7 @@ private struct CommitFileRow: View {
             isHovering: isHovering,
             isDropTarget: false
         )
-        switch rowState {
-        case .selectedFocused: return theme.color(.accentTintStrong)
-        case .selectedUnfocused: return theme.color(.selectionInactive)
-        case .hover: return theme.color(.hoverTint)
-        case .plain, .dropTarget: return .clear
-        }
+        return TreeRowBackground.color(for: rowState, resolving: theme.color)
     }
 }
 

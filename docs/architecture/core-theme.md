@@ -247,7 +247,8 @@ the change must not be recorded as if one had been**: `selectionInactive` had,
 when it changed, exactly one consumer — `ProjectTreeView.swift`'s
 `TreeRowBackground.role(for:)`, `case .selectedUnfocused`, a project-tree row
 selected while its window is not key, never an editor text selection; part five
-(b) added the second, `CommitDialogView.swift`'s file row, on the same state —
+(b)'s commit dialog file row paints the same state by *calling* that mapping, not
+by naming the role, so the consumer is still one —
 and `currentLine` is painted by *nothing
 at all*, its only occurrences being its declaration, its palette row and the
 comment on the row above it. The two have therefore never shared a surface, and
@@ -1235,10 +1236,11 @@ dialog stands on `bgPanel` and the diff preview on `bgEditor`; its three
 fixed height, the file icon at its own `.callout` (rule thirty-four), coloured
 by `changedFileRole(for:)` and hidden from accessibility, the status letter `.callout` semibold monospaced keeping its
 spoken value, and a three-state `ChromeCheckbox` labelled "Include <name> in the
-commit". Its background is `TreeRowState.state(…)`'s precedence:
-`accentTintStrong` selected in a key window, `selectionInactive` selected in one
-that is not (the role's second consumer after the tree), `hoverTint` under the
-pointer. The message box is the shared `ChromeControlBox` (focus from a
+commit". Its background is `TreeRowState.state(…)`'s precedence painted
+through the tree's own `TreeRowBackground.color(for:resolving:)` — called, not
+copied, so the dialog cannot keep the old roles the day the tree's answer
+changes: `accentTintStrong` selected in a key window, `selectionInactive`
+selected in one that is not, `hoverTint` under the pointer. The message box is the shared `ChromeControlBox` (focus from a
 `@FocusState`, `fieldPaddingX`, hidden scroll background so `bgEditor` shows,
 `textPrimary` content), keeping its code-zone height and `ZoomSurfaceMarker`.
 The author line's labels and amend note are `textSecondary`, the signature
@@ -1857,8 +1859,12 @@ The thirty-five rules, each invisible to the compiler:
     colour, its one colour being the AppKit pane ground.
 33. **The commit dialog's rows and controls.** `CommitFileRow`'s body applies no
     `.frame(… height:` (the multi-line-aware walk shared with rule
-    twenty-seven) and names `accentTintStrong`, `selectionInactive` and
-    `hoverTint`; `ChromeCheckbox`'s body spells `accessibilityValue`; and each
+    twenty-seven) and names `TreeRowBackground`, the tree's one state-to-colour
+    mapping, while no gated file but `ProjectTreeView.swift` (the mapping's own)
+    spells `accentTintStrong`, `selectionInactive` or `hoverTint` inside a
+    `switch` whose cases name `selectedFocused` or `selectedUnfocused` — a copied
+    table is the regression, and the rule once pinned exactly that copy in
+    place; `ChromeCheckbox`'s body spells `accessibilityValue`; and each
     of the merge status strip's two chevrons sits in a button whose modifier
     chain carries `accessibilityLabel`.
 34. **Every chrome glyph is sized in the interface zone.** Every

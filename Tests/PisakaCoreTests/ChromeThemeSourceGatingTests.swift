@@ -3088,10 +3088,28 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
             try Self.hasFrameHeight(in: row),
             "CommitFileRow applies .frame(height: — the row carries no fixed height, sized by its two lines and padding"
         )
-        for role in ["accentTintStrong", "selectionInactive", "hoverTint"] {
+        // The row paints the tree's states by *calling* the tree's one mapping.
+        // This rule used to require the three role tokens in the row's body,
+        // which pinned a copied state→role table in place: the day the tree's
+        // mapping changed, the dialog kept the old roles and nothing failed.
+        XCTAssertTrue(
+            LSPSourceGatingTests.containsToken("TreeRowBackground", in: row),
+            "CommitFileRow no longer names TreeRowBackground — the row paints the tree's states through the tree's one mapping"
+        )
+        // The detector is checked against the one table it must find, so it
+        // cannot quietly stop recognizing a copy.
+        let tree = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
+            try Self.read(Self.source(named: "ProjectTreeView.swift"))
+        )
+        XCTAssertEqual(
+            Self.rowStateSwitchesSpellingATreeRole(in: tree).count, 1,
+            "the row-state switch detector no longer finds TreeRowBackground.role(for:)'s own table — "
+                + "re-point it rather than losing the rule"
+        )
+        for (name, code) in try Self.strippedGatedSources() where name != "ProjectTreeView.swift" {
             XCTAssertTrue(
-                LSPSourceGatingTests.containsToken(role, in: row),
-                "CommitFileRow no longer names \(role) — the row draws the tree row's three states"
+                Self.rowStateSwitchesSpellingATreeRole(in: code).isEmpty,
+                "\(name) switches over a row state and spells a tree row role itself — call TreeRowBackground.color(for:resolving:), the one mapping, rather than copying its table"
             )
         }
 
@@ -3128,6 +3146,33 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
             )
         }
         XCTAssertEqual(chevrons, 2, "the merge strip's two chevrons are gone or renamed — re-point this rule rather than losing it")
+    }
+
+    /// Every `switch` body in `code` whose cases name a selected row state
+    /// (`selectedFocused`/`selectedUnfocused`) and that spells one of the three
+    /// roles `TreeRowBackground.role(for:)` answers with — a copy of the tree's
+    /// state→role table, wherever it is written and however it is wrapped.
+    static func rowStateSwitchesSpellingATreeRole(in code: String) -> [String] {
+        var copies: [String] = []
+        var rest = code[...]
+        while let found = rest.range(of: "switch") {
+            rest = code[found.upperBound...]
+            let before = found.lowerBound > code.startIndex ? code[code.index(before: found.lowerBound)] : " "
+            let after = found.upperBound < code.endIndex ? code[found.upperBound] : " "
+            guard !(before.isLetter || before.isNumber || before == "_"),
+                  !(after.isLetter || after.isNumber || after == "_"),
+                  let open = code[found.upperBound...].firstIndex(of: "{"),
+                  let end = balancedEnd(from: open, in: code) else { continue }
+            let body = String(code[open..<end])
+            let namesSelectedState = ["selectedFocused", "selectedUnfocused"].contains {
+                LSPSourceGatingTests.containsToken($0, in: body)
+            }
+            let spellsTreeRole = ["accentTintStrong", "selectionInactive", "hoverTint"].contains {
+                LSPSourceGatingTests.containsToken($0, in: body)
+            }
+            if namesSelectedState && spellsTreeRole { copies.append(body) }
+        }
+        return copies
     }
 
     /// Whether the modifier chain of the innermost brace block enclosing `index`

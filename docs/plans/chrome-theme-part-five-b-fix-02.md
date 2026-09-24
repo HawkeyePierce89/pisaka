@@ -236,18 +236,18 @@ paints "the established precedence the tree already paints" while copying the
 table, so the day the tree's mapping changes the dialog keeps the old roles and
 nothing fails. Rule thirty-three currently pins the copy in place.
 
-- [ ] Replace the switch with `TreeRowBackground.color(for:resolving:)`, widening
+- [x] Replace the switch with `TreeRowBackground.color(for:resolving:)`, widening
       that type's access only as far as the call needs.
-- [ ] Re-point rule thirty-three: instead of requiring the three role tokens in
+- [x] Re-point rule thirty-three: instead of requiring the three role tokens in
       `CommitFileRow`'s body, require that the body names `TreeRowBackground`, and
       that no gated file other than the mapping's own file spells those three
       role tokens in a row-state switch.
-- [ ] Mutation-verify: restore the copied switch and confirm the re-pointed rule
+- [x] Mutation-verify: restore the copied switch and confirm the re-pointed rule
       goes red; revert and confirm green, with a clean `git status`.
-- [ ] Drop the commit row from `ChromePalette.swift`'s `selectionInactive` consumer
+- [x] Drop the commit row from `ChromePalette.swift`'s `selectionInactive` consumer
       comment and from the matching sentence in `core-theme.md`: after this change
       the row spends the role through the tree's mapping, not by naming it.
-- [ ] Run `swift test` and the macOS build. Both must pass.
+- [x] Run `swift test` and the macOS build. Both must pass.
 
 ### Task 5: Five passages the branch made untrue
 
