@@ -242,19 +242,19 @@ does not follow the interface scale, and a code-zone measurement that does.
 
 ### Task 7: Documentation and the count bookkeeping
 
-- [ ] `core-theme.md`: the canonical rule list opens at twenty-seven and gains
+- [x] `core-theme.md`: the canonical rule list opens at twenty-seven and gains
       rule twenty-seven; rule twenty-four's entry loses the menu exception; the
       part five (a) record gains what this fix changed — the match row's height,
       the one shared toggle, the field's text-style parameter, the scaled radius
       and the menu's `Section`s — stated as corrections to that part rather than
       as a new part.
-- [ ] `CLAUDE.md`: the chrome invariant says twenty-seven rules and lists the new
+- [x] `CLAUDE.md`: the chrome invariant says twenty-seven rules and lists the new
       one; the `Divider()` clause drops its "(the menu's)" exception. The gated
       file count stays thirty-four and the unspent roles stay three.
-- [ ] `app-editor.md`: the find bar and the Find in Files window gain the shared
+- [x] `app-editor.md`: the find bar and the Find in Files window gain the shared
       toggle and the match row's zone rule.
-- [ ] The three count assertions — the suite, `CLAUDE.md`, `core-theme.md` — agree.
-- [ ] Run `swift test`.
+- [x] The three count assertions — the suite, `CLAUDE.md`, `core-theme.md` — agree.
+- [x] Run `swift test`.
 
 ### Task 8: Verify the gates
 

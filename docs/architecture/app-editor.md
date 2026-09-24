@@ -1905,19 +1905,22 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     every ordinary literal search. Contrast `ProjectSearchView`, which *is*
     debounced (~300 ms) for the opposite reason: one keystroke there costs a whole
     directory traversal plus a read of every surviving file.
-   - `SearchBarView.swift` — the bar itself (macOS, thin, on the chrome roles
-     since part five (a), `core-theme.md`): a `bgPanel` ground drawing its own
-     one-point `hairline` along its bottom edge (the `Divider()` under it in
-     `ContentView` is gone), the query and replace fields through
-     `ChromeThemedTextField` (the system rounded-border style gone), the
-     `Aa`/`ab`/`.*` toggles in `accent` on an `accentTint` ground while on and
-     `textPrimary` with no ground while off, the match counter and labels in
-     `textSecondary` at `.subheadline` (`.caption` before), the inline regex error
-     in `statusRed` at `.subheadline`, the navigation/close/disclosure glyphs in
-     roles with symbols hidden, Replace and Replace All in the shared secondary
-     button style, and accessibility — toggles with name, tooltip and on/off
-     `.accessibilityValue`, Previous/Next/Close/disclosure with spoken name and
-     tooltip, fields with spoken names — plus the usual query field, a `3/17`
+    - `SearchBarView.swift` — the bar itself (macOS, thin, on the chrome roles
+      since part five (a), `core-theme.md`): a `bgPanel` ground drawing its own
+      one-point `hairline` along its bottom edge (the `Divider()` under it in
+      `ContentView` is gone), the query and replace fields through
+      `ChromeThemedTextField` (the system rounded-border style gone, the field's
+      `.callout` default and `6`-point inner gap kept; Find in Files' three and
+      the branch switcher's filter pass `.body`), the `Aa`/`ab`/`.*` toggles as the
+      shared `ChromeQueryToggle` in `ChromeControls.swift` (`subheadline` semibold
+      monospaced, `accent` on `accentTint` while on and `textPrimary` with no
+      ground while off), the match counter and labels in `textSecondary` at
+      `.subheadline` (`.caption` before), the inline regex error in `statusRed` at
+      `.subheadline`, the navigation/close/disclosure glyphs in roles with symbols
+      hidden, Replace and Replace All in the shared secondary button style, and
+      accessibility — toggles with name, tooltip and on/off `.accessibilityValue`,
+      Previous/Next/Close/disclosure with spoken name and tooltip, fields with
+      spoken names — plus the usual query field, a `3/17`
      counter (blanked on error, and on a *trimmed* empty field —
      `TextSearchEngine` throws `.emptyPattern` for a whitespace-only pattern too, so
      no search ran and "No results" would state an answer nothing computed), ▲/▼
@@ -1970,15 +1973,21 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
      then Replace All in the secondary button style, scope line `callout` in
      `textSecondary`, results gap 8, group header 24 high padding 8 a 14-point icon
      the path in `callout` and the count in `subheadline` all in `textSecondary`,
-     match row 24 high padding 8 right 34 left, footer 32 high with its own top
+     match row padding 8 right 34 left
+      with no fixed height — its height is the code-font content's
+      (`settings.fontSize`) so it never overflows and `.contentShape` follows the
+      paddings so the insets are the click target (group header's `24`-point
+      `headerHeight` stays interface-scaled by design), footer 32 high with its own top
      `hairline` padding 16 and the summary in `callout` `textSecondary`, the
-     file-mask field also the shared field, the `Divider()` between header and
+     file-mask field also the shared field at `.body`, the `Divider()` between header and
      results replaced by a `hairline` rule the content draws, numbers with no
      `ChromeGeometry` home in a private layout enum and existing tokens reused where
      they fit, the group header icon monochrome `textSecondary`, the preview text on
      the code font in `SyntaxTheme`'s plain colour with the highlight kept as the
      editor's current-match background, the line number on the code font in
-     `textSecondary` with `ZoomSurfaceMarker(kind: .code)`, nothing sized by the code
+     `textSecondary` with `ZoomSurfaceMarker(kind: .code)` and
+      the zone pinned by rule twenty-seven (no `.frame(height:`), nothing sized by
+      the code
      font multiplied by the interface scale and vice versa, no selection added, the
      regex/validation error in `statusRed`, fields/toggles/Replace All named and
      decorative symbols hidden. Otherwise the same window as before: results grouped
@@ -2095,7 +2104,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
      it sits in the row like the three toggles rather than claiming the row's spare
      width, `.help("Recent searches")`, and `.disabled(entries.isEmpty)`. Rows are
      `ForEach(entries, id: \.pattern)` — patterns are unique by the recording rule
-     — drawing `SearchQueryHistory.menuLabel(for:)`, then a `Divider()` and one
+     — drawing `SearchQueryHistory.menuLabel(for:)` inside two `Section`s and one
      `Button("Clear History")`. Thin and untested like the rest of `Sources/Pisaka`:
      every decision it draws is Core's, including the row's text, so the truncation
      and the flag suffix are computed and asserted there rather than left to a menu
