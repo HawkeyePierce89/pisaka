@@ -100,6 +100,24 @@ struct LocalHistoryView: View {
     /// the view that makes it.
     private var metrics: InterfaceMetrics { settings.interfaceMetrics }
 
+    @Environment(\.colorScheme) private var colorScheme
+
+    /// This view is a window root: it injects the theme below, so it resolves its
+    /// own colours from the settings rather than reading `\.chromeTheme`, the
+    /// shape `ContentView` and the other window roots use. A child that wants the
+    /// environment — `RevisionRow` — is declared at file scope, never inside this
+    /// struct.
+    private func chromeColor(_ role: ChromeColorRole) -> Color {
+        settings.chromeTheme(systemPrefersDark: colorScheme == .dark).color(role)
+    }
+
+    /// The one-point rule drawn where the list's `Divider()` used to stand.
+    private var hairline: some View {
+        Rectangle()
+            .fill(chromeColor(.hairline))
+            .frame(height: metrics.scaled(ChromeGeometry.hairlineWidth))
+    }
+
     var body: some View {
         HSplitView {
             revisions
@@ -133,19 +151,25 @@ struct LocalHistoryView: View {
                     ? "This file is not in the open project, so it has no history."
                     : "No history for this file yet.")
                     .font(metrics.scaledFont(.body))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(chromeColor(.textSecondary))
                     .multilineTextAlignment(.center)
                     .padding(metrics.scaled(16))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 List(browser.revisions, id: \.fileName, selection: selection) { snapshot in
                     RevisionRow(snapshot: snapshot, now: now)
+                        .listRowBackground(chromeColor(.bgPanel))
                 }
+                // The Find in Files precedent: an inset list whose own ground is
+                // hidden so the panel ground shows through, each row on
+                // `bgPanel`, and the platform's selection left as it is.
                 .listStyle(.inset)
+                .scrollContentBackground(.hidden)
             }
-            Divider()
+            hairline
             footer
         }
+        .background(chromeColor(.bgPanel))
     }
 
     private var footer: some View {
@@ -182,6 +206,7 @@ struct LocalHistoryView: View {
             // back from wherever the buffer changed; see
             // `LocalHistoryBrowserModel.refreshSelection(currentText:)`.
             .disabled(browser.restorePlan == nil)
+            .buttonStyle(.chromeSecondary)
         }
         .font(metrics.scaledFont(.body))
         .padding(.horizontal, metrics.scaled(10))
@@ -207,7 +232,7 @@ struct LocalHistoryView: View {
         } else {
             Text(browser.revisions.isEmpty ? "" : "Select a revision to see what changed.")
                 .font(metrics.scaledFont(.body))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(chromeColor(.textSecondary))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
@@ -240,14 +265,19 @@ private struct RevisionRow: View {
     /// The interface zone's metrics, inherited from the window root.
     @Environment(\.interfaceMetrics) private var metrics
 
+    /// The chrome theme, inherited from the window root — a child at file scope
+    /// reads the environment the root injects.
+    @Environment(\.chromeTheme) private var theme
+
     var body: some View {
         VStack(alignment: .leading, spacing: metrics.scaled(2)) {
             Text(snapshot.event.title)
                 .font(metrics.scaledFont(.body))
+                .foregroundStyle(theme.color(.textPrimary))
             Text("\(Self.relative.localizedString(for: snapshot.timestamp, relativeTo: now)) · "
                 + Self.absolute.string(from: snapshot.timestamp))
                 .font(metrics.scaledFont(.caption))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(theme.color(.textSecondary))
         }
         .lineLimit(1)
         .frame(maxWidth: .infinity, alignment: .leading)

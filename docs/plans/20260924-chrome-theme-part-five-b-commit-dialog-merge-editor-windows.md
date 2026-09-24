@@ -439,7 +439,7 @@ one is recorded in `core-theme.md`:
 - Modify: `Sources/Pisaka/SearchBarView.swift`
 - Modify: `Tests/PisakaCoreTests/ChromeThemeSourceGatingTests.swift`
 
-- [ ] **Local History root and list.**
+- [x] **Local History root and list.**
   - A private `chromeColor(_:)` on the root. Nothing inside the root struct's
     declaration reads `\.chromeTheme`.
   - The revisions list follows the Find in Files precedent: inset style,
@@ -448,14 +448,14 @@ one is recorded in `core-theme.md`:
   - The empty-state and "Select a revision" texts are `textSecondary`.
   - The `Divider()` above the footer becomes a `hairline` rule.
   - Restore uses `.chromeSecondary` and keeps its plan-driven enablement.
-- [ ] **`RevisionRow`**, at file scope, reads `\.chromeTheme` as a child: the title in
+- [x] **`RevisionRow`**, at file scope, reads `\.chromeTheme` as a child: the title in
   `textPrimary`, the time line in `textSecondary`.
-- [ ] Add `LocalHistoryView.swift` to `gatedFiles`. The set is now 44.
-- [ ] Fix the `ProjectSearchView.swift` match-row comment (~374) that says the line
+- [x] Add `LocalHistoryView.swift` to `gatedFiles`. The set is now 44.
+- [x] Fix the `ProjectSearchView.swift` match-row comment (~374) that says the line
   number "stays `.secondary`". It takes `textSecondary`.
-- [ ] Give the whole-word toggle one spoken name, "Whole word", in both
+- [x] Give the whole-word toggle one spoken name, "Whole word", in both
   `SearchBarView.swift` and `ProjectSearchView.swift`.
-- [ ] Run `swift test` and the macOS build. Both must pass.
+- [x] Run `swift test` and the macOS build. Both must pass.
 
 ### Task 8: Six new gating rules, each shown red first
 

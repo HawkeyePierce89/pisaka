@@ -200,7 +200,7 @@ struct ProjectSearchView: View {
             )
 
             ChromeQueryToggle(label: "Aa", isOn: $caseSensitive, help: "Match case")
-            ChromeQueryToggle(label: "ab", isOn: $wholeWord, help: "Words")
+            ChromeQueryToggle(label: "ab", isOn: $wholeWord, help: "Whole word")
             ChromeQueryToggle(label: ".*", isOn: $isRegex, help: "Regular expression")
 
             if model.isSearching {
@@ -371,7 +371,7 @@ struct ProjectSearchView: View {
                     // is pure black/white and the palette's plain row is
                     // `#1d1d1f`/`#dfe1e5`, so a row and the file it opens would
                     // otherwise disagree by a step. The line *number* beside it
-                    // stays `.secondary`: it is chrome the file does not contain.
+                    // takes `textSecondary`: it is chrome the file does not contain.
                     .foregroundStyle(Color(SyntaxTheme.shared.color(for: .plain)))
                     .lineLimit(1)
                     .truncationMode(.tail)

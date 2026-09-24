@@ -198,6 +198,9 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         // Part five (b): the merge editor — its status strip, pane header and
         // the AppKit panes' wash through `mergeWashRole(for:)`.
         "MergeView.swift",
+        // Part five (b): the Local History window — its revisions list, the
+        // row and the Restore footer.
+        "LocalHistoryView.swift",
     ]
 
     func testEveryGatedFileExists() throws {
@@ -2137,6 +2140,30 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
             XCTAssertFalse(
                 code.contains("func toggle("),
                 "\(name) declares its own toggle builder — the query toggle is ChromeQueryToggle, one shape for both surfaces"
+            )
+        }
+    }
+
+    /// The two query-toggle rows speak the same three names. The shared toggle
+    /// speaks its `help` as its accessibility label, so a caller that words one
+    /// mode differently ("Words" beside "Whole word") names one control two ways.
+    /// Matched against comment-stripped text *with* literals kept, because the
+    /// names under test are the literals — the usual scanner would delete them.
+    func testQueryTogglesSpeakOneNamePerMode() throws {
+        let pattern = try NSRegularExpression(pattern: "ChromeQueryToggle\\([^)]*?help:\\s*\"([^\"]*)\"")
+        var names: [String: [String]] = [:]
+        for url in try Self.swiftSources() where Self.sharedToggleConstructors.contains(url.lastPathComponent) {
+            let code = GitHubSourceGatingTests.strippingComments(try Self.read(url))
+            let range = NSRange(code.startIndex..., in: code)
+            names[url.lastPathComponent] = pattern.matches(in: code, range: range).compactMap {
+                Range($0.range(at: 1), in: code).map { String(code[$0]) }
+            }
+        }
+        XCTAssertEqual(Set(names.keys), Self.sharedToggleConstructors)
+        for (name, spoken) in names {
+            XCTAssertEqual(
+                spoken, ["Match case", "Whole word", "Regular expression"],
+                "\(name)'s query toggles must speak the one name each mode has"
             )
         }
     }
