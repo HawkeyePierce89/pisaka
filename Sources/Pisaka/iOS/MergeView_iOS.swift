@@ -162,8 +162,11 @@ struct MergeView_iOS: View {
 /// Which of the three merge panes a `MergePaneView_iOS` renders.
 enum MergePaneRole { case ours, result, theirs }
 
-/// Background highlight for a line in one of the merge panes (view-layer, so Core
-/// stays color-free — the `DiffColors_iOS`/`SyntaxTheme` precedent).
+/// Background highlight for a line in one of the merge panes. Written view-layer
+/// when Core carried no merge line vocabulary at all; Core has since gained
+/// `MergeLineKind` with these same five cases (the macOS chrome sweep, part five
+/// (b)), and iOS keeps its own copy for no reason beyond iOS not having been swept
+/// yet — folding it onto Core's is left to the iOS part.
 enum MergeLineKind_iOS {
     case plain
     case ours
@@ -172,7 +175,10 @@ enum MergeLineKind_iOS {
     case conflictResolved
 }
 
-/// The merge panes' color scheme, mirroring the macOS `MergeColors` tones.
+/// The merge panes' color scheme: the macOS merge wash as it stood before part
+/// five (b). macOS now draws `ChromeColorRole.mergeWashRole(for:)` —
+/// `conflictBackground` for ours, theirs and unresolved, `diffAddedBackground` for
+/// resolved — so the two platforms no longer share these tones.
 enum MergeColors_iOS {
     static func background(for kind: MergeLineKind_iOS) -> UIColor? {
         switch kind {

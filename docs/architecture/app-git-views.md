@@ -373,7 +373,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     and `FileStatus.spokenName` as the letter's accessibility value — the same
     three the Local Changes panel and the Log's detail pane read, since two lists
     of changed files disagreeing about what "M" looks like would be a needless
-    inconsistency; nothing else in the dialog is on the chrome roles yet)
+    inconsistency; the rest of the dialog's chrome is the paragraph below)
     inside a `ScrollViewReader` whose one job is the **preselect**: opened from a
     file's Commit… item the single checked row is the only thing the user came for,
     and on a change list taller than the panel it would otherwise sit off screen
@@ -490,7 +490,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `diffRemovedBackground`/`diffAddedBackground` roles the side-by-side pane
     spends, a context line drawing none — the checkbox is `accent` when on and
     `textSecondary` when off, and the line numbers and the placeholder are
-    `textSecondary`. The dialog around the panel is untouched.
+    `textSecondary`. The dialog around the panel is swept too — its own entry's
+    chrome paragraph above.
   - `MergeView.swift` — the 3-pane conflict-resolution editor (`ours | result |
     theirs`): the left/right panes are read-only views of each side's full content
     (stable regions plus that side's version of every conflict hunk), the middle

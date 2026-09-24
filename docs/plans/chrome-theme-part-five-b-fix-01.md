@@ -246,24 +246,24 @@ Two entries drifted from the sets they describe:
 - Modify: `docs/architecture/app-git-views.md`
 - Modify: `Sources/Pisaka/iOS/MergeView_iOS.swift`
 
-- [ ] `app-git-views.md:376` still says "nothing else in the dialog is on the chrome
+- [x] `app-git-views.md:376` still says "nothing else in the dialog is on the chrome
       roles yet", and `:491` still says "the dialog around the panel is untouched".
       Both became false with this branch and both contradict the chrome paragraph
       later in the same entry. Remove the obsolete scope claims and let that
       paragraph describe the dialog as it now is.
-- [ ] `MergeView_iOS.swift:175` reads "mirroring the macOS `MergeColors` tones".
+- [x] `MergeView_iOS.swift:175` reads "mirroring the macOS `MergeColors` tones".
       `MergeColors` is deleted and the macOS wash is now
       `ChromeColorRole.mergeWashRole(for:)` — `conflictBackground` for ours, theirs
       and unresolved, `diffAddedBackground` for resolved. Reword the comment to say
       the iOS tones are the macOS merge wash **as it stood before part five (b)**,
       which is both true and informative, rather than dropping the cross-reference.
-- [ ] The doc comment on `MergeLineKind_iOS` just above says the vocabulary is
+- [x] The doc comment on `MergeLineKind_iOS` just above says the vocabulary is
       view-layer "so Core stays colour-free". Core now carries a public
       `MergeLineKind` with the same five cases. Say why iOS still keeps its own —
       or, if there is no reason beyond nobody having swept iOS, say that and leave
       it for the iOS part. Do **not** change the iOS code in this fix round: iOS is
       out of the part's scope and an untested change there buys nothing.
-- [ ] No new test: both items are prose. Confirm the existing `swift test` stays
+- [x] No new test: both items are prose. Confirm the existing `swift test` stays
       green, since the suite reads these documents.
 
 ### Task 5: Verify the gates
