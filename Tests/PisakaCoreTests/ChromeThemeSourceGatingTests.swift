@@ -3264,6 +3264,76 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         )
     }
 
+    /// The canonical list's file sets must be the sets the suite holds: rule
+    /// twenty-six's shared-field callers and rule eleven's header-builder files
+    /// both drifted from the prose when part five (b) changed the suite, and the
+    /// entry a reader consults went on describing the old set. Each passage is
+    /// bounded by a start and an end phrase, and every `X.swift` it spells counts
+    /// as named; `omitting` removes a file the passage deliberately leaves out.
+    ///
+    /// Reach, stated so nobody assumes it is total: covered are rule
+    /// twenty-six's set (canonical entry and the shared field's `Callers:`
+    /// paragraph, which leaves out the defining file) and rule eleven's
+    /// header-builder files. Rule thirty-one's pane-ground callers have their own
+    /// check above. Every other pinned set the canonical list enumerates — the
+    /// gated files, the exemptions, the root lists, rule eleven's whole-file
+    /// form, and the rest — is not yet checked against its prose.
+    private struct FileSetPassage {
+        let label: String
+        let start: String
+        let end: String
+        let expected: Set<String>
+        var omitting: Set<String> = []
+    }
+
+    private static let canonicalFileSetPassages = [
+        FileSetPassage(
+            label: "rule twenty-six's shared-field set",
+            start: "constructing the shared field or box equals",
+            end: "where the box is composed",
+            expected: sharedFieldConstructors
+        ),
+        FileSetPassage(
+            label: "the shared field's Callers: paragraph",
+            start: "`Toggle`. Callers:",
+            end: "The Log bar's doc comment",
+            expected: sharedFieldConstructors,
+            omitting: ["ChromeControls.swift"]
+        ),
+        FileSetPassage(
+            label: "rule eleven's header-builder files",
+            start: "The rule's files are therefore",
+            end: "What the counted form",
+            expected: Set(headerBuilderFiles.map(\.file))
+        ),
+    ]
+
+    func testTheCanonicalListsFileSetsAreTheSuitesOwn() throws {
+        let theme = try Self.read(Self.document("docs/architecture/core-theme.md"))
+        let fileName = try NSRegularExpression(pattern: "[A-Za-z0-9_]+\\.swift")
+        for passage in Self.canonicalFileSetPassages {
+            let start = try XCTUnwrap(
+                theme.range(of: passage.start),
+                "core-theme.md no longer opens \(passage.label) with \(passage.start) — re-point this check"
+            )
+            let rest = theme[start.upperBound...]
+            let end = try XCTUnwrap(
+                rest.range(of: passage.end),
+                "core-theme.md's \(passage.label) no longer ends at \(passage.end) — re-point this check"
+            )
+            let text = String(rest[..<end.lowerBound])
+            let named = Set(
+                fileName.matches(in: text, range: NSRange(text.startIndex..., in: text)).compactMap { match in
+                    Range(match.range, in: text).map { String(text[$0]) }
+                }
+            )
+            XCTAssertEqual(
+                named, passage.expected.subtracting(passage.omitting),
+                "core-theme.md's \(passage.label) must name exactly the files the suite holds"
+            )
+        }
+    }
+
     private static func document(_ relativePath: String) throws -> URL {
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

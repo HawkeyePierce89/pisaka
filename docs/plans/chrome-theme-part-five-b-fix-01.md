@@ -222,23 +222,23 @@ Two entries drifted from the sets they describe:
   named its own"), so correct it by saying what changed and when, not by deleting
   the record.
 
-- [ ] Add `CommitDialogView.swift` (the message box) to rule twenty-six's set in the
+- [x] Add `CommitDialogView.swift` (the message box) to rule twenty-six's set in the
       canonical list and to the shared field's `Callers:` paragraph.
-- [ ] Add one sentence describing the query-toggle one-name clause under rule
+- [x] Add one sentence describing the query-toggle one-name clause under rule
       twenty-six.
-- [ ] In rule eleven's entry, say that since part five (b) the date bound's label is
+- [x] In rule eleven's entry, say that since part five (b) the date bound's label is
       counted in `ChromeCheckbox` (`ChromeControls.swift`) rather than in
       `dateBound(…)`.
-- [ ] Add the cross-check that would have caught both: for the pinned file sets the
+- [x] Add the cross-check that would have caught both: for the pinned file sets the
       canonical list enumerates, the `.swift` names it spells equal the set the
       suite actually holds. Start with rule twenty-six's `sharedFieldConstructors`
       and rule eleven's `headerBuilderFiles` — the two that drifted — and say in the
       comment which sets are covered and which are not yet, so the next reader knows
       the check's reach rather than assuming it is total.
-- [ ] Mutation-verify: drop one file from the canonical list's rule twenty-six set
+- [x] Mutation-verify: drop one file from the canonical list's rule twenty-six set
       and confirm red; add a file the suite does not hold and confirm red; revert and
       confirm green, with a clean `git status`.
-- [ ] Run `swift test`. It must pass.
+- [x] Run `swift test`. It must pass.
 
 ### Task 4: Two passages this branch made false
 

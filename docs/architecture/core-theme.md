@@ -949,7 +949,9 @@ with its private `controlBox`/`filterField` and the `FilterBarLayout` entries
 `controlRadius`/`focusBorderWidth` deleted), `SearchBarView.swift` (the query and
 replace fields) and `ProjectSearchView.swift` (the query row, the replace row and
 the file-mask field) and `BranchSwitcherView.swift` (the popover's filter field,
-via the themed field with its own `FocusState`). The Log bar's doc comment says
+via the themed field with its own `FocusState`) and — since part five (b) —
+`CommitDialogView.swift` (the message box, through the box alone around its
+`TextEditor`). The Log bar's doc comment says
 the shape is shared. Tokens are in `ChromeGeometry`: `fieldCornerRadius` 4,
 `fieldFocusedBorderWidth` 2, `fieldPaddingX` 10, `secondaryButtonHeight` 28,
 `secondaryButtonPaddingX` 14, each distinct and none derived.
@@ -1560,7 +1562,17 @@ The thirty-four rules, each invisible to the compiler:
    `header` and its column-header row's `label(_:)`, the filter bar's
    `filterField(…)` and `dateBound(…)` (the branch picker's menu items are menu
    rows, not strip labels), Local Changes' `toolbar`, and the Pull Requests
-   panel's `header` and row `summaryLine`. What the counted form still cannot
+   panel's `header` and row `summaryLine`. Two of those have since moved.
+   Part five (a) deleted the private `filterField(…)` when the bar's fields
+   became the shared field, dropping that builder from the rule. Part five (b)
+   moved the date bound's label into the shared checkbox's trailing title, so
+   since then that label is counted in `ChromeCheckbox`
+   (`ChromeControls.swift`) rather than in `dateBound(…)`, and `LogFilterBar.swift`
+   is no longer among the rule's files. The rule's files are therefore
+   `ProblemsPanelView.swift`, `UsagesPanelView.swift`, `TerminalPanelView.swift`,
+   `CommitLogView.swift`, `ChromeControls.swift`, `LocalChangesView.swift` and
+   `PullRequestsPanelView.swift` — a list the suite checks against its own
+   set, so it cannot drift again silently. What the counted form still cannot
    see: a `Text` built outside the named builders, or a limit spelled once on a
    container rather than on each label.
 12. **The dock's tab row is configured in one place.** `DockTabRow` is drawn
@@ -1740,7 +1752,8 @@ The thirty-four rules, each invisible to the compiler:
     rounded-border style: `.textFieldStyle(` followed by `.roundedBorder` across
     any whitespace, or `RoundedBorderTextFieldStyle`. The set of files
     constructing the shared field or box equals `{LogFilterBar.swift,
-    SearchBarView.swift, ProjectSearchView.swift, BranchSwitcherView.swift}`,
+    SearchBarView.swift, ProjectSearchView.swift, BranchSwitcherView.swift,
+    CommitDialogView.swift}` (the last since part five (b), its message box),
     plus `ChromeControls.swift`, where the box is composed into the field. The
     shared box has a `bgEditor` ground, a one-point `hairline` border and
     `accent` at the focused width while focused, and takes its horizontal inset
@@ -1749,7 +1762,14 @@ The thirty-four rules, each invisible to the compiler:
     gap defaulting to `6`. The shared query toggle is `ChromeQueryToggle` in
     `ChromeControls.swift`; the set constructing it equals
     `{SearchBarView.swift, ProjectSearchView.swift}`, and no gated file outside
-    `ChromeControls.swift` declares a toggle builder.
+    `ChromeControls.swift` declares a toggle builder. Because the toggle speaks
+    its `help` as its accessibility label, the two rows must also speak one name
+    per mode — each caller's `help:` literals are exactly "Match case", "Whole
+    word", "Regular expression", in that order, read from comment-stripped text
+    with literals kept, since the names under test are the literals. This
+    entry's file set and the shared field's `Callers:` paragraph are both
+    checked against the suite's own set, since both once stopped a caller
+    short.
 27. **Each measurement follows its own zone.** The Find in Files match row
    carries no fixed `.frame(height:` and is sized by the code font
    (`settings.fontSize`), matched over its brace-matched body so a multi-line
