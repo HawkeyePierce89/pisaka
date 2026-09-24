@@ -197,25 +197,25 @@ converted both of `ProjectTreeView.swift`'s context menus to it. Yet
 `SearchHistoryMenu.swift` keeps a literal `Divider()`, and rule twenty-four
 blesses it by name and pins a comment to justify it. Two menus, two answers.
 
-- [ ] `SearchHistoryMenu` groups its rows and its *Clear History* button into two
+- [x] `SearchHistoryMenu` groups its rows and its *Clear History* button into two
       `Section`s. The rendered separator is unchanged; the `Divider()` and the
       comment pinning the exception both go.
-- [ ] Rule twenty-four becomes exception-free: **no** gated file spells
+- [x] Rule twenty-four becomes exception-free: **no** gated file spells
       `Divider(`. Drop the owner set, the per-file count and the pinned-comment
       assertion.
-- [ ] Give the rule a non-vacuity clause in their place, or it becomes an
+- [x] Give the rule a non-vacuity clause in their place, or it becomes an
       assertion that nothing is nothing: every gated file that builds a `Menu`
       — `SearchHistoryMenu.swift`, `ProjectTreeView.swift`, `LocalChangesView.swift`
       — spells `Section` at least once, pinned by set equality so a fourth menu
       file has to be added deliberately.
-- [ ] Show the rewritten rule red twice: once with a `Divider()` put back in the
+- [x] Show the rewritten rule red twice: once with a `Divider()` put back in the
       menu, and once with a `Section` removed from one of the three. Revert both.
-- [ ] Delete the duplicated sentence in `BranchSwitcherView.swift` and
+- [x] Delete the duplicated sentence in `BranchSwitcherView.swift` and
       `ProjectSwitcherView.swift`: each states "the popover's arrow keeps the
       system material, because the content background cannot reach it" twice, once
       in the doc comment and again as an inline comment two lines below. Keep the
       doc comment's copy.
-- [ ] Run `swift test` and the macOS build.
+- [x] Run `swift test` and the macOS build.
 
 ### Task 6: Rule twenty-seven — each measurement follows its own zone
 

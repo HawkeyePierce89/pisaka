@@ -104,7 +104,6 @@ struct BranchSwitcherView: View {
     /// The popover's content, drawn on `bgPopover`. The popover's arrow keeps the
     /// system material, because the content background cannot reach it.
     private var popoverContent: some View {
-        // The popover's arrow keeps the system material, because the content background cannot reach it.
         VStack(alignment: .leading, spacing: metrics.scaled(8)) {
             ChromeThemedTextField(
                 title: "Filter branches",

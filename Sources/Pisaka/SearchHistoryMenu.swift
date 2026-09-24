@@ -40,16 +40,17 @@ struct SearchHistoryMenu: View {
 
     var body: some View {
         Menu {
-            // Keyed on the pattern because the recording rule makes patterns
-            // unique: a second recording of the same pattern promotes the entry
-            // rather than adding a row.
-            ForEach(entries, id: \.pattern) { entry in
-                Button(SearchQueryHistory.menuLabel(for: entry)) { onPick(entry) }
+            Section {
+                // Keyed on the pattern because the recording rule makes patterns
+                // unique: a second recording of the same pattern promotes the entry
+                // rather than adding a row.
+                ForEach(entries, id: \.pattern) { entry in
+                    Button(SearchQueryHistory.menuLabel(for: entry)) { onPick(entry) }
+                }
             }
-            // The one `Divider()` a gated file may spell — a menu's separator is
-            // drawn by the system's menu machinery.
-            Divider()
-            Button("Clear History") { onClear() }
+            Section {
+                Button("Clear History") { onClear() }
+            }
         } label: {
             Image(systemName: "clock.arrow.circlepath")
                 .font(metrics.scaledFont(.body))

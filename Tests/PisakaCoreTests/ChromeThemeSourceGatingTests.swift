@@ -1910,34 +1910,44 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         }
     }
 
-    // MARK: - Rule twenty-four: Divider() in exactly one place
+    // MARK: - Rule twenty-four: no gated file spells Divider(); a menu separates with Section
 
-    func testDividerInExactlyOnePlace() throws {
+    /// The gated files that build a `Menu` — the menu's separator is a `Section`
+    /// boundary in this repository, and `Divider()` is the platform's separator
+    /// colour at the system's thickness, a step off the `hairline` role. Every
+    /// gated file presenting a menu therefore spells `Section` at least once and
+    /// no gated file spells `Divider(` at all.
+    private static let menuSectionFiles: Set<String> = [
+        "SearchHistoryMenu.swift",
+        "ProjectTreeView.swift",
+        "LocalChangesView.swift",
+    ]
+
+    func testNoGatedFileSpellsDividerAndEveryMenuUsesSection() throws {
         let dividerPattern = try NSRegularExpression(pattern: "\\bDivider\\s*\\(")
-        var owners: Set<String> = []
-        var counts: [String: Int] = [:]
         for url in try Self.swiftSources() where Self.gatedFiles.contains(url.lastPathComponent) {
             let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
             let range = NSRange(code.startIndex..., in: code)
-            let count = dividerPattern.numberOfMatches(in: code, range: range)
-            if count > 0 {
-                owners.insert(url.lastPathComponent)
-                counts[url.lastPathComponent] = count
-            }
+            XCTAssertNil(
+                dividerPattern.firstMatch(in: code, range: range),
+                "\(url.lastPathComponent) spells Divider( — a gated surface draws its own hairline, a menu separates with Section"
+            )
+        }
+
+        var sectionSpellers: Set<String> = []
+        for name in Self.menuSectionFiles {
+            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
+                try Self.read(Self.source(named: name))
+            )
+            XCTAssertTrue(
+                code.contains("Section"),
+                "\(name) builds a Menu and must spell Section at least once — a menu's separator is a Section boundary"
+            )
+            if code.contains("Section") { sectionSpellers.insert(name) }
         }
         XCTAssertEqual(
-            owners, ["SearchHistoryMenu.swift"],
-            "the gated files spelling Divider( must be exactly the menu — a swept surface draws its own hairline"
-        )
-        XCTAssertEqual(
-            counts["SearchHistoryMenu.swift"] ?? 0, 1,
-            "SearchHistoryMenu.swift must spell Divider( exactly once — the menu's separator, drawn by the system's menu machinery"
-        )
-
-        let menu = try Self.read(Self.source(named: "SearchHistoryMenu.swift"))
-        XCTAssertTrue(
-            menu.contains("The one `Divider()` a gated file may spell"),
-            "SearchHistoryMenu.swift must name its Divider() as the one a gated file may spell — the comment pins the exception"
+            sectionSpellers, Self.menuSectionFiles,
+            "a menu file lost its Section — pinned by set equality so a fourth file is added deliberately"
         )
     }
 
