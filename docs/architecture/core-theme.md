@@ -222,10 +222,12 @@ compares component by component; the duplication *is* the test.
 was `dark: 0x34363B, light: 0xF0F0F2` — byte for byte the pair `currentLine`
 carries — and is now `dark: 0x3C3F46, light: 0xE2E2E7`, a deliberate step
 stronger, because the design states that value. **No symptom was visible, and
-the change must not be recorded as if one had been**: `selectionInactive` has
-exactly one consumer — `ProjectTreeView.swift`'s `TreeRowBackground.role(for:)`,
-`case .selectedUnfocused`, a project-tree row selected while its window is not
-key, never an editor text selection — and `currentLine` is painted by *nothing
+the change must not be recorded as if one had been**: `selectionInactive` had,
+when it changed, exactly one consumer — `ProjectTreeView.swift`'s
+`TreeRowBackground.role(for:)`, `case .selectedUnfocused`, a project-tree row
+selected while its window is not key, never an editor text selection; part five
+(b) added the second, `CommitDialogView.swift`'s file row, on the same state —
+and `currentLine` is painted by *nothing
 at all*, its only occurrences being its declaration, its palette row and the
 comment on the row above it. The two have therefore never shared a surface, and
 the only thing that looks different after the change is one tree row's

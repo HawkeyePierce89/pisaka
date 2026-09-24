@@ -80,10 +80,11 @@ enum ChromePalette {
         case .hoverTint: return Entry(dark: 0xFFFFFF, light: 0x000000, alpha: 0x0A)
         // Changed: this wash was once byte-identical to `currentLine` below,
         // and is now a deliberate step stronger, because the design states
-        // that value. Its one consumer is `ProjectTreeView.swift`'s
-        // `TreeRowBackground.role(for:)`, `case .selectedUnfocused` — a
-        // project-tree row selected while its window is not key — so this is
-        // what that row washes itself with, not an editor text selection.
+        // that value. Its two consumers are `ProjectTreeView.swift`'s
+        // `TreeRowBackground.role(for:)` and `CommitDialogView.swift`'s file
+        // row, both on `case .selectedUnfocused` — a row selected while its
+        // window is not key — so this is what such a row washes itself with,
+        // not an editor text selection.
         // `currentLine` is at present painted by nothing at all (its only
         // occurrences are its declaration, the row below and this comment), so
         // the two have never been drawn together and no symptom was visible;

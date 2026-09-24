@@ -579,14 +579,14 @@ Where a clause uses a pattern instead, its comment says why.
 
 ### Task 9: Verify acceptance criteria
 
-- [ ] Run `swift test`. It must pass.
-- [ ] Run `xcodegen generate`, then run the app bundle with
+- [x] Run `swift test`. It must pass.
+- [x] Run `xcodegen generate`, then run the app bundle with
   `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' -derivedDataPath ~/Library/Developer/Xcode/DerivedData/pisaka-part5b test`.
   It must pass.
-- [ ] Run `swiftlint --strict` from the repository root. It must report zero violations.
-- [ ] Build macOS Release (`-configuration Release`) and iOS (`generic/platform=iOS`),
+- [x] Run `swiftlint --strict` from the repository root. It must report zero violations.
+- [x] Build macOS Release (`-configuration Release`) and iOS (`generic/platform=iOS`),
   both with derived data outside the repository.
-- [ ] Grep-confirm the remaining acceptance points:
+- [x] Grep-confirm the remaining acceptance points:
   - `gatedFiles` holds 44 files;
   - no gated file spells `Divider(`;
   - `conflictBackground` is read only through `mergeWashRole`;
