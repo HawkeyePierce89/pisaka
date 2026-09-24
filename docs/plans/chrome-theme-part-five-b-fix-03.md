@@ -235,13 +235,15 @@ every one of these passes while drawing an opaque background on the selected row
 
 ### Task 5: Verify the gates
 
-- [ ] Run every command in **Validation Commands**. All must pass. Report exact
+- [x] Run every command in **Validation Commands**. All must pass. Report exact
       counts: the Core test total, the app-bundle total, the SwiftLint violation and
       file counts, and both build verdicts.
-- [ ] Confirm the rule count agrees in all the places it is spelled — the suite's
+      (Core 5773 tests, 0 failures; app bundle 122 tests, 0 failures; SwiftLint 0
+      violations in 589 files; macOS Release build and iOS build both succeeded.)
+- [x] Confirm the rule count agrees in all the places it is spelled — the suite's
       own markers, the suite's header inventory, `core-theme.md`'s canonical list
       and `CLAUDE.md`.
-- [ ] Confirm `git status --porcelain` is empty.
+- [x] Confirm `git status --porcelain` is empty.
 
 ## Post-Completion
 
