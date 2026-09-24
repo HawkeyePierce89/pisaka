@@ -258,12 +258,12 @@ does not follow the interface scale, and a code-zone measurement that does.
 
 ### Task 8: Verify the gates
 
-- [ ] `swift test` is green, with a test count no lower than 5758.
-- [ ] The app bundle is green at 122 tests.
-- [ ] `swiftlint --strict` is clean from the repository root.
-- [ ] The macOS Release build and the iOS build both succeed, with derived data
+- [x] `swift test` is green, with a test count no lower than 5758.
+- [x] The app bundle is green at 122 tests.
+- [x] `swiftlint --strict` is clean from the repository root.
+- [x] The macOS Release build and the iOS build both succeed, with derived data
       outside the repository.
-- [ ] Grep-confirm: `gatedFiles` still has 34 entries; `colorExemptions` and
+- [x] Grep-confirm: `gatedFiles` still has 34 entries; `colorExemptions` and
       `roleNamingExemptions` are unchanged; no gated file spells `Divider(`;
       `bgPopover` still has five readers; `ZoomSourceGatingTests` is untouched;
       no `toggleFontSize` and no `rowHeight` remain in `SearchLayout`.
