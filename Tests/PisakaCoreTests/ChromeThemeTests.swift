@@ -62,6 +62,11 @@ final class ChromeThemeTests: XCTestCase {
         XCTAssertEqual(ChromeGeometry.accentIndicator, 2)
         XCTAssertEqual(ChromeGeometry.buttonPaddingX, 10)
         XCTAssertEqual(ChromeGeometry.buttonCornerRadius, 5)
+        XCTAssertEqual(ChromeGeometry.fieldCornerRadius, 4)
+        XCTAssertEqual(ChromeGeometry.fieldFocusedBorderWidth, 2)
+        XCTAssertEqual(ChromeGeometry.fieldPaddingX, 10)
+        XCTAssertEqual(ChromeGeometry.secondaryButtonHeight, 28)
+        XCTAssertEqual(ChromeGeometry.secondaryButtonPaddingX, 14)
     }
 
     /// `ChromeGeometry` is a namespace of `static let`s, so its membership is
@@ -80,6 +85,8 @@ final class ChromeThemeTests: XCTestCase {
             "bottomBarHeight", "barPaddingX", "breadcrumbHeight", "bottomBarToggleSide",
             "bottomBarToggleRadius", "panelHeaderHeight", "panelHeaderPaddingX", "dockTabRowPaddingX",
             "dockTabLabelPaddingX", "accentIndicator", "buttonPaddingX", "buttonCornerRadius",
+            "fieldCornerRadius", "fieldFocusedBorderWidth", "fieldPaddingX", "secondaryButtonHeight",
+            "secondaryButtonPaddingX",
         ])
         for suspect in ["font", "Font", "fontSize", "textSize"] {
             XCTAssertFalse(

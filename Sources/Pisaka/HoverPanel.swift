@@ -5,6 +5,9 @@ import PisakaCore
 /// The hover popover: a borderless panel that draws a `HoverContent` beside the
 /// identifier the pointer is resting on.
 ///
+/// The chrome has two text tones: prose and the truncation marker are `textSecondary`,
+/// code segments are `textPrimary`.
+///
 /// **The pointer cannot reach it, and that is the whole design.** The panel sets
 /// `ignoresMouseEvents = true`, so every click, ⌘-click, drag-selection and
 /// context menu passes straight through to the code beneath it, and a pointer
@@ -112,6 +115,11 @@ final class HoverPanel {
         let panel = panel ?? makePanel()
         self.panel = panel
         Self.match(panel, to: parent)
+        // The corner radius rides the interface scale with every other chrome
+        // measurement in this panel (the insets and width cap above do the
+        // same). It is a plain number, not a resolved CGColor, so it does not
+        // belong inside the appearance block.
+        panel.contentView?.layer?.cornerRadius = CGFloat(metrics.pt(ChromeGeometry.cornerRadiusMax))
         panel.setContentSize(
             NSSize(width: contentSize.width + inset * 2, height: contentSize.height + inset * 2)
         )
@@ -166,17 +174,22 @@ final class HoverPanel {
     /// window does not inherit it either, so with Theme = Light on a dark system
     /// an unmatched popover draws dark-on-dark over a light editor.
     ///
-    /// The border is repainted here rather than in `makePanel()` for the second
+    /// The border and background are repainted here rather than in `makePanel()` for the second
     /// half of the same reason: `CGColor` is resolved once at assignment, so a
     /// hairline set at creation survives every later appearance change as a light
     /// line around a dark popover. `NSColor` is only dynamic while it is a
-    /// `NSColor` — the layer keeps what it was given.
+    /// `NSColor` — the layer keeps what it was given. Both are `CGColor`s, so
+    /// the background carries the same trap as the border.
     private static func match(_ panel: PassThroughPanel, to parent: NSWindow?) {
         let appearance = parent?.effectiveAppearance ?? NSApp.effectiveAppearance
         guard panel.appearance?.name != appearance.name else { return }
         panel.appearance = appearance
+        // Both are CGColors, so they are resolved once at assignment and must be
+        // reset when the appearance changes — the same trap as the border, now
+        // true of the background as well.
         appearance.performAsCurrentDrawingAppearance {
-            panel.contentView?.layer?.borderColor = NSColor.separatorColor.cgColor
+            panel.contentView?.layer?.borderColor = ChromePalette.nsColor(.hairline).cgColor
+            panel.contentView?.layer?.backgroundColor = ChromePalette.nsColor(.bgPopover).cgColor
         }
     }
 
@@ -212,15 +225,17 @@ final class HoverPanel {
         panel.animationBehavior = .none
         panel.collectionBehavior = [.transient, .ignoresCycle]
 
-        let background = NSVisualEffectView()
-        background.material = .popover
-        background.state = .active
-        background.blendingMode = .behindWindow
+        let background = NSView()
         background.wantsLayer = true
-        background.layer?.cornerRadius = 6
-        background.layer?.borderWidth = 1
-        // The border's *colour* is set by `match(_:to:)` on every show, in the
-        // appearance the popover is about to draw in.
+        // The hairline stays unscaled: one point by definition, the stated
+        // exception in `ChromeGeometry`'s header (a code-zoom surface has no
+        // interface metrics, and a hairline is not a measurement that grows).
+        // The corner radius is not an exception and is scaled in `show(…)` where
+        // the interface metrics are known.
+        background.layer?.borderWidth = ChromeGeometry.hairlineWidth
+        // The border's and background's *colours* are set by `match(_:to:)` on every show, in the
+        // appearance the popover is about to draw in. Both are CGColors, so they
+        // carry the same trap as the border.
         background.layer?.masksToBounds = true
         background.addSubview(panel.label)
         panel.contentView = background
@@ -324,7 +339,7 @@ final class HoverPanel {
                     string: segment.text,
                     attributes: [
                         .font: isCode ? codeFont : proseFont,
-                        .foregroundColor: isCode ? NSColor.labelColor : NSColor.secondaryLabelColor,
+                        .foregroundColor: isCode ? ChromePalette.nsColor(.textPrimary) : ChromePalette.nsColor(.textSecondary),
                         .paragraphStyle: isCode ? codeParagraph : proseParagraph,
                     ]
                 )
@@ -336,7 +351,7 @@ final class HoverPanel {
                     string: "\n\u{2026}",
                     attributes: [
                         .font: proseFont,
-                        .foregroundColor: NSColor.tertiaryLabelColor,
+                        .foregroundColor: ChromePalette.nsColor(.textSecondary),
                         .paragraphStyle: proseParagraph,
                     ]
                 )

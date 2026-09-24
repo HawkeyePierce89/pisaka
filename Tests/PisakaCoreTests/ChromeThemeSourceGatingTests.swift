@@ -106,6 +106,24 @@ import XCTest
 ///   leaving the tree gets neither `onHover(false)` nor `onEnded`, and
 ///   `NSCursor`'s stack is global, so the cursor stays pushed after the flag
 ///   that would have balanced it is gone.
+/// - **A popover surface names `bgPopover`.** The five gated popover surfaces
+///   name `bgPopover` and no other gated file does; every gated file presenting
+///   a popover (`.popover(`) or declaring an `NSPanel` is in that set; no gated
+///   file spells `NSVisualEffectView`, a `.material` assignment or
+///   `presentationBackground`.
+/// - **No gated file spells `Divider()`; a menu separates with `Section`.** No
+///   gated file spells `Divider(`, and every gated file that builds a `Menu`
+///   spells `Section` at least once.
+/// - **AppKit layer colours are set only inside the drawing appearance.** Every
+///   `borderColor` and `backgroundColor` assignment in the two popover panels
+///   lies inside a `performAsCurrentDrawingAppearance` body, naming `hairline` and
+///   `bgPopover` respectively.
+/// - **One field shape.** No gated file spells the rounded-border style; the
+///   shared field/box is constructed in exactly four callers plus the defining
+///   file, and the shared query toggle in exactly two.
+/// - **Each measurement follows its own zone.** The Find in Files match row
+///   carries no fixed height and is sized by the code font, and each popover's
+///   corner radius is scaled with the interface metrics.
 final class ChromeThemeSourceGatingTests: XCTestCase {
 
     // MARK: - The gated set
@@ -158,6 +176,13 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         "DiffView.swift",
         "CommitUnifiedDiffView.swift",
         "PullRequestsPanelView.swift",
+        "ChromeControls.swift",
+        "CompletionPanel.swift",
+        "HoverPanel.swift",
+        "SearchBarView.swift",
+        "SearchHistoryMenu.swift",
+        "ProjectSearchView.swift",
+        "ProjectSearchWindowController.swift",
     ]
 
     func testEveryGatedFileExists() throws {
@@ -881,7 +906,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         ("UsagesPanelView.swift", ["private var header: some View"]),
         ("TerminalPanelView.swift", ["private func tab(for session:"]),
         ("CommitLogView.swift", ["private var header: some View", "private func label(_ text: String)"]),
-        ("LogFilterBar.swift", ["private func filterField(", "private func dateBound("]),
+        ("LogFilterBar.swift", ["private func dateBound("]),
         ("LocalChangesView.swift", ["private var toolbar: some View"]),
         ("PullRequestsPanelView.swift", ["private var header: some View", "private var summaryLine: some View"]),
     ]
@@ -1578,6 +1603,22 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
             ControlBuilder(path: ["private func checkRow("],
                            required: [".accessibilityLabel(", ".accessibilityValue("], hidesSymbols: true),
         ]),
+        ("ChromeControls.swift", [
+            ControlBuilder(path: ["struct ChromeQueryToggle"],
+                           required: [".accessibilityLabel(", ".accessibilityValue("], hidesSymbols: false),
+        ]),
+        ("SearchBarView.swift", [
+            ControlBuilder(path: ["private var findRow: some View"],
+                           required: [".accessibilityLabel(", ".accessibilityValue("], hidesSymbols: true),
+            ControlBuilder(path: ["private var replaceRow: some View"],
+                           required: [".accessibilityLabel("], hidesSymbols: false),
+        ]),
+        ("ProjectSearchView.swift", [
+            ControlBuilder(path: ["private var queryRow: some View"],
+                           required: [".accessibilityLabel(", ".accessibilityValue("], hidesSymbols: true),
+            ControlBuilder(path: ["private var replaceRow: some View"],
+                           required: [".accessibilityLabel("], hidesSymbols: false),
+        ]),
     ]
 
     func testThePanelsControlsAreIdentifiableWithoutSight() throws {
@@ -1816,6 +1857,347 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         )
     }
 
+    // MARK: - Rule twenty-three: a popover surface names bgPopover
+
+    /// The gated files that draw a popover surface on `bgPopover`.
+    private static let bgPopoverReaders: Set<String> = [
+        "CompletionPanel.swift",
+        "HoverPanel.swift",
+        "BranchSwitcherView.swift",
+        "ProjectSwitcherView.swift",
+        "LogFilterBar.swift",
+    ]
+
+    func testPopoverSurfaceNamesBgPopover() throws {
+        var readers: Set<String> = []
+        for url in try Self.swiftSources() where Self.gatedFiles.contains(url.lastPathComponent) {
+            let name = url.lastPathComponent
+            if name == "ChromePalette.swift" { continue }
+            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            if LSPSourceGatingTests.containsToken("bgPopover", in: code) {
+                readers.insert(name)
+            }
+        }
+        XCTAssertEqual(
+            readers, Self.bgPopoverReaders,
+            "the gated files naming bgPopover must be exactly its five popover surfaces"
+        )
+
+        for url in try Self.swiftSources() where Self.gatedFiles.contains(url.lastPathComponent) {
+            let name = url.lastPathComponent
+            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            let presentsPopover = code.contains(".popover(") || LSPSourceGatingTests.containsToken("NSPanel", in: code)
+            if presentsPopover {
+                XCTAssertTrue(
+                    Self.bgPopoverReaders.contains(name),
+                    "\(name) presents a popover (.popover( or NSPanel) but does not name bgPopover — a popover surface must be drawn on bgPopover"
+                )
+            }
+        }
+
+        for url in try Self.swiftSources() where Self.gatedFiles.contains(url.lastPathComponent) {
+            let name = url.lastPathComponent
+            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            XCTAssertFalse(
+                code.contains("NSVisualEffectView"),
+                "\(name) spells NSVisualEffectView — a popover surface is a flat bgPopover fill, not a material"
+            )
+            XCTAssertFalse(
+                code.contains(".material"),
+                "\(name) spells .material — a popover surface is a flat bgPopover fill, not a material"
+            )
+            XCTAssertFalse(
+                code.contains("presentationBackground"),
+                "\(name) spells presentationBackground — popover ground goes on the content as a background, with no availability branch"
+            )
+        }
+    }
+
+    // MARK: - Rule twenty-four: no gated file spells Divider(); a menu separates with Section
+
+    /// The gated files that build a `Menu` and separate with `Section` — the
+    /// menu's separator is a `Section` boundary in this repository, and
+    /// `Divider()` is the platform's separator colour at the system's thickness,
+    /// a step off the `hairline` role.
+    private static let menuSectionFiles: Set<String> = [
+        "SearchHistoryMenu.swift",
+        "ProjectTreeView.swift",
+        "LocalChangesView.swift",
+    ]
+
+    /// Every gated file that builds a `Menu` (whether or not it separates).
+    /// `menuSectionFiles` is the subset that must also spell `Section`; the
+    /// two pinned sets together make a fourth `Menu` without `Section` visible
+    /// — the previous `hasSection && hasMenu` equality could not see it, as
+    /// `BranchSwitcherView.swift` and `LogFilterBar.swift` already demonstrated.
+    private static let menuFiles: Set<String> = [
+        "BranchSwitcherView.swift",
+        "LogFilterBar.swift",
+        "SearchHistoryMenu.swift",
+        "ProjectTreeView.swift",
+        "LocalChangesView.swift",
+    ]
+
+    func testNoGatedFileSpellsDividerAndEveryMenuUsesSection() throws {
+        let dividerPattern = try NSRegularExpression(pattern: "\\bDivider\\s*\\(")
+        for url in try Self.swiftSources() where Self.gatedFiles.contains(url.lastPathComponent) {
+            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            let range = NSRange(code.startIndex..., in: code)
+            XCTAssertNil(
+                dividerPattern.firstMatch(in: code, range: range),
+                "\(url.lastPathComponent) spells Divider( — a gated surface draws its own hairline, a menu separates with Section"
+            )
+        }
+
+        for name in Self.menuSectionFiles {
+            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
+                try Self.read(Self.source(named: name))
+            )
+            XCTAssertTrue(
+                code.contains("Section"),
+                "\(name) builds a Menu and must spell Section at least once — a menu's separator is a Section boundary"
+            )
+        }
+
+        let menuPattern = try NSRegularExpression(pattern: "\\bMenu\\s*(?:\\(|\\{)")
+        let contextMenuPattern = try NSRegularExpression(pattern: "(?:\\.contextMenu|projectTreeContextMenu)")
+        var actualMenuFiles: Set<String> = []
+        var actualMenuSectionFiles: Set<String> = []
+        for url in try Self.swiftSources() where Self.gatedFiles.contains(url.lastPathComponent) {
+            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            let range = NSRange(code.startIndex..., in: code)
+            let hasSection = code.contains("Section")
+            let hasMenu = menuPattern.firstMatch(in: code, range: range) != nil
+                || contextMenuPattern.firstMatch(in: code, range: range) != nil
+            if hasMenu { actualMenuFiles.insert(url.lastPathComponent) }
+            if hasSection && hasMenu { actualMenuSectionFiles.insert(url.lastPathComponent) }
+        }
+        XCTAssertEqual(
+            actualMenuFiles, Self.menuFiles,
+            "a gated Menu was added, removed or renamed without updating the pinned set — update menuFiles"
+        )
+        XCTAssertEqual(
+            actualMenuSectionFiles, Self.menuSectionFiles,
+            "a menu file lost its Section or a fourth menu was added without updating the pinned set"
+        )
+    }
+
+    // MARK: - Rule twenty-five: AppKit layer colours are set only inside the drawing appearance
+
+    /// The two panels whose layer colours are set through `performAsCurrentDrawingAppearance`.
+    private static let layerColorOwners = [
+        "CompletionPanel.swift",
+        "HoverPanel.swift",
+    ]
+
+    func testAppKitLayerColoursAreSetOnlyInsideTheDrawingAppearance() throws {
+        let borderPattern = try NSRegularExpression(pattern: "layer[^\\n]*?\\.\\s*borderColor\\s*=")
+        let backgroundPattern = try NSRegularExpression(pattern: "layer[^\\n]*?\\.\\s*backgroundColor\\s*=")
+        for name in Self.layerColorOwners {
+            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
+                try Self.read(Self.source(named: name))
+            )
+            let bodies = Self.matchedBodies(after: "performAsCurrentDrawingAppearance", in: code)
+            XCTAssertFalse(
+                bodies.isEmpty,
+                "\(name) has no performAsCurrentDrawingAppearance body — layer colours must be set inside one"
+            )
+            let combined = bodies.joined(separator: "\n")
+            let borderInside = borderPattern.firstMatch(in: combined, range: NSRange(combined.startIndex..., in: combined)) != nil
+            let backgroundInside = backgroundPattern.firstMatch(in: combined, range: NSRange(combined.startIndex..., in: combined)) != nil
+            XCTAssertTrue(
+                borderInside,
+                "\(name) has no borderColor assignment inside a performAsCurrentDrawingAppearance body"
+            )
+            XCTAssertTrue(
+                backgroundInside,
+                "\(name) has no backgroundColor assignment inside a performAsCurrentDrawingAppearance body"
+            )
+
+            var outside = code
+            for body in bodies {
+                outside = outside.replacingOccurrences(of: body, with: "")
+            }
+            XCTAssertNil(
+                borderPattern.firstMatch(in: outside, range: NSRange(outside.startIndex..., in: outside)),
+                "\(name) sets borderColor outside a performAsCurrentDrawingAppearance body — a CGColor is resolved once at assignment"
+            )
+            XCTAssertNil(
+                backgroundPattern.firstMatch(in: outside, range: NSRange(outside.startIndex..., in: outside)),
+                "\(name) sets backgroundColor outside a performAsCurrentDrawingAppearance body — a CGColor is resolved once at assignment"
+            )
+
+            for body in bodies {
+                let borderInBody = borderPattern.firstMatch(in: body, range: NSRange(body.startIndex..., in: body)) != nil
+                if borderInBody {
+                    XCTAssertTrue(
+                        LSPSourceGatingTests.containsToken("hairline", in: body),
+                        "\(name)'s performAsCurrentDrawingAppearance body sets borderColor but does not name hairline"
+                    )
+                }
+                let backgroundInBody = backgroundPattern.firstMatch(in: body, range: NSRange(body.startIndex..., in: body)) != nil
+                if backgroundInBody {
+                    XCTAssertTrue(
+                        LSPSourceGatingTests.containsToken("bgPopover", in: body),
+                        "\(name)'s performAsCurrentDrawingAppearance body sets backgroundColor but does not name bgPopover"
+                    )
+                }
+            }
+        }
+    }
+
+    // MARK: - Rule twenty-six: one field shape
+
+    /// The files that construct the shared field or its box.
+    private static let sharedFieldConstructors: Set<String> = [
+        "LogFilterBar.swift",
+        "SearchBarView.swift",
+        "ProjectSearchView.swift",
+        "BranchSwitcherView.swift",
+        "ChromeControls.swift",
+    ]
+
+    /// The files that construct the shared query-mode toggle.
+    private static let sharedToggleConstructors: Set<String> = [
+        "SearchBarView.swift",
+        "ProjectSearchView.swift",
+    ]
+
+    func testOneFieldShape() throws {
+        let roundedBorderPattern = try NSRegularExpression(pattern: "\\.textFieldStyle\\s*\\(\\s*\\.roundedBorder")
+        for url in try Self.swiftSources() where Self.gatedFiles.contains(url.lastPathComponent) {
+            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            let range = NSRange(code.startIndex..., in: code)
+            XCTAssertNil(
+                roundedBorderPattern.firstMatch(in: code, range: range),
+                "\(url.lastPathComponent) spells .textFieldStyle(.roundedBorder — a gated file must use the shared field shape"
+            )
+            XCTAssertFalse(
+                LSPSourceGatingTests.containsToken("RoundedBorderTextFieldStyle", in: code),
+                "\(url.lastPathComponent) spells RoundedBorderTextFieldStyle — a gated file must use the shared field shape"
+            )
+        }
+
+        var constructors: Set<String> = []
+        for url in try Self.swiftSources() {
+            let name = url.lastPathComponent
+            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            if code.contains("ChromeThemedTextField(") || code.contains("ChromeControlBox(") {
+                constructors.insert(name)
+            }
+        }
+        XCTAssertEqual(
+            constructors, Self.sharedFieldConstructors,
+            "the files constructing the shared field or box must be exactly its four callers plus the defining file"
+        )
+
+        var toggleConstructors: Set<String> = []
+        for url in try Self.swiftSources() {
+            let name = url.lastPathComponent
+            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            if code.contains("ChromeQueryToggle(") {
+                toggleConstructors.insert(name)
+            }
+        }
+        XCTAssertEqual(
+            toggleConstructors, Self.sharedToggleConstructors,
+            "the files constructing the shared query toggle must be exactly its two callers"
+        )
+
+        for url in try Self.swiftSources() where Self.gatedFiles.contains(url.lastPathComponent) {
+            let name = url.lastPathComponent
+            if name == "ChromeControls.swift" { continue }
+            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            XCTAssertFalse(
+                code.contains("func toggle("),
+                "\(name) declares its own toggle builder — the query toggle is ChromeQueryToggle, one shape for both surfaces"
+            )
+        }
+    }
+
+    // MARK: - Rule twenty-seven: each measurement follows its own zone
+
+    /// The Find in Files match row is sized by the code font rather than a fixed
+    /// interface-scaled height, and each popover's corner radius is scaled with
+    /// the interface metrics. Both are the same mistake in opposite directions —
+    /// a chrome measurement that does not follow the interface scale, and a
+    /// code-zone measurement that does — and would have been caught by this rule.
+    func testEachMeasurementFollowsItsOwnZone() throws {
+        let projectSearchCode = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
+            try Self.read(Self.source(named: "ProjectSearchView.swift"))
+        )
+        let rowBody = try XCTUnwrap(
+            Self.matchedBody(after: "private func row(", in: projectSearchCode),
+            "ProjectSearchView.swift's private func row( is gone or renamed — re-point this rule rather than losing it"
+        )
+        XCTAssertTrue(
+            rowBody.contains("settings.fontSize"),
+            "ProjectSearchView.swift's row body must name settings.fontSize — the row draws at the code font"
+        )
+        let heightPattern = try NSRegularExpression(pattern: "\\bheight\\s*:")
+        var hasFrameHeight = false
+        var searchStart = rowBody.startIndex
+        while let frameRange = rowBody.range(of: ".frame", range: searchStart..<rowBody.endIndex) {
+            var parenStart: String.Index?
+            var idx = frameRange.upperBound
+            while idx < rowBody.endIndex, rowBody[idx].isWhitespace { idx = rowBody.index(after: idx) }
+            if idx < rowBody.endIndex, rowBody[idx] == "(" { parenStart = idx }
+            guard let start = parenStart else {
+                searchStart = rowBody.index(after: frameRange.lowerBound)
+                continue
+            }
+            var depth = 0
+            var close: String.Index?
+            var scan = start
+            while scan < rowBody.endIndex {
+                if rowBody[scan] == "(" { depth += 1 } else if rowBody[scan] == ")" {
+                    depth -= 1
+                    if depth == 0 { close = scan; break }
+                }
+                scan = rowBody.index(after: scan)
+            }
+            guard let end = close else { break }
+            let args = String(rowBody[start...end])
+            let argsRange = NSRange(args.startIndex..., in: args)
+            let heightMatches = heightPattern.matches(in: args, range: argsRange)
+            for match in heightMatches {
+                guard let matchRange = Range(match.range, in: args) else { continue }
+                var depth = 0
+                for ch in args[args.startIndex..<matchRange.lowerBound] {
+                    if ch == "(" { depth += 1 } else if ch == ")" { depth -= 1 }
+                }
+                if depth == 1 {
+                    hasFrameHeight = true
+                    break
+                }
+            }
+            if hasFrameHeight { break }
+            searchStart = rowBody.index(after: end)
+        }
+        XCTAssertFalse(
+            hasFrameHeight,
+            "ProjectSearchView.swift's row body spells .frame(height: — the row carries no fixed height, sized by its code-font content"
+        )
+
+        for name in ["CompletionPanel.swift", "HoverPanel.swift"] {
+            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
+                try Self.read(Self.source(named: name))
+            )
+            let lines = code.components(separatedBy: .newlines)
+            let cornerLines = lines.filter { $0.contains("cornerRadius") }
+            XCTAssertGreaterThan(
+                cornerLines.count, 0,
+                "\(name) has no cornerRadius assignment — each popover must have at least one, scaled with the interface"
+            )
+            for line in cornerLines {
+                XCTAssertTrue(
+                    line.contains("metrics"),
+                    "\(name) has a cornerRadius assignment that does not name metrics on the same statement — the radius must be scaled with the interface"
+                )
+            }
+        }
+    }
+
     // MARK: - Self-check
 
     /// Every gated file draws with roles and must therefore name one — with two
@@ -1880,7 +2262,8 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         7: "seven", 8: "eight", 9: "nine", 10: "ten", 11: "eleven", 12: "twelve",
         13: "thirteen", 14: "fourteen", 15: "fifteen", 16: "sixteen", 17: "seventeen",
         18: "eighteen", 19: "nineteen", 20: "twenty", 21: "twenty-one",
-        22: "twenty-two",
+        22: "twenty-two", 23: "twenty-three", 24: "twenty-four",
+        25: "twenty-five", 26: "twenty-six", 27: "twenty-seven",
     ]
 
     func testBothSummariesSpellTheSuitesOwnRuleCount() throws {

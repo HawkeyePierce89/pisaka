@@ -36,19 +36,26 @@ struct SearchHistoryMenu: View {
     /// Empty the shared history.
     let onClear: () -> Void
 
+    @Environment(\.chromeTheme) private var theme
+
     var body: some View {
         Menu {
-            // Keyed on the pattern because the recording rule makes patterns
-            // unique: a second recording of the same pattern promotes the entry
-            // rather than adding a row.
-            ForEach(entries, id: \.pattern) { entry in
-                Button(SearchQueryHistory.menuLabel(for: entry)) { onPick(entry) }
+            Section {
+                // Keyed on the pattern because the recording rule makes patterns
+                // unique: a second recording of the same pattern promotes the entry
+                // rather than adding a row.
+                ForEach(entries, id: \.pattern) { entry in
+                    Button(SearchQueryHistory.menuLabel(for: entry)) { onPick(entry) }
+                }
             }
-            Divider()
-            Button("Clear History") { onClear() }
+            Section {
+                Button("Clear History") { onClear() }
+            }
         } label: {
             Image(systemName: "clock.arrow.circlepath")
                 .font(metrics.scaledFont(.body))
+                .foregroundStyle(theme.color(.textSecondary))
+                .accessibilityHidden(true)
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
@@ -57,6 +64,7 @@ struct SearchHistoryMenu: View {
         // content the same way.
         .fixedSize()
         .help("Recent searches")
+        .accessibilityLabel("Recent searches")
         .disabled(entries.isEmpty)
     }
 }

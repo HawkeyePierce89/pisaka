@@ -1089,7 +1089,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     too, and nothing on this path raises or takes the writer gate (D10). The
     language gate up front is `canServe`, policy-only: asking it starts nothing,
     so a consent-pending or unavailable server simply schedules no work.
-  - `CompletionPanel.swift` — a custom borderless, non-activating `NSPanel` replacing AppKit's native completion popup, built in `HoverPanel`'s mould but pointer-reachable. It accepts clicks (a row commits), so `ignoresMouseEvents` is false, but `canBecomeKey` / `canBecomeMain` stay false so typing keeps going to the editor. Its content view conforms to `ZoomSurfaceProviding` with `.code` because it is walked by the pointer and drawn at code size. It contains a scrolling row list (at most 30 drawn at once) where each row is the candidate text plus a badge symbol. The *drawn* count is bounded not just by the provider's list cap but by the room the anchor's screen actually has below or above the anchor — at a zoomed code font thirty rows outrun the screen, and rows past the cap stay reachable through the scroll view rather than offscreen (a five-row floor keeps a cramped screen from degenerating into an empty panel). Width is measured from the widest row; placement is below the anchor rect (flipped above when there is no room) and clamped horizontally. Each row is drawn as a **single line**: an LSP item's display text is what the server inserts, which legitimately carries newlines (`services:\n  `), so the panel projects it to its first line plus an ellipsis — drawing verbatim would paint over following rows and desync the visual list from click hit-testing, which divides the row height evenly. The projection is display-only: the committed text and every key built on `displayText` stay the full string. Its outside-click monitor does not merely hide the panel: it fires `onOutsideClick`, wired to the *controller's* `dismiss()` — a panel-level hide alone would leave `pendingTask` and the offered list alive, free to re-present over whatever word the click landed on.
+   - `CompletionPanel.swift` — a custom borderless, non-activating `NSPanel` replacing AppKit's native completion popup, built in `HoverPanel`'s mould but pointer-reachable. It accepts clicks (a row commits), so `ignoresMouseEvents` is false, but `canBecomeKey` / `canBecomeMain` stay false so typing keeps going to the editor. Its content view conforms to `ZoomSurfaceProviding` with `.code` because it is walked by the pointer and drawn at code size. On the chrome roles since part five (a) (`core-theme.md`): the panel is a `bgPopover` ground with a one-point `hairline` border at `cornerRadiusMax`, the window's shadow kept, both layer colours set only inside `match(_:to:)`'s `appearance.performAsCurrentDrawingAppearance` block (`hairline` for the border, `bgPopover` for the fill). Row text is `textPrimary`, the selected row has an `accent` ground and `onAccent` text, the badge is monochrome (`textSecondary` on an ordinary row, `onAccent` on the selected one) and `CompletionPopup.Badge` is symbol-only — `FileIconColor` is untouched. It contains a scrolling row list (at most 30 drawn at once) where each row is the candidate text plus a badge symbol. The *drawn* count is bounded not just by the provider's list cap but by the room the anchor's screen actually has below or above the anchor — at a zoomed code font thirty rows outrun the screen, and rows past the cap stay reachable through the scroll view rather than offscreen (a five-row floor keeps a cramped screen from degenerating into an empty panel). Width is measured from the widest row; placement is below the anchor rect (flipped above when there is no room) and clamped horizontally. Each row is drawn as a **single line**: an LSP item's display text is what the server inserts, which legitimately carries newlines (`services:\n  `), so the panel projects it to its first line plus an ellipsis — drawing verbatim would paint over following rows and desync the visual list from click hit-testing, which divides the row height evenly. The projection is display-only: the committed text and every key built on `displayText` stay the full string. Its outside-click monitor does not merely hide the panel: it fires `onOutsideClick`, wired to the *controller's* `dismiss()` — a panel-level hide alone would leave `pendingTask` and the offered list alive, free to re-present over whatever word the click landed on.
   - `CompletionController.swift` — feeds the `CompletionPanel` from the asynchronous code-intelligence seam. The work is inverted: candidates are computed ahead of time behind a debounce (150 ms) and only then is the panel shown via `apply(…)`. Staleness guards ensure a late list refuses to show over a changed buffer: the generation token, plus the re-read caret, focus (`firstResponder` **and** key window — `NSWindow.firstResponder` is not cleared when its window stops being key, and nothing else would take down a panel shown over a background window), marked-text, exact-prefix and same-member checks all ensure the answer is still current.
     The prefix/member re-checks compare *text*, never the location, so an answer computed for one word must not open over another. A caret move that **leaves** the served word therefore retires anything still in flight — the visible case runs through `update(…)`'s location gate, and the hidden case (nothing shown yet, debounce or LSP round trip outstanding) reaches the narrow `invalidatePendingRequest()` — task cancelled, generation bumped, nothing else. It deliberately stops short of `forgetList()`: this path also carries every post-commit caret move, and D4's late auto-import scheduled by that commit must survive it (the same reason `windowDidResignKey` and `textDidEndEditing` gate on visibility). A caret move that **stays inside** the served word (same word start) supersedes nothing at all: `update` returns before its cancellation block, so the debounced narrowing answer and the standing rows' prefetched resolves stay alive — killing them would strand the panel on its stale list until the next keystroke and degrade a later deferred-row commit's import into a second undo group — while `apply`'s text/member/focus re-checks make a late arrival harmless wherever the caret ended up.
     Selection state clamps at both ends (no wrap-around), and an empty list has no selection.
@@ -1246,24 +1246,30 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `HoverContent` type it always drew; the server's own range stays the honest
     span when it answered, and a diagnostics-only answer anchors to the union set
     at ask time.
-  - `HoverPanel.swift` — the popover itself: a borderless, non-activating `NSPanel`
-    drawing a `HoverContent` beside the identifier the pointer rests on.
-    **The pointer cannot reach it, and that is the whole design** (`core-lsp.md`'s
-    D26). `ignoresMouseEvents = true` is one line and buys three properties at
-    once: every click, ⌘-click, drag-selection and context menu passes straight
-    through to the code beneath, so a pointer that appears to move "onto" the
-    popover is still over the text view and simply updates or dismisses the answer;
-    it is **chrome rather than a code surface** under `ZoomSurface.swift`'s
-    "unreachable ≡ chrome" rule, so nothing here conforms to `ZoomSurfaceProviding`
-    even though the panel draws code at the code zone's font directly over the
-    editor — a zoom gesture aimed at where it appears to be is a gesture over the
-    code, which is the zone the user means; and **it cannot scroll**, which is why
-    Core truncates by line count instead, since a scrollable popover would need the
-    pointer inside it and would undo all three at once. That one line is invisible
-    to every other check in the repository, so
-    `ZoomSourceGatingTests.testTheHoverPanelPassesEveryMouseEventThroughToTheCode`
-    pins it — and the no-surface half — statically, over comment- and
-    literal-stripped source like its siblings.
+   - `HoverPanel.swift` — the popover itself: a borderless, non-activating `NSPanel`
+     drawing a `HoverContent` beside the identifier the pointer rests on.
+     On the chrome roles since part five (a) (`core-theme.md`): a flat `bgPopover`
+     ground with a one-point `hairline` border at `cornerRadiusMax`, the shadow kept,
+     both layer colours set only inside `match(_:to:)`'s
+     `appearance.performAsCurrentDrawingAppearance` block, prose in `textSecondary`,
+     code segments in `textPrimary`, the truncation marker in `textSecondary`, the
+     doc comment noting two text tones — otherwise the same panel as before.
+     **The pointer cannot reach it, and that is the whole design** (`core-lsp.md`'s
+     D26). `ignoresMouseEvents = true` is one line and buys three properties at
+     once: every click, ⌘-click, drag-selection and context menu passes straight
+     through to the code beneath, so a pointer that appears to move "onto" the
+     popover is still over the text view and simply updates or dismisses the answer;
+     it is **chrome rather than a code surface** under `ZoomSurface.swift`'s
+     "unreachable ≡ chrome" rule, so nothing here conforms to `ZoomSurfaceProviding`
+     even though the panel draws code at the code zone's font directly over the
+     editor — a zoom gesture aimed at where it appears to be is a gesture over the
+     code, which is the zone the user means; and **it cannot scroll**, which is why
+     Core truncates by line count instead, since a scrollable popover would need the
+     pointer inside it and would undo all three at once. That one line is invisible
+     to every other check in the repository, so
+     `ZoomSourceGatingTests.testTheHoverPanelPassesEveryMouseEventThroughToTheCode`
+     pins it — and the no-surface half — statically, over comment- and
+     literal-stripped source like its siblings.
     `canBecomeKey`/`canBecomeMain` are overridden to `false` rather than left to
     the style mask: a borderless panel is already refused key status by AppKit
     today, and the override states the requirement instead of depending on that.
@@ -1899,15 +1905,30 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     every ordinary literal search. Contrast `ProjectSearchView`, which *is*
     debounced (~300 ms) for the opposite reason: one keystroke there costs a whole
     directory traversal plus a read of every surviving file.
-  - `SearchBarView.swift` — the bar itself (macOS, thin): the query field, the
-    `Aa`/`ab`/`.*` toggles, a `3/17` counter (blanked on error, and on a *trimmed*
-    empty field — `TextSearchEngine` throws `.emptyPattern` for a whitespace-only
-    pattern too, so no search ran and "No results" would state an answer nothing
-    computed), ▲/▼ prev/next, a
-    button expanding the replace row (replace field + `Replace` / `Replace All`),
-    and red reason text on an `.invalidRegex`. `.onSubmit` → next, `.onExitCommand`
-    → `search.close()`, and a `@FocusState` driven by `focusRequest` with a field-
-    editor select-all so a repeated ⌘F focuses the field with its text selected.
+    - `SearchBarView.swift` — the bar itself (macOS, thin, on the chrome roles
+      since part five (a), `core-theme.md`): a `bgPanel` ground drawing its own
+      one-point `hairline` along its bottom edge (the `Divider()` under it in
+      `ContentView` is gone), the query and replace fields through
+      `ChromeThemedTextField` (the system rounded-border style gone, the field's
+      `.callout` default and `6`-point inner gap kept; Find in Files' three and
+      the branch switcher's filter pass `.body`), the `Aa`/`ab`/`.*` toggles as the
+      shared `ChromeQueryToggle` in `ChromeControls.swift` (`subheadline` semibold
+      monospaced, `accent` on `accentTint` while on and `textPrimary` with no
+      ground while off), the match counter and labels in `textSecondary` at
+      `.subheadline` (`.caption` before), the inline regex error in `statusRed` at
+      `.subheadline`, the navigation/close/disclosure glyphs in roles with symbols
+      hidden, Replace and Replace All in the shared secondary button style, and
+      accessibility — toggles with name, tooltip and on/off `.accessibilityValue`,
+      Previous/Next/Close/disclosure with spoken name and tooltip, fields with
+      spoken names — plus the usual query field, a `3/17`
+     counter (blanked on error, and on a *trimmed* empty field —
+     `TextSearchEngine` throws `.emptyPattern` for a whitespace-only pattern too, so
+     no search ran and "No results" would state an answer nothing computed), ▲/▼
+     prev/next, a button expanding the replace row (replace field + `Replace` /
+     `Replace All`), and red reason text on an `.invalidRegex`. `.onSubmit` →
+     next, `.onExitCommand` → `search.close()`, and a `@FocusState` driven by
+     `focusRequest` with a field-editor select-all so a repeated ⌘F focuses the
+     field with its text selected.
     That select-all resolves the field editor through **this bar's own window**
     (captured by a small private `WindowAccessor` `NSViewRepresentable`, since
     SwiftUI exposes no window on macOS 13) and only while that window is key —
@@ -1943,26 +1964,53 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     and a monotonic `token`; the editor records the token it last applied, so a view
     update triggered by anything else (a keystroke, a font change) does not
     re-select the range and yank the caret back.
-  - `ProjectSearchView.swift` — the Find in Files window's contents (⌘⇧F): the
-    query field + `Aa`/`ab`/`.*` toggles + file-mask field + Find/Replace switch
-    (with the replace field), results grouped by file with per-match preview lines
-    (the match highlighted inside the clipped line `MatchPreview` carries), a
-    "results truncated" note at the cap, `.preferredColorScheme` and the shared
-    `SettingsStore` font as in the diff/merge windows. Thin and untested: every
-    decision — which files are walked, what matches, what a replacement expands to,
-    which files a batch skipped — belongs to `ProjectSearchModel`, and activation
-    plus Replace All are handed back to `PisakaApp` through closures (the app owns
-    the open-file path and the disk-writer coordination, neither of which a view may
-    reach into). The `root` is a *closure* read at search time, not a captured
-    value, because the window outlives a folder switch. The search is **debounced by
-    `searchDebounceDelay` (0.3 s)** — the deliberate opposite of the editor bar's
-    no-debounce decision, and required because one keystroke here costs a traversal
-    plus a read of every surviving file — with the pending dispatch owned by a
-    `@StateObject SearchDebounce` so the timer survives the view struct being
-    rebuilt on every keystroke, and the model's generation token superseding
-    whatever the debounce still let through (pinned synchronously before the `Task`
-    hop, the `LocalChangesModel` rule). That delay is also why nothing *acts* on
-    the rows while they are stale: a computed `resultsMatchControls`
+   - `ProjectSearchView.swift` — the Find in Files window's contents (⌘⇧F), on the
+     chrome roles since part five (a) (`core-theme.md`): the root is `bgPanel`
+     (the window controller paints the window's own background through
+     `ChromePalette.nsColor(.bgPanel)`), content body padding 16 top/sides 0 bottom
+      gap 12, query row 33 high in the shared field with the shared
+      `ChromeQueryToggle` triple at its trailing end gap 10 (`subheadline` semibold
+      monospaced, `accent` on `accentTint` while on, `textPrimary` with no ground
+      while off), replace row the shared field gap 8
+     then Replace All in the secondary button style, scope line `callout` in
+     `textSecondary`, results gap 8, group header 24 high padding 8 a 14-point icon
+     the path in `callout` and the count in `subheadline` all in `textSecondary`,
+     match row padding 8 right 34 left
+      with no fixed height — its height is the code-font content's
+      (`settings.fontSize`) so it never overflows and `.contentShape` follows the
+      paddings so the insets are the click target (group header's `24`-point
+      `headerHeight` stays interface-scaled by design), footer 32 high with its own top
+     `hairline` padding 16 and the summary in `callout` `textSecondary`, the
+     file-mask field also the shared field at `.body`, the `Divider()` between header and
+     results replaced by a `hairline` rule the content draws, numbers with no
+     `ChromeGeometry` home in a private layout enum and existing tokens reused where
+     they fit, the group header icon monochrome `textSecondary`, the preview text on
+     the code font in `SyntaxTheme`'s plain colour with the highlight kept as the
+     editor's current-match background, the line number on the code font in
+     `textSecondary` with `ZoomSurfaceMarker(kind: .code)` and
+      the zone pinned by rule twenty-seven (no `.frame(height:`), nothing sized by
+      the code
+     font multiplied by the interface scale and vice versa, no selection added, the
+     regex/validation error in `statusRed`, fields/toggles/Replace All named and
+     decorative symbols hidden. Otherwise the same window as before: results grouped
+     by file with per-match preview lines (the match highlighted inside the clipped
+     line `MatchPreview` carries), a "results truncated" note at the cap,
+     `.preferredColorScheme` and the shared `SettingsStore` font as in the diff/merge
+     windows. Thin and untested: every decision — which files are walked, what
+     matches, what a replacement expands to, which files a batch skipped — belongs to
+     `ProjectSearchModel`, and activation plus Replace All are handed back to
+     `PisakaApp` through closures (the app owns the open-file path and the
+     disk-writer coordination, neither of which a view may reach into). The `root`
+     is a *closure* read at search time, not a captured value, because the window
+     outlives a folder switch. The search is **debounced by `searchDebounceDelay`
+     (0.3 s)** — the deliberate opposite of the editor bar's no-debounce decision,
+     and required because one keystroke here costs a traversal plus a read of every
+     surviving file — with the pending dispatch owned by a `@StateObject
+     SearchDebounce` so the timer survives the view struct being rebuilt on every
+     keystroke, and the model's generation token superseding whatever the debounce
+     still let through (pinned synchronously before the `Task` hop, the
+     `LocalChangesModel` rule). That delay is also why nothing *acts* on the rows
+     while they are stale: a computed `resultsMatchControls`
     (`model.query`/`fileMask` — recorded at the *start* of a search, having just
     cleared `results`, so a run still streaming its rows already reads as current —
     against the query the controls describe) is false for the whole window between
@@ -2010,18 +2058,21 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     leaving the existing `onChange` handlers to schedule the ordinary debounced
     search — a pick costs exactly what typing the same thing would — and records
     nothing, picking being no committing gesture.
-  - `ProjectSearchWindowController.swift` — owns the single, non-modal Find in
-    Files window: the `DiffWindowController` shape (a retained `EscClosableWindow`
-    hosting a SwiftUI root through an `NSHostingController`, released on close by a
-    per-window delegate held alongside, since `NSWindow.delegate` is `weak`) with
-    one deliberate difference — there is exactly **one** window. A diff is *about* a
-    file, so several make sense; a project search is about the project, so a repeat
-    ⌘⇧F focuses the existing window rather than stacking duplicates over one shared
-    `ProjectSearchModel` (two windows would fight over its single query and result
-    list). An existing window has its root view *replaced* rather than reused, so a
-    window left open across a folder switch picks the new root up on the next ⌘⇧F.
-    `closeAll()` is wired into the app's `willTerminateNotification` observer
-    alongside the diff/merge controllers.
+   - `ProjectSearchWindowController.swift` — owns the single, non-modal Find in
+     Files window: the `DiffWindowController` shape (a retained `EscClosableWindow`
+     hosting a SwiftUI root through an `NSHostingController`, released on close by a
+     per-window delegate held alongside, since `NSWindow.delegate` is `weak`) with
+     one deliberate difference — there is exactly **one** window. On the chrome
+     roles since part five (a) (`core-theme.md`): it paints the window's own
+     background through `ChromePalette.nsColor(.bgPanel)` so a live resize never
+     shows the system window colour, the standard title bar and its style mask
+     unchanged. A diff is *about* a file, so several make sense; a project search is
+     about the project, so a repeat ⌘⇧F focuses the existing window rather than
+     stacking duplicates over one shared `ProjectSearchModel` (two windows would
+     fight over its single query and result list). An existing window has its root
+     view *replaced* rather than reused, so a window left open across a folder
+     switch picks the new root up on the next ⌘⇧F. `closeAll()` is wired into the
+     app's `willTerminateNotification` observer alongside the diff/merge controllers.
     `show(content:onWillClose:)` carries the search history's dismissal hook: a
     stored `onWillClose` with **no default** (the one caller wires it, and a
     window shown without one would drop the dismissal recording silently),
@@ -2043,24 +2094,25 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     the sweep fires once and only while a window is open, a sweep after a user
     close fires nothing, a second `show(...)` replaces the hook, and a reopened
     window records again.
-  - `SearchHistoryMenu.swift` (macOS) — the clock menu beside a query field: the
-    **one** view both search surfaces render, so the history reads identically in
-    each. `entries: [SearchQuery]`, `metrics: InterfaceMetrics`, `onPick`,
-    `onClear`. A `Menu` labelled with `clock.arrow.circlepath` at
-    `metrics.scaledFont(.body)`, `.menuStyle(.borderlessButton)` with the
-    indicator hidden and `.fixedSize()` so it sits in the row like the three
-    toggles rather than claiming the row's spare width, `.help("Recent
-    searches")`, and `.disabled(entries.isEmpty)`. Rows are
-    `ForEach(entries, id: \.pattern)` — patterns are unique by the recording
-    rule — drawing `SearchQueryHistory.menuLabel(for:)`, then a `Divider()` and
-    one `Button("Clear History")`. Thin and untested like the rest of
-    `Sources/Pisaka`: every decision it draws is Core's, including the row's
-    text, so the truncation and the flag suffix are computed and asserted there
-    rather than left to a menu item's own eliding. The metrics are **passed in**
-    rather than read from the environment because the Find in Files window is its
-    own SwiftUI root and injects its own. It declares no zoom surface: it is
-    chrome beside the field, not a code surface (`core-zoom.md`). And it carries
-    **no key equivalents at all**, deliberately — a history is a list whose
-    contents change under the user, so a shortcut on row *n* would name a
-    different query tomorrow — which is also why `MenuShortcutUniquenessTests` is
-    untouched by it.
+   - `SearchHistoryMenu.swift` (macOS) — the clock menu beside a query field: the
+     **one** view both search surfaces render, so the history reads identically in
+     each. On the chrome roles since part five (a) (`core-theme.md`): the trigger
+     glyph is `textSecondary` and hidden from accessibility, the menu keeps a
+     spoken name, rows and the *Clear History* button are grouped into two
+     `Section`s whose boundary draws the separator — no `Divider()` remains.
+     `entries: [SearchQuery]`, `metrics: InterfaceMetrics`, `onPick`, `onClear`. A
+     `Menu` labelled with `clock.arrow.circlepath` at `metrics.scaledFont(.body)`,
+     `.menuStyle(.borderlessButton)` with the indicator hidden and `.fixedSize()` so
+     it sits in the row like the three toggles rather than claiming the row's spare
+     width, `.help("Recent searches")`, and `.disabled(entries.isEmpty)`. Rows are
+     `ForEach(entries, id: \.pattern)` — patterns are unique by the recording rule
+     — drawing `SearchQueryHistory.menuLabel(for:)` inside the two `Section`s. Thin and untested like the rest of `Sources/Pisaka`:
+     every decision it draws is Core's, including the row's text, so the truncation
+     and the flag suffix are computed and asserted there rather than left to a menu
+     item's own eliding. The metrics are **passed in** rather than read from the
+     environment because the Find in Files window is its own SwiftUI root and
+     injects its own. It declares no zoom surface: it is chrome beside the field,
+     not a code surface (`core-zoom.md`). And it carries **no key equivalents at
+     all**, deliberately — a history is a list whose contents change under the user,
+     so a shortcut on row *n* would name a different query tomorrow — which is also
+     why `MenuShortcutUniquenessTests` is untouched by it.

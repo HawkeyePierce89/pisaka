@@ -13,11 +13,14 @@ import Foundation
 /// surface that appears to need a twenty-second role has instead found a design
 /// question, and the answer is to reuse one of these or to change the design —
 /// not to grow the table. Some roles are consequently still unused after the
-/// surfaces restyled so far — four of them (`bgPopover`, `currentLine`,
+/// surfaces restyled so far — three of them (`currentLine`,
 /// `bracketMatch`, `conflictBackground`), each waiting for the surface that
-/// means it: the popovers, the code zone's two line overlays, and the merge
-/// pane. The two diff backgrounds are spent by the diff pane and the unified
-/// diff, through `diffWashRole(for:side:)` / `diffWashRole(for:)`.
+/// means it: the code zone's two line overlays, and the merge
+/// pane. `bgPopover` was the fourth and is spent by the popovers — the
+/// completion panel, the hover popover, the two switcher popovers and the Log
+/// calendar — in part five (a); the two diff backgrounds are spent by the diff
+/// pane and the unified diff, through `diffWashRole(for:side:)` /
+/// `diffWashRole(for:)`.
 /// They are declared here nonetheless, because the table is the design, not an
 /// inventory of today's call sites.
 ///

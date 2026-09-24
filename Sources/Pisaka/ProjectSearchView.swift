@@ -20,6 +20,16 @@ import SwiftUI
 /// gitignore/mask/binary filters, so the query is coalesced by
 /// `searchDebounceDelay` before it reaches the model. The model's generation token
 /// then supersedes whatever the debounce still let through.
+///
+/// On the chrome roles since part five (a): `bgPanel` ground, the header and
+/// results draw their own `hairline` rules, the query, replace and file-mask
+/// fields are the shared `ChromeThemedTextField` (`bgEditor` ground, `hairline`
+/// border, `accent` on focus), toggles `accent` on `accentTint` while on and
+/// `textPrimary` with no ground while off, the scope line and counters in `callout`
+/// `textSecondary`, the group header monochrome `textSecondary`, the match row
+/// on the code font with the line number in `textSecondary`, the highlight kept
+/// on the editor's current-match background, and the validation error in
+/// `statusRed`.
 struct ProjectSearchView: View {
     /// How long the query controls settle before a search is dispatched.
     private static let searchDebounceDelay: TimeInterval = 0.3
@@ -64,7 +74,7 @@ struct ProjectSearchView: View {
     /// so the timer survives the view struct being rebuilt on every keystroke.
     @StateObject private var debounce = SearchDebounce()
 
-    @FocusState private var isQueryFocused: Bool
+    @FocusState private var focusedField: Field?
 
     /// The interface zone's metrics. Computed from the store rather than read
     /// from the environment because this view is the *root* of its own window and
@@ -74,13 +84,38 @@ struct ProjectSearchView: View {
     /// reason.
     private var metrics: InterfaceMetrics { settings.interfaceMetrics }
 
+    @Environment(\.colorScheme) private var colorScheme
+
+    /// This view's chrome colours, as a **role-to-colour function**.
+    ///
+    /// The Find in Files window is a separate `NSHostingController` root that
+    /// injects `\.chromeTheme` for its descendants via `.chromeThemed(settings)`.
+    /// A root cannot read the environment value it writes, so this view resolves
+    /// the theme from the same store the modifier reads — the same shape
+    /// `ContentView` uses for its window root, and for the reason stated there.
+    private func chromeColor(_ role: ChromeColorRole) -> Color {
+        settings.chromeTheme(systemPrefersDark: colorScheme == .dark).color(role)
+    }
+
+    private enum Field: Hashable {
+        case query
+        case replace
+        case mask
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             controls
-            Divider()
+            // The content draws its own hairline between the header and the
+            // results, never a Divider.
+            Rectangle()
+                .fill(chromeColor(.hairline))
+                .frame(height: metrics.scaled(ChromeGeometry.hairlineWidth))
             resultsArea
+            footer
         }
         .frame(minWidth: metrics.scaled(520), minHeight: metrics.scaled(320))
+        .background(chromeColor(.bgPanel))
         .preferredColorScheme(settings.themePreference.colorScheme)
         // Its own SwiftUI root (an `NSHostingController` made by
         // `ProjectSearchWindowController`), so it injects the interface scale
@@ -95,7 +130,7 @@ struct ProjectSearchView: View {
             wholeWord = model.query.wholeWord
             isRegex = model.query.isRegex
             mask = model.fileMask
-            isQueryFocused = true
+            focusedField = .query
         }
         .onDisappear { debounce.cancel() }
     }
@@ -103,97 +138,127 @@ struct ProjectSearchView: View {
     // MARK: - Controls
 
     private var controls: some View {
-        VStack(alignment: .leading, spacing: metrics.scaled(6)) {
-            HStack(spacing: metrics.scaled(6)) {
-                Button {
-                    isReplaceExpanded.toggle()
-                } label: {
-                    Image(systemName: isReplaceExpanded ? "chevron.down" : "chevron.right")
-                        .font(metrics.scaledFont(.body))
-                        .frame(width: metrics.scaled(12))
-                }
-                .buttonStyle(.plain)
-                .help(isReplaceExpanded ? "Hide replace" : "Show replace")
-
-                TextField("Find in files", text: $pattern)
-                    .textFieldStyle(.roundedBorder)
-                    .font(metrics.scaledFont(.body))
-                    .focused($isQueryFocused)
-                    // Enter jumps to the first result, so a search can be walked
-                    // without leaving the keyboard.
-                    .onSubmit { activateFirstResult() }
-                    .onChange(of: pattern) { _ in scheduleSearch() }
-
-                SearchHistoryMenu(
-                    entries: settings.searchQueryHistory.entries,
-                    metrics: metrics,
-                    onPick: pick,
-                    onClear: { settings.clearSearchQueryHistory() }
-                )
-
-                toggle("Aa", isOn: $caseSensitive, help: "Match case")
-                toggle("ab", isOn: $wholeWord, help: "Words")
-                toggle(".*", isOn: $isRegex, help: "Regular expression")
-
-                if model.isSearching {
-                    ProgressView()
-                        .controlSize(.small)
-                        .padding(.leading, metrics.scaled(2))
-                }
-            }
+        VStack(alignment: .leading, spacing: metrics.scaled(SearchLayout.contentGap)) {
+            queryRow
 
             if isReplaceExpanded {
-                HStack(spacing: metrics.scaled(6)) {
-                    Spacer().frame(width: metrics.scaled(12))
-
-                    TextField("Replace with", text: $template)
-                        .textFieldStyle(.roundedBorder)
-                        .font(metrics.scaledFont(.body))
-
-                    Button("Replace All") { confirmReplaceAll() }
-                        .font(metrics.scaledFont(.body))
-                        .disabled(
-                            model.results.isEmpty || isReplacing || model.isSearching
-                                || !resultsMatchControls
-                        )
-                }
+                replaceRow
             }
 
-            HStack(spacing: metrics.scaled(6)) {
-                Spacer().frame(width: metrics.scaled(12))
-
-                Text("File mask")
-                    .font(metrics.scaledFont(.caption))
-                    .foregroundStyle(.secondary)
-
-                TextField("*.ts, *.tsx", text: $mask)
-                    .textFieldStyle(.roundedBorder)
-                    .font(metrics.scaledFont(.body))
-                    .frame(maxWidth: metrics.scaled(220))
-                    .onChange(of: mask) { _ in scheduleSearch() }
-
-                Spacer(minLength: metrics.scaled(4))
-
-                Text(summaryText)
-                    .font(metrics.scaledFont(.caption))
-                    .foregroundStyle(.secondary)
-            }
+            scopeLine
 
             if let error = model.errorMessage {
                 // An invalid regular expression reports its reason inline, in red
                 // — never as an alert: the pattern is being typed.
                 Text(error)
-                    .font(metrics.scaledFont(.caption))
-                    .foregroundStyle(Color(NSColor.systemRed))
+                    .font(metrics.scaledFont(.subheadline))
+                    .foregroundStyle(chromeColor(.statusRed))
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
-        .padding(.horizontal, metrics.scaled(10))
-        .padding(.vertical, metrics.scaled(8))
+        .padding(.top, metrics.scaled(SearchLayout.contentPadding))
+        .padding(.horizontal, metrics.scaled(SearchLayout.contentPadding))
+        .padding(.bottom, 0)
         .onChange(of: caseSensitive) { _ in scheduleSearch() }
         .onChange(of: wholeWord) { _ in scheduleSearch() }
         .onChange(of: isRegex) { _ in scheduleSearch() }
+    }
+
+    private var queryRow: some View {
+        HStack(spacing: metrics.scaled(SearchLayout.toggleGap)) {
+            Button {
+                isReplaceExpanded.toggle()
+            } label: {
+                Image(systemName: isReplaceExpanded ? "chevron.down" : "chevron.right")
+                    .font(metrics.scaledFont(.body))
+                    .foregroundStyle(chromeColor(.textSecondary))
+                    .accessibilityHidden(true)
+                    .frame(width: metrics.scaled(12))
+            }
+            .buttonStyle(.plain)
+            .help(isReplaceExpanded ? "Hide replace" : "Show replace")
+            .accessibilityLabel(isReplaceExpanded ? "Hide replace" : "Show replace")
+            .accessibilityValue(isReplaceExpanded ? "Expanded" : "Collapsed")
+
+            ChromeThemedTextField(
+                title: "Find in files",
+                text: $pattern,
+                focus: $focusedField,
+                focusedEquals: .query,
+                textStyle: .body
+            )
+            .frame(height: metrics.scaled(SearchLayout.queryFieldHeight))
+            .onSubmit { activateFirstResult() }
+            .onChange(of: pattern) { _ in scheduleSearch() }
+
+            SearchHistoryMenu(
+                entries: settings.searchQueryHistory.entries,
+                metrics: metrics,
+                onPick: pick,
+                onClear: { settings.clearSearchQueryHistory() }
+            )
+
+            ChromeQueryToggle(label: "Aa", isOn: $caseSensitive, help: "Match case")
+            ChromeQueryToggle(label: "ab", isOn: $wholeWord, help: "Words")
+            ChromeQueryToggle(label: ".*", isOn: $isRegex, help: "Regular expression")
+
+            if model.isSearching {
+                ProgressView()
+                    .controlSize(.small)
+                    .padding(.leading, metrics.scaled(2))
+            }
+        }
+    }
+
+    private var replaceRow: some View {
+        HStack(spacing: metrics.scaled(SearchLayout.replaceGap)) {
+            Spacer().frame(width: metrics.scaled(12))
+
+            ChromeThemedTextField(
+                title: "Replace with",
+                text: $template,
+                focus: $focusedField,
+                focusedEquals: .replace,
+                textStyle: .body
+            )
+            .frame(height: metrics.scaled(SearchLayout.queryFieldHeight))
+
+            Button("Replace All") { confirmReplaceAll() }
+                .buttonStyle(.chromeSecondary)
+                .disabled(
+                    model.results.isEmpty || isReplacing || model.isSearching
+                        || !resultsMatchControls
+                )
+                .accessibilityLabel("Replace all")
+                .help("Replace all")
+
+            Spacer(minLength: metrics.scaled(4))
+        }
+    }
+
+    private var scopeLine: some View {
+        HStack(spacing: metrics.scaled(6)) {
+            Spacer().frame(width: metrics.scaled(12))
+
+            Text("File mask")
+                .font(metrics.scaledFont(.callout))
+                .foregroundStyle(chromeColor(.textSecondary))
+                .lineLimit(1)
+
+            ChromeThemedTextField(
+                title: "*.ts, *.tsx",
+                text: $mask,
+                focus: $focusedField,
+                focusedEquals: .mask,
+                textStyle: .body
+            )
+            .frame(height: metrics.scaled(SearchLayout.queryFieldHeight))
+            .frame(maxWidth: metrics.scaled(220))
+            .onChange(of: mask) { _ in scheduleSearch() }
+
+            Spacer(minLength: metrics.scaled(4))
+        }
     }
 
     /// Put a remembered query back into the controls.
@@ -212,27 +277,7 @@ struct ProjectSearchView: View {
         isRegex = query.isRegex
         caseSensitive = query.caseSensitive
         wholeWord = query.wholeWord
-        isQueryFocused = true
-    }
-
-    /// One of the three query-mode toggles (`Aa`, `ab`, `.*`), matching the
-    /// editor bar's so the two read as the same control.
-    private func toggle(_ label: String, isOn: Binding<Bool>, help: String) -> some View {
-        Button {
-            isOn.wrappedValue.toggle()
-        } label: {
-            Text(label)
-                // 11pt semibold monospaced — `subheadline`'s base size, matching
-                // the editor bar's toggle both at 100% and as the scale grows.
-                .font(metrics.scaledFont(.subheadline, weight: .semibold, design: .monospaced))
-                .padding(.horizontal, metrics.scaled(5))
-                .padding(.vertical, metrics.scaled(2))
-                .background(isOn.wrappedValue ? Color.accentColor.opacity(0.25) : Color.clear)
-                .clipShape(RoundedRectangle(cornerRadius: metrics.scaled(4)))
-        }
-        .buttonStyle(.plain)
-        .foregroundStyle(isOn.wrappedValue ? Color.accentColor : Color.primary)
-        .help(help)
+        focusedField = .query
     }
 
     // MARK: - Results
@@ -249,25 +294,55 @@ struct ProjectSearchView: View {
                     Section {
                         ForEach(Array(result.matches.indices), id: \.self) { index in
                             row(result: result, index: index)
+                                .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
+                                .listRowSeparator(.hidden)
+                                .listRowBackground(chromeColor(.bgPanel))
                         }
                     } header: {
-                        // The group header names the *file*; it is chrome around
-                        // the rows, not one of them, so it follows the interface
-                        // zone while the rows below stay on the code font.
-                        Text(result.relativePath)
-                            .font(metrics.scaledFont(.caption))
-                            .lineLimit(1)
-                            .truncationMode(.middle)
+                        groupHeader(for: result)
                     }
                 }
                 if model.truncated {
                     Text("Results truncated — narrow the query or the file mask to see the rest.")
-                        .font(metrics.scaledFont(.caption))
-                        .foregroundStyle(.secondary)
+                        .font(metrics.scaledFont(.callout))
+                        .foregroundStyle(chromeColor(.textSecondary))
+                        .listRowInsets(EdgeInsets(
+                            top: 4,
+                            leading: metrics.scaled(SearchLayout.contentPadding),
+                            bottom: 4,
+                            trailing: metrics.scaled(SearchLayout.contentPadding)
+                        ))
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(chromeColor(.bgPanel))
                 }
             }
             .listStyle(.inset)
+            .scrollContentBackground(.hidden)
+            .background(chromeColor(.bgPanel))
         }
+    }
+
+    private func groupHeader(for result: FileSearchResult) -> some View {
+        HStack(spacing: metrics.scaled(6)) {
+            Image(systemName: "doc")
+                .font(.system(size: metrics.scaled(SearchLayout.headerIconSize)))
+                .foregroundStyle(chromeColor(.textSecondary))
+                .accessibilityHidden(true)
+            Text(result.relativePath)
+                .font(metrics.scaledFont(.callout))
+                .foregroundStyle(chromeColor(.textSecondary))
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Spacer(minLength: metrics.scaled(4))
+            Text("\(result.matchCount)")
+                .font(metrics.scaledFont(.subheadline))
+                .foregroundStyle(chromeColor(.textSecondary))
+                .lineLimit(1)
+        }
+        .padding(.horizontal, metrics.scaled(SearchLayout.headerPadding))
+        .frame(height: metrics.scaled(SearchLayout.headerHeight))
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
     }
 
     /// One match: its line number and the clipped preview with the hit
@@ -284,7 +359,8 @@ struct ProjectSearchView: View {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text("\(result.matches[index].lineNumber)")
                     .font(.system(size: settings.fontSize - 2, design: .monospaced))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(chromeColor(.textSecondary))
+                    .lineLimit(1)
                     .frame(minWidth: 44, alignment: .trailing)
 
                 Text(previewText(result.previews[index]))
@@ -302,6 +378,8 @@ struct ProjectSearchView: View {
 
                 Spacer(minLength: 0)
             }
+            .padding(.trailing, metrics.scaled(SearchLayout.rowPaddingTrailing))
+            .padding(.leading, metrics.scaled(SearchLayout.rowPaddingLeading))
             .contentShape(Rectangle())
             // A result row draws with the *editor* font (both `Text`s above read
             // `settings.fontSize`), so it is a code surface: a zoom gesture over
@@ -329,11 +407,31 @@ struct ProjectSearchView: View {
         return result
     }
 
+    private var footer: some View {
+        VStack(spacing: 0) {
+            Rectangle()
+                .fill(chromeColor(.hairline))
+                .frame(height: metrics.scaled(ChromeGeometry.hairlineWidth))
+            HStack {
+                Text(summaryText)
+                    .font(metrics.scaledFont(.callout))
+                    .foregroundStyle(chromeColor(.textSecondary))
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, metrics.scaled(SearchLayout.footerPadding))
+            .frame(height: metrics.scaled(SearchLayout.footerHeight))
+            .background(chromeColor(.bgPanel))
+        }
+    }
+
     private func placeholder(_ text: String) -> some View {
         Text(text)
             .font(metrics.scaledFont(.body))
-            .foregroundStyle(.secondary)
+            .foregroundStyle(chromeColor(.textSecondary))
+            .lineLimit(1)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(chromeColor(.bgPanel))
     }
 
     /// What to say when there are no rows: nothing typed yet, a search still
@@ -554,6 +652,35 @@ struct ProjectSearchView: View {
             message: lines.joined(separator: "\n\n")
         )
     }
+}
+
+/// The Find in Files window's layout numbers. Bare numbers scaled once at the
+/// use site (gating rule seven: none is derived from a `ChromeGeometry` token).
+private enum SearchLayout {
+    /// Content padding at the top and on both sides.
+    static let contentPadding: Double = 16
+    /// Gap between the content rows.
+    static let contentGap: Double = 12
+    /// Gap between the toggle buttons in the query row.
+    static let toggleGap: Double = 10
+    /// Query, replace and file-mask field height.
+    static let queryFieldHeight: Double = 33
+    /// Gap between the replace field and Replace All.
+    static let replaceGap: Double = 8
+    /// Group header height — interface-scaled, because the header draws at callout, not the code font.
+    static let headerHeight: Double = 24
+    /// Group header horizontal padding.
+    static let headerPadding: Double = 8
+    /// Group header icon point size.
+    static let headerIconSize: Double = 14
+    /// Match row trailing padding.
+    static let rowPaddingTrailing: Double = 8
+    /// Match row leading padding.
+    static let rowPaddingLeading: Double = 34
+    /// Footer height.
+    static let footerHeight: Double = 32
+    /// Footer horizontal padding.
+    static let footerPadding: Double = 16
 }
 
 /// The Find in Files debounce: one pending `DispatchWorkItem`, replaced whenever a

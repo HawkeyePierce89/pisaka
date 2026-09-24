@@ -1,5 +1,6 @@
 #if os(macOS)
 import AppKit
+import PisakaCore
 import SwiftUI
 
 /// Owns the single, non-modal Find in Files window (⌘⇧F).
@@ -54,6 +55,7 @@ final class ProjectSearchWindowController {
         let window = EscClosableWindow(contentViewController: hosting)
         window.title = "Find in Files"
         window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
+        window.backgroundColor = ChromePalette.nsColor(.bgPanel)
         window.isReleasedWhenClosed = false
         window.setContentSize(NSSize(width: 760, height: 520))
         window.center()

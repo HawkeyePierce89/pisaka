@@ -75,10 +75,12 @@ adds no write of any kind. Its only persisted input is the existing
     part four (a) spent none — its four surfaces are drawn wholly from roles
     already in use. Part four (b) spent the two diff grounds —
     `diffAddedBackground` and `diffRemovedBackground`, on the side-by-side diff
-    pane and the unified diff's rows — which leaves **four**: `bgPopover`,
+    pane and the unified diff's rows — which left **four**: `bgPopover`,
+    `currentLine`, `bracketMatch` and `conflictBackground`. Part five (a) spends
+    the fourth — `bgPopover` on the completion panel, the hover popover, the two
+    bottom-bar popovers and the Log calendar — which leaves **three**:
     `currentLine`, `bracketMatch` and `conflictBackground`.
-    `bgPopover` waits for the popovers (the two switchers' among them, a later
-    part); `conflictBackground` waits for the merge pane;
+    `conflictBackground` waits for the merge pane;
     and **`currentLine` and `bracketMatch` are deliberately still unused** — both
     belong to the *code* zone, whose overlays are temporary text attributes on the
     editor's own theme (`SyntaxTheme`), so spending them is a decision about where
@@ -862,30 +864,245 @@ choosing hues that sit on the design's ground is an open design question.
     divider between the panes is a plain view filled with `hairline` at
     `hairlineWidth` **unscaled**, under the token's stated code-zoom exception.
     The characters keep `SyntaxTheme`. Full entry in `app-git-views.md`.
-  - **The unified diff** — `CommitUnifiedDiffView.swift`, the environment path:
-    the row wash through `diffWashRole(for: UnifiedDiffLine.Kind)`, the checkbox
-    `accent`/`textSecondary`, line numbers `textSecondary`. Gated in full; the
-    commit dialog around it is untouched except for reading the status answer.
-    Full entry in `app-git-views.md`.
+   - **The unified diff** — `CommitUnifiedDiffView.swift`, the environment path:
+     the row wash through `diffWashRole(for: UnifiedDiffLine.Kind)`, the checkbox
+     `accent`/`textSecondary`, line numbers `textSecondary`. Gated in full; the
+     commit dialog around it is untouched except for reading the status answer.
+     Full entry in `app-git-views.md`.
+
+#### Part five (a) — the popovers and the search surfaces
+
+The sweep's first floating surfaces and its two search surfaces: the completion
+panel and the hover popover, the find/replace bar above the editor, the Find in
+Files window and its window controller, the recent-searches menu, and the two
+bottom-bar popovers plus the Log calendar. It spends `bgPopover`, leaving three
+roles unspent (`currentLine`, `bracketMatch`, `conflictBackground`), and takes
+the gated set from twenty-seven to thirty-four. Seven files join the set:
+`ChromeControls.swift` (new, holding the shared field shape and the secondary
+button), `CompletionPanel.swift`, `HoverPanel.swift`, `SearchBarView.swift`,
+`SearchHistoryMenu.swift`, `ProjectSearchView.swift` and
+`ProjectSearchWindowController.swift` — the last, `ProjectSearchWindowController`,
+is the seventh the ticket lists as six but counts as seven (27 + 7 = 34 already
+assumes it: it paints the Find in Files window's own ground `bgPanel` through
+`ChromePalette.nsColor(_:)`, so a live resize never shows the system window
+colour). The suite grows from twenty-two rules to twenty-seven.
+
+**`ChromeControls.swift` — the shared field shape, the query toggle and the secondary button.**
+`ChromeControlBox` has a `bgEditor` ground, a one-point `hairline` border,
+`accent` at `fieldFocusedBorderWidth` while focused, and `fieldCornerRadius`,
+taking its horizontal inset as a parameter and stating no height so the container
+decides (22 in the filter strip, 33 in Find in Files). `ChromeThemedTextField`
+is a plain `TextField` with `textPrimary` content, a `textSecondary` placeholder,
+an optional leading glyph hidden from accessibility, and a spoken label, focus
+coming in as a `FocusState` binding plus the value it equals — taking a
+text-style parameter defaulting to `.callout` (so the Log filter bar's pixels stay
+as they are) and an inner gap defaulting to `6`, with Find in Files' three
+fields and the branch switcher's filter passing `.body`. `ChromeQueryToggle` is
+the one query-mode toggle (label, `isOn` binding, help text), drawing the label
+at `subheadline` semibold monospaced — `accent` on `accentTint` while on,
+`textPrimary` with no ground while off — with the spoken name, tooltip and
+on/off value both surfaces already had. `ChromeSecondaryButtonStyle`
+is 28 high (`secondaryButtonHeight`), with a one-point `hairline` border, radius
+`buttonCornerRadius`, padding `secondaryButtonPaddingX` and a `callout` label in
+`textPrimary`. Everything is scaled through `InterfaceMetrics` and colours come
+from `\.chromeTheme`. Callers: `LogFilterBar.swift` (its text fields and its
+three boxed system controls — the branch menu and the two date bounds — through
+the box at 22 high and its own inset, plus the box as the filter-field baseline
+with its private `controlBox`/`filterField` and the `FilterBarLayout` entries
+`controlRadius`/`focusBorderWidth` deleted), `SearchBarView.swift` (the query and
+replace fields) and `ProjectSearchView.swift` (the query row, the replace row and
+the file-mask field) and `BranchSwitcherView.swift` (the popover's filter field,
+via the themed field with its own `FocusState`). The Log bar's doc comment says
+the shape is shared. Tokens are in `ChromeGeometry`: `fieldCornerRadius` 4,
+`fieldFocusedBorderWidth` 2, `fieldPaddingX` 10, `secondaryButtonHeight` 28,
+`secondaryButtonPaddingX` 14, each distinct and none derived.
+
+**The three SwiftUI popovers get one answer, with no branch.** The Log
+calendar, the branch switcher and the project switcher each carry `bgPopover` on
+their content as a background, with no `presentationBackground` and no
+`#available` branch. Each file says in one line that the popover's arrow keeps
+the system material because the content background cannot reach it.
+`presentationBackground` is an open question for the part that sweeps sheets and
+dialogs: the modifier is documented to apply there and a sheet is big enough for
+the difference to matter, so it was not shipped here as an unverified branch.
+
+**The completion panel — `CompletionPanel.swift`, the AppKit bridge.** The
+vibrancy background (`NSVisualEffectView` `.popover`) is replaced by a flat
+`bgPopover` layer fill: a one-point `hairline` border, corner radius
+`cornerRadiusMax` scaled with `metrics.pt(_:)` where `InterfaceMetrics` is known
+(in `show(...)` beside the sizing, not in `makePanel()`; the border width stays
+unscaled as the hairline exception and the radius is a plain number outside the
+appearance block), the window's shadow kept. In `match(_:to:)` both layer colours
+are set only inside `appearance.performAsCurrentDrawingAppearance`:
+`borderColor` from `ChromePalette.nsColor(.hairline)` and `backgroundColor` from
+`ChromePalette.nsColor(.bgPopover)`, with the existing comment extended to say
+the background is a `CGColor` too. Row text is `textPrimary`, the selected row
+has an `accent` ground and `onAccent` text, the badge is monochrome
+(`textSecondary` on an ordinary row, `onAccent` on the selected one), and the
+private `color(for:)` hue table is deleted. The badge's colour leaves Core:
+`CompletionPopup.Badge` loses its `color` stored property, its initializer
+parameter and every table entry's colour; `init(symbolName:)` and
+`init(source:)` remain; `FileIconColor` stays for `FileIcon`.
+
+**The hover popover — `HoverPanel.swift`, the AppKit bridge.** The same flat
+`bgPopover` fill on the same terms (hairline, `cornerRadiusMax` scaled with
+`metrics.pt(_:)` where `InterfaceMetrics` is known — `show(...)` beside the
+sizing, border staying unscaled as the hairline exception, plain number outside
+the appearance block — shadow, both layer colours only inside the
+drawing-appearance block, the block's comment updated). Prose is `textSecondary`,
+code segments `textPrimary`, the truncation marker `textSecondary`; the doc
+comment states the chrome has two text tones. `ignoresMouseEvents`, the absence
+of a zoom surface and the exclusion from the window cycle stay unchanged.
+
+**The find/replace bar — `SearchBarView.swift`, the environment path.** The bar
+has a `bgPanel` ground and draws its own one-point `hairline` along its bottom
+edge; the `Divider()` under it in `ContentView` is removed, leaving a one-line
+comment in the style of the one at ~line 403. The query and replace fields use
+the shared themed field (Find in Files' three and the branch switcher's filter
+now pass `.body`; the bar keeps the field's `.callout` default and its `6`-point
+gap default); the system rounded-border style is gone. Colours: the match
+counter and the labels are `textSecondary`, the inline regex error is
+`statusRed`, the three query-mode toggles are the shared `ChromeQueryToggle` —
+`subheadline` semibold monospaced, `accent` on `accentTint` while on,
+`textPrimary` with no ground while off — the navigation/close/disclosure glyphs
+take roles, Replace and Replace All use the shared secondary button style, and
+`.caption` becomes `.subheadline`. Accessibility: each toggle has a spoken name,
+a `.help` tooltip and an on/off `.accessibilityValue`; Previous, Next, Close
+and the replace disclosure have a spoken name and a tooltip, and their symbols
+are hidden; the fields speak their names.
+
+**The recent-searches menu — `SearchHistoryMenu.swift`, the environment path.**
+The trigger glyph becomes `textSecondary` and is hidden from accessibility; the
+menu keeps a spoken name. The menu's rows and its *Clear History* button are
+grouped into two `Section`s whose boundary draws the separator — no `Divider()`
+remains and no comment pins an exception.
+
+**The Find in Files window — `ProjectSearchView.swift` (environment) and
+`ProjectSearchWindowController.swift` (AppKit bridge).** The SwiftUI root is
+`bgPanel`; the window controller paints the window's own background through
+`ChromePalette.nsColor(.bgPanel)`, the standard title bar and its style mask
+unchanged. Design values: content body padding 16 at the top and on both sides,
+0 at the bottom, gap 12; query row 33 high in the shared field with the shared
+`ChromeQueryToggle` triple at its trailing end (gap 10), each toggle at
+`subheadline` semibold monospaced — `accent` on `accentTint` while on,
+`textPrimary` with no ground while off; replace row the shared field gap 8 then
+Replace All in the secondary button style; scope line `callout` in
+`textSecondary`; results gap 8; group header 24 high padding 8 a 14-point icon
+the path in `callout` and the count in `subheadline` all in `textSecondary`;
+match row padding 8 on the right and 34 on the left, no fixed height — its height
+is the content's, at the code font (`settings.fontSize`) so it never overflows,
+and `.contentShape` comes after the paddings so the insets are the click target;
+footer 32 high with its own top `hairline` padding 16 and the summary in
+`callout` `textSecondary`; the file-mask field is also the shared field; the
+`Divider()` between the header and the results is replaced by a `hairline` rule
+the content draws. Numbers with no `ChromeGeometry` home live in a private layout
+enum in this file; existing tokens are reused where they fit. The group header
+icon stays monochrome `textSecondary`. The match row keeps its zones and is the
+example rule twenty-seven pins: the preview text stays on the code font in
+`SyntaxTheme`'s plain colour and the highlight keeps the editor's current-match
+background, the line number stays on the code font and takes `textSecondary`, the
+row keeps its `ZoomSurfaceMarker(kind: .code)`, nothing sized by the code font is
+multiplied by the interface scale and nothing sized by the interface reads
+`settings.fontSize`, no selection state is added, and the regex/validation error
+is `statusRed`. Accessibility: the fields, the toggles (name, tooltip, value)
+and Replace All are named, and decorative symbols are hidden.
+
+**The two bottom-bar popovers get their ground and lose their dividers —
+`BranchSwitcherView.swift` and `ProjectSwitcherView.swift` (environment).** Both
+popovers' content is drawn on `bgPopover` with a content background, no
+`presentationBackground` and no `#available` branch, each file saying in one line
+that the arrow keeps the system material. Each `Divider()` becomes a one-point
+`hairline` rule the content draws. The branch switcher's filter field uses the
+shared themed field; doc comments on `theme` and `popoverContent` that explained
+why the dividers had to stay are rewritten to say what is true now, with no
+sentence describing the old material ground or the kept dividers.
+
+**Four departures from the design, in the repository's favour.**
+1. A match preview line is code — it stays on the code font and in
+`SyntaxTheme`'s plain colour.
+2. The highlight stays the editor's — the match highlight inside a preview keeps
+the editor's own current-match background.
+3. No selection is added to the match list — `accentTintStrong` goes unused on
+that surface, because this part changes no behaviour (settled in Q&A).
+4. The Find in Files window keeps the standard system title bar, per requirement
+7 — the design's 28-point title strip and its 12-point `textSecondary` title are
+not drawn, and `MainWindowChrome.swift` stays the only file that makes a title
+bar transparent. The line number beside a preview line stays on the code font as
+the preview does; its colour becomes `textSecondary`, the role the editor's own
+gutter numbers use, so the number takes its size from the code zone and its
+colour from a role, like the gutter it mirrors — today it used `.secondary`, a
+system colour a gated file may not spell.
+
+**Five new gating rules (twenty-three to twenty-seven), and the count
+bookkeeping.** The suite's header lists twenty-seven, `spelled` is 27, the
+canonical list opens with "The twenty-seven rules, each invisible to the
+compiler:" and `CLAUDE.md` mirrors it. Rule twenty-three pins the popover
+surface: the gated files naming `bgPopover` equal `{CompletionPanel.swift,
+HoverPanel.swift, BranchSwitcherView.swift, ProjectSwitcherView.swift,
+LogFilterBar.swift}` and every gated file presenting a popover (`.popover(`) or
+declaring an `NSPanel` is in that set, with no `NSVisualEffectView`, `.material`
+or `presentationBackground` in any gated file. Rule twenty-four pins that no
+gated file spells `Divider()` at all — a menu's separator is a `Section`
+boundary, and every gated file that builds a `Menu` spells `Section` (by set
+equality, so a fourth menu file is added deliberately). Rule twenty-five pins
+AppKit layer colours: in `CompletionPanel.swift` and `HoverPanel.swift` every
+`borderColor` and `backgroundColor` assignment lies inside a brace-matched
+`performAsCurrentDrawingAppearance` body, the border naming `hairline` and the
+background `bgPopover`, with at least one of each per file. Rule twenty-six
+pins one field shape and one query toggle: no gated file spells the
+rounded-border style, the set of files constructing the shared field or box
+equals `{LogFilterBar.swift, SearchBarView.swift, ProjectSearchView.swift,
+BranchSwitcherView.swift}` plus `ChromeControls.swift`, and the set constructing
+the shared query toggle equals `{SearchBarView.swift, ProjectSearchView.swift}`
+with no gated file outside `ChromeControls.swift` declaring a toggle builder.
+Rule twenty-seven pins that each measurement follows its own zone: the Find in
+Files match row carries no fixed `.frame(height:` and is sized by the code font
+(`settings.fontSize`), matched over its brace-matched body so a multi-line call
+cannot slip past, and each `cornerRadius` assignment in `CompletionPanel.swift`
+and `HoverPanel.swift` names `metrics` on the same statement. Rule twenty's
+table is extended to the two search surfaces' toggles and buttons.
+
+**Fix 01 — the acceptance review's five corrections, stated as corrections to
+this part rather than as a new part.** The match row carries no fixed height and
+is sized by its code-font content (the `metrics.scaled(rowHeight)` frame is gone,
+`SearchLayout.rowHeight` deleted, `.contentShape` after the paddings, the header's
+`24`-point `headerHeight` staying interface-scaled by design and saying so).
+The two query-mode toggle copies become one `ChromeQueryToggle` in
+`ChromeControls.swift` (`subheadline` semibold monospaced, `accent`/`accentTint`
+on, `textPrimary` off, with help and on/off accessibility value), both surfaces
+call it and both private builders and `SearchLayout.toggleFontSize` are gone.
+`ChromeThemedTextField` gains a text-style parameter defaulting to `.callout`
+(and its inner `6`-point gap the same), Find in Files' three fields and the
+branch switcher's filter pass `.body`. Both AppKit popovers set their corner
+radius scaled with `metrics.pt(cornerRadiusMax)` where `InterfaceMetrics` is
+known, beside the sizing, with the border width staying unscaled as the hairline
+exception and the radius outside the appearance block. `SearchHistoryMenu` groups
+its rows into two `Section`s and `Divider()` is gone everywhere — rule
+twenty-four becomes exception-free with a non-vacuity clause over `Section`, and
+the duplicated "the popover's arrow keeps the system material" sentence in
+`BranchSwitcherView.swift`/`ProjectSwitcherView.swift` loses its second copy.
+Rule twenty-seven is the zone rule that would have caught the first and fourth
+of these.
 
 #### What is still waiting
 
-The dock is finished. After it: the editor zone's find/replace bar, the dialogs
-and sheets (the commit dialog among them — part five), the separate
-diff/merge/history/browser windows' own chrome (the side-by-side pane inside them
-is swept), the Preferences surfaces and the terminal's own palette. Each follows
-the six-step guide at the end of this document, on its own, with `gatedFiles`
-growing as part of the restyle rather than afterwards.
+The dock is finished and the popovers and search surfaces are swept. After
+them: the dialogs and sheets (the commit dialog among them), the separate
+diff/merge/history/browser windows' own chrome (the side-by-side pane inside
+them is swept), the Preferences surfaces and the terminal's own palette. Each
+follows the six-step guide at the end of this document, on its own, with
+`gatedFiles` growing as part of the restyle rather than afterwards.
 
 The dock's tab row is **no longer deferred** — part four (a) drew it, and
-`ChromeGeometry.dockTabRowHeight` is spent. What stays deferred inside surfaces
-already swept is the **caret readout** beside the bar, which waits on a design
-decision rather than on a file, the switcher popovers' `Divider()` calls
-(the part-three record above says where, and why their fix waits for the
-popovers' ground), and the **lane hues**, an open design question. Four roles
-remain unspent — `bgPopover`, `currentLine`, `bracketMatch` and
-`conflictBackground` — after twenty-three surfaces, the same four and the same
-count `ChromeColorRole.swift`'s own doc comment states.
+`ChromeGeometry.dockTabRowHeight` is spent. The popovers are **no longer
+deferred** — part five (a) drew them on `bgPopover` and replaced their
+`Divider()` calls with `hairline` rules, and `ChromeGeometry.fieldCornerRadius`
+and `secondaryButtonHeight` are spent on the shared field. What stays deferred
+inside surfaces already swept is the **caret readout** beside the bar, which
+waits on a design decision rather than on a file, and the **lane hues**, an
+open design question. Three roles remain unspent — `currentLine`,
+`bracketMatch` and `conflictBackground` — after thirty surfaces, the same three
+and the same count `ChromeColorRole.swift`'s own doc comment states.
 
 ### The monochrome-icon decision
 
@@ -931,7 +1148,7 @@ although it is an editing affordance rather than a row: an inline draft
 for. `TabStripView.swift` covers `TabStatusMark` too, the slot view the two
 orientations share, which is why that extraction did not add a seventh file.
 
-The twenty-two rules, each invisible to the compiler:
+The twenty-seven rules, each invisible to the compiler:
 
 1. **No gated view names a system semantic colour.** A closed forbidden-token
    list — AppKit's semantic set (`labelColor`, `separatorColor`,
@@ -1245,6 +1462,54 @@ The twenty-two rules, each invisible to the compiler:
    finding them fails rather than going vacuous. Stated limit: the rule sees the
    call, not that the handler clears the hover and drag state before it — a
    handler calling the sync with both still set pops nothing.
+23. **A popover surface names `bgPopover`.** The gated files naming `bgPopover`
+   equal `{CompletionPanel.swift, HoverPanel.swift, BranchSwitcherView.swift,
+   ProjectSwitcherView.swift, LogFilterBar.swift}`; every gated file presenting a
+   popover (`.popover(`) or declaring an `NSPanel` is in that set, which is what
+   lets the rule see a sixth popover appearing on a system material; and no gated
+   file spells `NSVisualEffectView`, a `.material` assignment or
+   `presentationBackground`. The five popovers' content is drawn on `bgPopover`
+   as a background, with no availability branch, and each file says in one line
+   that the arrow keeps the system material because the content background cannot
+   reach it.
+24. **No gated file spells `Divider()`; a menu separates with `Section`.** No
+    gated file spells `Divider(`, and every gated file that builds a `Menu`
+    spells `Section` at least once. The gated menu files equal
+    `{SearchHistoryMenu.swift, ProjectTreeView.swift, LocalChangesView.swift}`,
+    pinned by set equality so a fourth file is added deliberately. The `Section`
+    boundary draws the separator a swept surface draws as its own one-point
+    `hairline` on the edge it owns.
+25. **AppKit layer colours are set only inside the drawing appearance.** In
+   `CompletionPanel.swift` and `HoverPanel.swift`, every layer `borderColor`
+   assignment and every layer `backgroundColor` assignment lies inside a
+   brace-matched `performAsCurrentDrawingAppearance` body; a body containing a
+   `borderColor` assignment names `hairline` and a body containing a
+   `backgroundColor` assignment names `bgPopover`; each file has at least one of
+   each, so the rule cannot pass vacuously; matching tolerates whitespace around
+   `.` and `=`.
+26. **One field shape and one query toggle.** No gated file spells the
+    rounded-border style: `.textFieldStyle(` followed by `.roundedBorder` across
+    any whitespace, or `RoundedBorderTextFieldStyle`. The set of files
+    constructing the shared field or box equals `{LogFilterBar.swift,
+    SearchBarView.swift, ProjectSearchView.swift, BranchSwitcherView.swift}`,
+    plus `ChromeControls.swift`, where the box is composed into the field. The
+    shared box has a `bgEditor` ground, a one-point `hairline` border and
+    `accent` at the focused width while focused, and takes its horizontal inset
+    as a parameter with no height; the themed field is a plain `TextField` over
+    it and takes a text-style parameter defaulting to `.callout` plus its inner
+    gap defaulting to `6`. The shared query toggle is `ChromeQueryToggle` in
+    `ChromeControls.swift`; the set constructing it equals
+    `{SearchBarView.swift, ProjectSearchView.swift}`, and no gated file outside
+    `ChromeControls.swift` declares a toggle builder.
+27. **Each measurement follows its own zone.** The Find in Files match row
+   carries no fixed `.frame(height:` and is sized by the code font
+   (`settings.fontSize`), matched over its brace-matched body so a multi-line
+   call cannot slip past; each `cornerRadius` assignment in
+   `CompletionPanel.swift` and `HoverPanel.swift` names `metrics` on the same
+   statement, so the radius is scaled with the interface. Both clauses carry a
+   non-vacuity check — the row's body must be found and must name
+   `settings.fontSize`, and each panel must have at least one `cornerRadius`
+   assignment.
 
 Plus a **self-check** in the suite's own idiom: every gated file must actually
 *name* a `ChromeColorRole`, or the checks above have gone vacuous — with two
@@ -1281,8 +1546,11 @@ Each further surface is restyled on its own, in the same six steps:
    `metrics.scaled(_:)`. A number that is genuinely the surface's own — the
    tree's chevron column, say — stays local, in a type that says so; a number
    that is a *chrome* measurement (a row height, a padding, a hairline) is a
-   token or it is a drift waiting to happen. The one exception to the scaling
-   half is `hairlineWidth` on an **AppKit code-zoom surface**, which has no
+    token or it is a drift waiting to happen. Part five (a) added five more:
+    `fieldCornerRadius` (4), `fieldFocusedBorderWidth` (2), `fieldPaddingX` (10),
+    `secondaryButtonHeight` (28) and `secondaryButtonPaddingX` (14) — each a
+    distinct token with its own comment, none derived from another. The one exception to the scaling
+    half is `hairlineWidth` on an **AppKit code-zoom surface**, which has no
    `InterfaceMetrics` to ask and draws it unscaled — one point being what a
    hairline is (see the `ChromeGeometry` entry above, and `LineNumberRulerView`,
    which set the precedent).

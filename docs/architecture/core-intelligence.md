@@ -930,7 +930,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     idea of where a block ends. The whole feature — the region value, the state, the
     three maintenance rules, the two views — is documented in `core-folding.md`, and
     the wire half is D38 in `core-lsp.md`.
-  - `CompletionPopup.swift` — three pure value types and one builder for the editor's custom completion popup: `CompletionPopupSelection` (tracks the count and selected index, clamping at both ends, with row 0 preselected), `CompletionRowSource` (symbol, keyword, or word), `CompletionBadge` (SF Symbol name + color), and the `CompletionRow.rows(for:language:)` builder. This file only models the presentation and maps existing sources to badges; it ranks nothing and filters nothing, preserving the provider's order exactly.
+  - `CompletionPopup.swift` — three pure value types and one builder for the editor's custom completion popup: `CompletionPopupSelection` (tracks the count and selected index, clamping at both ends, with row 0 preselected), `CompletionRowSource` (symbol, keyword, or word), `CompletionBadge` (SF Symbol name only — the colour was removed in part five (a), `core-theme.md`; `FileIconColor` stays for `FileIcon`), and the `CompletionRow.rows(for:language:)` builder. This file only models the presentation and maps existing sources to badges; it ranks nothing and filters nothing, preserving the provider's order exactly.
   - `SymbolIntelligenceProvider.swift` — the index-backed
     `CodeIntelligenceProviding` implementation and the home of **every ranking
     rule** — with one stated exception, `foldRegions(for:)`, which reads no index
