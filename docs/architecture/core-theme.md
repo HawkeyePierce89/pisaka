@@ -1098,7 +1098,7 @@ although it is an editing affordance rather than a row: an inline draft
 for. `TabStripView.swift` covers `TabStatusMark` too, the slot view the two
 orientations share, which is why that extraction did not add a seventh file.
 
-The twenty-six rules, each invisible to the compiler:
+The twenty-seven rules, each invisible to the compiler:
 
 1. **No gated view names a system semantic colour.** A closed forbidden-token
    list — AppKit's semantic set (`labelColor`, `separatorColor`,
@@ -1444,6 +1444,15 @@ The twenty-six rules, each invisible to the compiler:
    box has a `bgEditor` ground, a one-point `hairline` border and `accent` at the
    focused width while focused, and takes its horizontal inset as a parameter
    with no height; the themed field is a plain `TextField` over it.
+27. **Each measurement follows its own zone.** The Find in Files match row
+   carries no fixed `.frame(height:` and is sized by the code font
+   (`settings.fontSize`), matched over its brace-matched body so a multi-line
+   call cannot slip past; each `cornerRadius` assignment in
+   `CompletionPanel.swift` and `HoverPanel.swift` names `metrics` on the same
+   statement, so the radius is scaled with the interface. Both clauses carry a
+   non-vacuity check — the row's body must be found and must name
+   `settings.fontSize`, and each panel must have at least one `cornerRadius`
+   assignment.
 
 Plus a **self-check** in the suite's own idiom: every gated file must actually
 *name* a `ChromeColorRole`, or the checks above have gone vacuous — with two

@@ -223,22 +223,22 @@ The rule that would have caught Task 1, generalized to cover Task 4 as well,
 since both are the same mistake in opposite directions: a chrome measurement that
 does not follow the interface scale, and a code-zone measurement that does.
 
-- [ ] Add rule twenty-seven with two clauses:
+- [x] Add rule twenty-seven with two clauses:
       - the match row's brace-matched body in `ProjectSearchView.swift` names
         `settings.fontSize` and spells no `.frame(` height at all — matched over a
         brace-matched body so a multi-line call cannot slip past, the mistake part
         four (b) shipped with rule twenty-one;
       - each `cornerRadius` assignment in `CompletionPanel.swift` and
         `HoverPanel.swift` names `metrics` on the same statement.
-- [ ] Both clauses carry a non-vacuity check: the row's body must be found and
+- [x] Both clauses carry a non-vacuity check: the row's body must be found and
       must name `settings.fontSize`, and each panel must have at least one
       `cornerRadius` assignment.
-- [ ] Show the rule red three times — a `.frame(height:)` restored on the match
+- [x] Show the rule red three times — a `.frame(height:)` restored on the match
       row, the same written across two lines, and an unscaled radius restored in
       one panel — then revert each.
-- [ ] Update the suite's header bullet list and its `spelled` count to
+- [x] Update the suite's header bullet list and its `spelled` count to
       twenty-seven.
-- [ ] Run `swift test`.
+- [x] Run `swift test`.
 
 ### Task 7: Documentation and the count bookkeeping
 

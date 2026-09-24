@@ -111,16 +111,19 @@ import XCTest
 ///   a popover (`.popover(`) or declaring an `NSPanel` is in that set; no gated
 ///   file spells `NSVisualEffectView`, a `.material` assignment or
 ///   `presentationBackground`.
-/// - **`Divider()` in exactly one place.** The one separator a gated file may
-///   spell is the menu's, in `SearchHistoryMenu.swift`, with exactly one
-///   occurrence there.
+/// - **No gated file spells `Divider()`; a menu separates with `Section`.** No
+///   gated file spells `Divider(`, and every gated file that builds a `Menu`
+///   spells `Section` at least once.
 /// - **AppKit layer colours are set only inside the drawing appearance.** Every
 ///   `borderColor` and `backgroundColor` assignment in the two popover panels
 ///   lies inside a `performAsCurrentDrawingAppearance` body, naming `hairline` and
 ///   `bgPopover` respectively.
 /// - **One field shape.** No gated file spells the rounded-border style; the
 ///   shared field/box is constructed in exactly four callers plus the defining
-///   file.
+///   file, and the shared query toggle in exactly two.
+/// - **Each measurement follows its own zone.** The Find in Files match row
+///   carries no fixed height and is sized by the code font, and each popover's
+///   corner radius is scaled with the interface metrics.
 final class ChromeThemeSourceGatingTests: XCTestCase {
 
     // MARK: - The gated set
@@ -2084,6 +2087,50 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         }
     }
 
+    // MARK: - Rule twenty-seven: each measurement follows its own zone
+
+    /// The Find in Files match row is sized by the code font rather than a fixed
+    /// interface-scaled height, and each popover's corner radius is scaled with
+    /// the interface metrics. Both are the same mistake in opposite directions —
+    /// a chrome measurement that does not follow the interface scale, and a
+    /// code-zone measurement that does — and would have been caught by this rule.
+    func testEachMeasurementFollowsItsOwnZone() throws {
+        let projectSearchCode = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
+            try Self.read(Self.source(named: "ProjectSearchView.swift"))
+        )
+        let rowBody = try XCTUnwrap(
+            Self.matchedBody(after: "private func row(", in: projectSearchCode),
+            "ProjectSearchView.swift's private func row( is gone or renamed — re-point this rule rather than losing it"
+        )
+        XCTAssertTrue(
+            rowBody.contains("settings.fontSize"),
+            "ProjectSearchView.swift's row body must name settings.fontSize — the row draws at the code font"
+        )
+        let frameHeight = try NSRegularExpression(pattern: "\\.frame\\s*\\(\\s*height")
+        XCTAssertNil(
+            frameHeight.firstMatch(in: rowBody, range: NSRange(rowBody.startIndex..., in: rowBody)),
+            "ProjectSearchView.swift's row body spells .frame(height: — the row carries no fixed height, sized by its code-font content"
+        )
+
+        for name in ["CompletionPanel.swift", "HoverPanel.swift"] {
+            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
+                try Self.read(Self.source(named: name))
+            )
+            let lines = code.components(separatedBy: .newlines)
+            let cornerLines = lines.filter { $0.contains("cornerRadius") }
+            XCTAssertGreaterThan(
+                cornerLines.count, 0,
+                "\(name) has no cornerRadius assignment — each popover must have at least one, scaled with the interface"
+            )
+            for line in cornerLines {
+                XCTAssertTrue(
+                    line.contains("metrics"),
+                    "\(name) has a cornerRadius assignment that does not name metrics on the same statement — the radius must be scaled with the interface"
+                )
+            }
+        }
+    }
+
     // MARK: - Self-check
 
     /// Every gated file draws with roles and must therefore name one — with two
@@ -2149,7 +2196,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         13: "thirteen", 14: "fourteen", 15: "fifteen", 16: "sixteen", 17: "seventeen",
         18: "eighteen", 19: "nineteen", 20: "twenty", 21: "twenty-one",
         22: "twenty-two", 23: "twenty-three", 24: "twenty-four",
-        25: "twenty-five", 26: "twenty-six",
+        25: "twenty-five", 26: "twenty-six", 27: "twenty-seven",
     ]
 
     func testBothSummariesSpellTheSuitesOwnRuleCount() throws {
