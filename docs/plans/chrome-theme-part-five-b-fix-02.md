@@ -149,26 +149,26 @@ none of those names: `DiffView.swift` has `leftText`/`rightText` and
 `scroll.backgroundColor = …` passes the rule — and that is precisely the competing
 second ground the rule exists to forbid.
 
-- [ ] Decide a receiver is a code pane by the **type it is declared with**, not by
+- [x] Decide a receiver is a code pane by the **type it is declared with**, not by
       how it is spelled: an identifier declared in the same file as `NSTextView`,
       `NSScrollView`, `NSClipView` or a subclass of one (`DiffTextView`,
       `MergePaneTextView`), including a tuple binding from a factory returning
       those, and including the element bound by a `for x in` over an array of them.
       Keep the existing suffix test as a fallback so an unnamed receiver is still
       caught.
-- [ ] Flag a subscripted receiver (`scrolls[i].backgroundColor = …`) rather than
+- [x] Flag a subscripted receiver (`scrolls[i].backgroundColor = …`) rather than
       silently passing it: if the rule cannot resolve the element's type, it fails
       loudly and asks for the assignment to be written plainly. A rule that cannot
       decide must not decide in favour of the code.
-- [ ] Mutation-verify with the **real names**, not with a name the old test would
+- [x] Mutation-verify with the **real names**, not with a name the old test would
       have caught: add `coordinator.leftText?.backgroundColor = ChromePalette
       .nsColor(.bgPanel)` to `DiffView.swift` and confirm red; add
       `scroll.backgroundColor = …` inside `MergeView.swift`'s loop and confirm red;
       revert both and confirm green, with a clean `git status`.
-- [ ] Record in the rule's comment what the old test missed and why the type-based
+- [x] Record in the rule's comment what the old test missed and why the type-based
       test replaces it, so the next reader does not re-introduce the name test as a
       simplification.
-- [ ] Run `swift test`. It must pass.
+- [x] Run `swift test`. It must pass.
 
 ### Task 3: One whitespace-tolerant call matcher, and rule thirty-four's two holes
 

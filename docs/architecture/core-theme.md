@@ -1822,10 +1822,16 @@ The thirty-five rules, each invisible to the compiler:
     is called in exactly `CodeEditorView.swift`, `SourceViewerContent.swift`,
     `DiffView.swift` and `MergeView.swift`; across the gated set plus
     `CodeEditorView.swift`, no `backgroundColor` assignment whose receiver is a
-    code pane — an expression ending in a text view, a scroll view or a scroll
-    view's `contentView`, or a bare/`self.` assignment inside an `NSTextView`,
-    `NSScrollView` or `NSClipView` subclass — appears outside `CodePaneGround`'s
-    body. The two panels' `panel.backgroundColor = .clear` are outside the
+    code pane — decided by the **type the receiver is declared with** in its
+    file (`NSTextView`, `NSScrollView`, `NSClipView` or a subclass, including a
+    factory's tuple binding and the element of a `for` over an array of them),
+    a pane's `contentView`, a name ending in `textview`/`scrollview` as the
+    fallback for a name the file declares nowhere, or a bare/`self.` assignment
+    inside a pane subclass — appears outside `CodePaneGround`'s body. The type
+    replaced an earlier name-only test that the guarded files' own names
+    (`leftText`, `oursScroll`, a loop's `scroll`) walked straight past. A
+    subscripted or call-result receiver fails as unresolvable rather than
+    passing. The two panels' `panel.backgroundColor = .clear` are outside the
     clause by what they paint (a borderless panel must be clear), window grounds
     are rule twenty-eight's and layer colours rule twenty-five's. No gated file
     spells `NSBox`, and `MergeView.swift` spells `DiffDividerView`. The prose
