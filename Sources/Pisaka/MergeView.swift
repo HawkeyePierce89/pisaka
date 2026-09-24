@@ -161,15 +161,6 @@ struct MergeView: View {
     }
 }
 
-/// Background highlight for a line in one of the three merge panes.
-private enum MergeLineKind {
-    case plain
-    case ours
-    case theirs
-    case conflictUnresolved
-    case conflictResolved
-}
-
 /// The merge panes' color scheme (kept in the view layer like `SyntaxTheme`, so
 /// `PisakaCore` stays color-free).
 private enum MergeColors {

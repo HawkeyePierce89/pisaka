@@ -201,6 +201,7 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
 
 `docs/architecture/core-diff-merge.md` — diff & three-way merge:
 - `MergeRegion.swift` / `ThreeWayMerge.swift` — diff3 regions.
+- `MergeLineKind.swift` — the merge panes' line vocabulary; its wash is `ChromeColorRole.mergeWashRole(for:)`.
 - `MergeDocument.swift` — editable merge state; marker-faithful `resolvedText`.
 - `MergeModel.swift` — merge editor over the `:1/:2/:3` index stages.
 - `LineDiff.swift` — side-by-side LCS line diff (capped matrix).

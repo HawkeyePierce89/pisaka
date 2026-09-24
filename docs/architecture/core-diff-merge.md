@@ -46,6 +46,15 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `resolution → [String]` mapping is exposed as `public static
     resolvedLines(for:resolution:)` so `MergeView`'s result-pane builder reuses the
     exact marker text and ordering instead of mirroring it.
+  - `MergeLineKind.swift` — the merge panes' line vocabulary (`plain`, `ours`,
+    `theirs`, `conflictUnresolved`, `conflictResolved`; public, `Sendable`,
+    `CaseIterable`), moved verbatim out of `MergeView.swift` where it was private.
+    The view still *derives* which line is which kind from the `MergeDocument` it
+    shows; Core owns only the vocabulary and its one mapping to a chrome role,
+    `ChromeColorRole.mergeWashRole(for:)` (`core-theme.md`): the three conflicted
+    kinds share `conflictBackground` — the pane, not the colour, tells ours,
+    theirs and the unresolved result apart — a resolved region takes
+    `diffAddedBackground`, and a plain line takes no wash.
   - `MergeModel.swift` — `@MainActor ObservableObject` for the 3-pane merge editor,
     mirroring `LocalChangesModel`'s shape: injects `GitServicing` (read the merge
     index stages + stage the result) and `FileServicing` (write the resolved

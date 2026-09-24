@@ -102,4 +102,10 @@ public enum ChromeGeometry {
     public static let secondaryButtonHeight: Double = 28
     /// A secondary button's horizontal padding.
     public static let secondaryButtonPaddingX: Double = 14
+    /// A dialog's edge strip height: the commit dialog's header and the merge window's status strip.
+    public static let dialogEdgeStripHeight: Double = 44
+    /// The side of the chrome's square checkbox.
+    public static let checkboxSide: Double = 14
+    /// The chrome checkbox's corner radius.
+    public static let checkboxCornerRadius: Double = 3
 }

@@ -205,33 +205,33 @@ one is recorded in `core-theme.md`:
 - Modify: `Tests/PisakaCoreTests/ChromeThemeTests.swift`
 - Create or modify: the role-mapping test file (see Context)
 
-- [ ] Move the view's private `MergeLineKind` into Core verbatim as a public,
+- [x] Move the view's private `MergeLineKind` into Core verbatim as a public,
   `Sendable`, `CaseIterable` enum with the cases `plain`, `ours`, `theirs`,
   `conflictUnresolved` and `conflictResolved`. The doc comment says the view *derives*
   which line is which kind; Core owns only the vocabulary and the mapping.
-- [ ] Add `ChromeColorRole.mergeWashRole(for: MergeLineKind) -> ChromeColorRole?`:
+- [x] Add `ChromeColorRole.mergeWashRole(for: MergeLineKind) -> ChromeColorRole?`:
   - `ours`, `theirs` and `conflictUnresolved` map to `conflictBackground`;
   - `conflictResolved` maps to `diffAddedBackground`;
   - `plain` maps to `nil`.
-- [ ] The doc comment on `mergeWashRole(for:)` states why there is one wash rather than
+- [x] The doc comment on `mergeWashRole(for:)` states why there is one wash rather than
   two. The design draws the differing lines of the read-only panes and the unresolved
   region of the result pane identically, and the panes are what tell them apart.
-- [ ] Update the type's doc comment: the merge panes spend `conflictBackground`, and the
+- [x] Update the type's doc comment: the merge panes spend `conflictBackground`, and the
   two roles left unspent are `currentLine` and `bracketMatch`, both code zone.
-- [ ] Add three `ChromeGeometry` tokens, each with a one-line comment and none derived
+- [x] Add three `ChromeGeometry` tokens, each with a one-line comment and none derived
   from another:
   - `dialogEdgeStripHeight` = 44 (the commit dialog's header and the merge window's
     status strip);
   - `checkboxSide` = 14;
   - `checkboxCornerRadius` = 3.
-- [ ] Extend `testGeometryTokensCarryTheirTableValues` and the set-equality inventory in
+- [x] Extend `testGeometryTokensCarryTheirTableValues` and the set-equality inventory in
   `testGeometryDeclaresExactlyTheseTokensAndNoFontSize`.
-- [ ] Write tests for `mergeWashRole(for:)`: every case of `MergeLineKind.allCases` has
+- [x] Write tests for `mergeWashRole(for:)`: every case of `MergeLineKind.allCases` has
   its expected answer, and exactly the three conflicted kinds reach
   `conflictBackground`. This is the merge wash's first test of any kind.
-- [ ] Add the index line for `MergeLineKind.swift` to `CLAUDE.md` under
+- [x] Add the index line for `MergeLineKind.swift` to `CLAUDE.md` under
   `core-diff-merge.md`, and a short entry in that doc.
-- [ ] Run `swift test`. It must pass.
+- [x] Run `swift test`. It must pass.
 
 ### Task 2: One window ground, set in the subclass
 
