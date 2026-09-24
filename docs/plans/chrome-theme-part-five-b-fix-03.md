@@ -216,21 +216,21 @@ every one of these passes while drawing an opaque background on the selected row
 - Modify: `docs/architecture/core-theme.md`
 - Modify: `Tests/PisakaCoreTests/ChromeThemeSourceGatingTests.swift` (doc comment)
 
-- [ ] Record, beside the rules rather than among them, what a gating rule in this
+- [x] Record, beside the rules rather than among them, what a gating rule in this
       suite may do: pin a **set** by equality, or assert the **presence or absence**
       of a token through `containsToken`, or take a **brace-matched body** and do
       one of those inside it. It does not resolve types, evaluate conditionals or
       decide which of two branches runs.
-- [ ] State the evidence in one short paragraph: three consecutive review rounds
+- [x] State the evidence in one short paragraph: three consecutive review rounds
       found that the three rules attempting expression analysis (thirty-one,
       thirty-four, thirty-five) did not catch the regressions they named, while no
       set-equality or token rule in this suite has failed. Name the three so the
       next reader knows which precedents not to copy.
-- [ ] State the consequence honestly: a property that cannot be expressed this way
+- [x] State the consequence honestly: a property that cannot be expressed this way
       is not pinned by this suite at all, and belongs in the app-layer bundle or in
       the acceptance review's own reading — not in a rule that claims more than it
       holds.
-- [ ] No new test: this is a convention. Confirm `swift test` stays green, since
+- [x] No new test: this is a convention. Confirm `swift test` stays green, since
       the count and canonical-list self-checks read this document.
 
 ### Task 5: Verify the gates

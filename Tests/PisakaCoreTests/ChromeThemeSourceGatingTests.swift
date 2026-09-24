@@ -158,6 +158,15 @@ import XCTest
 ///   `listRowBackground` under a `List` binding `selection:` is a conditional
 ///   whose condition is the row equal to the selection and whose branch taken
 ///   then names `clear`; a background written another way fails by design.
+///
+/// What a rule here may do, and nothing more: pin a set by equality, assert the
+/// presence or absence of a token through `containsToken`, or take a
+/// brace-matched body and do one of those inside it. A rule does not resolve
+/// types, evaluate conditionals or decide which of two branches runs — the three
+/// that tried (thirty-one, thirty-four, thirty-five) each missed the regression
+/// it named across three review rounds, while no set or token rule failed. A
+/// property this cannot express belongs in the app-layer bundle or the
+/// acceptance review, not here (`core-theme.md`, beside the rules).
 final class ChromeThemeSourceGatingTests: XCTestCase {
 
     // MARK: - The gated set

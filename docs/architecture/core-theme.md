@@ -1953,6 +1953,34 @@ reader the sweep is smaller than it is while omitting the newest rules. Same
 shape as `LintConfigurationTests`' style-version pair: one source of truth, every
 document spelling it checked against that.
 
+
+And, also beside the rules, **what a rule in this suite may do** — the
+convention every new rule is written to, because the rules that broke it are
+the ones that failed. A rule pins a **set** by equality (`gatedFiles`,
+`colorExemptions`, `diffWashReaders`, `sharedFieldConstructors`), or asserts
+the **presence or absence of a token** through `containsToken`, or takes a
+**brace-matched body** and does one of those two inside it. It does not
+resolve types, evaluate conditionals or decide which of two branches runs.
+
+The evidence is three consecutive review rounds. Each found that a rule
+attempting expression analysis did not catch the regression it named: rule
+thirty-one resolved which receiver was a code pane and missed bindings,
+unwrapped aliases and every name its suffix test did not expect; rule
+thirty-four decided what sizes a glyph from the modifier chain around it and
+counted a frame that sizes nothing; rule thirty-five searched a
+`listRowBackground` argument for two tokens and passed the reversed
+conditional. Over the same rounds no set-equality or token rule here failed.
+Thirty-one and thirty-five have since been rewritten into the permitted
+shapes — a total ban with pinned sites, one anchored conditional that fails
+when it cannot be read — and thirty-four stays the one rule reading a chain,
+narrowed rather than extended. **Those three are the precedents not to copy.**
+
+The consequence, stated plainly: a property that cannot be expressed this way
+is **not pinned by this suite at all**. It belongs in the app-layer bundle
+(`Tests/PisakaAppTests`), which can construct the view and ask it, or in the
+acceptance review's own reading — never in a rule that claims more than it
+holds, since a rule that is believed and does not hold is worse than none.
+
 The values themselves are pinned in the app bundle instead
 (`ChromePaletteTests`), the palette being an app-target file.
 
