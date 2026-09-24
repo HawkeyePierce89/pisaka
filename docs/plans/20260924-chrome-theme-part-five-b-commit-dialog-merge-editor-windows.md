@@ -410,11 +410,11 @@ one is recorded in `core-theme.md`:
 - Modify: `Sources/Pisaka/MergeView.swift`
 - Modify: `Tests/PisakaCoreTests/ChromeThemeSourceGatingTests.swift`
 
-- [ ] Add a private `chromeColor(_:)` to the root `MergeView`, in the root shape.
+- [x] Add a private `chromeColor(_:)` to the root `MergeView`, in the root shape.
   Nothing inside the root struct's declaration reads `\.chromeTheme`: not its body and
   not a stored property. `MergeThreePaneView` stays at file scope, and so does any new
   child view.
-- [ ] **Status strip** (today's toolbar):
+- [x] **Status strip** (today's toolbar):
   - `dialogEdgeStripHeight` high, `bgPanel`, a `hairline` bottom rule.
   - The "Conflict n of m" and status sentences are `.callout`. The status is
     `statusGreen` when fully resolved and `textSecondary` otherwise.
@@ -423,13 +423,13 @@ one is recorded in `core-theme.md`:
   - The four take-side buttons use `.chromeSecondary`. Apply uses `.chromePrimary` and
     keeps its ⌘↩ shortcut and disabled rule.
   - The vertical `Divider()` becomes a vertical `hairline` rule (decision 7).
-- [ ] **Pane header:** `panelHeaderHeight` (was 22), `bgPanel`, a `hairline` bottom rule,
+- [x] **Pane header:** `panelHeaderHeight` (was 22), `bgPanel`, a `hairline` bottom rule,
   titles in `textPrimary` at the size the dock's panel headers use, and vertical
   `hairline` rules between them.
-- [ ] Error text is `statusRed` and the loading text is `textSecondary`.
-- [ ] Replace all six `Divider()`s with `hairline` rules.
-- [ ] Add `MergeView.swift` to `gatedFiles`.
-- [ ] Run `swift test` and the macOS build. Both must pass.
+- [x] Error text is `statusRed` and the loading text is `textSecondary`.
+- [x] Replace all six `Divider()`s with `hairline` rules.
+- [x] Add `MergeView.swift` to `gatedFiles`.
+- [x] Run `swift test` and the macOS build. Both must pass.
 
 ### Task 7: The Local History window, and the two part five (a) corrections
 

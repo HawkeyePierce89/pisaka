@@ -195,6 +195,9 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         "DiffWindowContent.swift",
         // Part five (b): the commit dialog, its file row and its author sheet.
         "CommitDialogView.swift",
+        // Part five (b): the merge editor — its status strip, pane header and
+        // the AppKit panes' wash through `mergeWashRole(for:)`.
+        "MergeView.swift",
     ]
 
     func testEveryGatedFileExists() throws {
