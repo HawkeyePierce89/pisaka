@@ -740,7 +740,7 @@ ci.yml's `lint` job, and the version-bump procedure.
   live in both directions when the system appearance changed under it. A
   reader: it takes no writer gate, is gated by none and writes nothing.
   `ChromeThemeSourceGatingTests` pins which files obey the rule (forty-four, by set
-  equality) and its thirty-three rules — no system semantic colour, no hex literal
+  equality) and its thirty-four rules — no system semantic colour, no hex literal
   outside the table, the four exemptions stay exemptions, the theme injected at
   the scale's roots, no view constructing a theme, the gutter's fill still going
   through its own rule (a seam pins nothing its call site does not spend, and
@@ -770,7 +770,7 @@ ci.yml's `lint` job, and the version-bump procedure.
   stating no fixed width and scrolling below its floor (a row that cannot
   shrink is clipped under the window's minimum width), every pushed resize
    cursor released from a disappearance handler (a divider leaving the tree gets
-   neither `onHover(false)` nor `onEnded`), a popover surface names `bgPopover`, no gated file spells `Divider()` and every menu separates with `Section`, AppKit layer colours are set only inside the drawing appearance, one field shape and one query toggle, each measurement follows its own zone, a secondary window's ground set in the window subclass alone, the merge wash Core's one answer (`mergeWashRole(for:)`, one reader, no alpha on a role's colour), one primary button, one secondary and one checkbox (no platform toggle or bordered/link button style), a code pane's ground through one definition (`CodePaneGround`, four callers), a window root resolving the theme the root way (no `\.chromeTheme` anywhere in a root struct), and the commit dialog's rows and controls (no fixed row height, the three row states, a spoken checkbox value, labelled chevrons) — plus, beside the rules rather
+   neither `onHover(false)` nor `onEnded`), a popover surface names `bgPopover`, no gated file spells `Divider()` and every menu separates with `Section`, AppKit layer colours are set only inside the drawing appearance, one field shape and one query toggle, each measurement follows its own zone, a secondary window's ground set in the window subclass alone, the merge wash Core's one answer (`mergeWashRole(for:)`, one reader, no alpha on a role's colour), one primary button, one secondary and one checkbox (no platform toggle or bordered/link button style), a code pane's ground through one definition (`CodePaneGround`, four callers), a window root resolving the theme the root way (no `\.chromeTheme` anywhere in a root struct), and the commit dialog's rows and controls (no fixed row height, the three row states, a spoken checkbox value, labelled chevrons), and every chrome glyph sized in the interface zone (its own scaled font or frame, or a pinned declaration whose container font, button style or stated off-scale reason the rule re-checks) — plus, beside the rules rather
   than among them, the cross-file count that keeps this sentence and
   `core-theme.md`'s own list equal to the number of rules the suite declares —
   while **four files are exempt because they are not

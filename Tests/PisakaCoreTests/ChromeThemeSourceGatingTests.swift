@@ -145,6 +145,10 @@ import XCTest
 /// - **The commit dialog's rows and controls.** The file row states no fixed
 ///   height and draws the three row states; the checkbox speaks its value; the
 ///   merge strip's chevrons are named.
+/// - **Every chrome glyph is sized in the interface zone.** A symbol with no
+///   font of its own draws at the system default, which follows neither zoom;
+///   each glyph carries a scaled font or frame, or sits in a pinned declaration
+///   whose container font, button style or stated off-scale reason is re-checked.
 final class ChromeThemeSourceGatingTests: XCTestCase {
 
     // MARK: - The gated set
@@ -527,6 +531,12 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// different declaration: one definition, so the two rules cannot come to
     /// disagree about what "this declaration's body" means.
     static func matchedBody(after declaration: String, in code: String) -> String? {
+        matchedBodyRange(after: declaration, in: code).map { String(code[$0]) }
+    }
+
+    /// `matchedBody(after:in:)` as a range of `code`, for a rule that must walk
+    /// outward from a position inside the body into the file around it.
+    static func matchedBodyRange(after declaration: String, in code: String) -> Range<String.Index>? {
         guard let start = code.range(of: declaration) else { return nil }
         guard let open = code[start.upperBound...].firstIndex(of: "{") else { return nil }
         var depth = 0
@@ -535,7 +545,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
             if code[index] == "{" { depth += 1 }
             if code[index] == "}" {
                 depth -= 1
-                if depth == 0 { return String(code[code.index(after: open)..<index]) }
+                if depth == 0 { return code.index(after: open)..<index }
             }
             index = code.index(after: index)
         }
@@ -2820,6 +2830,228 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         return false
     }
 
+    // MARK: - Rule thirty-four: every chrome glyph is sized in the interface zone
+
+    /// A symbol image's size is its font's, and a glyph that sets none takes
+    /// whatever an ancestor supplies — or the system default when nothing does,
+    /// which is in neither zone and does not move with the interface scale. The
+    /// commit dialog's file-type glyph was exactly that: its row lost the
+    /// container font it inherited, the name, directory and status letter beside
+    /// it each gained a font of their own, and the glyph stood still at 150% and
+    /// 200% while everything around it grew. Nothing misrenders at the scale a
+    /// reviewer happens to use.
+    ///
+    /// So every `Image(systemName:` in a gated file carries, among its **own**
+    /// chained modifiers (a nested view's modifier inside an argument does not
+    /// count), a `.font(` or a `.frame(` whose argument list names `metrics` — or
+    /// sits in a declaration pinned below, with the exact number of glyphs that
+    /// declaration sizes from outside and **what** sizes them, which the rule
+    /// re-checks. A declaration is named by the first occurrence of its text in
+    /// the stripped file, which is `matchedBody(after:in:)`'s reading.
+    ///
+    /// Re-checking the "what" is the half that matters: a container font is
+    /// exactly what the commit row lost, and an exemption that only counted its
+    /// glyphs would stay green through that very regression.
+    private enum GlyphSizing {
+        /// An enclosing stack's own chain ends in `.font(` naming `metrics`, so
+        /// the glyph and the text beside it are one size by construction.
+        case containerFont
+        /// The glyph lives in a declaration used as a view elsewhere in the same
+        /// file; every use of that name is font-sized the `containerFont` way.
+        case useSiteFont(String)
+        /// The glyph is a button label, and the enclosing button's chain names
+        /// this shared style, which sets the label's font through the metrics.
+        case buttonStyle(String)
+        /// Deliberately on neither scale; the reason is stated at the entry.
+        case offBothScales
+    }
+
+    private static let glyphSizeExemptions: [(file: String, declaration: String, count: Int, sizing: GlyphSizing)] = [
+        // The conflict chevrons are button labels; `ChromeSecondaryButtonStyle`
+        // sets the label's `.callout` font through the interface metrics.
+        ("MergeView.swift", "private var statusStrip", 2, .buttonStyle("chromeSecondary")),
+        // The shared field's leading glyph sits in the field's `HStack`, whose
+        // `.font(metrics.scaledFont(textStyle))` is the field's own text size —
+        // the glyph matching the text beside it is the point.
+        ("ChromeControls.swift", "struct ChromeThemedTextField", 1, .containerFont),
+        // Container fonts, one per row or label: the bottom-bar widgets' labels,
+        ("BranchSwitcherView.swift", "var body: some View", 2, .containerFont),
+        ("ProjectSwitcherView.swift", "var body: some View", 2, .containerFont),
+        ("PullRequestIndicatorView.swift", "var body: some View", 2, .containerFont),
+        // the consent strip's three rows,
+        ("LSPConsentBanner.swift", "private func downloadRow(", 1, .containerFont),
+        ("LSPConsentBanner.swift", "private func goRow(", 1, .containerFont),
+        ("LSPConsentBanner.swift", "private func rustRow(", 1, .containerFont),
+        // the dock panels' group headers, badges and rows,
+        ("ProblemsPanelView.swift", "private func fileGroup(", 1, .containerFont),
+        ("ProblemsPanelView.swift", "private func severityBadge(", 1, .containerFont),
+        ("ProblemsPanelView.swift", "struct ProblemRow", 1, .containerFont),
+        ("UsagesPanelView.swift", "private func fileGroup(", 1, .containerFont),
+        ("CommitLogView.swift", "struct CommitFileRow", 1, .containerFont),
+        // and the tree's rows.
+        ("ProjectTreeView.swift", "struct DirectoryNodeView", 1, .containerFont),
+        ("ProjectTreeView.swift", "struct FileRowView", 1, .containerFont),
+        // The create draft's icon column is drawn twice — beside the field, and
+        // as a hidden twin measuring the reason line's inset — each under a font
+        // of its own at the use site.
+        ("ProjectTreeDraftField.swift", "private var iconColumn", 2, .useSiteFont("iconColumn")),
+        // The unified diff's per-line checkbox is fixed geometry belonging to a
+        // *code* row, left off both scales on purpose (the file's own `metrics`
+        // comment states it — the Find in Files rows' rule), so neither zone
+        // may size it.
+        ("CommitUnifiedDiffView.swift", "private func checkbox(for", 1, .offBothScales),
+    ]
+
+    func testEveryChromeGlyphIsSizedInTheInterfaceZone() throws {
+        var exempted: [String: Int] = [:]
+        for exemption in Self.glyphSizeExemptions {
+            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
+                try Self.read(Self.source(named: exemption.file))
+            )
+            let body = try XCTUnwrap(
+                Self.matchedBodyRange(after: exemption.declaration, in: code),
+                "\(exemption.file)'s \(exemption.declaration) is gone or renamed — re-point its exemption rather than losing it"
+            )
+            let glyphs = Self.unsizedGlyphs(in: code).filter { body.contains($0) }
+            XCTAssertEqual(
+                glyphs.count, exemption.count,
+                """
+                \(exemption.file)'s \(exemption.declaration) is exempted for \(exemption.count) glyph(s) sized \
+                from outside — re-derive the count rather than widening it
+                """
+            )
+            exempted[exemption.file, default: 0] += exemption.count
+            switch exemption.sizing {
+            case .containerFont:
+                for glyph in glyphs {
+                    XCTAssertTrue(
+                        Self.enclosingChainSetsAScaledFont(at: glyph, in: code),
+                        """
+                        a glyph in \(exemption.file)'s \(exemption.declaration) is exempted for its container font, \
+                        and no enclosing stack sets .font( naming metrics any more — size the glyph itself
+                        """
+                    )
+                }
+            case .useSiteFont(let name):
+                var uses = 0
+                var searchStart = code.startIndex
+                while let found = code.range(of: name, range: searchStart..<code.endIndex) {
+                    searchStart = found.upperBound
+                    guard Self.isWholeToken(found, in: code), !body.contains(found.lowerBound) else { continue }
+                    let after = code[found.upperBound...].first { !$0.isWhitespace }
+                    if after == ":" { continue } // the declaration itself
+                    uses += 1
+                    XCTAssertTrue(
+                        Self.chainSetsAScaledFont(from: found.upperBound, in: code)
+                            || Self.enclosingChainSetsAScaledFont(at: found.lowerBound, in: code),
+                        "a use of \(name) in \(exemption.file) is not under a .font( naming metrics — its glyphs draw unsized"
+                    )
+                }
+                XCTAssertGreaterThan(uses, 0, "\(name) is used nowhere in \(exemption.file) — re-point this exemption")
+            case .buttonStyle(let style):
+                for glyph in glyphs {
+                    XCTAssertTrue(
+                        Self.enclosingBlockChainNames(style, at: glyph, in: code),
+                        """
+                        a glyph in \(exemption.file)'s \(exemption.declaration) is exempted for its button's \
+                        \(style) style, and its button no longer names it — size the glyph itself
+                        """
+                    )
+                }
+            case .offBothScales:
+                break
+            }
+        }
+        for (name, code) in try Self.strippedGatedSources() {
+            XCTAssertEqual(
+                Self.unsizedGlyphs(in: code).count, exempted[name, default: 0],
+                """
+                \(name) has an Image(systemName:) with no .font( or .frame( naming metrics among its own \
+                modifiers — size it in the interface zone, or pin the declaration that sizes it with the reason
+                """
+            )
+        }
+    }
+
+    /// The positions of the `Image(systemName:` occurrences in `code` whose own
+    /// modifier chain sizes nothing through `metrics`.
+    static func unsizedGlyphs(in code: String) -> [String.Index] {
+        var positions: [String.Index] = []
+        var searchStart = code.startIndex
+        while let found = code.range(of: "Image(systemName:", range: searchStart..<code.endIndex) {
+            searchStart = found.upperBound
+            guard isWholeToken(found, in: code) else { continue }
+            let open = code.index(found.lowerBound, offsetBy: "Image".count)
+            if let end = balancedEnd(from: open, in: code),
+               chainSizesThroughMetrics(from: end, in: code, links: ["font", "frame"]) {
+                continue
+            }
+            positions.append(found.lowerBound)
+        }
+        return positions
+    }
+
+    /// Whether the text at `range` starts on an identifier boundary.
+    private static func isWholeToken(_ range: Range<String.Index>, in code: String) -> Bool {
+        guard range.lowerBound > code.startIndex else { return true }
+        let before = code[code.index(before: range.lowerBound)]
+        return !(before.isLetter || before.isNumber || before == "_")
+    }
+
+    private static func chainSetsAScaledFont(from start: String.Index, in code: String) -> Bool {
+        chainSizesThroughMetrics(from: start, in: code, links: ["font"])
+    }
+
+    /// Whether any brace block enclosing `index` — walking outward to the top of
+    /// the file — is followed by a modifier chain setting `.font(` through
+    /// `metrics`. A block whose chain is empty (an `if`, a `switch` case) passes
+    /// the question outward, which is how an `if let glyph { Image … }` inside a
+    /// fonted `HStack` is found.
+    private static func enclosingChainSetsAScaledFont(at index: String.Index, in code: String) -> Bool {
+        var depth = 0
+        var cursor = index
+        while cursor > code.startIndex {
+            cursor = code.index(before: cursor)
+            if code[cursor] == "}" { depth += 1 }
+            if code[cursor] == "{" {
+                if depth > 0 { depth -= 1; continue }
+                guard let end = balancedEnd(from: cursor, in: code) else { return false }
+                if chainSetsAScaledFont(from: end, in: code) { return true }
+            }
+        }
+        return false
+    }
+
+    /// Whether a top-level link of the modifier chain at `start` is one of
+    /// `links` with `metrics` in its own argument list. Walks the links
+    /// `modifierChain(from:in:)` walks, reading each link's name and arguments.
+    private static func chainSizesThroughMetrics(from start: String.Index, in code: String, links: Set<String>) -> Bool {
+        var index = start
+        func skip(_ allowed: (Character) -> Bool) {
+            while index < code.endIndex, allowed(code[index]) { index = code.index(after: index) }
+        }
+        while true {
+            skip { $0.isWhitespace }
+            guard index < code.endIndex, code[index] == "." else { return false }
+            index = code.index(after: index)
+            let nameStart = index
+            skip { $0.isLetter || $0.isNumber || $0 == "_" }
+            let name = String(code[nameStart..<index])
+            if index < code.endIndex, code[index] == "(" {
+                guard let past = balancedEnd(from: index, in: code) else { return false }
+                if links.contains(name) && LSPSourceGatingTests.containsToken("metrics", in: String(code[index..<past])) {
+                    return true
+                }
+                index = past
+            }
+            skip { $0 == " " || $0 == "\t" }
+            if index < code.endIndex, code[index] == "{" {
+                guard let past = balancedEnd(from: index, in: code) else { return false }
+                index = past
+            }
+        }
+    }
+
     // MARK: - Self-check
 
     /// Every gated file draws with roles and must therefore name one — with two
@@ -2904,7 +3136,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         22: "twenty-two", 23: "twenty-three", 24: "twenty-four",
         25: "twenty-five", 26: "twenty-six", 27: "twenty-seven",
         28: "twenty-eight", 29: "twenty-nine", 30: "thirty", 31: "thirty-one",
-        32: "thirty-two", 33: "thirty-three",
+        32: "thirty-two", 33: "thirty-three", 34: "thirty-four",
     ]
 
     func testBothSummariesSpellTheSuitesOwnRuleCount() throws {

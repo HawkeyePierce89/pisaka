@@ -211,6 +211,7 @@ struct PullRequestsPanelView: View {
     private func messageStrip(_ message: String) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: metrics.scaled(PullRequestsLayout.stripGap)) {
             Image(systemName: "exclamationmark.triangle")
+                .font(metrics.scaledFont(.subheadline))
                 .foregroundStyle(theme.color(.statusYellow))
                 .accessibilityHidden(true)
             Text(message)
@@ -235,6 +236,7 @@ struct PullRequestsPanelView: View {
     private func endingStrip(_ message: String) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: metrics.scaled(PullRequestsLayout.stripGap)) {
             Image(systemName: "clock.badge.exclamationmark")
+                .font(metrics.scaledFont(.subheadline))
                 .foregroundStyle(theme.color(.statusYellow))
                 .accessibilityHidden(true)
             Text(message)

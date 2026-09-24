@@ -1227,8 +1227,8 @@ Changes"; the file-count and diff-path headers are pane headers
 dialog stands on `bgPanel` and the diff preview on `bgEditor`; its three
 `Divider()`s are `hairline` rules. The file row is two lines — name in
 `textPrimary` at `.body`, directory in `textSecondary` at `.caption` — with no
-fixed height, the file icon coloured by `changedFileRole(for:)` and hidden from
-accessibility, the status letter `.callout` semibold monospaced keeping its
+fixed height, the file icon at its own `.callout` (rule thirty-four), coloured
+by `changedFileRole(for:)` and hidden from accessibility, the status letter `.callout` semibold monospaced keeping its
 spoken value, and a three-state `ChromeCheckbox` labelled "Include <name> in the
 commit". Its background is `TreeRowState.state(…)`'s precedence:
 `accentTintStrong` selected in a key window, `selectionInactive` selected in one
@@ -1313,6 +1313,21 @@ canonical list below, each shown red against a deliberate regression before it
 was committed. Rule twenty-seven's multi-line `.frame(… height:` walk is now a
 shared helper both it and rule thirty-three read.
 
+**Rule thirty-four, from the review round** — every chrome glyph sized in the
+interface zone. This part's file row lost the container font its file-type glyph
+inherited (the name, directory and status letter each gained a font of their
+own; the glyph did not), so it drew at the system default and stood still at
+150% and 200% while the row grew around it. The glyph now carries `.callout`
+itself, as Local Changes' row does. The sweep behind the rule read every
+`Image(systemName:` in the gated set, not only this part's files: two more
+glyphs were unsized the same way — the Pull Requests panel's message and
+wait-ending strip glyphs, now `.subheadline` like the message beside them —
+and twenty-one are sized by something outside their own chain, each pinned by
+declaration with what sizes it (seventeen by a container font, two by the font
+at their declaration's use sites, two by the shared secondary button style),
+plus the unified diff's per-line checkbox,
+pinned as deliberately on neither scale (decision 6 above).
+
 #### What is still waiting
 
 The dock is finished, the popovers and search surfaces are swept, and so are the
@@ -1379,7 +1394,7 @@ although it is an editing affordance rather than a row: an inline draft
 for. `TabStripView.swift` covers `TabStatusMark` too, the slot view the two
 orientations share, which is why that extraction did not add a seventh file.
 
-The thirty-three rules, each invisible to the compiler:
+The thirty-four rules, each invisible to the compiler:
 
 1. **No gated view names a system semantic colour.** A closed forbidden-token
    list — AppKit's semantic set (`labelColor`, `separatorColor`,
@@ -1792,6 +1807,20 @@ The thirty-three rules, each invisible to the compiler:
     `hoverTint`; `ChromeCheckbox`'s body spells `accessibilityValue`; and each
     of the merge status strip's two chevrons sits in a button whose modifier
     chain carries `accessibilityLabel`.
+34. **Every chrome glyph is sized in the interface zone.** Every
+    `Image(systemName:` in a gated file carries, among its own top-level
+    modifiers, a `.font(` or `.frame(` whose argument list names `metrics` — or
+    sits in a declaration pinned in `glyphSizeExemptions` with the exact count
+    of glyphs it sizes from outside *and what sizes them*, which the rule
+    re-checks: a container font (some enclosing block's chain sets `.font(`
+    through `metrics`), a use-site font (every use of the declaration is under
+    one — the tree draft's icon column), a button style (the enclosing button's
+    chain names `chromeSecondary` — the merge strip's chevrons), or
+    deliberately off both scales (the unified diff's per-line checkbox, a code
+    row's fixed geometry). Re-checking the source is the half that matters: an
+    exemption that only counted its glyphs would stay green through the very
+    regression — a removed container font — that the rule was written for. The
+    shared checkbox's glyph needs no entry; it sizes itself by frame.
 
 Plus a **self-check** in the suite's own idiom: every gated file must actually
 *name* a `ChromeColorRole`, or the checks above have gone vacuous — with two

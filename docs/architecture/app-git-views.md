@@ -438,7 +438,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     corners: the content does not clip (it would only expose the sheet's ground).
     `CommitFileRow` is two lines — name `textPrimary` `.body`, directory
     `textSecondary` `.caption` — with no fixed height, a `changedFileRole(for:)`
-    icon hidden from accessibility, the status letter `.callout` semibold
+    icon at its own `.callout` (the row has no container font to inherit, so an
+    unsized glyph would stand still under the interface scale — chrome rule
+    thirty-four) and hidden from accessibility, the status letter `.callout` semibold
     monospaced, a three-state `ChromeCheckbox` ("Include <name> in the commit"),
     and `TreeRowState`'s precedence for its background (`accentTintStrong`,
     `selectionInactive`, `hoverTint`) — the design's one mock draws only

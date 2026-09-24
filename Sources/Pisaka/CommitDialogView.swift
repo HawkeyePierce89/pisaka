@@ -527,7 +527,12 @@ private struct CommitFileRow: View {
             )
             .help("Include this file in the commit")
             .disabled(!isMutable)
+            // The glyph's size is its own, not inherited: the row carries no
+            // container font, so without this it draws at the system default and
+            // stands still while the name and status letter grow with the scale.
+            // `.callout`, as `ChangedFileRow`'s icon in Local Changes.
             Image(systemName: icon.symbolName)
+                .font(metrics.scaledFont(.callout))
                 .foregroundStyle(statusColor)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 0) {

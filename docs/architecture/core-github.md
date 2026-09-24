@@ -1595,7 +1595,10 @@ hidden from accessibility while the row speaks the bucket's words; the name in
 `textSecondary` `.subheadline` — today's text, and no duration, which
 `GitHubCheckRow` does not carry. The message and wait-ending strips draw a
 `statusYellow` glyph on `bgPanel` with a bottom hairline (the orange and
-secondary washes are gone). Review decisions are role-coloured text in a
+secondary washes are gone); the glyph carries the message's own `.subheadline`
+through the interface metrics — until part five (b)'s review round it carried no
+font and drew at the system default at every interface scale (chrome rule
+thirty-four). Review decisions are role-coloured text in a
 `hairline`-bordered capsule with no fill — approved `statusGreen`, changes
 requested `statusRed`, review required `statusYellow` — and neutral tags are
 `textSecondary`. No `Divider()` remains. Rules eighteen and twenty of the chrome
