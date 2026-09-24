@@ -124,6 +124,27 @@ import XCTest
 /// - **Each measurement follows its own zone.** The Find in Files match row
 ///   carries no fixed height and is sized by the code font, and each popover's
 ///   corner radius is scaled with the interface metrics.
+/// - **A secondary window's ground is set in the window subclass.** The six
+///   controllers constructing `EscClosableWindow` set no `backgroundColor`; the
+///   subclass's designated initializer sets `bgPanel`. Two setters compete
+///   silently, the later one winning with nothing to say so.
+/// - **The merge wash is Core's one answer.** `mergeWashRole(for:)` is read by
+///   the merge panes alone, `conflictBackground`/`currentLine`/`bracketMatch` by
+///   no app file but the palette, and no gated file chains an alpha onto a
+///   role's colour — a composed alpha is a second wash nothing re-themes.
+/// - **One primary button, one secondary, one checkbox.** No gated file spells a
+///   platform toggle or button style; the shared controls' callers are pinned;
+///   every button in part five (b)'s files is styled. A platform control
+///   compiles and looks plausible in whichever appearance the reviewer is in.
+/// - **A code pane's ground goes through one definition.** `CodePaneGround` has
+///   four callers and no code pane's `backgroundColor` is set anywhere else; no
+///   gated file draws an `NSBox`. A second ground drifts from the gutter's.
+/// - **A window root resolves the theme the root way.** A root's struct never
+///   reads `\.chromeTheme` — its environment is its parent's, the resting
+///   appearance — and resolves through a private `chromeColor(_:)`.
+/// - **The commit dialog's rows and controls.** The file row states no fixed
+///   height and draws the three row states; the checkbox speaks its value; the
+///   merge strip's chevrons are named.
 final class ChromeThemeSourceGatingTests: XCTestCase {
 
     // MARK: - The gated set
@@ -2187,46 +2208,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
             rowBody.contains("settings.fontSize"),
             "ProjectSearchView.swift's row body must name settings.fontSize — the row draws at the code font"
         )
-        let heightPattern = try NSRegularExpression(pattern: "\\bheight\\s*:")
-        var hasFrameHeight = false
-        var searchStart = rowBody.startIndex
-        while let frameRange = rowBody.range(of: ".frame", range: searchStart..<rowBody.endIndex) {
-            var parenStart: String.Index?
-            var idx = frameRange.upperBound
-            while idx < rowBody.endIndex, rowBody[idx].isWhitespace { idx = rowBody.index(after: idx) }
-            if idx < rowBody.endIndex, rowBody[idx] == "(" { parenStart = idx }
-            guard let start = parenStart else {
-                searchStart = rowBody.index(after: frameRange.lowerBound)
-                continue
-            }
-            var depth = 0
-            var close: String.Index?
-            var scan = start
-            while scan < rowBody.endIndex {
-                if rowBody[scan] == "(" { depth += 1 } else if rowBody[scan] == ")" {
-                    depth -= 1
-                    if depth == 0 { close = scan; break }
-                }
-                scan = rowBody.index(after: scan)
-            }
-            guard let end = close else { break }
-            let args = String(rowBody[start...end])
-            let argsRange = NSRange(args.startIndex..., in: args)
-            let heightMatches = heightPattern.matches(in: args, range: argsRange)
-            for match in heightMatches {
-                guard let matchRange = Range(match.range, in: args) else { continue }
-                var depth = 0
-                for ch in args[args.startIndex..<matchRange.lowerBound] {
-                    if ch == "(" { depth += 1 } else if ch == ")" { depth -= 1 }
-                }
-                if depth == 1 {
-                    hasFrameHeight = true
-                    break
-                }
-            }
-            if hasFrameHeight { break }
-            searchStart = rowBody.index(after: end)
-        }
+        let hasFrameHeight = try Self.hasFrameHeight(in: rowBody)
         XCTAssertFalse(
             hasFrameHeight,
             "ProjectSearchView.swift's row body spells .frame(height: — the row carries no fixed height, sized by its code-font content"
@@ -2249,6 +2231,593 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
                 )
             }
         }
+    }
+
+    /// Whether `body` applies a `.frame(…)` whose own argument list (depth one,
+    /// not a nested call's) names `height:` — tolerant of line breaks, because
+    /// `.frame(\n    height:` is the same fixed height as `.frame(height:`.
+    ///
+    /// Rule twenty-seven's walk, factored out when rule thirty-three needed the
+    /// same reading of another row: one definition, so the two rules cannot come
+    /// to disagree about what "a fixed height" means.
+    static func hasFrameHeight(in body: String) throws -> Bool {
+        let heightPattern = try NSRegularExpression(pattern: "\\bheight\\s*:")
+        var searchStart = body.startIndex
+        while let frameRange = body.range(of: ".frame", range: searchStart..<body.endIndex) {
+            var idx = frameRange.upperBound
+            while idx < body.endIndex, body[idx].isWhitespace { idx = body.index(after: idx) }
+            guard idx < body.endIndex, body[idx] == "(", let end = balancedEnd(from: idx, in: body) else {
+                searchStart = body.index(after: frameRange.lowerBound)
+                continue
+            }
+            let args = String(body[idx..<end])
+            for match in heightPattern.matches(in: args, range: NSRange(args.startIndex..., in: args)) {
+                guard let matchRange = Range(match.range, in: args) else { continue }
+                var depth = 0
+                for character in args[args.startIndex..<matchRange.lowerBound] {
+                    if character == "(" { depth += 1 } else if character == ")" { depth -= 1 }
+                }
+                if depth == 1 { return true }
+            }
+            searchStart = end
+        }
+        return false
+    }
+
+    /// Occurrences of `identifier` as a whole token — `containsToken`'s boundary
+    /// rule, counted rather than answered once.
+    static func tokenCount(_ identifier: String, in code: String) -> Int {
+        var count = 0
+        var rest = Substring(code)
+        while let found = rest.range(of: identifier) {
+            let before = found.lowerBound > code.startIndex ? code[code.index(before: found.lowerBound)] : " "
+            let after = found.upperBound < code.endIndex ? code[found.upperBound] : " "
+            func isIdentifier(_ character: Character) -> Bool {
+                character.isLetter || character.isNumber || character == "_"
+            }
+            if !isIdentifier(before) && !isIdentifier(after) { count += 1 }
+            rest = code[found.upperBound...]
+        }
+        return count
+    }
+
+    /// The source files of every gated file, stripped.
+    private static func strippedGatedSources() throws -> [(name: String, code: String)] {
+        try swiftSources()
+            .filter { gatedFiles.contains($0.lastPathComponent) }
+            .map { ($0.lastPathComponent, LSPSourceGatingTests.strippingCommentsAndStringLiterals(try read($0))) }
+    }
+
+    /// Part five (b)'s ten files: the ones rules twenty-nine and thirty hold to
+    /// stricter clauses than the rest of the gated set, because they were written
+    /// (or rewritten) against those clauses.
+    static let partFiveBFiles: Set<String> = [
+        "CommitDialogView.swift",
+        "MergeView.swift",
+        "MergeWindowController.swift",
+        "DiffWindowContent.swift",
+        "DiffWindowController.swift",
+        "SourceViewerContent.swift",
+        "SourceViewerWindowController.swift",
+        "LocalHistoryView.swift",
+        "LocalHistoryWindowController.swift",
+        "EscClosableWindow.swift",
+    ]
+
+    // MARK: - Rule twenty-eight: a secondary window's ground is set in the window subclass
+
+    /// The six controllers that construct `EscClosableWindow`. A window's ground
+    /// is a property of the window, and two setters compete silently — the later
+    /// one wins and nothing says so — so the ground lives in the subclass's
+    /// designated initializer, which both construction paths go through, and no
+    /// controller sets one of its own.
+    private static let escClosableWindowConstructors: Set<String> = [
+        "DiffWindowController.swift",
+        "MergeWindowController.swift",
+        "SourceViewerWindowController.swift",
+        "LocalHistoryWindowController.swift",
+        "ProjectSearchWindowController.swift",
+        "LeetCodeBrowserWindowController.swift",
+    ]
+
+    func testASecondaryWindowsGroundIsSetInTheWindowSubclass() throws {
+        // A construction is a call: the token followed by its argument list.
+        // `PisakaApp.swift`'s `is EscClosableWindow` names the type without
+        // constructing one, and the subclass's own declaration is followed by a
+        // colon — neither is a hit.
+        let construction = try NSRegularExpression(pattern: "\\bEscClosableWindow\\s*\\(")
+        // A pattern rather than a token: the clause is about an assignment's
+        // shape — `backgroundColor =`, not `==` — which the identifier's
+        // presence alone cannot tell apart from a read.
+        let assignment = try NSRegularExpression(pattern: "\\bbackgroundColor\\s*=(?!=)")
+        var constructors: Set<String> = []
+        for url in try Self.swiftSources() {
+            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            if construction.firstMatch(in: code, range: NSRange(code.startIndex..., in: code)) != nil {
+                constructors.insert(url.lastPathComponent)
+            }
+        }
+        XCTAssertEqual(
+            constructors, Self.escClosableWindowConstructors,
+            "the files constructing EscClosableWindow must be exactly the six secondary-window controllers"
+        )
+        for name in Self.escClosableWindowConstructors.sorted() {
+            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
+                try Self.read(Self.source(named: name))
+            )
+            XCTAssertNil(
+                assignment.firstMatch(in: code, range: NSRange(code.startIndex..., in: code)),
+                "\(name) assigns backgroundColor — a secondary window's ground is EscClosableWindow's, set once in the subclass"
+            )
+        }
+
+        let window = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
+            try Self.read(Self.source(named: "EscClosableWindow.swift"))
+        )
+        let initBody = try XCTUnwrap(
+            Self.matchedBody(after: "override init(", in: window),
+            "EscClosableWindow's designated initializer is gone — re-point this rule rather than losing it"
+        )
+        XCTAssertNotNil(
+            assignment.firstMatch(in: initBody, range: NSRange(initBody.startIndex..., in: initBody)),
+            "EscClosableWindow's designated initializer must assign backgroundColor — it is the one ground setter"
+        )
+        XCTAssertTrue(
+            LSPSourceGatingTests.containsToken("bgPanel", in: initBody),
+            "EscClosableWindow's designated initializer must name bgPanel — every secondary window stands on it"
+        )
+    }
+
+    // MARK: - Rule twenty-nine: the merge wash is Core's one answer
+
+    /// `mergeWashRole(for:)` is read by the merge panes alone; the three roles it
+    /// and the code zone's line overlays own are spelled by no app file but the
+    /// palette; and no gated file composes an alpha onto a role's colour.
+    ///
+    /// The alpha clause is a pattern over a call and the member chained onto it
+    /// — `nsColor(…)`, `.color(…)` or `chromeColor(…)`, its brace-matched
+    /// argument list, then `.withAlphaComponent`/`.opacity`, line breaks allowed
+    /// between them. No token can express "chained onto *this* call": the
+    /// identifiers are everywhere, and `.opacity(` is a view modifier too.
+    /// `MinimapView.swift`'s `withAlphaComponent(0.6)` is outside the rule by
+    /// what it applies to — a syntax-table colour, the code zone's, not a role's.
+    /// This part's ten files, written against the rule, ban the token outright.
+    private static let mergeWashReaders: Set<String> = ["MergeView.swift"]
+
+    func testTheMergeWashIsCoresOneAnswer() throws {
+        var readers: Set<String> = []
+        for url in try Self.swiftSources() where url.path.contains("/Sources/Pisaka/") {
+            let name = url.lastPathComponent
+            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            if LSPSourceGatingTests.containsToken("mergeWashRole", in: code) { readers.insert(name) }
+            guard name != "ChromePalette.swift" else { continue }
+            for role in ["conflictBackground", "currentLine", "bracketMatch"] {
+                XCTAssertFalse(
+                    LSPSourceGatingTests.containsToken(role, in: code),
+                    "\(name) names \(role) directly — the merge wash is ChromeColorRole.mergeWashRole(for:)'s answer, the other two are the code zone's"
+                )
+            }
+        }
+        XCTAssertEqual(
+            readers, Self.mergeWashReaders,
+            "the app files reading ChromeColorRole.mergeWashRole(for:) must be exactly the merge panes"
+        )
+
+        let roleColor = try NSRegularExpression(pattern: "(?:\\bnsColor|\\.color|\\bchromeColor)\\s*\\(")
+        for (name, code) in try Self.strippedGatedSources() {
+            for match in roleColor.matches(in: code, range: NSRange(code.startIndex..., in: code)) {
+                guard let range = Range(match.range, in: code),
+                      let callEnd = Self.balancedEnd(from: code.index(before: range.upperBound), in: code)
+                else { continue }
+                var index = callEnd
+                while index < code.endIndex, code[index].isWhitespace { index = code.index(after: index) }
+                guard index < code.endIndex, code[index] == "." else { continue }
+                let member = code[code.index(after: index)...].prefix { $0.isLetter || $0.isNumber || $0 == "_" }
+                XCTAssertFalse(
+                    member == "withAlphaComponent" || member == "opacity",
+                    "\(name) chains .\(member) onto a role's colour — a wash's alpha is the palette's, not one composed at the use site"
+                )
+            }
+            if Self.partFiveBFiles.contains(name) {
+                XCTAssertFalse(
+                    LSPSourceGatingTests.containsToken("withAlphaComponent", in: code),
+                    "\(name) spells withAlphaComponent — part five (b)'s surfaces compose no alpha of their own"
+                )
+            }
+            if name == "MergeView.swift" {
+                XCTAssertFalse(
+                    LSPSourceGatingTests.containsToken("performAsCurrentDrawingAppearance", in: code),
+                    """
+                    MergeView.swift spells performAsCurrentDrawingAppearance — the wash is a dynamic NSColor \
+                    filled at draw time, which resolves at that moment; the bracket is for layer CGColors
+                    """
+                )
+            }
+        }
+    }
+
+    // MARK: - Rule thirty: one primary button, one secondary, one checkbox
+
+    /// The files spelling each shared control, the defining file included.
+    private static let sharedControlCallers: [(token: String, files: Set<String>)] = [
+        ("chromePrimary", ["ChromeControls.swift", "CommitDialogView.swift", "MergeView.swift"]),
+        ("chromeSecondary", [
+            "ChromeControls.swift", "SearchBarView.swift", "ProjectSearchView.swift",
+            "CommitDialogView.swift", "MergeView.swift", "LocalHistoryView.swift",
+        ]),
+        ("ChromeCheckbox", ["ChromeControls.swift", "CommitDialogView.swift", "LogFilterBar.swift", "LocalChangesView.swift"]),
+    ]
+
+    /// Each of part five (b)'s ten files: how many `Button` constructions it
+    /// spells, and — equal, because every one is styled — how many
+    /// `.buttonStyle(` applications. Zero is stated, not defaulted, so a first
+    /// button in a controller is a deliberate edit here.
+    private static let partFiveBButtonCounts: [String: Int] = [
+        "CommitDialogView.swift": 5,
+        "MergeView.swift": 7,
+        "LocalHistoryView.swift": 1,
+        "MergeWindowController.swift": 0,
+        "DiffWindowContent.swift": 0,
+        "DiffWindowController.swift": 0,
+        "SourceViewerContent.swift": 0,
+        "SourceViewerWindowController.swift": 0,
+        "LocalHistoryWindowController.swift": 0,
+        "EscClosableWindow.swift": 0,
+    ]
+
+    func testOnePrimaryButtonOneSecondaryOneCheckbox() throws {
+        XCTAssertEqual(Set(Self.partFiveBButtonCounts.keys), Self.partFiveBFiles)
+        // A declaration named like the checkbox's measurements: side, radius,
+        // glyph — `checkboxSide`, `checkmarkSide`, `checkboxRadius`.
+        let checkboxMeasure = try NSRegularExpression(
+            pattern: "\\b(?:let|var)\\s+\\w*(?:[Cc]heckbox|[Cc]heckmark)\\w*"
+        )
+        var callers: [String: Set<String>] = [:]
+        for (name, code) in try Self.strippedGatedSources() {
+            // Tokens, not substrings: `ChromeQueryToggle(` in SearchBarView,
+            // ProjectSearchView and ChromeControls carries `Toggle(`, and a bare
+            // `contains` would be red on day one. `toggleStyle` is matched
+            // without its leading dot, because `containsToken` rejects a dotted
+            // needle whenever the dot follows an identifier character
+            // (`view.toggleStyle(`).
+            for token in [
+                "Toggle", "toggleStyle",
+                "BorderedButtonStyle", "BorderedProminentButtonStyle", "LinkButtonStyle", "DefaultButtonStyle",
+            ] {
+                XCTAssertFalse(
+                    LSPSourceGatingTests.containsToken(token, in: code),
+                    "\(name) spells \(token) — a gated surface uses the shared checkbox and button styles, not the platform's"
+                )
+            }
+            // Scoped to each `.buttonStyle(`'s own argument: a bare `link` token
+            // file-wide would hit unrelated identifiers. `plain` and `borderless`
+            // stay allowed — the icon-button idiom throughout the gated set.
+            for argument in Self.matchedArguments(after: ".buttonStyle", in: code) {
+                for style in ["bordered", "borderedProminent", "link", "automatic"] {
+                    XCTAssertFalse(
+                        LSPSourceGatingTests.containsToken(style, in: argument),
+                        "\(name) applies .buttonStyle(.\(style)) — a platform button style; use .chromePrimary, .chromeSecondary or .plain"
+                    )
+                }
+            }
+            if name != "ChromeControls.swift" {
+                XCTAssertNil(
+                    checkboxMeasure.firstMatch(in: code, range: NSRange(code.startIndex..., in: code)),
+                    "\(name) declares a checkbox measurement of its own — the checkbox's side, radius and glyph are ChromeControls.swift's"
+                )
+            }
+            if let expected = Self.partFiveBButtonCounts[name] {
+                let buttons = Self.tokenCount("Button", in: code)
+                XCTAssertEqual(
+                    buttons, Self.tokenCount("buttonStyle", in: code),
+                    "\(name) constructs a Button it does not style — every button in part five (b)'s files names a style"
+                )
+                XCTAssertEqual(
+                    buttons, expected,
+                    "\(name)'s Button count moved — restate it here, and style the new one"
+                )
+            }
+        }
+        for url in try Self.swiftSources() {
+            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            for (token, _) in Self.sharedControlCallers where LSPSourceGatingTests.containsToken(token, in: code) {
+                callers[token, default: []].insert(url.lastPathComponent)
+            }
+        }
+        for (token, files) in Self.sharedControlCallers {
+            XCTAssertEqual(
+                callers[token, default: []], files,
+                "the files spelling \(token) must be exactly its pinned callers plus the defining file"
+            )
+        }
+    }
+
+    /// The parenthesised argument lists following each occurrence of `modifier`
+    /// (whitespace allowed before the parenthesis), brace-matched so a multi-line
+    /// argument is read whole.
+    private static func matchedArguments(after modifier: String, in code: String) -> [String] {
+        var arguments: [String] = []
+        var rest = code.startIndex
+        while let found = code.range(of: modifier, range: rest..<code.endIndex) {
+            var index = found.upperBound
+            while index < code.endIndex, code[index].isWhitespace { index = code.index(after: index) }
+            if index < code.endIndex, code[index] == "(", let end = balancedEnd(from: index, in: code) {
+                arguments.append(String(code[index..<end]))
+            }
+            rest = found.upperBound
+        }
+        return arguments
+    }
+
+    // MARK: - Rule thirty-one: a code pane's ground goes through one definition
+
+    /// The four callers of `CodePaneGround.apply(`: the editor, the diff panes,
+    /// the merge panes and the source viewer.
+    private static let codePaneGroundCallers: Set<String> = [
+        "CodeEditorView.swift",
+        "SourceViewerContent.swift",
+        "DiffView.swift",
+        "MergeView.swift",
+    ]
+
+    /// What is deliberately outside the pane-ground clause is so by what a
+    /// pane's ground *is*, not by a list of exempt files: `CompletionPanel.swift`
+    /// and `HoverPanel.swift` set `panel.backgroundColor = .clear` on an
+    /// `NSPanel`, and must — a borderless panel has to be clear for its own
+    /// rounded layer to draw — and a panel is not a code pane. A window's ground
+    /// is rule twenty-eight's; a layer's `backgroundColor` takes a `CGColor` and
+    /// is rule twenty-five's.
+    ///
+    /// The receiver classification is a pattern, not a token: the clause is about
+    /// *which object is being painted*, which the identifier `backgroundColor`
+    /// cannot see. A receiver is a code pane when the expression ends in a text
+    /// view, a scroll view or a scroll view's `contentView`, or when the
+    /// assignment is bare (or `self.`) inside a type declared as an `NSTextView`,
+    /// `NSScrollView` or `NSClipView` subclass.
+    func testACodePanesGroundGoesThroughOneDefinition() throws {
+        let call = try NSRegularExpression(pattern: "\\bCodePaneGround\\s*\\.\\s*apply\\s*\\(")
+        var callers: Set<String> = []
+        for url in try Self.swiftSources() {
+            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            if call.firstMatch(in: code, range: NSRange(code.startIndex..., in: code)) != nil {
+                callers.insert(url.lastPathComponent)
+            }
+        }
+        XCTAssertEqual(
+            callers, Self.codePaneGroundCallers,
+            "the files calling CodePaneGround.apply( must be exactly the editor, the diff and merge panes and the source viewer"
+        )
+
+        var scanned = try Self.strippedGatedSources()
+        scanned.append((
+            "CodeEditorView.swift",
+            LSPSourceGatingTests.strippingCommentsAndStringLiterals(
+                try Self.read(Self.source(named: "CodeEditorView.swift"))
+            )
+        ))
+        var sawDefinition = false
+        for (name, original) in scanned {
+            var code = original
+            if name == "DiffView.swift" {
+                let definition = try XCTUnwrap(
+                    Self.matchedBody(after: "enum CodePaneGround", in: code),
+                    "CodePaneGround is gone or renamed — re-point this rule rather than losing it"
+                )
+                code = code.replacingOccurrences(of: definition, with: "")
+                sawDefinition = true
+            }
+            XCTAssertFalse(
+                LSPSourceGatingTests.containsToken("NSBox", in: code),
+                "\(name) spells NSBox — a pane divider is DiffDividerView, a hairline on the role"
+            )
+            for receiver in try Self.codePaneGroundAssignments(in: code) {
+                XCTFail(
+                    "\(name) paints \(receiver)'s backgroundColor outside CodePaneGround — a code pane's ground has one definition"
+                )
+            }
+        }
+        XCTAssertTrue(sawDefinition, "DiffView.swift is no longer gated — re-point this rule rather than losing it")
+
+        let merge = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
+            try Self.read(Self.source(named: "MergeView.swift"))
+        )
+        XCTAssertTrue(
+            LSPSourceGatingTests.containsToken("DiffDividerView", in: merge),
+            "MergeView.swift no longer builds its dividers from DiffDividerView — the pane divider is one view"
+        )
+    }
+
+    /// The receivers of every `backgroundColor` assignment in `code` that paint a
+    /// code pane (see the rule's comment for the classification).
+    static func codePaneGroundAssignments(in code: String) throws -> [String] {
+        let assignment = try NSRegularExpression(
+            pattern: "(?:([A-Za-z_][A-Za-z0-9_]*(?:\\s*[?!]?\\s*\\.\\s*[A-Za-z_][A-Za-z0-9_]*)*)\\s*[?!]?\\s*\\.\\s*)?"
+                + "\\bbackgroundColor\\s*=(?!=)"
+        )
+        var paneBodies: [String] = []
+        let subclass = try NSRegularExpression(
+            pattern: "\\bclass\\s+[A-Za-z_][A-Za-z0-9_]*\\s*:\\s*(?:NSTextView|NSScrollView|NSClipView)\\b"
+        )
+        for match in subclass.matches(in: code, range: NSRange(code.startIndex..., in: code)) {
+            guard let range = Range(match.range, in: code),
+                  let body = matchedBody(after: String(code[range]), in: code) else { continue }
+            paneBodies.append(body)
+        }
+        func receivers(in text: String) -> [String?] {
+            assignment.matches(in: text, range: NSRange(text.startIndex..., in: text)).map { match in
+                Range(match.range(at: 1), in: text).map { String(text[$0]) }
+            }
+        }
+        var painted: [String] = []
+        for receiver in receivers(in: code).compactMap({ $0 }) {
+            let components = receiver
+                .components(separatedBy: CharacterSet(charactersIn: ".?! \t\n"))
+                .filter { !$0.isEmpty }
+            guard let last = components.last else { continue }
+            let lowered = last.lowercased()
+            let isPane = lowered.hasSuffix("textview")
+                || lowered.hasSuffix("scrollview")
+                || (last == "contentView" && components.dropLast().last?.lowercased().hasSuffix("scrollview") == true)
+            if isPane { painted.append(receiver) }
+        }
+        for body in paneBodies {
+            for receiver in receivers(in: body) where receiver == nil || receiver == "self" {
+                painted.append(receiver ?? "self")
+            }
+        }
+        return painted
+    }
+
+    // MARK: - Rule thirty-two: a window root resolves the theme the root way
+
+    /// The roots that resolve their colours through a private `chromeColor(_:)`
+    /// over `settings.chromeTheme(systemPrefersDark:)`.
+    /// `SourceViewerContent` is a root that paints no SwiftUI colour — its one
+    /// colour is the AppKit pane ground — so it declares none.
+    private static let chromeColorRoots: Set<String> = [
+        "ContentView.swift",
+        "ProjectSearchView.swift",
+        "DiffWindowContent.swift",
+        "MergeView.swift",
+        "LocalHistoryView.swift",
+    ]
+
+    /// A root injects `\.chromeTheme` for its subtree, so it cannot read it: its
+    /// own environment is its *parent's*, which at a window root is the resting
+    /// appearance. The region checked is the root struct's **whole**
+    /// brace-matched declaration, not its `var body`: the regression this rule
+    /// exists for is an `@Environment(\.chromeTheme)` stored property added to a
+    /// root, and that property sits in the struct's braces, outside `body` — a
+    /// clause matched against `body` alone would be vacuous on exactly that
+    /// mistake. Child views read the environment from file scope.
+    ///
+    /// Matched as `containsToken("\\.chromeTheme", …)`: the backslash keeps the
+    /// root's own `settings.chromeTheme(` from being a hit, and the trailing
+    /// boundary rejects `.chromeThemed(`.
+    func testAWindowRootResolvesTheThemeTheRootWay() throws {
+        let declaration = try NSRegularExpression(pattern: "\\bfunc\\s+chromeColor\\b")
+        var declaring: Set<String> = []
+        for url in try Self.swiftSources() {
+            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            if declaration.firstMatch(in: code, range: NSRange(code.startIndex..., in: code)) != nil {
+                declaring.insert(url.lastPathComponent)
+            }
+        }
+        XCTAssertEqual(
+            declaring, Self.chromeColorRoots,
+            "the files declaring a private chromeColor(_:) must be exactly the five swept window roots"
+        )
+
+        let roots = ZoomSourceGatingTests.interfaceScaledRoots.intersection(Self.gatedFiles)
+        XCTAssertFalse(roots.isEmpty)
+        for name in roots.sorted() {
+            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
+                try Self.read(Self.source(named: name))
+            )
+            let region = try XCTUnwrap(
+                Self.rootStructDeclaration(in: code),
+                "\(name)'s root struct (the one applying .interfaceScaled() is not found — re-point this rule rather than losing it"
+            )
+            XCTAssertFalse(
+                LSPSourceGatingTests.containsToken("\\.chromeTheme", in: region),
+                "\(name)'s root struct reads \\.chromeTheme — a root resolves its colours through chromeColor(_:); only file-scope children read the environment"
+            )
+        }
+    }
+
+    /// The outermost struct whose brace-matched declaration contains the file's
+    /// first `.interfaceScaled(` — the window root.
+    private static func rootStructDeclaration(in code: String) -> String? {
+        guard let scaled = code.range(of: ".interfaceScaled(") else { return nil }
+        guard let pattern = try? NSRegularExpression(pattern: "\\bstruct\\s+[A-Za-z_][A-Za-z0-9_]*") else { return nil }
+        for match in pattern.matches(in: code, range: NSRange(code.startIndex..., in: code)) {
+            guard let range = Range(match.range, in: code),
+                  let open = code[range.upperBound...].firstIndex(of: "{"),
+                  let end = balancedEnd(from: open, in: code) else { continue }
+            if range.lowerBound < scaled.lowerBound, scaled.upperBound <= end {
+                return String(code[range.lowerBound..<end])
+            }
+        }
+        return nil
+    }
+
+    // MARK: - Rule thirty-three: the commit dialog's rows and controls
+
+    /// The commit file row is sized by its two text lines and its padding, never
+    /// a fixed height — a fixed height clips the second line at a larger interface
+    /// scale, which renders perfectly at the reviewer's; it draws the tree row's
+    /// three states in their established precedence; the shared checkbox speaks
+    /// its state as a value (its box is hidden); and the merge strip's two
+    /// icon-only chevrons carry a name of their own.
+    func testTheCommitDialogsRowsAndControls() throws {
+        let dialog = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
+            try Self.read(Self.source(named: "CommitDialogView.swift"))
+        )
+        let row = try XCTUnwrap(
+            Self.matchedBody(after: "struct CommitFileRow", in: dialog),
+            "CommitFileRow is gone or renamed — re-point this rule rather than losing it"
+        )
+        XCTAssertFalse(
+            try Self.hasFrameHeight(in: row),
+            "CommitFileRow applies .frame(height: — the row carries no fixed height, sized by its two lines and padding"
+        )
+        for role in ["accentTintStrong", "selectionInactive", "hoverTint"] {
+            XCTAssertTrue(
+                LSPSourceGatingTests.containsToken(role, in: row),
+                "CommitFileRow no longer names \(role) — the row draws the tree row's three states"
+            )
+        }
+
+        let controls = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
+            try Self.read(Self.source(named: "ChromeControls.swift"))
+        )
+        let checkbox = try XCTUnwrap(
+            Self.matchedBody(after: "struct ChromeCheckbox", in: controls),
+            "ChromeCheckbox is gone or renamed — re-point this rule rather than losing it"
+        )
+        // Bare, for the leading-dot reason rule thirty states.
+        XCTAssertTrue(
+            LSPSourceGatingTests.containsToken("accessibilityValue", in: checkbox),
+            "ChromeCheckbox no longer speaks its state — its box is hidden, so the value is the only thing that says On, Off or Mixed"
+        )
+
+        // Comments stripped, literals kept: the chevrons are found by their
+        // symbol names, which are literals the usual scanner deletes.
+        let merge = GitHubSourceGatingTests.strippingComments(
+            try Self.read(Self.source(named: "MergeView.swift"))
+        )
+        let strip = try XCTUnwrap(
+            Self.matchedBody(after: "private var statusStrip", in: merge),
+            "MergeView's statusStrip is gone or renamed — re-point this rule rather than losing it"
+        )
+        var chevrons = 0
+        var searchStart = strip.startIndex
+        while let found = strip.range(of: "\"chevron.", range: searchStart..<strip.endIndex) {
+            chevrons += 1
+            searchStart = found.upperBound
+            XCTAssertTrue(
+                Self.enclosingBlockChainNames("accessibilityLabel", at: found.lowerBound, in: strip),
+                "a merge strip chevron's button carries no accessibilityLabel — an icon-only control reads out as its glyph"
+            )
+        }
+        XCTAssertEqual(chevrons, 2, "the merge strip's two chevrons are gone or renamed — re-point this rule rather than losing it")
+    }
+
+    /// Whether the modifier chain of the innermost brace block enclosing `index`
+    /// — a button's `label:` closure, for a glyph inside it — names `token`.
+    private static func enclosingBlockChainNames(_ token: String, at index: String.Index, in code: String) -> Bool {
+        var depth = 0
+        var cursor = index
+        while cursor > code.startIndex {
+            cursor = code.index(before: cursor)
+            if code[cursor] == "}" { depth += 1 }
+            if code[cursor] == "{" {
+                if depth > 0 { depth -= 1; continue }
+                guard let end = balancedEnd(from: cursor, in: code) else { return false }
+                return LSPSourceGatingTests.containsToken(token, in: String(modifierChain(from: end, in: code)))
+            }
+        }
+        return false
     }
 
     // MARK: - Self-check
@@ -2334,6 +2903,8 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         18: "eighteen", 19: "nineteen", 20: "twenty", 21: "twenty-one",
         22: "twenty-two", 23: "twenty-three", 24: "twenty-four",
         25: "twenty-five", 26: "twenty-six", 27: "twenty-seven",
+        28: "twenty-eight", 29: "twenty-nine", 30: "thirty", 31: "thirty-one",
+        32: "thirty-two", 33: "thirty-three",
     ]
 
     func testBothSummariesSpellTheSuitesOwnRuleCount() throws {

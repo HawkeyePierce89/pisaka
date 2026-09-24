@@ -1162,7 +1162,7 @@ although it is an editing affordance rather than a row: an inline draft
 for. `TabStripView.swift` covers `TabStatusMark` too, the slot view the two
 orientations share, which is why that extraction did not add a seventh file.
 
-The twenty-seven rules, each invisible to the compiler:
+The thirty-three rules, each invisible to the compiler:
 
 1. **No gated view names a system semantic colour.** A closed forbidden-token
    list — AppKit's semantic set (`labelColor`, `separatorColor`,
@@ -1524,6 +1524,57 @@ The twenty-seven rules, each invisible to the compiler:
    non-vacuity check — the row's body must be found and must name
    `settings.fontSize`, and each panel must have at least one `cornerRadius`
    assignment.
+28. **A secondary window's ground is set in the window subclass.** The files
+    constructing `EscClosableWindow` (a call: the token then its argument list)
+    equal the six secondary-window controllers, by set equality; none of them
+    assigns `backgroundColor` (a whitespace-tolerant assignment pattern, since the
+    clause is about an assignment's shape); and the subclass's brace-matched
+    designated initializer assigns `backgroundColor` and names `bgPanel`.
+29. **The merge wash is Core's one answer.** The `mergeWashRole` token is read
+    by `MergeView.swift` alone among the app files; no app file other than
+    `ChromePalette.swift` spells `conflictBackground`, `currentLine` or
+    `bracketMatch`; no gated file chains `.withAlphaComponent`/`.opacity` onto a
+    role's colour (`nsColor(…)`, `.color(…)` or `chromeColor(…)`, brace-matched,
+    line breaks allowed — `MinimapView.swift`'s alpha on a syntax-table colour is
+    code zone and outside the rule); part five (b)'s ten files spell
+    `withAlphaComponent` nowhere; and `MergeView.swift` spells no
+    `performAsCurrentDrawingAppearance`.
+30. **One primary button, one secondary, one checkbox.** No gated file spells the
+    tokens `Toggle`, `toggleStyle` (bare, because `containsToken` rejects a dotted
+    needle after an identifier character; the token match is also what keeps
+    `ChromeQueryToggle(` from being a hit), `BorderedButtonStyle`,
+    `BorderedProminentButtonStyle`, `LinkButtonStyle` or `DefaultButtonStyle`;
+    no `.buttonStyle(` argument names `bordered`, `borderedProminent`, `link` or
+    `automatic` (scoped to the argument; `plain` and `borderless` stay allowed);
+    the files spelling `chromePrimary`, `chromeSecondary` and `ChromeCheckbox`
+    are pinned by set equality, the defining file included; no gated file but
+    `ChromeControls.swift` declares a checkbox or checkmark measurement; and in
+    each of part five (b)'s ten files the `Button` count equals the
+    `buttonStyle` count, each file's number stated.
+31. **A code pane's ground goes through one definition.** `CodePaneGround.apply(`
+    is called in exactly `CodeEditorView.swift`, `SourceViewerContent.swift`,
+    `DiffView.swift` and `MergeView.swift`; across the gated set plus
+    `CodeEditorView.swift`, no `backgroundColor` assignment whose receiver is a
+    code pane — an expression ending in a text view, a scroll view or a scroll
+    view's `contentView`, or a bare/`self.` assignment inside an `NSTextView`,
+    `NSScrollView` or `NSClipView` subclass — appears outside `CodePaneGround`'s
+    body. The two panels' `panel.backgroundColor = .clear` are outside the
+    clause by what they paint (a borderless panel must be clear), window grounds
+    are rule twenty-eight's and layer colours rule twenty-five's. No gated file
+    spells `NSBox`, and `MergeView.swift` spells `DiffDividerView`.
+32. **A window root resolves the theme the root way.** The files declaring
+    `func chromeColor` equal `{ContentView, ProjectSearchView, DiffWindowContent,
+    MergeView, LocalHistoryView}`; for every gated interface-scaled root, the
+    root struct's **whole** brace-matched declaration (not its `body`, since the
+    regression is a stored `@Environment(\.chromeTheme)` property) spells no
+    `\.chromeTheme`. `SourceViewerContent` is a root that paints no SwiftUI
+    colour, its one colour being the AppKit pane ground.
+33. **The commit dialog's rows and controls.** `CommitFileRow`'s body applies no
+    `.frame(… height:` (the multi-line-aware walk shared with rule
+    twenty-seven) and names `accentTintStrong`, `selectionInactive` and
+    `hoverTint`; `ChromeCheckbox`'s body spells `accessibilityValue`; and each
+    of the merge status strip's two chevrons sits in a button whose modifier
+    chain carries `accessibilityLabel`.
 
 Plus a **self-check** in the suite's own idiom: every gated file must actually
 *name* a `ChromeColorRole`, or the checks above have gone vacuous — with two

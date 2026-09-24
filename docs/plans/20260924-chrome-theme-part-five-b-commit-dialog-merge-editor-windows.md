@@ -465,7 +465,7 @@ one is recorded in `core-theme.md`:
 Every identifier clause below matches through `LSPSourceGatingTests.containsToken(_:in:)`.
 Where a clause uses a pattern instead, its comment says why.
 
-- [ ] **Rule twenty-eight: a secondary window's ground is set in the window subclass.**
+- [x] **Rule twenty-eight: a secondary window's ground is set in the window subclass.**
   - The files constructing `EscClosableWindow` (token) are pinned by set equality: the
     six controllers.
   - None of them assigns `backgroundColor`. This is a whitespace-tolerant assignment
@@ -473,7 +473,7 @@ Where a clause uses a pattern instead, its comment says why.
     presence; the comment says so.
   - `EscClosableWindow.swift`'s brace-matched designated-init body assigns
     `backgroundColor` and names the `bgPanel` token.
-- [ ] **Rule twenty-nine: the merge wash is Core's one answer.**
+- [x] **Rule twenty-nine: the merge wash is Core's one answer.**
   - The `mergeWashRole` token is read by `MergeView.swift` alone.
   - No app file other than `ChromePalette.swift` spells the tokens
     `conflictBackground`, `currentLine` or `bracketMatch` (acceptance criterion 8).
@@ -484,7 +484,7 @@ Where a clause uses a pattern instead, its comment says why.
   - This part's ten files spell the `withAlphaComponent` token nowhere.
   - `MergeView.swift` spells no `performAsCurrentDrawingAppearance` token.
   - The comment names `MinimapView`'s code-zone alpha as outside the rule (decision 9).
-- [ ] **Rule thirty: one primary button, one secondary, one checkbox.**
+- [x] **Rule thirty: one primary button, one secondary, one checkbox.**
   - No gated file spells the tokens `Toggle` or `toggleStyle`. The comment says two
     things. First, `toggleStyle` is matched without its leading dot, because
     `containsToken` would reject `.toggleStyle(` after an identifier character. Second,
@@ -509,7 +509,7 @@ Where a clause uses a pattern instead, its comment says why.
   - In each of this part's ten files, every `Button` construction is styled. The check
     counts `Button` tokens against `buttonStyle` applications, and each file's expected
     pair is stated.
-- [ ] **Rule thirty-one: a code pane's ground goes through one definition.**
+- [x] **Rule thirty-one: a code pane's ground goes through one definition.**
   - The `CodePaneGround` call `CodePaneGround.apply(` is found, by token, in exactly
     `CodeEditorView.swift`, `SourceViewerContent.swift`, `DiffView.swift` and
     `MergeView.swift`.
@@ -531,7 +531,7 @@ Where a clause uses a pattern instead, its comment says why.
     - Layer `backgroundColor`s take a `CGColor` and are rule twenty-five's.
   - No gated file spells the `NSBox` token.
   - `MergeView.swift` spells the `DiffDividerView` token.
-- [ ] **Rule thirty-two: a window root resolves the theme the root way.**
+- [x] **Rule thirty-two: a window root resolves the theme the root way.**
   - The files declaring a private `chromeColor` (token) are pinned by set equality:
     `ContentView`, `ProjectSearchView`, `DiffWindowContent`, `MergeView` and
     `LocalHistoryView`.
@@ -546,7 +546,7 @@ Where a clause uses a pattern instead, its comment says why.
     environment from file scope.
   - The comment names `SourceViewerContent` as a root that paints no SwiftUI colour: its
     one colour is the AppKit pane ground.
-- [ ] **Rule thirty-three: the commit dialog's rows and controls.**
+- [x] **Rule thirty-three: the commit dialog's rows and controls.**
   - `CommitFileRow`'s brace-matched body has no `.frame(… height:`. Use the
     multi-line-aware walk factored out of rule twenty-seven into a shared helper, and
     re-point rule twenty-seven to it.
@@ -555,9 +555,11 @@ Where a clause uses a pattern instead, its comment says why.
     leading-dot reason stated in rule thirty).
   - In `MergeView.swift`'s status strip, each chevron carries an `accessibilityLabel`
     token.
-- [ ] Extend the `spelled` table to thirty-three. Update the suite's doc-comment summary
-  with the six rules.
-- [ ] Mutation-verify every rule. For each clause, introduce the regression it exists
+- [x] Extend the `spelled` table to thirty-three. Update the suite's doc-comment summary
+  with the six rules. (The two count self-checks read the documents, so core-theme.md's
+  canonical list gained items 28–33 and CLAUDE.md's count reads thirty-three here; the
+  rest of the documentation stays Task 10's.)
+- [x] Mutation-verify every rule. For each clause, introduce the regression it exists
   for, confirm it is red, then revert:
   - a controller setting `backgroundColor`;
   - a colour table with `withAlphaComponent` in the merge view;
@@ -572,8 +574,8 @@ Where a clause uses a pattern instead, its comment says why.
     `MergeView`'s root struct**, not a read inside `body`;
   - `.frame(\n    height:` in `CommitFileRow`;
   - a removed chevron label.
-- [ ] Confirm `git status` is clean apart from the intended changes.
-- [ ] Run `swift test`. It must pass.
+- [x] Confirm `git status` is clean apart from the intended changes.
+- [x] Run `swift test`. It must pass.
 
 ### Task 9: Verify acceptance criteria
 
