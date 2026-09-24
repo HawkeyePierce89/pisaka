@@ -1333,7 +1333,15 @@ and twenty-one are sized by something outside their own chain, each pinned by
 declaration with what sizes it (seventeen by a container font, two by the font
 at their declaration's use sites, two by the shared secondary button style),
 plus the unified diff's per-line checkbox,
-pinned as deliberately on neither scale (decision 6 above).
+pinned as deliberately on neither scale (decision 6 above). The third review
+round closed the rule's two holes: its contiguous `Image(systemName:` search
+skipped a wrapped `Image(` outright, and it accepted a metrics `.frame(` as a
+size, which took the switcher popovers' three icon-column glyphs out of the
+container-font re-check. The glyphs are now found through the suite's one
+whitespace-tolerant call matcher, which every call-shaped search in the suite
+that takes arguments goes through, and a frame counts only beside
+`.resizable()`. The three glyphs are pinned by their rows as container-font
+glyphs, bringing the glyphs sized by a container font from seventeen to twenty.
 
 **Rule thirty-five, from the third review round** — a selectable list yields its
 selected row's background. The revisions list gave every row an unconditional
@@ -1854,9 +1862,14 @@ The thirty-five rules, each invisible to the compiler:
     of the merge status strip's two chevrons sits in a button whose modifier
     chain carries `accessibilityLabel`.
 34. **Every chrome glyph is sized in the interface zone.** Every
-    `Image(systemName:` in a gated file carries, among its own top-level
-    modifiers, a `.font(` or `.frame(` whose argument list names `metrics` — or
-    sits in a declaration pinned in `glyphSizeExemptions` with the exact count
+    `Image(systemName:` in a gated file — found through the suite's
+    whitespace-tolerant call matcher, so `Image(` with `systemName:` on the next
+    line is the same glyph — carries, among its own top-level modifiers, a
+    `.font(` whose argument list names `metrics`, or a `.frame(` naming
+    `metrics` on a chain that is also `.resizable()`. **A frame alone does not
+    size a glyph**: a symbol that is not resizable draws at its font's size
+    whatever frame it is given, the frame reserving layout space only. Anything
+    else sits in a declaration pinned in `glyphSizeExemptions` with the exact count
     of glyphs it sizes from outside *and what sizes them*, which the rule
     re-checks: a container font (some enclosing block's chain sets `.font(`
     through `metrics`), a use-site font (every use of the declaration is under
@@ -1866,7 +1879,11 @@ The thirty-five rules, each invisible to the compiler:
     row's fixed geometry). Re-checking the source is the half that matters: an
     exemption that only counted its glyphs would stay green through the very
     regression — a removed container font — that the rule was written for. The
-    shared checkbox's glyph needs no entry; it sizes itself by frame.
+    shared checkbox's glyph needs no entry; it is resizable and sizes itself by
+    frame. The switcher popovers' three row glyphs (`branchRow`,
+    `remoteBranchRow`, `projectRow`) carry a metrics `.frame(width:)` that is a
+    16-point icon column for alignment, not a size, so they are pinned as
+    container-font glyphs and the row `HStack`'s body font is re-checked.
 35. **A selectable list yields its selected row's background.** For every
     `List` construction in a gated file whose argument list names
     `selection:` — found through the suite's whitespace-tolerant call matcher,

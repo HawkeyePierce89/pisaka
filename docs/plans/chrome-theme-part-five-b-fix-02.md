@@ -193,32 +193,32 @@ Two defects in one rule, plus the class behind the first:
    unsized set. Delete the container font and the rule stays green while three
    glyphs fall to the system default.
 
-- [ ] Add one shared helper that finds a call by its identifier and open paren,
+- [x] Add one shared helper that finds a call by its identifier and open paren,
       **tolerating whitespace and newlines between them**, returning the same
       ranges the contiguous search returns today.
-- [ ] Re-point every call-shaped search in the suite whose call **takes arguments**
+- [x] Re-point every call-shaped search in the suite whose call **takes arguments**
       to that helper. There are thirteen contiguous call-shaped searches; the
       zero-argument forms (`Divider(`, `ChromeTheme(`) may stay as they are, with a
       one-line note at each saying why a wrapped form is not a real shape there.
       List in the commit message which searches were re-pointed and which were not.
-- [ ] Accept `.frame(` as sizing a glyph **only when the same chain also carries
+- [x] Accept `.frame(` as sizing a glyph **only when the same chain also carries
       `.resizable()`**. Otherwise the glyph is unsized and must either take its own
       `.font(` or be pinned as a `containerFont` exemption — the category that is
       re-checked against the container actually setting a scaled font.
-- [ ] Re-classify the three frame-sized glyphs that this change exposes. They are
+- [x] Re-classify the three frame-sized glyphs that this change exposes. They are
       sized by their container's font by design (the frame is a 16-point icon
       column for alignment), so they belong in the `containerFont` category, **not**
       in a new exemption and **not** given a font each. If the re-check finds a
       container that does not set a scaled font, that is a fourth real defect: fix
       it and say so.
-- [ ] Mutation-verify all three clauses: write one glyph in the multiline form and
+- [x] Mutation-verify all three clauses: write one glyph in the multiline form and
       strip its size, confirm red; give a glyph a metrics `.frame(` without
       `.resizable()` and no font, confirm red; remove the container font above a
       `containerFont`-exempt glyph, confirm red. Revert each and confirm green,
       with a clean `git status`.
-- [ ] Update rule thirty-four's canonical wording in `core-theme.md` to say what
+- [x] Update rule thirty-four's canonical wording in `core-theme.md` to say what
       now counts as sizing, and that a frame alone does not.
-- [ ] Run `swift test` and the macOS build. Both must pass.
+- [x] Run `swift test` and the macOS build. Both must pass.
 
 ### Task 4: The commit row calls the tree's mapping instead of copying it
 
