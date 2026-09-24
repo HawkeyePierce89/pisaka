@@ -678,8 +678,11 @@ changes.)
     like the rest of `Sources/Pisaka`: every decision is Core's.
     **Chrome (part five (b), `core-theme.md`).** Gated. The root resolves colours
     through a private `chromeColor(_:)`, holding no `\.chromeTheme` in its
-    struct; the revisions list follows the Find in Files precedent (inset style,
-    hidden scroll background, `bgPanel` row backgrounds, platform selection); the
+    struct; the revisions list is inset with a hidden scroll background and
+    `bgPanel` row backgrounds — except the selected row, which yields its
+    background (`Color.clear`) so the platform's selection shows: on macOS a row
+    background is drawn over the selection box, and the selected row is the one
+    Restore applies (`core-theme.md`, rule thirty-five); the
     empty-state and "Select a revision" texts are `textSecondary`; the footer's
     former `Divider()` is a `hairline` rule; Restore is `.chromeSecondary`,
     keeping its plan-driven enablement. `RevisionRow`, at file scope, reads

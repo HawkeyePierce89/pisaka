@@ -158,11 +158,19 @@ struct LocalHistoryView: View {
             } else {
                 List(browser.revisions, id: \.fileName, selection: selection) { snapshot in
                     RevisionRow(snapshot: snapshot, now: now)
-                        .listRowBackground(chromeColor(.bgPanel))
+                        .listRowBackground(
+                            snapshot.fileName == selection.wrappedValue
+                                ? Color.clear
+                                : chromeColor(.bgPanel)
+                        )
                 }
-                // The Find in Files precedent: an inset list whose own ground is
-                // hidden so the panel ground shows through, each row on
-                // `bgPanel`, and the platform's selection left as it is.
+                // An inset list whose own ground is hidden so the panel ground
+                // shows through, each row on `bgPanel` — except the selected
+                // one. On macOS a row background is drawn *over* the selection
+                // box the platform draws for that row, so an unconditional
+                // background hides which revision is selected, and that row is
+                // the one Restore acts on. A selectable list yields its selected
+                // row's background so the platform's selection shows.
                 .listStyle(.inset)
                 .scrollContentBackground(.hidden)
             }

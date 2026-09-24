@@ -1271,8 +1271,10 @@ decisions 1 and 2.
 root takes `textSecondary` for "Loading…" through a private `chromeColor(_:)`;
 the side-by-side pane inside it was swept in part four (b). The source viewer's
 pane goes through `CodePaneGround`. `LocalHistoryView`'s root has a private
-`chromeColor(_:)`; the revisions list follows the Find in Files precedent (inset
-style, hidden scroll background, `bgPanel` row backgrounds, platform selection);
+`chromeColor(_:)`; the revisions list is inset with a hidden scroll background
+and `bgPanel` row backgrounds — except the selected row, which yields its
+background (`Color.clear`) so the platform's selection shows, since on macOS a
+row background is drawn over the selection box (rule thirty-five);
 the empty-state and "Select a revision" texts are `textSecondary`; the footer's
 `Divider()` is a `hairline` rule; Restore is `.chromeSecondary` with its
 plan-driven enablement. `RevisionRow`, at file scope, reads `\.chromeTheme` as a
@@ -1332,6 +1334,16 @@ declaration with what sizes it (seventeen by a container font, two by the font
 at their declaration's use sites, two by the shared secondary button style),
 plus the unified diff's per-line checkbox,
 pinned as deliberately on neither scale (decision 6 above).
+
+**Rule thirty-five, from the third review round** — a selectable list yields its
+selected row's background. The revisions list gave every row an unconditional
+`bgPanel` background, and on macOS a row background is drawn over the selection
+box, so the revision Restore acts on was indistinguishable from the rest. Its
+comment cited Find in Files as the precedent, but that list binds no selection.
+The selected row now takes `Color.clear`. The sweep behind the rule found three
+selectable `List`s in the app (`LocalHistoryView`, `AcknowledgementsView`,
+`DatabaseViewerView`) and three `listRowBackground` sites (the revisions list's
+and Find in Files' two); only the revisions list is both.
 
 #### What is still waiting
 
@@ -1399,7 +1411,7 @@ although it is an editing affordance rather than a row: an inline draft
 for. `TabStripView.swift` covers `TabStatusMark` too, the slot view the two
 orientations share, which is why that extraction did not add a seventh file.
 
-The thirty-four rules, each invisible to the compiler:
+The thirty-five rules, each invisible to the compiler:
 
 1. **No gated view names a system semantic colour.** A closed forbidden-token
    list — AppKit's semantic set (`labelColor`, `separatorColor`,
@@ -1849,6 +1861,16 @@ The thirty-four rules, each invisible to the compiler:
     exemption that only counted its glyphs would stay green through the very
     regression — a removed container font — that the rule was written for. The
     shared checkbox's glyph needs no entry; it sizes itself by frame.
+35. **A selectable list yields its selected row's background.** For every
+    `List` construction in a gated file whose argument list names
+    `selection:` — found through the suite's whitespace-tolerant call matcher,
+    so a paren on the next line is still a construction — every
+    `listRowBackground` in its content closure (argument list read
+    brace-matched) names the identifier handed to `selection:` and yields
+    `clear`; an absent row background also passes. On macOS a row background
+    is drawn over the platform's selection box, so an unconditional one hides
+    the selection outright — the Local History revisions list shipped that way,
+    and its selected row is the one Restore applies.
 
 Plus a **self-check** in the suite's own idiom: every gated file must actually
 *name* a `ChromeColorRole`, or the checks above have gone vacuous — with two

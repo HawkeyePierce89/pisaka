@@ -3131,6 +3131,118 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         }
     }
 
+    // MARK: - Rule thirty-five: a selectable list yields its selected row's background
+
+    /// On macOS a `listRowBackground` is drawn **over** the selection box the
+    /// platform draws for its row, so a list that binds `selection:` and gives
+    /// every row a background shows no selection at all. The Local History
+    /// window's revisions list shipped exactly that way: the selected revision —
+    /// the one Restore applies — looked like every other row. Its comment cited
+    /// Find in Files as the precedent, but that list binds no selection, so the
+    /// precedent never carried.
+    ///
+    /// So for every `List` construction in a gated file whose argument list
+    /// names `selection:`, every `listRowBackground` in its content closure must
+    /// name the selection it is conditioned on — the identifier handed to
+    /// `selection:`, `$` dropped — and yield its selected row a clear
+    /// background. An absent row background is the other passing shape. The
+    /// construction is found through `callRanges(of:in:)`, so a `List` whose
+    /// paren sits on the next line is still seen, and each background's argument
+    /// list is read brace-matched, so a multi-line conditional is read whole.
+    func testASelectableListYieldsItsSelectedRowsBackground() throws {
+        let selectionLabel = try NSRegularExpression(pattern: "^selection\\s*:\\s*\\$?([A-Za-z_][A-Za-z0-9_]*)")
+        var conditionedSites: Set<String> = []
+        for (name, code) in try Self.strippedGatedSources() {
+            for call in Self.callRanges(of: "List", in: code) {
+                let open = code.index(before: call.upperBound)
+                guard let close = Self.balancedEnd(from: open, in: code) else { continue }
+                let arguments = String(code[code.index(after: open)..<code.index(before: close)])
+                let labels = Self.topLevelArguments(arguments).compactMap { argument -> String? in
+                    let range = NSRange(argument.startIndex..., in: argument)
+                    guard let match = selectionLabel.firstMatch(in: argument, range: range),
+                          let bound = Range(match.range(at: 1), in: argument) else { return nil }
+                    return String(argument[bound])
+                }
+                guard let binding = labels.first else { continue }
+                var cursor = close
+                while cursor < code.endIndex, code[cursor].isWhitespace { cursor = code.index(after: cursor) }
+                guard cursor < code.endIndex, code[cursor] == "{",
+                      let contentEnd = Self.balancedEnd(from: cursor, in: code) else { continue }
+                let content = String(code[cursor..<contentEnd])
+                for background in Self.matchedArguments(after: ".listRowBackground", in: content) {
+                    XCTAssertTrue(
+                        LSPSourceGatingTests.containsToken(binding, in: background),
+                        """
+                        \(name) has a List binding selection: \(binding) whose listRowBackground does not name \
+                        \(binding) — a row background is drawn over the selection box, so the selected row must \
+                        yield its background (Color.clear) for the platform's selection to show
+                        """
+                    )
+                    XCTAssertTrue(
+                        LSPSourceGatingTests.containsToken("clear", in: background),
+                        "\(name)'s selectable List conditions its row background but never yields it (Color.clear)"
+                    )
+                    conditionedSites.insert(name)
+                }
+            }
+        }
+        XCTAssertTrue(
+            conditionedSites.contains("LocalHistoryView.swift"),
+            """
+            the revisions list's conditioned row background is no longer seen — the List construction or its \
+            listRowBackground moved out of reach; re-point this rule rather than letting it go vacuous
+            """
+        )
+    }
+
+    /// The top-level, comma-separated arguments of an argument list's inside —
+    /// a comma nested in parentheses, brackets or braces does not split.
+    private static func topLevelArguments(_ arguments: String) -> [String] {
+        var parts: [String] = []
+        var depth = 0
+        var current = ""
+        for character in arguments {
+            if "([{".contains(character) { depth += 1 }
+            if ")]}".contains(character) { depth -= 1 }
+            if character == ",", depth == 0 {
+                parts.append(current.trimmingCharacters(in: .whitespacesAndNewlines))
+                current = ""
+            } else {
+                current.append(character)
+            }
+        }
+        parts.append(current.trimmingCharacters(in: .whitespacesAndNewlines))
+        return parts
+    }
+
+    /// Every call of `identifier` in `code`: the identifier on a token boundary,
+    /// then any whitespace — newlines included — then its opening parenthesis.
+    /// Each range runs from the identifier's first character through that
+    /// parenthesis, so `code.index(before: range.upperBound)` is the paren.
+    ///
+    /// The suite's one call matcher. A contiguous search for `Name(` is blind to
+    /// `Name\n    (` and to `Name (`, and this suite has shipped that blindness
+    /// three times over (rule twenty-one's `.frame(\n height:)`, then rule
+    /// thirty-four's multi-line `Image(`); a rule matching a call with arguments
+    /// goes through here rather than spelling the paren into its needle.
+    static func callRanges(of identifier: String, in code: String) -> [Range<String.Index>] {
+        var ranges: [Range<String.Index>] = []
+        var searchStart = code.startIndex
+        while let found = code.range(of: identifier, range: searchStart..<code.endIndex) {
+            searchStart = found.upperBound
+            guard isWholeToken(found, in: code) else { continue }
+            if found.upperBound < code.endIndex {
+                let next = code[found.upperBound]
+                if next.isLetter || next.isNumber || next == "_" { continue }
+            }
+            var index = found.upperBound
+            while index < code.endIndex, code[index].isWhitespace { index = code.index(after: index) }
+            guard index < code.endIndex, code[index] == "(" else { continue }
+            ranges.append(found.lowerBound..<code.index(after: index))
+        }
+        return ranges
+    }
+
     // MARK: - Self-check
 
     /// Every gated file draws with roles and must therefore name one — with two
@@ -3215,7 +3327,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         22: "twenty-two", 23: "twenty-three", 24: "twenty-four",
         25: "twenty-five", 26: "twenty-six", 27: "twenty-seven",
         28: "twenty-eight", 29: "twenty-nine", 30: "thirty", 31: "thirty-one",
-        32: "thirty-two", 33: "thirty-three", 34: "thirty-four",
+        32: "thirty-two", 33: "thirty-three", 34: "thirty-four", 35: "thirty-five",
     ]
 
     func testBothSummariesSpellTheSuitesOwnRuleCount() throws {
