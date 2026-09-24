@@ -395,10 +395,9 @@ struct ProjectSearchView: View {
 
                 Spacer(minLength: 0)
             }
-            .contentShape(Rectangle())
             .padding(.trailing, metrics.scaled(SearchLayout.rowPaddingTrailing))
             .padding(.leading, metrics.scaled(SearchLayout.rowPaddingLeading))
-            .frame(height: metrics.scaled(SearchLayout.rowHeight))
+            .contentShape(Rectangle())
             // A result row draws with the *editor* font (both `Text`s above read
             // `settings.fontSize`), so it is a code surface: a zoom gesture over
             // it grows what it draws rather than the window chrome around it.
@@ -687,14 +686,12 @@ private enum SearchLayout {
     static let queryFieldHeight: Double = 33
     /// Gap between the replace field and Replace All.
     static let replaceGap: Double = 8
-    /// Group header height.
+    /// Group header height — interface-scaled, because the header draws at callout, not the code font.
     static let headerHeight: Double = 24
     /// Group header horizontal padding.
     static let headerPadding: Double = 8
     /// Group header icon point size.
     static let headerIconSize: Double = 14
-    /// Match row height.
-    static let rowHeight: Double = 24
     /// Match row trailing padding.
     static let rowPaddingTrailing: Double = 8
     /// Match row leading padding.
