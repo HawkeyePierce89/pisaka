@@ -45,13 +45,15 @@ struct ChromeThemedTextField<FocusValue: Hashable>: View {
     let focus: FocusState<FocusValue>.Binding
     let focusedEquals: FocusValue
     var horizontalPadding: Double = ChromeGeometry.fieldPaddingX
+    var textStyle: InterfaceTextStyle = .callout
+    var spacing: Double = 6
 
     @Environment(\.interfaceMetrics) private var metrics
     @Environment(\.chromeTheme) private var theme
 
     var body: some View {
         ChromeControlBox(isFocused: focus.wrappedValue == focusedEquals, horizontalPadding: horizontalPadding) {
-            HStack(spacing: metrics.scaled(6)) {
+            HStack(spacing: metrics.scaled(spacing)) {
                 if let glyph {
                     Image(systemName: glyph)
                         .foregroundStyle(theme.color(.textSecondary))
@@ -72,7 +74,7 @@ struct ChromeThemedTextField<FocusValue: Hashable>: View {
                         .accessibilityLabel(title)
                 }
             }
-            .font(metrics.scaledFont(.callout))
+            .font(metrics.scaledFont(textStyle))
         }
     }
 }

@@ -110,7 +110,8 @@ struct BranchSwitcherView: View {
                 title: "Filter branches",
                 text: $model.filterText,
                 focus: $focusedField,
-                focusedEquals: .filter
+                focusedEquals: .filter,
+                textStyle: .body
             )
 
             Button {

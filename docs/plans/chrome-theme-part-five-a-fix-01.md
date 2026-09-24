@@ -159,17 +159,17 @@ the Log filter bar's own size, so lifting the shape silently shrank the branch
 switcher's filter field from `body` to `callout`, and it draws the Find in Files
 query, replace and file-mask fields at 12 where the design states 13.
 
-- [ ] Give the shared field a text-style parameter defaulting to `.callout`, so
+- [x] Give the shared field a text-style parameter defaulting to `.callout`, so
       the Log filter bar's pixels stay exactly as they are.
-- [ ] Find in Files' three fields and the branch switcher's filter field pass
+- [x] Find in Files' three fields and the branch switcher's filter field pass
       `.body`, restoring the switcher's previous size and matching the design.
-- [ ] The field's inner gap — currently the bare `6` inside the shared view — takes
+- [x] The field's inner gap — currently the bare `6` inside the shared view — takes
       the same treatment as the padding: a parameter with the Log filter bar's
       value as the default, so a future caller is not silently given a number that
       belongs to another surface.
-- [ ] Extend `ChromeThemeTests`' token inventory if any new token is introduced;
+- [x] Extend `ChromeThemeTests`' token inventory if any new token is introduced;
       prefer a parameter over a token where the number belongs to one caller.
-- [ ] Run `swift test` and the macOS build.
+- [x] Run `swift test` and the macOS build.
 
 ### Task 4: The popovers' corner radius follows the interface scale
 

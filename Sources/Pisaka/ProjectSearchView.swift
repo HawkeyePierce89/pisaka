@@ -185,7 +185,8 @@ struct ProjectSearchView: View {
                 title: "Find in files",
                 text: $pattern,
                 focus: $focusedField,
-                focusedEquals: .query
+                focusedEquals: .query,
+                textStyle: .body
             )
             .frame(height: metrics.scaled(SearchLayout.queryFieldHeight))
             .onSubmit { activateFirstResult() }
@@ -218,7 +219,8 @@ struct ProjectSearchView: View {
                 title: "Replace with",
                 text: $template,
                 focus: $focusedField,
-                focusedEquals: .replace
+                focusedEquals: .replace,
+                textStyle: .body
             )
             .frame(height: metrics.scaled(SearchLayout.queryFieldHeight))
 
@@ -248,7 +250,8 @@ struct ProjectSearchView: View {
                 title: "*.ts, *.tsx",
                 text: $mask,
                 focus: $focusedField,
-                focusedEquals: .mask
+                focusedEquals: .mask,
+                textStyle: .body
             )
             .frame(height: metrics.scaled(SearchLayout.queryFieldHeight))
             .frame(maxWidth: metrics.scaled(220))
