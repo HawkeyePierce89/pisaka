@@ -1900,29 +1900,27 @@ The thirty-five rules, each invisible to the compiler:
     `remoteBranchRow`, `projectRow`) carry a metrics `.frame(width:)` that is a
     16-point icon column for alignment, not a size, so they are pinned as
     container-font glyphs and the row `HStack`'s body font is re-checked.
-35. **A selectable list yields its selected row's background.** For every
-    `List` construction in a gated file whose argument list names
-    `selection:` — found through the suite's whitespace-tolerant call matcher,
-    so a paren on the next line is still a construction — every
-    `listRowBackground` in its content closure (argument list read
-    brace-matched) is written in **one anchored shape**: a conditional whose
-    condition — the text before the first top-level ternary `?` — is exactly
-    `row == binding` in either order (`row` the content closure's named
-    parameter or a member chain off it, `binding` the identifier handed to
-    `selection:`, optionally `.wrappedValue`), and whose branch taken when that
-    comparison holds — the text up to the matching top-level `:` — names
-    `clear`. Nothing past that is evaluated, so a background written any other
-    way (`!=` with the branches swapped, a comparison against `nil`, a helper
-    call, an unnamed `$0` row) **fails by design** with a message asking for
-    the shape; a rule that cannot decide does not decide in favour of the code.
-    An absent row background also passes. The gated files constructing a
-    selectable `List` are pinned by set equality (today `LocalHistoryView.swift`
-    alone), so a new one is a deliberate addition, and the revisions list's
-    background must still be seen, so the rule cannot go vacuous. On macOS a
-    row background is drawn over the platform's selection box, so an
-    unconditional one hides the selection outright — the Local History
-    revisions list shipped that way, and its selected row is the one Restore
-    applies.
+35. **A selectable list yields its selected row's background.** The rule
+    **pins the background expression by set equality** and does not read the
+    conditional. For every `List` construction in a gated file whose argument
+    list names `selection:` — found through the suite's whitespace-tolerant
+    call matcher, so a paren on the next line is still a construction — the
+    text of every `listRowBackground` argument in its content closure
+    (argument list read brace-matched, whitespace runs collapsed) is compared
+    with `selectableListBackgrounds`: file name → one entry per selectable
+    list, each entry that list's background expressions in source order. The
+    comparison runs in both directions, so an unpinned selectable list fails,
+    a pin with no list behind it fails, and any changed expression fails —
+    a nested conditional, swapped branches, a negated comparison, a condition
+    on something other than row identity and a reformat beyond whitespace
+    alike. The last is deliberate: the rule cannot read the expression, so it refuses to guess,
+    and a person confirms the selected row still yields its background before
+    updating the pin. Today the pin holds one list, `LocalHistoryView.swift`'s,
+    whose one background is `snapshot.fileName == selection.wrappedValue ?
+    Color.clear : chromeColor(.bgPanel)`. On macOS a row background is drawn
+    over the platform's selection box, so an unconditional one hides the
+    selection outright — the Local History revisions list shipped that way,
+    and its selected row is the one Restore applies.
 
 Plus a **self-check** in the suite's own idiom: every gated file must actually
 *name* a `ChromeColorRole`, or the checks above have gone vacuous — with eight
