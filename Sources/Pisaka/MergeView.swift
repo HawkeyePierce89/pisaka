@@ -161,25 +161,6 @@ struct MergeView: View {
     }
 }
 
-/// The merge panes' color scheme (kept in the view layer like `SyntaxTheme`, so
-/// `PisakaCore` stays color-free).
-private enum MergeColors {
-    static func background(for kind: MergeLineKind) -> NSColor? {
-        switch kind {
-        case .plain: return nil
-        case .ours: return ours
-        case .theirs: return theirs
-        case .conflictUnresolved: return unresolved
-        case .conflictResolved: return resolved
-        }
-    }
-
-    private static let ours = NSColor.systemBlue.withAlphaComponent(0.13)
-    private static let theirs = NSColor.systemGreen.withAlphaComponent(0.13)
-    private static let unresolved = NSColor.systemRed.withAlphaComponent(0.16)
-    private static let resolved = NSColor.systemGreen.withAlphaComponent(0.10)
-}
-
 /// The three TextKit-1 panes, mirroring `DiffView`'s setup (non-wrapping,
 /// monospaced, one logical line per visual row). `ours`/`theirs` are read-only;
 /// `result` is editable and feeds per-conflict edits back into the model as
@@ -249,6 +230,7 @@ private struct MergeThreePaneView: NSViewRepresentable {
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = true
         scrollView.documentView = textView
+        CodePaneGround.apply(scrollView: scrollView, textView: textView)
 
         let maxSize = CGFloat.greatestFiniteMagnitude
         textView.minSize = .zero
@@ -569,7 +551,9 @@ private struct MergeThreePaneView: NSViewRepresentable {
 }
 
 /// A merge pane: an `NSTextView` that paints a full-width per-line background by
-/// `MergeLineKind` behind the glyphs (mirroring `DiffTextView`).
+/// `MergeLineKind` behind the glyphs (mirroring `DiffTextView`). The pane derives
+/// which line is which kind; the wash each kind takes is Core's one answer,
+/// `ChromeColorRole.mergeWashRole(for:)`.
 @MainActor
 private final class MergePaneTextView: NSTextView, ZoomSurfaceProviding {
     fileprivate var lineKinds: [MergeLineKind] = []
@@ -633,7 +617,7 @@ private final class MergePaneTextView: NSTextView, ZoomSurfaceProviding {
             let row = self.lineIndex(forCharacterAt: charIndex)
             guard
                 row < self.lineKinds.count,
-                let color = MergeColors.background(for: self.lineKinds[row])
+                let role = ChromeColorRole.mergeWashRole(for: self.lineKinds[row])
             else { return }
             let fill = NSRect(
                 x: 0,
@@ -641,26 +625,27 @@ private final class MergePaneTextView: NSTextView, ZoomSurfaceProviding {
                 width: self.bounds.width,
                 height: fragmentRect.height
             )
-            color.setFill()
+            // No appearance bracket: a dynamic `NSColor` filled at draw time
+            // resolves against the drawing appearance at that moment.
+            ChromePalette.nsColor(role).setFill()
             fill.fill()
         }
     }
 }
 
 /// Lays out the three merge panes side by side, split evenly with hairline
-/// dividers (mirroring `DiffContainerView` for three columns).
+/// dividers (mirroring `DiffContainerView` for three columns, and built from its
+/// `DiffDividerView`). The dividers are `ChromeGeometry.hairlineWidth` wide
+/// *unscaled*, for the reason `DiffContainerView` states: the panes are a
+/// code-zoom surface with no interface scale to ask.
 @MainActor
 final class MergeContainerView: NSView {
     private let scrolls: [NSScrollView]
-    private let dividers: [NSBox]
+    private let dividers: [DiffDividerView]
 
     init(scrolls: [NSScrollView]) {
         self.scrolls = scrolls
-        self.dividers = (0..<max(0, scrolls.count - 1)).map { _ in
-            let box = NSBox()
-            box.boxType = .separator
-            return box
-        }
+        self.dividers = (0..<max(0, scrolls.count - 1)).map { _ in DiffDividerView() }
         super.init(frame: .zero)
         for scroll in scrolls { addSubview(scroll) }
         for divider in dividers { addSubview(divider) }
@@ -675,7 +660,7 @@ final class MergeContainerView: NSView {
         let count = scrolls.count
         guard count > 0 else { return }
         let height = bounds.height
-        let dividerWidth: CGFloat = 1
+        let dividerWidth = CGFloat(ChromeGeometry.hairlineWidth)
         let totalDividers = dividerWidth * CGFloat(dividers.count)
         let paneWidth = max(0, (bounds.width - totalDividers) / CGFloat(count))
 

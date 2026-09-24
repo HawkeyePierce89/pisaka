@@ -189,6 +189,10 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         "MergeWindowController.swift",
         "SourceViewerWindowController.swift",
         "LocalHistoryWindowController.swift",
+        // Part five (b): the two code-hosting window roots whose panes take the
+        // shared code-pane ground.
+        "SourceViewerContent.swift",
+        "DiffWindowContent.swift",
     ]
 
     func testEveryGatedFileExists() throws {
@@ -2218,6 +2222,11 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// They are gated for rules one and two and for the window-ground rule —
     /// which are exactly the rules a controller can break, by painting a system
     /// colour or setting a second, competing ground.
+    ///
+    /// `SourceViewerContent.swift` is exempt on the same footing: its one colour
+    /// was the pane's ground, which now comes from `CodePaneGround` in
+    /// `DiffView.swift`. It is gated for rules one and two and for the code-pane
+    /// ground rule — a second, private ground being the regression it can commit.
     private static let roleNamingExemptions: Set<String> = [
         "ChromeThemeEnvironment.swift",
         "CommitGraphView.swift",
@@ -2226,6 +2235,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         "SourceViewerWindowController.swift",
         "LocalHistoryWindowController.swift",
         "ProjectSearchWindowController.swift",
+        "SourceViewerContent.swift",
     ]
 
     func testEveryGatedFileActuallyNamesARole() throws {

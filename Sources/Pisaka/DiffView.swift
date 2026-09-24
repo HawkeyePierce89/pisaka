@@ -106,6 +106,7 @@ struct DiffView: NSViewRepresentable {
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = true
         scrollView.documentView = textView
+        CodePaneGround.apply(scrollView: scrollView, textView: textView)
 
         let maxSize = CGFloat.greatestFiniteMagnitude
         textView.minSize = .zero
@@ -531,6 +532,31 @@ final class DiffDividerView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         ChromePalette.nsColor(.hairline).setFill()
         dirtyRect.fill()
+    }
+}
+
+/// A code pane's ground: the one definition of what a pane hosting code sits on.
+///
+/// The text view, the scroll view and that scroll view's clip view are set
+/// together, because each draws part of the pane — the text view its own bounds,
+/// the clip view everything the content does not cover, the scroll view the
+/// rest. The role is `bgEditor` because the gutter beside every such pane
+/// (`LineNumberRulerView`, `DiffGutterView`) fills itself with it: a pane left
+/// on the system's `textBackgroundColor` would show the gutter as a visibly
+/// lighter band beside the text in the dark appearance, the two colours being
+/// different greys. The colour is dynamic, so no caller observes an appearance
+/// change.
+///
+/// Four callers: the editor (`CodeEditorView.makeNSView`), the diff
+/// panes (`DiffView.makePane`), the three merge panes (`MergeThreePaneView
+/// .makePane`) and the out-of-project source viewer (`SourceViewerContent`).
+@MainActor
+enum CodePaneGround {
+    static func apply(scrollView: NSScrollView, textView: NSTextView) {
+        let ground = ChromePalette.nsColor(.bgEditor)
+        textView.backgroundColor = ground
+        scrollView.backgroundColor = ground
+        scrollView.contentView.backgroundColor = ground
     }
 }
 

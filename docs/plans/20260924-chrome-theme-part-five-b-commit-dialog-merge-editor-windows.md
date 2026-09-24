@@ -271,32 +271,32 @@ one is recorded in `core-theme.md`:
 - Modify: `Sources/Pisaka/DiffWindowContent.swift`
 - Modify: `Tests/PisakaCoreTests/ChromeThemeSourceGatingTests.swift`
 
-- [ ] Add one definition in `DiffView.swift` beside `DiffDividerView`:
+- [x] Add one definition in `DiffView.swift` beside `DiffDividerView`:
   `CodePaneGround.apply(scrollView:textView:)`.
   - It sets the text view, the scroll view and that scroll view's clip view to
     `ChromePalette.nsColor(.bgEditor)`.
   - Its comment carries the source viewer's existing rationale: the gutter fills itself
     with `bgEditor`, so a pane on the system text background shows a lighter band. It
     also names its four callers.
-- [ ] Route the four callers through it:
+- [x] Route the four callers through it:
   - `SourceViewerContent.swift`, replacing its three assignments (~111–113);
   - `DiffView.makePane`;
   - the merge panes' `makePane`;
   - `CodeEditorView.applyEditorBackground`: its body becomes the call, or the call
     replaces the function.
-- [ ] `MergeContainerView` builds its dividers from `DiffDividerView` instead of `NSBox`
+- [x] `MergeContainerView` builds its dividers from `DiffDividerView` instead of `NSBox`
   separators. Its `dividerWidth` reads `ChromeGeometry.hairlineWidth` unscaled, for the
   reason `DiffContainerView` states. Delete the `NSBox` code.
-- [ ] `MergePaneTextView.drawBackground(in:)` fills with `ChromePalette.nsColor(role)`,
+- [x] `MergePaneTextView.drawBackground(in:)` fills with `ChromePalette.nsColor(role)`,
   where the role comes from `ChromeColorRole.mergeWashRole(for:)` and `nil` means no
   fill.
   - Delete the private `MergeLineKind` and `MergeColors`.
   - Do not add `performAsCurrentDrawingAppearance`. One line says why: a dynamic
     `NSColor` filled at draw time resolves at that moment.
-- [ ] `DiffWindowContent` root: the "Loading…" text takes `textSecondary` through a
+- [x] `DiffWindowContent` root: the "Loading…" text takes `textSecondary` through a
   private `chromeColor(_:)`, in the root shape.
-- [ ] Add `SourceViewerContent.swift` and `DiffWindowContent.swift` to `gatedFiles`.
-- [ ] Run `swift test` (rules one and two over the new files) and the macOS build. Both
+- [x] Add `SourceViewerContent.swift` and `DiffWindowContent.swift` to `gatedFiles`. (`SourceViewerContent.swift` joins `roleNamingExemptions`: its only colour was the pane ground, now `CodePaneGround`.)
+- [x] Run `swift test` (rules one and two over the new files) and the macOS build. Both
   must pass.
 
 ### Task 4: The shared primary button and checkbox; the revert checkbox and the Log date toggle as first callers
