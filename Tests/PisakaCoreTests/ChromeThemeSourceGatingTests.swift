@@ -1915,12 +1915,24 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
 
     // MARK: - Rule twenty-four: no gated file spells Divider(); a menu separates with Section
 
-    /// The gated files that build a `Menu` — the menu's separator is a `Section`
-    /// boundary in this repository, and `Divider()` is the platform's separator
-    /// colour at the system's thickness, a step off the `hairline` role. Every
-    /// gated file presenting a menu therefore spells `Section` at least once and
-    /// no gated file spells `Divider(` at all.
+    /// The gated files that build a `Menu` and separate with `Section` — the
+    /// menu's separator is a `Section` boundary in this repository, and
+    /// `Divider()` is the platform's separator colour at the system's thickness,
+    /// a step off the `hairline` role.
     private static let menuSectionFiles: Set<String> = [
+        "SearchHistoryMenu.swift",
+        "ProjectTreeView.swift",
+        "LocalChangesView.swift",
+    ]
+
+    /// Every gated file that builds a `Menu` (whether or not it separates).
+    /// `menuSectionFiles` is the subset that must also spell `Section`; the
+    /// two pinned sets together make a fourth `Menu` without `Section` visible
+    /// — the previous `hasSection && hasMenu` equality could not see it, as
+    /// `BranchSwitcherView.swift` and `LogFilterBar.swift` already demonstrated.
+    private static let menuFiles: Set<String> = [
+        "BranchSwitcherView.swift",
+        "LogFilterBar.swift",
         "SearchHistoryMenu.swift",
         "ProjectTreeView.swift",
         "LocalChangesView.swift",
@@ -1937,7 +1949,6 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
             )
         }
 
-        var sectionSpellers: Set<String> = []
         for name in Self.menuSectionFiles {
             let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
                 try Self.read(Self.source(named: name))
@@ -1946,11 +1957,28 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
                 code.contains("Section"),
                 "\(name) builds a Menu and must spell Section at least once — a menu's separator is a Section boundary"
             )
-            if code.contains("Section") { sectionSpellers.insert(name) }
+        }
+
+        let menuPattern = try NSRegularExpression(pattern: "\\bMenu\\s*(?:\\(|\\{)")
+        let contextMenuPattern = try NSRegularExpression(pattern: "(?:\\.contextMenu|projectTreeContextMenu)")
+        var actualMenuFiles: Set<String> = []
+        var actualMenuSectionFiles: Set<String> = []
+        for url in try Self.swiftSources() where Self.gatedFiles.contains(url.lastPathComponent) {
+            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            let range = NSRange(code.startIndex..., in: code)
+            let hasSection = code.contains("Section")
+            let hasMenu = menuPattern.firstMatch(in: code, range: range) != nil
+                || contextMenuPattern.firstMatch(in: code, range: range) != nil
+            if hasMenu { actualMenuFiles.insert(url.lastPathComponent) }
+            if hasSection && hasMenu { actualMenuSectionFiles.insert(url.lastPathComponent) }
         }
         XCTAssertEqual(
-            sectionSpellers, Self.menuSectionFiles,
-            "a menu file lost its Section — pinned by set equality so a fourth file is added deliberately"
+            actualMenuFiles, Self.menuFiles,
+            "a gated Menu was added, removed or renamed without updating the pinned set — update menuFiles"
+        )
+        XCTAssertEqual(
+            actualMenuSectionFiles, Self.menuSectionFiles,
+            "a menu file lost its Section or a fourth menu was added without updating the pinned set"
         )
     }
 
@@ -2106,9 +2134,48 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
             rowBody.contains("settings.fontSize"),
             "ProjectSearchView.swift's row body must name settings.fontSize — the row draws at the code font"
         )
-        let frameHeight = try NSRegularExpression(pattern: "\\.frame\\s*\\(\\s*height")
-        XCTAssertNil(
-            frameHeight.firstMatch(in: rowBody, range: NSRange(rowBody.startIndex..., in: rowBody)),
+        let heightPattern = try NSRegularExpression(pattern: "\\bheight\\s*:")
+        var hasFrameHeight = false
+        var searchStart = rowBody.startIndex
+        while let frameRange = rowBody.range(of: ".frame", range: searchStart..<rowBody.endIndex) {
+            var parenStart: String.Index?
+            var idx = frameRange.upperBound
+            while idx < rowBody.endIndex, rowBody[idx].isWhitespace { idx = rowBody.index(after: idx) }
+            if idx < rowBody.endIndex, rowBody[idx] == "(" { parenStart = idx }
+            guard let start = parenStart else {
+                searchStart = rowBody.index(after: frameRange.lowerBound)
+                continue
+            }
+            var depth = 0
+            var close: String.Index?
+            var scan = start
+            while scan < rowBody.endIndex {
+                if rowBody[scan] == "(" { depth += 1 } else if rowBody[scan] == ")" {
+                    depth -= 1
+                    if depth == 0 { close = scan; break }
+                }
+                scan = rowBody.index(after: scan)
+            }
+            guard let end = close else { break }
+            let args = String(rowBody[start...end])
+            let argsRange = NSRange(args.startIndex..., in: args)
+            let heightMatches = heightPattern.matches(in: args, range: argsRange)
+            for match in heightMatches {
+                guard let matchRange = Range(match.range, in: args) else { continue }
+                var depth = 0
+                for ch in args[args.startIndex..<matchRange.lowerBound] {
+                    if ch == "(" { depth += 1 } else if ch == ")" { depth -= 1 }
+                }
+                if depth == 1 {
+                    hasFrameHeight = true
+                    break
+                }
+            }
+            if hasFrameHeight { break }
+            searchStart = rowBody.index(after: end)
+        }
+        XCTAssertFalse(
+            hasFrameHeight,
             "ProjectSearchView.swift's row body spells .frame(height: — the row carries no fixed height, sized by its code-font content"
         )
 
