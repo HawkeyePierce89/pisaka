@@ -290,13 +290,13 @@ nothing fails. Rule thirty-three currently pins the copy in place.
 
 ### Task 6: Verify the gates
 
-- [ ] Run every command in **Validation Commands**. All must pass. Report exact
+- [x] Run every command in **Validation Commands**. All must pass. Report exact
       counts: the Core test total, the app-bundle total, the SwiftLint violation and
       file counts, and both build verdicts.
-- [ ] Confirm the rule count agrees in all three places it is spelled — the suite's
+- [x] Confirm the rule count agrees in all three places it is spelled — the suite's
       own markers, `core-theme.md`'s canonical list and `CLAUDE.md`'s chrome
       invariant.
-- [ ] Confirm `git status --porcelain` is empty.
+- [x] Confirm `git status --porcelain` is empty.
 
 ## Post-Completion
 
