@@ -119,7 +119,7 @@ import XCTest
 ///   lies inside a `performAsCurrentDrawingAppearance` body, naming `hairline` and
 ///   `bgPopover` respectively.
 /// - **One field shape.** No gated file spells the rounded-border style; the
-///   shared field/box is constructed in exactly four callers plus the defining
+///   shared field/box is constructed in exactly five callers plus the defining
 ///   file, and the shared query toggle in exactly two.
 /// - **Each measurement follows its own zone.** The Find in Files match row
 ///   carries no fixed height and is sized by the code font, and each popover's
@@ -193,6 +193,8 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         // shared code-pane ground.
         "SourceViewerContent.swift",
         "DiffWindowContent.swift",
+        // Part five (b): the commit dialog, its file row and its author sheet.
+        "CommitDialogView.swift",
     ]
 
     func testEveryGatedFileExists() throws {
@@ -603,7 +605,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
             TabFileIcon exists to refuse
             """
         )
-        // Seven, and named: the tree's rows, the inline draft field drawing the
+        // Eight, and named: the tree's rows, the inline draft field drawing the
         // placeholder icon a real row would have, the shared tab icon both
         // orientations now ask, and — since part four (a) — the Problems and
         // Usages panels' file-group headers, each of whose exempted line is a
@@ -611,13 +613,17 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         // is drawn in `textSecondary`, a role, on a line rule one still scans).
         // Part four (b) adds the Log's changed-file row and Local Changes' rows
         // and folder headers, whose exempted lines are the same binding.
-        // An eighth is a line that has quietly bought itself out of rule one.
+        // Part five (b) adds the commit dialog's file row, the eighth, whose
+        // exempted line is that binding again (its glyph takes
+        // `changedFileRole(for:)`, a role, on a line rule one still scans).
+        // A ninth is a line that has quietly bought itself out of rule one.
         XCTAssertEqual(
             iconNamers,
             [
                 "ProjectTreeDraftField.swift", "ProjectTreeView.swift", "TabStripView.swift",
                 "ProblemsPanelView.swift", "UsagesPanelView.swift",
                 "CommitLogView.swift", "LocalChangesView.swift",
+                "CommitDialogView.swift",
             ],
             "a gated file naming FileIcon( carries a line exempt from rule one — keep the set small"
         )
@@ -2070,6 +2076,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         "SearchBarView.swift",
         "ProjectSearchView.swift",
         "BranchSwitcherView.swift",
+        "CommitDialogView.swift",
         "ChromeControls.swift",
     ]
 
@@ -2104,7 +2111,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         }
         XCTAssertEqual(
             constructors, Self.sharedFieldConstructors,
-            "the files constructing the shared field or box must be exactly its four callers plus the defining file"
+            "the files constructing the shared field or box must be exactly its five callers plus the defining file"
         )
 
         var toggleConstructors: Set<String> = []

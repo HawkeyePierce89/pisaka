@@ -17,6 +17,16 @@ import PisakaCore
 /// Core and merely displayed here. The commit itself is handed back to `PisakaApp`
 /// through `onCommit`, which owns the writer coordination (autosave, the revert
 /// gate) and the post-success refreshes — none of which a view may reach into.
+///
+/// Every colour is a chrome role, read from `\.chromeTheme`: a sheet inherits the
+/// environment of the view its `.sheet(…)` hangs from, and `ContentView` presents
+/// this one before its `.chromeThemed(_:)` injection, so the theme is already an
+/// ancestor. The dialog stands on `bgPanel` under a `dialogEdgeStripHeight` title
+/// strip; each pane has a `panelHeaderHeight` header; every rule is a `hairline`.
+///
+/// The content does not clip itself to a corner radius: a sheet's frame is the
+/// system's, and clipping inside it would only expose the sheet's own ground at
+/// the corners. The sheet keeps the system's corners.
 struct CommitDialogView: View {
     @ObservedObject var model: CommitDialogModel
     /// Shared preferences, for the diff panel's font size.
@@ -39,9 +49,16 @@ struct CommitDialogView: View {
     /// sheet — a sheet is a descendant of its presenter for environment purposes,
     /// so `ContentView`'s root injection reaches here with nothing threaded.
     @Environment(\.interfaceMetrics) private var metrics
+    /// The chrome's colours, inherited the same way as the metrics above.
+    @Environment(\.chromeTheme) private var theme
+
+    /// Whether the message editor holds focus — drives the field box's accent
+    /// border.
+    @FocusState private var isMessageFocused: Bool
 
     var body: some View {
         VStack(spacing: 0) {
+            header
             if isAwaitingLoad && model.files.isEmpty {
                 loading
             } else {
@@ -57,9 +74,10 @@ struct CommitDialogView: View {
                 }
                 .frame(maxHeight: .infinity)
             }
-            Divider()
+            hairline(horizontal: true)
             bottomSection
         }
+        .background(theme.color(.bgPanel))
         // The sheet's own size scales with the two panes inside it, so a 200%
         // dialog still holds both at their minimums instead of squeezing the diff
         // out of the split — `InterfaceMetricsTests` pins that composition.
@@ -76,6 +94,52 @@ struct CommitDialogView: View {
         }
     }
 
+    /// The dialog's title strip. "Commit Changes" is set at `.headline` — the
+    /// design's 14 has no place on the chrome's scale (13, 12, 11), so the
+    /// nearest step of it is taken rather than a fourth size.
+    private var header: some View {
+        HStack {
+            Text("Commit Changes")
+                .font(metrics.scaledFont(.headline, weight: .semibold))
+                .foregroundStyle(theme.color(.textPrimary))
+                .lineLimit(1)
+            Spacer()
+        }
+        .padding(.horizontal, metrics.scaled(ChromeGeometry.panelHeaderPaddingX))
+        .frame(height: metrics.scaled(ChromeGeometry.dialogEdgeStripHeight))
+        .background(theme.color(.bgPanel))
+        .overlay(alignment: .bottom) { hairline(horizontal: true) }
+    }
+
+    /// A pane's header strip: `panelHeaderHeight`, `bgPanel`, a bottom
+    /// `hairline`, and one `textSecondary` line.
+    private func paneHeader(_ text: String, truncation: Text.TruncationMode = .tail) -> some View {
+        HStack {
+            Text(text)
+                .font(metrics.scaledFont(.callout))
+                .foregroundStyle(theme.color(.textSecondary))
+                .lineLimit(1)
+                .truncationMode(truncation)
+            Spacer()
+        }
+        .padding(.horizontal, metrics.scaled(ChromeGeometry.panelHeaderPaddingX))
+        .frame(height: metrics.scaled(ChromeGeometry.panelHeaderHeight))
+        .background(theme.color(.bgPanel))
+        .overlay(alignment: .bottom) { hairline(horizontal: true) }
+    }
+
+    /// The one-point rule the dialog draws wherever it used to leave a
+    /// `Divider()`: a horizontal rule when `horizontal` is true, a vertical one
+    /// otherwise.
+    private func hairline(horizontal: Bool) -> some View {
+        Rectangle()
+            .fill(theme.color(.hairline))
+            .frame(
+                width: horizontal ? nil : metrics.scaled(ChromeGeometry.hairlineWidth),
+                height: horizontal ? metrics.scaled(ChromeGeometry.hairlineWidth) : nil
+            )
+    }
+
     private var loading: some View {
         VStack {
             Spacer()
@@ -89,21 +153,13 @@ struct CommitDialogView: View {
 
     private var fileList: some View {
         VStack(spacing: 0) {
-            HStack {
-                Text(fileCountText)
-                    .font(metrics.scaledFont(.caption))
-                    .foregroundStyle(.secondary)
-                Spacer()
-            }
-            .padding(.horizontal, metrics.scaled(8))
-            .padding(.vertical, metrics.scaled(6))
-            Divider()
+            paneHeader(fileCountText)
             if model.files.isEmpty {
                 VStack {
                     Spacer()
                     Text("No local changes")
                         .font(metrics.scaledFont(.callout))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(theme.color(.textSecondary))
                     Spacer()
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -170,17 +226,7 @@ struct CommitDialogView: View {
     private var diffPanel: some View {
         if let path = model.selectedPath, let selection = model.selection(for: path) {
             VStack(spacing: 0) {
-                HStack {
-                    Text(path)
-                        .font(metrics.scaledFont(.caption))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                    Spacer()
-                }
-                .padding(.horizontal, metrics.scaled(8))
-                .padding(.vertical, metrics.scaled(6))
-                Divider()
+                paneHeader(path, truncation: .middle)
                 CommitUnifiedDiffView(
                     lines: model.unifiedLines(for: path),
                     selectedUnits: selection.selectedUnits,
@@ -191,13 +237,16 @@ struct CommitDialogView: View {
                     isMutable: !model.isRunning,
                     onToggleUnit: { model.toggleUnit($0, path: path) }
                 )
+                // The diff preview stands on the code ground, as every pane of
+                // code in the chrome does.
+                .background(theme.color(.bgEditor))
             }
         } else {
             VStack {
                 Spacer()
                 Text("Select a file to see its changes")
                     .font(metrics.scaledFont(.callout))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(theme.color(.textSecondary))
                 Spacer()
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -206,41 +255,65 @@ struct CommitDialogView: View {
 
     // MARK: - Bottom: message, author, switches, buttons
 
+    /// The message box and the author line, then — below a `hairline` — the
+    /// footer: the two switches, the status sentence and the buttons, sized by
+    /// its content.
     private var bottomSection: some View {
-        VStack(alignment: .leading, spacing: metrics.scaled(8)) {
-            Text("Commit Message")
-                .font(metrics.scaledFont(.caption, weight: .semibold))
-                .foregroundStyle(.secondary)
-            // Disabled while the commit runs, like the switches below and for the
-            // same reason: `commit()` pins the message at entry, so text typed
-            // mid-run is not the text git records — and on success the field is
-            // cleared and the sheet closes, so a correction made in that window
-            // would vanish with nothing saying the commit did not carry it. The
-            // run is exactly the long window (hooks, signing) in which noticing a
-            // typo is likely.
-            // The message is written at the *code* font, so the box that holds it
-            // keeps its height off the interface scale for the reason the Find in
-            // Files rows keep their gutter off it: the two zones must not
-            // interact. Only the rule around it is chrome, and it scales. For the
-            // same reason it carries a code `ZoomSurfaceMarker`: a gesture over
-            // text drawn at the code size must grow that size, not the sheet.
+        VStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: metrics.scaled(8)) {
+                Text("Commit Message")
+                    .font(metrics.scaledFont(.caption, weight: .semibold))
+                    .foregroundStyle(theme.color(.textSecondary))
+                messageBox
+                authorLine
+            }
+            .padding(metrics.scaled(10))
+            hairline(horizontal: true)
+            footer
+        }
+    }
+
+    /// The commit message, in the shared field box.
+    ///
+    /// Disabled while the commit runs, like the switches below and for the same
+    /// reason: `commit()` pins the message at entry, so text typed mid-run is
+    /// not the text git records — and on success the field is cleared and the
+    /// sheet closes, so a correction made in that window would vanish with
+    /// nothing saying the commit did not carry it. The run is exactly the long
+    /// window (hooks, signing) in which noticing a typo is likely.
+    ///
+    /// The message is written at the *code* font, so the box that holds it
+    /// keeps its height off the interface scale for the reason the Find in
+    /// Files rows keep their gutter off it: the two zones must not interact.
+    /// Only the box around it is chrome, and it scales. For the same reason it
+    /// carries a code `ZoomSurfaceMarker`: a gesture over text drawn at the code
+    /// size must grow that size, not the sheet.
+    ///
+    /// The design pads the text by 12; the box takes the shared field's 10,
+    /// because a two-point difference in one drawing is not worth a second
+    /// measurement. The editor hides its own scroll background so the box's
+    /// `bgEditor` shows through.
+    private var messageBox: some View {
+        ChromeControlBox(isFocused: isMessageFocused, horizontalPadding: ChromeGeometry.fieldPaddingX) {
             TextEditor(text: $model.message)
                 .font(.system(size: settings.fontSize, design: .monospaced))
+                .foregroundStyle(theme.color(.textPrimary))
+                .scrollContentBackground(.hidden)
+                .focused($isMessageFocused)
                 .frame(minHeight: 70, maxHeight: 120)
                 .disabled(model.isRunning)
                 .background(ZoomSurfaceMarker(kind: .code))
-                .overlay(
-                    RoundedRectangle(cornerRadius: metrics.scaled(4))
-                        .stroke(Color(NSColor.separatorColor))
-                )
+        }
+    }
 
-            authorLine
+    private var footer: some View {
+        VStack(alignment: .leading, spacing: metrics.scaled(8)) {
             switchesLine
 
             if let message = statusMessage {
                 Text(message)
                     .font(metrics.scaledFont(.callout))
-                    .foregroundStyle(statusIsError ? Color.red : Color.secondary)
+                    .foregroundStyle(theme.color(statusIsError ? .statusRed : .textSecondary))
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -253,6 +326,7 @@ struct CommitDialogView: View {
                 // — the very concurrent writer the gate was raised for — while
                 // cancelling nothing, since the commit carries on to completion.
                 Button("Cancel", action: onCancel)
+                    .buttonStyle(.chromeSecondary)
                     .keyboardShortcut(.cancelAction)
                     .disabled(model.isRunning)
                 // ⌘Return rather than plain Return: the message field is a
@@ -261,10 +335,10 @@ struct CommitDialogView: View {
                     let origin = model.currentRequestGeneration
                     Task { await onCommit(origin) }
                 }
+                .buttonStyle(.chromePrimary)
                 .keyboardShortcut(.return, modifiers: .command)
                 .disabled(!model.canCommit)
             }
-            .font(metrics.scaledFont(.body))
         }
         .padding(metrics.scaled(10))
     }
@@ -289,19 +363,19 @@ struct CommitDialogView: View {
         HStack(spacing: metrics.scaled(6)) {
             Text(model.amend ? "Committer:" : "Author:")
                 .font(metrics.scaledFont(.callout))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(theme.color(.textSecondary))
             // An incomplete identity is red *and* blocks the commit (`CommitGate`
             // reports `.identityIncomplete`): the whole point of showing the author
             // is that a repository never commits under a name nobody looked at.
             Text(model.identity.signature)
                 .font(metrics.scaledFont(.callout))
-                .foregroundStyle(model.identity.isComplete ? Color.primary : Color.red)
+                .foregroundStyle(theme.color(model.identity.isComplete ? .textPrimary : .statusRed))
                 .lineLimit(1)
                 .truncationMode(.middle)
             if model.amend {
                 Text("(amend keeps the original author)")
                     .font(metrics.scaledFont(.caption))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(theme.color(.textSecondary))
                     .lineLimit(1)
             }
             // Also disabled while the commit runs, and here it is not merely a
@@ -313,9 +387,12 @@ struct CommitDialogView: View {
             // reason: the editor dismisses on Save, so a second one opened in that
             // window would be seeded from the identity being replaced. The commit
             // itself is blocked for that same window by `CommitGate`, not here.
+            // A plain button with an `accent` label rather than the platform's
+            // link style, whose colour is the system accent, not the role.
             Button("Edit…") { isEditingAuthor = true }
-                .buttonStyle(.link)
+                .buttonStyle(.plain)
                 .font(metrics.scaledFont(.callout))
+                .foregroundStyle(theme.color(.accent))
                 .disabled(model.root == nil || model.isRunning || model.isWritingIdentity)
             Spacer()
         }
@@ -324,11 +401,12 @@ struct CommitDialogView: View {
     private var switchesLine: some View {
         HStack(spacing: metrics.scaled(16)) {
             // Amend moves the message field with it, so it goes through the model
-            // rather than binding the stored property.
-            Toggle("Amend", isOn: Binding(
-                get: { model.amend },
-                set: { model.setAmend($0) }
-            ))
+            // rather than writing the stored property.
+            ChromeCheckbox(
+                state: model.amend ? .on : .off,
+                label: "Amend",
+                title: "Amend"
+            ) { model.setAmend(!model.amend) }
             // Pinned at entry like the rest of the intent, and `setAmend` also
             // rewrites the message field — so a mid-run toggle would visibly
             // change the composed message while the commit records neither.
@@ -337,20 +415,20 @@ struct CommitDialogView: View {
             // with the rest of the intent, so a toggle made mid-run would change
             // nothing while appearing to — and the control it appears to change
             // decides whether the result is published to a remote.
-            Toggle("Push after commit", isOn: $model.pushAfterCommit)
-                .disabled(model.pushPlan?.isAvailable != true || model.isRunning)
+            ChromeCheckbox(
+                state: model.pushAfterCommit ? .on : .off,
+                label: "Push after commit",
+                title: "Push after commit"
+            ) { model.pushAfterCommit.toggle() }
+            .disabled(model.pushPlan?.isAvailable != true || model.isRunning)
             if let text = pushText {
                 Text(text)
                     .font(metrics.scaledFont(.caption))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(theme.color(.textSecondary))
                     .lineLimit(1)
             }
             Spacer()
         }
-        // Applied to the row rather than to each `Toggle`: a switch's label is the
-        // only part of it that carries a font, and the two here are built from
-        // bindings whose labels would otherwise stay at the system size.
-        .font(metrics.scaledFont(.body))
     }
 
     private var pushText: String? {
@@ -392,13 +470,22 @@ struct CommitDialogView: View {
 }
 
 /// One row of the commit dialog's file list: the three-state checkbox, the
-/// status-tinted file icon, the name (with its directory dimmed beside it) and the
+/// status-tinted file icon, two lines — the name, then its directory — and the
 /// one-letter status badge shared with the Local Changes panel.
 ///
 /// The letter, its colour and its spoken name are Core's one answer
 /// (`FileStatus.letter`, `ChromeColorRole.changedFileRole(for:)`,
 /// `FileStatus.spokenName`) — the same three the Local Changes panel and the Log's
-/// detail pane read. Nothing else in the dialog is on the chrome roles yet.
+/// detail pane read.
+///
+/// The row states no height: two lines plus its padding size it, so it grows
+/// with the interface scale instead of clipping its second line.
+///
+/// The background is `TreeRowState`'s precedence — selected in a key window
+/// `accentTintStrong`, selected in one that is not `selectionInactive`, the
+/// pointer inside `hoverTint`. The design's one mock draws the selected row in
+/// `accentTint` and cannot show the other two states, so the established
+/// precedence the tree already paints wins.
 ///
 /// The checkbox is three-state only where a partial selection can exist: a file
 /// with no line units — binary, deleted, or differing only in line endings — is
@@ -421,6 +508,8 @@ private struct CommitFileRow: View {
     @Environment(\.interfaceMetrics) private var metrics
     /// The chrome's colours, inherited from the sheet's root.
     @Environment(\.chromeTheme) private var theme
+    /// Whether the window is key — the unfocused selection is a different role.
+    @Environment(\.controlActiveState) private var controlActiveState
 
     var body: some View {
         let status = selection.file.status
@@ -428,34 +517,38 @@ private struct CommitFileRow: View {
         let icon = FileIcon(
             for: DirectoryEntry(url: URL(fileURLWithPath: selection.path), isDirectory: false)
         )
-        HStack(spacing: metrics.scaled(4)) {
-            Button(action: onToggle) {
-                Image(systemName: symbol)
-                    .foregroundStyle(state == .unchecked ? Color.secondary : Color.accentColor)
-            }
-            .buttonStyle(.borderless)
+        let name = (selection.path as NSString).lastPathComponent
+        let directory = (selection.path as NSString).deletingLastPathComponent
+        HStack(spacing: metrics.scaled(6)) {
+            ChromeCheckbox(
+                state: ChromeCheckbox.State(state),
+                label: "Include \(name) in the commit",
+                action: onToggle
+            )
             .help("Include this file in the commit")
             .disabled(!isMutable)
             Image(systemName: icon.symbolName)
                 .foregroundStyle(statusColor)
-            Text((selection.path as NSString).lastPathComponent)
-            let directory = (selection.path as NSString).deletingLastPathComponent
-            if !directory.isEmpty {
-                Text(directory)
-                    .font(metrics.scaledFont(.caption))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.head)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 0) {
+                Text(name)
+                    .font(metrics.scaledFont(.body))
+                    .foregroundStyle(theme.color(.textPrimary))
+                    .truncationMode(.middle)
+                if !directory.isEmpty {
+                    Text(directory)
+                        .font(metrics.scaledFont(.caption))
+                        .foregroundStyle(theme.color(.textSecondary))
+                        .truncationMode(.head)
+                }
             }
+            .lineLimit(1)
             Spacer(minLength: metrics.scaled(4))
             Text(status.letter)
-                .font(metrics.scaledFont(.caption2, design: .monospaced))
+                .font(metrics.scaledFont(.callout, weight: .semibold, design: .monospaced))
                 .foregroundStyle(statusColor)
                 .accessibilityValue(status.spokenName)
         }
-        .font(metrics.scaledFont(.body))
-        .lineLimit(1)
-        .truncationMode(.middle)
         .padding(.horizontal, metrics.scaled(6))
         .padding(.vertical, metrics.scaled(3))
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -465,18 +558,21 @@ private struct CommitFileRow: View {
         .onHover { isHovering = $0 }
     }
 
-    private var symbol: String {
-        switch state {
-        case .checked: return "checkmark.square.fill"
-        case .mixed: return "minus.square.fill"
-        case .unchecked: return "square"
-        }
-    }
-
+    /// The row's wash, asked of `TreeRowState` (a file row is never a drop
+    /// target) and painted in the three roles the tree's rows use.
     private var background: Color {
-        if isSelected { return Color.accentColor.opacity(0.25) }
-        if isHovering { return Color.accentColor.opacity(0.15) }
-        return .clear
+        let rowState = TreeRowState.state(
+            isSelected: isSelected,
+            isWindowKey: controlActiveState == .key,
+            isHovering: isHovering,
+            isDropTarget: false
+        )
+        switch rowState {
+        case .selectedFocused: return theme.color(.accentTintStrong)
+        case .selectedUnfocused: return theme.color(.selectionInactive)
+        case .hover: return theme.color(.hoverTint)
+        case .plain, .dropTarget: return .clear
+        }
     }
 }
 
@@ -493,6 +589,8 @@ private struct AuthorEditorView: View {
     /// The interface zone's metrics — inherited through the commit sheet that
     /// presents this one, two levels down from the window root.
     @Environment(\.interfaceMetrics) private var metrics
+    /// The chrome's colours, inherited the same way.
+    @Environment(\.chromeTheme) private var theme
     @State private var name: String
     @State private var email: String
 
@@ -507,9 +605,10 @@ private struct AuthorEditorView: View {
         VStack(alignment: .leading, spacing: metrics.scaled(10)) {
             Text("Commit Author")
                 .font(metrics.scaledFont(.headline, weight: .semibold))
+                .foregroundStyle(theme.color(.textPrimary))
             Text("Saved to this repository's local config only — your global git identity is left unchanged.")
                 .font(metrics.scaledFont(.caption))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(theme.color(.textSecondary))
                 .fixedSize(horizontal: false, vertical: true)
             Form {
                 TextField("Name", text: $name)
@@ -519,6 +618,7 @@ private struct AuthorEditorView: View {
             HStack {
                 Spacer()
                 Button("Cancel") { dismiss() }
+                    .buttonStyle(.chromeSecondary)
                     .keyboardShortcut(.cancelAction)
                 Button("Save") {
                     onSave(
@@ -527,6 +627,7 @@ private struct AuthorEditorView: View {
                     )
                     dismiss()
                 }
+                .buttonStyle(.chromePrimary)
                 .keyboardShortcut(.defaultAction)
                 .disabled(!isUsable)
             }
@@ -536,6 +637,7 @@ private struct AuthorEditorView: View {
         // Wider than the 360pt form inside it at every scale, so the two fields
         // never touch the sheet's edge.
         .frame(minWidth: metrics.scaled(400))
+        .background(theme.color(.bgPanel))
     }
 
     /// Both fields must be non-blank: writing a blank one would leave the identity

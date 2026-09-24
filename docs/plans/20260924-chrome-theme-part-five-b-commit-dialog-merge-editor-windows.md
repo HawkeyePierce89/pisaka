@@ -349,7 +349,7 @@ one is recorded in `core-theme.md`:
 - Modify: `Sources/Pisaka/CommitDialogView.swift`
 - Modify: `Tests/PisakaCoreTests/ChromeThemeSourceGatingTests.swift`
 
-- [ ] **Header and panes.**
+- [x] **Header and panes.**
   - Add the header strip (decision 5): `dialogEdgeStripHeight`, `bgPanel`, a `hairline`
     bottom rule, and "Commit Changes" at `.headline` semibold in `textPrimary`. A comment
     says the design's 14 is not on the chrome's scale.
@@ -359,7 +359,7 @@ one is recorded in `core-theme.md`:
   - The diff preview stands on `bgEditor`.
   - Each of the three `Divider()`s becomes a `hairline` rule in the same direction and
     thickness.
-- [ ] **File row.**
+- [x] **File row.**
   - Two text lines: the name in `textPrimary` at `.body`, then the directory in
     `textSecondary` at `.caption`.
   - No fixed height: the row is sized by its content and padding.
@@ -377,14 +377,14 @@ one is recorded in `core-theme.md`:
     three roles in the same order.
   - A comment states that the design's single mock draws `accentTint` and cannot show
     the other two states, so the established precedence wins.
-- [ ] **Message box.** Wrap the `TextEditor` in `ChromeControlBox`:
+- [x] **Message box.** Wrap the `TextEditor` in `ChromeControlBox`:
   - focus driven by a `@FocusState`, with `fieldPaddingX`;
   - `.scrollContentBackground(.hidden)` so `bgEditor` shows through;
   - content in `textPrimary`;
   - the code-zone height and the `ZoomSurfaceMarker` kept as they are.
   - A comment says the design's 12 points of padding is taken as the shared 10, because
     a two-point difference in one drawing is not worth a second measurement.
-- [ ] **Author line and footer.**
+- [x] **Author line and footer.**
   - "Author:"/"Committer:" and the amend note in `textSecondary`.
   - The signature in `textPrimary`, or `statusRed` when incomplete.
   - "Edit…" as a `.plain` button with an `accent` label (decision 7).
@@ -394,15 +394,15 @@ one is recorded in `core-theme.md`:
   - Cancel uses `.chromeSecondary` and Commit uses `.chromePrimary`. The keyboard
     shortcuts and disabled rules are unchanged.
   - A `hairline` rule sits above the footer, which is sized by its content.
-- [ ] **Author editor sheet.**
+- [x] **Author editor sheet.**
   - Title in `textPrimary`, caption in `textSecondary`, `bgPanel` ground.
   - Save uses `.chromePrimary` and Cancel uses `.chromeSecondary`.
-- [ ] Add `CommitDialogView.swift` to `gatedFiles`. Add it to rule twenty-six's
+- [x] Add `CommitDialogView.swift` to `gatedFiles`. Add it to rule twenty-six's
   `sharedFieldConstructors`, and change that assertion's message from "four callers" to
   five.
-- [ ] `InterfaceMetricsTests`' commit-dialog composition must stay green; the sheet's
+- [x] `InterfaceMetricsTests`' commit-dialog composition must stay green; the sheet's
   minimum sizes are unchanged.
-- [ ] Run `swift test` and the macOS build. Both must pass.
+- [x] Run `swift test` and the macOS build. Both must pass.
 
 ### Task 6: The merge editor's SwiftUI half
 
