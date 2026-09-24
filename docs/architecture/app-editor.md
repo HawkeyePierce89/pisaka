@@ -1025,8 +1025,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     pane and the iOS coordinator. `FoldReveal` and `FoldCaretRule` are each named in
     this file alone, and `FoldingSourceGatingTests` pins all of it by set equality.
     **The pane ground (part five (b), `core-theme.md`).**
-    `applyEditorBackground` no longer sets the text view's, scroll view's and clip
-    view's backgrounds privately: it calls `CodePaneGround.apply(scrollView:textView:)`
+    `makeNSView` no longer sets the text view's, scroll view's and clip view's
+    backgrounds through a private helper of its own (the helper was deleted in
+    part five (b)): it calls `CodePaneGround.apply(scrollView:textView:)`
     (`DiffView.swift`), the one definition of a code pane's `bgEditor` ground,
     whose other callers are the diff pane, the merge panes and the source viewer.
     The editor was the corrected fourth caller — leaving its private copy would

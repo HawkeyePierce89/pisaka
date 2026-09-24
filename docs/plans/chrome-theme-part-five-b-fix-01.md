@@ -182,23 +182,23 @@ The archived plan under `docs/plans/completed/` also names the function. **Leave
 alone**: it is a record of what was planned, it offered both shapes, and rewriting
 history to match the outcome is how a plan archive stops being evidence.
 
-- [ ] At the three sites in `core-theme.md`, `app-editor.md` and `app-git-views.md`,
+- [x] At the three sites in `core-theme.md`, `app-editor.md` and `app-git-views.md`,
       name `CodeEditorView.makeNSView` as the caller instead.
-- [ ] Rewrite `app-editor-overlays.md:615` and `:734–740` so both the editor and the
+- [x] Rewrite `app-editor-overlays.md:615` and `:734–740` so both the editor and the
       source viewer are described as going through
       `CodePaneGround.apply(scrollView:textView:)`, and drop the "waits for the
       sweep" sentence, which part five (b) settled.
-- [ ] Add a clause pinning the **absence**: `applyEditorBackground` is named nowhere
+- [x] Add a clause pinning the **absence**: `applyEditorBackground` is named nowhere
       under `docs/architecture/`. Exclude `docs/plans/` from the scan and say in the
       comment why the archive is outside it. Put the clause with rule thirty-one,
       which owns the pane ground, rather than opening a rule for it.
-- [ ] Add the positive half beside it: the caller files the documents enumerate for
+- [x] Add the positive half beside it: the caller files the documents enumerate for
       `CodePaneGround` equal the set rule thirty-one already pins. One source of
       truth, checked against the prose that claims to describe it.
-- [ ] Mutation-verify both clauses: re-introduce the old name in one document and
+- [x] Mutation-verify both clauses: re-introduce the old name in one document and
       confirm red; drop one caller from a document's list and confirm red; revert
       and confirm green, with a clean `git status`.
-- [ ] Run `swift test`. It must pass.
+- [x] Run `swift test`. It must pass.
 
 ### Task 3: The canonical rule list agrees with the suite it describes
 

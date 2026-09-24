@@ -138,7 +138,8 @@ import XCTest
 ///   compiles and looks plausible in whichever appearance the reviewer is in.
 /// - **A code pane's ground goes through one definition.** `CodePaneGround` has
 ///   four callers and no code pane's `backgroundColor` is set anywhere else; no
-///   gated file draws an `NSBox`. A second ground drifts from the gutter's.
+///   gated file draws an `NSBox`; the architecture documents name the same four
+///   callers and never the deleted helper. A second ground drifts from the gutter's.
 /// - **A window root resolves the theme the root way.** A root's struct never
 ///   reads `\.chromeTheme` — its environment is its parent's, the resting
 ///   appearance — and resolves through a private `chromeColor(_:)`.
@@ -2635,6 +2636,84 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
             LSPSourceGatingTests.containsToken("DiffDividerView", in: merge),
             "MergeView.swift no longer builds its dividers from DiffDividerView — the pane divider is one view"
         )
+    }
+
+    /// Part five (b) deleted the editor's private pane-ground helper when
+    /// `makeNSView` began calling `CodePaneGround.apply` directly, and five
+    /// architecture passages went on naming it — the entry a reader is told to
+    /// consult before editing a file named a function that was not there. So the
+    /// old name is pinned **absent** from `docs/architecture/`. `docs/plans/` is
+    /// deliberately outside the scan: the plan archive records what was planned,
+    /// which offered both shapes, and rewriting it to match the outcome is how an
+    /// archive stops being evidence.
+    func testNoArchitectureDocumentNamesTheDeletedPaneGroundHelper() throws {
+        let directory = try Self.document("docs/architecture")
+        let documents = try FileManager.default
+            .contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
+            .filter { $0.pathExtension == "md" }
+        XCTAssertFalse(documents.isEmpty, "found no architecture documents — the walk is broken, not the prose")
+        let deleted = "applyEditorBackground"
+        for url in documents where try Self.read(url).contains(deleted) {
+            XCTFail(
+                "\(url.lastPathComponent) names \(deleted), which no longer exists — the caller is CodeEditorView.makeNSView"
+            )
+        }
+    }
+
+    /// The positive half: every passage that enumerates `CodePaneGround`'s
+    /// callers names exactly the files `codePaneGroundCallers` pins. A backticked
+    /// `X.swift` counts as that file; any other backticked token counts as the
+    /// file declaring the type its leading identifier names (so
+    /// `DiffView.makePane` is `DiffView.swift`), and a token naming no declared
+    /// type counts as nothing — a vague caller ("the merge panes") is therefore
+    /// a missing one, and the set comparison says so.
+    private static let codePaneGroundCallerPassages: [(document: String, start: String, end: String)] = [
+        // Rule thirty-one's canonical entry, opened after its heading, which
+        // spells `CodePaneGround.apply(` and would count the defining file.
+        ("docs/architecture/core-theme.md", "is called in exactly", ";"),
+        ("docs/architecture/core-theme.md", "**Four callers**:", " — the editor"),
+        ("docs/architecture/app-git-views.md", "its four callers are", "(rule"),
+    ]
+
+    func testTheDocumentsNameThePaneGroundsPinnedCallers() throws {
+        var declaringFile: [String: String] = [:]
+        let declaration = try NSRegularExpression(pattern: "\\b(?:class|struct|enum|actor)\\s+([A-Za-z_][A-Za-z0-9_]*)")
+        for url in try Self.swiftSources() {
+            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            for match in declaration.matches(in: code, range: NSRange(code.startIndex..., in: code)) {
+                guard let name = Range(match.range(at: 1), in: code) else { continue }
+                declaringFile[String(code[name])] = url.lastPathComponent
+            }
+        }
+        let backticked = try NSRegularExpression(pattern: "`([^`]+)`")
+        for passage in Self.codePaneGroundCallerPassages {
+            let text = try Self.read(Self.document(passage.document))
+            let start = try XCTUnwrap(
+                text.range(of: passage.start),
+                "\(passage.document) no longer opens its caller list with \(passage.start) — re-point this check"
+            )
+            let rest = text[start.upperBound...]
+            let end = try XCTUnwrap(
+                rest.range(of: passage.end),
+                "\(passage.document)'s caller list no longer ends at \(passage.end) — re-point this check"
+            )
+            let list = String(rest[..<end.lowerBound])
+            var named: Set<String> = []
+            for match in backticked.matches(in: list, range: NSRange(list.startIndex..., in: list)) {
+                guard let range = Range(match.range(at: 1), in: list) else { continue }
+                let token = String(list[range])
+                if token.hasSuffix(".swift") {
+                    named.insert(token)
+                } else if let type = token.split(separator: ".").first,
+                          let file = declaringFile[String(type)] {
+                    named.insert(file)
+                }
+            }
+            XCTAssertEqual(
+                named, Self.codePaneGroundCallers,
+                "\(passage.document)'s list after \(passage.start) must name exactly the CodePaneGround callers the suite pins"
+            )
+        }
     }
 
     /// The receivers of every `backgroundColor` assignment in `code` that paint a

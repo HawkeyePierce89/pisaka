@@ -739,8 +739,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     lives here beside `DiffDividerView`: the text view, the scroll view and its
     clip view all `bgEditor`, since the gutter fills itself with `bgEditor` and a
     pane on the system text background would show a lighter band. It is the one
-    definition; its four callers are `makePane` here, the merge panes,
-    `SourceViewerContent` and `CodeEditorView.applyEditorBackground` (rule
+    definition; its four callers are `DiffView.makePane` here, the merge
+    panes' `MergeThreePaneView.makePane`, `SourceViewerContent` and
+    `CodeEditorView.makeNSView` (rule
     thirty-one).
   - `CommitLogView.swift` — the Git Log view (shown in the bottom dock panel): a
     a read-only

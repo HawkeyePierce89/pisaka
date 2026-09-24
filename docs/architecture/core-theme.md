@@ -1157,10 +1157,13 @@ rules to thirty-three.
    `DiffDividerView`: the text view, the scroll view and its clip view all
    `bgEditor`, because the gutter fills itself with `bgEditor` and a pane on the
    system text background shows a lighter band beside it. **Four callers**:
-   `SourceViewerContent`, `DiffView.makePane`, the merge panes' `makePane`, and
-   `CodeEditorView.applyEditorBackground` — the editor is the *corrected* fourth:
-   it already set the same three backgrounds privately, and leaving that copy
-   would have made "one definition" false on the day it was written.
+   `SourceViewerContent`, `DiffView.makePane`, the merge panes'
+   `MergeThreePaneView.makePane`, and
+   `CodeEditorView.makeNSView` — the editor is the *corrected* fourth: it
+   already set the same three backgrounds privately (through a helper of its
+   own, deleted in part five (b) when `makeNSView` began calling
+   `CodePaneGround.apply` directly), and leaving that copy would have
+   made "one definition" false on the day it was written.
    `CodeEditorView.swift` stays outside the gated set but inside the rule's
    reach. The clause (rule thirty-one) is scoped to **a code pane's ground** — a
    text view, a scroll view or its clip view — rather than to every
@@ -1793,7 +1796,12 @@ The thirty-four rules, each invisible to the compiler:
     body. The two panels' `panel.backgroundColor = .clear` are outside the
     clause by what they paint (a borderless panel must be clear), window grounds
     are rule twenty-eight's and layer colours rule twenty-five's. No gated file
-    spells `NSBox`, and `MergeView.swift` spells `DiffDividerView`.
+    spells `NSBox`, and `MergeView.swift` spells `DiffDividerView`. The prose
+    is held to the same set: every architecture passage enumerating the
+    callers — this entry, decision 2 of part five (b) and `app-git-views.md`'s
+    `DiffView.swift` entry — names exactly those four files, and the editor's
+    deleted private helper is named nowhere under `docs/architecture/`
+    (`docs/plans/` is outside the scan: an archive records what was planned).
 32. **A window root resolves the theme the root way.** The files declaring
     `func chromeColor` equal `{ContentView, ProjectSearchView, DiffWindowContent,
     MergeView, LocalHistoryView}`; for every gated interface-scaled root, the
