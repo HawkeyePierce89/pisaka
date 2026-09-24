@@ -1024,6 +1024,15 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `SourceViewerContent` (the read-only out-of-project viewer), `MergeView`'s result
     pane and the iOS coordinator. `FoldReveal` and `FoldCaretRule` are each named in
     this file alone, and `FoldingSourceGatingTests` pins all of it by set equality.
+    **The pane ground (part five (b), `core-theme.md`).**
+    `applyEditorBackground` no longer sets the text view's, scroll view's and clip
+    view's backgrounds privately: it calls `CodePaneGround.apply(scrollView:textView:)`
+    (`DiffView.swift`), the one definition of a code pane's `bgEditor` ground,
+    whose other callers are the diff pane, the merge panes and the source viewer.
+    The editor was the corrected fourth caller — leaving its private copy would
+    have made "one definition" false on day one. The file stays outside the
+    chrome's gated set, but rule thirty-one reads it: no code-pane
+    `backgroundColor` assignment may appear outside that definition.
   - `LSPDocumentSyncController.swift` (macOS) — the diagnostics channel's push
     sync (D30), and the reason a server ever re-diagnoses anything after its first
     look: D2's flush is request-driven, diagnostics are pushed unasked, so every
@@ -1920,7 +1929,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
       hidden, Replace and Replace All in the shared secondary button style, and
       accessibility — toggles with name, tooltip and on/off `.accessibilityValue`,
       Previous/Next/Close/disclosure with spoken name and tooltip, fields with
-      spoken names — plus the usual query field, a `3/17`
+      spoken names (the whole-word toggle speaks "Whole word" here and in Find in
+      Files alike, one name on both surfaces since part five (b)) — plus the usual query field, a `3/17`
      counter (blanked on error, and on a *trimmed* empty field —
      `TextSearchEngine` throws `.emptyPattern` for a whitespace-only pattern too, so
      no search ran and "No results" would state an answer nothing computed), ▲/▼
@@ -1966,8 +1976,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     re-select the range and yank the caret back.
    - `ProjectSearchView.swift` — the Find in Files window's contents (⌘⇧F), on the
      chrome roles since part five (a) (`core-theme.md`): the root is `bgPanel`
-     (the window controller paints the window's own background through
-     `ChromePalette.nsColor(.bgPanel)`), content body padding 16 top/sides 0 bottom
+     (the window's own ground is `EscClosableWindow`'s `bgPanel` since part five
+     (b)), content body padding 16 top/sides 0 bottom
       gap 12, query row 33 high in the shared field with the shared
       `ChromeQueryToggle` triple at its trailing end gap 10 (`subheadline` semibold
       monospaced, `accent` on `accentTint` while on, `textPrimary` with no ground
@@ -2062,10 +2072,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
      Files window: the `DiffWindowController` shape (a retained `EscClosableWindow`
      hosting a SwiftUI root through an `NSHostingController`, released on close by a
      per-window delegate held alongside, since `NSWindow.delegate` is `weak`) with
-     one deliberate difference — there is exactly **one** window. On the chrome
-     roles since part five (a) (`core-theme.md`): it paints the window's own
-     background through `ChromePalette.nsColor(.bgPanel)` so a live resize never
-     shows the system window colour, the standard title bar and its style mask
+     one deliberate difference — there is exactly **one** window. Its window's
+     `bgPanel` ground is `EscClosableWindow`'s since part five (b)
+     (`core-theme.md`): the controller's own assignment — and its live-resize
+     rationale — moved into the subclass, so the controller names no role and
+     stays gated for the rules it can break (rule twenty-eight forbids a
+     controller setting the ground); the standard title bar and its style mask are
      unchanged. A diff is *about* a file, so several make sense; a project search is
      about the project, so a repeat ⌘⇧F focuses the existing window rather than
      stacking duplicates over one shared `ProjectSearchModel` (two windows would

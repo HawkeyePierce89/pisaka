@@ -623,6 +623,9 @@ changes.)
     up reading the wrong file's revisions. `closeAll()` is wired into the app's
     `willTerminateNotification` observer alongside the diff/merge/search/browser/
     source-viewer controllers.
+    **Chrome (part five (b), `core-theme.md`).** Gated, naming no role: it
+    constructs `EscClosableWindow`, whose designated initializer paints the
+    window's `bgPanel` ground, and sets none of its own.
   - `LocalHistoryView.swift` — the window's contents: revisions on the left, the
     selected one diffed against what the file holds *now* on the right, a Restore
     button under the list. **It observes `LocalHistoryBrowserModel` alone** — the
@@ -673,6 +676,14 @@ changes.)
     straight to the model's `selected` — which is what keeps a retarget from
     cancelling its own listing; see the browser model's entry. Thin and untested
     like the rest of `Sources/Pisaka`: every decision is Core's.
+    **Chrome (part five (b), `core-theme.md`).** Gated. The root resolves colours
+    through a private `chromeColor(_:)`, holding no `\.chromeTheme` in its
+    struct; the revisions list follows the Find in Files precedent (inset style,
+    hidden scroll background, `bgPanel` row backgrounds, platform selection); the
+    empty-state and "Select a revision" texts are `textSecondary`; the footer's
+    former `Divider()` is a `hairline` rule; Restore is `.chromeSecondary`,
+    keeping its plan-driven enablement. `RevisionRow`, at file scope, reads
+    `\.chromeTheme` as a child: title `textPrimary`, time line `textSecondary`.
 
 ### The wiring in `PisakaApp` and `AutosaveController`
 

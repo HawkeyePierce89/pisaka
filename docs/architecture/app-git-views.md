@@ -428,6 +428,31 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     of a diff and what a push would do are all decided in Core; the commit itself
     is handed back to `PisakaApp` through `onCommit`, which owns the writer
     coordination and the post-success refreshes.
+    **Chrome (part five (b), `core-theme.md`).** Gated. A 44-point `bgPanel`
+    header strip (`dialogEdgeStripHeight`, `hairline` bottom rule) carries
+    "Commit Changes" at `.headline` semibold in `textPrimary` — the design's 14 is
+    not on the chrome's scale. The file-count and diff-path headers are pane
+    headers (`panelHeaderHeight`, `bgPanel`, `hairline` rule, `textSecondary`);
+    the dialog stands on `bgPanel`, the diff preview on `bgEditor`, and its three
+    former `Divider()`s are `hairline` rules. The sheet keeps the system's
+    corners: the content does not clip (it would only expose the sheet's ground).
+    `CommitFileRow` is two lines — name `textPrimary` `.body`, directory
+    `textSecondary` `.caption` — with no fixed height, a `changedFileRole(for:)`
+    icon hidden from accessibility, the status letter `.callout` semibold
+    monospaced, a three-state `ChromeCheckbox` ("Include <name> in the commit"),
+    and `TreeRowState`'s precedence for its background (`accentTintStrong`,
+    `selectionInactive`, `hoverTint`) — the design's one mock draws only
+    `accentTint`. The message editor sits in `ChromeControlBox` (`@FocusState`,
+    `fieldPaddingX` — the design's 12 taken as the shared 10 — hidden scroll
+    background, `textPrimary`), keeping its code-zone height and zoom marker.
+    Author line: labels and the amend note `textSecondary`, the signature
+    `textPrimary` or `statusRed` when incomplete, "Edit…" a `.plain` button with
+    an `accent` label (the link style is forbidden). Amend and Push after commit
+    are `ChromeCheckbox`es; the status sentence is `statusRed`/`textSecondary`; a
+    `hairline` rule sits above a content-sized footer; Cancel `.chromeSecondary`,
+    Commit `.chromePrimary`. `AuthorEditorView` stands on `bgPanel`, title
+    `textPrimary`, caption `textSecondary`, Save `.chromePrimary`, Cancel
+    `.chromeSecondary`. Rules thirty and thirty-three pin the controls and the row.
   - `CommitUnifiedDiffView.swift` — the dialog's right-hand panel: a **unified**
     (single-column) diff of one file with a checkbox on every changed line. A
     standalone SwiftUI panel rather than an extension of the AppKit `DiffView`,
@@ -496,6 +521,23 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     The edit-to-conflict span tracker grows the span that begins exactly at the edit
     offset (using `location > editStart`, not `>=`) so typing at the very start of a
     conflict region is attributed to it rather than dropped.
+    **Chrome (part five (b), `core-theme.md`).** Gated. The root resolves colours
+    through a private `chromeColor(_:)` and holds no `\.chromeTheme` anywhere in
+    its struct; `MergeThreePaneView` reads the environment from file scope. The
+    toolbar is a status strip (`dialogEdgeStripHeight`, `bgPanel`, `hairline`
+    bottom rule): "Conflict n of m" and the status at `.callout`, the status
+    `statusGreen` when fully resolved and `textSecondary` otherwise; the chevrons
+    `.chromeSecondary` with spoken labels ("Previous conflict"/"Next conflict")
+    and tooltips; the four take-side buttons `.chromeSecondary`; Apply
+    `.chromePrimary` keeping ⌘↩; the vertical separator a `hairline` rule whose 16
+    lives in the private `MergeViewLayout`. The pane header is `panelHeaderHeight`
+    on `bgPanel` with `textPrimary` titles and `hairline` rules; errors
+    `statusRed`, loading `textSecondary`; no `Divider()` remains. The AppKit half:
+    the line vocabulary moved to Core (`MergeLineKind`), `MergePaneTextView` fills
+    `ChromePalette.nsColor(ChromeColorRole.mergeWashRole(for:))` at draw time (no
+    drawing-appearance bracket — a dynamic colour resolves when filled), the
+    panes' ground goes through `CodePaneGround.apply`, and the container's
+    dividers are `DiffDividerView`s (no `NSBox`).
   - `MergeWindowController.swift` — owns the separate, non-modal merge windows
     opened from the Local Changes "Resolve" entry, mirroring `DiffWindowController`:
     each `open(title:model:settings:onApply:)` creates a fresh resizable `EscClosableWindow`
@@ -511,11 +553,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     window closes itself, a failed apply leaves it open with `errorMessage` shown.
     `closeAll()` closes every retained window (the app calls it on
     `willTerminateNotification`).
+    **Chrome (part five (b)).** Gated, naming no role: it constructs
+    `EscClosableWindow` and sets no window ground of its own — the subclass does.
   - `EscClosableWindow.swift` — a tiny `final class EscClosableWindow: NSWindow`
     used for the separate diff (`DiffWindowController`), merge
     (`MergeWindowController`), Find in Files (`ProjectSearchWindowController`),
-    LeetCode problem browser (`LeetCodeBrowserWindowController`) and source viewer
-    (`SourceViewerWindowController`) windows so Esc closes them. It overrides
+    LeetCode problem browser (`LeetCodeBrowserWindowController`), source viewer
+    (`SourceViewerWindowController`) and Local History
+    (`LocalHistoryWindowController`) windows so Esc closes them. It overrides
     `cancelOperation(_:)` (which AppKit dispatches down the responder chain on Esc,
     and a plain `NSWindow` ignores) to call `performClose(_:)`, routing the close
     through the standard `windowShouldClose`/`windowWillClose` path — exactly like
@@ -523,6 +568,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     still fires and releases the window from its retained set (no new leaks). Pure
     view layer (AppKit only), so it is untested like the windows/controllers
     themselves.
+    **It also paints the window ground** (part five (b), `core-theme.md`): its
+    designated initializer — which `NSWindow(contentViewController:)` goes through,
+    and which the merge controller calls directly — sets `backgroundColor =
+    ChromePalette.nsColor(.bgPanel)`, a dynamic colour, so an appearance change
+    recolours it and a live resize never shows the system window colour. A
+    window's ground is a property of the window; two setters compete silently, so
+    no controller sets one (rule twenty-eight). The problem browser's window
+    gains `bgPanel` with the rest.
   - `LocalChangesView.swift` — the Local Changes bottom dock panel (no longer a
     left-panel mode). Observes
     `LocalChangesModel` and renders `changedFiles` flat or grouped by folder
@@ -638,9 +691,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `.subheadline` monospaced, speaking expanded/collapsed as its value; each
     level indents by `treeIndentStep`. A file row is `rowHeight` tall, inset 26 pt
     under a folder (level with the folder's glyph) or 10 pt in the flat list; its
-    checkbox is drawn at 14 pt with a 3 pt radius — a `hairline` border off, an
-    `accent` ground with an `onAccent` check on — labelled with the file it
-    includes and speaking on/off; the status letter is `.callout` monospaced
+    checkbox is the shared `ChromeCheckbox` (part five (b)), lifted from this
+    very row: `checkboxSide` 14 at `checkboxCornerRadius` 3 — a `hairline` border
+    off, an `accent` ground with an `onAccent` check on — labelled with the file
+    it includes and speaking on/off. The check **grew from 8 to 10 points**: the
+    shared shape takes the design's glyph, and the private builder and its three
+    `LocalChangesLayout` numbers are gone; the status letter is `.callout` monospaced
     semibold; the glyph is `textSecondary` and the name `textPrimary` `.body`.
     Washes are `accentTintStrong` (selection) and `hoverTint` (hover).
   - `DiffView.swift` — `NSViewRepresentable` rendering a pre-computed `[DiffRow]`
@@ -677,6 +733,13 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `hairline` role, `ChromeGeometry.hairlineWidth` wide and *unscaled* under
     the token's stated code-zoom exception (the panes have no interface scale to
     ask).
+    **The shared code-pane ground (part five (b)).** `CodePaneGround.apply(scrollView:textView:)`
+    lives here beside `DiffDividerView`: the text view, the scroll view and its
+    clip view all `bgEditor`, since the gutter fills itself with `bgEditor` and a
+    pane on the system text background would show a lighter band. It is the one
+    definition; its four callers are `makePane` here, the merge panes,
+    `SourceViewerContent` and `CodeEditorView.applyEditorBackground` (rule
+    thirty-one).
   - `CommitLogView.swift` — the Git Log view (shown in the bottom dock panel): a
     a read-only
     commit table (a fixed-`rowHeight` list of short hash, ref badges, subject,
@@ -850,7 +913,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     field's own is the system's value) and `textPrimary` text; widths author 140,
     path 160, search 220. The branch menu keeps the system picker (inline, inside
     a borderless `Menu`) beside a `textSecondary` chevron; each date bound keeps
-    its checkbox and the system date field, an `NSDatePicker` drawn with no
+    its checkbox — the shared `ChromeCheckbox` plus its label since part five
+    (b), replacing a platform `Toggle` — and the system date field, an `NSDatePicker` drawn with no
     bezel, border or background (`BorderlessDateField`, coloured from the theme
     as a concrete value) plus a chevron opening a graphical calendar popover.
     Programmatic `dateValue` writes send no action, so the seeding rule above

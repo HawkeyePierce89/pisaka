@@ -594,7 +594,7 @@ Where a clause uses a pattern instead, its comment says why.
 
 ### Task 10: Documentation
 
-- [ ] Update `docs/architecture/core-theme.md`:
+- [x] Update `docs/architecture/core-theme.md`:
   - **Decisions:**
     - the merge wash mapping, and why one wash rather than two;
     - the pane-ground rule and its four call sites, with the editor as the corrected
@@ -614,7 +614,7 @@ Where a clause uses a pattern instead, its comment says why.
     - the unified diff's added and removed text tint (an open question).
   - **The canonical list:** "The thirty-three rules, each invisible to the compiler:",
     with rules twenty-eight to thirty-three added. Update the surfaces-swept list.
-- [ ] Update the per-surface entries:
+- [x] Update the per-surface entries:
   - `app-git-views.md`: `CommitDialogView`, `MergeView`, `MergeWindowController`,
     `EscClosableWindow`, `DiffView`, `LocalChangesView` (including the grown check),
     `LogFilterBar`;
@@ -622,13 +622,13 @@ Where a clause uses a pattern instead, its comment says why.
   - `core-local-history.md`: the window and its view;
   - `app-editor.md`: `CodeEditorView`'s pane ground, the whole-word name and the Find in
     Files controller.
-- [ ] Update `CLAUDE.md`'s chrome invariant:
+- [x] Update `CLAUDE.md`'s chrome invariant:
   - "and its thirty-three rules" and forty-four gated files;
   - part five (b)'s surfaces added to the swept list;
   - `conflictBackground` spent, leaving two roles unspent, `currentLine` and
     `bracketMatch`, both code zone;
   - the `MergeLineKind.swift` index line added in Task 1.
-- [ ] Run `swift test` once more, because the rule-count and canonical-list self-checks
+- [x] Run `swift test` once more, because the rule-count and canonical-list self-checks
   read these documents.
 
 ## Post-Completion
