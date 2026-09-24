@@ -105,4 +105,35 @@ extension ButtonStyle where Self == ChromeSecondaryButtonStyle {
     static var chromeSecondary: ChromeSecondaryButtonStyle { ChromeSecondaryButtonStyle() }
 }
 
+/// The query-mode toggle (`Aa`, `ab`, `.*`), drawn once for the two shapes that
+/// used to diverge: the find bar's and Find in Files' builders had drifted in
+/// size and colour (subheadline `textPrimary` off vs. a raw 16 `textSecondary`
+/// off), the latter reading an icon box as a font size.
+struct ChromeQueryToggle: View {
+    let label: String
+    @Binding var isOn: Bool
+    let help: String
+
+    @Environment(\.interfaceMetrics) private var metrics
+    @Environment(\.chromeTheme) private var theme
+
+    var body: some View {
+        Button {
+            isOn.toggle()
+        } label: {
+            Text(label)
+                .font(metrics.scaledFont(.subheadline, weight: .semibold, design: .monospaced))
+                .padding(.horizontal, metrics.scaled(5))
+                .padding(.vertical, metrics.scaled(2))
+                .background(isOn ? theme.color(.accentTint) : Color.clear)
+                .clipShape(RoundedRectangle(cornerRadius: metrics.scaled(4)))
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(isOn ? theme.color(.accent) : theme.color(.textPrimary))
+        .help(help)
+        .accessibilityLabel(help)
+        .accessibilityValue(isOn ? "On" : "Off")
+    }
+}
+
 #endif

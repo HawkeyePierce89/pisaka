@@ -136,21 +136,21 @@ read as a font size, so the labels are half again as large as every neighbour.
 The comment on master that said the two toggles matched was deleted along with
 the match.
 
-- [ ] Add a shared query-mode toggle to `ChromeControls.swift`, taking the label,
+- [x] Add a shared query-mode toggle to `ChromeControls.swift`, taking the label,
       an `isOn` binding and the help text. It draws the label at `subheadline`,
       semibold, monospaced; `accent` on an `accentTint` ground while on;
       `textPrimary` and no ground while off; and it carries the spoken name, the
       tooltip and the on/off `accessibilityValue` both copies already had.
-- [ ] Both surfaces call it. Delete both private `toggle(_:isOn:help:)` builders
+- [x] Both surfaces call it. Delete both private `toggle(_:isOn:help:)` builders
       and `SearchLayout.toggleFontSize`.
-- [ ] Extend rule twenty-six — already the "one field shape" rule — so that it is
+- [x] Extend rule twenty-six — already the "one field shape" rule — so that it is
       the "one shape per control" rule: the set of gated files constructing the
       shared toggle equals {`SearchBarView.swift`, `ProjectSearchView.swift`}, and
       no gated file outside `ChromeControls.swift` declares a toggle builder of
       its own. Keep its existing field clauses untouched.
-- [ ] Show the extended rule red against a local edit that reinstates a private
+- [x] Show the extended rule red against a local edit that reinstates a private
       toggle builder in one of the two surfaces, then revert.
-- [ ] Run `swift test` and the macOS build.
+- [x] Run `swift test` and the macOS build.
 
 ### Task 3: The shared field carries its caller's text size
 

@@ -1600,17 +1600,17 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
             ControlBuilder(path: ["private func checkRow("],
                            required: [".accessibilityLabel(", ".accessibilityValue("], hidesSymbols: true),
         ]),
-        ("SearchBarView.swift", [
-            ControlBuilder(path: ["private func toggle("],
+        ("ChromeControls.swift", [
+            ControlBuilder(path: ["struct ChromeQueryToggle"],
                            required: [".accessibilityLabel(", ".accessibilityValue("], hidesSymbols: false),
+        ]),
+        ("SearchBarView.swift", [
             ControlBuilder(path: ["private var findRow: some View"],
                            required: [".accessibilityLabel(", ".accessibilityValue("], hidesSymbols: true),
             ControlBuilder(path: ["private var replaceRow: some View"],
                            required: [".accessibilityLabel("], hidesSymbols: false),
         ]),
         ("ProjectSearchView.swift", [
-            ControlBuilder(path: ["private func toggle("],
-                           required: [".accessibilityLabel(", ".accessibilityValue("], hidesSymbols: false),
             ControlBuilder(path: ["private var queryRow: some View"],
                            required: [".accessibilityLabel(", ".accessibilityValue("], hidesSymbols: true),
             ControlBuilder(path: ["private var replaceRow: some View"],
@@ -2016,6 +2016,12 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         "ChromeControls.swift",
     ]
 
+    /// The files that construct the shared query-mode toggle.
+    private static let sharedToggleConstructors: Set<String> = [
+        "SearchBarView.swift",
+        "ProjectSearchView.swift",
+    ]
+
     func testOneFieldShape() throws {
         let roundedBorderPattern = try NSRegularExpression(pattern: "\\.textFieldStyle\\s*\\(\\s*\\.roundedBorder")
         for url in try Self.swiftSources() where Self.gatedFiles.contains(url.lastPathComponent) {
@@ -2043,6 +2049,29 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
             constructors, Self.sharedFieldConstructors,
             "the files constructing the shared field or box must be exactly its four callers plus the defining file"
         )
+
+        var toggleConstructors: Set<String> = []
+        for url in try Self.swiftSources() {
+            let name = url.lastPathComponent
+            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            if code.contains("ChromeQueryToggle(") {
+                toggleConstructors.insert(name)
+            }
+        }
+        XCTAssertEqual(
+            toggleConstructors, Self.sharedToggleConstructors,
+            "the files constructing the shared query toggle must be exactly its two callers"
+        )
+
+        for url in try Self.swiftSources() where Self.gatedFiles.contains(url.lastPathComponent) {
+            let name = url.lastPathComponent
+            if name == "ChromeControls.swift" { continue }
+            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            XCTAssertFalse(
+                code.contains("func toggle("),
+                "\(name) declares its own toggle builder — the query toggle is ChromeQueryToggle, one shape for both surfaces"
+            )
+        }
     }
 
     // MARK: - Self-check

@@ -198,9 +198,9 @@ struct ProjectSearchView: View {
                 onClear: { settings.clearSearchQueryHistory() }
             )
 
-            toggle("Aa", isOn: $caseSensitive, help: "Match case")
-            toggle("ab", isOn: $wholeWord, help: "Words")
-            toggle(".*", isOn: $isRegex, help: "Regular expression")
+            ChromeQueryToggle(label: "Aa", isOn: $caseSensitive, help: "Match case")
+            ChromeQueryToggle(label: "ab", isOn: $wholeWord, help: "Words")
+            ChromeQueryToggle(label: ".*", isOn: $isRegex, help: "Regular expression")
 
             if model.isSearching {
                 ProgressView()
@@ -275,26 +275,6 @@ struct ProjectSearchView: View {
         caseSensitive = query.caseSensitive
         wholeWord = query.wholeWord
         focusedField = .query
-    }
-
-    /// One of the three query-mode toggles (`Aa`, `ab`, `.*`), matching the
-    /// editor bar's so the two read as the same control.
-    private func toggle(_ label: String, isOn: Binding<Bool>, help: String) -> some View {
-        Button {
-            isOn.wrappedValue.toggle()
-        } label: {
-            Text(label)
-                .font(.system(size: metrics.scaled(SearchLayout.toggleFontSize), weight: .semibold, design: .monospaced))
-                .padding(.horizontal, metrics.scaled(5))
-                .padding(.vertical, metrics.scaled(2))
-                .background(isOn.wrappedValue ? chromeColor(.accentTint) : Color.clear)
-                .clipShape(RoundedRectangle(cornerRadius: metrics.scaled(4)))
-        }
-        .buttonStyle(.plain)
-        .foregroundStyle(isOn.wrappedValue ? chromeColor(.accent) : chromeColor(.textSecondary))
-        .help(help)
-        .accessibilityLabel(help)
-        .accessibilityValue(isOn.wrappedValue ? "On" : "Off")
     }
 
     // MARK: - Results
@@ -680,8 +660,6 @@ private enum SearchLayout {
     static let contentGap: Double = 12
     /// Gap between the toggle buttons in the query row.
     static let toggleGap: Double = 10
-    /// Toggle label point size.
-    static let toggleFontSize: Double = 16
     /// Query, replace and file-mask field height.
     static let queryFieldHeight: Double = 33
     /// Gap between the replace field and Replace All.

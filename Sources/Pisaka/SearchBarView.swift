@@ -134,9 +134,9 @@ struct SearchBarView: View {
                 onClear: { settings.clearSearchQueryHistory() }
             )
 
-            toggle("Aa", isOn: $search.caseSensitive, help: "Match case")
-            toggle("ab", isOn: $search.wholeWord, help: "Whole word")
-            toggle(".*", isOn: $search.isRegex, help: "Regular expression")
+            ChromeQueryToggle(label: "Aa", isOn: $search.caseSensitive, help: "Match case")
+            ChromeQueryToggle(label: "ab", isOn: $search.wholeWord, help: "Whole word")
+            ChromeQueryToggle(label: ".*", isOn: $search.isRegex, help: "Regular expression")
 
             Text(counterText)
                 .font(metrics.scaledFont(.subheadline))
@@ -214,27 +214,6 @@ struct SearchBarView: View {
     }
 
     // MARK: - Pieces
-
-    /// One of the three query-mode toggles (`Aa`, `ab`, `.*`), highlighted while on.
-    private func toggle(_ label: String, isOn: Binding<Bool>, help: String) -> some View {
-        Button {
-            isOn.wrappedValue.toggle()
-        } label: {
-            Text(label)
-                // 11pt semibold monospaced — `subheadline`'s base size, so the
-                // toggle keeps its size at 100% and grows with the bar above it.
-                .font(metrics.scaledFont(.subheadline, weight: .semibold, design: .monospaced))
-                .padding(.horizontal, metrics.scaled(5))
-                .padding(.vertical, metrics.scaled(2))
-                .background(isOn.wrappedValue ? theme.color(.accentTint) : Color.clear)
-                .clipShape(RoundedRectangle(cornerRadius: metrics.scaled(4)))
-        }
-        .buttonStyle(.plain)
-        .foregroundStyle(isOn.wrappedValue ? theme.color(.accent) : theme.color(.textPrimary))
-        .help(help)
-        .accessibilityLabel(help)
-        .accessibilityValue(isOn.wrappedValue ? "On" : "Off")
-    }
 
     /// The `3/17` match counter.
     ///
