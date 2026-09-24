@@ -25,7 +25,7 @@ import SwiftUI
 /// results draw their own `hairline` rules, the query, replace and file-mask
 /// fields are the shared `ChromeThemedTextField` (`bgEditor` ground, `hairline`
 /// border, `accent` on focus), toggles `accent` on `accentTint` while on and
-/// `textSecondary` while off, the scope line and counters in `callout`
+/// `textPrimary` with no ground while off, the scope line and counters in `callout`
 /// `textSecondary`, the group header monochrome `textSecondary`, the match row
 /// on the code font with the line number in `textSecondary`, the highlight kept
 /// on the editor's current-match background, and the validation error in

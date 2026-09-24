@@ -1968,8 +1968,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
      chrome roles since part five (a) (`core-theme.md`): the root is `bgPanel`
      (the window controller paints the window's own background through
      `ChromePalette.nsColor(.bgPanel)`), content body padding 16 top/sides 0 bottom
-     gap 12, query row 33 high in the shared field with three 16-point toggles at
-     its trailing end gap 10 in `textSecondary`, replace row the shared field gap 8
+      gap 12, query row 33 high in the shared field with the shared
+      `ChromeQueryToggle` triple at its trailing end gap 10 (`subheadline` semibold
+      monospaced, `accent` on `accentTint` while on, `textPrimary` with no ground
+      while off), replace row the shared field gap 8
      then Replace All in the secondary button style, scope line `callout` in
      `textSecondary`, results gap 8, group header 24 high padding 8 a 14-point icon
      the path in `callout` and the count in `subheadline` all in `textSecondary`,
@@ -2096,16 +2098,15 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
      **one** view both search surfaces render, so the history reads identically in
      each. On the chrome roles since part five (a) (`core-theme.md`): the trigger
      glyph is `textSecondary` and hidden from accessibility, the menu keeps a
-     spoken name, rows and the one `Divider()` are untouched — that separator is
-     the one `Divider()` a gated file may spell, and a comment names it as such.
+     spoken name, rows and the *Clear History* button are grouped into two
+     `Section`s whose boundary draws the separator — no `Divider()` remains.
      `entries: [SearchQuery]`, `metrics: InterfaceMetrics`, `onPick`, `onClear`. A
      `Menu` labelled with `clock.arrow.circlepath` at `metrics.scaledFont(.body)`,
      `.menuStyle(.borderlessButton)` with the indicator hidden and `.fixedSize()` so
      it sits in the row like the three toggles rather than claiming the row's spare
      width, `.help("Recent searches")`, and `.disabled(entries.isEmpty)`. Rows are
      `ForEach(entries, id: \.pattern)` — patterns are unique by the recording rule
-     — drawing `SearchQueryHistory.menuLabel(for:)` inside two `Section`s and one
-     `Button("Clear History")`. Thin and untested like the rest of `Sources/Pisaka`:
+     — drawing `SearchQueryHistory.menuLabel(for:)` inside the two `Section`s. Thin and untested like the rest of `Sources/Pisaka`:
      every decision it draws is Core's, including the row's text, so the truncation
      and the flag suffix are computed and asserted there rather than left to a menu
      item's own eliding. The metrics are **passed in** rather than read from the
