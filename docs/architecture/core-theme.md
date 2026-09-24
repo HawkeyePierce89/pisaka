@@ -162,10 +162,9 @@ two new geometry tokens) and each with its readers pinned by a gating
     Local Changes toolbar's Commit and the pull-request rows' buttons — a third
     measurement equal in value to the two dock tab insets and deliberately not
     spelled as either — and `buttonCornerRadius` (5). `cornerRadiusMax`'s own
-    comment names the small controls' radii honestly: a chrome surface's corners
-    are square or the maximum, and the only smaller radii are the small controls'
-    own tokens (`bottomBarToggleRadius`, `buttonCornerRadius`), never one computed
-    from it. `dockTabRowHeight`, declared ahead of its
+    comment states the rule rather than a list: a chrome surface's corners are
+    square or the maximum, and each small control's radius is a token of its own,
+    never one computed from it (a list of them fell behind twice). `dockTabRowHeight`, declared ahead of its
     surface since part one, is spent since part four (a). Part five (a) added
     the shared field's and the secondary button's five (see the sweep guide), and
     part five (b) three more: `dialogEdgeStripHeight` (44 — the commit dialog's
@@ -1143,7 +1142,9 @@ window ground) and `SourceViewerContent.swift` (whose one colour is now the
 shared pane ground) join `roleNamingExemptions`: they name no role, and stay
 gated for rules one and two and for the window-ground and pane-ground rules,
 which are exactly the rules they can break. The suite grows from twenty-seven
-rules to thirty-three.
+rules to thirty-five — eight new rules: six from the part itself
+(twenty-eight to thirty-three), rule thirty-four from the first review round and
+rule thirty-five from the third.
 
 **Decisions.**
 
@@ -1158,8 +1159,11 @@ rules to thirty-three.
 2. **A code pane's ground goes through one definition** —
    `CodePaneGround.apply(scrollView:textView:)` in `DiffView.swift`, beside
    `DiffDividerView`: the text view, the scroll view and its clip view all
-   `bgEditor`, because the gutter fills itself with `bgEditor` and a pane on the
-   system text background shows a lighter band beside it. **Four callers**:
+   `bgEditor`, because the editor's gutter (`LineNumberRulerView`) fills itself
+   with `bgEditor` and an editor pane on the system text background shows a
+   lighter band beside it; the other panes take the same ground so every code
+   pane matches — `DiffGutterView` fills nothing, so what shows behind it is the
+   ground this helper sets, and the merge panes have no ruler at all. **Four callers**:
    `SourceViewerContent`, `DiffView.makePane`, the merge panes'
    `MergeThreePaneView.makePane`, and
    `CodeEditorView.makeNSView` — the editor is the *corrected* fourth: it
@@ -1205,7 +1209,8 @@ rules to thirty-three.
    constant. The mixed-state dash uses the same width. Callers: the commit
    dialog (file rows, Amend, Push after commit), Local Changes' revert checkbox
    and the Log filter bar's two date bounds, which replaced a platform `Toggle`.
-5. **The rule-matching convention**, which this part's six rules follow and
+5. **The rule-matching convention**, which this part's eight rules (the six
+   above plus the review rounds' thirty-four and thirty-five) follow and
    state at each site. Every identifier ban and presence check matches through
    `LSPSourceGatingTests.containsToken(_:in:)`, never a bare `contains` — a
    substring match is wrong both ways, and a `Toggle(` ban under `contains`
@@ -1219,8 +1224,10 @@ rules to thirty-three.
    brace-matched struct**, not its `body`: the regression rule thirty-two exists
    for is an `@Environment(\.chromeTheme)` *stored property* added to a root,
    which sits outside `body`, so a clause over `body` alone would be vacuous on
-   exactly that mistake. Child views (`MergeThreePaneView`, `RevisionRow`,
-   `SourceViewerPane`) read the environment from file scope.
+   exactly that mistake. `RevisionRow`, a child view at file scope, reads the
+   environment there; `MergeThreePaneView` and `SourceViewerPane` are
+   `NSViewRepresentable`s with no `@Environment` at all — their colours are
+   dynamic `NSColor`s from `ChromePalette` and `CodePaneGround`.
 6. **The alpha clause targets roles.** `MinimapView.swift` applies an alpha to a
    syntax-table colour — code zone — so the rule forbids an alpha chained onto a
    *role's* colour across the gated set, plus the `withAlphaComponent` token
@@ -1255,7 +1262,8 @@ shared-field callers (now five).
 
 **The merge editor — `MergeView.swift` and `MergeWindowController.swift`.** The
 root resolves colours through a private `chromeColor(_:)`; nothing inside the
-root struct reads `\.chromeTheme`, and `MergeThreePaneView` stays at file scope.
+root struct reads `\.chromeTheme`, and `MergeThreePaneView` stays at file scope
+— an `NSViewRepresentable` reading no environment, its colours dynamic `NSColor`s.
 The toolbar is a status strip: `dialogEdgeStripHeight`, `bgPanel`, a `hairline`
 bottom rule, "Conflict n of m" and the status at `.callout` (`statusGreen` when
 fully resolved, `textSecondary` otherwise), both chevrons `.chromeSecondary`
@@ -1902,11 +1910,20 @@ The thirty-five rules, each invisible to the compiler:
     and its selected row is the one Restore applies.
 
 Plus a **self-check** in the suite's own idiom: every gated file must actually
-*name* a `ChromeColorRole`, or the checks above have gone vacuous — with two
-exceptions: `ChromeThemeEnvironment.swift`, which carries the appearance down the
-tree and paints nothing, and `CommitGraphView.swift`, which draws only lanes in
-`CommitGraphPalette`'s colours; each names no role by construction while staying
-gated for the two rules it *can* break.
+*name* a `ChromeColorRole`, or the checks above have gone vacuous — with eight
+exceptions, each naming no role by construction while staying gated for the
+rules it *can* break: `ChromeThemeEnvironment.swift`, which carries the
+appearance down the tree and paints nothing, and `CommitGraphView.swift`, which
+draws only lanes in `CommitGraphPalette`'s colours (both gated for rules one and
+two); the five window controllers — `DiffWindowController.swift`,
+`MergeWindowController.swift`, `SourceViewerWindowController.swift`,
+`LocalHistoryWindowController.swift` and `ProjectSearchWindowController.swift` —
+which name no role since the window's ground moved into `EscClosableWindow`
+(gated for rules one and two and the window-ground rule, a system colour or a
+second, competing ground being what a controller can commit); and
+`SourceViewerContent.swift`, whose one colour was the pane's ground and now
+comes from `CodePaneGround` (gated for rules one and two and the code-pane
+ground rule).
 
 And, beside the rules rather than among them, a **cross-file count**: the suite
 counts its own numbered rule markers and asserts that both summaries of it — the

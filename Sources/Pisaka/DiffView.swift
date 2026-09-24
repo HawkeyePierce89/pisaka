@@ -540,12 +540,15 @@ final class DiffDividerView: NSView {
 /// The text view, the scroll view and that scroll view's clip view are set
 /// together, because each draws part of the pane — the text view its own bounds,
 /// the clip view everything the content does not cover, the scroll view the
-/// rest. The role is `bgEditor` because the gutter beside every such pane
-/// (`LineNumberRulerView`, `DiffGutterView`) fills itself with it: a pane left
-/// on the system's `textBackgroundColor` would show the gutter as a visibly
-/// lighter band beside the text in the dark appearance, the two colours being
-/// different greys. The colour is dynamic, so no caller observes an appearance
-/// change.
+/// rest. The role is `bgEditor` because the editor's gutter
+/// (`LineNumberRulerView`) fills itself with it: an editor pane left on the
+/// system's `textBackgroundColor` would show the gutter as a visibly lighter
+/// band beside the text in the dark appearance, the two colours being different
+/// greys. The other panes take the same ground so every code pane matches —
+/// `DiffGutterView` fills nothing (it overrides only `drawHashMarksAndLabels`),
+/// so what shows behind it is the scroll view's ground this helper sets, and the
+/// three merge panes have no ruler at all. The colour is dynamic, so no caller
+/// observes an appearance change.
 ///
 /// Four callers: the editor (`CodeEditorView.makeNSView`), the diff
 /// panes (`DiffView.makePane`), the three merge panes (`MergeThreePaneView

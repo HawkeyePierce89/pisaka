@@ -526,7 +526,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     conflict region is attributed to it rather than dropped.
     **Chrome (part five (b), `core-theme.md`).** Gated. The root resolves colours
     through a private `chromeColor(_:)` and holds no `\.chromeTheme` anywhere in
-    its struct; `MergeThreePaneView` reads the environment from file scope. The
+    its struct; `MergeThreePaneView`, at file scope, is an `NSViewRepresentable`
+    with no `@Environment` — its colours are dynamic `NSColor`s from
+    `ChromePalette` and `CodePaneGround`. The
     toolbar is a status strip (`dialogEdgeStripHeight`, `bgPanel`, `hairline`
     bottom rule): "Conflict n of m" and the status at `.callout`, the status
     `statusGreen` when fully resolved and `textSecondary` otherwise; the chevrons
@@ -738,8 +740,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     ask).
     **The shared code-pane ground (part five (b)).** `CodePaneGround.apply(scrollView:textView:)`
     lives here beside `DiffDividerView`: the text view, the scroll view and its
-    clip view all `bgEditor`, since the gutter fills itself with `bgEditor` and a
-    pane on the system text background would show a lighter band. It is the one
+    clip view all `bgEditor`, since the editor's gutter (`LineNumberRulerView`)
+    fills itself with `bgEditor` and an editor pane on the system text background
+    would show a lighter band; the other panes take the same ground so every code
+    pane matches (`DiffGutterView` fills nothing, so the ground behind it is this
+    helper's, and the merge panes have no ruler). It is the one
     definition; its four callers are `DiffView.makePane` here, the merge
     panes' `MergeThreePaneView.makePane`, `SourceViewerContent` and
     `CodeEditorView.makeNSView` (rule

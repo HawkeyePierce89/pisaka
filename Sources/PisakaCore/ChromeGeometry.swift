@@ -39,9 +39,8 @@ public enum ChromeGeometry {
     /// How far one level of nesting insets a project-tree child from its parent.
     public static let treeIndentStep: Double = 16
     /// The largest corner radius the chrome uses. A chrome surface's corners are
-    /// either square or this; the only smaller radii are the small controls'
-    /// own, each a token of its own (`bottomBarToggleRadius`,
-    /// `buttonCornerRadius`) — never one computed from this.
+    /// either square or this; each small control's radius is a token of its
+    /// own, never one computed from this.
     public static let cornerRadiusMax: Double = 6
     /// The width of a hairline separating two chrome zones.
     public static let hairlineWidth: Double = 1

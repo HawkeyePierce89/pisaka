@@ -255,7 +255,7 @@ nothing fails. Rule thirty-three currently pins the copy in place.
 - Modify: `Sources/Pisaka/DiffView.swift`, `Sources/PisakaCore/ChromeGeometry.swift`
 - Modify: `docs/architecture/core-theme.md`, `docs/architecture/app-git-views.md`
 
-- [ ] `DiffView.swift:543–547` — `CodePaneGround`'s comment says the role is
+- [x] `DiffView.swift:543–547` — `CodePaneGround`'s comment says the role is
       `bgEditor` because "the gutter beside every such pane (`LineNumberRulerView`,
       `DiffGutterView`) fills itself with it". `DiffGutterView` fills nothing: it
       overrides only `drawHashMarksAndLabels`, so what sits behind it is the scroll
@@ -264,28 +264,28 @@ nothing fails. Rule thirty-three currently pins the copy in place.
       `LineNumberRulerView` and say the other panes take the same ground so every
       code pane matches. Mirror the correction at `core-theme.md` (~1160) and
       `app-git-views.md` (~741).
-- [ ] `core-theme.md:1221` and `app-git-views.md:529` say `MergeThreePaneView`,
+- [x] `core-theme.md:1221` and `app-git-views.md:529` say `MergeThreePaneView`,
       `RevisionRow` and `SourceViewerPane` "read the environment from file scope".
       Only `RevisionRow` does. The other two are `NSViewRepresentable`s with no
       `@Environment` at all — their colours are dynamic `NSColor`s from
       `ChromePalette` and `CodePaneGround`. Name only `RevisionRow`, and say what
       the other two actually do.
-- [ ] `core-theme.md:1144–1145` says the suite grows "from twenty-seven rules to
+- [x] `core-theme.md:1144–1145` says the suite grows "from twenty-seven rules to
       thirty-three", and `:1207` says "this part's six rules". The suite declares
       thirty-four and the branch added seven. Correct both, naming which rules came
       from the review rounds.
-- [ ] `core-theme.md:1853` says every gated file names a role "with two exceptions".
+- [x] `core-theme.md:1853` says every gated file names a role "with two exceptions".
       The suite now exempts eight — the five window controllers and
       `SourceViewerContent.swift` joined the two. Name all eight and why each is
       exempt yet still gated.
-- [ ] `ChromeGeometry.swift:42` — `cornerRadiusMax`'s comment says the only smaller
+- [x] `ChromeGeometry.swift:42` — `cornerRadiusMax`'s comment says the only smaller
       radii are `bottomBarToggleRadius` and `buttonCornerRadius`. `fieldCornerRadius`
       (part five (a)) and `checkboxCornerRadius` (this part) are both missing, and
       `core-theme.md:166` carries the same sentence beside a paragraph that
       introduces the second of them. Either list all four or reword it as "each
       small control's radius is a token of its own"; prefer the reword, since the
       list has now fallen behind twice.
-- [ ] No new test: all five are prose. Confirm `swift test` stays green — the
+- [x] No new test: all five are prose. Confirm `swift test` stays green — the
       count and canonical-list self-checks read these documents.
 
 ### Task 6: Verify the gates
