@@ -284,28 +284,28 @@ Rule forty then bans `ProgressView` in every gated file.
 - Modify: `Sources/Pisaka/LeetCodeOpenProblemSheet.swift`
 - Modify: `Sources/Pisaka/LeetCodeLoginView.swift`
 - Modify: `Tests/PisakaCoreTests/ChromeThemeSourceGatingTests.swift`
-- [ ] **The statement pane:**
+- [x] **The statement pane:**
   - the header is on `bgPanel`, with the title in `textPrimary` and the two icon buttons named with hidden, scaled glyphs (decision 17);
   - the collapsed strip is on `bgPanel`, and its button is named;
   - the three `Divider()`s become hairlines;
   - the resize handle follows decision 9;
   - the web view and its code-zone marker are untouched.
-- [ ] **The judge:**
+- [x] **The judge:**
   - Run and Submit become `.chromeSecondary`, and the spinner becomes `ChromeSpinner`, marked hidden or labelled per decision 8;
   - the info badge is `textSecondary`, scaled and still labelled;
   - the captions and fields are `textSecondary` / `textPrimary`;
   - the test-case box follows decision 4, and the `separatorColor` stroke is deleted;
   - every failure line (`lastError`, `errorText`) is `statusRed`;
   - `verdict(_:isGood:)` becomes `verdict(_:role:)`, fed by `verdictRole(for:matchedExpected:)`.
-- [ ] **The open-problem sheet:**
+- [x] **The open-problem sheet:**
   - on `bgPanel`, title `textPrimary`, captions and the parse hint `textSecondary`;
   - the refusal `statusRed`;
   - the input becomes the shared field (decision 4) and Language becomes `ChromeMenuField`;
   - Sign In… and Cancel become `.chromeSecondary`, and Open becomes `.chromePrimary`, with shortcuts and the disabled rule unchanged;
   - the spinner becomes `ChromeSpinner`, marked hidden or labelled per decision 8.
-- [ ] **`LeetCodeCommands`:** the `Divider()` becomes two `Section { }` groups (decision 1). The shortcuts stay, and `MenuShortcutUniquenessTests` must stay green.
-- [ ] **The sign-in sheet:** the header and footer are on `bgPanel`, the captions `textSecondary`, Cancel `.chromeSecondary`, and the two `Divider()`s become hairlines.
-- [ ] Add the four files to `gatedFiles`. Update:
+- [x] **`LeetCodeCommands`:** the `Divider()` becomes two `Section { }` groups (decision 1). The shortcuts stay, and `MenuShortcutUniquenessTests` must stay green.
+- [x] **The sign-in sheet:** the header and footer are on `bgPanel`, the captions `textSecondary`, Cancel `.chromeSecondary`, and the two `Divider()`s become hairlines.
+- [x] Add the four files to `gatedFiles`. Update:
   - rule twenty (the statement pane's buttons; the spinners' construction markers);
   - rule twenty-two (`LeetCodeDescriptionView.swift: syncResizeHandleCursor`);
   - rule twenty-six (sheet and judge);
@@ -313,7 +313,8 @@ Rule forty then bans `ProgressView` in every gated file.
   - rule thirty-four;
   - rule thirty-seven;
   - the spinner classification table (the judge's and the sheet's rows), which now covers all twenty sites.
-- [ ] Run `swift test` and the macOS build. Both must pass. `LeetCodeAccountSourceGatingTests` and `ZoomSourceGatingTests` must stay green.
+  (Rule twenty names the header, the collapsed strip and the shared hidden `iconGlyph(`. Rule twenty-six: eleven callers, the sheet's input through the themed field and the judge's test-case box through the box alone; both `core-theme.md` passages updated. Rule thirty: the statement pane 3/3 (`.plain`), the judge 2/2, the sheet 8/3 with `LeetCodeCommands`' five menu items unstyleable, the sign-in sheet 1/1; `chromePrimary` gains the sheet and `chromeSecondary` the judge, the sheet and the sign-in sheet. Rule thirty-four needed no exemption: every glyph takes its own scaled font. Rule thirty-seven: one `ChromeMenuField` in the sheet, beside a visible "Language" caption hidden from accessibility, since the field speaks the name. Rule twenty-four: the sheet's file builds no `Menu`, so neither menu set moves. Spinner rows: the judge's and the sheet's are each hidden, because "Running…"/"Submitting…" and "Fetching from LeetCode…" stand beside them.)
+- [x] Run `swift test` and the macOS build. Both must pass. `LeetCodeAccountSourceGatingTests` and `ZoomSourceGatingTests` must stay green.
 
 ### Task 7: The four new rules, each shown red first
 

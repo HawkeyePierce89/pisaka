@@ -84,6 +84,11 @@ struct LeetCodeDescriptionPane: View {
     /// CSS is composed from `settings.fontSize`, so the body is the code zone and
     /// is marked as one for the pointer (see `pane(_:)`).
     @Environment(\.interfaceMetrics) private var metrics
+    /// The chrome's colours, injected at `ContentView`'s root: the header, the
+    /// collapsed strip, the rules and the resize handle draw from the roles.
+    /// The statement page itself is not chrome and stays unthemed here — the
+    /// served document carries its own colours.
+    @Environment(\.chromeTheme) private var theme
 
     /// Narrower than this and the statement's example blocks stop being
     /// readable; wider and the editor is the one being squeezed. Scaled at the
@@ -98,7 +103,7 @@ struct LeetCodeDescriptionPane: View {
         if let statement = model.statement {
             if isCollapsed {
                 HStack(spacing: 0) {
-                    Divider()
+                    verticalHairline
                     collapsedStrip
                 }
             } else {
@@ -116,7 +121,7 @@ struct LeetCodeDescriptionPane: View {
     private func pane(_ statement: LeetCodeStatement) -> some View {
         VStack(spacing: 0) {
             header(statement)
-            Divider()
+            horizontalHairline
             LeetCodeStatementWebView(html: html(for: statement))
                 // The statement's body is styled with `settings.fontSize` (see
                 // `html(for:)`), so the pane's *text* already follows the code
@@ -125,7 +130,7 @@ struct LeetCodeDescriptionPane: View {
                 // marker rather than a conformance on `WKWebView`: it is not our
                 // class, and the frame is all the pointer walk needs.
                 .background(ZoomSurfaceMarker(kind: .code))
-            Divider()
+            horizontalHairline
             // Below the statement, and inside the same pane: Run and Submit are
             // about the problem the user is reading, and the section observes
             // `model.judge` rather than `model`, so typing in its test-case box
@@ -138,18 +143,44 @@ struct LeetCodeDescriptionPane: View {
             )
         }
         .frame(maxHeight: .infinity)
+        .background(theme.color(.bgPanel))
+    }
+
+    /// The pane's rules: the surface's own `hairline`, never the platform's
+    /// separator.
+    private var horizontalHairline: some View {
+        Rectangle()
+            .fill(theme.color(.hairline))
+            .frame(height: metrics.scaled(ChromeGeometry.hairlineWidth))
+    }
+
+    private var verticalHairline: some View {
+        Rectangle()
+            .fill(theme.color(.hairline))
+            .frame(width: metrics.scaled(ChromeGeometry.hairlineWidth))
+    }
+
+    /// An icon-only button's glyph: sized in the interface zone and hidden,
+    /// because the button names itself outright.
+    private func iconGlyph(_ symbol: String) -> some View {
+        Image(systemName: symbol)
+            .font(metrics.scaledFont(.body))
+            .foregroundStyle(theme.color(.textSecondary))
+            .accessibilityHidden(true)
     }
 
     private func header(_ statement: LeetCodeStatement) -> some View {
         HStack(spacing: metrics.scaled(6)) {
             Button { isCollapsed = true } label: {
-                Image(systemName: "chevron.right")
+                iconGlyph("chevron.right")
             }
             .buttonStyle(.plain)
             .help("Hide the problem description")
+            .accessibilityLabel("Hide the problem description")
 
             Text("\(statement.number). \(statement.title)")
                 .font(metrics.scaledFont(.callout, weight: .medium))
+                .foregroundStyle(theme.color(.textPrimary))
                 .lineLimit(1)
                 .truncationMode(.tail)
 
@@ -161,14 +192,16 @@ struct LeetCodeDescriptionPane: View {
             Button {
                 NSWorkspace.shared.open(LeetCodeAPI.problemURL(slug: statement.slug))
             } label: {
-                Image(systemName: "safari")
+                iconGlyph("safari")
             }
             .buttonStyle(.plain)
             .help("Open this problem on leetcode.com")
+            .accessibilityLabel("Open this problem on leetcode.com")
         }
         .font(metrics.scaledFont(.body))
         .padding(.horizontal, metrics.scaled(8))
         .frame(minHeight: metrics.scaled(24), maxHeight: metrics.scaled(24))
+        .background(theme.color(.bgPanel))
     }
 
     /// The strip left behind when the pane is folded away — the only thing that
@@ -177,24 +210,28 @@ struct LeetCodeDescriptionPane: View {
     private var collapsedStrip: some View {
         VStack(spacing: 0) {
             Button { isCollapsed = false } label: {
-                Image(systemName: "sidebar.right")
+                iconGlyph("sidebar.right")
             }
             .buttonStyle(.plain)
             .help("Show the problem description")
+            .accessibilityLabel("Show the problem description")
             .font(metrics.scaledFont(.body))
             .padding(.top, metrics.scaled(6))
             Spacer(minLength: 0)
         }
         .frame(width: metrics.scaled(28))
         .frame(maxHeight: .infinity)
+        .background(theme.color(.bgPanel))
     }
 
     /// Drag left to widen, right to narrow. The `panelDivider` shape in
-    /// `ContentView`, turned ninety degrees.
+    /// `ContentView`, turned ninety degrees: a transparent 5-point hit area
+    /// with the one `hairline` centred in it, so the pane's edge reads as a
+    /// rule while the drag target stays wide enough to find.
     private var resizeHandle: some View {
-        Rectangle()
-            .fill(Color(NSColor.separatorColor))
+        Color.clear
             .frame(width: metrics.scaled(5))
+            .overlay { verticalHairline }
             .contentShape(Rectangle())
             // Paired with `onDisappear`, for the reason
             // `ContentView.syncPanelDividerCursor()` states and then some: this

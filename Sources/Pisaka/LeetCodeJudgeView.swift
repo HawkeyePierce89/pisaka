@@ -61,6 +61,12 @@ struct LeetCodeJudgeSection: View {
     /// The interface zone's metrics, inherited from the statement pane above,
     /// which inherits them from `ContentView`'s root.
     @Environment(\.interfaceMetrics) private var metrics
+    /// The chrome's colours, inherited the same way.
+    @Environment(\.chromeTheme) private var theme
+
+    /// Whether the test-case box holds focus, which is what the shared box
+    /// draws its accent border from.
+    @FocusState private var isTestInputFocused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: metrics.scaled(6)) {
@@ -101,20 +107,24 @@ struct LeetCodeJudgeSection: View {
                 shownKind = .run
                 judgeTask = Task { await judge.run() }
             }
+            .buttonStyle(.chromeSecondary)
             .disabled(!judge.availability.isReady)
 
             Button("Submit") {
                 shownKind = .submit
                 judgeTask = Task { await judge.submit() }
             }
+            .buttonStyle(.chromeSecondary)
             .disabled(!judge.availability.isReady)
 
             if judge.phase.isRunning {
-                ProgressView()
-                    .controlSize(.small)
+                // "Running…" / "Submitting…" beside it names the activity, so
+                // the spinner speaks nothing of its own.
+                ChromeSpinner()
+                    .accessibilityHidden(true)
                 Text(judge.phase.kind == .submit ? "Submitting…" : "Running…")
                     .font(metrics.scaledFont(.caption))
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(theme.color(.textSecondary))
             }
 
             Spacer(minLength: metrics.scaled(4))
@@ -125,7 +135,8 @@ struct LeetCodeJudgeSection: View {
             // so the badge stands down rather than repeating it.
             if !judge.phase.isRunning, let reason = judge.availability.reason {
                 Image(systemName: "info.circle")
-                    .foregroundColor(.secondary)
+                    .font(metrics.scaledFont(.body))
+                    .foregroundStyle(theme.color(.textSecondary))
                     .help(reason)
                     .accessibilityLabel(reason)
             }
@@ -142,16 +153,19 @@ struct LeetCodeJudgeSection: View {
         VStack(alignment: .leading, spacing: metrics.scaled(2)) {
             Text("Test Cases")
                 .font(metrics.scaledFont(.caption))
-                .foregroundColor(.secondary)
+                .foregroundStyle(theme.color(.textSecondary))
             // Prefilled from the problem's own examples and used verbatim by Run;
             // Submit ignores it entirely. Session state — never written to disk.
-            TextEditor(text: $judge.testInput)
-                .font(metrics.scaledFont(.body, design: .monospaced))
-                .frame(minHeight: metrics.scaled(46), maxHeight: metrics.scaled(92))
-                .overlay(
-                    RoundedRectangle(cornerRadius: metrics.scaled(4))
-                        .stroke(Color(NSColor.separatorColor))
-                )
+            // The commit dialog's message box: the shared box around the editor,
+            // which hides its own scroll ground so the box's `bgEditor` shows.
+            ChromeControlBox(isFocused: isTestInputFocused, horizontalPadding: ChromeGeometry.fieldPaddingX) {
+                TextEditor(text: $judge.testInput)
+                    .font(metrics.scaledFont(.body, design: .monospaced))
+                    .foregroundStyle(theme.color(.textPrimary))
+                    .scrollContentBackground(.hidden)
+                    .focused($isTestInputFocused)
+                    .frame(minHeight: metrics.scaled(46), maxHeight: metrics.scaled(92))
+            }
         }
     }
 
@@ -163,7 +177,7 @@ struct LeetCodeJudgeSection: View {
             scrolling {
                 Text(error.localizedDescription)
                     .font(metrics.scaledFont(.body))
-                    .foregroundColor(.red)
+                    .foregroundStyle(theme.color(.statusRed))
                     .fixedSize(horizontal: false, vertical: true)
                     .textSelection(.enabled)
             }
@@ -190,15 +204,18 @@ struct LeetCodeJudgeSection: View {
     @ViewBuilder
     private func runResult(_ result: LeetCodeRunResult) -> some View {
         // On a **run**, code 10 means "it executed", not "it is right" — which is
-        // exactly why `matchedExpected` exists and why it, not the verdict, is
-        // what colours this header.
-        verdict(result.verdict, isGood: result.verdict == .accepted && result.matchedExpected != false)
+        // exactly why `matchedExpected` exists and why Core's answer reads it
+        // beside the verdict to colour this header.
+        verdict(
+            result.verdict,
+            role: ChromeColorRole.verdictRole(for: result.verdict, matchedExpected: result.matchedExpected)
+        )
         if let matched = result.matchedExpected {
             Text(matched
                 ? "Output matched the expected answer."
                 : "Output did not match the expected answer.")
                 .font(metrics.scaledFont(.caption))
-                .foregroundColor(.secondary)
+                .foregroundStyle(theme.color(.textSecondary))
         }
         measurements(runtime: result.runtime, memory: result.memory)
         // The echoed input, once and whole: LeetCode spells it one line per
@@ -209,7 +226,7 @@ struct LeetCodeJudgeSection: View {
             VStack(alignment: .leading, spacing: metrics.scaled(2)) {
                 Text("Case \(index + 1)")
                     .font(metrics.scaledFont(.caption, weight: .semibold))
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(theme.color(.textSecondary))
                 field("Output", result.answers[safe: index])
                 field("Expected", result.expectedAnswers[safe: index])
                 field("Stdout", result.stdOutputs[safe: index])
@@ -221,11 +238,13 @@ struct LeetCodeJudgeSection: View {
 
     @ViewBuilder
     private func submitResult(_ result: LeetCodeSubmitResult) -> some View {
-        verdict(result.verdict, isGood: result.verdict.isAccepted)
+        // A submission carries no run's expected-answer comparison: the verdict
+        // alone decides.
+        verdict(result.verdict, role: ChromeColorRole.verdictRole(for: result.verdict, matchedExpected: nil))
         if let correct = result.totalCorrect, let total = result.totalTestcases {
             Text("\(correct) / \(total) test cases passed")
                 .font(metrics.scaledFont(.caption))
-                .foregroundColor(.secondary)
+                .foregroundStyle(theme.color(.textSecondary))
         }
         measurements(
             runtime: result.runtime.map { measured($0, percentile: result.runtimePercentile) },
@@ -239,11 +258,12 @@ struct LeetCodeJudgeSection: View {
     }
 
     /// The verdict, spelled the way LeetCode spells it so a user comparing
-    /// against the site reads the same words.
-    private func verdict(_ verdict: LeetCodeVerdict, isGood: Bool) -> some View {
+    /// against the site reads the same words. Its colour is Core's one answer,
+    /// `ChromeColorRole.verdictRole(for:matchedExpected:)`.
+    private func verdict(_ verdict: LeetCodeVerdict, role: ChromeColorRole) -> some View {
         Text(verdict.displayName)
             .font(metrics.scaledFont(.headline, weight: .semibold))
-            .foregroundColor(isGood ? .green : .red)
+            .foregroundStyle(theme.color(role))
     }
 
     @ViewBuilder
@@ -254,7 +274,7 @@ struct LeetCodeJudgeSection: View {
         if !parts.isEmpty {
             Text(parts.joined(separator: " · "))
                 .font(metrics.scaledFont(.caption))
-                .foregroundColor(.secondary)
+                .foregroundStyle(theme.color(.textSecondary))
         }
     }
 
@@ -269,9 +289,10 @@ struct LeetCodeJudgeSection: View {
             VStack(alignment: .leading, spacing: metrics.scaled(1)) {
                 Text(label)
                     .font(metrics.scaledFont(.caption2))
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(theme.color(.textSecondary))
                 Text(value)
                     .font(metrics.scaledFont(.caption, design: .monospaced))
+                    .foregroundStyle(theme.color(.textPrimary))
                     .fixedSize(horizontal: false, vertical: true)
                     .textSelection(.enabled)
             }
@@ -289,7 +310,7 @@ struct LeetCodeJudgeSection: View {
         if let text, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             Text(text)
                 .font(metrics.scaledFont(.caption, design: .monospaced))
-                .foregroundColor(.red)
+                .foregroundStyle(theme.color(.statusRed))
                 .fixedSize(horizontal: false, vertical: true)
                 .textSelection(.enabled)
                 .padding(.top, metrics.scaled(2))

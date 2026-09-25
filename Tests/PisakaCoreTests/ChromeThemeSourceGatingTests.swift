@@ -122,7 +122,7 @@ import XCTest
 ///   lies inside a `performAsCurrentDrawingAppearance` body, naming `hairline` and
 ///   `bgPopover` respectively.
 /// - **One field shape.** No gated file spells the rounded-border style; the
-///   shared field/box is constructed in exactly nine callers plus the defining
+///   shared field/box is constructed in exactly eleven callers plus the defining
 ///   file, and the shared query toggle in exactly two.
 /// - **Each measurement follows its own zone.** The Find in Files match row
 ///   carries no fixed height and is sized by the code font, each popover's
@@ -287,6 +287,15 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         "DatabaseConsoleView.swift",
         // The problem-catalog browser window: its filter bar, rows and footer.
         "LeetCodeBrowserView.swift",
+        // The statement pane beside the editor: its header, collapsed strip,
+        // rules and resize handle (the served page itself stays unthemed).
+        "LeetCodeDescriptionView.swift",
+        // The judge section under the statement.
+        "LeetCodeJudgeView.swift",
+        // The open-problem sheet and, in the same file, the menu-bar items.
+        "LeetCodeOpenProblemSheet.swift",
+        // The sign-in sheet's header and footer around the site's own page.
+        "LeetCodeLoginView.swift",
     ]
 
     func testEveryGatedFileExists() throws {
@@ -1850,6 +1859,17 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
                            required: [".accessibilityAddTraits(", ".accessibilityAction(", ".accessibilityLabel("],
                            hidesSymbols: false),
         ]),
+        // The statement pane's three icon-only buttons — hide and open on the
+        // site in the header, show in the collapsed strip — each named outright
+        // over a glyph hidden where it is drawn.
+        ("LeetCodeDescriptionView.swift", [
+            ControlBuilder(path: ["private func header("],
+                           required: [".accessibilityLabel("], hidesSymbols: true),
+            ControlBuilder(path: ["private var collapsedStrip: some View"],
+                           required: [".accessibilityLabel("], hidesSymbols: true),
+            ControlBuilder(path: ["private func iconGlyph("],
+                           required: [".accessibilityHidden("], hidesSymbols: true),
+        ]),
     ]
 
     func testThePanelsControlsAreIdentifiableWithoutSight() throws {
@@ -1945,6 +1965,10 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         // named beside it — "Loading…" is the empty list's count line alone,
         // and a loaded list's count line names no activity.
         "LeetCodeBrowserView.swift": (labelled: 1, hidden: 0),
+        // The judge's: "Running…" or "Submitting…" stands beside it.
+        "LeetCodeJudgeView.swift": (labelled: 0, hidden: 1),
+        // The open-problem sheet's: "Fetching from LeetCode…" stands beside it.
+        "LeetCodeOpenProblemSheet.swift": (labelled: 0, hidden: 1),
     ]
 
     func testEverySpinnerConstructionSpeaksItsActivityOrNothing() throws {
@@ -2125,6 +2149,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         "CommitLogView.swift: syncDivideCursor",
         "ContentView.swift: syncPanelDividerCursor",
         "ContentView.swift: syncMarkdownDividerCursor",
+        "LeetCodeDescriptionView.swift: syncResizeHandleCursor",
     ]
 
     /// A hand-rolled divider pushes the resize cursor from hover and drag state
@@ -2400,6 +2425,8 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         "PullRequestMergeSheet.swift",
         "DatabaseViewerView.swift",
         "LeetCodeBrowserView.swift",
+        "LeetCodeJudgeView.swift",
+        "LeetCodeOpenProblemSheet.swift",
         "ChromeControls.swift",
     ]
 
@@ -2434,7 +2461,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         }
         XCTAssertEqual(
             constructors, Self.sharedFieldConstructors,
-            "the files constructing the shared field or box must be exactly its nine callers plus the defining file"
+            "the files constructing the shared field or box must be exactly its eleven callers plus the defining file"
         )
 
         var toggleConstructors: Set<String> = []
@@ -2762,7 +2789,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     private static let sharedControlCallers: [(token: String, files: Set<String>)] = [
         ("chromePrimary", [
             "ChromeControls.swift", "CommitDialogView.swift", "MergeView.swift",
-            "NewPullRequestSheet.swift", "PullRequestMergeSheet.swift",
+            "NewPullRequestSheet.swift", "PullRequestMergeSheet.swift", "LeetCodeOpenProblemSheet.swift",
         ]),
         ("chromeSecondary", [
             "ChromeControls.swift", "SearchBarView.swift", "ProjectSearchView.swift",
@@ -2770,6 +2797,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
             "SettingsView.swift", "LSPServerSettingsView.swift",
             "NewPullRequestSheet.swift", "PullRequestMergeSheet.swift",
             "DatabaseConsoleView.swift", "LeetCodeBrowserView.swift",
+            "LeetCodeJudgeView.swift", "LeetCodeOpenProblemSheet.swift", "LeetCodeLoginView.swift",
         ]),
         ("ChromeCheckbox", [
             "ChromeControls.swift", "CommitDialogView.swift", "LogFilterBar.swift", "LocalChangesView.swift",
@@ -2824,6 +2852,16 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         // Open, Sign In…, Refresh and the hidden Return button are styled; the
         // row's context-menu Open is a menu item.
         "LeetCodeBrowserView.swift": (buttons: 5, styled: 4),
+        // The three icon-only buttons are all `.plain`.
+        "LeetCodeDescriptionView.swift": (buttons: 3, styled: 3),
+        // Run and Submit.
+        "LeetCodeJudgeView.swift": (buttons: 2, styled: 2),
+        // The sheet's Sign In…, Cancel and Open are styled; `LeetCodeCommands`'
+        // five menu-bar items (Open Problem…, Browse Problems…, Sign Out,
+        // Sign In… and Choose LeetCode Folder…) are menu items.
+        "LeetCodeOpenProblemSheet.swift": (buttons: 8, styled: 3),
+        // Cancel.
+        "LeetCodeLoginView.swift": (buttons: 1, styled: 1),
     ]
 
     func testOnePrimaryButtonOneSecondaryOneCheckbox() throws {
@@ -3773,7 +3811,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         ("ChromeSegmentedControl", ["SettingsView.swift": 2, "PullRequestMergeSheet.swift": 1]),
         ("ChromeMenuField", [
             "LogFilterBar.swift": 1, "SettingsView.swift": 1, "NewPullRequestSheet.swift": 1,
-            "LeetCodeBrowserView.swift": 1,
+            "LeetCodeBrowserView.swift": 1, "LeetCodeOpenProblemSheet.swift": 1,
         ]),
         ("ChromeStepper", ["SettingsView.swift": 2]),
         ("ChromeSwitch", ["SettingsView.swift": 2]),
