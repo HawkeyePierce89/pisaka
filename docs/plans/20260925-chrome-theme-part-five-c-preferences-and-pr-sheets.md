@@ -436,11 +436,11 @@ Every shape below reads `\.interfaceMetrics` and `\.chromeTheme`, and takes ever
 
 ### Task 9: Verify acceptance criteria
 
-- [ ] Run `swift test`. It must pass.
-- [ ] Run `xcodegen generate`, then run the app bundle with `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' -derivedDataPath ~/Library/Developer/Xcode/DerivedData/pisaka-part5c test`. It must pass.
-- [ ] Run `swiftlint --strict` from the repository root. It must report zero violations.
-- [ ] Build macOS Release (`-configuration Release`) and iOS (`generic/platform=iOS`), both with derived data under `~/Library/Developer/Xcode/DerivedData/`.
-- [ ] Grep-confirm the remaining acceptance points:
+- [x] Run `swift test`. It must pass.
+- [x] Run `xcodegen generate`, then run the app bundle with `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' -derivedDataPath ~/Library/Developer/Xcode/DerivedData/pisaka-part5c test`. It must pass.
+- [x] Run `swiftlint --strict` from the repository root. It must report zero violations.
+- [x] Build macOS Release (`-configuration Release`) and iOS (`generic/platform=iOS`), both with derived data under `~/Library/Developer/Xcode/DerivedData/`.
+- [x] Grep-confirm the remaining acceptance points:
   - `gatedFiles` holds 51 files;
   - no gated file spells `Divider(`;
   - no new `ChromeColorRole` case exists;
