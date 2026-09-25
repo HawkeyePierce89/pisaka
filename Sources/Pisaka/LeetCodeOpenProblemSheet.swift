@@ -287,33 +287,37 @@ struct LeetCodeCommands: View {
         // each of the two commands is reachable on every tab. Gated on nothing: a
         // LeetCode problem needs no open project.
         //
-        // The two groups are separated by a `Section` boundary, the menu's
-        // separator in this repository — never a `Divider()`.
-        Section {
-            Button("Open Problem…") { onOpenProblem() }
-                .keyboardShortcut("p", modifiers: [.command, .option])
+        // The two groups are separated by one `Divider()`, the one shape a
+        // `Commands` builder renders as a single separator between them. A
+        // `Section` there does not replace the platform's separator — it emits one
+        // on each side of its group, and AppKit neither hides the edge ones nor
+        // collapses two adjacent ones (measured: two `Section`s drew four
+        // separators, 126 pt tall; one `Divider()` drew one, 93 pt). This is a main
+        // menu separator, drawn by AppKit where no chrome role reaches it, which is
+        // why rule twenty-four admits it in this file and nowhere else.
+        Button("Open Problem…") { onOpenProblem() }
+            .keyboardShortcut("p", modifiers: [.command, .option])
 
-            // ⌘⇧B — free on macOS, and beside "Open Problem…" because the two are
-            // the same action reached two ways: type a problem you know, or find
-            // one you do not. Gated on nothing, like its neighbour: a LeetCode
-            // problem needs no open project.
-            Button("Browse Problems…") { onBrowseProblems() }
-                .keyboardShortcut("b", modifiers: [.command, .shift])
+        // ⌘⇧B — free on macOS, and beside "Open Problem…" because the two are
+        // the same action reached two ways: type a problem you know, or find
+        // one you do not. Gated on nothing, like its neighbour: a LeetCode
+        // problem needs no open project.
+        Button("Browse Problems…") { onBrowseProblems() }
+            .keyboardShortcut("b", modifiers: [.command, .shift])
+
+        Divider()
+
+        if model.isSignedIn {
+            Button(signOutTitle) { onSignOut() }
+        } else {
+            // Under `.unresolved` this is the entry the menu draws, and it is
+            // the neutral one on purpose: nothing has been read yet, so the
+            // item that *asks* is the honest one. What it does about that is
+            // `signIn()`.
+            Button("Sign In…") { signIn() }
         }
 
-        Section {
-            if model.isSignedIn {
-                Button(signOutTitle) { onSignOut() }
-            } else {
-                // Under `.unresolved` this is the entry the menu draws, and it is
-                // the neutral one on purpose: nothing has been read yet, so the
-                // item that *asks* is the honest one. What it does about that is
-                // `signIn()`.
-                Button("Sign In…") { signIn() }
-            }
-
-            Button("Choose LeetCode Folder…") { onChooseFolder() }
-        }
+        Button("Choose LeetCode Folder…") { onChooseFolder() }
     }
 
     /// "Sign In…": resolve the account, **await the confirmation**, and raise the

@@ -116,7 +116,10 @@ import XCTest
 ///   `presentationBackground`.
 /// - **No gated file spells `Divider()`; a menu separates with `Section`.** No
 ///   gated file spells `Divider(`, and every gated file that builds a `Menu`
-///   spells `Section` at least once.
+///   spells `Section` at least once. One stated exception, pinned by set
+///   equality: `LeetCodeCommands`' body — a main menu built inside a
+///   `Commands` builder, where a `Section` emits a separator on each side of its
+///   group — spells exactly one `Divider()` and no `Section`.
 /// - **AppKit layer colours are set only inside the drawing appearance.** Every
 ///   `borderColor` and `backgroundColor` assignment in the two popover panels
 ///   lies inside a `performAsCurrentDrawingAppearance` body, naming `hairline` and
@@ -2359,16 +2362,77 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         "LeetCodeBrowserView.swift",
     ]
 
+    /// The one exception to "no gated file spells `Divider()`": a main menu's
+    /// items built inside a `Commands`/`CommandMenu` builder, keyed by file to
+    /// the declaration whose body holds them.
+    ///
+    /// There the rule's premise — that a `Section` stands in for the platform's
+    /// separator — is false. A standalone probe built against the real AppKit
+    /// menu (item arrays read after `NSMenu.update()`, heights from `NSMenu.size`)
+    /// measured four shapes of the same three items inside a `Commands` builder:
+    /// `Section { A; B }; Section { C }` drew four separators at 126 pt (one
+    /// above the first item, two adjacent between the groups, one below the
+    /// last); `A; B; Section { C }` and `Section { A; B }; C` each drew two at
+    /// 104 pt; `A; B; Divider(); C` drew one at 93 pt. AppKit neither hides the
+    /// edge separators nor collapses adjacent ones, so only `Divider()` gives one
+    /// separator between two groups — and a main menu separator is drawn by
+    /// AppKit where no chrome role reaches it anyway.
+    ///
+    /// Every `Commands`/`CommandMenu` builder in the repository, enumerated when
+    /// this was written: `PisakaApp.swift`'s `.commands` (not gated, so it needs
+    /// nothing, though it spells `Divider()` in five menus), `FoldCommands.swift`
+    /// (not gated, and spells no separator) and `LeetCodeCommands`, the body
+    /// `PisakaApp`'s `CommandMenu("LeetCode")` hosts — the only one in a gated
+    /// file, hence the only entry.
+    private static let commandsDividerBodies: [String: String] = [
+        "LeetCodeOpenProblemSheet.swift": "struct LeetCodeCommands",
+    ]
+
     func testNoGatedFileSpellsDividerAndEveryMenuUsesSection() throws {
         let dividerPattern = try NSRegularExpression(pattern: "\\bDivider\\s*\\(")
+        let sectionPattern = try NSRegularExpression(pattern: "\\bSection\\b")
+        var actualDividerFiles: Set<String> = []
         for url in try Self.swiftSources() where Self.gatedFiles.contains(url.lastPathComponent) {
-            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            let name = url.lastPathComponent
+            var code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            if dividerPattern.firstMatch(in: code, range: NSRange(code.startIndex..., in: code)) != nil {
+                actualDividerFiles.insert(name)
+            }
+            if let declaration = Self.commandsDividerBodies[name] {
+                // The exception's shape: the commands body spells exactly one
+                // `Divider()` and no `Section` — a silent swap back to the
+                // two-`Section` shape, or a second divider, moves this pin.
+                let typeBody = try XCTUnwrap(
+                    Self.matchedBody(after: declaration, in: code),
+                    "\(name) no longer declares \(declaration)"
+                )
+                let body = try XCTUnwrap(
+                    Self.matchedBody(after: "var body: some View", in: typeBody),
+                    "\(declaration) no longer has a body"
+                )
+                let bodyRange = NSRange(body.startIndex..., in: body)
+                XCTAssertEqual(
+                    dividerPattern.numberOfMatches(in: body, range: bodyRange), 1,
+                    "\(declaration)'s menu separates its two groups with exactly one Divider() — the one shape a Commands builder draws as one separator"
+                )
+                XCTAssertEqual(
+                    sectionPattern.numberOfMatches(in: body, range: bodyRange), 0,
+                    "\(declaration)'s menu spells Section — inside a Commands builder that draws a separator on each side of the group"
+                )
+                // Everything outside that one body is held to the ordinary rule.
+                let bodyInFile = try XCTUnwrap(Self.matchedBodyRange(after: declaration, in: code))
+                code.removeSubrange(bodyInFile)
+            }
             let range = NSRange(code.startIndex..., in: code)
             XCTAssertNil(
                 dividerPattern.firstMatch(in: code, range: range),
-                "\(url.lastPathComponent) spells Divider( — a gated surface draws its own hairline, a menu separates with Section"
+                "\(name) spells Divider( — a gated surface draws its own hairline, a menu separates with Section"
             )
         }
+        XCTAssertEqual(
+            actualDividerFiles, Set(Self.commandsDividerBodies.keys),
+            "the gated files spelling Divider( are exactly the commands-builder exception's"
+        )
 
         for name in Self.menuSectionFiles {
             let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(

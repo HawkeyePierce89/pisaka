@@ -1668,8 +1668,11 @@ differed:
    console 6, the browser 3, the statement pane 3, the sign-in sheet 2, and one
    in the open-problem sheet's file inside `LeetCodeCommands`; the judge section
    has none. Every surface divider is now the surface's own `hairline` rule at
-   `hairlineWidth`. The commands' one is a menu separator, so it became two
-   `Section { }` groups — rule twenty-four's own idiom.
+   `hairlineWidth`. The commands' one is a menu separator and **stays a
+   `Divider()`** — fix round 02 restored it after the first attempt, two
+   `Section { }` groups, turned out to draw four separators where one had been
+   (the measurement is under rule twenty-four); it is that rule's one stated
+   exception.
 2. **Two `Picker`s, not one.** The browser's filter bar and the open-problem
    sheet both pick the solution language over
    `LeetCodeSolutionFile.offerableLanguages`; both became `ChromeMenuField`,
@@ -1796,6 +1799,17 @@ changed.
 - **The two served documents' palette**: the statement page and the sign-in
   page are not chrome; the pane around the first is.
 - **The terminal's colours** stay `TerminalTheme`'s, as before.
+- **Whether `Section` is the right menu separator anywhere.** Inside a
+  `Commands` builder a `Section` emits a separator on each side of its group,
+  and AppKit neither hides the edge ones nor collapses adjacent ones (the
+  probe's numbers are under rule twenty-four: four separators at 126 pt for two
+  `Section`s against one at 93 pt for one `Divider()`). Rule twenty-four's
+  `menuSectionFiles` — `SearchHistoryMenu.swift`, `ProjectTreeView.swift`,
+  `LocalChangesView.swift`, `DatabaseViewerView.swift` — may therefore be
+  drawing edge separators nobody asked for. Those menus were **not** measured
+  (the probe measured a main menu, not a `Menu` or a context menu) and were
+  **not** changed; the convention two earlier parts established stands until
+  someone decides otherwise.
 
 The spinner question part five (c) left open is **closed**.
 
@@ -2260,9 +2274,24 @@ The forty-one rules, each invisible to the compiler:
     none, and the `Section` it spells is the sidebar list's (Tables, Views);
     the computed set pairs any `Section` with any menu in the same file, so it
     is pinned in both, deliberately. The browser's row context menu (Open)
-    needs no separator. Part five (d) removed twenty-two more `Divider()`s
-    (decision 1 of its section), the one inside `LeetCodeCommands` — a menu-bar
-    separator — becoming two `Section { }` groups. `LogFilterBar.swift` left the first set in part five
+    needs no separator. Part five (d) removed twenty-one more `Divider()`s
+    (decision 1 of its section) and kept the twenty-second, the one inside
+    `LeetCodeCommands`: **the rule's one exception**, pinned by set equality
+    (`commandsDividerBodies`, one entry). A main menu built inside a
+    `Commands`/`CommandMenu` builder is drawn by AppKit where no chrome role
+    reaches it, and there the rule's premise — that a `Section` stands in for
+    the platform's separator — is false. A standalone probe against the real
+    AppKit menu (item arrays read after `NSMenu.update()`, heights from
+    `NSMenu.size`) measured the same three items in four shapes:
+    `Section { A; B }; Section { C }` drew four separators at 126 pt (above the
+    first item, two adjacent between the groups, below the last);
+    `A; B; Section { C }` and `Section { A; B }; C` two each at 104 pt;
+    `A; B; Divider(); C` one at 93 pt. So `LeetCodeCommands`' body is pinned by
+    shape — exactly one `Divider()`, no `Section` — and the rest of its file is
+    held to the ordinary rule. Every other `Commands` builder is in an ungated
+    file (`PisakaApp.swift`, which spells `Divider()` in five menus, and
+    `FoldCommands.swift`, which spells none). No token rule can measure a
+    rendered menu; the shape pin is what a suite can see. `LogFilterBar.swift` left the first set in part five
     (c) — its branch menu is now the shared `ChromeMenuField`, whose one `Menu`
     lives in `ChromeControls.swift`, which joined in its place. Part five (c)
     removed four more `Divider()`s: three in `LSPServerSettingsView.swift`
