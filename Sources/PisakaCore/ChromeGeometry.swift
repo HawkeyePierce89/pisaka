@@ -184,6 +184,9 @@ public enum ChromeGeometry {
     /// measurement of its own — two shapes are two measurements. The design
     /// draws no menu field on a settings page and no surface draws both today;
     /// 26 is chosen to agree with the segmented control should a page ever do.
+    /// It sizes `ChromeMenuField` frames and nothing else: a text field beside
+    /// one takes its height from its own surface's layout (rule thirty-seven
+    /// pins the callers).
     public static let menuFieldHeight: Double = 26
     /// The shared spinner's side — the small control size it replaces.
     public static let spinnerSide: Double = 16

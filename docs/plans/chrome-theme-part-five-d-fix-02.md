@@ -256,15 +256,19 @@ use it here. The consequence is the coupling rule seven exists to prevent,
 arriving by a different route: changing the menu field's height silently resizes
 two unrelated text fields, and nothing names the connection.
 
-- [ ] Give each text field a height from its own surface's layout enum, leaving
+- [x] Give each text field a height from its own surface's layout enum, leaving
       `menuFieldHeight` to the menu fields it is named for. Keep the rendered
       height the same unless the surface's own number differs for a stated reason.
-- [ ] **Enumerate what you touched.** List every `menuFieldHeight` caller
+- [x] **Enumerate what you touched.** List every `menuFieldHeight` caller
       afterwards and confirm each one is a `ChromeMenuField`.
-- [ ] **The test that would have caught it:** pin `menuFieldHeight`'s callers by
+- [x] **The test that would have caught it:** pin `menuFieldHeight`'s callers by
       set equality, as the shared control shapes' callers already are.
-- [ ] Show the pin red with a text field borrowing the token again, then green.
-- [ ] Run `swift test` and the macOS build. Both must pass.
+      (Done: per-file counts under rule thirty-seven, checked against each file's
+      ChromeMenuField construction count; callers afterwards are SettingsView:234,
+      NewPullRequestSheet:115, LeetCodeBrowserView:217,
+      LeetCodeOpenProblemSheet:195, each a ChromeMenuField frame.)
+- [x] Show the pin red with a text field borrowing the token again, then green.
+- [x] Run `swift test` and the macOS build. Both must pass.
 
 ### Task 7: Prose that contradicts the tree
 

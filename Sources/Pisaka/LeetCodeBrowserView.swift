@@ -202,7 +202,7 @@ struct LeetCodeBrowserView: View {
                     textStyle: .body
                 )
                 .frame(maxWidth: metrics.scaled(320))
-                .frame(height: metrics.scaled(ChromeGeometry.menuFieldHeight))
+                .frame(height: metrics.scaled(LeetCodeBrowserLayout.queryFieldHeight))
 
                 // A run-time list of languages, so the picker rule answers the
                 // menu field — the Settings problem-catalog tab's answer over
@@ -596,6 +596,10 @@ private enum LeetCodeBrowserLayout {
     static let difficultyWidth: Double = 88
     /// The status column.
     static let statusWidth: Double = 96
+    /// The query field's height. The same 26 as the menu field it shares the
+    /// toolbar row with, so the two line up — but this surface's number, not
+    /// `ChromeGeometry.menuFieldHeight`, which sizes the menu fields alone.
+    static let queryFieldHeight: Double = 26
 }
 
 /// One problem row: the number, the title with its Premium lock, the difficulty

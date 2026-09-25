@@ -1478,6 +1478,22 @@ alone, and a shape change moved a file between sets only when the file spelled
 one shape; `SettingsView.swift` spells both, so one of its segmented controls
 could have become a menu field with the gate green. The counts close that.
 
+**`menuFieldHeight` sizes the menu fields alone.** Part five (d) framed two
+`ChromeThemedTextField`s at it — the problem browser's query field and the
+open-problem sheet's input — because each sits beside a menu field and 26 lines
+them up. That couples an unrelated text field to the menu field's height with
+nothing naming the connection: rule seven's coupling, arriving by reuse rather
+than arithmetic. Each text field now takes its height from its own surface's
+layout enum (`LeetCodeBrowserLayout.queryFieldHeight`,
+`OpenProblemSheetLayout.inputHeight`, both 26, so nothing renders differently),
+the way `SearchLayout.queryFieldHeight` and `FilterBarLayout.controlHeight` size
+the other pinned-height fields. Rule thirty-seven pins the token's spellings per
+file by count over every source file — the declaration plus four frames, each a
+`ChromeMenuField` (`SettingsView.swift`, `NewPullRequestSheet.swift`,
+`LeetCodeBrowserView.swift`, `LeetCodeOpenProblemSheet.swift`) — and checks each
+count against that file's pinned menu field constructions. What a spelling
+frames is not something a token rule can see; that is checked by reading.
+
 **Why the settings tab bar is not the dock's.** Both draw one pattern — an
 accent indicator under the selected label, `accentIndicator` on both, the rule
 behind the tabs — but the settings bar has no close action, a different height

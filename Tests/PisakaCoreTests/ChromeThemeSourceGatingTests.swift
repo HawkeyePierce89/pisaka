@@ -176,7 +176,8 @@ import XCTest
 ///   each caller's construction count by file, so a control changing shape
 ///   changes a count even inside a file already spelling both shapes. The
 ///   menu field's chevron lies inside its `Menu`'s label, so the arrow it
-///   draws is the control.
+///   draws is the control. `menuFieldHeight` frames menu fields alone, its
+///   spellings pinned per file by count.
 /// - **No gated file builds a platform table.** A `Table` draws its header,
 ///   grounds, alternation and selection box in the platform's colours; no gated
 ///   file spells `Table` or `TableColumn`, and the browser lays its own rows out.
@@ -4112,6 +4113,52 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
             XCTAssertEqual(
                 constructions[token, default: [:]], counts,
                 "the constructions of \(token) per file must be exactly the pinned counts — a control changed shape or was added"
+            )
+        }
+    }
+
+    /// The files that frame something at `ChromeGeometry.menuFieldHeight`, with
+    /// how many times each spells it. Every one of these is a `ChromeMenuField`
+    /// frame — the token is the shared menu field's height and nothing else's;
+    /// `ChromeGeometry.swift` is the declaration. The Log bar builds a menu field
+    /// too but frames it at its own `FilterBarLayout.controlHeight`, so it is not
+    /// a key.
+    private static let menuFieldHeightSpellings: [String: Int] = [
+        "ChromeGeometry.swift": 1,
+        "SettingsView.swift": 1,
+        "NewPullRequestSheet.swift": 1,
+        "LeetCodeBrowserView.swift": 1,
+        "LeetCodeOpenProblemSheet.swift": 1,
+    ]
+
+    /// `menuFieldHeight` sizes the menu fields it is named for and no other
+    /// control. A text field beside a menu field that borrows the token to line
+    /// up is coupled to it silently — changing the menu field's height would
+    /// resize a field nothing names — which is the coupling rule seven exists to
+    /// prevent, arriving by reuse rather than arithmetic. Two text fields did
+    /// exactly that; each now takes its height from its own surface's layout
+    /// enum. Pinned per file by count, over every source file, so a new borrower
+    /// fails here even in a file that already frames a menu field. The rule
+    /// cannot see *what* a spelling frames; that each pinned spelling sits on a
+    /// `ChromeMenuField` is checked by reading, and each count equals that
+    /// file's pinned menu field constructions above.
+    func testTheMenuFieldHeightSizesTheMenuFieldsAlone() throws {
+        var spellings: [String: Int] = [:]
+        for url in try Self.swiftSources() {
+            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            let count = code.components(separatedBy: "menuFieldHeight").count - 1
+            if count > 0 { spellings[url.lastPathComponent] = count }
+        }
+        XCTAssertEqual(
+            spellings, Self.menuFieldHeightSpellings,
+            "the files spelling menuFieldHeight must be exactly its pinned menu-field callers plus the declaration"
+                + " — a text field takes its own surface's height"
+        )
+        let menuFieldCounts = Self.settingsShapeConstructions.first { $0.token == "ChromeMenuField" }?.counts ?? [:]
+        for (file, count) in Self.menuFieldHeightSpellings where file != "ChromeGeometry.swift" {
+            XCTAssertEqual(
+                count, menuFieldCounts[file],
+                "\(file) frames \(count) control(s) at menuFieldHeight but constructs \(menuFieldCounts[file] ?? 0) menu field(s)"
             )
         }
     }

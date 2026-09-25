@@ -170,7 +170,7 @@ struct LeetCodeOpenProblemSheet: View {
                 focusedEquals: .input,
                 textStyle: .body
             )
-            .frame(height: metrics.scaled(ChromeGeometry.menuFieldHeight))
+            .frame(height: metrics.scaled(OpenProblemSheetLayout.inputHeight))
             // Enter submits, but only when the text names something — the
             // same condition the Open button is under, so the two cannot
             // disagree.
@@ -353,6 +353,15 @@ struct LeetCodeCommands: View {
         guard let username = model.signedInUsername else { return "Sign Out" }
         return "Sign Out (\(username))"
     }
+}
+
+/// The open-problem sheet's own measurements.
+private enum OpenProblemSheetLayout {
+    /// The problem input's height. The same 26 as the language menu field
+    /// below it, so the sheet's two controls read as one column — but this
+    /// surface's number, not `ChromeGeometry.menuFieldHeight`, which sizes the
+    /// menu fields alone.
+    static let inputHeight: Double = 26
 }
 
 /// Where LeetCode solution files go on this Mac, and how the user changes it.
