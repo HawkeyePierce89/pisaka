@@ -319,12 +319,12 @@ inverted layering comments.
 
 ### Task 8: Gates
 
-- [ ] `swift test` — must pass, with no fewer tests than this branch's 5786.
-- [ ] `xcodegen generate`, then the app bundle test command above — must pass
+- [x] `swift test` — must pass, with no fewer tests than this branch's 5786.
+- [x] `xcodegen generate`, then the app bundle test command above — must pass
       (122 tests).
-- [ ] `swiftlint --strict` — zero violations.
-- [ ] macOS Release build and iOS build — both must succeed.
-- [ ] Confirm nothing regressed: fifty-eight gated files, twenty-one roles,
+- [x] `swiftlint --strict` — zero violations.
+- [x] macOS Release build and iOS build — both must succeed.
+- [x] Confirm nothing regressed: fifty-eight gated files, twenty-one roles,
       `currentLine` and `bracketMatch` still unspent, twenty `ChromeSpinner`
       constructions each carrying exactly one accessibility marker, and the rule
       count consistent across the suite's markers, its header, `core-theme.md`
