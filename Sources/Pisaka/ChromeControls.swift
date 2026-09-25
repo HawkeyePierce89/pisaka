@@ -466,12 +466,16 @@ struct ChromeSettingsTabBar<Tab: Hashable>: View {
         }
         .padding(.horizontal, metrics.scaled(ChromeGeometry.settingsTabBarPaddingX))
         .frame(height: metrics.scaled(ChromeGeometry.settingsTabBarHeight))
-        .background(theme.color(.bgPanel))
+        // The rule goes on *before* the ground: each later `.background` is drawn
+        // further back, so a rule applied after an opaque ground lands behind it
+        // and is never seen (gating rule sixteen). `TabStripView` states the same
+        // ordering.
         .background(alignment: .bottom) {
             Rectangle()
                 .fill(theme.color(.hairline))
                 .frame(height: metrics.scaled(ChromeGeometry.hairlineWidth))
         }
+        .background(theme.color(.bgPanel))
     }
 
     private func tabButton(_ item: (tab: Tab, title: String)) -> some View {

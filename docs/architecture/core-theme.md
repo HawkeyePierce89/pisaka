@@ -1421,8 +1421,9 @@ own body (rule twenty).
   plain button with `settingsTabLabelPaddingX` (10) around a `callout` semibold
   label (`textPrimary` active, `textSecondary` otherwise); the active tab carries
   an `accent` indicator of `accentIndicator` thickness across its full width,
-  and the strip's `hairline` bottom rule is drawn **behind** the tabs (rule
-  sixteen). Each tab speaks its selection as a value.
+  and the strip's `hairline` bottom rule is drawn **behind** the tabs but in
+  front of the strip's own ground — applied before it, which the part shipped
+  the other way round and its review round corrected (rule sixteen). Each tab speaks its selection as a value.
 - `ChromeMenuField` — **lifted, not invented**: the "existing menu idiom" was
   drawn as a dropdown in exactly one place, the Log filter bar's branch menu (a
   `ChromeControlBox`, a borderless indicator-less `Menu`, a chevron), and that
@@ -1878,7 +1879,18 @@ The thirty-seven rules, each invisible to the compiler:
    overlay drawing the *accent* itself (the strip's cell does) is the indicator,
    not the rule, and stays allowed. Named rather than the whole gated set, rule
    fourteen's shape: a further strip with a bottom-edge indicator joins the list
-   as part of being drawn, as the Preferences tab bar did.
+   as part of being drawn, as the Preferences tab bar did. **Since part five
+   (c)'s review round the rule is also ordered**: inside the same body, the first
+   `.background(alignment: .bottom)` naming `hairline` comes *before* every plain
+   `.background(` whose arguments name a background role (`bgCanvas`, `bgPanel`,
+   `bgEditor`, `bgPopover`) — two token positions compared inside one matched
+   body. SwiftUI draws each later `.background` further back, so a rule applied
+   after an opaque ground lands behind the fill: a rule that exists, is drawn with
+   the right modifier, and is invisible. Part five (c) shipped exactly that on the
+   Preferences tab bar, over a page of the same `bgPanel`, so bar and page ran
+   together; `TabStripView` had the right order and says why in its own comment.
+   A strip drawing no ground on itself satisfies the clause vacuously —
+   `DockTabRow` is that case, its ground being the dock slot's.
 17. **The changed-file status mapping is Core's one answer.** `FileStatus.letter`
    and `ChromeColorRole.changedFileRole(for:)` decide what a status is drawn as;
    before part four (b) the mapping was written out twice, byte for byte (the

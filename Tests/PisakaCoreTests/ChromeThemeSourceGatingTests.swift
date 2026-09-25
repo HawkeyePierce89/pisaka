@@ -84,7 +84,10 @@ import XCTest
 ///   the first time either is touched.
 /// - **An indicator strip's bottom rule is drawn behind its tabs.** An overlaid
 ///   rule paints over the lower point of the active tab's accent indicator — a
-///   one-point overlap no compiler or headless test can see.
+///   one-point overlap no compiler or headless test can see. And the rule is
+///   applied *before* the strip's own opaque ground, since each later
+///   `.background` is drawn further back: a rule that exists, is drawn with the
+///   right modifier, and is invisible.
 /// - **The changed-file status mapping is Core's one answer.** The letter and
 ///   role a status is drawn in were written out twice before; a view growing a
 ///   third `switch` compiles and disagrees with the panel beside it the first
@@ -1359,6 +1362,20 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// altogether. An overlay at the bottom that draws the *accent* itself (the
     /// tab strip's cell does) is the indicator, not the rule, and is allowed.
     ///
+    /// And the rule must be drawn *in front of* the strip's own ground. SwiftUI
+    /// draws each later `.background` further back, so a rule applied after an
+    /// opaque `.background(theme.color(.bgPanel))` lands behind that fill and is
+    /// never seen — a rule that exists, is drawn with the right modifier, and is
+    /// invisible. Part five (c) shipped exactly that on the Preferences tab bar,
+    /// whose page below is the same `bgPanel`, so bar and page ran together. So
+    /// inside the same body, the first `.background(alignment: .bottom)` naming
+    /// `hairline` must come **before** every plain `.background(` whose argument
+    /// names a background role (`bgCanvas`, `bgPanel`, `bgEditor`, `bgPopover`) —
+    /// two token positions compared inside one matched body, nothing parsed. A
+    /// strip that draws no ground on itself satisfies it vacuously: `DockTabRow`
+    /// is that case today (its ground belongs to the dock slot around it), which
+    /// is why the clause is not unreachable there, only unexercised.
+    ///
     /// A named list, rule fourteen's shape: a third strip with a bottom-edge
     /// indicator is added here as part of drawing it, rather than left unguarded.
     /// An entry naming a declaration is read inside that declaration's
@@ -1396,6 +1413,38 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
                 backgrounds.contains { LSPSourceGatingTests.containsToken("hairline", in: $0) },
                 "\(name) draws no bottom hairline behind its tabs — re-point this rule rather than losing it"
             )
+            let rulePosition = Self.callRanges(".background(alignment: .bottom)", in: code)
+                .first { range in
+                    Self.trailingBody(from: range.upperBound, in: Substring(code))
+                        .map { LSPSourceGatingTests.containsToken("hairline", in: $0) } ?? false
+                }?.lowerBound
+            for ground in Self.groundBackgroundPositions(in: code) {
+                XCTAssertTrue(
+                    rulePosition.map { $0 < ground } ?? false,
+                    """
+                    \(name) applies its bottom hairline after an opaque ground — each later .background \
+                    is drawn further back, so the rule lands behind the fill and is invisible; apply the \
+                    rule first and the ground after, as TabStripView does
+                    """
+                )
+            }
+        }
+    }
+
+    /// The background roles — the four grounds a strip can fill itself with.
+    private static let groundRoles = ["bgCanvas", "bgPanel", "bgEditor", "bgPopover"]
+
+    /// The position of every plain `.background(` in `code` — one whose
+    /// argument list does not open with `alignment:` — that names a background
+    /// role inside its parenthesised arguments.
+    private static func groundBackgroundPositions(in code: String) -> [String.Index] {
+        callRanges(".background(", in: code).compactMap { range in
+            let open = code.index(before: range.upperBound)
+            guard let end = balancedEnd(from: open, in: code) else { return nil }
+            let arguments = code[range.upperBound..<code.index(before: end)]
+            guard !arguments.drop { $0.isWhitespace }.hasPrefix("alignment") else { return nil }
+            let text = String(arguments)
+            return groundRoles.contains { LSPSourceGatingTests.containsToken($0, in: text) } ? range.lowerBound : nil
         }
     }
 
