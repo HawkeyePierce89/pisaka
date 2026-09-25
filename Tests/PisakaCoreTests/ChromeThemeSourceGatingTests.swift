@@ -189,7 +189,7 @@ import XCTest
 ///   the twenty sites summed.
 /// - **No alternating row fill.** A gated table reads by selection and hover; no
 ///   gated file spells `alternatingRowBackgrounds`, `isMultiple` or `isTinted`,
-///   and no `.background` modifier's own text spells `% 2`.
+///   and no `.background`/`.listRowBackground` modifier's own text spells `% 2`.
 ///
 /// What a rule here may do, and nothing more: pin a set by equality, assert the
 /// presence or absence of a token through `containsToken`, or take a
@@ -1801,6 +1801,10 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         let required: [String]
         let hidesSymbols: Bool
         var forbidden: [String] = []
+        /// When set, the body spells `.accessibilityLabel(` exactly this many
+        /// times — what an entry saying its controls are *each* named owes, since
+        /// `required` is satisfied by one label anywhere in the builder.
+        var labelCount: Int?
     }
 
     private static let panelControlBuilders: [(file: String, builders: [ControlBuilder])] = [
@@ -1870,10 +1874,12 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
                            required: [".accessibilityLabel("], hidesSymbols: false),
         ]),
         // Part five (d): the grid footer's two paging chevrons, icon-only, each
-        // named outright over a glyph hidden where it is drawn.
+        // named outright over a glyph hidden where it is drawn. "Each" is a
+        // count: the footer spells exactly three labels — the two chevrons' and
+        // its spinner's — so deleting either chevron's is red (fix round 02).
         ("DatabaseViewerView.swift", [
             ControlBuilder(path: ["private var footer: some View"],
-                           required: [".accessibilityLabel("], hidesSymbols: true),
+                           required: [".accessibilityLabel("], hidesSymbols: true, labelCount: 3),
             ControlBuilder(path: ["private func pagingGlyph("],
                            required: [".accessibilityHidden(true)"], hidesSymbols: true),
         ]),
@@ -1910,12 +1916,14 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         ]),
         // The statement pane's three icon-only buttons — hide and open on the
         // site in the header, show in the collapsed strip — each named outright
-        // over a glyph hidden where it is drawn.
+        // over a glyph hidden where it is drawn. "Each" is a count: the header
+        // spells exactly two labels and the strip exactly one, so deleting any
+        // one of the three is red (fix round 02).
         ("LeetCodeDescriptionView.swift", [
             ControlBuilder(path: ["private func header("],
-                           required: [".accessibilityLabel("], hidesSymbols: true),
+                           required: [".accessibilityLabel("], hidesSymbols: true, labelCount: 2),
             ControlBuilder(path: ["private var collapsedStrip: some View"],
-                           required: [".accessibilityLabel("], hidesSymbols: true),
+                           required: [".accessibilityLabel("], hidesSymbols: true, labelCount: 1),
             ControlBuilder(path: ["private func iconGlyph("],
                            required: [".accessibilityHidden(true)"], hidesSymbols: true),
         ]),
@@ -1944,6 +1952,15 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
                         glyph, and a state drawn as a colour or a shape is unspoken, until an explicit label \
                         and value replace them (and a menu or click the entry's comment names is lost until it is \
                         spelled again)
+                        """
+                    )
+                }
+                if let expected = builder.labelCount {
+                    XCTAssertEqual(
+                        Self.callRanges(".accessibilityLabel(", in: found).count, expected,
+                        """
+                        \(name)'s \(described) must spell .accessibilityLabel( exactly \(expected) time(s) — \
+                        the entry's comment says each control is named, and one label satisfies `required`
                         """
                     )
                 }
@@ -4328,16 +4345,25 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// through `containsToken`.
     ///
     /// A second clause reads the ordinary spelling of a zebra, `index % 2 == 0`,
-    /// **inside a matched body only**: no `.background` modifier's own text — its
-    /// brace-matched argument list and its trailing closure, when it has one —
-    /// spells `% 2`. `%` is not banned across the gated files, which would reach
+    /// **inside a matched body only**: no row-fill modifier's own text — its
+    /// parenthesis-matched argument list and its trailing closure, when it has
+    /// one — spells `% 2`. The row-fill modifiers are named as a set,
+    /// `rowFillModifiers`: `.background` and `.listRowBackground`, the two a row
+    /// fill can go through. Before fix round 02 the clause read `.background`
+    /// alone, so a `.listRowBackground(index % 2 == 0 ? … : …)` in the console
+    /// stayed green. `%` is not banned across the gated files, which would reach
     /// every arithmetic use in fifty-eight of them; the clause asks for a token
-    /// inside the one modifier a row fill goes through and resolves nothing.
-    /// Stated limit: a parity computed elsewhere and handed to `.background(` as
-    /// a name (`let fill = …; .background(fill)`) is not seen. Shown red against
-    /// `.background(index % 2 == 0 ? … : …)` in the console's result rows before
-    /// it was committed; the token clause alone stayed green on it.
+    /// inside the modifiers a row fill goes through and resolves nothing.
+    /// Stated limit: a parity computed elsewhere and handed to one of them as a
+    /// name (`let fill = …; .background(fill)`) is not seen, nor is a modifier
+    /// outside the set. Shown red against `.background(index % 2 == 0 ? … : …)`
+    /// in the console's result rows before it was committed; the token clause
+    /// alone stayed green on it. The token ban stays the real defence: it is
+    /// total across the gated files.
     private static let alternationTokens = ["alternatingRowBackgrounds", "isMultiple", "isTinted"]
+
+    /// The modifiers a row fill can go through, read by the parity clause.
+    private static let rowFillModifiers = ["background", "listRowBackground"]
 
     func testNoAlternatingRowFill() throws {
         for (name, code) in try Self.strippedGatedSources() {
@@ -4347,7 +4373,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
                     "\(name) spells \(token) — a gated table reads by selection and hover, never by alternation"
                 )
             }
-            for text in Self.backgroundModifierTexts(in: code) {
+            for text in Self.rowFillModifierTexts(in: code) {
                 XCTAssertNil(
                     text.range(of: #"%\s*2(?![0-9])"#, options: .regularExpression),
                     "\(name) fills a background by row parity — a gated table reads by selection and hover"
@@ -4356,13 +4382,15 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         }
     }
 
-    /// The text of every `.background` modifier in `code`: its brace-matched
-    /// argument list when it has one, followed by its trailing closure's body
-    /// when one opens right after — `.background(…)`, `.background(…) { … }` and
-    /// `.background { … }` alike. A call that does not close yields nothing.
-    private static func backgroundModifierTexts(in code: String) -> [String] {
-        guard let expression = try? NSRegularExpression(pattern: #"\.\s*background(?![A-Za-z0-9_])"#) else {
-            preconditionFailure("backgroundModifierTexts could not compile its pattern")
+    /// The text of every `rowFillModifiers` modifier in `code`: its
+    /// parenthesis-matched argument list when it has one, followed by its
+    /// trailing closure's body when one opens right after — `.background(…)`,
+    /// `.background(…) { … }` and `.background { … }` alike, and the same for
+    /// `.listRowBackground`. A call that does not close yields nothing.
+    private static func rowFillModifierTexts(in code: String) -> [String] {
+        let names = rowFillModifiers.joined(separator: "|")
+        guard let expression = try? NSRegularExpression(pattern: #"\.\s*(?:"# + names + #")(?![A-Za-z0-9_])"#) else {
+            preconditionFailure("rowFillModifierTexts could not compile its pattern")
         }
         return expression.matches(in: code, range: NSRange(code.startIndex..., in: code)).compactMap { match in
             guard let found = Range(match.range, in: code) else { return nil }

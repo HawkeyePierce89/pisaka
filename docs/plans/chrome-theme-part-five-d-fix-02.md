@@ -175,7 +175,7 @@ accident of syntax, not by design, and worth saying so.
 
 ### Task 4: Two rule-twenty entries say "each" where the matcher asks for one, and rule forty-one claims more than it holds
 
-- [ ] `:1858-1863` (`DatabaseViewerView`'s `footer`) and `:1877-1885`
+- [x] `:1858-1863` (`DatabaseViewerView`'s `footer`) and `:1877-1885`
       (`LeetCodeDescriptionView`'s `header(`) both say the controls are "each
       named outright" while `required: [".accessibilityLabel("]` is satisfied by
       one label anywhere in the builder. `footer` holds two labelled chevrons
@@ -185,7 +185,7 @@ accident of syntax, not by design, and worth saying so.
       count, and assertable — or drop the word "each". The pre-existing entries'
       prose says only that an icon-only control spells `.accessibilityLabel(`,
       which is what the matcher does; keep that wording where it is honest.
-- [ ] Rule forty-one's `% 2` clause reads `.background` through
+- [x] Rule forty-one's `% 2` clause reads `.background` through
       `#"\.\s*background(?![A-Za-z0-9_])"#`, which cannot reach
       `.listRowBackground(`. Measured: a `.listRowBackground(index % 2 == 0 ? … : …)`
       added to the console leaves the suite **GREEN**. Either widen the clause to
@@ -194,12 +194,12 @@ accident of syntax, not by design, and worth saying so.
       `core-theme.md:2536-2547`, which today names only the named-variable case.
       The token ban (`alternatingRowBackgrounds`, `isTinted`, `isMultiple`) is
       total across the fifty-eight files and stays as the real defence.
-- [ ] Fix the wording slip in the same rule: `:4212` and `core-theme.md:2542` say
+- [x] Fix the wording slip in the same rule: `:4212` and `core-theme.md:2542` say
       "its **brace**-matched argument list" where the matcher balances on `(`.
-- [ ] **Mutations, each red before green:** deleting one label from each of the
+- [x] **Mutations, each red before green:** deleting one label from each of the
       two builders named above; and, if the clause was widened, the
       `.listRowBackground` parity fill that is green today.
-- [ ] Run `swift test`. It must pass.
+- [x] Run `swift test`. It must pass.
 
 ### Task 5: The verdict test re-derives the implementation instead of pinning it
 

@@ -2209,7 +2209,11 @@ The forty-one rules, each invisible to the compiler:
    and `ChromeMenuField` (label and value, its chevron hidden). Stated limit:
    a single segment's own value is not pinned — the control's value already
    speaks the selected title, so deleting one segment's stays green. Part five
-   (d) adds the database footer (the two paging buttons' labels, `footer`) and
+   (d) adds the database footer (the two paging buttons' labels, `footer`,
+   counted: exactly three `.accessibilityLabel(` — the two chevrons' and the
+   spinner's — through the builder's optional `labelCount`, since `required`
+   is satisfied by one label anywhere and fix round 02 measured that deleting
+   either chevron's stayed green) and
    its hidden `pagingGlyph(`, the problem browser's `LeetCodeBrowserRow` body
    (`.accessibilityElement(children: .combine)` for the one combined element,
    `.accessibilityAddTraits(isSelected ? .isSelected` for the selected trait,
@@ -2226,7 +2230,9 @@ The forty-one rules, each invisible to the compiler:
    *appears* is the Post-Completion check, the container spelling one is what a
    token rule can see; a needle may end on a trailing closure's brace for
    exactly this), and the statement
-   pane's `header(`, `collapsedStrip` and their shared hidden `iconGlyph(`. It
+   pane's `header(` (exactly two labels) and `collapsedStrip` (exactly one) —
+   counted for the same reason, the entry saying each of the three buttons is
+   named — and their shared hidden `iconGlyph(`. It
    also adds a **spinner clause, checked at the constructions rather than in
    the type's body**: every `ChromeSpinner(` call's trailing modifier chain (the
    lines after the call that begin with `.`, read from stripped text, nothing
@@ -2581,11 +2587,16 @@ The forty-one rules, each invisible to the compiler:
     tables read by selection and hover; the database grid's and the console's
     zebras are deleted, and the platform's own alternation left with the
     `Table` (rule thirty-eight). A second clause reads the ordinary spelling,
-    `index % 2 == 0`, inside a matched body only: no `.background` modifier's
-    own text — its brace-matched argument list and its trailing closure —
-    spells `% 2`; `%` is not banned across the gated files. Stated limit: a
-    parity computed elsewhere and handed over as a name
-    (`.background(fill)`) is not seen. Shown red against
+    `index % 2 == 0`, inside a matched body only: no row-fill modifier's own
+    text — its parenthesis-matched argument list and its trailing closure —
+    spells `% 2`; `%` is not banned across the gated files. The row-fill
+    modifiers are a named set, `rowFillModifiers`: `.background` and
+    `.listRowBackground`. Until fix round 02 the clause read `.background`
+    alone, and a `.listRowBackground(index % 2 == 0 ? … : …)` added to the
+    console stayed green; it is red now. Stated limits: a parity computed
+    elsewhere and handed over as a name (`.background(fill)`) is not seen, and
+    neither is a modifier outside the set — the token ban, total across the
+    gated files, stays the real defence. Shown red against
     `.background(index % 2 == 0 ? … : …)` in the console's result rows, in both
     the argument and the trailing-closure spelling, before it was committed.
 
