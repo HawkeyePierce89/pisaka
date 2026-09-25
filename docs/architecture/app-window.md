@@ -748,6 +748,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     load is guarded by a `@State` generation token mirroring `DiffPane`/
     `CommitDiffPane` (though a window's `(fileID, load)` is fixed for its lifetime,
     so it keeps the single in-flight load honest).
+    **Chrome (part five (b), `core-theme.md`).** Gated. The root resolves its one
+    colour — "Loading…" in `textSecondary` — through a private `chromeColor(_:)`
+    in the window-root shape, holding no `\.chromeTheme` in its struct; the
+    side-by-side pane inside it was swept in part four (b).
   - `DiffWindowController.swift` — a `@MainActor final class` owning the separate,
     non-modal diff windows. `open(title:content:)` creates a fresh resizable
     `EscClosableWindow` (see below — so Esc closes the window) hosting
@@ -760,6 +764,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     yields two windows. `closeAll()` closes every retained window (the app calls it
     on `willTerminateNotification` so none linger past termination), mirroring
     `TerminalSessionsModel.terminateAll()`.
+    **Chrome (part five (b)).** Gated, naming no role: it constructs
+    `EscClosableWindow`, which paints the window's `bgPanel` ground; the
+    controller sets none of its own (rule twenty-eight).
   - `SourceViewerWindowController.swift` — owns the separate, non-modal **source
     viewer** windows a Go to Definition opens when the declaration lives *outside*
     the opened folder (`core-lsp.md`'s D3): an SDK `.swiftinterface`, a dependency
@@ -795,6 +802,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     disk, which is the actual guarantee D3 is after: a semantic jump into the SDK
     cannot write outside the project root because there is nothing to write *with*,
     not because a flag is set correctly.
+    **Chrome (part five (b)).** Gated, naming no role, like the diff window's
+    controller: the window ground is `EscClosableWindow`'s.
   - `SourceViewerContent.swift` — the SwiftUI content of a source viewer window:
     one file, read-only, syntax-highlighted, scrolled to a range. Modeled on
     `DiffWindowContent` + `DiffView`'s read-only pane — same `preferredColorScheme`
@@ -831,6 +840,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     to the next turn so the target range has been laid out (a freshly created window
     has laid out nothing yet) and the clamp-by-truncating-the-length so an empty range
     at the very end of the buffer does not scroll to the top.
+    **Chrome (part five (b), `core-theme.md`).** Gated, naming no role: its pane's
+    one colour — the text view, scroll view and clip view on `bgEditor`, so the
+    gutter's own `bgEditor` fill shows no lighter band beside the text — is now
+    `CodePaneGround.apply(scrollView:textView:)` (`DiffView.swift`), the one
+    definition its four callers share, replacing the three assignments it used to
+    make itself. A root that paints no SwiftUI colour.
   - `ProjectTreeView.swift` — the project file tree: when `projectRoot == nil`
     it shows a centered "Click to open a folder" hint whose whole pane is the
     click target (`contentShape(Rectangle())` + `onTapGesture`) and calls an

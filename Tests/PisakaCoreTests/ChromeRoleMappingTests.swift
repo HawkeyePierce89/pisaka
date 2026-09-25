@@ -119,4 +119,24 @@ final class ChromeRoleMappingTests: XCTestCase {
             XCTAssertEqual(ChromeColorRole.diffWashRole(for: kind), expected[kind] ?? nil, "\(kind)")
         }
     }
+
+    /// The merge wash's first test of any kind: every line kind has its answer,
+    /// and exactly the three conflicted kinds share the one conflict wash.
+    func testTheMergeWashCoversEveryLineKind() {
+        let expected: [MergeLineKind: ChromeColorRole?] = [
+            .plain: nil,
+            .ours: .conflictBackground,
+            .theirs: .conflictBackground,
+            .conflictUnresolved: .conflictBackground,
+            .conflictResolved: .diffAddedBackground,
+        ]
+        XCTAssertEqual(Set(expected.keys), Set(MergeLineKind.allCases))
+        for kind in MergeLineKind.allCases {
+            XCTAssertEqual(ChromeColorRole.mergeWashRole(for: kind), expected[kind] ?? nil, "\(kind)")
+        }
+        XCTAssertEqual(
+            Set(MergeLineKind.allCases.filter { ChromeColorRole.mergeWashRole(for: $0) == .conflictBackground }),
+            [.ours, .theirs, .conflictUnresolved]
+        )
+    }
 }

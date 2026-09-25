@@ -81,9 +81,11 @@ enum ChromePalette {
         // Changed: this wash was once byte-identical to `currentLine` below,
         // and is now a deliberate step stronger, because the design states
         // that value. Its one consumer is `ProjectTreeView.swift`'s
-        // `TreeRowBackground.role(for:)`, `case .selectedUnfocused` — a
-        // project-tree row selected while its window is not key — so this is
-        // what that row washes itself with, not an editor text selection.
+        // `TreeRowBackground.role(for:)`, on `case .selectedUnfocused` — a row
+        // selected while its window is not key — so this is what such a row
+        // washes itself with, not an editor text selection. Every row that
+        // paints the tree's states (the commit dialog's file row among them)
+        // spends it through that mapping rather than by naming it.
         // `currentLine` is at present painted by nothing at all (its only
         // occurrences are its declaration, the row below and this comment), so
         // the two have never been drawn together and no symptom was visible;

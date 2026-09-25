@@ -611,9 +611,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     the ruler painted no background at all and inherited whatever the scroll view
     drew, which is exactly what would make the gutter and the text disagree once
     the editor took a colour of its own — so `CodeEditorView` paints the text
-    view, its clip view and its scroll view in that same `bgEditor` (one private
-    `applyEditorBackground(scrollView:textView:)`, the only colour that file
-    spells; the syntax tokens, the current-line and bracket painting and the
+    view, its clip view and its scroll view in that same `bgEditor` (since part
+    five (b), `makeNSView` calls the shared
+    `CodePaneGround.apply(scrollView:textView:)` in `DiffView.swift`, which
+    replaced the file's own private helper — the one definition of a code pane's
+    ground; the syntax tokens, the current-line and bracket painting and the
     minimap all keep `SyntaxTheme`'s, and `CodeEditorView.swift` is deliberately
     *not* in the chrome's gated set). The numbers and the blame labels share one
     `numberAttributes` property — the ruler font plus `textSecondary` — which is
@@ -730,14 +732,13 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     **The ruler has two instances, not one**: the editor's, and the read-only
     out-of-project definition window's (`SourceViewerContent.swift`,
     `app-window.md`), which builds the same class. Both now sit on `bgEditor`,
-    and deliberately so: the editor's pane takes it from
-    `CodeEditorView.applyEditorBackground(scrollView:textView:)`, and the source
-    viewer applies the same role to the same three views in its own
-    `makeNSView`, because a pane left on the system's text background would show
-    the gutter as a visibly lighter band beside the text in the dark appearance.
-    So the gutter and the text it numbers agree in both windows. What is *not*
-    themed is the rest of that window's chrome, which still draws the way it did
-    and waits for the sweep to reach it.
+    and deliberately so: both panes take it from the one definition,
+    `CodePaneGround.apply(scrollView:textView:)` (`DiffView.swift`), called from
+    each file's own `makeNSView`, because a pane left on the system's text
+    background would show the gutter as a visibly lighter band beside the text
+    in the dark appearance. So the gutter and the text it numbers agree in both
+    windows. The rest of the source viewer's chrome was swept in part five (b):
+    its window ground is `EscClosableWindow`'s `bgPanel` (`core-theme.md`).
     **The fold chevron column** sits between the diagnostic markers and the
     numbers: `chevron.down` on the header line of every fold candidate,
     `chevron.right` on a folded one — **both in `textSecondary`**, the distinction

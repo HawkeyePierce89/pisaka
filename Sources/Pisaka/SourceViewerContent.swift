@@ -95,22 +95,9 @@ struct SourceViewerPane: NSViewRepresentable {
         scrollView.hasHorizontalScroller = true
         scrollView.documentView = textView
 
-        // The same three backgrounds the editor paints in
-        // `CodeEditorView.applyEditorBackground(scrollView:textView:)`, and for a
-        // reason this window cannot avoid: it hosts the *same*
-        // `LineNumberRulerView`, which fills its gutter with the chrome's editor
-        // background role. A pane left on the system's `textBackgroundColor`
-        // would therefore show the gutter as a visibly lighter band beside the
-        // text in the dark appearance, the two colours being different greys.
-        // The three views are set together because each draws part of the pane:
-        // the text view its own bounds, the clip view everything the content does
-        // not cover, the scroll view the rest. The colour is dynamic, so nothing
-        // here observes an appearance change; this is the only colour this file
-        // spells, and the rest of the window's chrome still draws what it drew.
-        let paneBackground = ChromePalette.nsColor(.bgEditor)
-        textView.backgroundColor = paneBackground
-        scrollView.backgroundColor = paneBackground
-        scrollView.contentView.backgroundColor = paneBackground
+        // This window hosts the *same* `LineNumberRulerView` as the editor, so its
+        // pane takes the same ground; why, in `CodePaneGround`.
+        CodePaneGround.apply(scrollView: scrollView, textView: textView)
 
         // Same TextKit 1 / no-soft-wrap setup as the editor and the diff panes: a
         // logical line is one visual row, so the gutter's numbers line up with the

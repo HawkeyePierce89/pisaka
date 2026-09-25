@@ -12,7 +12,7 @@ import PisakaCore
 ///
 /// All domain logic lives in `PisakaCore` (`ThreeWayMerge`, `MergeDocument`,
 /// `MergeModel`); this is a thin, intentionally untested view layer — the same
-/// split as `DiffView`/`CodeEditorView`. A toolbar drives per-conflict resolution
+/// split as `DiffView`/`CodeEditorView`. A status strip drives per-conflict resolution
 /// (◀ ours / both orderings / theirs ▶), prev/next conflict navigation, and an
 /// "Apply" affordance enabled only when every conflict is resolved
 /// (`MergeModel.isFullyResolved`). Editing the middle pane within a conflict region
@@ -29,35 +29,36 @@ struct MergeView: View {
     /// Changes; a failure surfaces via `model.errorMessage`.
     var onApply: () -> Void = {}
 
-    /// The conflict the toolbar's accept buttons act on and that prev/next
+    /// The conflict the status strip's accept buttons act on and that prev/next
     /// navigates between (conflict order). Clamped to the document's conflicts.
     @State private var currentConflict = 0
 
     /// The interface zone's metrics. Computed from the store rather than read
     /// from the environment because this view is the *root* of its own window and
     /// injects the value below (`SettingsStore.interfaceMetrics`). It reaches the
-    /// toolbar, the pane labels and the window's minimum size; the three text
+    /// status strip, the pane labels and the window's minimum size; the three text
     /// panes stay on `settings.fontSize`, the code zone.
     private var metrics: InterfaceMetrics { settings.interfaceMetrics }
 
+    @Environment(\.colorScheme) private var colorScheme
+
     var body: some View {
         VStack(spacing: 0) {
-            toolbar
-            Divider()
+            statusStrip
             header
-            Divider()
             content
             if let message = model.errorMessage, model.document != nil {
-                Divider()
+                hairline(horizontal: true)
                 Text(message)
                     .font(metrics.scaledFont(.callout))
-                    .foregroundStyle(Color.red)
+                    .foregroundStyle(chromeColor(.statusRed))
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, metrics.scaled(8))
                     .padding(.vertical, metrics.scaled(4))
             }
         }
         .frame(minWidth: metrics.scaled(720), minHeight: metrics.scaled(420))
+        .background(chromeColor(.bgPanel))
         // Apply the theme preference here too, so a forced Light/Dark reaches this
         // separate merge window's hosted AppKit content (the main window does the
         // same on its root). The shared font size already propagates via `settings`.
@@ -68,39 +69,81 @@ struct MergeView: View {
         .chromeThemed(settings)
     }
 
-    // MARK: Toolbar
+    /// This view is a window root: it injects the theme below, so it resolves its
+    /// own colours from the settings rather than reading `\.chromeTheme`. Any
+    /// child that wants the environment is declared at file scope, never inside
+    /// this struct.
+    private func chromeColor(_ role: ChromeColorRole) -> Color {
+        settings.chromeTheme(systemPrefersDark: colorScheme == .dark).color(role)
+    }
 
-    private var toolbar: some View {
+    /// The one-point rule drawn wherever a `Divider()` used to stand: a
+    /// horizontal rule when `horizontal` is true, a vertical one otherwise.
+    private func hairline(horizontal: Bool) -> some View {
+        Rectangle()
+            .fill(chromeColor(.hairline))
+            .frame(
+                width: horizontal ? nil : metrics.scaled(ChromeGeometry.hairlineWidth),
+                height: horizontal ? metrics.scaled(ChromeGeometry.hairlineWidth) : nil
+            )
+    }
+
+    // MARK: Status strip
+
+    /// The strip above the panes: `dialogEdgeStripHeight` on `bgPanel`, closed by
+    /// a `hairline`. Conflict navigation, the four take-side buttons and the
+    /// status sentence on the left and right; Apply the one primary action.
+    private var statusStrip: some View {
         HStack(spacing: metrics.scaled(8)) {
             if let document = model.document, document.conflictCount > 0 {
-                Button { navigate(-1) } label: { Image(systemName: "chevron.up") }
-                    .disabled(currentConflict <= 0)
+                Button { navigate(-1) } label: {
+                    Image(systemName: "chevron.up").accessibilityHidden(true)
+                }
+                .buttonStyle(.chromeSecondary)
+                .disabled(currentConflict <= 0)
+                .help("Previous conflict")
+                .accessibilityLabel("Previous conflict")
                 Text("Conflict \(min(currentConflict + 1, document.conflictCount)) of \(document.conflictCount)")
                     .font(metrics.scaledFont(.callout).monospacedDigit())
-                Button { navigate(1) } label: { Image(systemName: "chevron.down") }
-                    .disabled(currentConflict >= document.conflictCount - 1)
+                    .foregroundStyle(chromeColor(.textPrimary))
+                    .lineLimit(1)
+                Button { navigate(1) } label: {
+                    Image(systemName: "chevron.down").accessibilityHidden(true)
+                }
+                .buttonStyle(.chromeSecondary)
+                .disabled(currentConflict >= document.conflictCount - 1)
+                .help("Next conflict")
+                .accessibilityLabel("Next conflict")
 
-                Divider().frame(height: metrics.scaled(16))
+                hairline(horizontal: false)
+                    .frame(height: metrics.scaled(MergeViewLayout.stripRuleHeight))
 
                 Button("◀ Ours") { accept(.ours) }
+                    .buttonStyle(.chromeSecondary)
                 Button("Ours+Theirs") { accept(.bothOursFirst) }
+                    .buttonStyle(.chromeSecondary)
                 Button("Theirs+Ours") { accept(.bothTheirsFirst) }
+                    .buttonStyle(.chromeSecondary)
                 Button("Theirs ▶") { accept(.theirs) }
+                    .buttonStyle(.chromeSecondary)
             }
 
             Spacer()
 
             Text(statusText)
                 .font(metrics.scaledFont(.callout))
-                .foregroundStyle(model.isFullyResolved ? Color.green : Color.secondary)
+                .foregroundStyle(chromeColor(model.isFullyResolved ? .statusGreen : .textSecondary))
+                .lineLimit(1)
 
             Button("Apply", action: onApply)
+                .buttonStyle(.chromePrimary)
                 .keyboardShortcut(.return, modifiers: .command)
                 .disabled(!model.isFullyResolved)
         }
-        .font(metrics.scaledFont(.body))
-        .padding(.horizontal, metrics.scaled(8))
-        .padding(.vertical, metrics.scaled(6))
+        .padding(.horizontal, metrics.scaled(ChromeGeometry.panelHeaderPaddingX))
+        .frame(height: metrics.scaled(ChromeGeometry.dialogEdgeStripHeight))
+        .background(chromeColor(.bgPanel))
+        .overlay(alignment: .bottom) { hairline(horizontal: true) }
     }
 
     private var statusText: String {
@@ -110,21 +153,28 @@ struct MergeView: View {
         return "\(count) unresolved conflict\(count == 1 ? "" : "s")"
     }
 
+    /// The pane header: a `panelHeaderHeight` strip on `bgPanel`, closed by a
+    /// `hairline`, with vertical `hairline`s between the three titles.
     private var header: some View {
         HStack(spacing: 0) {
             paneLabel("Ours")
-            Divider()
+            hairline(horizontal: false)
             paneLabel("Result")
-            Divider()
+            hairline(horizontal: false)
             paneLabel("Theirs")
         }
-        .frame(height: metrics.scaled(22))
+        .frame(height: metrics.scaled(ChromeGeometry.panelHeaderHeight))
+        .background(chromeColor(.bgPanel))
+        .overlay(alignment: .bottom) { hairline(horizontal: true) }
     }
 
+    /// A pane title at the dock's panel-header size: `.body` semibold in
+    /// `textPrimary`.
     private func paneLabel(_ title: String) -> some View {
         Text(title)
-            .font(metrics.scaledFont(.caption, weight: .semibold))
-            .foregroundStyle(.secondary)
+            .font(metrics.scaledFont(.body, weight: .semibold))
+            .foregroundStyle(chromeColor(.textPrimary))
+            .lineLimit(1)
             .frame(maxWidth: .infinity)
     }
 
@@ -142,7 +192,7 @@ struct MergeView: View {
         } else {
             Text(model.errorMessage ?? "Loading…")
                 .font(metrics.scaledFont(.body))
-                .foregroundStyle(model.errorMessage == nil ? Color.secondary : Color.red)
+                .foregroundStyle(chromeColor(model.errorMessage == nil ? .textSecondary : .statusRed))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
@@ -161,32 +211,11 @@ struct MergeView: View {
     }
 }
 
-/// Background highlight for a line in one of the three merge panes.
-private enum MergeLineKind {
-    case plain
-    case ours
-    case theirs
-    case conflictUnresolved
-    case conflictResolved
-}
-
-/// The merge panes' color scheme (kept in the view layer like `SyntaxTheme`, so
-/// `PisakaCore` stays color-free).
-private enum MergeColors {
-    static func background(for kind: MergeLineKind) -> NSColor? {
-        switch kind {
-        case .plain: return nil
-        case .ours: return ours
-        case .theirs: return theirs
-        case .conflictUnresolved: return unresolved
-        case .conflictResolved: return resolved
-        }
-    }
-
-    private static let ours = NSColor.systemBlue.withAlphaComponent(0.13)
-    private static let theirs = NSColor.systemGreen.withAlphaComponent(0.13)
-    private static let unresolved = NSColor.systemRed.withAlphaComponent(0.16)
-    private static let resolved = NSColor.systemGreen.withAlphaComponent(0.10)
+/// The merge window's one-surface numbers.
+private enum MergeViewLayout {
+    /// The height of the vertical rule between the conflict navigation and the
+    /// take-side buttons. One surface draws it, so it is not a shared token.
+    static let stripRuleHeight: Double = 16
 }
 
 /// The three TextKit-1 panes, mirroring `DiffView`'s setup (non-wrapping,
@@ -258,6 +287,7 @@ private struct MergeThreePaneView: NSViewRepresentable {
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = true
         scrollView.documentView = textView
+        CodePaneGround.apply(scrollView: scrollView, textView: textView)
 
         let maxSize = CGFloat.greatestFiniteMagnitude
         textView.minSize = .zero
@@ -578,7 +608,9 @@ private struct MergeThreePaneView: NSViewRepresentable {
 }
 
 /// A merge pane: an `NSTextView` that paints a full-width per-line background by
-/// `MergeLineKind` behind the glyphs (mirroring `DiffTextView`).
+/// `MergeLineKind` behind the glyphs (mirroring `DiffTextView`). The pane derives
+/// which line is which kind; the wash each kind takes is Core's one answer,
+/// `ChromeColorRole.mergeWashRole(for:)`.
 @MainActor
 private final class MergePaneTextView: NSTextView, ZoomSurfaceProviding {
     fileprivate var lineKinds: [MergeLineKind] = []
@@ -642,7 +674,7 @@ private final class MergePaneTextView: NSTextView, ZoomSurfaceProviding {
             let row = self.lineIndex(forCharacterAt: charIndex)
             guard
                 row < self.lineKinds.count,
-                let color = MergeColors.background(for: self.lineKinds[row])
+                let role = ChromeColorRole.mergeWashRole(for: self.lineKinds[row])
             else { return }
             let fill = NSRect(
                 x: 0,
@@ -650,26 +682,27 @@ private final class MergePaneTextView: NSTextView, ZoomSurfaceProviding {
                 width: self.bounds.width,
                 height: fragmentRect.height
             )
-            color.setFill()
+            // No appearance bracket: a dynamic `NSColor` filled at draw time
+            // resolves against the drawing appearance at that moment.
+            ChromePalette.nsColor(role).setFill()
             fill.fill()
         }
     }
 }
 
 /// Lays out the three merge panes side by side, split evenly with hairline
-/// dividers (mirroring `DiffContainerView` for three columns).
+/// dividers (mirroring `DiffContainerView` for three columns, and built from its
+/// `DiffDividerView`). The dividers are `ChromeGeometry.hairlineWidth` wide
+/// *unscaled*, for the reason `DiffContainerView` states: the panes are a
+/// code-zoom surface with no interface scale to ask.
 @MainActor
 final class MergeContainerView: NSView {
     private let scrolls: [NSScrollView]
-    private let dividers: [NSBox]
+    private let dividers: [DiffDividerView]
 
     init(scrolls: [NSScrollView]) {
         self.scrolls = scrolls
-        self.dividers = (0..<max(0, scrolls.count - 1)).map { _ in
-            let box = NSBox()
-            box.boxType = .separator
-            return box
-        }
+        self.dividers = (0..<max(0, scrolls.count - 1)).map { _ in DiffDividerView() }
         super.init(frame: .zero)
         for scroll in scrolls { addSubview(scroll) }
         for divider in dividers { addSubview(divider) }
@@ -684,7 +717,7 @@ final class MergeContainerView: NSView {
         let count = scrolls.count
         guard count > 0 else { return }
         let height = bounds.height
-        let dividerWidth: CGFloat = 1
+        let dividerWidth = CGFloat(ChromeGeometry.hairlineWidth)
         let totalDividers = dividerWidth * CGFloat(dividers.count)
         let paneWidth = max(0, (bounds.width - totalDividers) / CGFloat(count))
 

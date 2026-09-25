@@ -39,9 +39,8 @@ public enum ChromeGeometry {
     /// How far one level of nesting insets a project-tree child from its parent.
     public static let treeIndentStep: Double = 16
     /// The largest corner radius the chrome uses. A chrome surface's corners are
-    /// either square or this; the only smaller radii are the small controls'
-    /// own, each a token of its own (`bottomBarToggleRadius`,
-    /// `buttonCornerRadius`) — never one computed from this.
+    /// either square or this; each small control's radius is a token of its
+    /// own, never one computed from this.
     public static let cornerRadiusMax: Double = 6
     /// The width of a hairline separating two chrome zones.
     public static let hairlineWidth: Double = 1
@@ -102,4 +101,10 @@ public enum ChromeGeometry {
     public static let secondaryButtonHeight: Double = 28
     /// A secondary button's horizontal padding.
     public static let secondaryButtonPaddingX: Double = 14
+    /// A dialog's edge strip height: the commit dialog's header and the merge window's status strip.
+    public static let dialogEdgeStripHeight: Double = 44
+    /// The side of the chrome's square checkbox.
+    public static let checkboxSide: Double = 14
+    /// The chrome checkbox's corner radius.
+    public static let checkboxCornerRadius: Double = 3
 }

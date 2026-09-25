@@ -201,6 +201,7 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
 
 `docs/architecture/core-diff-merge.md` — diff & three-way merge:
 - `MergeRegion.swift` / `ThreeWayMerge.swift` — diff3 regions.
+- `MergeLineKind.swift` — the merge panes' line vocabulary; its wash is `ChromeColorRole.mergeWashRole(for:)`.
 - `MergeDocument.swift` — editable merge state; marker-faithful `resolvedText`.
 - `MergeModel.swift` — merge editor over the `:1/:2/:3` index stages.
 - `LineDiff.swift` — side-by-side LCS line diff (capped matrix).
@@ -738,8 +739,8 @@ ci.yml's `lint` job, and the version-bump procedure.
   paints its own background and overrides nothing — was measured recolouring
   live in both directions when the system appearance changed under it. A
   reader: it takes no writer gate, is gated by none and writes nothing.
-  `ChromeThemeSourceGatingTests` pins which files obey the rule (thirty-four, by set
-  equality) and its twenty-seven rules — no system semantic colour, no hex literal
+  `ChromeThemeSourceGatingTests` pins which files obey the rule (forty-four, by set
+  equality) and its thirty-five rules — no system semantic colour, no hex literal
   outside the table, the four exemptions stay exemptions, the theme injected at
   the scale's roots, no view constructing a theme, the gutter's fill still going
   through its own rule (a seam pins nothing its call site does not spend, and
@@ -769,14 +770,14 @@ ci.yml's `lint` job, and the version-bump procedure.
   stating no fixed width and scrolling below its floor (a row that cannot
   shrink is clipped under the window's minimum width), every pushed resize
    cursor released from a disappearance handler (a divider leaving the tree gets
-   neither `onHover(false)` nor `onEnded`), a popover surface names `bgPopover`, no gated file spells `Divider()` and every menu separates with `Section`, AppKit layer colours are set only inside the drawing appearance, one field shape and one query toggle, and each measurement follows its own zone — plus, beside the rules rather
+   neither `onHover(false)` nor `onEnded`), a popover surface names `bgPopover`, no gated file spells `Divider()` and every menu separates with `Section`, AppKit layer colours are set only inside the drawing appearance, one field shape and one query toggle, each measurement follows its own zone, a secondary window's ground set in the window subclass alone, the merge wash Core's one answer (`mergeWashRole(for:)`, one reader, no alpha on a role's colour), one primary button, one secondary and one checkbox (no platform toggle or bordered/link button style), a code pane's ground through one definition (`CodePaneGround`, four callers), a window root resolving the theme the root way (no `\.chromeTheme` anywhere in a root struct), and the commit dialog's rows and controls (no fixed row height, the three row states, a spoken checkbox value, labelled chevrons), and every chrome glyph sized in the interface zone (its own scaled font, or a scaled frame on a resizable symbol, or a pinned declaration whose container font, button style or stated off-scale reason the rule re-checks), and a selectable list yielding its selected row's background (a row background is drawn over the selection box) — plus, beside the rules rather
   than among them, the cross-file count that keeps this sentence and
   `core-theme.md`'s own list equal to the number of rules the suite declares —
   while **four files are exempt because they are not
   chrome**: `SyntaxTheme.swift` (the code zone's own theme), `TerminalTheme.swift`
   (a protocol's ANSI-16 vocabulary), `FileIcon.swift` (a Core token iOS still
   paints) and `CommitGraphPalette.swift` (a lane colour is an identity token, not
-  a chrome meaning). Thirty surfaces are swept so far — part one's tab strip, line-number
+  a chrome meaning). Thirty-seven surfaces are swept so far — part one's tab strip, line-number
   ruler and project tree rows (the inline draft field with them), part two's
   vertical tab column, breadcrumb, minimap chrome and language-server consent
   strip, part three's window ground and title bar, sidebar host and header,
@@ -788,7 +789,7 @@ ci.yml's `lint` job, and the version-bump procedure.
   Terminal panel host, which spend no new role, and part four (b)'s Log panel,
   its filter bar, its graph gutter, the Local Changes panel, the Pull Requests
   panel, the side-by-side diff pane and the unified diff's wash, which spend the
-  two diff grounds leaving four roles unspent (`bgPopover`, `currentLine`, `bracketMatch`, `conflictBackground`), and part five (a)'s completion panel, hover popover, find/replace bar, Find in Files window and its window controller, recent-searches menu, two bottom-bar popovers and Log calendar popover on `bgPopover`, the badge monochrome and the shared field shape, which spend `bgPopover` and leave three roles unspent (`currentLine`, `bracketMatch`, `conflictBackground`); the rest is the follow-up sweep, whose procedure
+  two diff grounds leaving four roles unspent (`bgPopover`, `currentLine`, `bracketMatch`, `conflictBackground`), and part five (a)'s completion panel, hover popover, find/replace bar, Find in Files window and its window controller, recent-searches menu, two bottom-bar popovers and Log calendar popover on `bgPopover`, the badge monochrome and the shared field shape, which spend `bgPopover` and leave three roles unspent (`currentLine`, `bracketMatch`, `conflictBackground`), and part five (b)'s commit dialog, its author editor sheet, the merge editor, the diff window, the Local History window, the source viewer and every secondary window's ground (set once, in `EscClosableWindow`), with the shared primary button and checkbox, which spend `conflictBackground` on the merge panes and leave two roles unspent (`currentLine`, `bracketMatch`), both code zone; the rest is the follow-up sweep, whose procedure
   and its one refusal ("a surface needing a twenty-second role has found a design
   question") are in `core-theme.md`.
 - **Zoom is three zones, one arithmetic, one pointer rule** (macOS only): `code`

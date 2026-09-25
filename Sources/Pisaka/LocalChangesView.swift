@@ -421,7 +421,8 @@ private struct ChangedFileRow: View {
     var body: some View {
         let icon = FileIcon(for: DirectoryEntry(url: url, isDirectory: false))
         HStack(spacing: metrics.scaled(LocalChangesLayout.rowGap)) {
-            checkbox
+            ChromeCheckbox(state: isChecked ? .on : .off, label: "Include \(name) in revert", action: onToggleCheck)
+                .help("Select for revert")
             Image(systemName: icon.symbolName)
                 .font(metrics.scaledFont(.callout))
                 .foregroundStyle(theme.color(.textSecondary))
@@ -484,40 +485,6 @@ private struct ChangedFileRow: View {
         }
     }
 
-    /// The revert checkbox, drawn rather than a system glyph: a hairline-bordered
-    /// square when off, the accent filled with an `onAccent` check when on. It
-    /// says which file it includes and speaks on/off as its value.
-    private var checkbox: some View {
-        let shape = RoundedRectangle(cornerRadius: metrics.scaled(LocalChangesLayout.checkboxRadius))
-        return Button(action: onToggleCheck) {
-            ZStack {
-                if isChecked {
-                    shape.fill(theme.color(.accent))
-                    Image(systemName: "checkmark")
-                        .resizable()
-                        .scaledToFit()
-                        .foregroundStyle(theme.color(.onAccent))
-                        .frame(width: metrics.scaled(LocalChangesLayout.checkmarkSide))
-                } else {
-                    shape.strokeBorder(
-                        theme.color(.hairline),
-                        lineWidth: metrics.scaled(ChromeGeometry.hairlineWidth)
-                    )
-                }
-            }
-            .frame(
-                width: metrics.scaled(LocalChangesLayout.checkboxSide),
-                height: metrics.scaled(LocalChangesLayout.checkboxSide)
-            )
-            .contentShape(Rectangle())
-            .accessibilityHidden(true)
-        }
-        .buttonStyle(.plain)
-        .help("Select for revert")
-        .accessibilityLabel("Include \(name) in revert")
-        .accessibilityValue(isChecked ? "On" : "Off")
-    }
-
     private var rowBackground: Color {
         if isSelected { return theme.color(.accentTintStrong) }
         if isHovering { return theme.color(.hoverTint) }
@@ -568,12 +535,6 @@ private enum LocalChangesLayout {
     static let rowTrailingInset: Double = 10
     /// Between a file row's parts.
     static let rowGap: Double = 6
-    /// The revert checkbox's side.
-    static let checkboxSide: Double = 14
-    /// The revert checkbox's corner radius.
-    static let checkboxRadius: Double = 3
-    /// The check glyph's width inside the filled box.
-    static let checkmarkSide: Double = 8
 }
 
 // MARK: - Focus anchor (Cmd+D interception)

@@ -13,14 +13,14 @@ import Foundation
 /// surface that appears to need a twenty-second role has instead found a design
 /// question, and the answer is to reuse one of these or to change the design —
 /// not to grow the table. Some roles are consequently still unused after the
-/// surfaces restyled so far — three of them (`currentLine`,
-/// `bracketMatch`, `conflictBackground`), each waiting for the surface that
-/// means it: the code zone's two line overlays, and the merge
-/// pane. `bgPopover` was the fourth and is spent by the popovers — the
-/// completion panel, the hover popover, the two switcher popovers and the Log
-/// calendar — in part five (a); the two diff backgrounds are spent by the diff
-/// pane and the unified diff, through `diffWashRole(for:side:)` /
-/// `diffWashRole(for:)`.
+/// surfaces restyled so far — two of them (`currentLine`, `bracketMatch`),
+/// both waiting for the surface that means them: the code zone's two line
+/// overlays. `conflictBackground` was the third and is spent by the merge
+/// panes, through `mergeWashRole(for:)`, in part five (b); `bgPopover` was the
+/// fourth and is spent by the popovers — the completion panel, the hover
+/// popover, the two switcher popovers and the Log calendar — in part five (a);
+/// the two diff backgrounds are spent by the diff pane and the unified diff,
+/// through `diffWashRole(for:side:)` / `diffWashRole(for:)`.
 /// They are declared here nonetheless, because the table is the design, not an
 /// inventory of today's call sites.
 ///
@@ -175,6 +175,22 @@ extension ChromeColorRole {
         case .context: return nil
         case .removed: return .diffRemovedBackground
         case .added: return .diffAddedBackground
+        }
+    }
+
+    /// A merge-pane line's wash, or `nil` for a plain line.
+    ///
+    /// **One wash, not two.** The design draws the differing lines of the two
+    /// read-only panes and the unresolved region of the result pane identically,
+    /// in `conflictBackground`: the *pane* is what tells ours from theirs from
+    /// the result, so a second colour would restate what the layout already
+    /// says. A resolved region takes the diff's added wash — it is now content
+    /// the result carries.
+    public static func mergeWashRole(for kind: MergeLineKind) -> ChromeColorRole? {
+        switch kind {
+        case .plain: return nil
+        case .ours, .theirs, .conflictUnresolved: return .conflictBackground
+        case .conflictResolved: return .diffAddedBackground
         }
     }
 

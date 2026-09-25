@@ -28,6 +28,8 @@ struct DiffWindowContent: View {
     /// updates live when the editor font size changes (Stepper or Cmd+scroll).
     @ObservedObject var settings: SettingsStore
 
+    @Environment(\.colorScheme) private var colorScheme
+
     @State private var rows: [DiffRow] = []
     @State private var isLoaded = false
     /// Monotonic token identifying the latest load; only the latest may assign.
@@ -45,7 +47,7 @@ struct DiffWindowContent: View {
             } else {
                 Text("Loading…")
                     .font(settings.interfaceMetrics.scaledFont(.body))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(chromeColor(.textSecondary))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
@@ -59,6 +61,12 @@ struct DiffWindowContent: View {
         .interfaceScaled(settings)
         .chromeThemed(settings)
         .onAppear(perform: reload)
+    }
+
+    /// This view is a window root: it injects the theme below, so it resolves its
+    /// own colours from the settings rather than reading `\.chromeTheme`.
+    private func chromeColor(_ role: ChromeColorRole) -> Color {
+        settings.chromeTheme(systemPrefersDark: colorScheme == .dark).color(role)
     }
 
     private func reload() {
