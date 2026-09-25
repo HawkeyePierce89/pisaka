@@ -155,23 +155,23 @@ that `required` literal. The third mutation is red only because
 `.accessibilityAction {` has no `(` for `spellsCall` to find — held by an
 accident of syntax, not by design, and worth saying so.
 
-- [ ] Make the rule hold what its comment says, within the convention: a rule
+- [x] Make the rule hold what its comment says, within the convention: a rule
       pins a set by equality or asserts the presence or absence of a token,
       optionally inside a brace-matched body. It must not resolve a type,
       evaluate a conditional or decide which branch runs. So assert the tokens
       that name the claims — the combining call, the selected trait, the action's
       name — inside the row struct's own brace-matched body, exactly as they are
       spelled.
-- [ ] Any claim that cannot be expressed that way must be **removed from the
+- [x] Any claim that cannot be expressed that way must be **removed from the
       comment**, not left standing. A comment promising what the matcher cannot
       see is the defect this task exists for.
-- [ ] **Sweep for the shape, not the site.** Every `ControlBuilder` entry whose
+- [x] **Sweep for the shape, not the site.** Every `ControlBuilder` entry whose
       comment names a property its `required` list cannot see is the same defect.
       Read all of them against their matchers and fix every one, or state that the
       search found none beyond the two in Task 4.
-- [ ] **Mutations, each red before green:** the three in the table above, plus
+- [x] **Mutations, each red before green:** the three in the table above, plus
       one for each claim the repaired rule newly holds.
-- [ ] Run `swift test`. It must pass.
+- [x] Run `swift test`. It must pass.
 
 ### Task 4: Two rule-twenty entries say "each" where the matcher asks for one, and rule forty-one claims more than it holds
 

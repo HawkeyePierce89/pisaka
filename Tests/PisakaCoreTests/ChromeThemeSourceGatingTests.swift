@@ -1774,9 +1774,18 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     ///   brace-enclosing it, which in SwiftUI hides its children too — since an
     ///   unhidden symbol folds its own name into the control's.
     ///
-    /// The checks glyph is the one entry not held to the last clause: the image
-    /// *is* the element, named and valued outright. A renamed builder fails
-    /// loudly rather than narrowing the rule to nothing.
+    /// An entry with `hidesSymbols: false` is not held to the last clause — the
+    /// checks glyph, whose image *is* the element, named and valued outright, and
+    /// the shared controls, search rows and problem-browser entries listed with
+    /// it. An entry's `forbidden` tokens must be spelled nowhere in its body. A
+    /// renamed builder fails loudly rather than narrowing the rule to nothing.
+    ///
+    /// Each entry's comment claims only what its `required`/`forbidden` tokens
+    /// can see: a token is found anywhere in the brace-matched body, with no
+    /// argument read beyond what the needle itself spells, no type resolved and
+    /// no conditional evaluated — so a claim about an argument is held only when
+    /// the needle spells that argument, and a claim about a string literal's
+    /// contents is not held at all (the text is literal-stripped).
     ///
     /// The binding is the rule's substance. Its first shape searched all of the
     /// text after each image, so the dismiss glyph's modifier in `endingStrip`
@@ -1791,6 +1800,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         let path: [String]
         let required: [String]
         let hidesSymbols: Bool
+        var forbidden: [String] = []
     }
 
     private static let panelControlBuilders: [(file: String, builders: [ControlBuilder])] = [
@@ -1867,9 +1877,18 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
             ControlBuilder(path: ["private func pagingGlyph("],
                            required: [".accessibilityHidden(true)"], hidesSymbols: true),
         ]),
-        // The problem browser's row: one combined element carrying the
-        // selected trait and a named Open action, its Premium lock spoken by
-        // name (so not hidden) — the row's words are the element's. The row
+        // The problem browser's row: one combined element
+        // (`.accessibilityElement(children: .combine)`, spelled whole) carrying
+        // the selected trait (`.accessibilityAddTraits(isSelected ? .isSelected`,
+        // spelled through the trait, so an emptied set is red) and a *named*
+        // action (`.accessibilityAction(named:` — the name itself is a string
+        // literal this stripped text cannot read, so which name is not held),
+        // its Premium lock spoken by a label and hidden nowhere in the body (no
+        // `.accessibilityHidden(` at all) — the row's words are the element's.
+        // Before fix round 02 the entry spelled only the modifiers' names, so
+        // deleting the combining call or emptying the trait stayed green, and
+        // an unnamed `.accessibilityAction {` was red only because it has no
+        // parenthesis for the matcher to find. The row
         // offers Open in a context menu of its own, and so does the list's
         // container, for the area below the last row where no row is: the
         // platform table this list replaced answered a right-click there with
@@ -1879,10 +1898,13 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         ("LeetCodeBrowserView.swift", [
             ControlBuilder(path: ["private struct LeetCodeBrowserRow", "var body: some View"],
                            required: [
-                               ".accessibilityAddTraits(", ".accessibilityAction(", ".accessibilityLabel(",
+                               ".accessibilityElement(children: .combine)",
+                               ".accessibilityAddTraits(isSelected ? .isSelected",
+                               ".accessibilityAction(named:", ".accessibilityLabel(",
                                ".contextMenu {",
                            ],
-                           hidesSymbols: false),
+                           hidesSymbols: false,
+                           forbidden: [".accessibilityHidden("]),
             ControlBuilder(path: ["private var problemList: some View"],
                            required: [".contextMenu {", ".onTapGesture {"], hidesSymbols: false),
         ]),
@@ -1922,6 +1944,15 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
                         glyph, and a state drawn as a colour or a shape is unspoken, until an explicit label \
                         and value replace them (and a menu or click the entry's comment names is lost until it is \
                         spelled again)
+                        """
+                    )
+                }
+                for modifier in builder.forbidden {
+                    XCTAssertFalse(
+                        Self.spellsCall(modifier, in: found),
+                        """
+                        \(name)'s \(described) must not spell \(modifier) — the entry's comment says what it \
+                        speaks, and a hidden element speaks nothing
                         """
                     )
                 }

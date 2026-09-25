@@ -2211,9 +2211,15 @@ The forty-one rules, each invisible to the compiler:
    speaks the selected title, so deleting one segment's stays green. Part five
    (d) adds the database footer (the two paging buttons' labels, `footer`) and
    its hidden `pagingGlyph(`, the problem browser's `LeetCodeBrowserRow` body
-   (`.accessibilityAddTraits(` for the selected trait, `.accessibilityAction(`
-   for Open, `.accessibilityLabel(` for the spoken lock, `.contextMenu {` for the
-   row's own Open) and its `problemList` container (`.contextMenu {` and
+   (`.accessibilityElement(children: .combine)` for the one combined element,
+   `.accessibilityAddTraits(isSelected ? .isSelected` for the selected trait,
+   `.accessibilityAction(named:` for a named action, `.accessibilityLabel(` for
+   the spoken lock with no `.accessibilityHidden(` anywhere in the body — the
+   entry's one `forbidden` token — and `.contextMenu {` for the row's own Open;
+   fix round 02 spelled the first three through their arguments after
+   mutation showed the bare modifier names let a deleted combine and an emptied
+   trait set stay green; the action's *name* is a string literal the stripped
+   text cannot read, so "Open" is not held, only that the action is named) and its `problemList` container (`.contextMenu {` and
    `.onTapGesture {` for the area below the last row — fix round 02 restored the
    platform table's right-click Open for the selection and its click-to-clear
    there, which the row-only menu had silently dropped; whether the menu
