@@ -228,12 +228,12 @@ its own comment. The suite already has the right idiom one screen away.
 
 ### Task 5: Gates
 
-- [ ] `swift test` — must pass, with no fewer tests than the 5784 this branch had.
-- [ ] `xcodegen generate`, then the app bundle test command above — must pass
+- [x] `swift test` — must pass, with no fewer tests than the 5784 this branch had.
+- [x] `xcodegen generate`, then the app bundle test command above — must pass
       (122 tests on this branch).
-- [ ] `swiftlint --strict` from the repository root — zero violations.
-- [ ] macOS Release build and iOS build — both must succeed.
-- [ ] Confirm no acceptance point of the main plan regressed: fifty-eight gated
+- [x] `swiftlint --strict` from the repository root — zero violations.
+- [x] macOS Release build and iOS build — both must succeed.
+- [x] Confirm no acceptance point of the main plan regressed: fifty-eight gated
       files, twenty-one roles, `currentLine` and `bracketMatch` still unspent,
       forty-one rules consistent across the four places that count them, and every
       `ChromeSpinner(` construction carrying exactly one marker.
