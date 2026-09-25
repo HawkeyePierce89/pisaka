@@ -50,7 +50,13 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     Acknowledgements screens render a license text in (`UITextView` here,
     `NSTextView` in an `NSScrollView` on macOS). TextKit rather than
     `ScrollView { Text(…) }` so the 66 KB libgit2 text lays out lazily instead of
-    whole on the main thread; full entry in `app-shell.md`.
+    whole on the main thread; full entry in `app-shell.md`. Since part five (c)
+    the file is in the macOS chrome theme's gated set: the **macOS half** draws
+    its text in the `textPrimary` role over a ground its caller paints; **this
+    platform's half is unchanged** — iOS is outside the chrome theme — and its
+    `backgroundColor = .clear` is a pinned site of chrome rule thirty-one, while
+    its `textColor = .label` stays an open question of that sweep
+    (`core-theme.md`).
   - `Platform/SymbolQueryCatalog.swift` — loads and caches the compiled
     `symbols.scm` query per language: the symbol index's counterpart to
     `SyntaxLanguageConfiguration`, which does the same for the *highlight*

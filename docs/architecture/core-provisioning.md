@@ -901,6 +901,12 @@ below. All of it, with decisions D21–D24, is in `core-lsp.md`.
     the separator line ("everything above this line is the verbatim text of the
     file named at the top of this entry") would then restate, compounding the
     mislabel instead of containing it.
+    **Gated by the chrome theme, painting nothing** (part five (c),
+    `core-theme.md`): a Foundation-only enum that returns documents and has no
+    view, it names no colour role by construction and sits in
+    `roleNamingExemptions` on the same footing as `ChromeThemeEnvironment.swift`
+    — gated for rules one and two, the ones it could break (a system colour or a
+    hex literal creeping in), and holding zero `Button`s in rule thirty's table.
     **gopls is deliberately not here.** `go install` writes one binary and
     nothing else, so there is no licence file in the installed tree to read —
     and nothing for `licenses.json` to cover either, this app bundling no gopls

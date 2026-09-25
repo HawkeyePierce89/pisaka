@@ -1373,13 +1373,205 @@ selectable `List`s in the app (`LocalHistoryView`, `AcknowledgementsView`,
 `DatabaseViewerView`) and three `listRowBackground` sites (the revisions list's
 and Find in Files' two); only the revisions list is both.
 
+#### Part five (c) — Preferences, the language-server settings, Acknowledgements and the two pull-request sheets
+
+The settings surfaces: the Preferences window (its host, its tab bar and all
+four pages — General, Language Servers, the problem-catalog tab and
+Acknowledgements), the licence text pane behind Acknowledgements, and the
+create and merge pull-request sheets. It spends **no new colour role** —
+`currentLine` and `bracketMatch` stay unspent — and adds **controls** instead:
+the design draws a replacement for every platform form control these files
+used, and those replacements live in `ChromeControls.swift`. Seven files join
+the gated set, taking it from forty-four to **fifty-one**: `SettingsView.swift`,
+`LSPServerSettingsView.swift`, `LSPInstalledLicenses.swift`,
+`AcknowledgementsView.swift`, `Platform/LicenseTextView.swift`,
+`NewPullRequestSheet.swift` and `PullRequestMergeSheet.swift`. Two rules are
+added (thirty-six and thirty-seven, the suite growing from thirty-five to
+thirty-seven); rules sixteen, twenty, twenty-four, twenty-six, twenty-seven and
+thirty gain clauses, and rules thirty-one and thirty-five gain pins. Twenty-one
+geometry tokens are added to `ChromeGeometry`.
+
+**The five shapes — four new, one lifted.** Each lives in `ChromeControls.swift`,
+reads `\.interfaceMetrics` and `\.chromeTheme`, takes every measurement from a
+token scaled through `metrics.scaled(_:)`, and owes its accessibility inside its
+own body (rule twenty).
+
+- `ChromeSegmentedControl` — a `segmentedControlHeight` (26) box: `bgEditor`
+  ground, one-point `hairline` border at `cornerRadiusMax`,
+  `segmentedControlInset` (2) padding, segments `segmentGap` (2) apart. Each
+  segment is a plain button of `segmentHeight` (22) with `segmentPaddingX` (12)
+  around a `callout` title; the selected one is an `accentTintStrong` fill at
+  `fieldCornerRadius` under `textPrimary`, the others no ground under
+  `textSecondary`. The control speaks its label and the selected title; each
+  segment speaks its selection.
+- `ChromeStepper` — a `stepperHeight` (24) box on `bgEditor` with a `hairline`
+  border at `fieldCornerRadius`, `stepperPaddingX` (8), holding minus, the value
+  (`callout`, `textPrimary`, monospaced digits) and plus, `stepperPartGap` (10)
+  apart. Every step — the glyph buttons and the adjustable action alike — goes
+  through the `ZoomScaleRule`'s `stepped(_:by:)`, so the grid and the clamp are
+  the rule's; a glyph whose step would not move the value is disabled. The
+  glyphs are `.subheadline` in `textSecondary`, hidden from accessibility, and
+  each button is named "Decrease …"/"Increase …".
+- `ChromeSwitch` — a `switchWidth` × `switchHeight` (36 × 20) capsule track,
+  `accent` on and `hairline` off, with a `switchKnobSide` (16) `onAccent` knob
+  inset by `switchInset` (2). It dims when disabled and speaks its label and
+  "On"/"Off".
+- `ChromeSettingsTabBar` — a `settingsTabBarHeight` (36) strip on `bgPanel`,
+  inset by `settingsTabBarPaddingX` (16), tabs `settingsTabGap` (4) apart, each a
+  plain button with `settingsTabLabelPaddingX` (10) around a `callout` semibold
+  label (`textPrimary` active, `textSecondary` otherwise); the active tab carries
+  an `accent` indicator of `accentIndicator` thickness across its full width,
+  and the strip's `hairline` bottom rule is drawn **behind** the tabs (rule
+  sixteen). Each tab speaks its selection as a value.
+- `ChromeMenuField` — **lifted, not invented**: the "existing menu idiom" was
+  drawn as a dropdown in exactly one place, the Log filter bar's branch menu (a
+  `ChromeControlBox`, a borderless indicator-less `Menu`, a chevron), and that
+  menu wrapped an inline `Picker` the new ban finds red. So the Log bar is swept
+  and becomes the first caller; the menu's items are plain `Button`s with the
+  chosen one labelled by a checkmark, the label the current title (`callout`,
+  `textPrimary`, one line) beside a `textSecondary` `.subheadline` chevron. The
+  caller supplies the height and the width limits. One definition, three
+  callers — the Log bar, the catalog tab's default language, the create sheet's
+  base branch — the way the checkbox was lifted in part five (b).
+
+The settings pages' own measurements are tokens too: `settingsPagePadding` (28),
+`settingsRowSpacing` (22), `settingsLabelColumnWidth` (180) and
+`settingsLabelGap` (16), read by `SettingsView.swift`'s private `SettingsRow` and
+`SettingsPage` and — the padding — by `LSPServerSettingsView.swift`.
+
+**Why a switch is not a checkbox.** Two meanings, two shapes, and neither is
+folded into the other: a standing preference that is on or off is a switch
+(General's two flags); one selection among many — an option of one action, a
+row in a list — is a checkbox. So "Draft" on the create sheet stays
+`ChromeCheckbox`, the shape Amend and Push have in the commit dialog: it is an
+option of that one Create, not a preference that outlives it.
+
+**The picker rule and its two answers.** A choice over a small set known when
+the app is built — the tab placement, the theme, the merge methods — is a
+segmented control; a choice over a set read at run time — branches, languages —
+is a menu field. The merge methods are a filtered subset, but of the closed
+three-case `GitHubMergeMethod`, so the most the control can ever lay out is
+known at build time; `plan.showsMethodPicker` already hides a one-method
+control. Rule thirty-seven is the rule's whole expression: it cannot read a
+set's size, so it pins each shape's callers, and a shape change moves a file
+between sets.
+
+**Why the settings tab bar is not the dock's.** Both draw one pattern — an
+accent indicator under the selected label, `accentIndicator` on both, the rule
+behind the tabs — but the settings bar has no close action, a different height
+(36 against `dockTabRowHeight`) and a different inset, and the two are measured
+by two designs; sharing tokens would move one whenever the other is retuned.
+`ChromeGeometry`'s doc comment says the same.
+
+Decisions this part made where the ticket was silent or the repository
+differed:
+
+1. **The `Divider()` sites were not where the ticket put them.**
+   `LSPInstalledLicenses.swift` has no view and no `Divider()`; all three
+   language-server dividers were in `LSPServerSettingsView.swift` (the
+   separator between server rows and the two around the toolchain rows), and the
+   fourth in `AcknowledgementsView.swift`. The count of four was right; each is
+   now a `hairline` rule at `hairlineWidth`.
+2. **`LSPInstalledLicenses.swift` is gated but paints nothing.** A
+   Foundation-only enum returning documents, it joins `roleNamingExemptions` on
+   `ChromeThemeEnvironment.swift`'s footing, gated for rules one and two.
+3. **A fifth shape is lifted: the menu field**, from the Log bar, as above.
+4. **Two already-gated files failed the new ban and were swept here**, the ban
+   not weakened for them: `CommitDialogView.swift`'s `AuthorEditorView` (a
+   `Form` of two fields, now two stacked `ChromeThemedTextField`s, "Name" and
+   "Email", with their own `@FocusState`) and the Log bar's inline `Picker`
+   (decision 3).
+5. **Draft stays a checkbox**; the two preference toggles in General become
+   switches.
+6. **The merge method is a segmented control although its segments are
+   filtered**; the binding stays `GitHubMergeMethod?`, each option's value
+   `Optional(method)`.
+7. **The Preferences pages share one size.** A `TabView` sized the window to its
+   widest tab. The host frames every page at the one size Acknowledgements
+   already needed, `metrics.scaled(640)` × `metrics.scaled(420)`, under the
+   36-point tab bar, so switching tabs does not resize the window. The size
+   lives in `SettingsView.swift`'s private `SettingsLayout` with the arithmetic
+   `InterfaceMetricsTests` pins unchanged; the old per-page widths (340 General,
+   460 catalog, 480×300 Language Servers) are gone. Only the selected page is
+   built now, unlike `TabView`'s eager build, so the two comments that relied on
+   the eager build were corrected (`AcknowledgementsView.documents` and the
+   catalog tab's `onAppear` note, L27), and Acknowledgements' list selection
+   resets on each visit.
+8. **The page padding and the four settings-page measurements are
+   `ChromeGeometry` tokens**; Language Servers' padding moves from 20 to the
+   page's 28.
+9. **The menu field's height is `menuFieldHeight` = 26**, matching the segmented
+   control on the same page so the rows line up, but a token of its own. The Log
+   bar keeps framing its field at `FilterBarLayout.controlHeight`.
+10. **The stepper's eleven-point glyphs are `.subheadline`**, the chrome's 11; a
+    glyph's size is a font, and `ChromeGeometry` carries none.
+11. **An armable merge refusal reads as a warning.** The create plan's refusal
+    and every merge refusal the reader cannot wait out are `statusRed`; the one a
+    reader can knowingly sit through (checks still running, the one behind
+    *Merge when checks pass*) is `statusYellow`, read from the refusal's own
+    `isArmable` — no view table.
+12. **The licence text stands on `bgEditor` under a `bgPanel` header with a
+    `hairline` between them**, the commit dialog's diff-preview shape. The ground
+    is painted by SwiftUI behind the representable (`drawsBackground = false`
+    stays); an AppKit `backgroundColor` would be rule thirty-one's.
+13. **`LicenseTextView.swift` is shared with iOS, and its iOS half is not
+    swept.** Its `backgroundColor = .clear` is a sixth pin in rule thirty-one,
+    with its reason; its `textColor = .label` is a UIKit name rule one's list
+    does not carry, recorded below as an open question rather than an exemption.
+14. **The origin link is a button**: a `.plain` button with an `accent` label
+    calling `@Environment(\.openURL)`, since `Link` draws the platform's link
+    colour — part five (b)'s "Edit…" treatment.
+15. **Three platform pieces stay**, stated as open questions below: the small
+    `ProgressView` spinners, `HSplitView`'s divider and the Acknowledgements
+    list's platform selection.
+
+**Every departure from the drawing**, stated:
+
+- **The fourth tab.** The drawing's tab bar has no problem-catalog tab; the
+  code's fourth tab is drawn in the same shape, under its own title.
+- **The 640 × 420 page.** The drawing sizes each page to its content; every page
+  here takes the one size Acknowledgements needs (decision 7).
+- **The menu field's height.** The drawing gives none; 26 is chosen to line up
+  with the segmented control (decision 9).
+- **The `.subheadline` glyph.** The drawing's 11-point stepper glyph is the
+  chrome's `.subheadline` (decision 10).
+- **Language Servers' padding.** 28, the page's, where the page drew 20
+  (decision 8).
+
+The surfaces in detail: General is two `ChromeSegmentedControl`s (tab
+orientation, theme), two `ChromeStepper`s (editor and terminal font size, over
+`ZoomScaleRule.editorFont`/`.terminalFont`, `ZoomSourceGatingTests` reading the
+stepper's grid from the rule) and two `ChromeSwitch`es; each row is a
+`SettingsRow` whose label column is `callout` `textSecondary`, wrapping rather
+than clipped, hidden from accessibility where the control speaks the row's
+label itself. The catalog tab's rows and account buttons are in
+`core-leetcode.md`, Language Servers' in `core-provisioning.md`, Acknowledgements'
+and the licence pane's in `app-shell.md`, the sheets' in `core-github.md`. The
+commit dialog's message box is also counted in lines of the code font here (4 to
+7 of `messageLineHeight`, where it had been a fixed 70–120 points), pinned by
+rule twenty-seven.
+
+**Open questions**, deliberately left:
+
+- **The tab-placement wording.** The drawing rewords the tab-orientation row;
+  the code's words are kept verbatim.
+- **The spinners.** `ProgressView` stays in Language Servers and both sheets;
+  the ticket names no replacement.
+- **`HSplitView`'s divider** in Acknowledgements stays the platform's, as it
+  already is in three gated files.
+- **The iOS half's `.label`** in `LicenseTextView.swift`: a UIKit semantic
+  colour on a platform outside the chrome theme, which rule one's list does not
+  carry.
+- **The Acknowledgements list's platform selection**: the list draws no row
+  background (rule thirty-five), so the selection box is the platform's.
+
 #### What is still waiting
 
 The dock is finished, the popovers and search surfaces are swept, and so are the
-commit dialog, the merge editor and every secondary window's ground. After them:
-the remaining sheets and dialogs, the problem browser's own view (its window
-already stands on `bgPanel`), the Preferences surfaces and the terminal's own
-palette. Each follows the six-step guide at the end of this document, on its
+commit dialog, the merge editor, every secondary window's ground, Preferences and
+the two pull-request sheets. After them: the remaining sheets and dialogs, the
+problem browser's own view (its window already stands on `bgPanel`) and the
+terminal's own palette. Each follows the six-step guide at the end of this document, on its
 own, with `gatedFiles` growing as part of the restyle rather than afterwards.
 
 The dock's tab row is **no longer deferred** — part four (a) drew it, and
@@ -1392,7 +1584,7 @@ waits on a design decision rather than on a file, the **lane hues**, and the
 unified diff's **per-line checkbox glyph** and **changed-line text tint** (part
 five (b)'s departures six and seven), all open design questions. Two roles
 remain unspent — `currentLine` and `bracketMatch`, both code zone — after
-thirty-seven surfaces, the same two and the same count
+forty-five surfaces, the same two and the same count
 `ChromeColorRole.swift`'s own doc comment states.
 
 ### The monochrome-icon decision
@@ -1431,7 +1623,7 @@ five: `TabListView.swift`, `TabRowView.swift`, `BreadcrumbBarView.swift`,
 `MainWindowChrome.swift`, `ContentView.swift`, `ProjectSwitcherView.swift`,
 `BranchSwitcherView.swift`, `PullRequestIndicatorView.swift` — plus part four
 (a)'s `DockTabRow.swift`, `ProblemsPanelView.swift`, `UsagesPanelView.swift` and
-`TerminalPanelView.swift`, **twenty** in all. Part four (b), part five (a) and part five (b) add seven, seven and ten more, each named in its own section above — **forty-four** in all today. `ProjectTreeView.swift` is not among the third part's additions because it
+`TerminalPanelView.swift`, **twenty** in all. Part four (b), part five (a), part five (b) and part five (c) add seven, seven, ten and seven more, each named in its own section above — **fifty-one** in all today. `ProjectTreeView.swift` is not among the third part's additions because it
 was already there: part three restyled the surface *around* the rows part one
 had swept, and a file joins this set once. The draft field is in the set
 although it is an editing affordance rather than a row: an inline draft
@@ -1670,9 +1862,12 @@ The thirty-seven rules, each invisible to the compiler:
    must name no `theme`, `ChromeColorRole` or `Color`. Stated limit: the clause
    sees a `switch`'s labels, not a dictionary literal keyed by the same values,
    a chain of `==` comparisons, or a `case` list continued past its first line.
-16. **An indicator strip's bottom rule is drawn behind its tabs.** Each file in
-   the suite's named `indicatorStripFiles` list — `TabStripView.swift` and
-   `DockTabRow.swift` — draws an accent indicator on the strip's own bottom edge
+16. **An indicator strip's bottom rule is drawn behind its tabs.** Each entry in
+   the suite's named `indicatorStripFiles` list — `TabStripView.swift`,
+   `DockTabRow.swift` and, since part five (c), `ChromeControls.swift`'s
+   `struct ChromeSettingsTabBar`, read inside that declaration's brace-matched
+   body alone so another shared shape's bottom background in the same file
+   cannot satisfy the strip's — draws an accent indicator on the strip's own bottom edge
    and a one-point `hairline` along that same edge, and over stripped source
    spells no `.overlay(alignment: .bottom)` whose brace-matched body names
    `hairline`, while at least one `.background(alignment: .bottom)` body does (so
@@ -1682,8 +1877,8 @@ The thirty-seven rules, each invisible to the compiler:
    tab's `bgEditor` fill off from the editor it is meant to merge into. A bottom
    overlay drawing the *accent* itself (the strip's cell does) is the indicator,
    not the rule, and stays allowed. Named rather than the whole gated set, rule
-   fourteen's shape: a third strip with a bottom-edge indicator joins the list as
-   part of being drawn.
+   fourteen's shape: a further strip with a bottom-edge indicator joins the list
+   as part of being drawn, as the Preferences tab bar did.
 17. **The changed-file status mapping is Core's one answer.** `FileStatus.letter`
    and `ChromeColorRole.changedFileRole(for:)` decide what a status is drawn as;
    before part four (b) the mapping was written out twice, byte for byte (the
@@ -1741,7 +1936,16 @@ The thirty-seven rules, each invisible to the compiler:
    the dismiss glyph's modifier satisfied the warning glyph before it, and
    removing the warning's own modifier stayed green. Stated limit: a container
    hidden by a modifier outside the builder's own text is not seen, and fails
-   rather than passes.
+   rather than passes. Part five (c) extends the builder list to the shared
+   settings shapes in `ChromeControls.swift`, each owing its accessibility in
+   its own body: `ChromeSegmentedControl` (label and value), `ChromeStepper`
+   (label, value and `.accessibilityAdjustableAction(`), its `stepButton(`
+   (label, with each glyph hidden on its own chain — a hide moved to the
+   enclosing `HStack` is the later-sibling regression and is red),
+   `ChromeSwitch` (label and value), `ChromeSettingsTabBar` (each tab's value)
+   and `ChromeMenuField` (label and value, its chevron hidden). Stated limit:
+   a single segment's own value is not pinned — the control's value already
+   speaks the selected title, so deleting one segment's stays green.
 21. **The Log's filter bar fits the window it lives in.** The requirement,
    stated in `LogFilterBar.swift`'s doc comment: at the main window's minimum
    width, at every interface scale, every control in the bar is reachable and
@@ -1778,9 +1982,18 @@ The thirty-seven rules, each invisible to the compiler:
    reach it.
 24. **No gated file spells `Divider()`; a menu separates with `Section`.** No
     gated file spells `Divider(`, and every gated file that builds a `Menu`
-    spells `Section` at least once. The gated menu files equal
-    `{SearchHistoryMenu.swift, ProjectTreeView.swift, LocalChangesView.swift}`,
-    pinned by set equality so a fourth file is added deliberately. The `Section`
+    spells `Section` at least once. Two sets are pinned by equality: the gated
+    files building a `Menu` (`menuFiles`: `BranchSwitcherView.swift`,
+    `ChromeControls.swift`, `SearchHistoryMenu.swift`, `ProjectTreeView.swift`,
+    `LocalChangesView.swift`) and the subset that also separates with `Section`
+    (`menuSectionFiles`: `SearchHistoryMenu.swift`, `ProjectTreeView.swift`,
+    `LocalChangesView.swift`), so a new `Menu` is added deliberately, with or
+    without a separator. `LogFilterBar.swift` left the first set in part five
+    (c) — its branch menu is now the shared `ChromeMenuField`, whose one `Menu`
+    lives in `ChromeControls.swift`, which joined in its place. Part five (c)
+    removed four more `Divider()`s: three in `LSPServerSettingsView.swift`
+    (between server rows and around the toolchain rows) and one in
+    `AcknowledgementsView.swift` (under the detail header). The `Section`
     boundary draws the separator a swept surface draws as its own one-point
     `hairline` on the edge it owns.
 25. **AppKit layer colours are set only inside the drawing appearance.** In
@@ -1822,7 +2035,11 @@ The thirty-seven rules, each invisible to the compiler:
    statement, so the radius is scaled with the interface. Both clauses carry a
    non-vacuity check — the row's body must be found and must name
    `settings.fontSize`, and each panel must have at least one `cornerRadius`
-   assignment.
+   assignment. Part five (c) adds a third: every `.frame(` in
+   `CommitDialogView.swift`'s `private var messageBox` body (found through the
+   call matcher, so a wrapped call counts) names `messageLineHeight` and none
+   names `metrics` — the message box is counted in lines of the code font it
+   draws at, and at least one such frame must exist.
 28. **A secondary window's ground is set in the window subclass.** The files
     constructing `EscClosableWindow` (a call: the token then its argument list)
     equal the six secondary-window controllers, by set equality; none of them
@@ -1860,14 +2077,17 @@ The thirty-seven rules, each invisible to the compiler:
     types**: across the gated set plus `CodeEditorView.swift`, every
     `backgroundColor` assignment that is not a layer's (`layer.`/`layer?.`, rule
     twenty-five's) lies inside `CodePaneGround`'s brace-matched body or is one of
-    five sites pinned by file **and count** — so a second assignment in a pinned
+    six sites pinned by file **and count** — so a second assignment in a pinned
     file fails too — each pin carrying its reason: `EscClosableWindow.swift`, the
     secondary window's ground (rule twenty-eight); `MainWindowChrome.swift`, the
     main window's ground, owned by the window-chrome rule;
     `CompletionPanel.swift` and `HoverPanel.swift`, `.clear` on a borderless
     `NSPanel`, which must stay clear for its own rounded layer to draw and is not
     a code pane; `ProjectSearchView.swift`, a text attribute's background rather
-    than a view's. What it no longer claims: it does not identify which object is
+    than a view's; `LicenseTextView.swift` (since part five (c)), the unswept iOS
+    half's `.clear` on a `UITextView` so the screen's ground shows through — not
+    a code pane, and the macOS half assigns none, its `bgEditor` being painted
+    by the SwiftUI caller. What it no longer claims: it does not identify which object is
     a code pane, because it no longer needs to — it forbids the assignment
     outright outside the sanctioned sites. The earlier form resolved each
     receiver's declared type, and a clip view bound from a pane's property, an
@@ -1933,9 +2153,12 @@ The thirty-seven rules, each invisible to the compiler:
     on something other than row identity and a reformat beyond whitespace
     alike. The last is deliberate: the rule cannot read the expression, so it refuses to guess,
     and a person confirms the selected row still yields its background before
-    updating the pin. Today the pin holds one list, `LocalHistoryView.swift`'s,
+    updating the pin. Today the pin holds two lists: `LocalHistoryView.swift`'s,
     whose one background is `snapshot.fileName == selection.wrappedValue ?
-    Color.clear : chromeColor(.bgPanel)`. On macOS a row background is drawn
+    Color.clear : chromeColor(.bgPanel)`, and — since part five (c) —
+    `AcknowledgementsView.swift`'s, pinned with an **empty** list of
+    backgrounds: it sets no row background at all, so nothing paints over the
+    platform's selection, and a `listRowBackground` added there is red. On macOS a row background is drawn
     over the platform's selection box, so an unconditional one hides the
     selection outright — the Local History revisions list shipped that way,
     and its selected row is the one Restore applies.
@@ -1964,12 +2187,14 @@ The thirty-seven rules, each invisible to the compiler:
     switch where a checkbox belongs, moves a file between sets and fails.
 
 Plus a **self-check** in the suite's own idiom: every gated file must actually
-*name* a `ChromeColorRole`, or the checks above have gone vacuous — with eight
+*name* a `ChromeColorRole`, or the checks above have gone vacuous — with nine
 exceptions, each naming no role by construction while staying gated for the
 rules it *can* break: `ChromeThemeEnvironment.swift`, which carries the
-appearance down the tree and paints nothing, and `CommitGraphView.swift`, which
-draws only lanes in `CommitGraphPalette`'s colours (both gated for rules one and
-two); the five window controllers — `DiffWindowController.swift`,
+appearance down the tree and paints nothing, `LSPInstalledLicenses.swift`
+(since part five (c)), a Foundation-only enum that returns the installed licence
+documents and has no view, and `CommitGraphView.swift`, which draws only lanes
+in `CommitGraphPalette`'s colours (all three gated for rules one and two); the
+five window controllers — `DiffWindowController.swift`,
 `MergeWindowController.swift`, `SourceViewerWindowController.swift`,
 `LocalHistoryWindowController.swift` and `ProjectSearchWindowController.swift` —
 which name no role since the window's ground moved into `EscClosableWindow`

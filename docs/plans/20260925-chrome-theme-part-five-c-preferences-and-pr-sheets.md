@@ -449,7 +449,7 @@ Every shape below reads `\.interfaceMetrics` and `\.chromeTheme`, and takes ever
 
 ### Task 10: Documentation
 
-- [ ] **`docs/architecture/core-theme.md`:**
+- [x] **`docs/architecture/core-theme.md`:**
   - a part five (c) section:
     - the five shapes (four new, one lifted) and their measurements;
     - why a switch is not a checkbox;
@@ -460,19 +460,19 @@ Every shape below reads `\.interfaceMetrics` and `\.chromeTheme`, and takes ever
   - rules sixteen, twenty, twenty-four, twenty-six, twenty-seven, thirty, thirty-one and thirty-five updated to their new clauses and pins;
   - the swept-surfaces list extended;
   - open questions: the tab-placement wording, the spinners, `HSplitView`, the iOS half's `.label`, the list's platform selection.
-- [ ] **Per-surface entries:**
+- [x] **Per-surface entries:**
   - `app-shell.md`: `SettingsView.swift` (the host, the tab bar and the pages; `TabView` gone), `AcknowledgementsView.swift`;
   - `core-provisioning.md`: `LSPServerSettingsView.swift` (no fixed size; the page scrolls), `LSPInstalledLicenses.swift` (gated, paints nothing);
   - `app-ios.md`: `LicenseTextView.swift` (the macOS half's role; the iOS half unchanged);
   - `core-github.md`: both sheets (the menu field, the segmented method, Draft as a checkbox, decision 11);
   - `app-git-views.md`: the commit dialog's message box and author editor, and the Log bar's lifted menu;
   - `core-leetcode.md`: the settings tab's rows and the corrected `onAppear` note, spelled as that document already spells it.
-- [ ] **`CLAUDE.md`:**
+- [x] **`CLAUDE.md`:**
   - the chrome invariant: thirty-seven rules, fifty-one files, and part five (c)'s surfaces added to the swept list;
   - the new rule summaries (no platform form control; a picker's shape follows its set);
   - the `ChromeControls.swift` index line names the new shapes;
   - the three-space indentation on the resize-cursor lines corrected to two.
-- [ ] Run `swift test` once more, since the documentation checks read these files.
+- [x] Run `swift test` once more, since the documentation checks read these files.
 
 ## Post-Completion
 

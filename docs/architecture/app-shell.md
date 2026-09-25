@@ -2019,9 +2019,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `LoaderError.missingManifest`.
   - `Platform/LicenseTextView.swift` — the read-only, selectable, scrolling pane
     that renders one verbatim license text, shared by both Acknowledgements
-    screens (non-gated for the same reason as the loader: only the concrete text
-    view differs — `NSTextView` in an `NSScrollView` on macOS, `UITextView` on
-    iOS). **It is TextKit and not `ScrollView { Text(…) }`, and that is the
+    screens (in `Platform/` for the same reason as the loader: only the concrete
+    text view differs — `NSTextView` in an `NSScrollView` on macOS, `UITextView`
+    on iOS; unlike the loader it is in the chrome theme's gated set since part
+    five (c), see the paragraph closing this entry). **It is TextKit and not `ScrollView { Text(…) }`, and that is the
     point.** These texts are not label-sized: `libgit2.txt` is 66 KB / 1,323
     lines and `tree-sitter.txt` is 22 KB, which at caption-monospaced on a phone
     width wraps to a laid-out height in the tens of thousands of points. A
@@ -2055,24 +2056,40 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     changes both without changing the text, and re-assigning the 66 KB string on
     every step would drop the selection and scroll position that guard exists to
     protect.
+    **The macOS half draws on the chrome roles** (part five (c), `core-theme.md`):
+    its text colour is `ChromePalette.nsColor(.textPrimary)`, a dynamic colour
+    set once in `apply` that resolves whenever the text draws, so an appearance
+    change needs no re-assignment; the scroll view and the text view keep
+    `drawsBackground = false`, and the `bgEditor` ground is painted by the
+    SwiftUI caller behind the representable — an AppKit `backgroundColor` here
+    would be a second ground (chrome rule thirty-one). **The iOS half is not
+    swept** (iOS is outside the chrome theme): its `backgroundColor = .clear` on
+    the `UITextView`, so the screen's ground shows through, is the sixth site
+    rule thirty-one pins by file and count, and its `textColor = .label` is a
+    UIKit name rule one's AppKit/SwiftUI list does not carry — recorded as an
+    open question, not an exemption.
   - `AcknowledgementsView.swift` — the Preferences "Acknowledgements" tab: an
     `HSplitView` with the dependency list (name + SPDX, `minWidth: 180` /
     `maxWidth: 280`) beside the selected entry's identity (name, SPDX,
-    version/revision, origin) and its full license text, at a fixed 640×420. The
+    version/revision, origin) and its full license text, filling the one page
+    size the Preferences host frames (`SettingsView`'s 640×420, the size this
+    tab always needed; the frame moved there in part five (c)). The
     text pane is the shared `LicenseTextView` above (TextKit-backed, monospaced,
     selectable), rendered **whole** — never truncated or reflowed, the copyright
     lines and the permission notice being the obligation itself.
     `version` is omitted when `nil` (three entries have no upstream tag) rather
     than rendered blank; `revision` is always shown in full, the 40 hex characters
-    being what makes the text verifiable; `origin` becomes a `Link` exactly when
+    being what makes the text verifiable; `origin` becomes a clickable button
+    (a `.plain` button with an `accent` label calling `@Environment(\.openURL)`;
+    a `Link` would draw the platform's link colour) exactly when
     Core's `LicenseNotice.originURL` is non-nil (the `https://` remotes; the two
     `Vendor/<name>` paths stay plain text) — the rule lives there, not here, so
     the two platform screens cannot drift apart on it. The loader's
     `documents`/`failureDescription` are read through *computed* properties, not
-    stored ones: `SettingsView`'s `TabView` builds both tab views eagerly, so a
-    stored property would read the whole `Licenses/` directory off disk on the
-    main thread whenever Preferences opens — General tab included — and the
-    loader's one-shot cache makes the repeated lookup free. When the
+    stored ones. The reason they were first given — `SettingsView`'s `TabView`
+    building every tab eagerly — is gone: the host builds only the selected page
+    since part five (c). They stay computed because the loader's one-shot cache
+    makes the repeated lookup free and nothing is held twice. When the
     loader fails, the view shows `failureDescription` in place of the list, so "no
     dependencies" can never be the silent reading. No logic (untested like the
     rest of the view layer); the iOS peer is `AcknowledgementsView_iOS` in
@@ -2088,4 +2105,17 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `@State` re-read on `.task(id: provisioning.rows)` rather than a computed
     property, because — unlike the bundled catalog — it *can* change while the
     window is open; a removal that deletes the selected entry falls back to the
-    first bundled one instead of leaving the placeholder.
+    first bundled one instead of leaving the placeholder. Because only the
+    selected page is built, **the list selection resets on each visit**: leaving
+    Acknowledgements discards the view and its `@State`, and coming back selects
+    the first bundled entry again.
+    **Chrome (part five (c), `core-theme.md`).** The list is a selectable `List`
+    with `.scrollContentBackground(.hidden)` over `bgPanel` and **no row
+    background at all**, so the platform's selection box is never painted over —
+    pinned by rule thirty-five as an empty list of backgrounds; the platform's
+    selection itself stays, an open question. Section headers and SPDX lines are
+    `textSecondary`, names `textPrimary`. The detail stands on a `bgPanel` header
+    above a `hairline` rule (a `Rectangle` at `hairlineWidth`, where a
+    `Divider()` stood) and the license text on `bgEditor`, painted behind the
+    representable. The failure state's glyph and sentence are `textSecondary`.
+    `HSplitView`'s divider stays the platform's, as in three other gated files.

@@ -924,8 +924,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     (`@FocusState`), 8 pt inset and 6 pt inner gap. The text fields are drawn
     `.plain` with their own `textSecondary` `.callout` placeholder (a plain
     field's own is the system's value) and `textPrimary` text; widths author 140,
-    path 160, search 220. The branch menu keeps the system picker (inline, inside
-    a borderless `Menu`) beside a `textSecondary` chevron; each date bound keeps
+    path 160, search 220. The branch menu is, since part five (c), the shared
+    `ChromeMenuField` (`core-theme.md`) — lifted *from* this bar, which is its
+    first caller: the borderless, indicator-less `Menu` beside a `textSecondary`
+    chevron is the same, but its items are plain `Button`s with the chosen one
+    labelled by a checkmark, replacing the inline platform `Picker` chrome rule
+    thirty-six forbids; the bar still frames the field at its own
+    `FilterBarLayout.controlHeight` and hands it the bar's 8 pt inset and 6 pt
+    gap, and the computed binding below is unchanged; each date bound keeps
     its checkbox — the shared `ChromeCheckbox` plus its label since part five
     (b), replacing a platform `Toggle` — and the system date field, an `NSDatePicker` drawn with no
     bezel, border or background (`BorderlessDateField`, coloured from the theme
