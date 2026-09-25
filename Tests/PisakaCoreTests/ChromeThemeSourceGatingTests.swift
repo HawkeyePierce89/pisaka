@@ -174,6 +174,18 @@ import XCTest
 ///   changes a count even inside a file already spelling both shapes. The
 ///   menu field's chevron lies inside its `Menu`'s label, so the arrow it
 ///   draws is the control.
+/// - **No gated file builds a platform table.** A `Table` draws its header,
+///   grounds, alternation and selection box in the platform's colours; no gated
+///   file spells `Table` or `TableColumn`, and the browser lays its own rows out.
+/// - **The problem catalog's three colour mappings are Core's one answer each.**
+///   Difficulty, status and verdict each have one Core role answer and one known
+///   reader; no gated file keeps an `isGood` flag, and the case labels left in a
+///   view are pinned by count.
+/// - **One spinner.** No gated file spells `ProgressView`; `ChromeSpinner`'s
+///   callers are pinned by set, and each caller's labelled/hidden pair by file,
+///   the twenty sites summed.
+/// - **No alternating row fill.** A gated table reads by selection and hover; no
+///   gated file spells `alternatingRowBackgrounds`, `isMultiple` or `isTinted`.
 ///
 /// What a rule here may do, and nothing more: pin a set by equality, assert the
 /// presence or absence of a token through `containsToken`, or take a
@@ -1930,9 +1942,10 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// and this clause is where it is owed.
     ///
     /// `spinnerClassification` pins each file's split, confirmed against the tree
-    /// site by site, by set equality over the files that construct a spinner:
-    /// moving a site from one marker to the other, or adding one, changes a count
-    /// and a person decides whether the new site's neighbour names the activity.
+    /// site by site; rule forty reads it, by set equality over the files that
+    /// construct a spinner: moving a site from one marker to the other, or adding
+    /// one, changes a count and a person decides whether the new site's
+    /// neighbour names the activity.
     static let spinnerClassification: [String: (labelled: Int, hidden: Int)] = [
         // The header's and the load-more row's: "History" and the row's place
         // say nothing about loading, and "Loading…" is the empty list's alone.
@@ -1972,47 +1985,43 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     ]
 
     func testEverySpinnerConstructionSpeaksItsActivityOrNothing() throws {
-        var found: [String: (labelled: Int, hidden: Int)] = [:]
         for url in try Self.swiftSources() {
             let name = url.lastPathComponent
             let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
-            for call in Self.callRanges("ChromeSpinner(", in: code) {
-                let open = code.index(before: call.upperBound)
-                let chain = try XCTUnwrap(
-                    Self.balancedEnd(from: open, in: code).map { String(Self.modifierChain(from: $0, in: code)) },
-                    "\(name) constructs a ChromeSpinner whose call does not close"
-                )
-                let labelled = Self.spellsCall(".accessibilityLabel(", in: chain)
-                let hidden = Self.spellsCall(".accessibilityHidden(", in: chain)
+            let markers = try XCTUnwrap(
+                Self.spinnerMarkers(in: code),
+                "\(name) constructs a ChromeSpinner whose call does not close"
+            )
+            for marker in markers {
                 XCTAssertTrue(
-                    labelled != hidden,
+                    marker.labelled != marker.hidden,
                     """
                     \(name) constructs a ChromeSpinner whose own modifier chain spells \
-                    \(labelled ? "both" : "neither") of .accessibilityLabel( and .accessibilityHidden( — \
+                    \(marker.labelled ? "both" : "neither") of .accessibilityLabel( and .accessibilityHidden( — \
                     the call site says exactly once whether the spinner names its activity or a \
                     neighbour already does
                     """
                 )
-                var counts = found[name, default: (labelled: 0, hidden: 0)]
-                if labelled { counts.labelled += 1 }
-                if hidden { counts.hidden += 1 }
-                found[name] = counts
             }
         }
-        XCTAssertEqual(
-            Set(found.keys), Set(Self.spinnerClassification.keys),
-            "the files constructing a ChromeSpinner must be exactly the classified ones"
-        )
-        for (name, pinned) in Self.spinnerClassification {
-            let actual = found[name] ?? (labelled: 0, hidden: 0)
-            XCTAssertTrue(
-                actual == pinned,
-                """
-                \(name)'s spinners are \(actual.labelled) labelled and \(actual.hidden) hidden, pinned as \
-                \(pinned.labelled) and \(pinned.hidden) — reclassify the site against its neighbours
-                """
-            )
+    }
+
+    /// Each `ChromeSpinner(` construction in `code`, in order, with which of the
+    /// two accessibility markers its own modifier chain spells; `nil` when a
+    /// call does not close. Read by rule twenty's clause (exactly one marker per
+    /// construction) and rule forty (the per-file pair).
+    static func spinnerMarkers(in code: String) -> [(labelled: Bool, hidden: Bool)]? {
+        var markers: [(labelled: Bool, hidden: Bool)] = []
+        for call in callRanges("ChromeSpinner(", in: code) {
+            let open = code.index(before: call.upperBound)
+            guard let end = balancedEnd(from: open, in: code) else { return nil }
+            let chain = String(modifierChain(from: end, in: code))
+            markers.append((
+                labelled: spellsCall(".accessibilityLabel(", in: chain),
+                hidden: spellsCall(".accessibilityHidden(", in: chain)
+            ))
         }
+        return markers
     }
 
     /// Whether the image starting at `image` is hidden by a modifier that is
@@ -3900,6 +3909,206 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         )
     }
 
+    // MARK: - Rule thirty-eight: no gated file builds a platform table
+
+    /// A `Table` draws its header, its grounds, its alternation and its
+    /// selection box in the platform's own colours and metrics, none of which a
+    /// role reaches — the same wall rule thirty-six names for the form controls.
+    /// The problem-catalog browser was the last gated `Table`; its rows are now
+    /// the chrome's own, a `LazyVStack` of rows following `CommitRow`.
+    ///
+    /// Matched through `containsToken`, so `LazyVStack` and identifiers merely
+    /// holding "Table" (`DatabaseTable`, `isTableSelected`) are not hits; the
+    /// tree was confirmed to spell neither token in any gated file.
+    private static let platformTableTokens = ["Table", "TableColumn"]
+
+    func testNoGatedFileBuildsAPlatformTable() throws {
+        let sources = try Self.strippedGatedSources()
+        for (name, code) in sources {
+            for token in Self.platformTableTokens {
+                XCTAssertFalse(
+                    LSPSourceGatingTests.containsToken(token, in: code),
+                    "\(name) spells \(token) — a gated surface draws its own rows, not the platform's table"
+                )
+            }
+        }
+        let browser = try XCTUnwrap(
+            sources.first { $0.name == "LeetCodeBrowserView.swift" },
+            "LeetCodeBrowserView.swift is gone or no longer gated"
+        )
+        XCTAssertTrue(
+            LSPSourceGatingTests.containsToken("LazyVStack", in: browser.code),
+            "LeetCodeBrowserView.swift no longer lays its rows out in a LazyVStack"
+        )
+    }
+
+    // MARK: - Rule thirty-nine: the problem catalog's three colour mappings are Core's one answer each
+
+    /// Which role a problem's difficulty, its status and a judge verdict are
+    /// drawn in has one answer each in Core — `ChromeColorRole.difficultyRole(for:)`,
+    /// `problemStatusRole(for:)` and `verdictRole(for:matchedExpected:)`, the
+    /// last carrying the "good" rule the judge view used to decide with an
+    /// `isGood` flag. Rule eighteen's shape over the three: no app file declares
+    /// one; the app files reading each equal its one known reader; no gated file
+    /// spells `isGood` or `isAccepted`; and the difficulty and status case labels
+    /// are pinned by count per gated file.
+    ///
+    /// The iOS browser keeps its own colour table and is not gated (it is not
+    /// part of the macOS sweep); the reader sets are read over every app file,
+    /// so it is named nowhere here only because it spells none of the three.
+    ///
+    /// Stated limit: rule eighteen's — a `switch`'s labels, not a dictionary
+    /// keyed by the same values, a chain of `==`, or a `case` list continued past
+    /// its first line.
+    private static let catalogRoleReaders: [(call: String, readers: Set<String>)] = [
+        ("difficultyRole(for:", ["LeetCodeBrowserView.swift"]),
+        ("problemStatusRole(for:", ["LeetCodeBrowserView.swift"]),
+        ("verdictRole(for:", ["LeetCodeJudgeView.swift"]),
+    ]
+
+    /// The gated files spelling a difficulty or status case label, each by its
+    /// exact count. The browser's nine are its two title switches (three labels
+    /// each) and `statusCell`'s glyph switch (three) — words and a glyph, not a
+    /// colour, which is why they stay in the view; a colour switch added later
+    /// moves the count.
+    private static let catalogCaseLabels: [String: Int] = [
+        "LeetCodeBrowserView.swift": 9,
+    ]
+
+    func testTheProblemCatalogsColourMappingsAreCoresOneAnswerEach() throws {
+        var readers: [String: Set<String>] = [:]
+        for url in try Self.swiftSources() where url.path.contains("/Sources/Pisaka/") {
+            let name = url.lastPathComponent
+            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            for declaration in ["func difficultyRole", "func problemStatusRole", "func verdictRole"] {
+                XCTAssertFalse(
+                    code.contains(declaration),
+                    "\(name) declares \(declaration) — the catalog's colours are Core's one answer each"
+                )
+            }
+            for (call, _) in Self.catalogRoleReaders where Self.spellsCall(call, in: code) {
+                readers[call, default: []].insert(name)
+            }
+        }
+        for (call, expected) in Self.catalogRoleReaders {
+            XCTAssertEqual(
+                readers[call, default: []], expected,
+                "the app files reading ChromeColorRole.\(call) must be exactly its known reader"
+            )
+        }
+
+        let cases = "(easy|medium|hard|notStarted|attempted|solved)"
+        let labels = try NSRegularExpression(
+            pattern: "\\bcase\\b[^:\\n]*\\.\(cases)\\b"
+                + "|\\b(LeetCodeDifficulty|LeetCodeProblemStatus)\\.\(cases)\\b"
+        )
+        for (name, code) in try Self.strippedGatedSources() {
+            for flag in ["isGood", "isAccepted"] {
+                XCTAssertFalse(
+                    LSPSourceGatingTests.containsToken(flag, in: code),
+                    "\(name) spells \(flag) — whether a verdict is good is decided by verdictRole(for:matchedExpected:)"
+                )
+            }
+            XCTAssertEqual(
+                labels.numberOfMatches(in: code, range: NSRange(code.startIndex..., in: code)),
+                Self.catalogCaseLabels[name, default: 0],
+                """
+                \(name) spells a difficulty or status case label beyond its pinned count — a colour \
+                mapping in a view is a second table; read ChromeColorRole's Core answer
+                """
+            )
+        }
+    }
+
+    // MARK: - Rule forty: one spinner
+
+    /// Activity is drawn by one shape, `ChromeSpinner` — an arc in
+    /// `textSecondary` at the two spinner tokens — and never by the platform's
+    /// `ProgressView`, which draws in the platform's colours at the platform's
+    /// control size and follows neither zoom.
+    ///
+    /// Three clauses: no gated file spells `ProgressView` or
+    /// `progressViewStyle`; the files spelling `ChromeSpinner` equal the
+    /// classified callers plus the defining file; and each caller's pair — how
+    /// many constructions carry `.accessibilityLabel(` and how many
+    /// `.accessibilityHidden(`, read with rule twenty's clause — equals its row
+    /// in `spinnerClassification`, the pairs summing to the twenty sites. A site
+    /// swapping one marker for the other, dropping both or appearing anew moves
+    /// a number.
+    private static let spinnerSiteCount = 20
+
+    func testOneSpinner() throws {
+        for (name, code) in try Self.strippedGatedSources() {
+            for token in ["ProgressView", "progressViewStyle"] {
+                XCTAssertFalse(
+                    LSPSourceGatingTests.containsToken(token, in: code),
+                    "\(name) spells \(token) — a gated surface draws the shared ChromeSpinner"
+                )
+            }
+        }
+
+        var spellers: Set<String> = []
+        var found: [String: (labelled: Int, hidden: Int)] = [:]
+        for url in try Self.swiftSources() {
+            let name = url.lastPathComponent
+            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            if LSPSourceGatingTests.containsToken("ChromeSpinner", in: code) { spellers.insert(name) }
+            let markers = try XCTUnwrap(
+                Self.spinnerMarkers(in: code),
+                "\(name) constructs a ChromeSpinner whose call does not close"
+            )
+            guard !markers.isEmpty else { continue }
+            found[name] = (
+                labelled: markers.filter(\.labelled).count,
+                hidden: markers.filter(\.hidden).count
+            )
+        }
+        XCTAssertEqual(
+            spellers, Set(Self.spinnerClassification.keys).union(["ChromeControls.swift"]),
+            "the files spelling ChromeSpinner must be exactly the classified callers plus the defining file"
+        )
+        XCTAssertEqual(
+            Set(found.keys), Set(Self.spinnerClassification.keys),
+            "the files constructing a ChromeSpinner must be exactly the classified ones"
+        )
+        for (name, pinned) in Self.spinnerClassification {
+            let actual = found[name] ?? (labelled: 0, hidden: 0)
+            XCTAssertTrue(
+                actual == pinned,
+                """
+                \(name)'s spinners are \(actual.labelled) labelled and \(actual.hidden) hidden, pinned as \
+                \(pinned.labelled) and \(pinned.hidden) — reclassify the site against its neighbours
+                """
+            )
+        }
+        XCTAssertEqual(
+            Self.spinnerClassification.values.reduce(0) { $0 + $1.labelled + $1.hidden },
+            Self.spinnerSiteCount,
+            "the classified spinner sites must total the twenty the sweep confirmed"
+        )
+    }
+
+    // MARK: - Rule forty-one: no alternating row fill
+
+    /// The design's tables read by selection and hover, not by alternation: the
+    /// database grid and the console's result rows each drew a zebra through an
+    /// `isTinted` flag over `isMultiple(of: 2)`, and both are gone. The platform's
+    /// own alternation left with the `Table` (rule thirty-eight). No gated file
+    /// spells `alternatingRowBackgrounds`, `isMultiple` or `isTinted`, matched
+    /// through `containsToken`.
+    private static let alternationTokens = ["alternatingRowBackgrounds", "isMultiple", "isTinted"]
+
+    func testNoAlternatingRowFill() throws {
+        for (name, code) in try Self.strippedGatedSources() {
+            for token in Self.alternationTokens {
+                XCTAssertFalse(
+                    LSPSourceGatingTests.containsToken(token, in: code),
+                    "\(name) spells \(token) — a gated table reads by selection and hover, never by alternation"
+                )
+            }
+        }
+    }
+
     // MARK: - Self-check
 
     /// Every gated file draws with roles and must therefore name one — with two
@@ -3992,7 +4201,8 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         25: "twenty-five", 26: "twenty-six", 27: "twenty-seven",
         28: "twenty-eight", 29: "twenty-nine", 30: "thirty", 31: "thirty-one",
         32: "thirty-two", 33: "thirty-three", 34: "thirty-four", 35: "thirty-five",
-        36: "thirty-six", 37: "thirty-seven",
+        36: "thirty-six", 37: "thirty-seven", 38: "thirty-eight", 39: "thirty-nine",
+        40: "forty", 41: "forty-one",
     ]
 
     func testBothSummariesSpellTheSuitesOwnRuleCount() throws {

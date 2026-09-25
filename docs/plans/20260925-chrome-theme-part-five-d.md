@@ -323,27 +323,27 @@ Rule forty then bans `ProgressView` in every gated file.
 - Modify: `Tests/PisakaCoreTests/ChromeThemeSourceGatingTests.swift`
 - Modify: `docs/architecture/core-theme.md` (canonical list items 38–41)
 - Modify: `CLAUDE.md` (the rule count only)
-- [ ] **Rule thirty-eight: no gated file builds a platform table.**
+- [x] **Rule thirty-eight: no gated file builds a platform table.**
   - No gated file spells `Table` or `TableColumn` (through `containsToken`, so `LazyVStack` and the identifiers holding "Table" are not hits; confirm against the tree).
   - `LeetCodeBrowserView.swift` spells `LazyVStack`.
   - The comment says a `Table`'s header, grounds, alternation and selection box are the platform's, which is the wall rule thirty-six names for form controls.
-- [ ] **Rule thirty-nine: the problem catalog's three colour mappings are Core's one answer each.**
+- [x] **Rule thirty-nine: the problem catalog's three colour mappings are Core's one answer each.**
   - No app file declares `func difficultyRole`, `func problemStatusRole` or `func verdictRole`.
   - The app files spelling `difficultyRole(for:` and `problemStatusRole(for:` equal `{LeetCodeBrowserView.swift}`, and `verdictRole(for:` equals `{LeetCodeJudgeView.swift}`. The iOS browser keeps its own table and is not gated; say so.
   - No gated file spells `isGood` or `isAccepted`.
   - The difficulty and status case labels are pinned by count per gated file (the browser's title tables and glyph switch; zero elsewhere), with rule eighteen's stated limit.
-- [ ] **Rule forty: one spinner.**
+- [x] **Rule forty: one spinner.**
   - No gated file spells `ProgressView` or `progressViewStyle`.
   - The files spelling `ChromeSpinner` are pinned by set equality, `ChromeControls.swift` included.
   - Each caller file is pinned as a pair — how many of its constructions are `.accessibilityLabel(` and how many `.accessibilityHidden(` — read from each construction's trailing modifier chain with rule twenty's clause. The pairs sum to twenty, so a site cannot silently swap one marker for the other, drop both, or appear without moving a number.
-- [ ] **Rule forty-one: no alternating row fill.**
+- [x] **Rule forty-one: no alternating row fill.**
   - No gated file spells `alternatingRowBackgrounds`, `isMultiple` or `isTinted`.
   - The comment says the design's tables read by selection and hover, and that the platform's own alternation left with the `Table` (rule thirty-eight).
-- [ ] Extend `spelled` to forty-one. Add header bullets titled as the four markers, canonical items 38–41 in `core-theme.md`, and set `CLAUDE.md`'s count to "forty-one", so the four count checks agree.
-- [ ] **Mutation-verify.** Confirm each regression below is red, then revert:
+- [x] Extend `spelled` to forty-one. Add header bullets titled as the four markers, canonical items 38–41 in `core-theme.md`, and set `CLAUDE.md`'s count to "forty-one", so the four count checks agree.
+- [x] **Mutation-verify.** Confirm each regression below is red, then revert: (All sixteen red, each against its own rule, and reverted. The per-file pair check moved from rule twenty's clause into rule forty, which now reads `spinnerClassification`; rule twenty keeps the exactly-one-marker check, both through the shared `spinnerMarkers(in:)`.)
   - **38:** a `Table(rows) {` in the browser.
   - **39:** a `color(for:)` switch restored in the browser; a second `difficultyRole(for:` reader; `isGood` restored in the judge.
-  - **40:** a `ProgressView()` in `UsagesPanelView`; a `ChromeSpinner` added to an unpinned file; a second spinner in a pinned file; a hidden spinner in the Log switched to `.accessibilityLabel(` (the file's pair moves).
+  - **40:** a `ProgressView()` in `UsagesPanelView`; a `ChromeSpinner` added to an unpinned file; a second spinner in a pinned file; a hidden spinner in the Log switched to `.accessibilityLabel(` (the file's pair moves). (The Log's two spinners are both labelled, so the inverse was run: one switched to `.accessibilityHidden(`, and the pair moved.)
   - **Rule twenty's spinner clause:** a `ChromeSpinner()` with neither `.accessibilityLabel(` nor `.accessibilityHidden(` on its modifier chain; a `ChromeSpinner()` carrying both.
   - **41:** a `.background(index.isMultiple(of: 2) ? …)` in the console.
   - **Rule thirty-five:** a `listRowBackground` in the sidebar.
@@ -351,8 +351,8 @@ Rule forty then bans `ProgressView` in every gated file.
   - **Rule twenty-two:** the statement pane's `onDisappear` sync call removed.
   - **Rule twenty-four:** a `Divider()` back in `LeetCodeCommands`.
   - **Rule one:** `.foregroundStyle(.secondary)` in the login view.
-- [ ] Confirm `git status` is clean apart from the intended changes.
-- [ ] Run `swift test`. It must pass.
+- [x] Confirm `git status` is clean apart from the intended changes.
+- [x] Run `swift test`. It must pass.
 
 ### Task 8: Verify acceptance criteria
 

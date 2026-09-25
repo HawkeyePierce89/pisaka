@@ -1656,7 +1656,7 @@ although it is an editing affordance rather than a row: an inline draft
 for. `TabStripView.swift` covers `TabStatusMark` too, the slot view the two
 orientations share, which is why that extraction did not add a seventh file.
 
-The thirty-seven rules, each invisible to the compiler:
+The forty-one rules, each invisible to the compiler:
 
 1. **No gated view names a system semantic colour.** A closed forbidden-token
    list — AppKit's semantic set (`labelColor`, `separatorColor`,
@@ -2241,6 +2241,39 @@ The thirty-seven rules, each invisible to the compiler:
     The part lifted the field with the chevron a sibling of the `Menu`, which
     draws the same and opens nothing when the arrow is clicked; its review
     round moved it into the label.
+38. **No gated file builds a platform table.** No gated file spells the
+    tokens `Table` or `TableColumn` (through `containsToken`, so `LazyVStack`
+    and identifiers merely holding "Table" are not hits), and
+    `LeetCodeBrowserView.swift` spells `LazyVStack`. A `Table`'s header,
+    grounds, alternation and selection box are the platform's, which is the
+    wall rule thirty-six names for the form controls; the problem-catalog
+    browser was the last gated one, and its rows are now the chrome's own.
+39. **The problem catalog's three colour mappings are Core's one answer
+    each.** No app file declares `func difficultyRole`, `func
+    problemStatusRole` or `func verdictRole`; the app files spelling
+    `difficultyRole(for:` and `problemStatusRole(for:` equal
+    `LeetCodeBrowserView.swift`, and those spelling `verdictRole(for:` equal
+    `LeetCodeJudgeView.swift`; no gated file spells `isGood` or `isAccepted`
+    (the verdict's "good" rule moved to Core with its colour); and the
+    difficulty and status case labels are pinned by count per gated file —
+    the browser's nine (its two title switches and the status glyph switch,
+    words and a glyph rather than a colour), zero elsewhere — with rule
+    eighteen's stated limit. The iOS browser keeps its own colour table and is
+    not gated.
+40. **One spinner.** No gated file spells `ProgressView` or
+    `progressViewStyle`; the files spelling `ChromeSpinner` equal the
+    classified callers plus `ChromeControls.swift`, by set equality; and each
+    caller's pair — how many of its constructions carry
+    `.accessibilityLabel(` and how many `.accessibilityHidden(`, read from each
+    construction's trailing modifier chain with rule twenty's clause — equals
+    its row of `spinnerClassification`, the pairs summing to twenty. A site
+    swapping one marker for the other, dropping both, or appearing anew moves a
+    number.
+41. **No alternating row fill.** No gated file spells
+    `alternatingRowBackgrounds`, `isMultiple` or `isTinted`. The design's
+    tables read by selection and hover; the database grid's and the console's
+    zebras are deleted, and the platform's own alternation left with the
+    `Table` (rule thirty-eight).
 
 Plus a **self-check** in the suite's own idiom: every gated file must actually
 *name* a `ChromeColorRole`, or the checks above have gone vacuous — with nine
