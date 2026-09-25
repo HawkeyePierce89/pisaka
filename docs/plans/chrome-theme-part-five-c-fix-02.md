@@ -93,12 +93,12 @@ Dependencies: none new.
 
 ### Task 2: Verify the gates
 
-- [ ] Run every command in **Validation Commands**. All must pass. Report exact
+- [x] Run every command in **Validation Commands**. All must pass. Report exact
       counts: the Core test total, the app-bundle total, the SwiftLint violation and
       file counts, and both build verdicts.
-- [ ] Confirm the rule count and the gated-file count still agree in all four places
+- [x] Confirm the rule count and the gated-file count still agree in all four places
       they are spelled.
-- [ ] Confirm `git status --porcelain` is empty.
+- [x] Confirm `git status --porcelain` is empty.
 
 ## Post-Completion
 
