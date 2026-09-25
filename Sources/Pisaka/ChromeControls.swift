@@ -2,13 +2,20 @@
 import SwiftUI
 import PisakaCore
 
-/// The shared chrome field, button and checkbox shapes.
+/// The shared chrome field, button, checkbox and settings shapes.
 ///
 /// One file for the chrome's controls: the field box — `bgEditor` ground, a
 /// one-point `hairline` border and two points of `accent` on focus — the
-/// primary and secondary buttons, and the checkbox. The Log filter bar was the
-/// field lifted, Local Changes' revert checkbox the checkbox; every later
-/// caller uses these rather than a second copy.
+/// primary and secondary buttons, the checkbox, the segmented control, the
+/// stepper, the switch, the settings tab bar and the menu field. The Log filter
+/// bar was the field lifted (and its branch menu the menu field), Local
+/// Changes' revert checkbox the checkbox; every later caller uses these rather
+/// than a second copy.
+///
+/// **The picker rule.** A choice over a fixed, small, closed set is a
+/// `ChromeSegmentedControl`; a choice over a dynamic or long list is a
+/// `ChromeMenuField`. A segmented control whose segment count is unknown at
+/// build time is the wrong shape, because it cannot be laid out.
 struct ChromeControlBox<Content: View>: View {
     let isFocused: Bool
     let horizontalPadding: Double
@@ -260,6 +267,290 @@ struct ChromeQueryToggle: View {
         .help(help)
         .accessibilityLabel(help)
         .accessibilityValue(isOn ? "On" : "Off")
+    }
+}
+
+/// A choice over a fixed, small, closed set (the picker rule above).
+///
+/// A `segmentedControlHeight` box — `bgEditor` ground, a `hairline` border at
+/// `cornerRadiusMax`, `segmentedControlInset` padding — holding one plain
+/// button per option, `segmentGap` apart. The selected segment is an
+/// `accentTintStrong` fill at `fieldCornerRadius` under a `textPrimary` label;
+/// the others draw no ground and a `textSecondary` label. The control speaks
+/// its label and the selected title; each segment speaks its selection.
+struct ChromeSegmentedControl<Value: Hashable>: View {
+    let label: String
+    let options: [(value: Value, title: String)]
+    @Binding var selection: Value
+
+    @Environment(\.interfaceMetrics) private var metrics
+    @Environment(\.chromeTheme) private var theme
+
+    var body: some View {
+        let outer = RoundedRectangle(cornerRadius: metrics.scaled(ChromeGeometry.cornerRadiusMax))
+        HStack(spacing: metrics.scaled(ChromeGeometry.segmentGap)) {
+            ForEach(options.indices, id: \.self) { index in
+                segment(options[index])
+            }
+        }
+        .padding(metrics.scaled(ChromeGeometry.segmentedControlInset))
+        .frame(height: metrics.scaled(ChromeGeometry.segmentedControlHeight))
+        .background(outer.fill(theme.color(.bgEditor)))
+        .overlay(
+            outer.strokeBorder(theme.color(.hairline), lineWidth: metrics.scaled(ChromeGeometry.hairlineWidth))
+        )
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(label)
+        .accessibilityValue(options.first { $0.value == selection }?.title ?? "")
+    }
+
+    private func segment(_ option: (value: Value, title: String)) -> some View {
+        let isSelected = option.value == selection
+        return Button {
+            selection = option.value
+        } label: {
+            Text(option.title)
+                .font(metrics.scaledFont(.callout))
+                .foregroundStyle(theme.color(isSelected ? .textPrimary : .textSecondary))
+                .lineLimit(1)
+                .padding(.horizontal, metrics.scaled(ChromeGeometry.segmentPaddingX))
+                .frame(height: metrics.scaled(ChromeGeometry.segmentHeight))
+                .background(
+                    RoundedRectangle(cornerRadius: metrics.scaled(ChromeGeometry.fieldCornerRadius))
+                        .fill(isSelected ? theme.color(.accentTintStrong) : Color.clear)
+                )
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityValue(isSelected ? "Selected" : "Not selected")
+    }
+}
+
+/// A numeric preference stepped along a `ZoomScaleRule`'s grid.
+///
+/// A `stepperHeight` box — `bgEditor` ground, a `hairline` border at
+/// `fieldCornerRadius`, `stepperPaddingX` padding — holding minus, the value
+/// (`callout`, `textPrimary`) and plus, `stepperPartGap` apart. Every step goes
+/// through the rule's `stepped(_:by:)`, so the grid and the clamp are the
+/// rule's, and a glyph button whose step would not move the value is disabled.
+struct ChromeStepper: View {
+    let label: String
+    @Binding var value: Double
+    let rule: ZoomScaleRule
+    let format: (Double) -> String
+
+    @Environment(\.interfaceMetrics) private var metrics
+    @Environment(\.chromeTheme) private var theme
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: metrics.scaled(ChromeGeometry.fieldCornerRadius))
+        HStack(spacing: metrics.scaled(ChromeGeometry.stepperPartGap)) {
+            stepButton(glyph: "minus", spoken: "Decrease \(label)", by: -1)
+            Text(format(value))
+                .font(metrics.scaledFont(.callout))
+                .foregroundStyle(theme.color(.textPrimary))
+                .lineLimit(1)
+                .monospacedDigit()
+            stepButton(glyph: "plus", spoken: "Increase \(label)", by: 1)
+        }
+        .padding(.horizontal, metrics.scaled(ChromeGeometry.stepperPaddingX))
+        .frame(height: metrics.scaled(ChromeGeometry.stepperHeight))
+        .background(shape.fill(theme.color(.bgEditor)))
+        .overlay(
+            shape.strokeBorder(theme.color(.hairline), lineWidth: metrics.scaled(ChromeGeometry.hairlineWidth))
+        )
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(label)
+        .accessibilityValue(format(value))
+        .accessibilityAdjustableAction(adjust)
+    }
+
+    /// The adjustable action goes through the same `stepped(_:by:)` the glyph
+    /// buttons do.
+    private func adjust(_ direction: AccessibilityAdjustmentDirection) {
+        switch direction {
+        case .increment: value = rule.stepped(value, by: 1)
+        case .decrement: value = rule.stepped(value, by: -1)
+        @unknown default: break
+        }
+    }
+
+    private func stepButton(glyph: String, spoken: String, by steps: Double) -> some View {
+        let next = rule.stepped(value, by: steps)
+        return Button {
+            value = next
+        } label: {
+            Image(systemName: glyph)
+                .font(metrics.scaledFont(.subheadline))
+                .foregroundStyle(theme.color(.textSecondary))
+                .accessibilityHidden(true)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(next == value)
+        .accessibilityLabel(spoken)
+    }
+}
+
+/// A standing preference that is on or off.
+///
+/// A `switchWidth` × `switchHeight` capsule track — `accent` on, `hairline`
+/// off — with a `switchKnobSide` `onAccent` knob inset by `switchInset`,
+/// leading when off and trailing when on. It dims when disabled and speaks its
+/// label and "On" or "Off".
+///
+/// It is not the checkbox, and neither is folded into the other: a preference
+/// that is on or off is a switch; one selection among many (an option of one
+/// action, a row in a list) is a checkbox. Two meanings, two shapes.
+struct ChromeSwitch: View {
+    let label: String
+    @Binding var isOn: Bool
+
+    @Environment(\.interfaceMetrics) private var metrics
+    @Environment(\.chromeTheme) private var theme
+    @Environment(\.isEnabled) private var isEnabled
+
+    var body: some View {
+        Button {
+            isOn.toggle()
+        } label: {
+            ZStack(alignment: isOn ? .trailing : .leading) {
+                Capsule().fill(theme.color(isOn ? .accent : .hairline))
+                Circle()
+                    .fill(theme.color(.onAccent))
+                    .frame(
+                        width: metrics.scaled(ChromeGeometry.switchKnobSide),
+                        height: metrics.scaled(ChromeGeometry.switchKnobSide)
+                    )
+                    .padding(metrics.scaled(ChromeGeometry.switchInset))
+            }
+            .frame(
+                width: metrics.scaled(ChromeGeometry.switchWidth),
+                height: metrics.scaled(ChromeGeometry.switchHeight)
+            )
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .opacity(isEnabled ? 1 : 0.5)
+        .accessibilityLabel(label)
+        .accessibilityValue(isOn ? "On" : "Off")
+    }
+}
+
+/// The Preferences window's tab bar.
+///
+/// A `settingsTabBarHeight` strip on `bgPanel`, inset by
+/// `settingsTabBarPaddingX`, its tabs `settingsTabGap` apart. Each tab is a
+/// plain button with `settingsTabLabelPaddingX` around a `callout` semibold
+/// label — `textPrimary` active, `textSecondary` otherwise — and the active
+/// tab carries an `accent` indicator of `accentIndicator` thickness across its
+/// full width at its bottom. The strip's `hairline` bottom rule is drawn
+/// *behind* the tabs, so it never paints over the indicator.
+///
+/// It is not the dock's tab row: it has no close action, a different height and
+/// a different inset. It shares the indicator's thickness and the
+/// behind-the-tabs rule.
+struct ChromeSettingsTabBar<Tab: Hashable>: View {
+    let tabs: [(tab: Tab, title: String)]
+    @Binding var selection: Tab
+
+    @Environment(\.interfaceMetrics) private var metrics
+    @Environment(\.chromeTheme) private var theme
+
+    var body: some View {
+        HStack(spacing: metrics.scaled(ChromeGeometry.settingsTabGap)) {
+            ForEach(tabs.indices, id: \.self) { index in
+                tabButton(tabs[index])
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, metrics.scaled(ChromeGeometry.settingsTabBarPaddingX))
+        .frame(height: metrics.scaled(ChromeGeometry.settingsTabBarHeight))
+        .background(theme.color(.bgPanel))
+        .background(alignment: .bottom) {
+            Rectangle()
+                .fill(theme.color(.hairline))
+                .frame(height: metrics.scaled(ChromeGeometry.hairlineWidth))
+        }
+    }
+
+    private func tabButton(_ item: (tab: Tab, title: String)) -> some View {
+        let isSelected = item.tab == selection
+        return Button {
+            selection = item.tab
+        } label: {
+            Text(item.title)
+                .font(metrics.scaledFont(.callout, weight: .semibold))
+                .foregroundStyle(theme.color(isSelected ? .textPrimary : .textSecondary))
+                .lineLimit(1)
+                .padding(.horizontal, metrics.scaled(ChromeGeometry.settingsTabLabelPaddingX))
+                .frame(maxHeight: .infinity)
+                .overlay(alignment: .bottom) {
+                    if isSelected {
+                        Rectangle()
+                            .fill(theme.color(.accent))
+                            .frame(height: metrics.scaled(ChromeGeometry.accentIndicator))
+                    }
+                }
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityValue(isSelected ? "Selected" : "Not selected")
+    }
+}
+
+/// A choice over a dynamic or long list (the picker rule above), lifted from
+/// the Log filter bar's branch menu.
+///
+/// A `ChromeControlBox` holding a borderless, indicator-less menu whose label is
+/// the current title (`callout`, `textPrimary`, one line) beside a
+/// `textSecondary` chevron. Each option is a button; the chosen one is labelled
+/// with a checkmark. The field speaks its label and the current title. The
+/// caller supplies the height and the width limits.
+struct ChromeMenuField<Value: Hashable>: View {
+    let label: String
+    let options: [(value: Value, title: String)]
+    @Binding var selection: Value
+    let currentTitle: String
+    var horizontalPadding: Double = ChromeGeometry.fieldPaddingX
+    var spacing: Double = 6
+
+    @Environment(\.interfaceMetrics) private var metrics
+    @Environment(\.chromeTheme) private var theme
+
+    var body: some View {
+        ChromeControlBox(isFocused: false, horizontalPadding: horizontalPadding) {
+            HStack(spacing: metrics.scaled(spacing)) {
+                Menu {
+                    ForEach(options.indices, id: \.self) { index in
+                        let option = options[index]
+                        Button {
+                            selection = option.value
+                        } label: {
+                            if option.value == selection {
+                                Label(option.title, systemImage: "checkmark")
+                            } else {
+                                Text(option.title)
+                            }
+                        }
+                    }
+                } label: {
+                    Text(currentTitle)
+                        .font(metrics.scaledFont(.callout))
+                        .foregroundStyle(theme.color(.textPrimary))
+                        .lineLimit(1)
+                }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                Image(systemName: "chevron.down")
+                    .font(metrics.scaledFont(.subheadline, weight: .semibold))
+                    .foregroundStyle(theme.color(.textSecondary))
+                    .accessibilityHidden(true)
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(label)
+        .accessibilityValue(currentTitle)
     }
 }
 

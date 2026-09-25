@@ -32,9 +32,10 @@ import PisakaCore
 /// `hairline`, every control in one 22 pt box (`bgEditor` ground, one-point
 /// `hairline` border, a two-point `accent` border on focus) — the box shape is
 /// shared (`ChromeControls.swift`). The text fields are drawn plain inside the
-/// box with their own `textSecondary` placeholder; the branch menu and the two
-/// date fields keep their system controls, drawn borderless inside the same box
-/// beside a `textSecondary` chevron.
+/// box with their own `textSecondary` placeholder; the branch menu is the shared
+/// menu field (`ChromeMenuField`), and the two date fields keep their system
+/// controls, drawn borderless inside the same box beside a `textSecondary`
+/// chevron.
 ///
 /// **Requirement: at the window's minimum width, at every interface scale, every
 /// control in the bar is reachable and nothing is clipped.** The single 28 pt row
@@ -206,43 +207,27 @@ struct LogFilterBar: View {
         )
     }
 
-    /// The branch menu: the system picker, drawn borderless inside the bar's
-    /// control box, labelled with the current choice beside a chevron.
+    /// The branch menu: the shared menu field over "All" plus every known ref,
+    /// labelled with the current choice. The option *value* is the full refname
+    /// (unambiguous as a `git log` revision); only the displayed title is
+    /// shortened. `references` are already distinct full names, but
+    /// de-duplicate defensively so no two options share a value.
     private var refPicker: some View {
-        ChromeControlBox(isFocused: false, horizontalPadding: FilterBarLayout.controlPaddingX) {
-            HStack(spacing: metrics.scaled(FilterBarLayout.innerGap)) {
-                Menu {
-                    Picker("Branch", selection: refSelectionBinding) {
-                        Text("All").tag(LogFilterDraft.allRefsTag)
-                        // The tag *value* is the full refname (unambiguous as a
-                        // `git log` revision); only the displayed label is
-                        // shortened. `references` are already distinct full names,
-                        // but de-duplicate defensively so `ForEach(id: \.self)`
-                        // never sees a duplicate id (undefined SwiftUI behavior).
-                        ForEach(uniqueReferences, id: \.self) { ref in
-                            Text(shortLabel(for: ref)).tag(ref)
-                        }
-                    }
-                    .pickerStyle(.inline)
-                    .labelsHidden()
-                } label: {
-                    Text(currentRefLabel)
-                        .font(metrics.scaledFont(.callout))
-                        .foregroundStyle(theme.color(.textPrimary))
-                        .lineLimit(1)
-                }
-                .menuStyle(.borderlessButton)
-                .menuIndicator(.hidden)
-                chevron
-            }
-        }
+        ChromeMenuField(
+            label: "Branch",
+            options: [(value: LogFilterDraft.allRefsTag, title: "All")]
+                + uniqueReferences.map { (value: $0, title: shortLabel(for: $0)) },
+            selection: refSelectionBinding,
+            currentTitle: currentRefLabel,
+            horizontalPadding: FilterBarLayout.controlPaddingX,
+            spacing: FilterBarLayout.innerGap
+        )
         .frame(height: metrics.scaled(FilterBarLayout.controlHeight))
         .frame(
             minWidth: metrics.scaled(FilterBarLayout.branchMinWidth),
             maxWidth: metrics.scaled(FilterBarLayout.branchMaxWidth)
         )
         .help("Branch / ref to show history for")
-        .accessibilityLabel("Branch")
     }
 
     /// The branch menu's label: the chosen ref's short name, or "All".

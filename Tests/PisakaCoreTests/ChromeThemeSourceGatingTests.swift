@@ -1317,7 +1317,8 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     // MARK: - Rule sixteen: an indicator strip's bottom rule is drawn behind its tabs
 
     /// The strips whose tabs draw an accent indicator on the strip's own bottom
-    /// edge: the tab strip above the editor and the dock's tab row.
+    /// edge: the tab strip above the editor, the dock's tab row and the
+    /// Preferences window's tab bar.
     ///
     /// The defect this pins is one point tall. Such a strip also draws its own
     /// one-point `hairline` along that same edge, and when the rule was an
@@ -1338,16 +1339,28 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     ///
     /// A named list, rule fourteen's shape: a third strip with a bottom-edge
     /// indicator is added here as part of drawing it, rather than left unguarded.
-    private static let indicatorStripFiles = [
-        "TabStripView.swift",
-        "DockTabRow.swift",
+    /// An entry naming a declaration is read inside that declaration's
+    /// brace-matched body alone: the settings tab bar shares its file with every
+    /// other shared shape, and another shape's background there must not satisfy
+    /// the strip's.
+    private static let indicatorStripFiles: [(file: String, declaration: String?)] = [
+        ("TabStripView.swift", nil),
+        ("DockTabRow.swift", nil),
+        ("ChromeControls.swift", "struct ChromeSettingsTabBar"),
     ]
 
     func testAnIndicatorStripsBottomRuleIsDrawnBehindItsTabs() throws {
-        for name in Self.indicatorStripFiles {
-            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
-                try Self.read(Self.source(named: name))
+        for (file, declaration) in Self.indicatorStripFiles {
+            let whole = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
+                try Self.read(Self.source(named: file))
             )
+            let name = declaration.map { "\(file)'s \($0)" } ?? file
+            let code = try declaration.map {
+                try XCTUnwrap(
+                    Self.matchedBody(after: $0, in: whole),
+                    "\(name) is gone or renamed — re-point this rule rather than losing it"
+                )
+            } ?? whole
             let overlays = Self.matchedBodies(afterCall: ".overlay(alignment: .bottom)", in: code)
             XCTAssertFalse(
                 overlays.contains { LSPSourceGatingTests.containsToken("hairline", in: $0) },
@@ -1696,6 +1709,21 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
             // label and value it owed moved with it.
             ControlBuilder(path: ["struct ChromeCheckbox"],
                            required: [".accessibilityLabel(", ".accessibilityValue("], hidesSymbols: true),
+            // Part five (c)'s settings shapes and the lifted menu field: each owes
+            // its accessibility inside its own body.
+            ControlBuilder(path: ["struct ChromeSegmentedControl"],
+                           required: [".accessibilityLabel(", ".accessibilityValue("], hidesSymbols: false),
+            ControlBuilder(path: ["struct ChromeStepper"],
+                           required: [".accessibilityLabel(", ".accessibilityValue(", ".accessibilityAdjustableAction("],
+                           hidesSymbols: false),
+            ControlBuilder(path: ["struct ChromeStepper", "private func stepButton("],
+                           required: [".accessibilityLabel("], hidesSymbols: true),
+            ControlBuilder(path: ["struct ChromeSwitch"],
+                           required: [".accessibilityLabel(", ".accessibilityValue("], hidesSymbols: false),
+            ControlBuilder(path: ["struct ChromeSettingsTabBar"],
+                           required: [".accessibilityValue("], hidesSymbols: false),
+            ControlBuilder(path: ["struct ChromeMenuField"],
+                           required: [".accessibilityLabel(", ".accessibilityValue("], hidesSymbols: true),
         ]),
         ("SearchBarView.swift", [
             ControlBuilder(path: ["private var findRow: some View"],
@@ -2018,9 +2046,13 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// two pinned sets together make a fourth `Menu` without `Section` visible
     /// — the previous `hasSection && hasMenu` equality could not see it, as
     /// `BranchSwitcherView.swift` and `LogFilterBar.swift` already demonstrated.
+    ///
+    /// `LogFilterBar.swift` left the set in part five (c): its branch menu is now
+    /// the shared `ChromeMenuField`, so the one `Menu` it drew lives in
+    /// `ChromeControls.swift`, which joined in its place.
     private static let menuFiles: Set<String> = [
         "BranchSwitcherView.swift",
-        "LogFilterBar.swift",
+        "ChromeControls.swift",
         "SearchHistoryMenu.swift",
         "ProjectTreeView.swift",
         "LocalChangesView.swift",

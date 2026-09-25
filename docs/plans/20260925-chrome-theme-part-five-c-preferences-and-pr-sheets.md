@@ -160,13 +160,13 @@ Two new rules take the suite from thirty-five to thirty-seven. Six existing rule
 
 Every shape below reads `\.interfaceMetrics` and `\.chromeTheme`, and takes every measurement from a token through `metrics.scaled(_:)`.
 
-- [ ] **`ChromeSegmentedControl<Value: Hashable>`**
+- [x] **`ChromeSegmentedControl<Value: Hashable>`**
   - Takes a spoken label, `options: [(value: Value, title: String)]` and a `Binding<Value>`.
   - Outer box: a `bgEditor` ground, a `hairline` border at `cornerRadiusMax`, `segmentedControlInset` padding, `segmentGap` between segments, and `segmentedControlHeight` tall.
   - Each segment is a `.plain` `Button` that is `segmentHeight` tall with `segmentPaddingX` around a `.callout` label.
   - Selected segment: an `accentTintStrong` fill at `fieldCornerRadius` and a `textPrimary` label. Others: no ground and a `textSecondary` label.
   - Accessibility: the control is `.accessibilityElement(children: .contain)` with `.accessibilityLabel(label)` and `.accessibilityValue(<selected title>)`. Each segment speaks its selection as a value.
-- [ ] **`ChromeStepper`**
+- [x] **`ChromeStepper`**
   - Takes a spoken label, a `Binding<Double>`, a `ZoomScaleRule` and a value formatter (for example `"\(Int(v)) pt"`).
   - Box: a `bgEditor` ground, a `hairline` border at `fieldCornerRadius`, `stepperPaddingX` horizontal padding, `stepperPartGap` between its parts, and `stepperHeight` tall.
   - Parts: minus, value, plus.
@@ -176,7 +176,7 @@ Every shape below reads `\.interfaceMetrics` and `\.chromeTheme`, and takes ever
     - the button is `.plain` and carries `.accessibilityLabel("Decrease …")` / `("Increase …")`;
     - the button writes `rule.stepped(value, by: ∓1)` and is disabled when that answer equals the value.
   - The whole control also carries `.accessibilityLabel`, `.accessibilityValue` and an `.accessibilityAdjustableAction` that goes through the same `stepped(_:by:)`.
-- [ ] **`ChromeSwitch`**
+- [x] **`ChromeSwitch`**
   - Takes a spoken label and a `Binding<Bool>`.
   - A `switchWidth` × `switchHeight` `Capsule` track: `accent` when on, `hairline` when off, with `switchInset` padding.
   - A `switchKnobSide` circle knob in `onAccent`, leading when off and trailing when on.
@@ -184,7 +184,7 @@ Every shape below reads `\.interfaceMetrics` and `\.chromeTheme`, and takes ever
   - The doc comment states why it is not the checkbox:
     - a preference that is on or off is a switch; one selection among many is a checkbox;
     - two meanings, two shapes, and neither is folded into the other.
-- [ ] **`ChromeSettingsTabBar<Tab: Hashable>`**
+- [x] **`ChromeSettingsTabBar<Tab: Hashable>`**
   - Takes `tabs: [(tab: Tab, title: String)]` and a `Binding<Tab>`.
   - `settingsTabBarHeight` tall on `bgPanel`, with `settingsTabBarPaddingX` inset and `settingsTabGap` between tabs.
   - Each tab is a `.plain` `Button` with `settingsTabLabelPaddingX` around a `.callout` semibold label: `textPrimary` when active, `textSecondary` otherwise.
@@ -194,24 +194,24 @@ Every shape below reads `\.interfaceMetrics` and `\.chromeTheme`, and takes ever
   - The doc comment says why this is not the dock's tab row:
     - it has no close action, a different height and a different inset;
     - it shares the indicator thickness and the behind-the-tabs rule.
-- [ ] **`ChromeMenuField<Value: Hashable>`**, lifted from `LogFilterBar.refPicker` (decision 3):
+- [x] **`ChromeMenuField<Value: Hashable>`**, lifted from `LogFilterBar.refPicker` (decision 3):
   - Takes a spoken label, `options: [(value: Value, title: String)]`, a `Binding<Value>` and the title shown for the current value.
   - Structure: a `ChromeControlBox`, a `Menu` with `.menuStyle(.borderlessButton)` and `.menuIndicator(.hidden)`, and a `.callout` `textPrimary` single-line label.
   - The Log bar's `textSecondary` `chevron.down` moves here, hidden by its own chain.
   - Each option is a `Button`, and the chosen one's label is `Label(title, systemImage: "checkmark")`.
   - The field carries `.accessibilityLabel(label)` and `.accessibilityValue(<current title>)`.
   - The caller supplies the height and the width limits.
-- [ ] **State the picker rule in the file's doc comment**, where the shapes are defined:
+- [x] **State the picker rule in the file's doc comment**, where the shapes are defined:
   - a choice over a fixed, small, closed set is a `ChromeSegmentedControl`;
   - a choice over a dynamic or long list is a `ChromeMenuField`;
   - a segmented control whose segment count is unknown at build time is the wrong shape, because it cannot be laid out.
-- [ ] Also update the file's header paragraph to list the new shapes.
-- [ ] **`LogFilterBar.refPicker`** becomes a `ChromeMenuField` over `"All"` plus `uniqueReferences`:
+- [x] Also update the file's header paragraph to list the new shapes.
+- [x] **`LogFilterBar.refPicker`** becomes a `ChromeMenuField` over `"All"` plus `uniqueReferences`:
   - selection goes through the existing `refSelectionBinding`, so the `displayRefTag` / `selectRef(tag:)` seam is unchanged;
   - it keeps its frame (`FilterBarLayout.controlHeight`, `branchMinWidth` / `branchMaxWidth`), help and label;
   - delete the private `chevron` if nothing else in the file uses it.
   - Afterwards the file spells neither `Picker` nor `pickerStyle`.
-- [ ] Update the suite:
+- [x] Update the suite:
   - **Rule twenty-four:** `menuFiles` gains `ChromeControls.swift`. `LogFilterBar.swift` leaves it if no `Menu` remains there; the comment says why.
   - **Rule twenty's `panelControlBuilders`**, under `ChromeControls.swift`:
     - `struct ChromeSegmentedControl`: requires `.accessibilityLabel(` and `.accessibilityValue(`;
@@ -221,7 +221,7 @@ Every shape below reads `\.interfaceMetrics` and `\.chromeTheme`, and takes ever
     - `struct ChromeSettingsTabBar`: requires `.accessibilityValue(`;
     - `struct ChromeMenuField`: requires `.accessibilityLabel(` and `.accessibilityValue(`, `hidesSymbols: true`.
   - **Rule sixteen:** `indicatorStripFiles` becomes a list of `(file, declaration?)`. The existing two stay whole-file. `("ChromeControls.swift", "struct ChromeSettingsTabBar")` is scoped to that struct's brace-matched body, so another shape's background in the same file cannot satisfy it.
-- [ ] Run `swift test` and the macOS build. Both must pass. Rules twenty-one and thirty-four must stay green over the Log bar.
+- [x] Run `swift test` and the macOS build. Both must pass. Rules twenty-one and thirty-four must stay green over the Log bar.
 
 ### Task 3: The two carry-overs in the commit dialog
 
