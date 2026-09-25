@@ -167,23 +167,61 @@ final class ChromeRoleMappingTests: XCTestCase {
         }
     }
 
-    /// Every verdict × every match answer: green only for an accepted verdict
-    /// whose run did not report a mismatch (a submit passes `nil`).
+    /// Every verdict × every match answer, written down rather than derived:
+    /// green only for an accepted verdict whose run did not report a mismatch
+    /// (a submit passes `nil`). The key set is asserted equal to the whole
+    /// product, so a verdict added to the vocabulary fails here until its three
+    /// rows are written.
     func testEveryVerdictHasItsRoleForEveryMatchAnswer() {
         let matchAnswers: [Bool?] = [nil, true, false]
-        for verdict in LeetCodeVerdict.allCases {
-            for matched in matchAnswers {
-                let expected: ChromeColorRole = verdict == .accepted && matched != false
-                    ? .statusGreen : .statusRed
-                XCTAssertEqual(
-                    ChromeColorRole.verdictRole(for: verdict, matchedExpected: matched), expected,
-                    "\(verdict)/\(String(describing: matched))"
-                )
-            }
+        let expected: [VerdictKey: ChromeColorRole] = [
+            VerdictKey(.accepted, nil): .statusGreen,
+            VerdictKey(.accepted, true): .statusGreen,
+            VerdictKey(.accepted, false): .statusRed,
+            VerdictKey(.wrongAnswer, nil): .statusRed,
+            VerdictKey(.wrongAnswer, true): .statusRed,
+            VerdictKey(.wrongAnswer, false): .statusRed,
+            VerdictKey(.memoryLimitExceeded, nil): .statusRed,
+            VerdictKey(.memoryLimitExceeded, true): .statusRed,
+            VerdictKey(.memoryLimitExceeded, false): .statusRed,
+            VerdictKey(.outputLimitExceeded, nil): .statusRed,
+            VerdictKey(.outputLimitExceeded, true): .statusRed,
+            VerdictKey(.outputLimitExceeded, false): .statusRed,
+            VerdictKey(.timeLimitExceeded, nil): .statusRed,
+            VerdictKey(.timeLimitExceeded, true): .statusRed,
+            VerdictKey(.timeLimitExceeded, false): .statusRed,
+            VerdictKey(.runtimeError, nil): .statusRed,
+            VerdictKey(.runtimeError, true): .statusRed,
+            VerdictKey(.runtimeError, false): .statusRed,
+            VerdictKey(.internalError, nil): .statusRed,
+            VerdictKey(.internalError, true): .statusRed,
+            VerdictKey(.internalError, false): .statusRed,
+            VerdictKey(.compileError, nil): .statusRed,
+            VerdictKey(.compileError, true): .statusRed,
+            VerdictKey(.compileError, false): .statusRed,
+            VerdictKey(.unknownError, nil): .statusRed,
+            VerdictKey(.unknownError, true): .statusRed,
+            VerdictKey(.unknownError, false): .statusRed,
+        ]
+        let product = Set(LeetCodeVerdict.allCases.flatMap { verdict in
+            matchAnswers.map { VerdictKey(verdict, $0) }
+        })
+        XCTAssertEqual(Set(expected.keys), product)
+        for key in product {
+            XCTAssertEqual(
+                ChromeColorRole.verdictRole(for: key.verdict, matchedExpected: key.matched), expected[key],
+                "\(key.verdict)/\(String(describing: key.matched))"
+            )
         }
-        XCTAssertEqual(ChromeColorRole.verdictRole(for: .accepted, matchedExpected: nil), .statusGreen)
-        XCTAssertEqual(ChromeColorRole.verdictRole(for: .accepted, matchedExpected: true), .statusGreen)
-        XCTAssertEqual(ChromeColorRole.verdictRole(for: .accepted, matchedExpected: false), .statusRed)
-        XCTAssertEqual(ChromeColorRole.verdictRole(for: .wrongAnswer, matchedExpected: true), .statusRed)
+    }
+
+    private struct VerdictKey: Hashable {
+        let verdict: LeetCodeVerdict
+        let matched: Bool?
+
+        init(_ verdict: LeetCodeVerdict, _ matched: Bool?) {
+            self.verdict = verdict
+            self.matched = matched
+        }
     }
 }

@@ -218,19 +218,23 @@ claim — amended on this branch — that every answer is pinned verbatim over
 `allCases` is false for it. The four trailing literal assertions cover four of
 the thirty verdict × match combinations.
 
-- [ ] Pin it the way its siblings are pinned: a literal table over every
+- [x] Pin it the way its siblings are pinned: a literal table over every
       `LeetCodeVerdict` × {`nil`, `true`, `false`}, with the key set asserted
       equal to the full product, so a tenth verdict case fails the test until
       someone writes down what colour it is.
-- [ ] **Sweep for the shape, not the site.** Any other test in the repository
+- [x] **Sweep for the shape, not the site.** Any other test in the repository
       whose `expected` is the implementation's own expression is the same
       tautology. Grep for it and fix every one, or state that the search found
-      none.
-- [ ] **The test that would have caught it** is the mutation: change
+      none. (Done: none found. The other computed `expected` values are
+      separate oracles: differential checks such as incremental vs. full line
+      index, and GitHubMergePlanTests' conjunction, which is checked against a
+      literal enabled count of 6 while the implementation is an ordered refusal
+      chain.)
+- [x] **The test that would have caught it** is the mutation: change
       `ChromeColorRole.verdictRole`'s rule (for instance drop the
       `matchedExpected != false` term) and confirm the repaired test is red where
       the present one is green. Demonstrate both.
-- [ ] Run `swift test`. It must pass.
+- [x] Run `swift test`. It must pass.
 
 ### Task 6: A geometry token now sizes two surfaces it does not name
 
