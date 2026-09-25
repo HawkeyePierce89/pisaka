@@ -748,8 +748,9 @@ struct DatabaseViewerView: View {
 ///
 /// A modifier with its own state rather than a hovered index on the surface, so
 /// the pointer crossing a 200-row page re-renders the one row it enters and the
-/// one it leaves, not the whole grid.
-private struct GridRowHover: ViewModifier {
+/// one it leaves, not the whole grid. The console's result rows take the same
+/// wash through the same modifier, which is why it is not `private`.
+struct GridRowHover: ViewModifier {
     @Environment(\.chromeTheme) private var theme
     @State private var isHovering = false
 

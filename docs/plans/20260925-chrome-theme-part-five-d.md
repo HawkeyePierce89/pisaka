@@ -222,15 +222,15 @@ Rule forty then bans `ProgressView` in every gated file.
 
 - Modify: `Sources/Pisaka/DatabaseConsoleView.swift`
 - Modify: `Tests/PisakaCoreTests/ChromeThemeSourceGatingTests.swift`
-- [ ] The toolbar and status bar are `bgPanel`, and the "SQL" caption and the footer sentence are `textSecondary`.
-- [ ] Run becomes `.chromeSecondary`, with its ⌘↩ shortcut and `isRunDisabled` unchanged. The spinner becomes `ChromeSpinner`, marked hidden or labelled per decision 8.
-- [ ] The input is a pane on `bgEditor` (decision 4).
-- [ ] The result header row is `bgPanel` with its rule behind. The columns are separated by hairlines. `isTinted` is deleted; rows take `hoverTint` (decision 5). NULL follows the viewer's rendering.
-- [ ] The message slot uses the `statusRed` mark and sentence (decision 7).
-- [ ] The six `Divider()`s become hairlines.
-- [ ] The confirmation dialog is untouched.
-- [ ] Add the file to `gatedFiles`, and update rules thirty (the dialog's two buttons named as unstyleable) and thirty-four, and this file's row of the spinner classification table.
-- [ ] Run `swift test` and the macOS build. Both must pass. The console's rules in `DatabaseViewerSourceGatingTests` must stay green, and the console still declares no zoom surface.
+- [x] The toolbar and status bar are `bgPanel`, and the "SQL" caption and the footer sentence are `textSecondary`.
+- [x] Run becomes `.chromeSecondary`, with its ⌘↩ shortcut and `isRunDisabled` unchanged. The spinner becomes `ChromeSpinner`, marked hidden or labelled per decision 8.
+- [x] The input is a pane on `bgEditor` (decision 4).
+- [x] The result header row is `bgPanel` with its rule behind. The columns are separated by hairlines. `isTinted` is deleted; rows take `hoverTint` (decision 5). NULL follows the viewer's rendering.
+- [x] The message slot uses the `statusRed` mark and sentence (decision 7).
+- [x] The six `Divider()`s become hairlines.
+- [x] The confirmation dialog is untouched.
+- [x] Add the file to `gatedFiles`, and update rules thirty (the dialog's two buttons named as unstyleable) and thirty-four, and this file's row of the spinner classification table. (Rule thirty: 3 buttons, 1 styled; `chromeSecondary`'s caller set gains the file. Rule thirty-four needed no exemption: the message mark takes its own scaled font. Spinner row: 1 labelled, "Running SQL", since neither the "SQL" caption nor Run names the run. The result rows reuse the viewer's `GridRowHover`, no longer `private`.)
+- [x] Run `swift test` and the macOS build. Both must pass. The console's rules in `DatabaseViewerSourceGatingTests` must stay green, and the console still declares no zoom surface.
 
 ### Task 5: The problem-catalog browser becomes the chrome's own rows
 

@@ -32,6 +32,13 @@ import SwiftUI
 /// zoom the console one way and the grid one pixel away another, splitting a
 /// single pane between two zones. `ZoomSourceGatingTests` pins the surface set by
 /// set equality, and this file is deliberately not in it.
+///
+/// **Every colour is a role read from `\.chromeTheme`.** The toolbar and the
+/// status bar stand on `bgPanel`; the input and the result on `bgEditor`, the
+/// grid's own ground one pane up. The surface draws its own `hairline`s — along
+/// its edges and between the result's columns — and a result row takes
+/// `hoverTint` under the pointer, the grid's `GridRowHover`, with no alternating
+/// fill. The confirmation dialog is the platform's and is left as it is.
 struct DatabaseConsoleView: View {
     /// The tab's console. Observed, because every published thing this draws —
     /// the answer, the footer, the message, the spinner, the pending
@@ -45,6 +52,7 @@ struct DatabaseConsoleView: View {
     let isWriteInFlight: Bool
 
     @Environment(\.interfaceMetrics) private var metrics
+    @Environment(\.chromeTheme) private var theme
 
     /// The reader's text, read and written straight through to the console.
     ///
@@ -67,11 +75,11 @@ struct DatabaseConsoleView: View {
     var body: some View {
         VStack(spacing: 0) {
             toolbar
-            Divider()
+            hairline(horizontal: true)
             input
-            Divider()
+            hairline(horizontal: true)
             resultArea
-            Divider()
+            hairline(horizontal: true)
             statusBar
         }
         // The prompt is Core's, shown verbatim, and the two answers are the
@@ -112,18 +120,34 @@ struct DatabaseConsoleView: View {
         HStack(spacing: metrics.scaled(8)) {
             Text("SQL")
                 .font(metrics.scaledFont(.caption, weight: .semibold))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(theme.color(.textSecondary))
             Spacer(minLength: 0)
+            // Labelled: the caption beside it is the pane's name and Run is a
+            // control, so nothing here names the activity but the spinner.
             if console.isRunning {
-                ProgressView()
-                    .controlSize(.small)
+                ChromeSpinner()
+                    .accessibilityLabel("Running SQL")
             }
             Button("Run") { run() }
+                .buttonStyle(.chromeSecondary)
                 .keyboardShortcut(.return, modifiers: .command)
                 .disabled(isRunDisabled)
         }
         .padding(.horizontal, metrics.scaled(10))
         .padding(.vertical, metrics.scaled(5))
+        .background(theme.color(.bgPanel))
+    }
+
+    /// The one-point rule the surface draws along its own edges and between the
+    /// result's columns: a horizontal rule when `horizontal` is true, a vertical
+    /// one otherwise.
+    private func hairline(horizontal: Bool) -> some View {
+        Rectangle()
+            .fill(theme.color(.hairline))
+            .frame(
+                width: horizontal ? nil : metrics.scaled(ChromeGeometry.hairlineWidth),
+                height: horizontal ? metrics.scaled(ChromeGeometry.hairlineWidth) : nil
+            )
     }
 
     /// Run is live only when nothing is already running against this file.
@@ -166,11 +190,17 @@ struct DatabaseConsoleView: View {
 
     // MARK: - The reader's text
 
+    /// A pane between two hairlines, not a field: it stands on `bgEditor` with
+    /// the platform's own scroll background hidden, and is not boxed — the
+    /// rules above and below it are its edges.
     private var input: some View {
         TextEditor(text: text)
             .font(metrics.scaledFont(.body, design: .monospaced))
+            .foregroundStyle(theme.color(.textPrimary))
+            .scrollContentBackground(.hidden)
             .frame(minHeight: metrics.scaled(60))
             .padding(.horizontal, metrics.scaled(4))
+            .background(theme.color(.bgEditor))
     }
 
     // MARK: - What came back
@@ -186,15 +216,15 @@ struct DatabaseConsoleView: View {
                 // header uses.
                 LazyVStack(alignment: .leading, spacing: 0) {
                     headerRow(answer.columnNames)
-                    Divider()
-                    ForEach(Array(answer.rows.enumerated()), id: \.offset) { index, row in
-                        resultRow(row, isTinted: !index.isMultiple(of: 2))
+                    ForEach(Array(answer.rows.enumerated()), id: \.offset) { _, row in
+                        resultRow(row)
                     }
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(theme.color(.bgEditor))
         } else {
-            Color.clear
+            theme.color(.bgEditor)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
@@ -209,28 +239,36 @@ struct DatabaseConsoleView: View {
             ForEach(Array(names.enumerated()), id: \.offset) { _, name in
                 Text(name)
                     .font(metrics.scaledFont(.caption, weight: .semibold))
+                    .foregroundStyle(theme.color(.textPrimary))
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .padding(.horizontal, metrics.scaled(6))
                     .padding(.vertical, metrics.scaled(4))
                     .frame(width: metrics.scaled(Self.columnWidth), alignment: .leading)
-                Divider()
+                hairline(horizontal: false)
             }
         }
+        // The rule is drawn behind the ground, never over it, so the strip's
+        // own fill cannot paint across it.
+        .background(alignment: .bottom) { hairline(horizontal: true) }
+        .background(theme.color(.bgPanel))
     }
 
-    private func resultRow(_ row: [DatabaseValue], isTinted: Bool) -> some View {
+    /// One result row. No alternating fill: the pointer's row takes
+    /// `hoverTint`, the one row state a console result has — it has no
+    /// selection and no editing.
+    private func resultRow(_ row: [DatabaseValue]) -> some View {
         HStack(spacing: 0) {
             ForEach(Array(row.enumerated()), id: \.offset) { _, value in
                 resultCell(value)
-                Divider()
+                hairline(horizontal: false)
             }
         }
-        .background(isTinted ? Color.primary.opacity(0.04) : Color.clear)
+        .modifier(GridRowHover())
     }
 
-    /// One value, drawn **the grid's way**: the rendered text, and NULL dimmed
-    /// and italic as well as carrying the marker. The one distinction the viewer
+    /// One value, drawn **the grid's way**: the rendered text, and NULL in
+    /// `textSecondary` and italic as well as carrying the marker. The one distinction the viewer
     /// must not blur is NULL against the text `NULL`, and the two tables answer
     /// it out of the same `isNull`.
     ///
@@ -240,7 +278,7 @@ struct DatabaseConsoleView: View {
         Text(value.displayText)
             .font(metrics.scaledFont(.caption))
             .italic(value.isNull)
-            .foregroundStyle(value.isNull ? AnyShapeStyle(.tertiary) : AnyShapeStyle(.primary))
+            .foregroundStyle(theme.color(value.isNull ? .textSecondary : .textPrimary))
             .lineLimit(1)
             .truncationMode(.tail)
             .textSelection(.enabled)
@@ -261,14 +299,19 @@ struct DatabaseConsoleView: View {
             if let footer = console.footer {
                 Text(footer)
                     .font(metrics.scaledFont(.caption))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(theme.color(.textSecondary))
             }
+            // The viewer's error banner's answer: the mark and the sentence are
+            // both `statusRed`, a failure said in the failure's colour.
             if let message = console.message {
                 HStack(alignment: .firstTextBaseline, spacing: metrics.scaled(4)) {
                     Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.orange)
+                        .font(metrics.scaledFont(.caption))
+                        .foregroundStyle(theme.color(.statusRed))
+                        .accessibilityHidden(true)
                     Text(message)
                         .font(metrics.scaledFont(.caption))
+                        .foregroundStyle(theme.color(.statusRed))
                         .textSelection(.enabled)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -277,6 +320,7 @@ struct DatabaseConsoleView: View {
         }
         .padding(.horizontal, metrics.scaled(10))
         .padding(.vertical, metrics.scaled(5))
+        .background(theme.color(.bgPanel))
     }
 }
 #endif

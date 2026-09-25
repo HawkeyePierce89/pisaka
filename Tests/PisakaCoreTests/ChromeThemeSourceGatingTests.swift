@@ -282,6 +282,9 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         // Part five (d): the database viewer tab — its sidebar, grid, footer
         // and error banner.
         "DatabaseViewerView.swift",
+        // The viewer's SQL console: its toolbar, input, result table and
+        // status bar.
+        "DatabaseConsoleView.swift",
     ]
 
     func testEveryGatedFileExists() throws {
@@ -1925,6 +1928,9 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         // The grid footer's: once a page is on screen the text beside it is
         // the row range, which names no load; "Loading…" is the empty page's.
         "DatabaseViewerView.swift": (labelled: 1, hidden: 0),
+        // The console toolbar's: beside it stand the pane's "SQL" caption and
+        // the Run control, neither of which names the run in progress.
+        "DatabaseConsoleView.swift": (labelled: 1, hidden: 0),
     ]
 
     func testEverySpinnerConstructionSpeaksItsActivityOrNothing() throws {
@@ -2747,6 +2753,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
             "CommitDialogView.swift", "MergeView.swift", "LocalHistoryView.swift",
             "SettingsView.swift", "LSPServerSettingsView.swift",
             "NewPullRequestSheet.swift", "PullRequestMergeSheet.swift",
+            "DatabaseConsoleView.swift",
         ]),
         ("ChromeCheckbox", [
             "ChromeControls.swift", "CommitDialogView.swift", "LogFilterBar.swift", "LocalChangesView.swift",
@@ -2795,6 +2802,9 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         // chevrons are styled; the cell menu's Copy and Set to NULL are menu
         // items.
         "DatabaseViewerView.swift": (buttons: 6, styled: 4),
+        // Run is styled; the confirmation dialog's Run and Cancel are the
+        // platform dialog's buttons and take no style.
+        "DatabaseConsoleView.swift": (buttons: 3, styled: 1),
     ]
 
     func testOnePrimaryButtonOneSecondaryOneCheckbox() throws {
