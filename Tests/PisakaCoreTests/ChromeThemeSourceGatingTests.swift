@@ -122,7 +122,7 @@ import XCTest
 ///   lies inside a `performAsCurrentDrawingAppearance` body, naming `hairline` and
 ///   `bgPopover` respectively.
 /// - **One field shape.** No gated file spells the rounded-border style; the
-///   shared field/box is constructed in exactly eight callers plus the defining
+///   shared field/box is constructed in exactly nine callers plus the defining
 ///   file, and the shared query toggle in exactly two.
 /// - **Each measurement follows its own zone.** The Find in Files match row
 ///   carries no fixed height and is sized by the code font, each popover's
@@ -285,6 +285,8 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         // The viewer's SQL console: its toolbar, input, result table and
         // status bar.
         "DatabaseConsoleView.swift",
+        // The problem-catalog browser window: its filter bar, rows and footer.
+        "LeetCodeBrowserView.swift",
     ]
 
     func testEveryGatedFileExists() throws {
@@ -1840,6 +1842,14 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
             ControlBuilder(path: ["private func pagingGlyph("],
                            required: [".accessibilityHidden("], hidesSymbols: true),
         ]),
+        // The problem browser's row: one combined element carrying the
+        // selected trait and a named Open action, its Premium lock spoken by
+        // name (so not hidden) — the row's words are the element's.
+        ("LeetCodeBrowserView.swift", [
+            ControlBuilder(path: ["private struct LeetCodeBrowserRow", "var body: some View"],
+                           required: [".accessibilityAddTraits(", ".accessibilityAction(", ".accessibilityLabel("],
+                           hidesSymbols: false),
+        ]),
     ]
 
     func testThePanelsControlsAreIdentifiableWithoutSight() throws {
@@ -1931,6 +1941,10 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         // The console toolbar's: beside it stand the pane's "SQL" caption and
         // the Run control, neither of which names the run in progress.
         "DatabaseConsoleView.swift": (labelled: 1, hidden: 0),
+        // The browser footer's: it turns for a load or an open, and neither is
+        // named beside it — "Loading…" is the empty list's count line alone,
+        // and a loaded list's count line names no activity.
+        "LeetCodeBrowserView.swift": (labelled: 1, hidden: 0),
     ]
 
     func testEverySpinnerConstructionSpeaksItsActivityOrNothing() throws {
@@ -2262,6 +2276,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         "ProjectTreeView.swift",
         "LocalChangesView.swift",
         "DatabaseViewerView.swift",
+        "LeetCodeBrowserView.swift",
     ]
 
     func testNoGatedFileSpellsDividerAndEveryMenuUsesSection() throws {
@@ -2384,6 +2399,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         "NewPullRequestSheet.swift",
         "PullRequestMergeSheet.swift",
         "DatabaseViewerView.swift",
+        "LeetCodeBrowserView.swift",
         "ChromeControls.swift",
     ]
 
@@ -2418,7 +2434,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         }
         XCTAssertEqual(
             constructors, Self.sharedFieldConstructors,
-            "the files constructing the shared field or box must be exactly its eight callers plus the defining file"
+            "the files constructing the shared field or box must be exactly its nine callers plus the defining file"
         )
 
         var toggleConstructors: Set<String> = []
@@ -2753,11 +2769,11 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
             "CommitDialogView.swift", "MergeView.swift", "LocalHistoryView.swift",
             "SettingsView.swift", "LSPServerSettingsView.swift",
             "NewPullRequestSheet.swift", "PullRequestMergeSheet.swift",
-            "DatabaseConsoleView.swift",
+            "DatabaseConsoleView.swift", "LeetCodeBrowserView.swift",
         ]),
         ("ChromeCheckbox", [
             "ChromeControls.swift", "CommitDialogView.swift", "LogFilterBar.swift", "LocalChangesView.swift",
-            "NewPullRequestSheet.swift",
+            "NewPullRequestSheet.swift", "LeetCodeBrowserView.swift",
         ]),
     ]
 
@@ -2805,6 +2821,9 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         // Run is styled; the confirmation dialog's Run and Cancel are the
         // platform dialog's buttons and take no style.
         "DatabaseConsoleView.swift": (buttons: 3, styled: 1),
+        // Open, Sign In…, Refresh and the hidden Return button are styled; the
+        // row's context-menu Open is a menu item.
+        "LeetCodeBrowserView.swift": (buttons: 5, styled: 4),
     ]
 
     func testOnePrimaryButtonOneSecondaryOneCheckbox() throws {
@@ -3113,6 +3132,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         "DiffWindowContent.swift",
         "MergeView.swift",
         "LocalHistoryView.swift",
+        "LeetCodeBrowserView.swift",
     ]
 
     /// A root injects `\.chromeTheme` for its subtree, so it cannot read it: its
@@ -3138,7 +3158,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         }
         XCTAssertEqual(
             declaring, Self.chromeColorRoots,
-            "the files declaring a private chromeColor(_:) must be exactly the five swept window roots"
+            "the files declaring a private chromeColor(_:) must be exactly the six swept window roots"
         )
 
         let roots = ZoomSourceGatingTests.interfaceScaledRoots.intersection(Self.gatedFiles)
@@ -3751,7 +3771,10 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// adds it back.
     private static let settingsShapeConstructions: [(token: String, counts: [String: Int])] = [
         ("ChromeSegmentedControl", ["SettingsView.swift": 2, "PullRequestMergeSheet.swift": 1]),
-        ("ChromeMenuField", ["LogFilterBar.swift": 1, "SettingsView.swift": 1, "NewPullRequestSheet.swift": 1]),
+        ("ChromeMenuField", [
+            "LogFilterBar.swift": 1, "SettingsView.swift": 1, "NewPullRequestSheet.swift": 1,
+            "LeetCodeBrowserView.swift": 1,
+        ]),
         ("ChromeStepper", ["SettingsView.swift": 2]),
         ("ChromeSwitch", ["SettingsView.swift": 2]),
         ("ChromeSettingsTabBar", ["SettingsView.swift": 1]),

@@ -238,15 +238,15 @@ Rule forty then bans `ProgressView` in every gated file.
 
 - Modify: `Sources/Pisaka/LeetCodeBrowserView.swift`
 - Modify: `Tests/PisakaCoreTests/ChromeThemeSourceGatingTests.swift`
-- [ ] **Root.** Add a private `chromeColor(_:)` over `settings.chromeTheme(systemPrefersDark:)`, following the five existing roots, and a `bgPanel` ground. The root struct reads no `\.chromeTheme` (decision 12).
-- [ ] **Filter bar:**
+- [x] **Root.** Add a private `chromeColor(_:)` over `settings.chromeTheme(systemPrefersDark:)`, following the five existing roots, and a `bgPanel` ground. The root struct reads no `\.chromeTheme` (decision 12).
+- [x] **Filter bar:**
   - the query becomes the shared field with the magnifying-glass glyph;
   - Language becomes `ChromeMenuField`, framed at `menuFieldHeight`;
   - the six toggles become `ChromeCheckbox` (decision 3);
   - the vertical `Divider()` becomes a vertical hairline;
   - Open becomes `.chromeSecondary`;
   - the message is `statusRed`.
-- [ ] **Rows** (decision 6):
+- [x] **Rows** (decision 6):
   - `ScrollView` + `ScrollViewReader` + `LazyVStack`;
   - a header row with the four titles "#", "Title", "Difficulty", "Status" on `bgPanel`, with its rule behind;
   - a file-scope `LeetCodeBrowserRow` struct with a scaled `minHeight` from a private layout enum of bare numbers;
@@ -257,13 +257,13 @@ Rule forty then bans `ProgressView` in every gated file.
   - single tap selects, double tap opens, and `.contextMenu` offers "Open";
   - keyboard and accessibility per decision 6;
   - `pruneSelection()` and both `onChange` hooks unchanged.
-- [ ] **Delete** `color(for:)`, the `Table`/`TableColumn` and the `Row` wrapper's `Table`-only comment. Keep `Row` only if the `ForEach` still wants it.
-- [ ] **The signed-out offer and the footer:**
+- [x] **Delete** `color(for:)`, the `Table`/`TableColumn` and the `Row` wrapper's `Table`-only comment. Keep `Row` only if the `ForEach` still wants it.
+- [x] **The signed-out offer and the footer:**
   - text in `textSecondary`, the error in `statusRed`;
   - Sign In… and Refresh `.chromeSecondary`;
   - the spinner becomes `ChromeSpinner`, marked hidden or labelled per decision 8;
   - the offer's glyph keeps its scaled size.
-- [ ] Add the file to `gatedFiles`. Update:
+- [x] Add the file to `gatedFiles`. Update:
   - rule twenty (the row; the spinner's construction marker);
   - rule twenty-four (`menuFiles`);
   - rule twenty-six;
@@ -272,7 +272,8 @@ Rule forty then bans `ProgressView` in every gated file.
   - rule thirty-four;
   - rule thirty-seven (`ChromeMenuField` callers and counts);
   - the spinner classification table (this file's row).
-- [ ] Run `swift test` and the macOS build. Both must pass. `ZoomSourceGatingTests` and `LeetCodeAccountSourceGatingTests` must stay green.
+  (Rule twenty names the row's body: the selected trait, the Open action and the spoken lock. Rule twenty-four: the row's context menu makes the file a `menuFiles` member; it spells no `Section`. Rule twenty-six's count message and both `core-theme.md` passages now say nine callers. Rule thirty: 5 buttons, 4 styled, with the context-menu Open unstyleable. Rule thirty-four needed no exemption. Rule thirty-seven: one `ChromeMenuField`. Spinner row: 1 labelled, "Opening problem" / "Loading problems", because "Loading…" is only the empty list's count line.)
+- [x] Run `swift test` and the macOS build. Both must pass. `ZoomSourceGatingTests` and `LeetCodeAccountSourceGatingTests` must stay green.
 
 ### Task 6: The statement pane, the judge, the open-problem sheet and the sign-in sheet
 
