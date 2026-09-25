@@ -371,19 +371,19 @@ Rule forty then bans `ProgressView` in every gated file.
 
 ### Task 9: Documentation
 
-- [ ] **`docs/architecture/core-theme.md`:**
+- [x] **`docs/architecture/core-theme.md`:**
   - a part five (d) section: the spinner and its tokens, including the call-site accessibility contract (hidden beside a sentence, labelled alone, no default); the three answers; decisions 1–18; the zebra's removal and why no wash role exists; the banner's ground;
   - rules 20, 22, 24, 26, 30, 32, 34, 35 and 37 updated to their new pins (rule twenty's spinner clause checked at constructions);
   - rules 38–41 in the canonical list;
   - the swept-surfaces list extended;
   - open questions: the spinner question closed; `VSplitView`/`HSplitView` carried; the platform focus ring on the grid's cells and the browser's list; the two served documents' palette (the pane themed, the page not); the terminal's colours; the remaining carried items unchanged.
-- [ ] **`core-database-viewer.md`:** the viewer's and the console's entries (the banner, NULL's two roles, hover and the focused cell, no alternation, the plain sidebar list, the shared cell editor). The two writes and the gate are unchanged, and the entries say so.
-- [ ] **`core-leetcode.md`:** the browser's rows (keyboard, accessibility, the dropped column resize), the checkboxes and menu field, the three Core answers, the statement pane's resize handle, the judge's verdict rule now in Core, the commands' `Section`s, and the statement page staying unthemed.
-- [ ] **`CLAUDE.md`:**
+- [x] **`core-database-viewer.md`:** the viewer's and the console's entries (the banner, NULL's two roles, hover and the focused cell, no alternation, the plain sidebar list, the shared cell editor). The two writes and the gate are unchanged, and the entries say so.
+- [x] **`core-leetcode.md`:** the browser's rows (keyboard, accessibility, the dropped column resize), the checkboxes and menu field, the three Core answers, the statement pane's resize handle, the judge's verdict rule now in Core, the commands' `Section`s, and the statement page staying unthemed.
+- [x] **`CLAUDE.md`:**
   - the chrome invariant: forty-one rules, fifty-eight files, part five (d)'s surfaces added to the swept list, the rule summaries for 38–41, and "leaving two roles unspent" kept;
   - the `ChromeControls.swift` index line names the spinner;
   - the `ChromeColorRole.swift` line mentions the catalog's answers.
-- [ ] Run `swift test` once more, since the documentation checks read these files.
+- [x] Run `swift test` once more, since the documentation checks read these files.
 
 ## Post-Completion
 

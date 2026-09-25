@@ -1050,8 +1050,8 @@ only *consults* one, before each of its two writes.
   disabled menu item and the banner are four renderings of that one answer. The
   dimming is `.opacity` over the whole cell rather than a second
   `foregroundStyle`, so it *composes* with the NULL rendering instead of
-  competing with it — a refused NULL stays italic and tertiary and simply reads
-  fainter, where a greyer foreground would have drawn a refused value and an
+  competing with it — a refused NULL stays italic and `textSecondary` and simply
+  reads fainter, where a greyer foreground would have drawn a refused value and an
   editable NULL the same colour — and it is what tells a view or an unaddressable
   table (where **every** cell is refused) apart from an editable one at a glance,
   which hovering each cell in turn is not. Editing is closed
@@ -1094,6 +1094,34 @@ only *consults* one, before each of its two writes.
   Return neither from the field it opens nor from anything else the window shows.
   Everything is still sized through `\.interfaceMetrics` and nothing is drawn at
   the code font, so the pane still declares no `ZoomSurface`.
+  Chrome theme part five (d) moved the surface onto the chrome roles
+  (`core-theme.md`, which pins it in `ChromeThemeSourceGatingTests`) and changed
+  **what it looks like, not what it does**: the two writes, the gate they
+  consult, the disable terms, the tokens and every sentence are untouched. The
+  pane stands on `bgPanel` and the grid on `bgEditor`. The **error banner** is a
+  `bgPanel` strip with a `hairline` bottom rule drawn behind it, its
+  `exclamationmark.triangle.fill` mark and its sentence both `statusRed`; the
+  orange wash is gone. **NULL has two roles**: a NULL cell keeps its italic and
+  takes `textSecondary`, an ordinary value `textPrimary` — still decided from
+  `isNull`, never from the text — and the refused dimming stays a view opacity
+  over either. The grid has **no row selection, and none was added**: a row takes
+  `hoverTint` under the pointer (`GridRowHover`, a modifier the console reuses)
+  and the focused cell, the grid's one selection-like state, draws
+  `accentTintStrong`. **No alternation**: the zebra (`isTinted`) is deleted,
+  since the design's tables read by selection and hover. The header row is
+  `bgPanel` with the sort chevron `textSecondary` and its rule behind; the column
+  separators and the seven former `Divider()`s are `hairline` rules. The
+  **sidebar is a plain list**: `.listStyle(.sidebar)` drew the platform's
+  translucent material, so it is `.plain` with `.scrollContentBackground(.hidden)`
+  on `bgPanel`, its Tables/Views headers `Section { } header: { }` in
+  `textSecondary`, and no row background, so the selection stays the platform's.
+  The **cell editor is the shared field** (`ChromeThemedTextField`) over the
+  grid's own `$focus`/`.editor(coordinate)`, speaking the column's name; its
+  `.onSubmit`/Escape handling stays on the outer view. The footer's paging
+  chevrons are `.plain` buttons named "Previous page"/"Next page" with scaled,
+  hidden glyphs and their `.disabled(… || model.isWriteInFlight)` terms verbatim,
+  and its activity indicator is the shared `ChromeSpinner`, labelled because
+  nothing beside it names the load. `VSplitView`'s divider stays the platform's.
 
 - `ContentView.swift` — `editorZone` keeps the breadcrumb for **every** tab (a
   database has a path like any other file) and routes below it on the tab kind:
@@ -1814,7 +1842,19 @@ whether more remained; **no `LIMIT` is ever appended to the reader's text.**
   a paragraph in a slot drawn bold and sized for a question is both the least
   readable place available and the one at risk of truncation — which would cut the
   transaction sentence's exception clause first, the part the promise is only true
-  with.
+  with. Chrome theme part five (d) moved the pane onto the chrome roles without
+  touching its behaviour — the confirmed mutation, the gate asked before sending,
+  the one-write-per-tab rule and the dialog are unchanged. The toolbar and
+  status bar are `bgPanel`, the "SQL" caption and footer sentence
+  `textSecondary`; Run is `.chromeSecondary` with its ⌘↩ shortcut and
+  `isRunDisabled` verbatim, and its spinner is the shared `ChromeSpinner`,
+  labelled "Running SQL" because neither the caption nor Run names the run. The
+  input is a pane on `bgEditor` between two hairlines (not a field, so not
+  boxed). The result header matches the grid's, the columns are separated by
+  hairlines, rows take `hoverTint` through the grid's `GridRowHover` with no
+  alternation and no selection, and NULL follows the grid's two roles. The
+  message slot draws the banner's `statusRed` mark and sentence, and the six
+  former `Divider()`s are hairlines. It still declares no zoom surface.
 
 ### The seam's three new members
 

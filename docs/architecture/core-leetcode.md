@@ -1560,6 +1560,10 @@ the limits the design carries.
     "offline moment" the paragraph above keeps the cookies for. iOS needs no such
     parameter — both of its presenters render `lastError` inline, immediately under
     the account row.
+    Since chrome theme part five (d) the macOS sheet's **header and footer are
+    chrome** — `bgPanel`, captions `textSecondary`, Cancel `.chromeSecondary`, its
+    two former `Divider()`s `hairline` rules (`core-theme.md`) — while the web page
+    between them is the site's own and is not themed.
   - `LeetCodeOpenProblemSheet.swift` (macOS) — three things in one file, because
     they are one decision seen from three places: the Open Problem sheet, the
     `LeetCodeCommands` menu items, and `LeetCodeFolderChooser`.
@@ -1645,6 +1649,19 @@ the limits the design carries.
     because a panel pre-targeted at a directory that does not exist opens somewhere
     arbitrary. Cancelling is an answer, not a failure: nothing is fetched and
     nothing is alerted.
+    **Chrome theme part five (d)** moved the sheet onto the chrome roles and
+    changed none of the above (`core-theme.md`): it stands on `bgPanel`, title
+    `textPrimary`, captions and the parse hint `textSecondary`, the refusal
+    `statusRed`; the input is the shared themed field over a private focus enum,
+    and the language picker is the shared `ChromeMenuField` over the same
+    `settings.leetCodeLanguage` binding (its visible "Language" caption hidden
+    from accessibility, the field speaking the name); Open is `.chromePrimary`,
+    Sign In… and Cancel `.chromeSecondary`, every shortcut and the disabled rule
+    verbatim; the progress indicator is the shared `ChromeSpinner`, hidden from
+    accessibility because the fetching line beside it already says what is
+    happening. **`LeetCodeCommands` separates with `Section`s**: the one
+    `Divider()` between its two groups became two `Section { }` groups, the
+    menu's own boundary, with the shortcuts unchanged.
   - `LeetCodeDescriptionView.swift` (macOS) — the right-hand pane, plus its web
     view. **Zones**: the pane's chrome (header, buttons, the judge section)
     follows the interface scale it inherits from `ContentView`, while the
@@ -1750,6 +1767,18 @@ the limits the design carries.
     same gate for the same reason. `loadHTMLString`'s base URL
     matches the document's own `<base href>`, or LeetCode's relative `<img src>`s
     would resolve against `about:blank`.
+    **The pane is chrome; the statement page is not** (chrome theme part five
+    (d), `core-theme.md`). The header and the collapsed strip stand on `bgPanel`
+    with the title `textPrimary`; the three icon-only buttons (hide, open on the
+    site, show) carry an accessibility label each and draw their glyphs scaled
+    and hidden through one `iconGlyph(`; the three former `Divider()`s are
+    `hairline` rules. The **resize handle** — a 5-point `separatorColor` fill
+    before — takes `ContentView.panelDivider`'s shape: a transparent hit area with
+    a centred `hairline` at `hairlineWidth`, its cursor still pushed through
+    `syncResizeHandleCursor()` and released from `onDisappear` exactly as above
+    (the function is pinned in `ChromeThemeSourceGatingTests`' rule twenty-two).
+    The web view and its code-zone marker are untouched, and the served statement
+    document keeps its own stylesheet: it is not themed from the chrome roles.
   - `LeetCodeJudgeView.swift` (macOS) — `LeetCodeJudgeSection`, hosted by
     `LeetCodeDescriptionPane` below the statement web view and inside the same
     pane, because Run and Submit are about the problem the user is reading.
@@ -1776,8 +1805,9 @@ the limits the design carries.
     derived, because "the one the user just asked for" is a fact about this surface
     and not about the judge (`lastRun` and `lastSubmit` are separate published
     values on purpose: they are different shapes, and a submit must not erase what
-    a run just showed). The run header's colour comes from `matchedExpected`, not
-    from the verdict, for the reason `LeetCodeVerdict.isAccepted` documents. The
+    a run just showed). The run header's colour follows `matchedExpected`, not the
+    verdict alone, for the reason `LeetCodeVerdict.isAccepted` documents — decided
+    in Core by `verdictRole(for:matchedExpected:)` (below). The
     compile/runtime diagnostic is rendered **in full** — monospaced, selectable,
     wrapped rather than clipped, scrolling with the rest inside a capped result
     area so a Wrong Answer with four long fields cannot push the statement off the
@@ -1797,6 +1827,19 @@ the limits the design carries.
     inside them, and the case rows are `result.caseCount` — both decisions live on
     `LeetCodeRunResult` rather than here, since they are statements about
     LeetCode's arrays and this file is meant to hold none.
+    **The verdict's colour rule is Core's** since chrome theme part five (d): the
+    view's `verdict(_:isGood:)` became `verdict(_:role:)`, fed by
+    `ChromeColorRole.verdictRole(for:matchedExpected:)` — `statusGreen` for
+    `.accepted` unless `matchedExpected == false`, `statusRed` otherwise — with
+    the run passing its `matchedExpected` and the submit `nil`, so the "good" rule
+    and its colour moved together and no gated file spells `isGood`. Run and
+    Submit are `.chromeSecondary`, the info badge `textSecondary`, scaled and
+    still labelled, captions and fields `textSecondary`/`textPrimary`, and every
+    failure line (`lastError`, `errorText`) `statusRed`; the test-case
+    `TextEditor` is wrapped in the shared `ChromeControlBox` (the commit dialog's
+    message-box shape) with its `separatorColor` stroke deleted; the spinner is
+    the shared `ChromeSpinner`, hidden from accessibility because "Running…"/
+    "Submitting…" stands beside it (`core-theme.md`).
   - `LeetCodeBrowserWindowController.swift` (macOS) — owns the single, non-modal
     problem browser window (⌘⇧B). `ProjectSearchWindowController` verbatim in
     shape — a retained `EscClosableWindow` hosting a SwiftUI root through an
@@ -1812,8 +1855,8 @@ the limits the design carries.
     exposed for one caller: raising the editor window *behind* this one is an
     `order(.below, relativeTo:)` and needs it.
   - `LeetCodeBrowserView.swift` (macOS) — the window's contents: the search field,
-    the language picker and the two rows of filter toggles at the top, the `Table`
-    below, the count/error/fetch-time/Refresh footer at the bottom. It is one of
+    the language menu field and the two rows of filter checkboxes at the top, the
+    problem rows below, the count/error/fetch-time/Refresh footer at the bottom. It is one of
     the `NSHostingController` roots that applies `.interfaceScaled(settings)`, so
     the whole window is chrome and belongs to the interface zone — it draws no
     code font and declares no zoom surface (`docs/architecture/core-zoom.md`).
@@ -1831,14 +1874,14 @@ the limits the design carries.
     leaving availability where it was (the case availability alone cannot see —
     `LeetCodeBrowserLoadKey`). Inside the staleness window that load costs no
     request, which is what makes re-entering the window free.
-    The language `Picker` is bound to `settings.leetCodeLanguage` — the *same*
+    The language menu field is bound to `settings.leetCodeLanguage` — the *same*
     persisted setting the Open Problem sheet writes, so the two surfaces cannot
     disagree about the language the next solution file is seeded in. The filter
     toggles need no "All" case, because an empty set and a full one are the same
     list (`LeetCodeProblemFilter`). Premium rows carry a lock marker and are never
-    filtered out. `Row` is a view-layer wrapper for its `Identifiable` conformance
-    alone (`Table` requires one; `LeetCodeProblem` gains none it does not otherwise
-    need). The footer's `countLine` renders the two empty states as two different
+    filtered out. The rows are keyed by slug (`ForEach(…, id: \.slug)`), so
+    `LeetCodeProblem` gains no `Identifiable` conformance it does not otherwise
+    need. The footer's `countLine` renders the two empty states as two different
     sentences — a filter that matches nothing is not a list with nothing in it —
     and shows `lastError` **beside** the rows rather than instead of them.
     **The selection is pruned, because SwiftUI keeps one whose row is gone.**
@@ -1860,6 +1903,39 @@ the limits the design carries.
     than through the app's shared slot, for that file's reason: the shared slot
     would raise it on the editor window, where the user who pressed the button is
     not looking.
+    **The rows are the chrome's own, not a platform `Table`** (chrome theme part
+    five (d), `core-theme.md`). The list is a `ScrollView` + `ScrollViewReader` +
+    `LazyVStack` under a `bgPanel` header row ("#", "Title", "Difficulty",
+    "Status") with its rule drawn behind; each row is the file-scope
+    `LeetCodeBrowserRow`, sized by a scaled `minHeight` from the private
+    `LeetCodeBrowserLayout`, following the Log's `CommitRow`: selection
+    `accentTintStrong` whether or not the window is key, hover `hoverTint`. The
+    number is `textSecondary` in monospaced digits, the title `textPrimary`, the
+    lock glyph `textSecondary`, scaled, keeping its help. **Three colour answers
+    are Core's**: the difficulty is coloured by
+    `ChromeColorRole.difficultyRole(for:)` (medium is `statusYellow`, there being
+    no orange role) and the status — still drawn by the view's own glyph and
+    words — by `problemStatusRole(for:)`; the verdict's is the judge's, below.
+    The old `color(for:)` table is deleted. **The `Table`'s per-column drag
+    resize is dropped** — the design's panel has none: the number, difficulty and
+    status columns take fixed widths scaled from the old ideal widths (56 / 88 /
+    96) and the title the rest. **Keyboard**: the list is one focusable
+    container; `onMoveCommand` moves the selection up and down and the
+    `ScrollViewReader` keeps it visible; Return opens through a zero-sized
+    shortcut button enabled only while the list holds focus (the database grid's
+    idiom, since `onKeyPress` is macOS 14); single tap selects, double tap opens,
+    the context menu offers Open, and the Open button stays. **Accessibility**:
+    each row is one combined element carrying the `.isSelected` trait and a named
+    "Open" action, and the lock speaks "LeetCode Premium". The six difficulty and
+    status filters are the shared `ChromeCheckbox` — set-membership filters, an
+    option of one action rather than a single choice — over the unchanged
+    bindings; the query is the shared themed field with the magnifying-glass
+    glyph, the language the shared `ChromeMenuField`; the window root resolves
+    its colours through a private `chromeColor(_:)` on a `bgPanel` ground; Open,
+    Sign In… and Refresh are `.chromeSecondary`, the message and the error
+    `statusRed`, and the activity indicator the shared `ChromeSpinner`, labelled
+    because the "Loading…" line is only the empty list's. `pruneSelection()` and
+    both `onChange` hooks are unchanged.
   - `PisakaApp.swift` / `ContentView.swift` / `SettingsView.swift` (macOS, modified;
     entries in `app-shell.md` and `app-window.md`) — the orchestration.
     `makeLeetCode(settings:)` composes the stack once (transport, Keychain store,

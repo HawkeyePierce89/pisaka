@@ -1581,7 +1581,8 @@ rule twenty-seven.
 - **The tab-placement wording.** The drawing rewords the tab-orientation row;
   the code's words are kept verbatim.
 - **The spinners.** `ProgressView` stays in Language Servers and both sheets;
-  the ticket names no replacement.
+  the ticket names no replacement. (Closed by part five (d): every gated site is
+  the shared `ChromeSpinner`.)
 - **`HSplitView`'s divider** in Acknowledgements stays the platform's, as it
   already is in three gated files.
 - **The iOS half's `.label`** in `LicenseTextView.swift`: a UIKit semantic
@@ -1590,13 +1591,208 @@ rule twenty-seven.
 - **The Acknowledgements list's platform selection**: the list draws no row
   background (rule thirty-five), so the selection box is the platform's.
 
+#### Part five (d) — the database viewer, its SQL console and the problem-catalog surfaces
+
+The last seven unswept macOS chrome views: the database viewer tab and its SQL
+console, and the problem-catalog browser window, the statement pane, the judge
+section, the open-problem sheet (with the menu-bar commands in the same file) and
+the sign-in sheet. It spends **no new colour role** — `ChromeColorRole` stays at
+twenty-one cases, `currentLine` and `bracketMatch` stay unspent — and adds three
+Core colour answers and one shared control, the spinner, with two geometry
+tokens. Seven files join the gated set, taking it from fifty-one to
+**fifty-eight**: `DatabaseViewerView.swift`, `DatabaseConsoleView.swift`,
+`LeetCodeBrowserView.swift`, `LeetCodeDescriptionView.swift`,
+`LeetCodeOpenProblemSheet.swift`, `LeetCodeJudgeView.swift` and
+`LeetCodeLoginView.swift`. Four rules are added (thirty-eight to forty-one, the
+suite growing from thirty-seven to forty-one), and rules twenty, twenty-two,
+twenty-four, twenty-six, thirty, thirty-two, thirty-four, thirty-five and
+thirty-seven gain pins wherever a new file falls under them.
+
+**The spinner — `ChromeSpinner`.** Every `ProgressView` in a macOS gated file
+became the shared spinner: the five in the new files and fifteen in files
+already gated (the Log 2, the commit dialog, Find in Files, the Pull Requests
+panel 3, the two pull-request sheets 3, Language Servers 3, Local History,
+Usages) — **twenty sites**. It is drawn, not a platform control: an open arc
+(three quarters of a circle, one turn a second) stroked in `textSecondary` and
+rotated by a repeating animation, `spinnerSide` (16, the small control size it
+replaces) square with a `spinnerLineWidth` (2) stroke, both `ChromeGeometry`
+tokens scaled through the metrics, neither derived from the other. A spinner
+reports activity, not selection, which is why it is not `accent`. Under Reduce
+Motion it draws still. Its accessibility is a **call-site contract**: a spinner
+speaks either its activity or nothing, decided where it is constructed, never
+both and never neither. A spinner whose neighbour already names the activity —
+a sentence or caption beside it — is `.accessibilityHidden(true)`, so VoiceOver
+reads the sentence once rather than the sentence and then a second, vaguer
+one; a spinner standing alone carries `.accessibilityLabel(…)` in the site's
+own words. The type has **no label parameter and no default label** — a default
+would be exactly the duplicate the contract avoids — and carries
+`.updatesFrequently` in its body, inert when the site hides it. The shape
+follows part five (c)'s for exactly this case: `SettingsView.swift`'s
+`.accessibilityHidden(controlSpeaksLabel)` on a label column whose control
+speaks for itself, and `ChromeControls.swift`'s hidden decorative glyphs. Each
+site was classified from the tree, and the classification is pinned per file
+(rule forty): of the twenty, twelve are labelled and eight hidden. The
+"Loading…"/"Searching…" lines in the Log, Find in Files, Usages and the problem
+browser are the empty list's alone, so the spinner beside a *populated* list
+has no neighbour and is labelled, as are the commit dialog's, Local History's,
+the Pull Requests header's, the two sheets' write spinners, the database
+footer's and the console's; the armed wait, "Reading checks…", the merge
+settings line, Language Servers' three rows, the judge's "Running…"/
+"Submitting…" and the open-problem sheet's fetching line stand beside theirs
+and are hidden.
+
+**The three Core answers.** `ChromeColorRole.difficultyRole(for:)` (easy
+`statusGreen`, medium `statusYellow`, hard `statusRed`),
+`problemStatusRole(for:)` (solved `statusGreen`, attempted `statusYellow`,
+not started `textSecondary`) and `verdictRole(for:matchedExpected:)` —
+`statusGreen` for `.accepted` unless `matchedExpected == false`, `statusRed`
+otherwise. The verdict's "good" rule moved to Core **with** its colour: the
+judge's `verdict(_:isGood:)` became `verdict(_:role:)`, the run passing its
+`matchedExpected` and the submit `nil`. Each answer has one reader (rule
+thirty-nine) and is tested total over its cases in `ChromeRoleMappingTests`.
+
+Decisions this part made where the ticket was silent or the repository
+differed:
+
+1. **Twenty-two `Divider()` sites, in six files, not five.** The viewer 7, the
+   console 6, the browser 3, the statement pane 3, the sign-in sheet 2, and one
+   in the open-problem sheet's file inside `LeetCodeCommands`; the judge section
+   has none. Every surface divider is now the surface's own `hairline` rule at
+   `hairlineWidth`. The commands' one is a menu separator, so it became two
+   `Section { }` groups — rule twenty-four's own idiom.
+2. **Two `Picker`s, not one.** The browser's filter bar and the open-problem
+   sheet both pick the solution language over
+   `LeetCodeSolutionFile.offerableLanguages`; both became `ChromeMenuField`,
+   the answer part five (c) gave the catalog settings tab for the same list.
+3. **The six filter toggles are `ChromeCheckbox`es.** Difficulty and status are
+   set-membership filters — each case independently in or out, an empty set
+   meaning everything — an option of one action rather than a single choice or
+   a standing preference, so the picker rule answers checkbox. The bindings are
+   unchanged.
+4. **The fields.** The browser's query (with the magnifying-glass glyph) and the
+   open-problem sheet's input are `ChromeThemedTextField`, each over a private
+   focus enum; the grid's cell editor is `ChromeThemedTextField` over the grid's
+   own `$focus`/`.editor(coordinate)` and speaks the column's name, its
+   `.onSubmit`/Escape handling staying on the outer view; the judge's test-case
+   `TextEditor` is wrapped in `ChromeControlBox` (the commit dialog's message
+   box shape) and its `separatorColor` stroke is gone; the console's input is a
+   pane between two hairlines, not a field — on `bgEditor` with
+   `.scrollContentBackground(.hidden)`, unboxed.
+5. **The database grid has no row selection, and none was added.** A grid row
+   and a console result row take `hoverTint` under the pointer through one
+   modifier, `GridRowHover` (the console reuses the viewer's); the grid's one
+   selection-like state, the focused cell, draws `accentTintStrong`; the
+   console's rows have hover only. The zebra (`isTinted` and its `isMultiple`
+   expression) is **deleted** from both, and no wash role replaces it: the
+   design's tables read by selection and hover, and a twenty-second role for an
+   alternation the design does not draw would be the refusal's own case (rule
+   forty-one).
+6. **The browser's rows follow `CommitRow`.** The platform `Table` became
+   `ScrollView` + `ScrollViewReader` + `LazyVStack` under a `bgPanel` header row
+   ("#", "Title", "Difficulty", "Status") with its rule drawn behind. Each row is
+   the file-scope `LeetCodeBrowserRow`, sized by a scaled `minHeight` from the
+   private `LeetCodeBrowserLayout` enum of bare numbers; selection is
+   `accentTintStrong` whether or not the window is key, hover `hoverTint`. The
+   `Table`'s per-column drag resize is **not carried** — the design's panel has
+   none: the number, difficulty and status columns take fixed widths scaled from
+   the old ideal widths (56 / 88 / 96) and the title column the rest. Keyboard:
+   the list is one focusable container, `onMoveCommand` moves the selection and
+   the `ScrollViewReader` keeps it visible, and Return opens through a
+   zero-sized shortcut button enabled only while the list holds focus (the
+   viewer's `returnOpensTheFocusedCell` idiom, since `onKeyPress` is macOS 14);
+   single tap selects, double tap opens, the context menu offers Open, and the
+   explicit Open button stays. Accessibility: each row is one combined element
+   carrying `.isSelected` and a named "Open" action, and the lock glyph speaks
+   "LeetCode Premium".
+7. **The viewer's error banner** is a `bgPanel` strip with a `hairline` bottom
+   rule drawn behind; its `exclamationmark.triangle.fill` mark and its sentence
+   are both `statusRed`, and the orange wash is deleted. The console's message
+   slot takes the same mark and colour.
+8. **The spinner is drawn, not a platform control**, as above; the three
+   `.progressViewStyle(.circular)` went with their views.
+9. **The statement pane's resize handle** (a 5-point `separatorColor` fill) takes
+   `ContentView.panelDivider`'s shape: a transparent hit area with a centred
+   `hairline` at `hairlineWidth`. Its cursor function joins rule twenty-two's
+   pinned set.
+10. **The tables-and-views sidebar.** `.listStyle(.sidebar)` draws the
+    platform's translucent material, so the list is `.plain` with
+    `.scrollContentBackground(.hidden)` on `bgPanel`; the section headers are
+    `Section { } header: { }` in `textSecondary`; the platform draws the
+    selection and no row background is set, so rule thirty-five pins `[[]]`.
+    The key glyph takes its own scaled font and keeps its help.
+11. **`VSplitView`'s divider stays**, carried with `HSplitView`'s as one open
+    question.
+12. **The browser is a window root**, so rule thirty-two applies: it resolves
+    colours through a private `chromeColor(_:)` over
+    `settings.chromeTheme(systemPrefersDark:)`, its root struct reads no
+    `\.chromeTheme`, and its rows are a file-scope child struct reading the
+    environment. The roots declaring `chromeColor` grow from five to six.
+13. **Only the colour tables moved to Core.** The browser's two title switches
+    and the status column's glyph choice (words and a glyph, not a colour) stay
+    in the view; rule thirty-nine pins the browser's case-label count, rule
+    eighteen's mechanism, so a colour switch added later moves the count.
+14. **The verdict's "good" rule moved with its colour** (above).
+15. **Medium difficulty is `statusYellow`.** There is no orange role, and
+    attempted takes the same role.
+16. **Styled buttons get a table with two numbers per file.** Menu items and a
+    confirmation dialog's buttons cannot take a button style — the cell menu's
+    Copy and Set to NULL, the browser's context-menu Open, `LeetCodeCommands`'
+    five items, the console's dialog Run and Cancel — so part five (d)'s table
+    states each file's `Button` count and its `.buttonStyle(` count (rule
+    thirty).
+17. **Named icon-only controls.** The statement pane's three icon-only buttons
+    (hide, open on the site, show) and the grid footer's two paging chevrons
+    ("Previous page" / "Next page", `.plain`, their `.disabled(… ||
+    model.isWriteInFlight)` terms verbatim) carry `.accessibilityLabel` and hide
+    their scaled glyphs, and join rule twenty's builders.
+18. **The page inside the statement pane stays unthemed.** The pane — header,
+    collapsed strip, dividers, resize handle — is chrome and is swept; the served
+    statement document is not, and keeps its own stylesheet. The sign-in sheet's
+    web page is the site's own; only its header and footer are chrome.
+
+The surfaces in detail: the viewer pane stands on `bgPanel` and the grid on
+`bgEditor`; every value text is `textPrimary` and every secondary text
+`textSecondary`; a NULL cell keeps its italic and takes `textSecondary` (its
+doc comment no longer says "tertiary"), and `refusedCellOpacity` stays a view
+opacity. The grid's header row is `bgPanel` with the sort chevron
+`textSecondary` and its rule behind; its column separators are vertical
+`hairline` rules. The console's toolbar and status bar are `bgPanel`, its "SQL"
+caption and footer sentence `textSecondary`, Run `.chromeSecondary` with ⌘↩ and
+`isRunDisabled` unchanged; its result header matches the grid's, and its
+confirmation dialog is untouched. The browser's filter bar holds the shared
+field, the menu field at `menuFieldHeight`, the six checkboxes, a vertical
+hairline and Open (`.chromeSecondary`), its message `statusRed`; the signed-out
+offer and footer text are `textSecondary`, the error `statusRed`, Sign In… and
+Refresh `.chromeSecondary`. The statement pane's header and collapsed strip are
+`bgPanel` with the title `textPrimary`; the judge's Run and Submit are
+`.chromeSecondary`, its info badge `textSecondary`, scaled and still labelled,
+and every failure line `statusRed`. The open-problem sheet is on `bgPanel`,
+Open `.chromePrimary` and Sign In…/Cancel `.chromeSecondary` with shortcuts and
+the disabled rule unchanged, the refusal `statusRed`, its visible "Language"
+caption hidden from accessibility since the menu field speaks the name; the
+sign-in sheet's header and footer are `bgPanel`, Cancel `.chromeSecondary`.
+Every label, sentence, shortcut, disabled rule and generation-token capture is
+verbatim; nothing about the viewer's two writes or the gate they consult
+changed.
+
+**Open questions**, deliberately left:
+
+- **`VSplitView`/`HSplitView`'s dividers** stay the platform's.
+- **The platform focus ring** on the grid's focused cell and on the browser's
+  focusable row list.
+- **The two served documents' palette**: the statement page and the sign-in
+  page are not chrome; the pane around the first is.
+- **The terminal's colours** stay `TerminalTheme`'s, as before.
+
+The spinner question part five (c) left open is **closed**.
+
 #### What is still waiting
 
 The dock is finished, the popovers and search surfaces are swept, and so are the
-commit dialog, the merge editor, every secondary window's ground, Preferences and
-the two pull-request sheets. After them: the remaining sheets and dialogs, the
-problem browser's own view (its window already stands on `bgPanel`) and the
-terminal's own palette. Each follows the six-step guide at the end of this document, on its
+commit dialog, the merge editor, every secondary window's ground, Preferences,
+the two pull-request sheets, the database viewer and its console, and the
+problem-catalog surfaces. After them: whatever macOS chrome view is still
+ungated, and the terminal's own palette. Each follows the six-step guide at the end of this document, on its
 own, with `gatedFiles` growing as part of the restyle rather than afterwards.
 
 The dock's tab row is **no longer deferred** — part four (a) drew it, and
@@ -1609,7 +1805,7 @@ waits on a design decision rather than on a file, the **lane hues**, and the
 unified diff's **per-line checkbox glyph** and **changed-line text tint** (part
 five (b)'s departures six and seven), all open design questions. Two roles
 remain unspent — `currentLine` and `bracketMatch`, both code zone — after
-forty-five surfaces, the same two and the same count
+fifty-two surfaces, the same two and the same count
 `ChromeColorRole.swift`'s own doc comment states.
 
 ### The monochrome-icon decision
@@ -1648,7 +1844,7 @@ five: `TabListView.swift`, `TabRowView.swift`, `BreadcrumbBarView.swift`,
 `MainWindowChrome.swift`, `ContentView.swift`, `ProjectSwitcherView.swift`,
 `BranchSwitcherView.swift`, `PullRequestIndicatorView.swift` — plus part four
 (a)'s `DockTabRow.swift`, `ProblemsPanelView.swift`, `UsagesPanelView.swift` and
-`TerminalPanelView.swift`, **twenty** in all. Part four (b), part five (a), part five (b) and part five (c) add seven, seven, ten and seven more, each named in its own section above — **fifty-one** in all today. `ProjectTreeView.swift` is not among the third part's additions because it
+`TerminalPanelView.swift`, **twenty** in all. Part four (b), part five (a), part five (b), part five (c) and part five (d) add seven, seven, ten, seven and seven more, each named in its own section above — **fifty-eight** in all today. `ProjectTreeView.swift` is not among the third part's additions because it
 was already there: part three restyled the surface *around* the rows part one
 had swept, and a file joins this set once. The draft field is in the set
 although it is an editing affordance rather than a row: an inline draft
@@ -1981,7 +2177,21 @@ The forty-one rules, each invisible to the compiler:
    `ChromeSwitch` (label and value), `ChromeSettingsTabBar` (each tab's value)
    and `ChromeMenuField` (label and value, its chevron hidden). Stated limit:
    a single segment's own value is not pinned — the control's value already
-   speaks the selected title, so deleting one segment's stays green.
+   speaks the selected title, so deleting one segment's stays green. Part five
+   (d) adds the database footer (the two paging buttons' labels, `footer`) and
+   its hidden `pagingGlyph(`, the problem browser's `LeetCodeBrowserRow` body
+   (`.accessibilityAddTraits(` for the selected trait, `.accessibilityAction(`
+   for Open, `.accessibilityLabel(` for the spoken lock), and the statement
+   pane's `header(`, `collapsedStrip` and their shared hidden `iconGlyph(`. It
+   also adds a **spinner clause, checked at the constructions rather than in
+   the type's body**: every `ChromeSpinner(` call's trailing modifier chain (the
+   lines after the call that begin with `.`, read from stripped text, nothing
+   parsed) spells exactly one of `.accessibilityLabel(` or
+   `.accessibilityHidden(` — never neither, never both. The type carries no
+   default label because a default would be the very duplicate a hidden site
+   avoids; the contract follows `SettingsView.swift`'s hidden label column and
+   `ChromeControls.swift`'s hidden glyphs. Rule forty pins how many of each
+   every file holds.
 21. **The Log's filter bar fits the window it lives in.** The requirement,
    stated in `LogFilterBar.swift`'s doc comment: at the main window's minimum
    width, at every interface scale, every control in the bar is reachable and
@@ -2002,7 +2212,8 @@ The forty-one rules, each invisible to the compiler:
    model clears its selection or the dock switches tabs — and `NSCursor`'s stack
    is global, so the cursor stays pushed after the flag that would have popped
    it is gone. The set of pushing functions is pinned by equality (the Log
-   divide's and the two `ContentView` dividers'), so a scanner that stopped
+   divide's, the two `ContentView` dividers' and — since part five (d) — the
+   statement pane's resize handle, `syncResizeHandleCursor`), so a scanner that stopped
    finding them fails rather than going vacuous. Stated limit: the rule sees the
    call, not that the handler clears the hover and drag state before it — a
    handler calling the sync with both still set pops nothing.
@@ -2021,10 +2232,19 @@ The forty-one rules, each invisible to the compiler:
     spells `Section` at least once. Two sets are pinned by equality: the gated
     files building a `Menu` (`menuFiles`: `BranchSwitcherView.swift`,
     `ChromeControls.swift`, `SearchHistoryMenu.swift`, `ProjectTreeView.swift`,
-    `LocalChangesView.swift`) and the subset that also separates with `Section`
-    (`menuSectionFiles`: `SearchHistoryMenu.swift`, `ProjectTreeView.swift`,
-    `LocalChangesView.swift`), so a new `Menu` is added deliberately, with or
-    without a separator. `LogFilterBar.swift` left the first set in part five
+    `LocalChangesView.swift`, `DatabaseViewerView.swift`,
+    `LeetCodeBrowserView.swift`) and the subset that also separates with
+    `Section` (`menuSectionFiles`: `SearchHistoryMenu.swift`,
+    `ProjectTreeView.swift`, `LocalChangesView.swift`,
+    `DatabaseViewerView.swift`), so a new `Menu` is added deliberately, with or
+    without a separator. The viewer is in the second set by the rule's own
+    reading rather than by a separator: its cell menu (Copy, Set to NULL) has
+    none, and the `Section` it spells is the sidebar list's (Tables, Views);
+    the computed set pairs any `Section` with any menu in the same file, so it
+    is pinned in both, deliberately. The browser's row context menu (Open)
+    needs no separator. Part five (d) removed twenty-two more `Divider()`s
+    (decision 1 of its section), the one inside `LeetCodeCommands` — a menu-bar
+    separator — becoming two `Section { }` groups. `LogFilterBar.swift` left the first set in part five
     (c) — its branch menu is now the shared `ChromeMenuField`, whose one `Menu`
     lives in `ChromeControls.swift`, which joined in its place. Part five (c)
     removed four more `Divider()`s: three in `LSPServerSettingsView.swift`
@@ -2111,7 +2331,18 @@ The forty-one rules, each invisible to the compiler:
     (`SettingsView.swift` 3 — Sign In… and Sign Out are both spelled, one built
     at a time, plus Change… — `LSPServerSettingsView.swift` 6,
     `AcknowledgementsView.swift` 1, the two pull-request sheets 2 each,
-    `LSPInstalledLicenses.swift` and `LicenseTextView.swift` 0).
+    `LSPInstalledLicenses.swift` and `LicenseTextView.swift` 0). Part five (d)'s
+    seven files state **two numbers each**, since menu items and a
+    confirmation dialog's buttons cannot take a style: `DatabaseViewerView.swift`
+    6 buttons, 4 styled (the cell menu's Copy and Set to NULL unstyleable),
+    `DatabaseConsoleView.swift` 3/1 (the dialog's Run and Cancel),
+    `LeetCodeBrowserView.swift` 5/4 (the context-menu Open),
+    `LeetCodeDescriptionView.swift` 3/3 (`.plain`), `LeetCodeJudgeView.swift`
+    2/2, `LeetCodeOpenProblemSheet.swift` 8/3 (`LeetCodeCommands`' five menu
+    items) and `LeetCodeLoginView.swift` 1/1. The same part adds the
+    open-problem sheet to `chromePrimary`'s callers; the console, the browser,
+    the judge, the sheet and the sign-in sheet to `chromeSecondary`'s; and the
+    browser to `ChromeCheckbox`'s.
 31. **A code pane's ground goes through one definition.** `CodePaneGround.apply(`
     is called in exactly `CodeEditorView.swift`, `SourceViewerContent.swift`,
     `DiffView.swift` and `MergeView.swift`; the rule is **total and resolves no
@@ -2141,7 +2372,9 @@ The forty-one rules, each invisible to the compiler:
     (`docs/plans/` is outside the scan: an archive records what was planned).
 32. **A window root resolves the theme the root way.** The files declaring
     `func chromeColor` equal `{ContentView, ProjectSearchView, DiffWindowContent,
-    MergeView, LocalHistoryView}`; for every gated interface-scaled root, the
+    MergeView, LocalHistoryView, LeetCodeBrowserView}` (the problem browser,
+    since part five (d), whose rows are a file-scope child struct reading the
+    environment); for every gated interface-scaled root, the
     root struct's **whole** brace-matched declaration (not its `body`, since the
     regression is a stored `@Environment(\.chromeTheme)` property) spells no
     `\.chromeTheme`. `SourceViewerContent` is a root that paints no SwiftUI
@@ -2179,6 +2412,11 @@ The forty-one rules, each invisible to the compiler:
     `remoteBranchRow`, `projectRow`) carry a metrics `.frame(width:)` that is a
     16-point icon column for alignment, not a size, so they are pinned as
     container-font glyphs and the row `HStack`'s body font is re-checked.
+    Part five (d)'s seven files add no exemption: every glyph they draw — the
+    banner and message marks, the key and lock glyphs, the sort and paging
+    chevrons, the two signed-out offers' glyph, the statement pane's icons, the
+    judge's info badge — takes its own scaled font. The spinner draws no symbol at all (an
+    arc on a `Circle`), so it needs none either.
 35. **A selectable list yields its selected row's background.** The rule
     **pins the background expression by set equality** and does not read the
     conditional. For every `List` construction in a gated file whose argument
@@ -2199,7 +2437,9 @@ The forty-one rules, each invisible to the compiler:
     Color.clear : chromeColor(.bgPanel)`, and — since part five (c) —
     `AcknowledgementsView.swift`'s, pinned with an **empty** list of
     backgrounds: it sets no row background at all, so nothing paints over the
-    platform's selection, and a `listRowBackground` added there is red. On macOS a row background is drawn
+    platform's selection, and a `listRowBackground` added there is red — and,
+    since part five (d), `DatabaseViewerView.swift`'s tables-and-views sidebar,
+    pinned `[[]]` on the same footing. On macOS a row background is drawn
     over the platform's selection box, so an unconditional one hides the
     selection outright — the Local History revisions list shipped that way,
     and its selected row is the one Restore applies.
@@ -2221,14 +2461,17 @@ The forty-one rules, each invisible to the compiler:
     equality, the defining file included: `ChromeSegmentedControl` —
     `ChromeControls.swift`, `SettingsView.swift`, `PullRequestMergeSheet.swift`;
     `ChromeMenuField` — `ChromeControls.swift`, `LogFilterBar.swift`,
-    `SettingsView.swift`, `NewPullRequestSheet.swift`; `ChromeStepper`,
+    `SettingsView.swift`, `NewPullRequestSheet.swift`,
+    `LeetCodeBrowserView.swift`, `LeetCodeOpenProblemSheet.swift`; `ChromeStepper`,
     `ChromeSwitch` and `ChromeSettingsTabBar` — `ChromeControls.swift` and
     `SettingsView.swift`. Each caller's constructions are pinned by count
     besides, matched through `callRanges(_:in:)` so a wrapped call counts —
     rule thirty's shape applied to these five: `SettingsView.swift` two
     segmented controls, one menu field, two steppers, two switches and one
     tab bar; `PullRequestMergeSheet.swift` one segmented control;
-    `LogFilterBar.swift` and `NewPullRequestSheet.swift` one menu field each;
+    `LogFilterBar.swift`, `NewPullRequestSheet.swift`,
+    `LeetCodeBrowserView.swift` and `LeetCodeOpenProblemSheet.swift` one menu
+    field each;
     the defining file none. The rule cannot read a set's size, so the sets and
     the counts together are its whole expression: a segmented base-branch
     list, or a switch where a checkbox belongs, moves a file between sets or
