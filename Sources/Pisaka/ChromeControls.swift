@@ -2,12 +2,13 @@
 import SwiftUI
 import PisakaCore
 
-/// The shared chrome field, button, checkbox and settings shapes.
+/// The shared chrome field, button, checkbox, spinner and settings shapes.
 ///
 /// One file for the chrome's controls: the field box — `bgEditor` ground, a
 /// one-point `hairline` border and two points of `accent` on focus — the
-/// primary and secondary buttons, the checkbox, the segmented control, the
-/// stepper, the switch, the settings tab bar and the menu field. The Log filter
+/// primary and secondary buttons, the checkbox, the spinner, the segmented
+/// control, the stepper, the switch, the settings tab bar and the menu field.
+/// The Log filter
 /// bar was the field lifted (and its branch menu the menu field), Local
 /// Changes' revert checkbox the checkbox; every later caller uses these rather
 /// than a second copy.
@@ -559,6 +560,61 @@ struct ChromeMenuField<Value: Hashable>: View {
         .accessibilityLabel(label)
         .accessibilityValue(currentTitle)
     }
+}
+
+/// The chrome's activity indicator, drawn rather than the platform's.
+///
+/// An open arc stroked in `textSecondary` — a spinner reports activity, not
+/// selection, so it is not `accent` — `spinnerSide` square at a
+/// `spinnerLineWidth` stroke, both scaled through the metrics, turned by a
+/// repeating animation. Under Reduce Motion it draws still.
+///
+/// **The call site decides what it speaks, and says so exactly once.** Every
+/// construction carries one of two markers in its own modifier chain:
+///
+/// - `.accessibilityHidden(true)` when a neighbour already names the activity
+///   (a "Reading checks…" beside it), so the sentence is read once rather than
+///   followed by a second, vaguer one;
+/// - `.accessibilityLabel(…)` naming what is happening when it stands alone.
+///
+/// There is no label parameter and no default label: a default would be exactly
+/// the duplicate the first marker avoids, and a missing marker would be an
+/// unnamed element. The body carries `.updatesFrequently`, inert when hidden.
+struct ChromeSpinner: View {
+    @Environment(\.interfaceMetrics) private var metrics
+    @Environment(\.chromeTheme) private var theme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var isTurning = false
+
+    var body: some View {
+        let side = metrics.scaled(ChromeGeometry.spinnerSide)
+        let lineWidth = metrics.scaled(ChromeGeometry.spinnerLineWidth)
+        // Inset by half the stroke so the arc's outer edge meets the frame
+        // rather than overhanging it.
+        Circle()
+            .inset(by: lineWidth / 2)
+            .trim(from: 0, to: ChromeSpinnerLayout.arcFraction)
+            .stroke(theme.color(.textSecondary), style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
+            .rotationEffect(.degrees(isTurning && !reduceMotion ? 360 : 0))
+            .animation(
+                reduceMotion
+                    ? nil
+                    : .linear(duration: ChromeSpinnerLayout.turnDuration).repeatForever(autoreverses: false),
+                value: isTurning
+            )
+            .frame(width: side, height: side)
+            .onAppear { isTurning = true }
+            .accessibilityElement(children: .ignore)
+            .accessibilityAddTraits(.updatesFrequently)
+    }
+}
+
+/// The spinner's own numbers, belonging to the one shape.
+private enum ChromeSpinnerLayout {
+    /// How much of the circle the arc covers; the gap is what reads as motion.
+    static let arcFraction: Double = 0.75
+    /// Seconds per full turn.
+    static let turnDuration: Double = 1
 }
 
 #endif

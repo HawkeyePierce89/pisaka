@@ -1868,6 +1868,95 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         }
     }
 
+    /// Rule twenty's clause for `ChromeSpinner`, checked at its constructions
+    /// rather than in its body: the spinner speaks either its activity or
+    /// nothing, and which is the call site's to say. Every `ChromeSpinner(` call's
+    /// own modifier chain — the postfix links after the call, read from stripped
+    /// text, nothing parsed — spells exactly one of `.accessibilityLabel(` (it
+    /// stands alone and names what is happening) or `.accessibilityHidden(` (a
+    /// neighbour already names it, so VoiceOver reads that sentence once rather
+    /// than followed by a second, vaguer one). Never neither — an unnamed element
+    /// — and never both.
+    ///
+    /// The two shapes followed are part five (c)'s: `SettingsView.swift`'s label
+    /// column hidden where its control speaks for itself, and
+    /// `ChromeControls.swift`'s hidden decorative glyphs. The type carries no
+    /// label parameter and no default label because a default would be exactly
+    /// the duplicate the hidden marker avoids — so the marker is the call site's,
+    /// and this clause is where it is owed.
+    ///
+    /// `spinnerClassification` pins each file's split, confirmed against the tree
+    /// site by site, by set equality over the files that construct a spinner:
+    /// moving a site from one marker to the other, or adding one, changes a count
+    /// and a person decides whether the new site's neighbour names the activity.
+    static let spinnerClassification: [String: (labelled: Int, hidden: Int)] = [
+        // The header's and the load-more row's: "History" and the row's place
+        // say nothing about loading, and "Loading…" is the empty list's alone.
+        "CommitLogView.swift": (labelled: 2, hidden: 0),
+        // Alone in the dialog's loading state.
+        "CommitDialogView.swift": (labelled: 1, hidden: 0),
+        // Beside the query toggles; "Searching…" is the empty list's alone.
+        "ProjectSearchView.swift": (labelled: 1, hidden: 0),
+        // The header's is beside the title; the wait's elapsed time carries
+        // what is being waited for, and "Reading checks…" names its own.
+        "PullRequestsPanelView.swift": (labelled: 1, hidden: 2),
+        // The write's, alone beside the buttons.
+        "NewPullRequestSheet.swift": (labelled: 1, hidden: 0),
+        // "Reading this repository's merge settings…" names the first; the
+        // write's is alone beside the buttons.
+        "PullRequestMergeSheet.swift": (labelled: 1, hidden: 1),
+        // Each row's status reads "Installing…" or "Removing…" beside it.
+        "LSPServerSettingsView.swift": (labelled: 0, hidden: 3),
+        // Alone in the footer beside Restore.
+        "LocalHistoryView.swift": (labelled: 1, hidden: 0),
+        // In the header; "Searching…" is the empty list's alone.
+        "UsagesPanelView.swift": (labelled: 1, hidden: 0),
+    ]
+
+    func testEverySpinnerConstructionSpeaksItsActivityOrNothing() throws {
+        var found: [String: (labelled: Int, hidden: Int)] = [:]
+        for url in try Self.swiftSources() {
+            let name = url.lastPathComponent
+            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            for call in Self.callRanges("ChromeSpinner(", in: code) {
+                let open = code.index(before: call.upperBound)
+                let chain = try XCTUnwrap(
+                    Self.balancedEnd(from: open, in: code).map { String(Self.modifierChain(from: $0, in: code)) },
+                    "\(name) constructs a ChromeSpinner whose call does not close"
+                )
+                let labelled = Self.spellsCall(".accessibilityLabel(", in: chain)
+                let hidden = Self.spellsCall(".accessibilityHidden(", in: chain)
+                XCTAssertTrue(
+                    labelled != hidden,
+                    """
+                    \(name) constructs a ChromeSpinner whose own modifier chain spells \
+                    \(labelled ? "both" : "neither") of .accessibilityLabel( and .accessibilityHidden( — \
+                    the call site says exactly once whether the spinner names its activity or a \
+                    neighbour already does
+                    """
+                )
+                var counts = found[name, default: (labelled: 0, hidden: 0)]
+                if labelled { counts.labelled += 1 }
+                if hidden { counts.hidden += 1 }
+                found[name] = counts
+            }
+        }
+        XCTAssertEqual(
+            Set(found.keys), Set(Self.spinnerClassification.keys),
+            "the files constructing a ChromeSpinner must be exactly the classified ones"
+        )
+        for (name, pinned) in Self.spinnerClassification {
+            let actual = found[name] ?? (labelled: 0, hidden: 0)
+            XCTAssertTrue(
+                actual == pinned,
+                """
+                \(name)'s spinners are \(actual.labelled) labelled and \(actual.hidden) hidden, pinned as \
+                \(pinned.labelled) and \(pinned.hidden) — reclassify the site against its neighbours
+                """
+            )
+        }
+    }
+
     /// Whether the image starting at `image` is hidden by a modifier that is
     /// *its own*: one in the chain applied to the image itself, or in the chain
     /// applied to a container brace-enclosing it within `code`. A later sibling's

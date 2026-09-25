@@ -204,9 +204,9 @@ struct ProjectSearchView: View {
             ChromeQueryToggle(label: ".*", isOn: $isRegex, help: "Regular expression")
 
             if model.isSearching {
-                ProgressView()
-                    .controlSize(.small)
+                ChromeSpinner()
                     .padding(.leading, metrics.scaled(2))
+                    .accessibilityLabel("Searching")
             }
         }
     }

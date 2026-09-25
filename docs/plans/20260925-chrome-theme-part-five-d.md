@@ -176,14 +176,14 @@ Rule forty then bans `ProgressView` in every gated file.
 - Modify: `Sources/Pisaka/ChromeControls.swift`
 - Modify: `CommitLogView.swift`, `CommitDialogView.swift`, `ProjectSearchView.swift`, `PullRequestsPanelView.swift`, `NewPullRequestSheet.swift`, `PullRequestMergeSheet.swift`, `LSPServerSettingsView.swift`, `LocalHistoryView.swift`, `UsagesPanelView.swift`
 - Modify: `Tests/PisakaCoreTests/ChromeThemeSourceGatingTests.swift`
-- [ ] Add `ChromeSpinner` (decision 8), with no label parameter and no default label, and name it in the file's header paragraph. Its doc comment states the call-site contract: exactly one of `.accessibilityHidden(true)` (a neighbour names the activity) or `.accessibilityLabel(…)` (it stands alone).
-- [ ] Replace the fifteen `ProgressView` sites in the nine files. Keep each site's padding and the text beside it. Classify each site from the tree:
+- [x] Add `ChromeSpinner` (decision 8), with no label parameter and no default label, and name it in the file's header paragraph. Its doc comment states the call-site contract: exactly one of `.accessibilityHidden(true)` (a neighbour names the activity) or `.accessibilityLabel(…)` (it stands alone).
+- [x] Replace the fifteen `ProgressView` sites in the nine files. Keep each site's padding and the text beside it. Classify each site from the tree:
   - a sentence or caption beside it already says what is happening → `.accessibilityHidden(true)`;
   - nothing beside it names the activity → `.accessibilityLabel(…)` in the site's own words, reusing the view's existing wording where there is one.
-- [ ] Rule twenty's clause for `struct ChromeSpinner` is checked at its **constructions** rather than in its body: every `ChromeSpinner(` call's trailing modifier chain (the lines after the call that begin with `.`, read from stripped text, nothing parsed) must spell exactly one of `.accessibilityLabel(` or `.accessibilityHidden(` — never neither, never both. The rule's comment names the two shapes it follows (`SettingsView.swift`'s hidden label column, `ChromeControls.swift`'s hidden glyphs) and says why the type carries no default.
-- [ ] Start the per-file classification table for rule forty (`labelled`, `hidden` per file) with these nine files, confirmed against the tree; Task 7 adds the rule that reads it.
-- [ ] Rule thirty-four: the spinner draws no symbol, so no glyph exemption is needed. Confirm this.
-- [ ] Run `swift test` and the macOS build. Both must pass.
+- [x] Rule twenty's clause for `struct ChromeSpinner` is checked at its **constructions** rather than in its body: every `ChromeSpinner(` call's trailing modifier chain (the lines after the call that begin with `.`, read from stripped text, nothing parsed) must spell exactly one of `.accessibilityLabel(` or `.accessibilityHidden(` — never neither, never both. The rule's comment names the two shapes it follows (`SettingsView.swift`'s hidden label column, `ChromeControls.swift`'s hidden glyphs) and says why the type carries no default.
+- [x] Start the per-file classification table for rule forty (`labelled`, `hidden` per file) with these nine files, confirmed against the tree; Task 7 adds the rule that reads it. (`spinnerClassification`, read now by the constructions clause by set equality. From the tree: the Log header and load-more row, Find in Files, Usages, the commit dialog, Local History, the Pull Requests header and the two sheets' write spinners have no neighbour naming the activity, since each "Loading…"/"Searching…" is the empty list's alone, so they are labelled; the wait, "Reading checks…", the merge-settings line and the three Language Servers rows are hidden. That is 10 labelled and 5 hidden.)
+- [x] Rule thirty-four: the spinner draws no symbol, so no glyph exemption is needed. Confirm this. (Confirmed: an arc on a `Circle`, with no `Image(`.)
+- [x] Run `swift test` and the macOS build. Both must pass.
 
 ### Task 3: The database viewer
 
