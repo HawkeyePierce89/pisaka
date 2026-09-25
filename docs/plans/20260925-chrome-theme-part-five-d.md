@@ -356,11 +356,11 @@ Rule forty then bans `ProgressView` in every gated file.
 
 ### Task 8: Verify acceptance criteria
 
-- [ ] Run `swift test`. It must pass.
-- [ ] Run `xcodegen generate`, then the app bundle: `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' -derivedDataPath ~/Library/Developer/Xcode/DerivedData/pisaka-part5d test`. It must pass.
-- [ ] Run `swiftlint --strict` from the repository root. It must report zero violations.
-- [ ] Build macOS Release (`-configuration Release`) and iOS (`generic/platform=iOS`), both with derived data under `~/Library/Developer/Xcode/DerivedData/`.
-- [ ] Grep-confirm the remaining acceptance points:
+- [x] Run `swift test`. It must pass.
+- [x] Run `xcodegen generate`, then the app bundle: `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' -derivedDataPath ~/Library/Developer/Xcode/DerivedData/pisaka-part5d test`. It must pass.
+- [x] Run `swiftlint --strict` from the repository root. It must report zero violations.
+- [x] Build macOS Release (`-configuration Release`) and iOS (`generic/platform=iOS`), both with derived data under `~/Library/Developer/Xcode/DerivedData/`.
+- [x] Grep-confirm the remaining acceptance points:
   - `gatedFiles` holds 58 files;
   - none of the seven spells a system colour, a hex literal, `isTinted`, `Table(`, `Picker(`, `Toggle(`, `Stepper(`, `Form`, `TabView`, `Divider(` or `ProgressView`;
   - `ChromeColorRole` has 21 cases;
