@@ -1701,7 +1701,8 @@ differed:
    forty-one).
 6. **The browser's rows follow `CommitRow`.** The platform `Table` became
    `ScrollView` + `ScrollViewReader` + `LazyVStack` under a `bgPanel` header row
-   ("#", "Title", "Difficulty", "Status") with its rule drawn behind. Each row is
+   ("#", "Title", "Difficulty", "Status") with its rule drawn over the ground and
+   under the titles. Each row is
    the file-scope `LeetCodeBrowserRow`, sized by a scaled `minHeight` from the
    private `LeetCodeBrowserLayout` enum of bare numbers; selection is
    `accentTintStrong` whether or not the window is key, hover `hoverTint`. The
@@ -1717,7 +1718,7 @@ differed:
    carrying `.isSelected` and a named "Open" action, and the lock glyph speaks
    "LeetCode Premium".
 7. **The viewer's error banner** is a `bgPanel` strip with a `hairline` bottom
-   rule drawn behind; its `exclamationmark.triangle.fill` mark and its sentence
+   rule drawn over the ground and under the sentence; its `exclamationmark.triangle.fill` mark and its sentence
    are both `statusRed`, and the orange wash is deleted. The console's message
    slot takes the same mark and colour.
 8. **The spinner is drawn, not a platform control**, as above; the three
@@ -1767,7 +1768,7 @@ The surfaces in detail: the viewer pane stands on `bgPanel` and the grid on
 `textSecondary`; a NULL cell keeps its italic and takes `textSecondary` (its
 doc comment no longer says "tertiary"), and `refusedCellOpacity` stays a view
 opacity. The grid's header row is `bgPanel` with the sort chevron
-`textSecondary` and its rule behind; its column separators are vertical
+`textSecondary` and its rule over the ground, under the titles; its column separators are vertical
 `hairline` rules. The console's toolbar and status bar are `bgPanel`, its "SQL"
 caption and footer sentence `textSecondary`, Run `.chromeSecondary` with ⌘↩ and
 `isRunDisabled` unchanged; its result header matches the grid's, and its

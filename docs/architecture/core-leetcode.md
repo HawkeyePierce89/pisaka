@@ -1906,7 +1906,7 @@ the limits the design carries.
     **The rows are the chrome's own, not a platform `Table`** (chrome theme part
     five (d), `core-theme.md`). The list is a `ScrollView` + `ScrollViewReader` +
     `LazyVStack` under a `bgPanel` header row ("#", "Title", "Difficulty",
-    "Status") with its rule drawn behind; each row is the file-scope
+    "Status") with its rule drawn over the ground and under the titles; each row is the file-scope
     `LeetCodeBrowserRow`, sized by a scaled `minHeight` from the private
     `LeetCodeBrowserLayout`, following the Log's `CommitRow`: selection
     `accentTintStrong` whether or not the window is key, hover `hoverTint`. The

@@ -348,7 +348,8 @@ struct LeetCodeBrowserView: View {
     }
 
     /// The four column titles over the rows, on the panel ground with its
-    /// hairline drawn behind rather than over it. They read the rows' own widths,
+    /// hairline applied before that ground, so the rule lands over the fill and
+    /// under the titles rather than hidden behind it. They read the rows' own widths,
     /// so each title sits over the column it names; non-interactive, since there
     /// is no sorting.
     private var columnHeader: some View {

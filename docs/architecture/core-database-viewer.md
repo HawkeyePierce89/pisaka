@@ -1099,7 +1099,7 @@ only *consults* one, before each of its two writes.
   **what it looks like, not what it does**: the two writes, the gate they
   consult, the disable terms, the tokens and every sentence are untouched. The
   pane stands on `bgPanel` and the grid on `bgEditor`. The **error banner** is a
-  `bgPanel` strip with a `hairline` bottom rule drawn behind it, its
+  `bgPanel` strip with a `hairline` bottom rule drawn over its ground and under its sentence, its
   `exclamationmark.triangle.fill` mark and its sentence both `statusRed`; the
   orange wash is gone. **NULL has two roles**: a NULL cell keeps its italic and
   takes `textSecondary`, an ordinary value `textPrimary` — still decided from
@@ -1109,7 +1109,7 @@ only *consults* one, before each of its two writes.
   and the focused cell, the grid's one selection-like state, draws
   `accentTintStrong`. **No alternation**: the zebra (`isTinted`) is deleted,
   since the design's tables read by selection and hover. The header row is
-  `bgPanel` with the sort chevron `textSecondary` and its rule behind; the column
+  `bgPanel` with the sort chevron `textSecondary` and its rule over that ground, under the titles; the column
   separators and the seven former `Divider()`s are `hairline` rules. The
   **sidebar is a plain list**: `.listStyle(.sidebar)` drew the platform's
   translucent material, so it is `.plain` with `.scrollContentBackground(.hidden)`

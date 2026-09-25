@@ -248,8 +248,9 @@ struct DatabaseConsoleView: View {
                 hairline(horizontal: false)
             }
         }
-        // The rule is drawn behind the ground, never over it, so the strip's
-        // own fill cannot paint across it.
+        // The ground goes on last, so it sits furthest back; the rule, applied
+        // before it, lands over the ground and under the column titles. Swapped,
+        // the opaque fill would be drawn over the rule and hide it.
         .background(alignment: .bottom) { hairline(horizontal: true) }
         .background(theme.color(.bgPanel))
     }

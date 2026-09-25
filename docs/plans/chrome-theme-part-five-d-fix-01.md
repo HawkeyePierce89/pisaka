@@ -147,12 +147,12 @@ how the grid renders NULL.
 The code is correct at all three sites. Only the prose is wrong, and it is wrong
 in the direction that would make the next reader break it.
 
-- [ ] Rewrite the three sentences to say what the layers actually are: the ground
+- [x] Rewrite the three sentences to say what the layers actually are: the ground
       goes on last and therefore sits furthest back, the hairline is applied before
       it and therefore lands over the ground and under the content. State the
       consequence the ordering buys, and state it in the direction the code
       implements.
-- [ ] **Sweep for the shape, not the site.** This sentence is a construct, not
+- [x] **Sweep for the shape, not the site.** This sentence is a construct, not
       three strings: grep the whole repository — every part of this sweep, not just
       the files this branch touched — for any comment claiming a rule, hairline or
       indicator is drawn *behind* or *under* the ground, and for any comment about
@@ -161,15 +161,15 @@ in the direction that would make the next reader break it.
       about this same ordering; some are right and must be left alone. Grep for the
       pattern rather than the literal sentence — a sentence wrapped across a line
       break survives a search for the sentence.
-- [ ] Check the same claim in `docs/architecture/core-theme.md`: if the canonical
+- [x] Check the same claim in `docs/architecture/core-theme.md`: if the canonical
       rule sixteen entry or the part five (d) section states the ordering
       backwards, fix it there too.
-- [ ] **The test that would have caught it.** There is none, and say so in the
+- [x] **The test that would have caught it.** There is none, and say so in the
       commit message rather than inventing one: no assertion in this suite reads
       what a sentence means, and the existing ordering rule already pins the code,
       which is why the code is right and only the prose drifted. The guard for this
       class is the repository-wide sweep above.
-- [ ] Run `swift test`. It must pass.
+- [x] Run `swift test`. It must pass.
 
 ### Task 4: The spinner marker rule accepts any argument, and the alternating-fill rule misses the ordinary spelling
 

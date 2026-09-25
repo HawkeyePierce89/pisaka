@@ -158,8 +158,10 @@ struct DatabaseViewerView: View {
     /// looking at.
     ///
     /// A `bgPanel` strip whose mark and sentence are both `statusRed`, with its
-    /// bottom `hairline` drawn behind the ground rather than over it: a failure
-    /// is said in the failure's colour, not in a wash over the whole strip.
+    /// bottom `hairline` applied before the ground, so it lands over that ground
+    /// and under the sentence (the ground, applied last, sits furthest back and
+    /// cannot hide it): a failure is said in the failure's colour, not in a wash
+    /// over the whole strip.
     private func errorBanner(_ message: String) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: metrics.scaled(6)) {
             Image(systemName: "exclamationmark.triangle.fill")
@@ -397,8 +399,9 @@ struct DatabaseViewerView: View {
                 hairline(horizontal: false)
             }
         }
-        // The rule is drawn behind the ground, never over it, so the strip's
-        // own fill cannot paint across it.
+        // The ground goes on last, so it sits furthest back; the rule, applied
+        // before it, lands over the ground and under the column titles. Swapped, the
+        // opaque fill would be drawn over the rule and hide it.
         .background(alignment: .bottom) { hairline(horizontal: true) }
         .background(theme.color(.bgPanel))
     }
