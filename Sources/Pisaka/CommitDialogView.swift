@@ -282,10 +282,12 @@ struct CommitDialogView: View {
     /// nothing saying the commit did not carry it. The run is exactly the long
     /// window (hooks, signing) in which noticing a typo is likely.
     ///
-    /// The message is written at the *code* font, so the box that holds it
-    /// keeps its height off the interface scale for the reason the Find in
-    /// Files rows keep their gutter off it: the two zones must not interact.
-    /// Only the box around it is chrome, and it scales. For the same reason it
+    /// The message is written at the *code* font, so the box that holds it is
+    /// counted in lines of that font: between `messageMinLines` and
+    /// `messageMaxLines` of `messageLineHeight`. A fixed point height followed
+    /// no zone at all — the text grew with the code size while the box stood
+    /// still — and an interface-scaled one would tie the two zones together.
+    /// Only the box's padding is chrome, and it scales. For the same reason it
     /// carries a code `ZoomSurfaceMarker`: a gesture over text drawn at the code
     /// size must grow that size, not the sheet.
     ///
@@ -300,10 +302,26 @@ struct CommitDialogView: View {
                 .foregroundStyle(theme.color(.textPrimary))
                 .scrollContentBackground(.hidden)
                 .focused($isMessageFocused)
-                .frame(minHeight: 70, maxHeight: 120)
+                .frame(
+                    minHeight: messageLineHeight * Self.messageMinLines,
+                    maxHeight: messageLineHeight * Self.messageMaxLines
+                )
                 .disabled(model.isRunning)
                 .background(ZoomSurfaceMarker(kind: .code))
         }
+    }
+
+    /// The message box's height bounds, in lines of the code font: chosen so the
+    /// default code size lands near the fixed 70–120 points the box used to have.
+    private static let messageMinLines: CGFloat = 4
+    private static let messageMaxLines: CGFloat = 7
+
+    /// One line of the message's code font — the font `TextEditor` draws at —
+    /// as the text system lays it out.
+    private var messageLineHeight: CGFloat {
+        NSLayoutManager().defaultLineHeight(
+            for: NSFont.monospacedSystemFont(ofSize: settings.fontSize, weight: .regular)
+        )
     }
 
     private var footer: some View {
@@ -595,6 +613,13 @@ private struct AuthorEditorView: View {
     @Environment(\.chromeTheme) private var theme
     @State private var name: String
     @State private var email: String
+    @FocusState private var focusedField: Field?
+
+    /// The two fields, for the shared field's focus ring.
+    private enum Field: Hashable {
+        case name
+        case email
+    }
 
     init(identity: CommitIdentity, onSave: @escaping (String, String) -> Void) {
         self.identity = identity
@@ -612,9 +637,21 @@ private struct AuthorEditorView: View {
                 .font(metrics.scaledFont(.caption))
                 .foregroundStyle(theme.color(.textSecondary))
                 .fixedSize(horizontal: false, vertical: true)
-            Form {
-                TextField("Name", text: $name)
-                TextField("Email", text: $email)
+            VStack(alignment: .leading, spacing: metrics.scaled(10)) {
+                ChromeThemedTextField(
+                    title: "Name",
+                    text: $name,
+                    focus: $focusedField,
+                    focusedEquals: .name,
+                    textStyle: .body
+                )
+                ChromeThemedTextField(
+                    title: "Email",
+                    text: $email,
+                    focus: $focusedField,
+                    focusedEquals: .email,
+                    textStyle: .body
+                )
             }
             .frame(width: metrics.scaled(360))
             HStack {
@@ -636,7 +673,7 @@ private struct AuthorEditorView: View {
         }
         .font(metrics.scaledFont(.body))
         .padding(metrics.scaled(16))
-        // Wider than the 360pt form inside it at every scale, so the two fields
+        // Wider than the 360pt fields inside it at every scale, so the two fields
         // never touch the sheet's edge.
         .frame(minWidth: metrics.scaled(400))
         .background(theme.color(.bgPanel))

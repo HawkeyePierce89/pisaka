@@ -446,14 +446,18 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `selectionInactive`, `hoverTint`) — the design's one mock draws only
     `accentTint`. The message editor sits in `ChromeControlBox` (`@FocusState`,
     `fieldPaddingX` — the design's 12 taken as the shared 10 — hidden scroll
-    background, `textPrimary`), keeping its code-zone height and zoom marker.
+    background, `textPrimary`), keeping its zoom marker; its height is counted
+    in lines of the code font (4 to 7 of a private `messageLineHeight`, the
+    default line height of the monospaced font at `settings.fontSize`), so the
+    box grows with the text it holds — chrome rule twenty-seven pins it.
     Author line: labels and the amend note `textSecondary`, the signature
     `textPrimary` or `statusRed` when incomplete, "Edit…" a `.plain` button with
     an `accent` label (the link style is forbidden). Amend and Push after commit
     are `ChromeCheckbox`es; the status sentence is `statusRed`/`textSecondary`; a
     `hairline` rule sits above a content-sized footer; Cancel `.chromeSecondary`,
     Commit `.chromePrimary`. `AuthorEditorView` stands on `bgPanel`, title
-    `textPrimary`, caption `textSecondary`, Save `.chromePrimary`, Cancel
+    `textPrimary`, caption `textSecondary`, two stacked `ChromeThemedTextField`s
+    ("Name", "Email", no platform `Form`), Save `.chromePrimary`, Cancel
     `.chromeSecondary`. Rules thirty and thirty-three pin the controls and the row.
   - `CommitUnifiedDiffView.swift` — the dialog's right-hand panel: a **unified**
     (single-column) diff of one file with a checkbox on every changed line. A

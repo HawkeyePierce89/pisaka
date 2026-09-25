@@ -230,19 +230,19 @@ Every shape below reads `\.interfaceMetrics` and `\.chromeTheme`, and takes ever
 - Modify: `Sources/Pisaka/CommitDialogView.swift`
 - Modify: `Tests/PisakaCoreTests/ChromeThemeSourceGatingTests.swift`
 
-- [ ] **The message box follows the code zone.**
+- [x] **The message box follows the code zone.**
   - Replace `.frame(minHeight: 70, maxHeight: 120)` with a height counted in lines of the code font. Add a private `messageLineHeight`: the default line height of `NSFont.monospacedSystemFont(ofSize: settings.fontSize, weight: .regular)`, read through `NSLayoutManager().defaultLineHeight(for:)`.
   - The minimum and maximum are named private line counts, 4 and 7, chosen so the default code size lands near today's 70–120.
   - The box's padding stays interface-scaled chrome.
   - Rewrite the doc comment: the old one claimed the height was "off the interface scale" but it followed no zone at all, so the text grew while the box stood still.
-- [ ] **`AuthorEditorView` loses its `Form`** (decision 4):
+- [x] **`AuthorEditorView` loses its `Form`** (decision 4):
   - two `ChromeThemedTextField`s ("Name", "Email") stacked with the existing spacing, 360 wide as before;
   - a private focus enum;
   - `isUsable` and the Save/Cancel behaviour unchanged.
-- [ ] **Rule twenty-seven gains a clause.** `CommitDialogView.swift`'s `private var messageBox` brace-matched body:
+- [x] **Rule twenty-seven gains a clause.** `CommitDialogView.swift`'s `private var messageBox` brace-matched body:
   - every `.frame(` argument list in it names the `messageLineHeight` token;
   - none names `metrics`.
-- [ ] Run `swift test` and the macOS build. Both must pass. `sharedFieldConstructors` is unchanged, because `CommitDialogView.swift` is already in it.
+- [x] Run `swift test` and the macOS build. Both must pass. `sharedFieldConstructors` is unchanged, because `CommitDialogView.swift` is already in it.
 
 ### Task 4: The Preferences window: host, General and the problem-catalog tab
 

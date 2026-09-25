@@ -2285,6 +2285,36 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
             "ProjectSearchView.swift's row body spells .frame(height: — the row carries no fixed height, sized by its code-font content"
         )
 
+        // The commit message box is counted in lines of the code font it draws
+        // at: every frame in it names that line height, and none names the
+        // interface metrics — a fixed point height followed no zone at all.
+        let commitDialogCode = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
+            try Self.read(Self.source(named: "CommitDialogView.swift"))
+        )
+        let messageBoxBody = try XCTUnwrap(
+            Self.matchedBody(after: "private var messageBox", in: commitDialogCode),
+            "CommitDialogView.swift's private var messageBox is gone or renamed — re-point this rule rather than losing it"
+        )
+        let messageBoxFrames = Self.callRanges(".frame(", in: messageBoxBody)
+        XCTAssertGreaterThan(
+            messageBoxFrames.count, 0,
+            "CommitDialogView.swift's messageBox applies no .frame( — the box's height must be counted in code-font lines"
+        )
+        for call in messageBoxFrames {
+            let open = messageBoxBody.index(before: call.upperBound)
+            let end = try XCTUnwrap(Self.balancedEnd(from: open, in: messageBoxBody))
+            let args = String(messageBoxBody[open..<end])
+            XCTAssertTrue(
+                LSPSourceGatingTests.containsToken("messageLineHeight", in: args),
+                "CommitDialogView.swift's messageBox has a .frame( that does not name messageLineHeight — the box follows the code zone"
+            )
+            XCTAssertFalse(
+                LSPSourceGatingTests.containsToken("metrics", in: args),
+                "CommitDialogView.swift's messageBox has a .frame( that names metrics"
+                    + " — the message box's height is the code zone's, not the interface's"
+            )
+        }
+
         for name in ["CompletionPanel.swift", "HoverPanel.swift"] {
             let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
                 try Self.read(Self.source(named: name))

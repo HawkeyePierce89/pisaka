@@ -1098,8 +1098,11 @@ Rule twenty-seven pins that each measurement follows its own zone: the Find in
 Files match row carries no fixed `.frame(height:` and is sized by the code font
 (`settings.fontSize`), matched over its brace-matched body so a multi-line call
 cannot slip past, and each `cornerRadius` assignment in `CompletionPanel.swift`
-and `HoverPanel.swift` names `metrics` on the same statement. Rule twenty's
-table is extended to the two search surfaces' toggles and buttons.
+and `HoverPanel.swift` names `metrics` on the same statement. Part five (c)
+adds a third clause: every `.frame(` in `CommitDialogView.swift`'s
+`private var messageBox` body names `messageLineHeight` and none names
+`metrics` — the message box is counted in lines of the code font it draws at.
+Rule twenty's table is extended to the two search surfaces' toggles and buttons.
 
 **Fix 01 — the acceptance review's five corrections, stated as corrections to
 this part rather than as a new part.** The match row carries no fixed height and
@@ -1249,7 +1252,9 @@ copied, so the dialog cannot keep the old roles the day the tree's answer
 changes: `accentTintStrong` selected in a key window, `selectionInactive`
 selected in one that is not, `hoverTint` under the pointer. The message box is the shared `ChromeControlBox` (focus from a
 `@FocusState`, `fieldPaddingX`, hidden scroll background so `bgEditor` shows,
-`textPrimary` content), keeping its code-zone height and `ZoomSurfaceMarker`.
+`textPrimary` content), keeping its `ZoomSurfaceMarker`; part five (c) counts
+its height in lines of the code font (4 to 7 of `messageLineHeight`), where it
+had been a fixed 70–120 points that followed no zone at all.
 The author line's labels and amend note are `textSecondary`, the signature
 `textPrimary` or `statusRed` when incomplete; Amend and Push after commit are
 checkboxes, the push hint `textSecondary`, the status sentence `statusRed` for
@@ -1258,7 +1263,9 @@ sized by its content; Cancel is `.chromeSecondary`, Commit `.chromePrimary`,
 shortcuts and disabled rules unchanged. The author editor sheet stands on
 `bgPanel` with its title in `textPrimary`, caption in `textSecondary`, Save
 `.chromePrimary` and Cancel `.chromeSecondary`. It joins rule twenty-six's
-shared-field callers (now five).
+shared-field callers (now five). Part five (c) replaces its platform `Form` with
+two stacked `ChromeThemedTextField`s ("Name", "Email") at `.body`, focused
+through a private enum, 360 wide as before.
 
 **The merge editor — `MergeView.swift` and `MergeWindowController.swift`.** The
 root resolves colours through a private `chromeColor(_:)`; nothing inside the
