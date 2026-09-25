@@ -201,13 +201,13 @@ plus. If `stepButton` regressed to arithmetic of its own, `adjust` alone keeps t
 gate green, on the exact regression the failure message names. `core-zoom.md` claims
 "every step — the glyph buttons and the adjust action — goes through the rule".
 
-- [ ] Read `private func stepButton(` and `private func adjust(` as **separate**
+- [x] Read `private func stepButton(` and `private func adjust(` as **separate**
       matched bodies and require `stepped` in each, with a message naming which half
       failed.
-- [ ] Mutation-verify each half independently: replace `stepButton`'s call with
+- [x] Mutation-verify each half independently: replace `stepButton`'s call with
       arithmetic and confirm red; restore it and replace `adjust`'s and confirm red;
       revert and confirm green, with a clean `git status`.
-- [ ] Run `swift test`. It must pass.
+- [x] Run `swift test`. It must pass.
 
 ### Task 5: The geometry table's inventory and the two equal heights
 

@@ -361,10 +361,22 @@ final class ZoomSourceGatingTests: XCTestCase {
             ChromeThemeSourceGatingTests.matchedBody(after: "struct ChromeStepper", in: controls),
             "ChromeStepper is gone from ChromeControls.swift"
         )
-        XCTAssertTrue(
-            LSPSourceGatingTests.containsToken("stepped", in: stepper),
-            "ChromeStepper no longer steps through its rule's stepped(_:by:)"
-        )
+        // Each half is read on its own: `stepped` in the whole body would stay
+        // green on the accessibility action alone while the visible glyph
+        // buttons drifted to arithmetic of their own, and the reverse.
+        for (declaration, half) in [
+            ("private func stepButton(", "the visible minus/plus buttons (stepButton)"),
+            ("private func adjust(", "the accessibility adjust action (adjust)"),
+        ] {
+            let body = try XCTUnwrap(
+                ChromeThemeSourceGatingTests.matchedBody(after: declaration, in: stepper),
+                "ChromeStepper no longer declares \(declaration)…)"
+            )
+            XCTAssertTrue(
+                LSPSourceGatingTests.containsToken("stepped", in: body),
+                "ChromeStepper: \(half) no longer steps through its rule's stepped(_:by:)"
+            )
+        }
     }
 
     /// The parenthesis-matched argument list whose `(` sits at `open`.
