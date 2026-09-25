@@ -355,29 +355,29 @@ Every shape below reads `\.interfaceMetrics` and `\.chromeTheme`, and takes ever
 - Modify: `Tests/PisakaCoreTests/ChromeThemeSourceGatingTests.swift`
 - Modify: `docs/architecture/core-theme.md` (only rule twenty-six's two file-set passages, which `testTheCanonicalListsFileSetsAreTheSuitesOwn` reads)
 
-- [ ] **Both sheets:**
+- [x] **Both sheets:**
   - `bgPanel` ground; title `textPrimary`;
   - plan sentences `textSecondary`;
   - the message slot (`createMessage` / `mergeMessage` / `unavailableMessage`) `statusRed`;
   - refusals per decision 11;
   - the reading line `textSecondary`;
   - Cancel `.chromeSecondary`, Create / Merge `.chromePrimary`, with shortcuts and disabled rules unchanged.
-- [ ] **The text areas.** The title and the merge subject become `ChromeThemedTextField` with a private focus enum each, at `.body`. The two `TextEditor`s are wrapped in `ChromeControlBox`, following the commit dialog's message box:
+- [x] **The text areas.** The title and the merge subject become `ChromeThemedTextField` with a private focus enum each, at `.body`. The two `TextEditor`s are wrapped in `ChromeControlBox`, following the commit dialog's message box:
   - `.scrollContentBackground(.hidden)` and `textPrimary`;
   - their own focus;
   - the existing interface-scaled heights (140 and 110);
   - the `Color.secondary.opacity(0.35)` overlays deleted.
-- [ ] **The create sheet's controls:**
+- [x] **The create sheet's controls:**
   - Base → `ChromeMenuField`, framed at `menuFieldHeight` and `maxWidth` 280, keeping the `"—"` empty state as an option only while `base` is empty, and `onChange` → `setCreateBase`;
   - Draft → `ChromeCheckbox` titled "Draft" (decision 5).
-- [ ] **The merge sheet:** Method → `ChromeSegmentedControl` over `plan.allowedMethods` with `methodLabel` titles (decision 6), still shown only when `plan.showsMethodPicker`.
-- [ ] Add both files to `gatedFiles`.
-- [ ] **Rule twenty-six:** `sharedFieldConstructors` gains both sheets, and its message is updated. Update the two passages in `core-theme.md` that enumerate that set in the same task, so the file-set check stays green.
-- [ ] **Rule thirty's pinned callers:**
+- [x] **The merge sheet:** Method → `ChromeSegmentedControl` over `plan.allowedMethods` with `methodLabel` titles (decision 6), still shown only when `plan.showsMethodPicker`.
+- [x] Add both files to `gatedFiles`.
+- [x] **Rule twenty-six:** `sharedFieldConstructors` gains both sheets, and its message is updated. Update the two passages in `core-theme.md` that enumerate that set in the same task, so the file-set check stays green.
+- [x] **Rule thirty's pinned callers:**
   - `chromePrimary`: + both sheets;
   - `chromeSecondary`: + both sheets;
   - `ChromeCheckbox`: + `NewPullRequestSheet.swift`.
-- [ ] Run `swift test` and the macOS build. Both must pass. `GitHubSourceGatingTests` must stay green.
+- [x] Run `swift test` and the macOS build. Both must pass. `GitHubSourceGatingTests` must stay green.
 
 ### Task 8: The new rules and the carried convention sentence, each rule shown red first
 

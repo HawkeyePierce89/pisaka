@@ -8,7 +8,7 @@ import PisakaCore
 /// `NewPullRequestSheet`'s shape, deliberately: the same dock, the same kind of
 /// publication, and the same division of labour. **Nothing here decides
 /// anything.** Whether the button may be pressed, what it says, which methods
-/// the picker offers, which of them it opens on, the pre-filled subject and each
+/// the method control offers, which of them it opens on, the pre-filled subject and each
 /// of the three sentences are all `GitHubMergePlan`'s — one value the button, the
 /// model's own refusal and every tick of `PullRequestMergeWait` are read from, so
 /// none of the three can word a state differently from the others.
@@ -55,6 +55,9 @@ struct PullRequestMergeSheet: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.interfaceMetrics) private var metrics
+    /// The chrome's colours, inherited from the Pull Requests panel that
+    /// presents this sheet.
+    @Environment(\.chromeTheme) private var theme
 
     /// The selected method — `nil` until the plan has said which ones exist, so
     /// the sheet never opens on one this repository disallows.
@@ -62,6 +65,13 @@ struct PullRequestMergeSheet: View {
     @State private var subject = ""
     /// The commit body. Not `body`, which is the view's own.
     @State private var commitBody = ""
+    @FocusState private var focusedField: Field?
+
+    /// The two text areas, for the shared field's focus ring.
+    private enum Field: Hashable {
+        case subject
+        case body
+    }
 
     /// Whether `prepareMerge(number:)` came back having published neither a plan
     /// nor a sentence — the one way this sheet can be left with nothing to draw.
@@ -83,6 +93,7 @@ struct PullRequestMergeSheet: View {
         VStack(alignment: .leading, spacing: metrics.scaled(10)) {
             Text("Merge Pull Request")
                 .font(metrics.scaledFont(.headline, weight: .semibold))
+                .foregroundStyle(theme.color(.textPrimary))
 
             if let plan = model.mergePlan {
                 fields(plan)
@@ -94,7 +105,7 @@ struct PullRequestMergeSheet: View {
             if let message = model.mergeMessage {
                 Text(message)
                     .font(metrics.scaledFont(.caption))
-                    .foregroundStyle(Color.red)
+                    .foregroundStyle(theme.color(.statusRed))
                     .textSelection(.enabled)
                     .lineLimit(4)
                     .fixedSize(horizontal: false, vertical: true)
@@ -104,6 +115,7 @@ struct PullRequestMergeSheet: View {
         }
         .padding(metrics.scaled(16))
         .frame(width: metrics.scaled(560))
+        .background(theme.color(.bgPanel))
         .task { await prepare() }
         // Every way out — Cancel, Esc, and the `dismiss()` a merge or an arming
         // runs — reaches this one place, which is why the clear is here and not
@@ -131,7 +143,7 @@ struct PullRequestMergeSheet: View {
         if readWasSuperseded {
             Text(PullRequestModel.unavailableMessage)
                 .font(metrics.scaledFont(.caption))
-                .foregroundStyle(Color.red)
+                .foregroundStyle(theme.color(.statusRed))
                 .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
         } else if model.mergeMessage == nil {
@@ -140,7 +152,7 @@ struct PullRequestMergeSheet: View {
                 Text("Reading this repository’s merge settings…")
             }
             .font(metrics.scaledFont(.callout))
-            .foregroundStyle(.secondary)
+            .foregroundStyle(theme.color(.textSecondary))
         }
     }
 
@@ -157,27 +169,38 @@ struct PullRequestMergeSheet: View {
     private func fields(_ plan: GitHubMergePlan) -> some View {
         VStack(alignment: .leading, spacing: metrics.scaled(8)) {
             if plan.showsMethodPicker {
-                Picker("Method", selection: $method) {
-                    ForEach(plan.allowedMethods, id: \.self) { allowed in
-                        Text(Self.methodLabel(allowed)).tag(Optional(allowed))
-                    }
-                }
-                .font(metrics.scaledFont(.body))
-                .frame(maxWidth: metrics.scaled(320))
+                // A segmented control although its segments are filtered: the
+                // allowed methods are a subset of a closed three-case set, so
+                // the most it can ever lay out is known when it is built.
+                ChromeSegmentedControl(
+                    label: "Method",
+                    options: plan.allowedMethods.map { (value: Optional($0), title: Self.methodLabel($0)) },
+                    selection: $method
+                )
             }
 
             if method?.composesACommit == true {
-                TextField("Subject", text: $subject)
-                    .textFieldStyle(.roundedBorder)
-                    .font(metrics.scaledFont(.body))
+                ChromeThemedTextField(
+                    title: "Subject",
+                    text: $subject,
+                    focus: $focusedField,
+                    focusedEquals: .subject,
+                    textStyle: .body
+                )
 
-                TextEditor(text: $commitBody)
-                    .font(metrics.scaledFont(.body, design: .monospaced))
-                    .frame(height: metrics.scaled(110))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: metrics.scaled(5))
-                            .stroke(Color.secondary.opacity(0.35))
-                    )
+                // The commit dialog's message box: the shared box around the
+                // editor, which hides its own scroll ground so `bgEditor` shows.
+                ChromeControlBox(
+                    isFocused: focusedField == .body,
+                    horizontalPadding: ChromeGeometry.fieldPaddingX
+                ) {
+                    TextEditor(text: $commitBody)
+                        .font(metrics.scaledFont(.body, design: .monospaced))
+                        .foregroundStyle(theme.color(.textPrimary))
+                        .scrollContentBackground(.hidden)
+                        .focused($focusedField, equals: .body)
+                        .frame(height: metrics.scaled(110))
+                }
             }
         }
     }
@@ -206,20 +229,23 @@ struct PullRequestMergeSheet: View {
             if let refusal = plan.refusal {
                 Label(refusal.message, systemImage: "exclamationmark.triangle")
                     .font(metrics.scaledFont(.caption))
-                    .foregroundStyle(Color.orange)
+                    // The one refusal a reader can knowingly sit through —
+                    // checks still running — reads as a warning; every other
+                    // is a refusal. The refusal's own `isArmable` decides.
+                    .foregroundStyle(theme.color(refusal.isArmable ? .statusYellow : .statusRed))
             }
             Text(plan.mergeSentence)
                 .font(metrics.scaledFont(.caption))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(theme.color(.textSecondary))
             if let tail = plan.tailSentence {
                 Text(tail)
                     .font(metrics.scaledFont(.caption))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(theme.color(.textSecondary))
             }
             if let deletion = plan.deleteBranchSentence {
                 Text(deletion)
                     .font(metrics.scaledFont(.caption))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(theme.color(.textSecondary))
             }
         }
         .fixedSize(horizontal: false, vertical: true)
@@ -234,10 +260,12 @@ struct PullRequestMergeSheet: View {
             }
             Spacer()
             Button("Cancel") { dismiss() }
+                .buttonStyle(.chromeSecondary)
                 .keyboardShortcut(.cancelAction)
             Button(model.mergePlan?.buttonTitle ?? GitHubMergePlan.mergeButtonTitle) {
                 Task { await submit() }
             }
+            .buttonStyle(.chromePrimary)
             .keyboardShortcut(.defaultAction)
             .disabled(!canSubmit)
         }

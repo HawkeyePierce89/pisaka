@@ -119,7 +119,7 @@ import XCTest
 ///   lies inside a `performAsCurrentDrawingAppearance` body, naming `hairline` and
 ///   `bgPopover` respectively.
 /// - **One field shape.** No gated file spells the rounded-border style; the
-///   shared field/box is constructed in exactly five callers plus the defining
+///   shared field/box is constructed in exactly seven callers plus the defining
 ///   file, and the shared query toggle in exactly two.
 /// - **Each measurement follows its own zone.** The Find in Files match row
 ///   carries no fixed height and is sized by the code font, and each popover's
@@ -258,6 +258,9 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         // pane's iOS half is not swept (see `pinnedBackgroundAssignments`).
         "AcknowledgementsView.swift",
         "LicenseTextView.swift",
+        // Part five (c): the create and merge pull-request sheets.
+        "NewPullRequestSheet.swift",
+        "PullRequestMergeSheet.swift",
     ]
 
     func testEveryGatedFileExists() throws {
@@ -2197,6 +2200,8 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         "ProjectSearchView.swift",
         "BranchSwitcherView.swift",
         "CommitDialogView.swift",
+        "NewPullRequestSheet.swift",
+        "PullRequestMergeSheet.swift",
         "ChromeControls.swift",
     ]
 
@@ -2231,7 +2236,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         }
         XCTAssertEqual(
             constructors, Self.sharedFieldConstructors,
-            "the files constructing the shared field or box must be exactly its five callers plus the defining file"
+            "the files constructing the shared field or box must be exactly its seven callers plus the defining file"
         )
 
         var toggleConstructors: Set<String> = []
@@ -2557,13 +2562,20 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
 
     /// The files spelling each shared control, the defining file included.
     private static let sharedControlCallers: [(token: String, files: Set<String>)] = [
-        ("chromePrimary", ["ChromeControls.swift", "CommitDialogView.swift", "MergeView.swift"]),
+        ("chromePrimary", [
+            "ChromeControls.swift", "CommitDialogView.swift", "MergeView.swift",
+            "NewPullRequestSheet.swift", "PullRequestMergeSheet.swift",
+        ]),
         ("chromeSecondary", [
             "ChromeControls.swift", "SearchBarView.swift", "ProjectSearchView.swift",
             "CommitDialogView.swift", "MergeView.swift", "LocalHistoryView.swift",
             "SettingsView.swift", "LSPServerSettingsView.swift",
+            "NewPullRequestSheet.swift", "PullRequestMergeSheet.swift",
         ]),
-        ("ChromeCheckbox", ["ChromeControls.swift", "CommitDialogView.swift", "LogFilterBar.swift", "LocalChangesView.swift"]),
+        ("ChromeCheckbox", [
+            "ChromeControls.swift", "CommitDialogView.swift", "LogFilterBar.swift", "LocalChangesView.swift",
+            "NewPullRequestSheet.swift",
+        ]),
     ]
 
     /// Each of part five (b)'s ten files: how many `Button` constructions it

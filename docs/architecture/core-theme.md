@@ -951,7 +951,10 @@ replace fields) and `ProjectSearchView.swift` (the query row, the replace row an
 the file-mask field) and `BranchSwitcherView.swift` (the popover's filter field,
 via the themed field with its own `FocusState`) and — since part five (b) —
 `CommitDialogView.swift` (the message box, through the box alone around its
-`TextEditor`). The Log bar's doc comment says
+`TextEditor`) and — since part five (c) — `NewPullRequestSheet.swift` and
+`PullRequestMergeSheet.swift` (each sheet's title or subject through the themed
+field, and its body through the box alone around its `TextEditor`, the commit
+dialog's shape). The Log bar's doc comment says
 the shape is shared. Tokens are in `ChromeGeometry`: `fieldCornerRadius` 4,
 `fieldFocusedBorderWidth` 2, `fieldPaddingX` 10, `secondaryButtonHeight` 28,
 `secondaryButtonPaddingX` 14, each distinct and none derived.
@@ -1793,8 +1796,9 @@ The thirty-five rules, each invisible to the compiler:
     any whitespace, or `RoundedBorderTextFieldStyle`. The set of files
     constructing the shared field or box equals `{LogFilterBar.swift,
     SearchBarView.swift, ProjectSearchView.swift, BranchSwitcherView.swift,
-    CommitDialogView.swift}` (the last since part five (b), its message box),
-    plus `ChromeControls.swift`, where the box is composed into the field. The
+    CommitDialogView.swift, NewPullRequestSheet.swift,
+    PullRequestMergeSheet.swift}` (the commit dialog since part five (b), its
+    message box; the two pull-request sheets since part five (c)), plus `ChromeControls.swift`, where the box is composed into the field. The
     shared box has a `bgEditor` ground, a one-point `hairline` border and
     `accent` at the focused width while focused, and takes its horizontal inset
     as a parameter with no height; the themed field is a plain `TextField` over
