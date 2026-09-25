@@ -943,8 +943,10 @@ revert checkbox's check grew two points. Its first callers are the revert
 checkbox (the private builder and its three `LocalChangesLayout` numbers
 deleted) and the Log filter bar's two date bounds, which replaced a platform
 `Toggle`. Callers: `LogFilterBar.swift` (its text fields and its
-three boxed system controls — the branch menu and the two date bounds — through
-the box at 22 high and its own inset, plus the box as the filter-field baseline
+two boxed system controls — the two date bounds — through the box at 22 high and
+its own inset — the branch menu was a third until part five (c) lifted it into
+the shared `ChromeMenuField`, which composes the box inside its own definition,
+so the Log bar no longer builds one for it — plus the box as the filter-field baseline
 with its private `controlBox`/`filterField` and the `FilterBarLayout` entries
 `controlRadius`/`focusBorderWidth` deleted), `SearchBarView.swift` (the query and
 replace fields) and `ProjectSearchView.swift` (the query row, the replace row and
@@ -1388,7 +1390,11 @@ the gated set, taking it from forty-four to **fifty-one**: `SettingsView.swift`,
 `NewPullRequestSheet.swift` and `PullRequestMergeSheet.swift`. Two rules are
 added (thirty-six and thirty-seven, the suite growing from thirty-five to
 thirty-seven); rules sixteen, twenty, twenty-four, twenty-six, twenty-seven and
-thirty gain clauses, and rules thirty-one and thirty-five gain pins. Twenty-one
+thirty gain clauses, rules thirty-one and thirty-five gain pins, and rule
+eighteen's case-label clause is rewritten from "no gated file matches" to a
+per-file count (`sharedSpellingCaseLabels`), because `LSPServerSettingsView.swift`
+joins the gated set spelling two `case .pending:` labels that name the
+toolchain search's first state, not a checks state. Twenty-one
 geometry tokens are added to `ChromeGeometry`.
 
 **The five shapes — four new, one lifted.** Each lives in `ChromeControls.swift`,

@@ -125,8 +125,10 @@ import XCTest
 ///   shared field/box is constructed in exactly seven callers plus the defining
 ///   file, and the shared query toggle in exactly two.
 /// - **Each measurement follows its own zone.** The Find in Files match row
-///   carries no fixed height and is sized by the code font, and each popover's
-///   corner radius is scaled with the interface metrics.
+///   carries no fixed height and is sized by the code font, each popover's
+///   corner radius is scaled with the interface metrics, and every `.frame(` in
+///   the commit dialog's `messageBox` names `messageLineHeight` and never the
+///   interface metrics — the box is counted in lines of the code font it draws at.
 /// - **A secondary window's ground is set in the window subclass.** The six
 ///   controllers constructing `EscClosableWindow` set no `backgroundColor`; the
 ///   subclass's designated initializer sets `bgPanel`. Two setters compete
@@ -137,7 +139,8 @@ import XCTest
 ///   role's colour — a composed alpha is a second wash nothing re-themes.
 /// - **One primary button, one secondary, one checkbox.** No gated file spells a
 ///   platform toggle or button style; the shared controls' callers are pinned;
-///   every button in part five (b)'s files is styled. A platform control
+///   every button in part five (b)'s and part five (c)'s files is styled, by a
+///   per-file count of constructions against `.buttonStyle(`. A platform control
 ///   compiles and looks plausible in whichever appearance the reviewer is in.
 /// - **A code pane's ground goes through one definition.** `CodePaneGround` has
 ///   four callers, and no view's `backgroundColor` is set outside its body but

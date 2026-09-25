@@ -527,9 +527,12 @@ pass while the code it describes was deleted) and asserts:
 
 **AppKit-drawn chrome is outside the interface zone by construction.** Context
 menus, `DefinitionPicker`'s `NSMenu`, the completion popup `CompletionController`
-drives, `NSAlert`/`PlatformAlert` dialogs, the open/save panels in `FilePanels`
-and the Preferences window's own tab bar are drawn by the system, not by SwiftUI
-views the environment can reach, so they stay at the system size at every scale.
+drives, `NSAlert`/`PlatformAlert` dialogs and the open/save panels in
+`FilePanels` are drawn by the system, not by SwiftUI views the environment can
+reach, so they stay at the system size at every scale. The Preferences window's
+own tab bar was on this list until part five (c) of the chrome theme replaced the
+system tab view with `ChromeSettingsTabBar`, a SwiftUI view reading
+`\.interfaceMetrics`, so it now follows the interface scale like any other chrome.
 This is a boundary, not a gap: nothing about `\.interfaceMetrics` can reach them
 short of overriding the system's own menu and panel appearance.
 

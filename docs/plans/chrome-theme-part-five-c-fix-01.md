@@ -238,33 +238,33 @@ gate green, on the exact regression the failure message names. `core-zoom.md` cl
 - Modify: `Tests/PisakaCoreTests/ChromeThemeSourceGatingTests.swift` (header only)
 - Modify: `docs/architecture/core-theme.md`, `core-zoom.md`, `core-services.md`
 
-- [ ] **The header inventory's bullets.** Rule twenty-seven's bullet lists only the
+- [x] **The header inventory's bullets.** Rule twenty-seven's bullet lists only the
       Find in Files row and the popover radii and omits the new clause pinning every
       `.frame(` in the commit dialog's `messageBox` to `messageLineHeight`. Rule
       thirty's says "every button in part five (b)'s files is styled" although the
       rule now also enforces part five (c)'s counts and its own message already says
       so. Extend both.
-- [ ] **`core-zoom.md`'s Known limits** still lists "the Preferences window's own tab
+- [x] **`core-zoom.md`'s Known limits** still lists "the Preferences window's own tab
       bar" among AppKit chrome that stays at the system size at every scale. It is
       now a SwiftUI view reading `\.interfaceMetrics`. Remove it from that list.
-- [ ] **`core-zoom.md`'s pin entry** (~512) still describes only the terminal stepper
+- [x] **`core-zoom.md`'s pin entry** (~512) still describes only the terminal stepper
       with hard-coded bounds. Reword: both Preferences steppers name their zone's
       `ZoomScaleRule`, and the stepper steps through `stepped(_:by:)` — matching
       Task 4's two-half clause.
-- [ ] **`core-services.md`** (~244) says the store's font constants survive because
+- [x] **`core-services.md`** (~244) says the store's font constants survive because
       "the iOS pinch and **both platforms'** Preferences steppers still name them".
       The macOS stepper now names `ZoomScaleRule.editorFont`. Say the iOS pinch, the
       iOS Preferences stepper and the Core `clampFontSize` callers, and drop macOS.
-- [ ] **`core-theme.md`'s part five (c) summary** (~1389) lists the rules that gained
+- [x] **`core-theme.md`'s part five (c) summary** (~1389) lists the rules that gained
       clauses and pins but omits rule eighteen, which this branch also rewrote —
       `sharedSpellingCaseLabels` now pins a per-file count instead of asserting no
       match. Add it.
-- [ ] **`core-theme.md`'s shared-field callers paragraph** (~945) still says the Log
+- [x] **`core-theme.md`'s shared-field callers paragraph** (~945) still says the Log
       bar routes "its three boxed system controls — the branch menu and the two date
       bounds — through the box". The branch menu is now the shared `ChromeMenuField`
       and no longer builds a box. Correct it to the two date bounds, naming when the
       branch menu left.
-- [ ] No new test beyond the header bullets, which the header self-check already
+- [x] No new test beyond the header bullets, which the header self-check already
       compares against the rule markers. Confirm `swift test` stays green.
 
 ### Task 7: Verify the gates
