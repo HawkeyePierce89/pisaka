@@ -2279,7 +2279,8 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// whole panel away — and `NSCursor`'s stack is global, so the cursor stays
     /// pushed after the flag that would have balanced it is gone. The defect
     /// shipped once, in the Log's divide; the two `ContentView` dividers already
-    /// released from `onDisappear`, which is the rule this states for all three.
+    /// released from `onDisappear`, which is the rule this states for all four
+    /// (the statement pane's resize handle joined in part five (d)).
     ///
     /// Over stripped source, in every gated file: each function whose body
     /// pushes an `NSCursor` is called from inside an `.onDisappear {` block in the
@@ -2441,10 +2442,10 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     ///
     /// Every `Commands`/`CommandMenu` builder in the repository, enumerated when
     /// this was written: `PisakaApp.swift`'s `.commands` (not gated, so it needs
-    /// nothing, though it spells `Divider()` in five menus), `FoldCommands.swift`
-    /// (not gated, and spells no separator) and `LeetCodeCommands`, the body
-    /// `PisakaApp`'s `CommandMenu("LeetCode")` hosts — the only one in a gated
-    /// file, hence the only entry.
+    /// nothing, though it spells `Divider()` five times across three menu
+    /// builders), `FoldCommands.swift` (not gated, and spells no separator) and
+    /// `LeetCodeCommands`, the body `PisakaApp`'s `CommandMenu("LeetCode")`
+    /// hosts — the only one in a gated file, hence the only entry.
     private static let commandsDividerBodies: [String: String] = [
         "LeetCodeOpenProblemSheet.swift": "struct LeetCodeCommands",
     ]

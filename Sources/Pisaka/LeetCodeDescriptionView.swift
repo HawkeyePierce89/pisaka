@@ -224,10 +224,11 @@ struct LeetCodeDescriptionPane: View {
         .background(theme.color(.bgPanel))
     }
 
-    /// Drag left to widen, right to narrow. The `panelDivider` shape in
-    /// `ContentView`, turned ninety degrees: a transparent 5-point hit area
+    /// Drag left to widen, right to narrow. A transparent 5-point hit area
     /// with the one `hairline` centred in it, so the pane's edge reads as a
-    /// rule while the drag target stays wide enough to find.
+    /// rule while the drag target stays wide enough to find. Not
+    /// `ContentView.panelDivider`'s shape — that one is an opaque `bgPanel`
+    /// fill with a top-aligned hairline, being the dock's own top edge.
     private var resizeHandle: some View {
         Color.clear
             .frame(width: metrics.scaled(5))

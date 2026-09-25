@@ -188,7 +188,9 @@ public enum ChromeGeometry {
     /// one takes its height from its own surface's layout (rule thirty-seven
     /// pins the callers).
     public static let menuFieldHeight: Double = 26
-    /// The shared spinner's side — the small control size it replaces.
+    /// The shared spinner's side — the small control size most of the twenty
+    /// sites it replaced had asked for; the commit dialog's bare
+    /// `ProgressView()` was the regular size and so halved.
     public static let spinnerSide: Double = 16
     /// The width of the stroke the shared spinner's arc is drawn with.
     public static let spinnerLineWidth: Double = 2

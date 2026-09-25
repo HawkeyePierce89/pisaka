@@ -1612,7 +1612,9 @@ rule twenty-seven.
 
 #### Part five (d) — the database viewer, its SQL console and the problem-catalog surfaces
 
-The last seven unswept macOS chrome views: the database viewer tab and its SQL
+Seven more macOS chrome views — the last this series of parts named, **not** the
+last unswept ones (see *What is still waiting* below for a verified
+counterexample): the database viewer tab and its SQL
 console, and the problem-catalog browser window, the statement pane, the judge
 section, the open-problem sheet (with the menu-bar commands in the same file) and
 the sign-in sheet. It spends **no new colour role** — `ChromeColorRole` stays at
@@ -1633,8 +1635,9 @@ already gated (the Log 2, the commit dialog, Find in Files, the Pull Requests
 panel 3, the two pull-request sheets 3, Language Servers 3, Local History,
 Usages) — **twenty sites**. It is drawn, not a platform control: an open arc
 (three quarters of a circle, one turn a second) stroked in `textSecondary` and
-turned by the clock through a `TimelineView`, `spinnerSide` (16, the small control size it
-replaces) square with a `spinnerLineWidth` (2) stroke, both `ChromeGeometry`
+turned by the clock through a `TimelineView`, `spinnerSide` (16, the small control size most
+of the replaced sites asked for — not all: the commit dialog's loading state was
+a bare regular-size `ProgressView()` and so halved) square with a `spinnerLineWidth` (2) stroke, both `ChromeGeometry`
 tokens scaled through the metrics, neither derived from the other. A spinner
 reports activity, not selection, which is why it is not `accent`. Under Reduce
 Motion it draws still, and it follows the setting as it is *now*: the
@@ -1746,9 +1749,11 @@ differed:
    slot takes the same mark and colour.
 8. **The spinner is drawn, not a platform control**, as above; the three
    `.progressViewStyle(.circular)` went with their views.
-9. **The statement pane's resize handle** (a 5-point `separatorColor` fill) takes
-   `ContentView.panelDivider`'s shape: a transparent hit area with a centred
-   `hairline` at `hairlineWidth`. Its cursor function joins rule twenty-two's
+9. **The statement pane's resize handle** (a 5-point `separatorColor` fill) is
+   a transparent 5-point hit area with a centred `hairline` at `hairlineWidth`.
+   It is not `ContentView.panelDivider`'s shape, which is an opaque `bgPanel`
+   fill with a top-aligned hairline: that divider *is* the dock's top edge,
+   while the handle sits between two surfaces and draws only the rule. Its cursor function joins rule twenty-two's
    pinned set.
 10. **The tables-and-views sidebar.** `.listStyle(.sidebar)` draws the
     platform's translucent material, so the list is `.plain` with
@@ -1838,8 +1843,11 @@ The spinner question part five (c) left open is **closed**.
 The dock is finished, the popovers and search surfaces are swept, and so are the
 commit dialog, the merge editor, every secondary window's ground, Preferences,
 the two pull-request sheets, the database viewer and its console, and the
-problem-catalog surfaces. After them: whatever macOS chrome view is still
-ungated, and the terminal's own palette. Each follows the six-step guide at the end of this document, on its
+problem-catalog surfaces. After them: every macOS chrome view still ungated —
+part five (d) was not the last of them; `FilePanels.swift`, for one, sets
+`reason.textColor = .systemRed` on the project tree's inline-naming refusal
+sentence and appears nowhere in `ChromeThemeSourceGatingTests` — and the
+terminal's own palette. Each follows the six-step guide at the end of this document, on its
 own, with `gatedFiles` growing as part of the restyle rather than afterwards.
 
 The dock's tab row is **no longer deferred** — part four (a) drew it, and
@@ -2328,8 +2336,8 @@ The forty-one rules, each invisible to the compiler:
     `A; B; Divider(); C` one at 93 pt. So `LeetCodeCommands`' body is pinned by
     shape — exactly one `Divider()`, no `Section` — and the rest of its file is
     held to the ordinary rule. Every other `Commands` builder is in an ungated
-    file (`PisakaApp.swift`, which spells `Divider()` in five menus, and
-    `FoldCommands.swift`, which spells none). No token rule can measure a
+    file (`PisakaApp.swift`, which spells `Divider()` five times across three
+    menu builders — the Save group, View and Find — and `FoldCommands.swift`, which spells none). No token rule can measure a
     rendered menu; the shape pin is what a suite can see. `LogFilterBar.swift` left the first set in part five
     (c) — its branch menu is now the shared `ChromeMenuField`, whose one `Menu`
     lives in `ChromeControls.swift`, which joined in its place. Part five (c)

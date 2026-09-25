@@ -1773,8 +1773,9 @@ the limits the design carries.
     site, show) carry an accessibility label each and draw their glyphs scaled
     and hidden through one `iconGlyph(`; the three former `Divider()`s are
     `hairline` rules. The **resize handle** — a 5-point `separatorColor` fill
-    before — takes `ContentView.panelDivider`'s shape: a transparent hit area with
-    a centred `hairline` at `hairlineWidth`, its cursor still pushed through
+    before — is a transparent 5-point hit area with a centred `hairline` at
+    `hairlineWidth` (not `ContentView.panelDivider`'s shape, which is an opaque
+    `bgPanel` fill with a top-aligned hairline), its cursor still pushed through
     `syncResizeHandleCursor()` and released from `onDisappear` exactly as above
     (the function is pinned in `ChromeThemeSourceGatingTests`' rule twenty-two).
     The web view and its code-zone marker are untouched, and the served statement

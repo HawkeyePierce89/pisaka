@@ -276,42 +276,46 @@ Each of these was verified by reading both sides. None is a code defect; all of
 them would mislead the next reader, which is the same class as fix round 01's
 inverted layering comments.
 
-- [ ] `docs/architecture/core-theme.md:1599` calls these "the last seven unswept
+- [x] `docs/architecture/core-theme.md:1599` calls these "the last seven unswept
       macOS chrome views", and `:1807` then says "whatever macOS chrome view is
       still ungated" remains — the two cannot both be true. A verified
       counterexample: `Sources/Pisaka/FilePanels.swift:149` sets
       `reason.textColor = .systemRed` on the project tree's inline-naming refusal
       sentence, and that file appears nowhere in the suite. Replace the claim
       with what is true and name the counterexample.
-- [ ] `CLAUDE.md`'s new clause says "no `isGood` and no case-label table in a
+- [x] `CLAUDE.md`'s new clause says "no `isGood` and no case-label table in a
       view". The **colour** tables moved to Core; case-label tables remain and are
       legitimately pinned by count — `LeetCodeBrowserRow.statusCell` and
       `LeetCodeBrowserView.title(for:)` twice, nine labels in all, which
       `core-theme.md:2463-2467` states correctly. Narrow the summary line to what
       moved.
-- [ ] The same clause's "no alternating row fill (a table reads by selection and
+- [x] The same clause's "no alternating row fill (a table reads by selection and
       hover)" is imprecise for the database grid, which this branch's own
       documentation says has no row selection: hover is its only row state. Say
       that.
-- [ ] `Sources/Pisaka/LeetCodeDescriptionView.swift:227-230`,
+- [x] `Sources/Pisaka/LeetCodeDescriptionView.swift:227-230`,
       `core-theme.md:1777-1780` and `core-leetcode.md:1774-1776` all say the
       statement pane's resize handle "takes `ContentView.panelDivider`'s shape: a
       transparent hit area with a centred `hairline`". The handle is that;
       `ContentView.panelDivider` (`ContentView.swift:626-637`) is not — it is an
       opaque `chromeColor(.bgPanel)` fill with a **top**-aligned hairline overlay.
       Describe the handle without miscasting what it is compared to.
-- [ ] `Sources/PisakaCore/ChromeGeometry.swift:188` calls `spinnerSide` "the small
+- [x] `Sources/PisakaCore/ChromeGeometry.swift:188` calls `spinnerSide` "the small
       control size it replaces". One of the twenty sites,
       `CommitDialogView.swift:146`, was a bare `ProgressView()` with no
       `.controlSize(.small)` — so it halves rather than staying put. The shrink is
       geometry and in remit; the claim of uniformity is what is wrong.
-- [ ] `ChromeThemeSourceGatingTests.swift` around `:2218` says "which is the rule
+- [x] `ChromeThemeSourceGatingTests.swift` around `:2218` says "which is the rule
       this states for all three" while `cursorPushingFunctions` now holds four
       entries, `syncResizeHandleCursor` having joined. Fix the number.
-- [ ] **Sweep for the shape, not the site.** Grep the added and changed doc and
+- [x] **Sweep for the shape, not the site.** Grep the added and changed doc and
       comment lines of this branch for any other count written as a word or digit
       and check each against the set it describes.
-- [ ] Run `swift test`. It must pass — the documentation checks read these files.
+      (Done: one more found and fixed — `PisakaApp.swift` spells `Divider()`
+      five times across three menu builders, not "in five menus", in the
+      suite's rule twenty-four comment and `core-theme.md`; every other count
+      checked matches its set or is enforced by the suite's own count.)
+- [x] Run `swift test`. It must pass — the documentation checks read these files.
 
 ### Task 8: Gates
 
