@@ -2006,6 +2006,42 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         }
     }
 
+    /// Rule twenty's clause for `ChromeSpinner`'s own body: whether it turns is
+    /// a function of Reduce Motion **as it is now**, never of a value latched
+    /// once. The regression this names is the spinner's first shape — a
+    /// `@State` flag set in `onAppear` and fed to a value-scoped `.animation`,
+    /// so a spinner that appeared under Reduce Motion stayed still for its whole
+    /// life after the setting was switched off (the flag never changed again, so
+    /// the animation never fired). Read inside the type's brace-matched
+    /// declaration, stripped: `onAppear` and `@State` are absent, and the
+    /// reduce-motion property is named inside the argument list of the
+    /// `TimelineView(` that drives the turn — as its `paused:` value — so a
+    /// change in either direction reaches the schedule. Presence and absence
+    /// only; which branch runs is not read.
+    func testSpinnerTurnsOnReduceMotionAsItIsNow() throws {
+        let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
+            try Self.read(Self.source(named: "ChromeControls.swift"))
+        )
+        let body = try XCTUnwrap(
+            Self.matchedBody(after: "struct ChromeSpinner", in: code),
+            "ChromeControls.swift declares no ChromeSpinner"
+        )
+        for latch in ["onAppear", "State"] {
+            XCTAssertFalse(
+                LSPSourceGatingTests.containsToken(latch, in: body),
+                "ChromeSpinner spells \(latch) — a latched flag cannot follow Reduce Motion switched off under it"
+            )
+        }
+        let drivers = Self.matchedArguments(after: "TimelineView", in: body)
+        XCTAssertEqual(drivers.count, 1, "ChromeSpinner's turn is driven by exactly one TimelineView")
+        XCTAssertTrue(
+            drivers.allSatisfy {
+                $0.range(of: #"paused\s*:\s*reduceMotion(?![A-Za-z0-9_])"#, options: .regularExpression) != nil
+            },
+            "ChromeSpinner's TimelineView must pause on the reduce-motion property itself"
+        )
+    }
+
     /// Each `ChromeSpinner(` construction in `code`, in order, with which of the
     /// two accessibility markers its own modifier chain spells; `nil` when a
     /// call does not close. Read by rule twenty's clause (exactly one marker per

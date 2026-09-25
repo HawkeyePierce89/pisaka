@@ -566,8 +566,13 @@ struct ChromeMenuField<Value: Hashable>: View {
 ///
 /// An open arc stroked in `textSecondary` — a spinner reports activity, not
 /// selection, so it is not `accent` — `spinnerSide` square at a
-/// `spinnerLineWidth` stroke, both scaled through the metrics, turned by a
-/// repeating animation. Under Reduce Motion it draws still.
+/// `spinnerLineWidth` stroke, both scaled through the metrics. The turn is a
+/// function of the clock read through a `TimelineView` whose schedule pauses on
+/// Reduce Motion, so it follows the setting as it is *now*, in both directions:
+/// switched on under a turning spinner, the schedule pauses and the arc draws
+/// still at its resting angle; switched off under a still one, the schedule
+/// resumes and it turns — no flag latched at appearance stands between the
+/// setting and the drawing.
 ///
 /// **The call site decides what it speaks, and says so exactly once.** Every
 /// construction carries one of two markers in its own modifier chain:
@@ -584,28 +589,22 @@ struct ChromeSpinner: View {
     @Environment(\.interfaceMetrics) private var metrics
     @Environment(\.chromeTheme) private var theme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var isTurning = false
 
     var body: some View {
         let side = metrics.scaled(ChromeGeometry.spinnerSide)
         let lineWidth = metrics.scaled(ChromeGeometry.spinnerLineWidth)
-        // Inset by half the stroke so the arc's outer edge meets the frame
-        // rather than overhanging it.
-        Circle()
-            .inset(by: lineWidth / 2)
-            .trim(from: 0, to: ChromeSpinnerLayout.arcFraction)
-            .stroke(theme.color(.textSecondary), style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
-            .rotationEffect(.degrees(isTurning && !reduceMotion ? 360 : 0))
-            .animation(
-                reduceMotion
-                    ? nil
-                    : .linear(duration: ChromeSpinnerLayout.turnDuration).repeatForever(autoreverses: false),
-                value: isTurning
-            )
-            .frame(width: side, height: side)
-            .onAppear { isTurning = true }
-            .accessibilityElement(children: .ignore)
-            .accessibilityAddTraits(.updatesFrequently)
+        TimelineView(.animation(minimumInterval: nil, paused: reduceMotion)) { context in
+            // Inset by half the stroke so the arc's outer edge meets the frame
+            // rather than overhanging it.
+            Circle()
+                .inset(by: lineWidth / 2)
+                .trim(from: 0, to: ChromeSpinnerLayout.arcFraction)
+                .stroke(theme.color(.textSecondary), style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
+                .rotationEffect(reduceMotion ? .zero : ChromeSpinnerLayout.angle(at: context.date))
+        }
+        .frame(width: side, height: side)
+        .accessibilityElement(children: .ignore)
+        .accessibilityAddTraits(.updatesFrequently)
     }
 }
 
@@ -615,6 +614,13 @@ private enum ChromeSpinnerLayout {
     static let arcFraction: Double = 0.75
     /// Seconds per full turn.
     static let turnDuration: Double = 1
+
+    /// Where the arc stands at `date`: the fraction of the current turn,
+    /// as an angle.
+    static func angle(at date: Date) -> Angle {
+        let phase = date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: turnDuration)
+        return .degrees(phase / turnDuration * 360)
+    }
 }
 
 #endif

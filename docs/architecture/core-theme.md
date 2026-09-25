@@ -1614,11 +1614,18 @@ already gated (the Log 2, the commit dialog, Find in Files, the Pull Requests
 panel 3, the two pull-request sheets 3, Language Servers 3, Local History,
 Usages) — **twenty sites**. It is drawn, not a platform control: an open arc
 (three quarters of a circle, one turn a second) stroked in `textSecondary` and
-rotated by a repeating animation, `spinnerSide` (16, the small control size it
+turned by the clock through a `TimelineView`, `spinnerSide` (16, the small control size it
 replaces) square with a `spinnerLineWidth` (2) stroke, both `ChromeGeometry`
 tokens scaled through the metrics, neither derived from the other. A spinner
 reports activity, not selection, which is why it is not `accent`. Under Reduce
-Motion it draws still. Its accessibility is a **call-site contract**: a spinner
+Motion it draws still, and it follows the setting as it is *now*: the
+timeline's schedule pauses on the reduce-motion value itself, so switching the
+setting on stills a turning spinner and switching it off turns a still one. Its
+first shape latched a `@State` flag in `onAppear` and fed it to a value-scoped
+`.animation`; a spinner that appeared under Reduce Motion then stayed still for
+its whole life once the setting was switched off, because the flag never changed
+again — rule twenty's body clause (no `onAppear`, no `@State`, the reduce-motion
+property as the `TimelineView`'s `paused:` value) names that regression. Its accessibility is a **call-site contract**: a spinner
 speaks either its activity or nothing, decided where it is constructed, never
 both and never neither. A spinner whose neighbour already names the activity —
 a sentence or caption beside it — is `.accessibilityHidden(true)`, so VoiceOver
