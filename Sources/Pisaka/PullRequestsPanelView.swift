@@ -121,8 +121,8 @@ struct PullRequestsPanelView: View {
                 .lineLimit(1)
                 .truncationMode(.middle)
             if model.isLoading {
-                ProgressView()
-                    .controlSize(.small)
+                ChromeSpinner()
+                    .accessibilityLabel("Reading pull requests")
             }
             Spacer()
             Button {
@@ -566,7 +566,8 @@ private struct PullRequestRow: View {
     private var mergeControl: some View {
         if isWaiting {
             HStack(spacing: metrics.scaled(PullRequestsLayout.waitGap)) {
-                ProgressView().controlSize(.small)
+                ChromeSpinner()
+                    .accessibilityHidden(true)
                 Text(waitElapsed)
                     .font(metrics.scaledFont(.subheadline))
                     .monospacedDigit()
@@ -642,7 +643,8 @@ private struct PullRequestRow: View {
             }
         } else {
             HStack(spacing: metrics.scaled(PullRequestsLayout.jobGap)) {
-                ProgressView().controlSize(.small)
+                ChromeSpinner()
+                    .accessibilityHidden(true)
                 Text("Reading checks…")
                     .font(metrics.scaledFont(.subheadline))
                     .foregroundStyle(theme.color(.textSecondary))

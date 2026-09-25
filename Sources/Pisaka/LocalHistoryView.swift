@@ -183,8 +183,8 @@ struct LocalHistoryView: View {
     private var footer: some View {
         HStack(spacing: metrics.scaled(8)) {
             if browser.isLoading {
-                ProgressView()
-                    .controlSize(.small)
+                ChromeSpinner()
+                    .accessibilityLabel("Loading revisions")
             }
             Spacer()
             Button("Restore") {

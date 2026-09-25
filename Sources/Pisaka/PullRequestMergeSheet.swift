@@ -148,7 +148,8 @@ struct PullRequestMergeSheet: View {
                 .fixedSize(horizontal: false, vertical: true)
         } else if model.mergeMessage == nil {
             HStack(spacing: metrics.scaled(6)) {
-                ProgressView().controlSize(.small)
+                ChromeSpinner()
+                    .accessibilityHidden(true)
                 Text("Reading this repository’s merge settings…")
             }
             .font(metrics.scaledFont(.callout))
@@ -256,7 +257,8 @@ struct PullRequestMergeSheet: View {
     private var buttons: some View {
         HStack {
             if model.isWriteInFlight {
-                ProgressView().controlSize(.small)
+                ChromeSpinner()
+                    .accessibilityLabel("Merging")
             }
             Spacer()
             Button("Cancel") { dismiss() }

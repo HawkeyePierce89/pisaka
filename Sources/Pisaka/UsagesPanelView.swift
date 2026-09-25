@@ -73,8 +73,8 @@ struct UsagesPanelView: View {
                     .lineLimit(1)
             }
             if model.isSearching {
-                ProgressView()
-                    .controlSize(.small)
+                ChromeSpinner()
+                    .accessibilityLabel("Searching")
             }
             Spacer()
             if !model.groups.isEmpty {

@@ -118,8 +118,8 @@ struct CommitLogView: View {
                 .foregroundStyle(theme.color(.textPrimary))
                 .lineLimit(1)
             if model.isLoading {
-                ProgressView()
-                    .controlSize(.small)
+                ChromeSpinner()
+                    .accessibilityLabel("Loading commits")
             }
             Spacer()
             Button(action: refreshIfPossible) {
@@ -320,8 +320,8 @@ struct CommitLogView: View {
                 HStack {
                     Spacer()
                     if model.isLoading {
-                        ProgressView()
-                            .controlSize(.small)
+                        ChromeSpinner()
+                            .accessibilityLabel("Loading more commits")
                     } else {
                         Text("Load more")
                             .font(metrics.scaledFont(.callout))

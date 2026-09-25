@@ -116,13 +116,16 @@ import XCTest
 ///   `presentationBackground`.
 /// - **No gated file spells `Divider()`; a menu separates with `Section`.** No
 ///   gated file spells `Divider(`, and every gated file that builds a `Menu`
-///   spells `Section` at least once.
+///   spells `Section` at least once. One stated exception, pinned by set
+///   equality: `LeetCodeCommands`' body — a main menu built inside a
+///   `Commands` builder, where a `Section` emits a separator on each side of its
+///   group — spells exactly one `Divider()` and no `Section`.
 /// - **AppKit layer colours are set only inside the drawing appearance.** Every
 ///   `borderColor` and `backgroundColor` assignment in the two popover panels
 ///   lies inside a `performAsCurrentDrawingAppearance` body, naming `hairline` and
 ///   `bgPopover` respectively.
 /// - **One field shape.** No gated file spells the rounded-border style; the
-///   shared field/box is constructed in exactly seven callers plus the defining
+///   shared field/box is constructed in exactly eleven callers plus the defining
 ///   file, and the shared query toggle in exactly two.
 /// - **Each measurement follows its own zone.** The Find in Files match row
 ///   carries no fixed height and is sized by the code font, each popover's
@@ -173,7 +176,21 @@ import XCTest
 ///   each caller's construction count by file, so a control changing shape
 ///   changes a count even inside a file already spelling both shapes. The
 ///   menu field's chevron lies inside its `Menu`'s label, so the arrow it
-///   draws is the control.
+///   draws is the control. `menuFieldHeight` frames menu fields alone, its
+///   spellings pinned per file by count.
+/// - **No gated file builds a platform table.** A `Table` draws its header,
+///   grounds, alternation and selection box in the platform's colours; no gated
+///   file spells `Table` or `TableColumn`, and the browser lays its own rows out.
+/// - **The problem catalog's three colour mappings are Core's one answer each.**
+///   Difficulty, status and verdict each have one Core role answer and one known
+///   reader; no gated file keeps an `isGood` flag, and the case labels left in a
+///   view are pinned by count.
+/// - **One spinner.** No gated file spells `ProgressView`; `ChromeSpinner`'s
+///   callers are pinned by set, and each caller's labelled/hidden pair by file,
+///   the twenty sites summed.
+/// - **No alternating row fill.** A gated table reads by selection and hover; no
+///   gated file spells `alternatingRowBackgrounds`, `isMultiple` or `isTinted`,
+///   and no `.background`/`.listRowBackground` modifier's own text spells `% 2`.
 ///
 /// What a rule here may do, and nothing more: pin a set by equality, assert the
 /// presence or absence of a token through `containsToken`, or take a
@@ -279,6 +296,23 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         // Part five (c): the create and merge pull-request sheets.
         "NewPullRequestSheet.swift",
         "PullRequestMergeSheet.swift",
+        // Part five (d): the database viewer tab — its sidebar, grid, footer
+        // and error banner.
+        "DatabaseViewerView.swift",
+        // The viewer's SQL console: its toolbar, input, result table and
+        // status bar.
+        "DatabaseConsoleView.swift",
+        // The problem-catalog browser window: its filter bar, rows and footer.
+        "LeetCodeBrowserView.swift",
+        // The statement pane beside the editor: its header, collapsed strip,
+        // rules and resize handle (the served page itself stays unthemed).
+        "LeetCodeDescriptionView.swift",
+        // The judge section under the statement.
+        "LeetCodeJudgeView.swift",
+        // The open-problem sheet and, in the same file, the menu-bar items.
+        "LeetCodeOpenProblemSheet.swift",
+        // The sign-in sheet's header and footer around the site's own page.
+        "LeetCodeLoginView.swift",
     ]
 
     func testEveryGatedFileExists() throws {
@@ -1741,9 +1775,18 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     ///   brace-enclosing it, which in SwiftUI hides its children too — since an
     ///   unhidden symbol folds its own name into the control's.
     ///
-    /// The checks glyph is the one entry not held to the last clause: the image
-    /// *is* the element, named and valued outright. A renamed builder fails
-    /// loudly rather than narrowing the rule to nothing.
+    /// An entry with `hidesSymbols: false` is not held to the last clause — the
+    /// checks glyph, whose image *is* the element, named and valued outright, and
+    /// the shared controls, search rows and problem-browser entries listed with
+    /// it. An entry's `forbidden` tokens must be spelled nowhere in its body. A
+    /// renamed builder fails loudly rather than narrowing the rule to nothing.
+    ///
+    /// Each entry's comment claims only what its `required`/`forbidden` tokens
+    /// can see: a token is found anywhere in the brace-matched body, with no
+    /// argument read beyond what the needle itself spells, no type resolved and
+    /// no conditional evaluated — so a claim about an argument is held only when
+    /// the needle spells that argument, and a claim about a string literal's
+    /// contents is not held at all (the text is literal-stripped).
     ///
     /// The binding is the rule's substance. Its first shape searched all of the
     /// text after each image, so the dismiss glyph's modifier in `endingStrip`
@@ -1758,6 +1801,11 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         let path: [String]
         let required: [String]
         let hidesSymbols: Bool
+        var forbidden: [String] = []
+        /// When set, the body spells `.accessibilityLabel(` exactly this many
+        /// times — what an entry saying its controls are *each* named owes, since
+        /// `required` is satisfied by one label anywhere in the builder.
+        var labelCount: Int?
     }
 
     private static let panelControlBuilders: [(file: String, builders: [ControlBuilder])] = [
@@ -1826,6 +1874,60 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
             ControlBuilder(path: ["private var replaceRow: some View"],
                            required: [".accessibilityLabel("], hidesSymbols: false),
         ]),
+        // Part five (d): the grid footer's two paging chevrons, icon-only, each
+        // named outright over a glyph hidden where it is drawn. "Each" is a
+        // count: the footer spells exactly three labels — the two chevrons' and
+        // its spinner's — so deleting either chevron's is red (fix round 02).
+        ("DatabaseViewerView.swift", [
+            ControlBuilder(path: ["private var footer: some View"],
+                           required: [".accessibilityLabel("], hidesSymbols: true, labelCount: 3),
+            ControlBuilder(path: ["private func pagingGlyph("],
+                           required: [".accessibilityHidden(true)"], hidesSymbols: true),
+        ]),
+        // The problem browser's row: one combined element
+        // (`.accessibilityElement(children: .combine)`, spelled whole) carrying
+        // the selected trait (`.accessibilityAddTraits(isSelected ? .isSelected`,
+        // spelled through the trait, so an emptied set is red) and a *named*
+        // action (`.accessibilityAction(named:` — the name itself is a string
+        // literal this stripped text cannot read, so which name is not held),
+        // its Premium lock spoken by a label and hidden nowhere in the body (no
+        // `.accessibilityHidden(` at all) — the row's words are the element's.
+        // Before fix round 02 the entry spelled only the modifiers' names, so
+        // deleting the combining call or emptying the trait stayed green, and
+        // an unnamed `.accessibilityAction {` was red only because it has no
+        // parenthesis for the matcher to find. The row
+        // offers Open in a context menu of its own, and so does the list's
+        // container, for the area below the last row where no row is: the
+        // platform table this list replaced answered a right-click there with
+        // Open for the selection and cleared the selection on a click, and a
+        // menu only on the rows silently lost both. Whether that menu *appears*
+        // is not something a token rule can see; the container spelling one is.
+        ("LeetCodeBrowserView.swift", [
+            ControlBuilder(path: ["private struct LeetCodeBrowserRow", "var body: some View"],
+                           required: [
+                               ".accessibilityElement(children: .combine)",
+                               ".accessibilityAddTraits(isSelected ? .isSelected",
+                               ".accessibilityAction(named:", ".accessibilityLabel(",
+                               ".contextMenu {",
+                           ],
+                           hidesSymbols: false,
+                           forbidden: [".accessibilityHidden("]),
+            ControlBuilder(path: ["private var problemList: some View"],
+                           required: [".contextMenu {", ".onTapGesture {"], hidesSymbols: false),
+        ]),
+        // The statement pane's three icon-only buttons — hide and open on the
+        // site in the header, show in the collapsed strip — each named outright
+        // over a glyph hidden where it is drawn. "Each" is a count: the header
+        // spells exactly two labels and the strip exactly one, so deleting any
+        // one of the three is red (fix round 02).
+        ("LeetCodeDescriptionView.swift", [
+            ControlBuilder(path: ["private func header("],
+                           required: [".accessibilityLabel("], hidesSymbols: true, labelCount: 2),
+            ControlBuilder(path: ["private var collapsedStrip: some View"],
+                           required: [".accessibilityLabel("], hidesSymbols: true, labelCount: 1),
+            ControlBuilder(path: ["private func iconGlyph("],
+                           required: [".accessibilityHidden(true)"], hidesSymbols: true),
+        ]),
     ]
 
     func testThePanelsControlsAreIdentifiableWithoutSight() throws {
@@ -1849,7 +1951,26 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
                         """
                         \(name)'s \(described) must spell \(modifier) — a panel control is named after its \
                         glyph, and a state drawn as a colour or a shape is unspoken, until an explicit label \
-                        and value replace them
+                        and value replace them (and a menu or click the entry's comment names is lost until it is \
+                        spelled again)
+                        """
+                    )
+                }
+                if let expected = builder.labelCount {
+                    XCTAssertEqual(
+                        Self.callRanges(".accessibilityLabel(", in: found).count, expected,
+                        """
+                        \(name)'s \(described) must spell .accessibilityLabel( exactly \(expected) time(s) — \
+                        the entry's comment says each control is named, and one label satisfies `required`
+                        """
+                    )
+                }
+                for modifier in builder.forbidden {
+                    XCTAssertFalse(
+                        Self.spellsCall(modifier, in: found),
+                        """
+                        \(name)'s \(described) must not spell \(modifier) — the entry's comment says what it \
+                        speaks, and a hidden element speaks nothing
                         """
                     )
                 }
@@ -1866,6 +1987,151 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
                 }
             }
         }
+    }
+
+    /// Rule twenty's clause for `ChromeSpinner`, checked at its constructions
+    /// rather than in its body: the spinner speaks either its activity or
+    /// nothing, and which is the call site's to say. Every `ChromeSpinner(` call's
+    /// own modifier chain — the postfix links after the call, read from stripped
+    /// text, nothing parsed — spells exactly one of `.accessibilityLabel(` (it
+    /// stands alone and names what is happening) or `.accessibilityHidden(true)` (a
+    /// neighbour already names it, so VoiceOver reads that sentence once rather
+    /// than followed by a second, vaguer one). Never neither — an unnamed element
+    /// — and never both.
+    ///
+    /// The two shapes followed are part five (c)'s: `SettingsView.swift`'s label
+    /// column hidden where its control speaks for itself, and
+    /// `ChromeControls.swift`'s hidden decorative glyphs. The type carries no
+    /// label parameter and no default label because a default would be exactly
+    /// the duplicate the hidden marker avoids — so the marker is the call site's,
+    /// and this clause is where it is owed.
+    ///
+    /// `spinnerClassification` pins each file's split, confirmed against the tree
+    /// site by site; rule forty reads it, by set equality over the files that
+    /// construct a spinner: moving a site from one marker to the other, or adding
+    /// one, changes a count and a person decides whether the new site's
+    /// neighbour names the activity.
+    static let spinnerClassification: [String: (labelled: Int, hidden: Int)] = [
+        // The header's and the load-more row's: "History" and the row's place
+        // say nothing about loading, and "Loading…" is the empty list's alone.
+        "CommitLogView.swift": (labelled: 2, hidden: 0),
+        // Alone in the dialog's loading state.
+        "CommitDialogView.swift": (labelled: 1, hidden: 0),
+        // Beside the query toggles; "Searching…" is the empty list's alone.
+        "ProjectSearchView.swift": (labelled: 1, hidden: 0),
+        // The header's is beside the title; the wait's elapsed time carries
+        // what is being waited for, and "Reading checks…" names its own.
+        "PullRequestsPanelView.swift": (labelled: 1, hidden: 2),
+        // The write's, alone beside the buttons.
+        "NewPullRequestSheet.swift": (labelled: 1, hidden: 0),
+        // "Reading this repository's merge settings…" names the first; the
+        // write's is alone beside the buttons.
+        "PullRequestMergeSheet.swift": (labelled: 1, hidden: 1),
+        // Each row's status reads "Installing…" or "Removing…" beside it.
+        "LSPServerSettingsView.swift": (labelled: 0, hidden: 3),
+        // Alone in the footer beside Restore.
+        "LocalHistoryView.swift": (labelled: 1, hidden: 0),
+        // In the header; "Searching…" is the empty list's alone.
+        "UsagesPanelView.swift": (labelled: 1, hidden: 0),
+        // The grid footer's: once a page is on screen the text beside it is
+        // the row range, which names no load; "Loading…" is the empty page's.
+        "DatabaseViewerView.swift": (labelled: 1, hidden: 0),
+        // The console toolbar's: beside it stand the pane's "SQL" caption and
+        // the Run control, neither of which names the run in progress.
+        "DatabaseConsoleView.swift": (labelled: 1, hidden: 0),
+        // The browser footer's: it turns for a load or an open, and neither is
+        // named beside it — "Loading…" is the empty list's count line alone,
+        // and a loaded list's count line names no activity.
+        "LeetCodeBrowserView.swift": (labelled: 1, hidden: 0),
+        // The judge's: "Running…" or "Submitting…" stands beside it.
+        "LeetCodeJudgeView.swift": (labelled: 0, hidden: 1),
+        // The open-problem sheet's: "Fetching from LeetCode…" stands beside it.
+        "LeetCodeOpenProblemSheet.swift": (labelled: 0, hidden: 1),
+    ]
+
+    func testEverySpinnerConstructionSpeaksItsActivityOrNothing() throws {
+        for url in try Self.swiftSources() {
+            let name = url.lastPathComponent
+            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            let markers = try XCTUnwrap(
+                Self.spinnerMarkers(in: code),
+                "\(name) constructs a ChromeSpinner whose call does not close"
+            )
+            for marker in markers {
+                XCTAssertTrue(
+                    marker.labelled != marker.hidden,
+                    """
+                    \(name) constructs a ChromeSpinner whose own modifier chain spells \
+                    \(marker.labelled ? "both" : "neither") of .accessibilityLabel( and .accessibilityHidden(true) — \
+                    the call site says exactly once whether the spinner names its activity or a \
+                    neighbour already does
+                    """
+                )
+            }
+        }
+    }
+
+    /// Rule twenty's clause for `ChromeSpinner`'s own body: whether it turns is
+    /// a function of Reduce Motion **as it is now**, never of a value latched
+    /// once. The regression this names is the spinner's first shape — a
+    /// `@State` flag set in `onAppear` and fed to a value-scoped `.animation`,
+    /// so a spinner that appeared under Reduce Motion stayed still for its whole
+    /// life after the setting was switched off (the flag never changed again, so
+    /// the animation never fired). Read inside the type's brace-matched
+    /// declaration, stripped: `onAppear` and `@State` are absent, and the
+    /// reduce-motion property is named inside the argument list of the
+    /// `TimelineView(` that drives the turn — as its `paused:` value — so a
+    /// change in either direction reaches the schedule. Presence and absence
+    /// only; which branch runs is not read.
+    func testSpinnerTurnsOnReduceMotionAsItIsNow() throws {
+        let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
+            try Self.read(Self.source(named: "ChromeControls.swift"))
+        )
+        let body = try XCTUnwrap(
+            Self.matchedBody(after: "struct ChromeSpinner", in: code),
+            "ChromeControls.swift declares no ChromeSpinner"
+        )
+        for latch in ["onAppear", "State"] {
+            XCTAssertFalse(
+                LSPSourceGatingTests.containsToken(latch, in: body),
+                "ChromeSpinner spells \(latch) — a latched flag cannot follow Reduce Motion switched off under it"
+            )
+        }
+        let drivers = Self.matchedArguments(after: "TimelineView", in: body)
+        XCTAssertEqual(drivers.count, 1, "ChromeSpinner's turn is driven by exactly one TimelineView")
+        XCTAssertTrue(
+            drivers.allSatisfy {
+                $0.range(of: #"paused\s*:\s*reduceMotion(?![A-Za-z0-9_])"#, options: .regularExpression) != nil
+            },
+            "ChromeSpinner's TimelineView must pause on the reduce-motion property itself"
+        )
+    }
+
+    /// Each `ChromeSpinner(` construction in `code`, in order, with which of the
+    /// two accessibility markers its own modifier chain spells; `nil` when a
+    /// call does not close. Read by rule twenty's clause (exactly one marker per
+    /// construction) and rule forty (the per-file pair).
+    ///
+    /// The hidden marker is `.accessibilityHidden(true)` exactly, the literal the
+    /// contract names — `isHiddenByItsOwnChain(imageAt:in:)`'s own match — never
+    /// the call prefix: `.accessibilityHidden(false)` leaves an unnamed element,
+    /// and `.accessibilityHidden(someFlag)` leaves one whenever the flag is false,
+    /// so both count as no marker and fail the clause as "neither". The stripped
+    /// text keeps `true`, which is not a string literal. Shown red against both
+    /// mutations at `LeetCodeJudgeView.swift`'s spinner before it was committed;
+    /// the prefix match it replaces stayed green on each.
+    static func spinnerMarkers(in code: String) -> [(labelled: Bool, hidden: Bool)]? {
+        var markers: [(labelled: Bool, hidden: Bool)] = []
+        for call in callRanges("ChromeSpinner(", in: code) {
+            let open = code.index(before: call.upperBound)
+            guard let end = balancedEnd(from: open, in: code) else { return nil }
+            let chain = String(modifierChain(from: end, in: code))
+            markers.append((
+                labelled: spellsCall(".accessibilityLabel(", in: chain),
+                hidden: spellsCall(".accessibilityHidden(true)", in: chain)
+            ))
+        }
+        return markers
     }
 
     /// Whether the image starting at `image` is hidden by a modifier that is
@@ -2002,6 +2268,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         "CommitLogView.swift: syncDivideCursor",
         "ContentView.swift: syncPanelDividerCursor",
         "ContentView.swift: syncMarkdownDividerCursor",
+        "LeetCodeDescriptionView.swift: syncResizeHandleCursor",
     ]
 
     /// A hand-rolled divider pushes the resize cursor from hover and drag state
@@ -2012,7 +2279,8 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// whole panel away — and `NSCursor`'s stack is global, so the cursor stays
     /// pushed after the flag that would have balanced it is gone. The defect
     /// shipped once, in the Log's divide; the two `ContentView` dividers already
-    /// released from `onDisappear`, which is the rule this states for all three.
+    /// released from `onDisappear`, which is the rule this states for all four
+    /// (the statement pane's resize handle joined in part five (d)).
     ///
     /// Over stripped source, in every gated file: each function whose body
     /// pushes an `NSCursor` is called from inside an `.onDisappear {` block in the
@@ -2124,10 +2392,17 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// menu's separator is a `Section` boundary in this repository, and
     /// `Divider()` is the platform's separator colour at the system's thickness,
     /// a step off the `hairline` role.
+    ///
+    /// `DatabaseViewerView.swift` is here by the rule's own reading rather than
+    /// by a separator: its cell menu (Copy, Set to NULL) has two items and none,
+    /// and the `Section` it spells is the sidebar list's (Tables, Views). The
+    /// computed set pairs any `Section` with any menu in the same file, so the
+    /// file lands in both sets and is pinned in both, deliberately.
     private static let menuSectionFiles: Set<String> = [
         "SearchHistoryMenu.swift",
         "ProjectTreeView.swift",
         "LocalChangesView.swift",
+        "DatabaseViewerView.swift",
     ]
 
     /// Every gated file that builds a `Menu` (whether or not it separates).
@@ -2145,18 +2420,81 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         "SearchHistoryMenu.swift",
         "ProjectTreeView.swift",
         "LocalChangesView.swift",
+        "DatabaseViewerView.swift",
+        "LeetCodeBrowserView.swift",
+    ]
+
+    /// The one exception to "no gated file spells `Divider()`": a main menu's
+    /// items built inside a `Commands`/`CommandMenu` builder, keyed by file to
+    /// the declaration whose body holds them.
+    ///
+    /// There the rule's premise — that a `Section` stands in for the platform's
+    /// separator — is false. A standalone probe built against the real AppKit
+    /// menu (item arrays read after `NSMenu.update()`, heights from `NSMenu.size`)
+    /// measured four shapes of the same three items inside a `Commands` builder:
+    /// `Section { A; B }; Section { C }` drew four separators at 126 pt (one
+    /// above the first item, two adjacent between the groups, one below the
+    /// last); `A; B; Section { C }` and `Section { A; B }; C` each drew two at
+    /// 104 pt; `A; B; Divider(); C` drew one at 93 pt. AppKit neither hides the
+    /// edge separators nor collapses adjacent ones, so only `Divider()` gives one
+    /// separator between two groups — and a main menu separator is drawn by
+    /// AppKit where no chrome role reaches it anyway.
+    ///
+    /// Every `Commands`/`CommandMenu` builder in the repository, enumerated when
+    /// this was written: `PisakaApp.swift`'s `.commands` (not gated, so it needs
+    /// nothing, though it spells `Divider()` five times across three menu
+    /// builders), `FoldCommands.swift` (not gated, and spells no separator) and
+    /// `LeetCodeCommands`, the body `PisakaApp`'s `CommandMenu("LeetCode")`
+    /// hosts — the only one in a gated file, hence the only entry.
+    private static let commandsDividerBodies: [String: String] = [
+        "LeetCodeOpenProblemSheet.swift": "struct LeetCodeCommands",
     ]
 
     func testNoGatedFileSpellsDividerAndEveryMenuUsesSection() throws {
         let dividerPattern = try NSRegularExpression(pattern: "\\bDivider\\s*\\(")
+        let sectionPattern = try NSRegularExpression(pattern: "\\bSection\\b")
+        var actualDividerFiles: Set<String> = []
         for url in try Self.swiftSources() where Self.gatedFiles.contains(url.lastPathComponent) {
-            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            let name = url.lastPathComponent
+            var code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            if dividerPattern.firstMatch(in: code, range: NSRange(code.startIndex..., in: code)) != nil {
+                actualDividerFiles.insert(name)
+            }
+            if let declaration = Self.commandsDividerBodies[name] {
+                // The exception's shape: the commands body spells exactly one
+                // `Divider()` and no `Section` — a silent swap back to the
+                // two-`Section` shape, or a second divider, moves this pin.
+                let typeBody = try XCTUnwrap(
+                    Self.matchedBody(after: declaration, in: code),
+                    "\(name) no longer declares \(declaration)"
+                )
+                let body = try XCTUnwrap(
+                    Self.matchedBody(after: "var body: some View", in: typeBody),
+                    "\(declaration) no longer has a body"
+                )
+                let bodyRange = NSRange(body.startIndex..., in: body)
+                XCTAssertEqual(
+                    dividerPattern.numberOfMatches(in: body, range: bodyRange), 1,
+                    "\(declaration)'s menu separates its two groups with exactly one Divider() — the one shape a Commands builder draws as one separator"
+                )
+                XCTAssertEqual(
+                    sectionPattern.numberOfMatches(in: body, range: bodyRange), 0,
+                    "\(declaration)'s menu spells Section — inside a Commands builder that draws a separator on each side of the group"
+                )
+                // Everything outside that one body is held to the ordinary rule.
+                let bodyInFile = try XCTUnwrap(Self.matchedBodyRange(after: declaration, in: code))
+                code.removeSubrange(bodyInFile)
+            }
             let range = NSRange(code.startIndex..., in: code)
             XCTAssertNil(
                 dividerPattern.firstMatch(in: code, range: range),
-                "\(url.lastPathComponent) spells Divider( — a gated surface draws its own hairline, a menu separates with Section"
+                "\(name) spells Divider( — a gated surface draws its own hairline, a menu separates with Section"
             )
         }
+        XCTAssertEqual(
+            actualDividerFiles, Set(Self.commandsDividerBodies.keys),
+            "the gated files spelling Divider( are exactly the commands-builder exception's"
+        )
 
         for name in Self.menuSectionFiles {
             let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
@@ -2266,6 +2604,10 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         "CommitDialogView.swift",
         "NewPullRequestSheet.swift",
         "PullRequestMergeSheet.swift",
+        "DatabaseViewerView.swift",
+        "LeetCodeBrowserView.swift",
+        "LeetCodeJudgeView.swift",
+        "LeetCodeOpenProblemSheet.swift",
         "ChromeControls.swift",
     ]
 
@@ -2300,7 +2642,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         }
         XCTAssertEqual(
             constructors, Self.sharedFieldConstructors,
-            "the files constructing the shared field or box must be exactly its seven callers plus the defining file"
+            "the files constructing the shared field or box must be exactly its eleven callers plus the defining file"
         )
 
         var toggleConstructors: Set<String> = []
@@ -2349,6 +2691,77 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
                 "\(name)'s query toggles must speak the one name each mode has"
             )
         }
+    }
+
+    /// Every `ChromeThemedTextField(` construction whose name is *drawn* as the
+    /// empty field's placeholder (`title:`), by file and count.
+    private static let sharedFieldDrawnNameCallers: [String: Int] = [
+        "CommitDialogView.swift": 2,
+        "ProjectSearchView.swift": 3,
+        "SearchBarView.swift": 2,
+        "NewPullRequestSheet.swift": 1,
+        "PullRequestMergeSheet.swift": 1,
+        "BranchSwitcherView.swift": 1,
+        "LogFilterBar.swift": 3,
+        "LeetCodeOpenProblemSheet.swift": 1,
+        "LeetCodeBrowserView.swift": 1,
+    ]
+
+    /// Every `ChromeThemedTextField(` construction whose name is spoken and
+    /// **never drawn** (`spokenName:`), by file and count: the database grid's
+    /// cell editor alone. An empty cell editor is itself a value — a NULL cell
+    /// seeds empty, so does an empty-string cell — and a grey column name in it
+    /// reads as a dimmed stored value, grey being how the grid draws NULL. The
+    /// field it replaced drew nothing there; part five (d) drew the name and the
+    /// fix round moved it back.
+    private static let sharedFieldSpokenOnlyCallers: [String: Int] = [
+        "DatabaseViewerView.swift": 1,
+    ]
+
+    /// Which shared-field callers draw their name and which only speak it, both
+    /// pinned by file and count, so moving a caller from one initializer to the
+    /// other fails until the pin moves with it. The regression it names: the
+    /// grid's cell editor passing `title:`, which puts the column's name in grey
+    /// inside an empty field where grey means NULL. Every construction must lead
+    /// with one of the two labels — nothing else reaches the field.
+    func testSharedFieldDrawsItsNameExceptAtTheCellEditor() throws {
+        var drawn: [String: Int] = [:]
+        var spokenOnly: [String: Int] = [:]
+        for url in try Self.swiftSources() {
+            let name = url.lastPathComponent
+            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            for arguments in Self.matchedArguments(after: "ChromeThemedTextField", in: code) {
+                let inside = String(arguments.dropFirst())
+                let first = Self.topLevelArguments(inside).first ?? ""
+                if first.hasPrefix("title:") {
+                    drawn[name, default: 0] += 1
+                } else if first.hasPrefix("spokenName:") {
+                    spokenOnly[name, default: 0] += 1
+                } else {
+                    XCTFail("\(name) constructs ChromeThemedTextField leading with neither title: nor spokenName: (\(first))")
+                }
+            }
+        }
+        XCTAssertEqual(
+            drawn, Self.sharedFieldDrawnNameCallers,
+            "the shared field's drawn-name callers (title:) must be exactly the pinned set"
+        )
+        XCTAssertEqual(
+            spokenOnly, Self.sharedFieldSpokenOnlyCallers,
+            "the shared field's spoken-only callers (spokenName:) must be exactly the grid's cell editor"
+        )
+
+        let controls = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
+            try Self.read(try Self.source(named: "ChromeControls.swift"))
+        )
+        let field = try XCTUnwrap(
+            Self.matchedBody(after: "struct ChromeThemedTextField", in: controls),
+            "ChromeThemedTextField's declaration is gone or renamed — re-point this rule"
+        )
+        XCTAssertTrue(
+            LSPSourceGatingTests.containsToken("drawsTitle", in: field),
+            "ChromeThemedTextField no longer reads drawsTitle — spokenName: would draw the name after all"
+        )
     }
 
     // MARK: - Rule twenty-seven: each measurement follows its own zone
@@ -2628,17 +3041,19 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     private static let sharedControlCallers: [(token: String, files: Set<String>)] = [
         ("chromePrimary", [
             "ChromeControls.swift", "CommitDialogView.swift", "MergeView.swift",
-            "NewPullRequestSheet.swift", "PullRequestMergeSheet.swift",
+            "NewPullRequestSheet.swift", "PullRequestMergeSheet.swift", "LeetCodeOpenProblemSheet.swift",
         ]),
         ("chromeSecondary", [
             "ChromeControls.swift", "SearchBarView.swift", "ProjectSearchView.swift",
             "CommitDialogView.swift", "MergeView.swift", "LocalHistoryView.swift",
             "SettingsView.swift", "LSPServerSettingsView.swift",
             "NewPullRequestSheet.swift", "PullRequestMergeSheet.swift",
+            "DatabaseConsoleView.swift", "LeetCodeBrowserView.swift",
+            "LeetCodeJudgeView.swift", "LeetCodeOpenProblemSheet.swift", "LeetCodeLoginView.swift",
         ]),
         ("ChromeCheckbox", [
             "ChromeControls.swift", "CommitDialogView.swift", "LogFilterBar.swift", "LocalChangesView.swift",
-            "NewPullRequestSheet.swift",
+            "NewPullRequestSheet.swift", "LeetCodeBrowserView.swift",
         ]),
     ]
 
@@ -2673,11 +3088,44 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         "LicenseTextView.swift": 0,
     ]
 
+    /// Part five (d)'s files, whose buttons are not all styleable: a menu item
+    /// and a confirmation dialog's button take no button style. So each file
+    /// states two numbers, its `Button` count and its `.buttonStyle(` count,
+    /// both confirmed against the tree, and the difference is the unstyleable
+    /// buttons named in the entry's comment.
+    private static let partFiveDButtonCounts: [String: (buttons: Int, styled: Int)] = [
+        // The sort headers, the hidden Return button and the two paging
+        // chevrons are styled; the cell menu's Copy and Set to NULL are menu
+        // items.
+        "DatabaseViewerView.swift": (buttons: 6, styled: 4),
+        // Run is styled; the confirmation dialog's Run and Cancel are the
+        // platform dialog's buttons and take no style.
+        "DatabaseConsoleView.swift": (buttons: 3, styled: 1),
+        // Open, Sign In…, Refresh and the hidden Return button are styled; the
+        // row's context-menu Open and the list's (below the last row) are menu
+        // items.
+        "LeetCodeBrowserView.swift": (buttons: 6, styled: 4),
+        // The three icon-only buttons are all `.plain`.
+        "LeetCodeDescriptionView.swift": (buttons: 3, styled: 3),
+        // Run and Submit.
+        "LeetCodeJudgeView.swift": (buttons: 2, styled: 2),
+        // The sheet's Sign In…, Cancel and Open are styled; `LeetCodeCommands`'
+        // five menu-bar items (Open Problem…, Browse Problems…, Sign Out,
+        // Sign In… and Choose LeetCode Folder…) are menu items.
+        "LeetCodeOpenProblemSheet.swift": (buttons: 8, styled: 3),
+        // Cancel.
+        "LeetCodeLoginView.swift": (buttons: 1, styled: 1),
+    ]
+
     func testOnePrimaryButtonOneSecondaryOneCheckbox() throws {
         XCTAssertEqual(Set(Self.partFiveBButtonCounts.keys), Self.partFiveBFiles)
         XCTAssertTrue(
             Set(Self.partFiveCButtonCounts.keys).isSubset(of: Self.gatedFiles),
             "a part five (c) button count names a file that is not gated"
+        )
+        XCTAssertTrue(
+            Set(Self.partFiveDButtonCounts.keys).isSubset(of: Self.gatedFiles),
+            "a part five (d) button count names a file that is not gated"
         )
         // A declaration named like the checkbox's measurements: side, radius,
         // glyph — `checkboxSide`, `checkmarkSide`, `checkboxRadius`.
@@ -2716,6 +3164,17 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
                 XCTAssertNil(
                     checkboxMeasure.firstMatch(in: code, range: NSRange(code.startIndex..., in: code)),
                     "\(name) declares a checkbox measurement of its own — the checkbox's side, radius and glyph are ChromeControls.swift's"
+                )
+            }
+            if let expected = Self.partFiveDButtonCounts[name] {
+                let actual = (buttons: Self.tokenCount("Button", in: code), styled: Self.tokenCount("buttonStyle", in: code))
+                XCTAssertTrue(
+                    actual == expected,
+                    """
+                    \(name) constructs \(actual.buttons) Button and styles \(actual.styled), pinned as \
+                    \(expected.buttons) and \(expected.styled) — restate both, style a new button that can \
+                    take a style, and name one that cannot in the entry's comment
+                    """
                 )
             }
             if let expected = Self.partFiveBButtonCounts[name] ?? Self.partFiveCButtonCounts[name] {
@@ -2964,6 +3423,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         "DiffWindowContent.swift",
         "MergeView.swift",
         "LocalHistoryView.swift",
+        "LeetCodeBrowserView.swift",
     ]
 
     /// A root injects `\.chromeTheme` for its subtree, so it cannot read it: its
@@ -2989,7 +3449,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         }
         XCTAssertEqual(
             declaring, Self.chromeColorRoots,
-            "the files declaring a private chromeColor(_:) must be exactly the five swept window roots"
+            "the files declaring a private chromeColor(_:) must be exactly the six swept window roots"
         )
 
         let roots = ZoomSourceGatingTests.interfaceScaledRoots.intersection(Self.gatedFiles)
@@ -3419,6 +3879,9 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         // The dependency list sets no row background at all: the platform draws
         // the selection, and nothing paints over it.
         "AcknowledgementsView.swift": [[]],
+        // The database viewer's tables-and-views sidebar, the same answer: the
+        // platform draws the selection and no row paints a background.
+        "DatabaseViewerView.swift": [[]],
     ]
 
     /// On macOS a `listRowBackground` is drawn **over** the selection box the
@@ -3511,7 +3974,9 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// identifier boundary (`NSImage(` is not `Image(`); a modifier's dot is its
     /// own boundary. Each range runs from the callee's first character through
     /// the last character the needle names, so with a bare `"Name("` needle
-    /// `code.index(before: range.upperBound)` is the parenthesis.
+    /// `code.index(before: range.upperBound)` is the parenthesis. A needle may
+    /// end on a trailing closure's brace instead (`".contextMenu {"`), for a
+    /// modifier that is spelled without one.
     ///
     /// The suite's one call matcher. A contiguous search is blind to every
     /// wrapped spelling of the call it names, and this suite has shipped that
@@ -3520,7 +3985,10 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// arguments goes through here — or through `callCount(_:in:)` /
     /// `spellsCall(_:in:)` — rather than through `contains` or `range(of:)`.
     static func callRanges(_ needle: String, in code: String) -> [Range<String.Index>] {
-        precondition(needle.contains("("), "callRanges needs a needle spelling its opening parenthesis: \(needle)")
+        precondition(
+            needle.contains("(") || needle.contains("{"),
+            "callRanges needs a needle spelling its opening parenthesis or trailing closure's brace: \(needle)"
+        )
         let tokens = callTokens(needle)
         let leadsWithIdentifier = tokens.first?.first.map { $0.isLetter || $0 == "_" } ?? false
         let pattern = (leadsWithIdentifier ? "(?<![A-Za-z0-9_])" : "")
@@ -3599,7 +4067,10 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// adds it back.
     private static let settingsShapeConstructions: [(token: String, counts: [String: Int])] = [
         ("ChromeSegmentedControl", ["SettingsView.swift": 2, "PullRequestMergeSheet.swift": 1]),
-        ("ChromeMenuField", ["LogFilterBar.swift": 1, "SettingsView.swift": 1, "NewPullRequestSheet.swift": 1]),
+        ("ChromeMenuField", [
+            "LogFilterBar.swift": 1, "SettingsView.swift": 1, "NewPullRequestSheet.swift": 1,
+            "LeetCodeBrowserView.swift": 1, "LeetCodeOpenProblemSheet.swift": 1,
+        ]),
         ("ChromeStepper", ["SettingsView.swift": 2]),
         ("ChromeSwitch", ["SettingsView.swift": 2]),
         ("ChromeSettingsTabBar", ["SettingsView.swift": 1]),
@@ -3647,6 +4118,52 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         }
     }
 
+    /// The files that frame something at `ChromeGeometry.menuFieldHeight`, with
+    /// how many times each spells it. Every one of these is a `ChromeMenuField`
+    /// frame — the token is the shared menu field's height and nothing else's;
+    /// `ChromeGeometry.swift` is the declaration. The Log bar builds a menu field
+    /// too but frames it at its own `FilterBarLayout.controlHeight`, so it is not
+    /// a key.
+    private static let menuFieldHeightSpellings: [String: Int] = [
+        "ChromeGeometry.swift": 1,
+        "SettingsView.swift": 1,
+        "NewPullRequestSheet.swift": 1,
+        "LeetCodeBrowserView.swift": 1,
+        "LeetCodeOpenProblemSheet.swift": 1,
+    ]
+
+    /// `menuFieldHeight` sizes the menu fields it is named for and no other
+    /// control. A text field beside a menu field that borrows the token to line
+    /// up is coupled to it silently — changing the menu field's height would
+    /// resize a field nothing names — which is the coupling rule seven exists to
+    /// prevent, arriving by reuse rather than arithmetic. Two text fields did
+    /// exactly that; each now takes its height from its own surface's layout
+    /// enum. Pinned per file by count, over every source file, so a new borrower
+    /// fails here even in a file that already frames a menu field. The rule
+    /// cannot see *what* a spelling frames; that each pinned spelling sits on a
+    /// `ChromeMenuField` is checked by reading, and each count equals that
+    /// file's pinned menu field constructions above.
+    func testTheMenuFieldHeightSizesTheMenuFieldsAlone() throws {
+        var spellings: [String: Int] = [:]
+        for url in try Self.swiftSources() {
+            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            let count = code.components(separatedBy: "menuFieldHeight").count - 1
+            if count > 0 { spellings[url.lastPathComponent] = count }
+        }
+        XCTAssertEqual(
+            spellings, Self.menuFieldHeightSpellings,
+            "the files spelling menuFieldHeight must be exactly its pinned menu-field callers plus the declaration"
+                + " — a text field takes its own surface's height"
+        )
+        let menuFieldCounts = Self.settingsShapeConstructions.first { $0.token == "ChromeMenuField" }?.counts ?? [:]
+        for (file, count) in Self.menuFieldHeightSpellings where file != "ChromeGeometry.swift" {
+            XCTAssertEqual(
+                count, menuFieldCounts[file],
+                "\(file) frames \(count) control(s) at menuFieldHeight but constructs \(menuFieldCounts[file] ?? 0) menu field(s)"
+            )
+        }
+    }
+
     /// The menu field's shape is whole: its chevron is part of the `Menu`'s own
     /// label, so the arrow the field draws is the control. The field was lifted
     /// from the Log bar with the glyph a *sibling* of the `Menu`, which draws
@@ -3682,9 +4199,260 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
             "ChromeMenuField's chevron sits outside the Menu's label — the arrow it draws opens nothing"
         )
         XCTAssertTrue(
-            Self.spellsCall(".accessibilityHidden(", in: label),
+            Self.spellsCall(".accessibilityHidden(true)", in: label),
             "ChromeMenuField's chevron must stay hidden from accessibility inside the label"
         )
+    }
+
+    // MARK: - Rule thirty-eight: no gated file builds a platform table
+
+    /// A `Table` draws its header, its grounds, its alternation and its
+    /// selection box in the platform's own colours and metrics, none of which a
+    /// role reaches — the same wall rule thirty-six names for the form controls.
+    /// The problem-catalog browser was the last gated `Table`; its rows are now
+    /// the chrome's own, a `LazyVStack` of rows following `CommitRow`.
+    ///
+    /// Matched through `containsToken`, so `LazyVStack` and identifiers merely
+    /// holding "Table" (`DatabaseTable`, `isTableSelected`) are not hits; the
+    /// tree was confirmed to spell neither token in any gated file.
+    private static let platformTableTokens = ["Table", "TableColumn"]
+
+    func testNoGatedFileBuildsAPlatformTable() throws {
+        let sources = try Self.strippedGatedSources()
+        for (name, code) in sources {
+            for token in Self.platformTableTokens {
+                XCTAssertFalse(
+                    LSPSourceGatingTests.containsToken(token, in: code),
+                    "\(name) spells \(token) — a gated surface draws its own rows, not the platform's table"
+                )
+            }
+        }
+        let browser = try XCTUnwrap(
+            sources.first { $0.name == "LeetCodeBrowserView.swift" },
+            "LeetCodeBrowserView.swift is gone or no longer gated"
+        )
+        XCTAssertTrue(
+            LSPSourceGatingTests.containsToken("LazyVStack", in: browser.code),
+            "LeetCodeBrowserView.swift no longer lays its rows out in a LazyVStack"
+        )
+    }
+
+    // MARK: - Rule thirty-nine: the problem catalog's three colour mappings are Core's one answer each
+
+    /// Which role a problem's difficulty, its status and a judge verdict are
+    /// drawn in has one answer each in Core — `ChromeColorRole.difficultyRole(for:)`,
+    /// `problemStatusRole(for:)` and `verdictRole(for:matchedExpected:)`, the
+    /// last carrying the "good" rule the judge view used to decide with an
+    /// `isGood` flag. Rule eighteen's shape over the three: no app file declares
+    /// one; the app files reading each equal its one known reader; no gated file
+    /// spells `isGood` or `isAccepted`; and the difficulty and status case labels
+    /// are pinned by count per gated file.
+    ///
+    /// The iOS browser keeps its own colour table and is not gated (it is not
+    /// part of the macOS sweep); the reader sets are read over every app file,
+    /// so it is named nowhere here only because it spells none of the three.
+    ///
+    /// Stated limit: rule eighteen's — a `switch`'s labels, not a dictionary
+    /// keyed by the same values, a chain of `==`, or a `case` list continued past
+    /// its first line.
+    private static let catalogRoleReaders: [(call: String, readers: Set<String>)] = [
+        ("difficultyRole(for:", ["LeetCodeBrowserView.swift"]),
+        ("problemStatusRole(for:", ["LeetCodeBrowserView.swift"]),
+        ("verdictRole(for:", ["LeetCodeJudgeView.swift"]),
+    ]
+
+    /// The gated files spelling a difficulty or status case label, each by its
+    /// exact count. The browser's nine are its two title switches (three labels
+    /// each) and `statusCell`'s glyph switch (three) — words and a glyph, not a
+    /// colour, which is why they stay in the view; a colour switch added later
+    /// moves the count.
+    private static let catalogCaseLabels: [String: Int] = [
+        "LeetCodeBrowserView.swift": 9,
+    ]
+
+    func testTheProblemCatalogsColourMappingsAreCoresOneAnswerEach() throws {
+        var readers: [String: Set<String>] = [:]
+        for url in try Self.swiftSources() where url.path.contains("/Sources/Pisaka/") {
+            let name = url.lastPathComponent
+            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            for declaration in ["func difficultyRole", "func problemStatusRole", "func verdictRole"] {
+                XCTAssertFalse(
+                    code.contains(declaration),
+                    "\(name) declares \(declaration) — the catalog's colours are Core's one answer each"
+                )
+            }
+            for (call, _) in Self.catalogRoleReaders where Self.spellsCall(call, in: code) {
+                readers[call, default: []].insert(name)
+            }
+        }
+        for (call, expected) in Self.catalogRoleReaders {
+            XCTAssertEqual(
+                readers[call, default: []], expected,
+                "the app files reading ChromeColorRole.\(call) must be exactly its known reader"
+            )
+        }
+
+        let cases = "(easy|medium|hard|notStarted|attempted|solved)"
+        let labels = try NSRegularExpression(
+            pattern: "\\bcase\\b[^:\\n]*\\.\(cases)\\b"
+                + "|\\b(LeetCodeDifficulty|LeetCodeProblemStatus)\\.\(cases)\\b"
+        )
+        for (name, code) in try Self.strippedGatedSources() {
+            for flag in ["isGood", "isAccepted"] {
+                XCTAssertFalse(
+                    LSPSourceGatingTests.containsToken(flag, in: code),
+                    "\(name) spells \(flag) — whether a verdict is good is decided by verdictRole(for:matchedExpected:)"
+                )
+            }
+            XCTAssertEqual(
+                labels.numberOfMatches(in: code, range: NSRange(code.startIndex..., in: code)),
+                Self.catalogCaseLabels[name, default: 0],
+                """
+                \(name) spells a difficulty or status case label beyond its pinned count — a colour \
+                mapping in a view is a second table; read ChromeColorRole's Core answer
+                """
+            )
+        }
+    }
+
+    // MARK: - Rule forty: one spinner
+
+    /// Activity is drawn by one shape, `ChromeSpinner` — an arc in
+    /// `textSecondary` at the two spinner tokens — and never by the platform's
+    /// `ProgressView`, which draws in the platform's colours at the platform's
+    /// control size and follows neither zoom.
+    ///
+    /// Three clauses: no gated file spells `ProgressView` or
+    /// `progressViewStyle`; the files spelling `ChromeSpinner` equal the
+    /// classified callers plus the defining file; and each caller's pair — how
+    /// many constructions carry `.accessibilityLabel(` and how many
+    /// `.accessibilityHidden(true)`, read with rule twenty's clause — equals its row
+    /// in `spinnerClassification`, the pairs summing to the twenty sites. A site
+    /// swapping one marker for the other, dropping both or appearing anew moves
+    /// a number.
+    private static let spinnerSiteCount = 20
+
+    func testOneSpinner() throws {
+        for (name, code) in try Self.strippedGatedSources() {
+            for token in ["ProgressView", "progressViewStyle"] {
+                XCTAssertFalse(
+                    LSPSourceGatingTests.containsToken(token, in: code),
+                    "\(name) spells \(token) — a gated surface draws the shared ChromeSpinner"
+                )
+            }
+        }
+
+        var spellers: Set<String> = []
+        var found: [String: (labelled: Int, hidden: Int)] = [:]
+        for url in try Self.swiftSources() {
+            let name = url.lastPathComponent
+            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            if LSPSourceGatingTests.containsToken("ChromeSpinner", in: code) { spellers.insert(name) }
+            let markers = try XCTUnwrap(
+                Self.spinnerMarkers(in: code),
+                "\(name) constructs a ChromeSpinner whose call does not close"
+            )
+            guard !markers.isEmpty else { continue }
+            found[name] = (
+                labelled: markers.filter(\.labelled).count,
+                hidden: markers.filter(\.hidden).count
+            )
+        }
+        XCTAssertEqual(
+            spellers, Set(Self.spinnerClassification.keys).union(["ChromeControls.swift"]),
+            "the files spelling ChromeSpinner must be exactly the classified callers plus the defining file"
+        )
+        XCTAssertEqual(
+            Set(found.keys), Set(Self.spinnerClassification.keys),
+            "the files constructing a ChromeSpinner must be exactly the classified ones"
+        )
+        for (name, pinned) in Self.spinnerClassification {
+            let actual = found[name] ?? (labelled: 0, hidden: 0)
+            XCTAssertTrue(
+                actual == pinned,
+                """
+                \(name)'s spinners are \(actual.labelled) labelled and \(actual.hidden) hidden, pinned as \
+                \(pinned.labelled) and \(pinned.hidden) — reclassify the site against its neighbours
+                """
+            )
+        }
+        XCTAssertEqual(
+            Self.spinnerClassification.values.reduce(0) { $0 + $1.labelled + $1.hidden },
+            Self.spinnerSiteCount,
+            "the classified spinner sites must total the twenty the sweep confirmed"
+        )
+    }
+
+    // MARK: - Rule forty-one: no alternating row fill
+
+    /// The design's tables read by selection and hover, not by alternation: the
+    /// database grid and the console's result rows each drew a zebra through an
+    /// `isTinted` flag over `isMultiple(of: 2)`, and both are gone. The platform's
+    /// own alternation left with the `Table` (rule thirty-eight). No gated file
+    /// spells `alternatingRowBackgrounds`, `isMultiple` or `isTinted`, matched
+    /// through `containsToken`.
+    ///
+    /// A second clause reads the ordinary spelling of a zebra, `index % 2 == 0`,
+    /// **inside a matched body only**: no row-fill modifier's own text — its
+    /// parenthesis-matched argument list and its trailing closure, when it has
+    /// one — spells `% 2`. The row-fill modifiers are named as a set,
+    /// `rowFillModifiers`: `.background` and `.listRowBackground`, the two a row
+    /// fill can go through. Before fix round 02 the clause read `.background`
+    /// alone, so a `.listRowBackground(index % 2 == 0 ? … : …)` in the console
+    /// stayed green. `%` is not banned across the gated files, which would reach
+    /// every arithmetic use in fifty-eight of them; the clause asks for a token
+    /// inside the modifiers a row fill goes through and resolves nothing.
+    /// Stated limit: a parity computed elsewhere and handed to one of them as a
+    /// name (`let fill = …; .background(fill)`) is not seen, nor is a modifier
+    /// outside the set. Shown red against `.background(index % 2 == 0 ? … : …)`
+    /// in the console's result rows before it was committed; the token clause
+    /// alone stayed green on it. The token ban stays the real defence: it is
+    /// total across the gated files.
+    private static let alternationTokens = ["alternatingRowBackgrounds", "isMultiple", "isTinted"]
+
+    /// The modifiers a row fill can go through, read by the parity clause.
+    private static let rowFillModifiers = ["background", "listRowBackground"]
+
+    func testNoAlternatingRowFill() throws {
+        for (name, code) in try Self.strippedGatedSources() {
+            for token in Self.alternationTokens {
+                XCTAssertFalse(
+                    LSPSourceGatingTests.containsToken(token, in: code),
+                    "\(name) spells \(token) — a gated table reads by selection and hover, never by alternation"
+                )
+            }
+            for text in Self.rowFillModifierTexts(in: code) {
+                XCTAssertNil(
+                    text.range(of: #"%\s*2(?![0-9])"#, options: .regularExpression),
+                    "\(name) fills a background by row parity — a gated table reads by selection and hover"
+                )
+            }
+        }
+    }
+
+    /// The text of every `rowFillModifiers` modifier in `code`: its
+    /// parenthesis-matched argument list when it has one, followed by its
+    /// trailing closure's body when one opens right after — `.background(…)`,
+    /// `.background(…) { … }` and `.background { … }` alike, and the same for
+    /// `.listRowBackground`. A call that does not close yields nothing.
+    private static func rowFillModifierTexts(in code: String) -> [String] {
+        let names = rowFillModifiers.joined(separator: "|")
+        guard let expression = try? NSRegularExpression(pattern: #"\.\s*(?:"# + names + #")(?![A-Za-z0-9_])"#) else {
+            preconditionFailure("rowFillModifierTexts could not compile its pattern")
+        }
+        return expression.matches(in: code, range: NSRange(code.startIndex..., in: code)).compactMap { match in
+            guard let found = Range(match.range, in: code) else { return nil }
+            var text = ""
+            var after = found.upperBound
+            let gap = code[after...].prefix { $0.isWhitespace }
+            if gap.endIndex < code.endIndex, code[gap.endIndex] == "(" {
+                guard let end = balancedEnd(from: gap.endIndex, in: code) else { return nil }
+                text += code[gap.endIndex..<end]
+                after = end
+            }
+            if let body = trailingBody(from: after, in: Substring(code)) { text += body }
+            return text
+        }
     }
 
     // MARK: - Self-check
@@ -3779,7 +4547,8 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         25: "twenty-five", 26: "twenty-six", 27: "twenty-seven",
         28: "twenty-eight", 29: "twenty-nine", 30: "thirty", 31: "thirty-one",
         32: "thirty-two", 33: "thirty-three", 34: "thirty-four", 35: "thirty-five",
-        36: "thirty-six", 37: "thirty-seven",
+        36: "thirty-six", 37: "thirty-seven", 38: "thirty-eight", 39: "thirty-nine",
+        40: "forty", 41: "forty-one",
     ]
 
     func testBothSummariesSpellTheSuitesOwnRuleCount() throws {

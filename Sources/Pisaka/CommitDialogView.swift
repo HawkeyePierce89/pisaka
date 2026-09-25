@@ -143,7 +143,8 @@ struct CommitDialogView: View {
     private var loading: some View {
         VStack {
             Spacer()
-            ProgressView()
+            ChromeSpinner()
+                .accessibilityLabel("Loading changes")
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

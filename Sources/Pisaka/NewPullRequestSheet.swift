@@ -192,7 +192,8 @@ struct NewPullRequestSheet: View {
     private var buttons: some View {
         HStack {
             if model.isWriteInFlight {
-                ProgressView().controlSize(.small)
+                ChromeSpinner()
+                    .accessibilityLabel("Creating the pull request")
             }
             Spacer()
             Button("Cancel") { dismiss() }

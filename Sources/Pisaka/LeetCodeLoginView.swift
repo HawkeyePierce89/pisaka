@@ -67,13 +67,17 @@ struct LeetCodeLoginView: View {
     /// because there the presentation is attached above or after the scale —
     /// see the comments at both call sites.
     @Environment(\.interfaceMetrics) private var metrics
+    /// The chrome's colours, inherited from whichever presenter raised the sheet.
+    /// Only the header and the footer are chrome: the page between them is the
+    /// site's own and is drawn as the site draws it.
+    @Environment(\.chromeTheme) private var theme
 
     var body: some View {
         VStack(spacing: 0) {
             header
-            Divider()
+            hairline
             LeetCodeLoginWebView(model: model, onCredentials: capture)
-            Divider()
+            hairline
             footer
         }
         // Scaled with its own header and footer: the web view in the middle is
@@ -91,13 +95,22 @@ struct LeetCodeLoginView: View {
         VStack(alignment: .leading, spacing: metrics.scaled(2)) {
             Text("Sign In to LeetCode")
                 .font(metrics.scaledFont(.headline, weight: .semibold))
+                .foregroundStyle(theme.color(.textPrimary))
             Text("Pisaka signs in through LeetCode's own page and keeps only the session cookie. Your password is never seen by the app.")
                 .font(metrics.scaledFont(.caption))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(theme.color(.textSecondary))
                 .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(metrics.scaled(12))
+        .background(theme.color(.bgPanel))
+    }
+
+    /// The rule between the chrome and the page: the surface's own `hairline`.
+    private var hairline: some View {
+        Rectangle()
+            .fill(theme.color(.hairline))
+            .frame(height: metrics.scaled(ChromeGeometry.hairlineWidth))
     }
 
     private var footer: some View {
@@ -105,14 +118,15 @@ struct LeetCodeLoginView: View {
             if let username = model.signedInUsername {
                 Text("Signed in as \(username)")
                     .font(metrics.scaledFont(.caption))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(theme.color(.textSecondary))
             }
             Spacer()
             Button("Cancel") { onDismiss() }
+                .buttonStyle(.chromeSecondary)
                 .keyboardShortcut(.cancelAction)
-                .font(metrics.scaledFont(.body))
         }
         .padding(metrics.scaled(12))
+        .background(theme.color(.bgPanel))
     }
 
     private func capture(_ credentials: LeetCodeCredentials) {

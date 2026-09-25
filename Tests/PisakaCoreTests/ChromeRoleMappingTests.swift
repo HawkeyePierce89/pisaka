@@ -5,7 +5,8 @@ import XCTest
 /// changed-file status (letter, word and role), the pull-request checks (the
 /// summary's glyph, words and role; one job's bucket's words and role — the job
 /// row draws a dot, not a glyph) and the diff row
-/// wash and marker. Every answer is pinned verbatim over `allCases`, so a case
+/// wash and marker, and the problem catalog's three (difficulty, problem
+/// status and the judge verdict). Every answer is pinned verbatim over `allCases`, so a case
 /// added to any of these vocabularies fails here until it is given one.
 final class ChromeRoleMappingTests: XCTestCase {
 
@@ -138,5 +139,89 @@ final class ChromeRoleMappingTests: XCTestCase {
             Set(MergeLineKind.allCases.filter { ChromeColorRole.mergeWashRole(for: $0) == .conflictBackground }),
             [.ours, .theirs, .conflictUnresolved]
         )
+    }
+
+    // MARK: - Problem catalog
+
+    func testEveryDifficultyHasItsRole() {
+        let expected: [LeetCodeDifficulty: ChromeColorRole] = [
+            .easy: .statusGreen,
+            .medium: .statusYellow,
+            .hard: .statusRed,
+        ]
+        XCTAssertEqual(Set(expected.keys), Set(LeetCodeDifficulty.allCases))
+        for difficulty in LeetCodeDifficulty.allCases {
+            XCTAssertEqual(ChromeColorRole.difficultyRole(for: difficulty), expected[difficulty], "\(difficulty)")
+        }
+    }
+
+    func testEveryProblemStatusHasItsRole() {
+        let expected: [LeetCodeProblemStatus: ChromeColorRole] = [
+            .solved: .statusGreen,
+            .attempted: .statusYellow,
+            .notStarted: .textSecondary,
+        ]
+        XCTAssertEqual(Set(expected.keys), Set(LeetCodeProblemStatus.allCases))
+        for status in LeetCodeProblemStatus.allCases {
+            XCTAssertEqual(ChromeColorRole.problemStatusRole(for: status), expected[status], "\(status)")
+        }
+    }
+
+    /// Every verdict × every match answer, written down rather than derived:
+    /// green only for an accepted verdict whose run did not report a mismatch
+    /// (a submit passes `nil`). The key set is asserted equal to the whole
+    /// product, so a verdict added to the vocabulary fails here until its three
+    /// rows are written.
+    func testEveryVerdictHasItsRoleForEveryMatchAnswer() {
+        let matchAnswers: [Bool?] = [nil, true, false]
+        let expected: [VerdictKey: ChromeColorRole] = [
+            VerdictKey(.accepted, nil): .statusGreen,
+            VerdictKey(.accepted, true): .statusGreen,
+            VerdictKey(.accepted, false): .statusRed,
+            VerdictKey(.wrongAnswer, nil): .statusRed,
+            VerdictKey(.wrongAnswer, true): .statusRed,
+            VerdictKey(.wrongAnswer, false): .statusRed,
+            VerdictKey(.memoryLimitExceeded, nil): .statusRed,
+            VerdictKey(.memoryLimitExceeded, true): .statusRed,
+            VerdictKey(.memoryLimitExceeded, false): .statusRed,
+            VerdictKey(.outputLimitExceeded, nil): .statusRed,
+            VerdictKey(.outputLimitExceeded, true): .statusRed,
+            VerdictKey(.outputLimitExceeded, false): .statusRed,
+            VerdictKey(.timeLimitExceeded, nil): .statusRed,
+            VerdictKey(.timeLimitExceeded, true): .statusRed,
+            VerdictKey(.timeLimitExceeded, false): .statusRed,
+            VerdictKey(.runtimeError, nil): .statusRed,
+            VerdictKey(.runtimeError, true): .statusRed,
+            VerdictKey(.runtimeError, false): .statusRed,
+            VerdictKey(.internalError, nil): .statusRed,
+            VerdictKey(.internalError, true): .statusRed,
+            VerdictKey(.internalError, false): .statusRed,
+            VerdictKey(.compileError, nil): .statusRed,
+            VerdictKey(.compileError, true): .statusRed,
+            VerdictKey(.compileError, false): .statusRed,
+            VerdictKey(.unknownError, nil): .statusRed,
+            VerdictKey(.unknownError, true): .statusRed,
+            VerdictKey(.unknownError, false): .statusRed,
+        ]
+        let product = Set(LeetCodeVerdict.allCases.flatMap { verdict in
+            matchAnswers.map { VerdictKey(verdict, $0) }
+        })
+        XCTAssertEqual(Set(expected.keys), product)
+        for key in product {
+            XCTAssertEqual(
+                ChromeColorRole.verdictRole(for: key.verdict, matchedExpected: key.matched), expected[key],
+                "\(key.verdict)/\(String(describing: key.matched))"
+            )
+        }
+    }
+
+    private struct VerdictKey: Hashable {
+        let verdict: LeetCodeVerdict
+        let matched: Bool?
+
+        init(_ verdict: LeetCodeVerdict, _ matched: Bool?) {
+            self.verdict = verdict
+            self.matched = matched
+        }
     }
 }

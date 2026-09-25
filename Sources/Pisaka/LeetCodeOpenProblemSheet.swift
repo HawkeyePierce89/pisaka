@@ -79,6 +79,12 @@ struct LeetCodeOpenProblemSheet: View {
     /// read an environment value written below it. The nested sign-in sheet at
     /// `isSigningIn` needs nothing of its own — the injection is its ancestor.
     @Environment(\.interfaceMetrics) private var metrics
+    /// The chrome's colours, injected beside the scale on this sheet's content.
+    @Environment(\.chromeTheme) private var theme
+
+    /// The sheet's one field, focused through the shared field's binding.
+    private enum SheetFocus: Hashable { case input }
+    @FocusState private var focus: SheetFocus?
 
     private var parsed: LeetCodeProblemInput? { LeetCodeProblemInput.parse(text) }
 
@@ -99,6 +105,7 @@ struct LeetCodeOpenProblemSheet: View {
         // The field holds a whole problem URL, so the sheet's fixed width has to
         // grow with the text inside it or a 200% sheet shows the middle of one.
         .frame(width: metrics.scaled(440))
+        .background(theme.color(.bgPanel))
         // This sheet renders account state — the signed-out notice above the
         // field — so it is one of the four surfaces that resolve the account on
         // appear (L27). Idempotent and synchronous: the second and every later
@@ -127,9 +134,10 @@ struct LeetCodeOpenProblemSheet: View {
         VStack(alignment: .leading, spacing: metrics.scaled(2)) {
             Text("Open LeetCode Problem")
                 .font(metrics.scaledFont(.headline, weight: .semibold))
+                .foregroundStyle(theme.color(.textPrimary))
             Text("A problem number, its slug, or a leetcode.com problem URL.")
                 .font(metrics.scaledFont(.caption))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(theme.color(.textSecondary))
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -139,33 +147,55 @@ struct LeetCodeOpenProblemSheet: View {
     /// difference between one click and a trip through the menu bar.
     private var signedOutNotice: some View {
         HStack(spacing: metrics.scaled(10)) {
+            // Decorative: the sentence beside it says what it means.
             Image(systemName: "person.crop.circle.badge.exclamationmark")
-                .foregroundStyle(.secondary)
+                .font(metrics.scaledFont(.body))
+                .foregroundStyle(theme.color(.textSecondary))
+                .accessibilityHidden(true)
             Text("Opening a problem needs a LeetCode session.")
                 .font(metrics.scaledFont(.caption))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(theme.color(.textSecondary))
             Spacer()
             Button("Sign In…") { isSigningIn = true }
+                .buttonStyle(.chromeSecondary)
         }
     }
 
     private var input: some View {
         VStack(alignment: .leading, spacing: metrics.scaled(10)) {
-            TextField("1, two-sum, or https://leetcode.com/problems/two-sum/", text: $text)
-                .textFieldStyle(.roundedBorder)
-                // Enter submits, but only when the text names something — the
-                // same condition the Open button is under, so the two cannot
-                // disagree.
-                .onSubmit { open() }
-                .onChange(of: text) { _ in message = nil }
-                .disabled(model.isOpening)
-
-            Picker("Language", selection: $settings.leetCodeLanguage) {
-                ForEach(LeetCodeSolutionFile.offerableLanguages, id: \.self) { language in
-                    Text(language.displayName).tag(language)
-                }
-            }
+            ChromeThemedTextField(
+                title: "1, two-sum, or https://leetcode.com/problems/two-sum/",
+                text: $text,
+                focus: $focus,
+                focusedEquals: .input,
+                textStyle: .body
+            )
+            .frame(height: metrics.scaled(OpenProblemSheetLayout.inputHeight))
+            // Enter submits, but only when the text names something — the
+            // same condition the Open button is under, so the two cannot
+            // disagree.
+            .onSubmit { open() }
+            .onChange(of: text) { _ in message = nil }
             .disabled(model.isOpening)
+
+            // A run-time list of languages, so the picker rule answers the menu
+            // field — the browser's and the Settings problem-catalog tab's answer
+            // over the same list. The caption keeps the visible name the platform
+            // picker drew; the field speaks it itself, so the caption is hidden.
+            HStack(spacing: metrics.scaled(8)) {
+                Text("Language")
+                    .foregroundStyle(theme.color(.textPrimary))
+                    .accessibilityHidden(true)
+                ChromeMenuField(
+                    label: "Language",
+                    options: LeetCodeSolutionFile.offerableLanguages.map { (value: $0, title: $0.displayName) },
+                    selection: $settings.leetCodeLanguage,
+                    currentTitle: settings.leetCodeLanguage.displayName
+                )
+                .frame(height: metrics.scaled(ChromeGeometry.menuFieldHeight))
+                .fixedSize(horizontal: true, vertical: false)
+                .disabled(model.isOpening)
+            }
         }
     }
 
@@ -177,10 +207,10 @@ struct LeetCodeOpenProblemSheet: View {
         Group {
             if let message {
                 Text(message)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(theme.color(.statusRed))
             } else if !isBlank, parsed == nil {
                 Text("Not a problem number, slug or LeetCode URL.")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(theme.color(.textSecondary))
             } else {
                 Text(" ")
             }
@@ -193,16 +223,20 @@ struct LeetCodeOpenProblemSheet: View {
     private var buttons: some View {
         HStack(spacing: metrics.scaled(10)) {
             if model.isOpening {
-                ProgressView()
-                    .controlSize(.small)
+                // "Fetching from LeetCode…" beside it names the activity, so
+                // the spinner speaks nothing of its own.
+                ChromeSpinner()
+                    .accessibilityHidden(true)
                 Text("Fetching from LeetCode…")
                     .font(metrics.scaledFont(.caption))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(theme.color(.textSecondary))
             }
             Spacer()
             Button("Cancel") { onCancel() }
+                .buttonStyle(.chromeSecondary)
                 .keyboardShortcut(.cancelAction)
             Button("Open") { open() }
+                .buttonStyle(.chromePrimary)
                 .keyboardShortcut(.defaultAction)
                 .disabled(parsed == nil || model.isOpening)
         }
@@ -252,13 +286,22 @@ struct LeetCodeCommands: View {
         // folding arrows. ⌘⇧P names View → Markdown Preview and nothing else, so
         // each of the two commands is reachable on every tab. Gated on nothing: a
         // LeetCode problem needs no open project.
+        //
+        // The two groups are separated by one `Divider()`, the one shape a
+        // `Commands` builder renders as a single separator between them. A
+        // `Section` there does not replace the platform's separator — it emits one
+        // on each side of its group, and AppKit neither hides the edge ones nor
+        // collapses two adjacent ones (measured: two `Section`s drew four
+        // separators, 126 pt tall; one `Divider()` drew one, 93 pt). This is a main
+        // menu separator, drawn by AppKit where no chrome role reaches it, which is
+        // why rule twenty-four admits it in this file and nowhere else.
         Button("Open Problem…") { onOpenProblem() }
             .keyboardShortcut("p", modifiers: [.command, .option])
 
-        // ⌘⇧B — free on macOS, and beside "Open Problem…" because the two are the
-        // same action reached two ways: type a problem you know, or find one you
-        // do not. Gated on nothing, like its neighbour: a LeetCode problem needs
-        // no open project.
+        // ⌘⇧B — free on macOS, and beside "Open Problem…" because the two are
+        // the same action reached two ways: type a problem you know, or find
+        // one you do not. Gated on nothing, like its neighbour: a LeetCode
+        // problem needs no open project.
         Button("Browse Problems…") { onBrowseProblems() }
             .keyboardShortcut("b", modifiers: [.command, .shift])
 
@@ -267,9 +310,10 @@ struct LeetCodeCommands: View {
         if model.isSignedIn {
             Button(signOutTitle) { onSignOut() }
         } else {
-            // Under `.unresolved` this is the entry the menu draws, and it is the
-            // neutral one on purpose: nothing has been read yet, so the item that
-            // *asks* is the honest one. What it does about that is `signIn()`.
+            // Under `.unresolved` this is the entry the menu draws, and it is
+            // the neutral one on purpose: nothing has been read yet, so the
+            // item that *asks* is the honest one. What it does about that is
+            // `signIn()`.
             Button("Sign In…") { signIn() }
         }
 
@@ -309,6 +353,15 @@ struct LeetCodeCommands: View {
         guard let username = model.signedInUsername else { return "Sign Out" }
         return "Sign Out (\(username))"
     }
+}
+
+/// The open-problem sheet's own measurements.
+private enum OpenProblemSheetLayout {
+    /// The problem input's height. The same 26 as the language menu field
+    /// below it, so the sheet's two controls read as one column — but this
+    /// surface's number, not `ChromeGeometry.menuFieldHeight`, which sizes the
+    /// menu fields alone.
+    static let inputHeight: Double = 26
 }
 
 /// Where LeetCode solution files go on this Mac, and how the user changes it.

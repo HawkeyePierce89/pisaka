@@ -214,9 +214,8 @@ struct LSPServerSettingsView: View {
             Spacer(minLength: metrics.scaled(8))
 
             if row.state == .installing || row.isRemoving {
-                ProgressView()
-                    .controlSize(.small)
-                    .progressViewStyle(.circular)
+                ChromeSpinner()
+                    .accessibilityHidden(true)
             }
 
             if row.canInstall {
@@ -277,9 +276,8 @@ struct LSPServerSettingsView: View {
             Spacer(minLength: metrics.scaled(8))
 
             if row.status == .installing || row.isRemoving {
-                ProgressView()
-                    .controlSize(.small)
-                    .progressViewStyle(.circular)
+                ChromeSpinner()
+                    .accessibilityHidden(true)
             }
 
             if row.canInstall {
@@ -339,9 +337,8 @@ struct LSPServerSettingsView: View {
             Spacer(minLength: metrics.scaled(8))
 
             if row.status == .installing || row.isRemoving {
-                ProgressView()
-                    .controlSize(.small)
-                    .progressViewStyle(.circular)
+                ChromeSpinner()
+                    .accessibilityHidden(true)
             }
 
             if row.canInstall {

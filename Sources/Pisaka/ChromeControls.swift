@@ -2,12 +2,13 @@
 import SwiftUI
 import PisakaCore
 
-/// The shared chrome field, button, checkbox and settings shapes.
+/// The shared chrome field, button, checkbox, spinner and settings shapes.
 ///
 /// One file for the chrome's controls: the field box — `bgEditor` ground, a
 /// one-point `hairline` border and two points of `accent` on focus — the
-/// primary and secondary buttons, the checkbox, the segmented control, the
-/// stepper, the switch, the settings tab bar and the menu field. The Log filter
+/// primary and secondary buttons, the checkbox, the spinner, the segmented
+/// control, the stepper, the switch, the settings tab bar and the menu field.
+/// The Log filter
 /// bar was the field lifted (and its branch menu the menu field), Local
 /// Changes' revert checkbox the checkbox; every later caller uses these rather
 /// than a second copy.
@@ -42,22 +43,89 @@ struct ChromeControlBox<Content: View>: View {
 
 /// A themed text field built on `ChromeControlBox`.
 ///
-/// A plain `TextField` with `textPrimary` content, a `textSecondary`
-/// placeholder, an optional leading glyph hidden from accessibility, and a
-/// spoken label. Focus comes in as a `FocusState` binding plus the value it
-/// equals, so each caller keeps its own focus enum.
+/// A plain `TextField` with `textPrimary` content, an optional leading glyph
+/// hidden from accessibility, and a spoken label. Focus comes in as a
+/// `FocusState` binding plus the value it equals, so each caller keeps its own
+/// focus enum.
+///
+/// The name is always spoken; whether it is also *drawn* is the initializer's
+/// label, so the choice is visible at every call site. `title:` draws it as a
+/// `textSecondary` placeholder while the field is empty — right for a field the
+/// name describes. `spokenName:` draws nothing in an empty field — right where
+/// an empty field is itself a value a grey word would misrepresent (the
+/// database grid's cell editor, where grey is how the grid draws NULL).
 struct ChromeThemedTextField<FocusValue: Hashable>: View {
     let title: String
+    let drawsTitle: Bool
     @Binding var text: String
     var glyph: String?
     let focus: FocusState<FocusValue>.Binding
     let focusedEquals: FocusValue
-    var horizontalPadding: Double = ChromeGeometry.fieldPaddingX
-    var textStyle: InterfaceTextStyle = .callout
-    var spacing: Double = 6
+    var horizontalPadding: Double
+    var textStyle: InterfaceTextStyle
+    var spacing: Double
 
     @Environment(\.interfaceMetrics) private var metrics
     @Environment(\.chromeTheme) private var theme
+
+    /// A field whose name is spoken *and* drawn as its empty-state placeholder.
+    init(
+        title: String,
+        text: Binding<String>,
+        glyph: String? = nil,
+        focus: FocusState<FocusValue>.Binding,
+        focusedEquals: FocusValue,
+        horizontalPadding: Double = ChromeGeometry.fieldPaddingX,
+        textStyle: InterfaceTextStyle = .callout,
+        spacing: Double = 6
+    ) {
+        self.init(
+            name: title, drawsName: true, text: text, glyph: glyph, focus: focus,
+            focusedEquals: focusedEquals, horizontalPadding: horizontalPadding,
+            textStyle: textStyle, spacing: spacing
+        )
+    }
+
+    /// A field whose name is spoken to assistive technology and never drawn:
+    /// an empty field stays empty.
+    init(
+        spokenName: String,
+        text: Binding<String>,
+        glyph: String? = nil,
+        focus: FocusState<FocusValue>.Binding,
+        focusedEquals: FocusValue,
+        horizontalPadding: Double = ChromeGeometry.fieldPaddingX,
+        textStyle: InterfaceTextStyle = .callout,
+        spacing: Double = 6
+    ) {
+        self.init(
+            name: spokenName, drawsName: false, text: text, glyph: glyph, focus: focus,
+            focusedEquals: focusedEquals, horizontalPadding: horizontalPadding,
+            textStyle: textStyle, spacing: spacing
+        )
+    }
+
+    private init(
+        name: String,
+        drawsName: Bool,
+        text: Binding<String>,
+        glyph: String?,
+        focus: FocusState<FocusValue>.Binding,
+        focusedEquals: FocusValue,
+        horizontalPadding: Double,
+        textStyle: InterfaceTextStyle,
+        spacing: Double
+    ) {
+        self.title = name
+        self.drawsTitle = drawsName
+        self._text = text
+        self.glyph = glyph
+        self.focus = focus
+        self.focusedEquals = focusedEquals
+        self.horizontalPadding = horizontalPadding
+        self.textStyle = textStyle
+        self.spacing = spacing
+    }
 
     var body: some View {
         ChromeControlBox(isFocused: focus.wrappedValue == focusedEquals, horizontalPadding: horizontalPadding) {
@@ -68,7 +136,7 @@ struct ChromeThemedTextField<FocusValue: Hashable>: View {
                         .accessibilityHidden(true)
                 }
                 ZStack(alignment: .leading) {
-                    if text.isEmpty {
+                    if drawsTitle, text.isEmpty {
                         Text(title)
                             .foregroundStyle(theme.color(.textSecondary))
                             .lineLimit(1)
@@ -558,6 +626,67 @@ struct ChromeMenuField<Value: Hashable>: View {
         .accessibilityElement(children: .contain)
         .accessibilityLabel(label)
         .accessibilityValue(currentTitle)
+    }
+}
+
+/// The chrome's activity indicator, drawn rather than the platform's.
+///
+/// An open arc stroked in `textSecondary` — a spinner reports activity, not
+/// selection, so it is not `accent` — `spinnerSide` square at a
+/// `spinnerLineWidth` stroke, both scaled through the metrics. The turn is a
+/// function of the clock read through a `TimelineView` whose schedule pauses on
+/// Reduce Motion, so it follows the setting as it is *now*, in both directions:
+/// switched on under a turning spinner, the schedule pauses and the arc draws
+/// still at its resting angle; switched off under a still one, the schedule
+/// resumes and it turns — no flag latched at appearance stands between the
+/// setting and the drawing.
+///
+/// **The call site decides what it speaks, and says so exactly once.** Every
+/// construction carries one of two markers in its own modifier chain:
+///
+/// - `.accessibilityHidden(true)` when a neighbour already names the activity
+///   (a "Reading checks…" beside it), so the sentence is read once rather than
+///   followed by a second, vaguer one;
+/// - `.accessibilityLabel(…)` naming what is happening when it stands alone.
+///
+/// There is no label parameter and no default label: a default would be exactly
+/// the duplicate the first marker avoids, and a missing marker would be an
+/// unnamed element. The body carries `.updatesFrequently`, inert when hidden.
+struct ChromeSpinner: View {
+    @Environment(\.interfaceMetrics) private var metrics
+    @Environment(\.chromeTheme) private var theme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        let side = metrics.scaled(ChromeGeometry.spinnerSide)
+        let lineWidth = metrics.scaled(ChromeGeometry.spinnerLineWidth)
+        TimelineView(.animation(minimumInterval: nil, paused: reduceMotion)) { context in
+            // Inset by half the stroke so the arc's outer edge meets the frame
+            // rather than overhanging it.
+            Circle()
+                .inset(by: lineWidth / 2)
+                .trim(from: 0, to: ChromeSpinnerLayout.arcFraction)
+                .stroke(theme.color(.textSecondary), style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
+                .rotationEffect(reduceMotion ? .zero : ChromeSpinnerLayout.angle(at: context.date))
+        }
+        .frame(width: side, height: side)
+        .accessibilityElement(children: .ignore)
+        .accessibilityAddTraits(.updatesFrequently)
+    }
+}
+
+/// The spinner's own numbers, belonging to the one shape.
+private enum ChromeSpinnerLayout {
+    /// How much of the circle the arc covers; the gap is what reads as motion.
+    static let arcFraction: Double = 0.75
+    /// Seconds per full turn.
+    static let turnDuration: Double = 1
+
+    /// Where the arc stands at `date`: the fraction of the current turn,
+    /// as an angle.
+    static func angle(at date: Date) -> Angle {
+        let phase = date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: turnDuration)
+        return .degrees(phase / turnDuration * 360)
     }
 }
 

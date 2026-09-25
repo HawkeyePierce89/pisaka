@@ -3,7 +3,7 @@ import PisakaCore
 import SwiftUI
 
 /// The LeetCode problem browser window's contents (⌘⇧B): the search field and
-/// filter controls at the top, the problem table below, the fetch time and
+/// filter controls at the top, the problem rows below, the fetch time and
 /// Refresh in the footer.
 ///
 /// **It observes `LeetCodeBrowserModel`, not `LeetCodeModel`.** That is the whole
@@ -53,7 +53,7 @@ struct LeetCodeBrowserView: View {
 
     /// The selected row's slug, or `nil`. Single selection: the Open button acts
     /// on one problem and a double-click names one.
-    @State private var selection: Row.ID?
+    @State private var selection: String?
 
     /// The outcome of the last open attempt, or `nil` before the first one.
     @State private var message: String?
@@ -80,15 +80,47 @@ struct LeetCodeBrowserView: View {
     /// view that makes it.
     private var metrics: InterfaceMetrics { settings.interfaceMetrics }
 
+    @Environment(\.colorScheme) private var colorScheme
+
+    /// Where the keyboard is: the query field, or the row list — the list is one
+    /// focusable container, so the arrows and Return act on the selection only
+    /// while it holds focus.
+    @FocusState private var focus: BrowserFocus?
+
+    private enum BrowserFocus: Hashable {
+        case query
+        case list
+    }
+
+    /// This view is a window root: it injects the theme below, so it resolves its
+    /// own colours from the settings rather than reading `\.chromeTheme`, the
+    /// shape `ContentView` and the other window roots use. A child that wants the
+    /// environment — `LeetCodeBrowserRow` — is declared at file scope, never
+    /// inside this struct.
+    private func chromeColor(_ role: ChromeColorRole) -> Color {
+        settings.chromeTheme(systemPrefersDark: colorScheme == .dark).color(role)
+    }
+
+    /// The one-point rule drawn where a `Divider()` used to stand.
+    private func hairline(horizontal: Bool) -> some View {
+        Rectangle()
+            .fill(chromeColor(.hairline))
+            .frame(
+                width: horizontal ? nil : metrics.scaled(ChromeGeometry.hairlineWidth),
+                height: horizontal ? metrics.scaled(ChromeGeometry.hairlineWidth) : nil
+            )
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             controls
-            Divider()
+            hairline(horizontal: true)
             content
-            Divider()
+            hairline(horizontal: true)
             footer
         }
         .frame(minWidth: metrics.scaled(620), minHeight: metrics.scaled(380))
+        .background(chromeColor(.bgPanel))
         .preferredColorScheme(settings.themePreference.colorScheme)
         // Its own SwiftUI root (an `NSHostingController` made by
         // `LeetCodeBrowserWindowController`), so it injects the interface scale
@@ -117,7 +149,7 @@ struct LeetCodeBrowserView: View {
         }
         // **The selection has to be pruned, because SwiftUI keeps one whose row is
         // gone.** `selection` is a slug, and both narrowing the filter and a
-        // landed refresh can take that row out of the table — leaving Open enabled
+        // landed refresh can take that row out of the list — leaving Open enabled
         // and opening a problem the user cannot see and did not mean, which on
         // this route creates a file. Keyed on the two things that can change the
         // visible set rather than on `visibleProblems` itself, whose equality
@@ -125,7 +157,7 @@ struct LeetCodeBrowserView: View {
         // The refusal from the last open ("that one is Premium") is about a row,
         // so it goes stale the moment the list under it does — the Open Problem
         // sheet clears its sentence on every edit of the field for the same
-        // reason. Without this it sat in red above a table it no longer described
+        // reason. Without this it sat in red above a list it no longer described
         // until the *next* open cleared it.
         .onChange(of: browser.filter) { _ in
             pruneSelection()
@@ -161,69 +193,86 @@ struct LeetCodeBrowserView: View {
     private var controls: some View {
         VStack(alignment: .leading, spacing: metrics.scaled(8)) {
             HStack(spacing: metrics.scaled(8)) {
-                Image(systemName: "magnifyingglass")
-                    .foregroundStyle(.secondary)
-                TextField(
-                    "Number, title or slug",
-                    text: $browser.filter.query
+                ChromeThemedTextField(
+                    title: "Number, title or slug",
+                    text: $browser.filter.query,
+                    glyph: "magnifyingglass",
+                    focus: $focus,
+                    focusedEquals: .query,
+                    textStyle: .body
                 )
-                .textFieldStyle(.roundedBorder)
                 .frame(maxWidth: metrics.scaled(320))
+                .frame(height: metrics.scaled(LeetCodeBrowserLayout.queryFieldHeight))
 
-                Picker("Language", selection: $settings.leetCodeLanguage) {
-                    ForEach(LeetCodeSolutionFile.offerableLanguages, id: \.self) { language in
-                        Text(language.displayName).tag(language)
-                    }
-                }
+                // A run-time list of languages, so the picker rule answers the
+                // menu field — the Settings problem-catalog tab's answer over
+                // the same list.
+                ChromeMenuField(
+                    label: "Language",
+                    options: LeetCodeSolutionFile.offerableLanguages.map { (value: $0, title: $0.displayName) },
+                    selection: $settings.leetCodeLanguage,
+                    currentTitle: settings.leetCodeLanguage.displayName
+                )
                 .frame(maxWidth: metrics.scaled(220))
+                .frame(height: metrics.scaled(ChromeGeometry.menuFieldHeight))
+                .fixedSize(horizontal: true, vertical: false)
 
                 Spacer(minLength: metrics.scaled(4))
 
                 Button("Open") { open(slug: selection) }
+                    .buttonStyle(.chromeSecondary)
                     .disabled(selection == nil || isOpening)
             }
 
             HStack(spacing: metrics.scaled(12)) {
                 // Set membership, and an empty set means no filtering — so these
-                // toggles need no "All" case: nothing selected and everything
+                // checkboxes need no "All" case: nothing selected and everything
                 // selected are the same list, which is what `LeetCodeProblemFilter`
-                // documents.
-                HStack(spacing: metrics.scaled(4)) {
+                // documents. Each case is independently in or out, an option of
+                // one action, so the picker rule answers the checkbox.
+                HStack(spacing: metrics.scaled(12)) {
                     ForEach(LeetCodeDifficulty.allCases, id: \.self) { difficulty in
-                        Toggle(
-                            LeetCodeBrowserView.title(for: difficulty),
+                        filterCheckbox(
+                            title: LeetCodeBrowserView.title(for: difficulty),
                             isOn: difficultyBinding(difficulty)
                         )
-                        .toggleStyle(.button)
                     }
                 }
 
-                Divider()
+                hairline(horizontal: false)
                     .frame(height: metrics.scaled(16))
 
-                HStack(spacing: metrics.scaled(4)) {
+                HStack(spacing: metrics.scaled(12)) {
                     ForEach(LeetCodeProblemStatus.allCases, id: \.self) { status in
-                        Toggle(
-                            LeetCodeBrowserView.title(for: status),
+                        filterCheckbox(
+                            title: LeetCodeBrowserView.title(for: status),
                             isOn: statusBinding(status)
                         )
-                        .toggleStyle(.button)
                     }
                 }
 
                 Spacer(minLength: metrics.scaled(4))
             }
-            .font(metrics.scaledFont(.callout))
 
             if let message {
                 Text(message)
                     .font(metrics.scaledFont(.caption))
-                    .foregroundStyle(.red)
+                    .foregroundStyle(chromeColor(.statusRed))
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
         .font(metrics.scaledFont(.body))
         .padding(metrics.scaled(10))
+    }
+
+    /// One filter case as the shared checkbox over its existing binding.
+    private func filterCheckbox(title: String, isOn: Binding<Bool>) -> some View {
+        ChromeCheckbox(
+            state: isOn.wrappedValue ? .on : .off,
+            label: title,
+            title: title,
+            action: { isOn.wrappedValue.toggle() }
+        )
     }
 
     // MARK: - The list
@@ -233,7 +282,7 @@ struct LeetCodeBrowserView: View {
         if let reason = browser.availability.reason {
             signedOutOffer(reason)
         } else {
-            table
+            problemList
         }
     }
 
@@ -245,78 +294,127 @@ struct LeetCodeBrowserView: View {
         VStack(spacing: metrics.scaled(12)) {
             Image(systemName: "person.crop.circle.badge.exclamationmark")
                 .font(.system(size: metrics.scaled(28)))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(chromeColor(.textSecondary))
+                .accessibilityHidden(true)
             Text(reason)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(chromeColor(.textSecondary))
             Button("Sign In…") { isSigningIn = true }
+                .buttonStyle(.chromeSecondary)
         }
         .font(metrics.scaledFont(.body))
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    private var table: some View {
-        Table(rows, selection: $selection) {
-            TableColumn("#") { row in
-                Text("\(row.problem.frontendID)")
-                    .monospacedDigit()
-                    .foregroundStyle(.secondary)
-            }
-            .width(min: metrics.scaled(48), ideal: metrics.scaled(56), max: metrics.scaled(90))
-
-            TableColumn("Title") { row in
-                HStack(spacing: metrics.scaled(6)) {
-                    Text(row.problem.title)
-                        .lineLimit(1)
-                    // Premium rows are always listed and can never be filtered
-                    // out — hiding them would leave gaps in LeetCode's numbering
-                    // that read as missing problems. The lock is what says the
-                    // open will be refused before it is attempted.
-                    if row.problem.isPaidOnly {
-                        Image(systemName: "lock.fill")
-                            .foregroundStyle(.secondary)
-                            .help("LeetCode Premium")
+    /// The problem rows: the chrome's own, on the Log's row shape rather than a
+    /// platform table. There is no per-column drag resize — the Log has none
+    /// either — so the number, difficulty and status columns take fixed widths
+    /// and the title takes the rest.
+    ///
+    /// **The list is one focusable container.** Up and down move the selection
+    /// (kept on screen by the reader), and Return opens it through a zero-sized
+    /// shortcut button enabled only while the list holds focus — the database
+    /// grid's Return idiom, since a key-press handler is newer than this target.
+    /// A click selects and takes focus, a double-click opens, and the row's
+    /// context menu offers Open; the Open button above stays the fourth way in.
+    /// Below the last row, a click clears the selection and a right-click offers
+    /// Open for it, as the platform table did.
+    private var problemList: some View {
+        VStack(spacing: 0) {
+            columnHeader
+            ScrollViewReader { proxy in
+                GeometryReader { viewport in
+                    ScrollView {
+                        LazyVStack(spacing: 0) {
+                            ForEach(browser.visibleProblems, id: \.slug) { problem in
+                                LeetCodeBrowserRow(
+                                    problem: problem,
+                                    isSelected: selection == problem.slug,
+                                    onSelect: {
+                                        selection = problem.slug
+                                        focus = .list
+                                    },
+                                    onOpen: { open(slug: problem.slug) }
+                                )
+                                .id(problem.slug)
+                            }
+                        }
+                        .frame(minHeight: viewport.size.height, alignment: .top)
+                        // The area below the last row, standing in for what the
+                        // platform table gave it: a plain click clears the
+                        // selection, and a right-click offers Open for the
+                        // current selection — nothing at all when there is none.
+                        // It sits *behind* the rows, stretched to the viewport by
+                        // the frame above, so a row's own click and menu win
+                        // wherever there is a row and this answers only where
+                        // there is not. Its Open is the same `open(slug:)` every
+                        // other way in reaches.
+                        .background {
+                            Color.clear
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    selection = nil
+                                    focus = .list
+                                }
+                                .contextMenu {
+                                    if let selection {
+                                        Button("Open") { open(slug: selection) }
+                                    }
+                                }
+                        }
                     }
                 }
+                .focusable()
+                .focused($focus, equals: .list)
+                .onMoveCommand { direction in
+                    moveSelection(direction)
+                    if let selection { proxy.scrollTo(selection) }
+                }
             }
-
-            TableColumn("Difficulty") { row in
-                Text(LeetCodeBrowserView.title(for: row.problem.difficulty))
-                    .foregroundStyle(LeetCodeBrowserView.color(for: row.problem.difficulty))
-            }
-            .width(min: metrics.scaled(72), ideal: metrics.scaled(88), max: metrics.scaled(120))
-
-            TableColumn("Status") { row in
-                statusCell(row.problem.status)
-            }
-            .width(min: metrics.scaled(72), ideal: metrics.scaled(96), max: metrics.scaled(140))
-        }
-        // One font for every cell and header: a `Table` column takes its size from
-        // what it draws, so the rows follow the interface zone with the chrome
-        // above them rather than staying at the system size inside a scaled window.
-        .font(metrics.scaledFont(.body))
-        // Double-click opens (`primaryAction`), and the same action is in the
-        // row's context menu — the explicit Open button above is the third way in,
-        // for a user who reached the row with the keyboard.
-        .contextMenu(forSelectionType: Row.ID.self) { ids in
-            Button("Open") { open(slug: ids.first ?? selection) }
-        } primaryAction: { ids in
-            open(slug: ids.first)
+            returnOpensTheSelectedRow
         }
     }
 
-    @ViewBuilder
-    private func statusCell(_ status: LeetCodeProblemStatus) -> some View {
-        switch status {
-        case .solved:
-            Label("Solved", systemImage: "checkmark.circle.fill")
-                .foregroundStyle(.green)
-        case .attempted:
-            Label("Attempted", systemImage: "ellipsis.circle")
-                .foregroundStyle(.orange)
-        case .notStarted:
-            Text("—")
-                .foregroundStyle(.secondary)
+    /// The four column titles over the rows, on the panel ground with its
+    /// hairline applied before that ground, so the rule lands over the fill and
+    /// under the titles rather than hidden behind it. They read the rows' own widths,
+    /// so each title sits over the column it names; non-interactive, since there
+    /// is no sorting.
+    private var columnHeader: some View {
+        HStack(spacing: metrics.scaled(LeetCodeBrowserLayout.columnGap)) {
+            columnTitle("#")
+                .frame(width: metrics.scaled(LeetCodeBrowserLayout.numberWidth), alignment: .leading)
+            columnTitle("Title")
+                .frame(maxWidth: .infinity, alignment: .leading)
+            columnTitle("Difficulty")
+                .frame(width: metrics.scaled(LeetCodeBrowserLayout.difficultyWidth), alignment: .leading)
+            columnTitle("Status")
+                .frame(width: metrics.scaled(LeetCodeBrowserLayout.statusWidth), alignment: .leading)
         }
+        .padding(.horizontal, metrics.scaled(LeetCodeBrowserLayout.rowPaddingX))
+        .frame(height: metrics.scaled(LeetCodeBrowserLayout.headerRowHeight))
+        .background(alignment: .bottom) { hairline(horizontal: true) }
+        .background(chromeColor(.bgPanel))
+        .allowsHitTesting(false)
+    }
+
+    private func columnTitle(_ text: String) -> some View {
+        Text(text)
+            .font(metrics.scaledFont(.subheadline, weight: .semibold))
+            .foregroundStyle(chromeColor(.textSecondary))
+            .lineLimit(1)
+    }
+
+    /// Return opens the selected row while the list holds the keyboard. Zero
+    /// sized and hidden from accessibility: the row's own named Open action is
+    /// what an assistive reader is offered.
+    private var returnOpensTheSelectedRow: some View {
+        Button("Open Selected Problem") { open(slug: selection) }
+            .keyboardShortcut(.return, modifiers: [])
+            .buttonStyle(.plain)
+            .opacity(0)
+            .frame(width: 0, height: 0)
+            .disabled(focus != .list || selection == nil || isOpening)
+            .accessibilityHidden(true)
     }
 
     // MARK: - The footer
@@ -324,7 +422,7 @@ struct LeetCodeBrowserView: View {
     private var footer: some View {
         HStack(spacing: metrics.scaled(10)) {
             Text(countLine)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(chromeColor(.textSecondary))
 
             if let error = browser.lastError?.errorDescription {
                 // Beside the rows rather than instead of them: a refresh that
@@ -332,7 +430,7 @@ struct LeetCodeBrowserView: View {
                 // degradation rule `LeetCodeBrowserModel` implements and this line
                 // reports.
                 Text(error)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(chromeColor(.statusRed))
                     .lineLimit(1)
                     .help(error)
             }
@@ -340,20 +438,24 @@ struct LeetCodeBrowserView: View {
             Spacer(minLength: metrics.scaled(4))
 
             if browser.isLoading || isOpening {
-                ProgressView()
-                    .controlSize(.small)
+                // An open names no activity beside it, and "Loading…" is the empty
+                // list's sentence alone — a loaded list's count line names none —
+                // so the spinner says what it is doing itself.
+                ChromeSpinner()
+                    .accessibilityLabel(isOpening ? "Opening problem" : "Loading problems")
             }
 
             // Freshness is the catalog's fetch time, so the surface says so
             // rather than pretending the per-account marks are live (L24).
             if let fetchedAt = browser.fetchedAt {
                 Text("Updated \(fetchedAt.formatted(date: .abbreviated, time: .shortened))")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(chromeColor(.textSecondary))
             }
 
             Button("Refresh") {
                 Task { await browser.refresh() }
             }
+            .buttonStyle(.chromeSecondary)
             .disabled(browser.isLoading || !browser.availability.isReady)
         }
         .font(metrics.scaledFont(.caption))
@@ -374,7 +476,7 @@ struct LeetCodeBrowserView: View {
 
     // MARK: - Opening
 
-    /// Drop a selection the table is no longer showing. See the two `onChange`
+    /// Drop a selection the list is no longer showing. See the two `onChange`
     /// hooks on `body`.
     private func pruneSelection() {
         guard let slug = selection else { return }
@@ -410,23 +512,22 @@ struct LeetCodeBrowserView: View {
         }
     }
 
+    /// Move the selection one row up or down the visible list, starting from
+    /// the first row when nothing is selected. Left and right are ignored.
+    private func moveSelection(_ direction: MoveCommandDirection) {
+        let visible = browser.visibleProblems
+        guard !visible.isEmpty else { return }
+        let current = selection.flatMap { slug in visible.firstIndex { $0.slug == slug } }
+        let next: Int
+        switch direction {
+        case .down: next = current.map { min($0 + 1, visible.count - 1) } ?? 0
+        case .up: next = current.map { max($0 - 1, 0) } ?? 0
+        default: return
+        }
+        selection = visible[next].slug
+    }
+
     // MARK: - Filter bindings
-
-    /// The rows the table renders.
-    ///
-    /// A view-layer wrapper for its `Identifiable` conformance alone: `Table`
-    /// requires one, and `LeetCodeProblem` has no identity of its own to speak of
-    /// outside a list (the iOS screen uses `id: \.slug` for the same reason). The
-    /// map is one pass over the *visible* rows — the same order of work the filter
-    /// that produced them already did.
-    private var rows: [Row] {
-        browser.visibleProblems.map(Row.init)
-    }
-
-    private struct Row: Identifiable {
-        let problem: LeetCodeProblem
-        var id: String { problem.slug }
-    }
 
     private func difficultyBinding(_ difficulty: LeetCodeDifficulty) -> Binding<Bool> {
         Binding(
@@ -456,7 +557,7 @@ struct LeetCodeBrowserView: View {
 
     // MARK: - Presentation
 
-    private static func title(for difficulty: LeetCodeDifficulty) -> String {
+    fileprivate static func title(for difficulty: LeetCodeDifficulty) -> String {
         switch difficulty {
         case .easy: return "Easy"
         case .medium: return "Medium"
@@ -464,20 +565,134 @@ struct LeetCodeBrowserView: View {
         }
     }
 
-    private static func color(for difficulty: LeetCodeDifficulty) -> Color {
-        switch difficulty {
-        case .easy: return .green
-        case .medium: return .orange
-        case .hard: return .red
-        }
-    }
-
-    private static func title(for status: LeetCodeProblemStatus) -> String {
+    fileprivate static func title(for status: LeetCodeProblemStatus) -> String {
         switch status {
         case .notStarted: return "Not Started"
         case .attempted: return "Attempted"
         case .solved: return "Solved"
         }
+    }
+}
+
+/// The browser's own measurements, bare numbers scaled once at the use site. The
+/// rows and the column header read the same widths, which is what keeps each
+/// title over its column (gating rule seven: none is derived from a
+/// `ChromeGeometry` token). The three fixed widths are the old table's ideal
+/// widths.
+private enum LeetCodeBrowserLayout {
+    /// A problem row's minimum height.
+    static let rowHeight: Double = 24
+    /// The column header row's height.
+    static let headerRowHeight: Double = 24
+    /// A row's and the header's horizontal inset.
+    static let rowPaddingX: Double = 10
+    /// Between a row's columns (and the header's titles).
+    static let columnGap: Double = 12
+    /// Between the title and its Premium lock.
+    static let lockGap: Double = 6
+    /// The number column.
+    static let numberWidth: Double = 56
+    /// The difficulty column.
+    static let difficultyWidth: Double = 88
+    /// The status column.
+    static let statusWidth: Double = 96
+    /// The query field's height. The same 26 as the menu field it shares the
+    /// toolbar row with, so the two line up — but this surface's number, not
+    /// `ChromeGeometry.menuFieldHeight`, which sizes the menu fields alone.
+    static let queryFieldHeight: Double = 26
+}
+
+/// One problem row: the number, the title with its Premium lock, the difficulty
+/// and the status, each coloured by Core's one answer.
+///
+/// The Log's row shape: the selection wash is `accentTintStrong` whether or not
+/// the window is key, and the pointer's is `hoverTint`. One combined
+/// accessibility element carrying the selected trait and a named Open action,
+/// so an assistive reader reaches the open without a double-click.
+private struct LeetCodeBrowserRow: View {
+    let problem: LeetCodeProblem
+    let isSelected: Bool
+    let onSelect: () -> Void
+    let onOpen: () -> Void
+
+    @State private var isHovering = false
+
+    /// The interface zone's metrics, inherited from the window root.
+    @Environment(\.interfaceMetrics) private var metrics
+    /// The chrome's colours, inherited from the window root.
+    @Environment(\.chromeTheme) private var theme
+
+    var body: some View {
+        HStack(spacing: metrics.scaled(LeetCodeBrowserLayout.columnGap)) {
+            Text("\(problem.frontendID)")
+                .monospacedDigit()
+                .foregroundStyle(theme.color(.textSecondary))
+                .lineLimit(1)
+                .frame(width: metrics.scaled(LeetCodeBrowserLayout.numberWidth), alignment: .leading)
+
+            HStack(spacing: metrics.scaled(LeetCodeBrowserLayout.lockGap)) {
+                Text(problem.title)
+                    .foregroundStyle(theme.color(.textPrimary))
+                    .lineLimit(1)
+                // Premium rows are always listed and can never be filtered
+                // out — hiding them would leave gaps in LeetCode's numbering
+                // that read as missing problems. The lock is what says the
+                // open will be refused before it is attempted.
+                if problem.isPaidOnly {
+                    Image(systemName: "lock.fill")
+                        .font(metrics.scaledFont(.caption))
+                        .foregroundStyle(theme.color(.textSecondary))
+                        .help("LeetCode Premium")
+                        .accessibilityLabel("LeetCode Premium")
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            Text(LeetCodeBrowserView.title(for: problem.difficulty))
+                .foregroundStyle(theme.color(.difficultyRole(for: problem.difficulty)))
+                .lineLimit(1)
+                .frame(width: metrics.scaled(LeetCodeBrowserLayout.difficultyWidth), alignment: .leading)
+
+            statusCell
+                .foregroundStyle(theme.color(.problemStatusRole(for: problem.status)))
+                .lineLimit(1)
+                .frame(width: metrics.scaled(LeetCodeBrowserLayout.statusWidth), alignment: .leading)
+        }
+        .font(metrics.scaledFont(.body))
+        .padding(.horizontal, metrics.scaled(LeetCodeBrowserLayout.rowPaddingX))
+        .frame(maxWidth: .infinity, minHeight: metrics.scaled(LeetCodeBrowserLayout.rowHeight), alignment: .leading)
+        .background(rowBackground)
+        .contentShape(Rectangle())
+        .gesture(TapGesture(count: 2).onEnded { onOpen() })
+        .simultaneousGesture(TapGesture().onEnded { onSelect() })
+        .onHover { isHovering = $0 }
+        .contextMenu {
+            Button("Open", action: onOpen)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .accessibilityAction(named: "Open", onOpen)
+    }
+
+    /// The status's glyph and words; its colour is Core's, applied by the row.
+    @ViewBuilder
+    private var statusCell: some View {
+        switch problem.status {
+        case .solved:
+            Label("Solved", systemImage: "checkmark.circle.fill")
+                .font(metrics.scaledFont(.body))
+        case .attempted:
+            Label("Attempted", systemImage: "ellipsis.circle")
+                .font(metrics.scaledFont(.body))
+        case .notStarted:
+            Text("—")
+        }
+    }
+
+    private var rowBackground: Color {
+        if isSelected { return theme.color(.accentTintStrong) }
+        if isHovering { return theme.color(.hoverTint) }
+        return .clear
     }
 }
 
