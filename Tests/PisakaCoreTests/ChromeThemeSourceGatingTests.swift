@@ -167,7 +167,8 @@ import XCTest
 /// - **A picker's shape follows its set, and each settings shape has its pinned callers.**
 ///   A small build-time set is segmented, a run-time set a menu field, a
 ///   preference a switch; the callers of each shape are pinned, so a control
-///   changing shape moves a file between sets.
+///   changing shape moves a file between sets. The menu field's chevron lies
+///   inside its `Menu`'s label, so the arrow it draws is the control.
 ///
 /// What a rule here may do, and nothing more: pin a set by equality, assert the
 /// presence or absence of a token through `containsToken`, or take a
@@ -3622,6 +3623,46 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
                 "the files spelling \(token) must be exactly its pinned callers plus the defining file"
             )
         }
+    }
+
+    /// The menu field's shape is whole: its chevron is part of the `Menu`'s own
+    /// label, so the arrow the field draws is the control. The field was lifted
+    /// from the Log bar with the glyph a *sibling* of the `Menu`, which draws
+    /// the same and opens nothing when the arrow is clicked — and the lift
+    /// carried that to every caller.
+    ///
+    /// Read as tokens inside matched bodies, not as a view tree: the struct's
+    /// body spells exactly one `Image(` (the chevron — the options' checkmark is
+    /// a `Label`), and the body matched after `label:` following the `Menu`'s
+    /// content closure spells it too, hidden from accessibility there.
+    func testTheMenuFieldsChevronIsPartOfItsMenusLabel() throws {
+        let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
+            try Self.read(try Self.source(named: "ChromeControls.swift"))
+        )
+        let field = try XCTUnwrap(
+            Self.matchedBody(after: "struct ChromeMenuField", in: code),
+            "struct ChromeMenuField is gone or renamed"
+        )
+        XCTAssertEqual(
+            Self.callCount("Image(", in: field), 1,
+            "ChromeMenuField must draw exactly one glyph, its chevron"
+        )
+        let content = try XCTUnwrap(
+            Self.matchedBodyRange(after: "Menu", in: field),
+            "ChromeMenuField no longer builds a Menu"
+        )
+        let label = try XCTUnwrap(
+            Self.matchedBody(after: "label:", in: String(field[content.upperBound...])),
+            "ChromeMenuField's Menu has no label: closure"
+        )
+        XCTAssertTrue(
+            Self.spellsCall("Image(", in: label),
+            "ChromeMenuField's chevron sits outside the Menu's label — the arrow it draws opens nothing"
+        )
+        XCTAssertTrue(
+            Self.spellsCall(".accessibilityHidden(", in: label),
+            "ChromeMenuField's chevron must stay hidden from accessibility inside the label"
+        )
     }
 
     // MARK: - Self-check

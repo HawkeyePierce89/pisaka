@@ -524,33 +524,36 @@ struct ChromeMenuField<Value: Hashable>: View {
 
     var body: some View {
         ChromeControlBox(isFocused: false, horizontalPadding: horizontalPadding) {
-            HStack(spacing: metrics.scaled(spacing)) {
-                Menu {
-                    ForEach(options.indices, id: \.self) { index in
-                        let option = options[index]
-                        Button {
-                            selection = option.value
-                        } label: {
-                            if option.value == selection {
-                                Label(option.title, systemImage: "checkmark")
-                            } else {
-                                Text(option.title)
-                            }
+            Menu {
+                ForEach(options.indices, id: \.self) { index in
+                    let option = options[index]
+                    Button {
+                        selection = option.value
+                    } label: {
+                        if option.value == selection {
+                            Label(option.title, systemImage: "checkmark")
+                        } else {
+                            Text(option.title)
                         }
                     }
-                } label: {
+                }
+            } label: {
+                // The chevron is part of the label, so the arrow the field
+                // draws is the control: a sibling of the `Menu` would be a
+                // glyph that opens nothing when clicked.
+                HStack(spacing: metrics.scaled(spacing)) {
                     Text(currentTitle)
                         .font(metrics.scaledFont(.callout))
                         .foregroundStyle(theme.color(.textPrimary))
                         .lineLimit(1)
+                    Image(systemName: "chevron.down")
+                        .font(metrics.scaledFont(.subheadline, weight: .semibold))
+                        .foregroundStyle(theme.color(.textSecondary))
+                        .accessibilityHidden(true)
                 }
-                .menuStyle(.borderlessButton)
-                .menuIndicator(.hidden)
-                Image(systemName: "chevron.down")
-                    .font(metrics.scaledFont(.subheadline, weight: .semibold))
-                    .foregroundStyle(theme.color(.textSecondary))
-                    .accessibilityHidden(true)
             }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(label)

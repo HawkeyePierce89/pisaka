@@ -1430,7 +1430,10 @@ own body (rule twenty).
   menu wrapped an inline `Picker` the new ban finds red. So the Log bar is swept
   and becomes the first caller; the menu's items are plain `Button`s with the
   chosen one labelled by a checkmark, the label the current title (`callout`,
-  `textPrimary`, one line) beside a `textSecondary` `.subheadline` chevron. The
+  `textPrimary`, one line) beside a `textSecondary` `.subheadline` chevron —
+  both inside the `Menu`'s own label, so clicking the arrow opens the menu (the
+  lift carried the Log bar's sibling chevron, which opened nothing, until the
+  part's review round; rule thirty-seven). The
   caller supplies the height and the width limits. One definition, three
   callers — the Log bar, the catalog tab's default language, the create sheet's
   base branch — the way the checkbox was lifted in part five (b).
@@ -2197,6 +2200,12 @@ The thirty-seven rules, each invisible to the compiler:
     `SettingsView.swift`. The rule cannot read a set's size, so the two sets
     together are its whole expression: a segmented base-branch list, or a
     switch where a checkbox belongs, moves a file between sets and fails.
+    The menu field's shape is pinned whole besides: inside `struct
+    ChromeMenuField`'s matched body its one `Image(` — the chevron — lies in the
+    body matched after the `Menu`'s `label:`, hidden from accessibility there.
+    The part lifted the field with the chevron a sibling of the `Menu`, which
+    draws the same and opens nothing when the arrow is clicked; its review
+    round moved it into the label.
 
 Plus a **self-check** in the suite's own idiom: every gated file must actually
 *name* a `ChromeColorRole`, or the checks above have gone vacuous — with nine

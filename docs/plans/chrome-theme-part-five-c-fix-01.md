@@ -148,17 +148,17 @@ than part of its label, so the visible affordance is not the control. The shape 
 lifted from the Log filter bar with the arrangement intact, so this part carried it
 to the catalog page's language field and the create sheet's base field as well.
 
-- [ ] Move the chevron inside the `Menu`'s own label, beside the value text, so the
+- [x] Move the chevron inside the `Menu`'s own label, beside the value text, so the
       whole field including the arrow opens the menu. Keep the chevron hidden from
       accessibility and the field's spoken label and value unchanged.
-- [ ] **Rule thirty-seven gains a shape-integrity clause** (or rule thirty, if that
+- [x] **Rule thirty-seven gains a shape-integrity clause** (or rule thirty, if that
       reads better where the shapes' callers are already pinned): inside
       `struct ChromeMenuField`'s matched body, the `chevron` glyph lies inside the
       `Menu`'s `label:` closure. Express it as a token inside a matched body, not as
       a parse of the view tree.
-- [ ] Mutation-verify: move the chevron back outside the label and confirm red;
+- [x] Mutation-verify: move the chevron back outside the label and confirm red;
       revert and confirm green, with a clean `git status`.
-- [ ] Run `swift test` and the macOS build. Both must pass.
+- [x] Run `swift test` and the macOS build. Both must pass.
 
 ### Task 3: Rule thirty-seven counts constructions, not mentions
 
