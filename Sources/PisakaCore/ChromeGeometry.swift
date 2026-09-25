@@ -26,14 +26,16 @@ import Foundation
 ///
 /// The inventory below is the whole table, and it is pinned by set equality in
 /// `ChromeThemeTests` — a token added here without its test fails the suite.
-/// Seventeen of them are insets, paddings or gaps rather than sizes
+/// Some of them are insets, paddings, gaps or spacings rather than sizes
 /// (`rowPaddingX`, `barPaddingX`, `panelHeaderPaddingX`, `dockTabRowPaddingX`,
-/// `dockTabLabelPaddingX`, `buttonPaddingX`, `segmentedControlInset`,
-/// `segmentGap`, `segmentPaddingX`, `stepperPaddingX`, `stepperPartGap`,
-/// `switchInset`, `settingsTabBarPaddingX`, `settingsTabGap`,
-/// `settingsTabLabelPaddingX`, `settingsPagePadding`, `settingsLabelGap`) and
-/// they are deliberately distinct tokens for distinct measurements, even where
-/// two values coincide; see `barPaddingX`'s own comment.
+/// `dockTabLabelPaddingX`, `buttonPaddingX`, `fieldPaddingX`,
+/// `secondaryButtonPaddingX`, `segmentedControlInset`, `segmentGap`,
+/// `segmentPaddingX`, `stepperPaddingX`, `stepperPartGap`, `switchInset`,
+/// `settingsTabBarPaddingX`, `settingsTabGap`, `settingsTabLabelPaddingX`,
+/// `settingsPagePadding`, `settingsRowSpacing`, `settingsLabelGap`) and they
+/// are deliberately distinct tokens for distinct measurements, even where two
+/// values coincide; see `barPaddingX`'s own comment. The list carries no count:
+/// a stated count fell behind the table twice, and the test's set is the count.
 ///
 /// The Preferences window's tab bar carries measurements of its own
 /// (`settingsTabBarHeight`, `settingsTabBarPaddingX`, `settingsTabGap`,
@@ -120,8 +122,9 @@ public enum ChromeGeometry {
     public static let checkboxSide: Double = 14
     /// The chrome checkbox's corner radius.
     public static let checkboxCornerRadius: Double = 3
-    /// The shared segmented control's outer height. Equal to `menuFieldHeight`
-    /// so the two line up in one settings row, but a measurement of its own.
+    /// The shared segmented control's outer height. Equal to `menuFieldHeight`,
+    /// but a measurement of its own: no surface draws both today, and the menu
+    /// field's 26 was chosen to agree with this should a page ever draw both.
     /// Its outer corner is `cornerRadiusMax`, not a token of its own.
     public static let segmentedControlHeight: Double = 26
     /// One segment's height inside the control. Its corner is
@@ -177,7 +180,9 @@ public enum ChromeGeometry {
     /// The gap between a settings row's label column and its control. Equal to
     /// `settingsTabBarPaddingX`, but a column gap, not a strip's inset.
     public static let settingsLabelGap: Double = 16
-    /// The shared menu field's height. Equal to `segmentedControlHeight` so the
-    /// two line up in one settings row, but a measurement of its own.
+    /// The shared menu field's height. Equal to `segmentedControlHeight`, but a
+    /// measurement of its own — two shapes are two measurements. The design
+    /// draws no menu field on a settings page and no surface draws both today;
+    /// 26 is chosen to agree with the segmented control should a page ever do.
     public static let menuFieldHeight: Double = 26
 }

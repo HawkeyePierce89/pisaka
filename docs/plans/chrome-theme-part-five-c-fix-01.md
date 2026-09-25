@@ -215,13 +215,13 @@ gate green, on the exact regression the failure message names. `core-zoom.md` cl
 - Modify: `Sources/PisakaCore/ChromeGeometry.swift`
 - Modify: `docs/architecture/core-theme.md`
 
-- [ ] The type's doc comment states a count and lists the inset, padding and gap
+- [x] The type's doc comment states a count and lists the inset, padding and gap
       tokens. The list omits `settingsRowSpacing`, which this branch added and
       documents as a vertical spacing, and it still omits the older `fieldPaddingX`
       and `secondaryButtonPaddingX`. Either list all of them and correct the count,
       or drop the number and keep the list — prefer dropping the number, since the
       count has now fallen behind twice.
-- [ ] `segmentedControlHeight` and `menuFieldHeight` each say they are equal "so the
+- [x] `segmentedControlHeight` and `menuFieldHeight` each say they are equal "so the
       two line up in one settings row", and decision 9 says 26 was chosen to match
       the segmented control on the same page. **No surface draws both**, so as
       written the justification is false. Keep both tokens — two shapes are two
@@ -229,7 +229,7 @@ gate green, on the exact regression the failure message names. `core-zoom.md` cl
       reason in all three places: the design draws no menu field on a settings page,
       so 26 is chosen to agree with the segmented control's height should a page
       ever draw both, and they are separate tokens because they are separate shapes.
-- [ ] No new test: both are comments. Confirm `swift test` stays green, since the
+- [x] No new test: both are comments. Confirm `swift test` stays green, since the
       geometry inventory test reads the token list.
 
 ### Task 6: Six passages the branch made untrue

@@ -1507,9 +1507,15 @@ differed:
 8. **The page padding and the four settings-page measurements are
    `ChromeGeometry` tokens**; Language Servers' padding moves from 20 to the
    page's 28.
-9. **The menu field's height is `menuFieldHeight` = 26**, matching the segmented
-   control on the same page so the rows line up, but a token of its own. The Log
-   bar keeps framing its field at `FilterBarLayout.controlHeight`.
+9. **The menu field's height is `menuFieldHeight` = 26**, equal to the segmented
+   control's but a token of its own, since two shapes are two measurements (the
+   argument `barPaddingX` makes). No surface draws both: the design draws no menu
+   field on a settings page, and the fields this part draws sit on the catalog
+   page and the create sheet, neither of which carries a segmented control. 26 is
+   chosen to agree with the segmented control should a page ever draw both — an
+   earlier wording of this decision, and of both tokens' comments, said the two
+   lined up in one settings row, which no surface did. The Log bar keeps framing
+   its field at `FilterBarLayout.controlHeight`.
 10. **The stepper's eleven-point glyphs are `.subheadline`**, the chrome's 11; a
     glyph's size is a font, and `ChromeGeometry` carries none.
 11. **An armable merge refusal reads as a warning.** The create plan's refusal
@@ -1538,8 +1544,8 @@ differed:
   code's fourth tab is drawn in the same shape, under its own title.
 - **The 640 × 420 page.** The drawing sizes each page to its content; every page
   here takes the one size Acknowledgements needs (decision 7).
-- **The menu field's height.** The drawing gives none; 26 is chosen to line up
-  with the segmented control (decision 9).
+- **The menu field's height.** The drawing gives none; 26 is chosen to agree
+  with the segmented control should a page ever draw both (decision 9).
 - **The `.subheadline` glyph.** The drawing's 11-point stepper glyph is the
   chrome's `.subheadline` (decision 10).
 - **Language Servers' padding.** 28, the page's, where the page drew 20
