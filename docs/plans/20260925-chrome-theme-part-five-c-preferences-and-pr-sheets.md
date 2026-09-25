@@ -114,7 +114,7 @@ Two new rules take the suite from thirty-five to thirty-seven. Six existing rule
 - Modify: `Sources/PisakaCore/ChromeGeometry.swift`
 - Modify: `Tests/PisakaCoreTests/ChromeThemeTests.swift`
 
-- [ ] Add twenty-one tokens, each with a one-line comment. None is derived from another; where two values coincide, the comment names the other measurement, in `barPaddingX`'s manner.
+- [x] Add twenty-one tokens, each with a one-line comment. None is derived from another; where two values coincide, the comment names the other measurement, in `barPaddingX`'s manner.
   - Segmented control:
     - `segmentedControlHeight` = 26
     - `segmentHeight` = 22
@@ -142,13 +142,13 @@ Two new rules take the suite from thirty-five to thirty-seven. Six existing rule
     - `settingsLabelGap` = 16
   - Menu field:
     - `menuFieldHeight` = 26 (decision 9)
-- [ ] Reused tokens are not duplicated, and the comments say which is which:
+- [x] Reused tokens are not duplicated, and the comments say which is which:
   - the segmented control's outer radius is `cornerRadiusMax` and its inner radius `fieldCornerRadius`;
   - the stepper's radius is `fieldCornerRadius`;
   - the tab indicator is `accentIndicator`.
-- [ ] Update the type's doc comment: the inventory of insets (now including the new padding and inset tokens) and the note that the settings tab bar's measurements are deliberately not the dock tab row's.
-- [ ] Extend `testGeometryTokensCarryTheirTableValues` and the set-equality inventory in `testGeometryDeclaresExactlyTheseTokensAndNoFontSize`.
-- [ ] Run `swift test`. It must pass.
+- [x] Update the type's doc comment: the inventory of insets (now including the new padding and inset tokens) and the note that the settings tab bar's measurements are deliberately not the dock tab row's.
+- [x] Extend `testGeometryTokensCarryTheirTableValues` and the set-equality inventory in `testGeometryDeclaresExactlyTheseTokensAndNoFontSize`.
+- [x] Run `swift test`. It must pass.
 
 ### Task 2: The shared shapes, and the Log bar as the menu field's first caller
 
