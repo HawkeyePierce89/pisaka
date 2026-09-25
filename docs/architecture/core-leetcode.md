@@ -1918,7 +1918,20 @@ the limits the design carries.
     `model.solutionsFolder`; the fetch is driven from the window root rather than
     from the pane because the pane does not exist until the statement does.
     Preferences gains a LeetCode tab (account, folder, default language), which
-    observes the model itself for the menu's reason.
+    observes the model itself for the menu's reason. Since part five (c) of the
+    chrome sweep (`core-theme.md`) its three rows are `SettingsRow`s on the
+    shared settings page: the account row's sentence (`textPrimary` signed in,
+    `textSecondary` otherwise) beside Sign In… / Sign Out as `.chromeSecondary`,
+    with `lastError` under it in `statusRed`; the folder row's path (middle-
+    truncated, `textSecondary` while none is chosen) beside Change…; and the
+    default language as the shared `ChromeMenuField` over
+    `LeetCodeSolutionFile.offerableLanguages`, a set read at run time. The tab's
+    `.onAppear { model.resolveAccount() }` is the L27 trigger for the one pane
+    here that renders account state, and it now runs **only when the LeetCode
+    tab is actually shown**: the Preferences host builds only the selected page
+    (a `TabView` built every tab eagerly, which made opening Preferences on any
+    tab resolve the account), so opening Preferences on another tab resolves
+    nothing.
   - `iOS/LeetCodeRoute_iOS.swift` — the iOS folder rules (`LeetCodeFolder_iOS`) and
     the one screen that replaces the macOS menu + dialog pair (iOS has no menu bar
     to hang account state off, so the account section is the first section of the

@@ -5,11 +5,12 @@ import PisakaCore
 /// The Preferences window (⌘,). Hosted by the `Settings` scene in `PisakaApp`,
 /// which gives the standard Preferences menu item and ⌘, shortcut automatically.
 ///
-/// Four tabs, in the usual macOS Preferences shape: the settings form itself,
+/// Four pages, in the usual macOS Preferences order: the settings form itself,
 /// the downloadable language servers, the LeetCode account/folder/language, and
-/// the third-party Acknowledgements. A `TabView` sizes to its widest tab, so
-/// `GeneralSettingsView` keeps its own 340pt width and `AcknowledgementsView` —
-/// which needs room to read a license — drives the window.
+/// the third-party Acknowledgements. The host is a `ChromeSettingsTabBar` over
+/// the selected page, and every page is framed at the one size
+/// (`SettingsLayout`) Acknowledgements needs to read a license — so switching
+/// tabs never resizes the window. Only the selected page is built.
 struct SettingsView: View {
     @ObservedObject var settings: SettingsStore
     /// Which servers may be downloaded and what state each is in. Threaded
@@ -38,20 +39,109 @@ struct SettingsView: View {
     /// included — re-evaluate on every statement fetch and busy transition.
     let leetCode: LeetCodeModel
 
+    /// The selected page; the window opens on General.
+    @State private var selection: SettingsTab = .general
+
+    @Environment(\.interfaceMetrics) private var metrics
+    @Environment(\.chromeTheme) private var theme
+
     var body: some View {
-        TabView {
-            GeneralSettingsView(settings: settings)
-                .tabItem { Label("General", systemImage: "gearshape") }
-
-            LSPServerSettingsView(provisioning: provisioning, gopls: gopls, rust: rust)
-                .tabItem { Label("Language Servers", systemImage: "arrow.down.circle") }
-
-            LeetCodeSettingsView(settings: settings, model: leetCode)
-                .tabItem { Label("LeetCode", systemImage: "curlybraces") }
-
-            AcknowledgementsView(provisioning: provisioning, installEngine: installEngine)
-                .tabItem { Label("Acknowledgements", systemImage: "doc.text") }
+        VStack(spacing: 0) {
+            ChromeSettingsTabBar(
+                tabs: SettingsTab.allCases.map { (tab: $0, title: $0.title) },
+                selection: $selection
+            )
+            page
+                .frame(
+                    width: metrics.scaled(SettingsLayout.pageWidth),
+                    height: metrics.scaled(SettingsLayout.pageHeight),
+                    alignment: .topLeading
+                )
         }
+        .background(theme.color(.bgPanel))
+    }
+
+    @ViewBuilder private var page: some View {
+        switch selection {
+        case .general:
+            GeneralSettingsView(settings: settings)
+        case .languageServers:
+            LSPServerSettingsView(provisioning: provisioning, gopls: gopls, rust: rust)
+        case .leetCode:
+            LeetCodeSettingsView(settings: settings, model: leetCode)
+        case .acknowledgements:
+            AcknowledgementsView(provisioning: provisioning, installEngine: installEngine)
+        }
+    }
+}
+
+/// The Preferences window's four pages, in tab order.
+private enum SettingsTab: CaseIterable, Hashable {
+    case general
+    case languageServers
+    case leetCode
+    case acknowledgements
+
+    var title: String {
+        switch self {
+        case .general: "General"
+        case .languageServers: "Language Servers"
+        case .leetCode: "LeetCode"
+        case .acknowledgements: "Acknowledgements"
+        }
+    }
+}
+
+/// The one page size every Preferences page is framed at, in points before the
+/// interface scale: the size Acknowledgements needs to hold its list beside a
+/// license (`InterfaceMetricsTests` pins that arithmetic).
+private enum SettingsLayout {
+    static let pageWidth: Double = 640
+    static let pageHeight: Double = 420
+}
+
+/// One labelled Preferences row: a `settingsLabelColumnWidth` label column
+/// (`callout`, `textSecondary`, wrapping rather than clipped),
+/// `settingsLabelGap`, then the control at its natural width.
+///
+/// When the control is one of the shared shapes it speaks the row's label
+/// itself, so the label column is hidden from accessibility and the name is
+/// read once (`controlSpeaksLabel`); a composite row keeps its label readable.
+private struct SettingsRow<Control: View>: View {
+    let label: String
+    var controlSpeaksLabel = true
+    @ViewBuilder let control: () -> Control
+
+    @Environment(\.interfaceMetrics) private var metrics
+    @Environment(\.chromeTheme) private var theme
+
+    var body: some View {
+        HStack(alignment: .center, spacing: metrics.scaled(ChromeGeometry.settingsLabelGap)) {
+            Text(label)
+                .font(metrics.scaledFont(.callout))
+                .foregroundStyle(theme.color(.textSecondary))
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(width: metrics.scaled(ChromeGeometry.settingsLabelColumnWidth), alignment: .leading)
+                .accessibilityHidden(controlSpeaksLabel)
+            control()
+            Spacer(minLength: 0)
+        }
+    }
+}
+
+/// A page of `SettingsRow`s: `settingsRowSpacing` apart, padded by
+/// `settingsPagePadding`.
+private struct SettingsPage<Rows: View>: View {
+    @ViewBuilder let rows: () -> Rows
+
+    @Environment(\.interfaceMetrics) private var metrics
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: metrics.scaled(ChromeGeometry.settingsRowSpacing)) {
+            rows()
+        }
+        .padding(metrics.scaled(ChromeGeometry.settingsPagePadding))
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 }
 
@@ -59,15 +149,15 @@ struct SettingsView: View {
 /// solution files are seeded in.
 ///
 /// Its own tab rather than a section of General, because it carries a file path
-/// — General is a 340pt column of pickers and a stepper, and a `~/Documents/…`
-/// path would either be truncated there or widen every other tab with it.
+/// — General is a column of pickers, steppers and switches, and a
+/// `~/Documents/…` path would be truncated there to the point of naming nothing.
 ///
 /// The three rows are the three pieces of state the integration keeps, and each
 /// is shown where it is *kept*: the account is the model's (a Keychain item plus
 /// whatever LeetCode last said about it), while the folder and the language are
 /// the store's. Nothing here decides anything — signing out is
 /// `LeetCodeWebSession.signOut`, choosing a folder is `LeetCodeFolderChooser`,
-/// and the language picker writes straight through to the persisted value, so
+/// and the language field writes straight through to the persisted value, so
 /// this pane and the "Open Problem…" sheet cannot disagree about which language
 /// is current.
 struct LeetCodeSettingsView: View {
@@ -81,67 +171,74 @@ struct LeetCodeSettingsView: View {
 
     /// The interface zone's metrics, inherited from the `Settings` scene root.
     @Environment(\.interfaceMetrics) private var metrics
+    @Environment(\.chromeTheme) private var theme
 
     var body: some View {
-        Form {
-            Section("Account") {
-                HStack {
-                    Text(accountDescription)
-                        .foregroundStyle(model.isSignedIn ? .primary : .secondary)
-                    Spacer()
-                    if model.isSignedIn {
-                        Button("Sign Out") {
-                            Task { await LeetCodeWebSession.signOut(model: model) }
+        SettingsPage {
+            SettingsRow(label: "Account", controlSpeaksLabel: false) {
+                VStack(alignment: .leading, spacing: metrics.scaled(6)) {
+                    HStack(spacing: metrics.scaled(ChromeGeometry.settingsLabelGap)) {
+                        Text(accountDescription)
+                            .font(metrics.scaledFont(.body))
+                            .foregroundStyle(theme.color(model.isSignedIn ? .textPrimary : .textSecondary))
+                        if model.isSignedIn {
+                            Button("Sign Out") {
+                                Task { await LeetCodeWebSession.signOut(model: model) }
+                            }
+                            .buttonStyle(.chromeSecondary)
+                        } else {
+                            Button("Sign In…") { isSigningIn = true }
+                                .buttonStyle(.chromeSecondary)
                         }
-                    } else {
-                        Button("Sign In…") { isSigningIn = true }
                     }
-                }
 
-                // The one persistent home for `lastError`. Everything else that
-                // reports a LeetCode failure is transient — the open sheet's own
-                // sentence, which goes away with the sheet — and sign-in is
-                // confirmed *after* the login view has been dismissed, so
-                // without this a rejected session closes the web view and
-                // silently flips back to "Sign In…" with no explanation.
-                if let error = model.lastError {
-                    Text(error.errorDescription ?? "LeetCode reported a failure.")
-                        .font(metrics.scaledFont(.caption))
-                        .foregroundStyle(.red)
-                        .fixedSize(horizontal: false, vertical: true)
+                    // The one persistent home for `lastError`. Everything else that
+                    // reports a LeetCode failure is transient — the open sheet's own
+                    // sentence, which goes away with the sheet — and sign-in is
+                    // confirmed *after* the login view has been dismissed, so
+                    // without this a rejected session closes the web view and
+                    // silently flips back to "Sign In…" with no explanation.
+                    if let error = model.lastError {
+                        Text(error.errorDescription ?? "LeetCode reported a failure.")
+                            .font(metrics.scaledFont(.caption))
+                            .foregroundStyle(theme.color(.statusRed))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
             }
 
-            Section("Solution Files") {
-                HStack {
+            SettingsRow(label: "Solution Files", controlSpeaksLabel: false) {
+                HStack(spacing: metrics.scaled(ChromeGeometry.settingsLabelGap)) {
                     Text(folderDescription)
-                        .foregroundStyle(settings.leetCodeFolderPath == nil ? .secondary : .primary)
+                        .font(metrics.scaledFont(.body))
+                        .foregroundStyle(
+                            theme.color(settings.leetCodeFolderPath == nil ? .textSecondary : .textPrimary)
+                        )
                         .lineLimit(1)
                         .truncationMode(.middle)
                         .help(settings.leetCodeFolderPath ?? "")
-                    Spacer()
                     Button("Change…") {
                         LeetCodeFolderChooser.choose(settings: settings, model: model)
                     }
-                }
-
-                Picker("Default language", selection: $settings.leetCodeLanguage) {
-                    ForEach(LeetCodeSolutionFile.offerableLanguages, id: \.self) { language in
-                        Text(language.displayName).tag(language)
-                    }
+                    .buttonStyle(.chromeSecondary)
                 }
             }
+
+            SettingsRow(label: "Default language") {
+                ChromeMenuField(
+                    label: "Default language",
+                    options: LeetCodeSolutionFile.offerableLanguages.map { (value: $0, title: $0.displayName) },
+                    selection: $settings.leetCodeLanguage,
+                    currentTitle: settings.leetCodeLanguage.displayName
+                )
+                .frame(height: metrics.scaled(ChromeGeometry.menuFieldHeight))
+                .fixedSize(horizontal: true, vertical: false)
+            }
         }
-        .font(metrics.scaledFont(.body))
-        .padding(metrics.scaled(20))
-        // The tab's fixed width scales with its content: a 200% path row in a
-        // 460pt column would be truncated to the point of naming no folder at all.
-        .frame(width: metrics.scaled(460))
         // This pane renders the account row, so it resolves the account on appear
-        // (L27). Stated limit: macOS may build a `Settings` tab before the user
-        // selects it, so opening Preferences for some other tab can be what
-        // resolves. Acceptable — opening Preferences is an explicit act, and the
-        // confirmation resolution starts is made at most once per run.
+        // (L27). The host builds only the selected page, so this runs when the
+        // LeetCode tab is actually shown — opening Preferences on another tab
+        // resolves nothing.
         .onAppear { model.resolveAccount() }
         .sheet(isPresented: $isSigningIn) {
             LeetCodeLoginView(
@@ -172,7 +269,7 @@ struct LeetCodeSettingsView: View {
 
 /// The Preferences form. A thin view-layer wrapper over `SettingsStore`: all
 /// option types, clamping, and persistence live in Core, so this is just the
-/// SwiftUI controls bound to the store's `@Published` properties.
+/// shared chrome controls bound to the store's `@Published` properties.
 struct GeneralSettingsView: View {
     @ObservedObject var settings: SettingsStore
 
@@ -185,41 +282,54 @@ struct GeneralSettingsView: View {
     @Environment(\.interfaceMetrics) private var metrics
 
     var body: some View {
-        Form {
-            Picker("Tab orientation", selection: $settings.tabOrientation) {
-                Text("Vertical").tag(TabOrientation.vertical)
-                Text("Horizontal").tag(TabOrientation.horizontal)
+        SettingsPage {
+            SettingsRow(label: "Tab orientation") {
+                ChromeSegmentedControl(
+                    label: "Tab orientation",
+                    options: [
+                        (value: TabOrientation.vertical, title: "Vertical"),
+                        (value: TabOrientation.horizontal, title: "Horizontal"),
+                    ],
+                    selection: $settings.tabOrientation
+                )
             }
 
-            Picker("Theme", selection: $settings.themePreference) {
-                Text("System").tag(ThemePreference.system)
-                Text("Light").tag(ThemePreference.light)
-                Text("Dark").tag(ThemePreference.dark)
+            SettingsRow(label: "Theme") {
+                ChromeSegmentedControl(
+                    label: "Theme",
+                    options: [
+                        (value: ThemePreference.system, title: "System"),
+                        (value: ThemePreference.light, title: "Light"),
+                        (value: ThemePreference.dark, title: "Dark"),
+                    ],
+                    selection: $settings.themePreference
+                )
             }
 
-            // The store clamps `fontSize` to `[minFontSize, maxFontSize]` on every
-            // write, so the Stepper can never drive it out of range. Display the
-            // current value beside it.
-            Stepper(
-                value: $settings.fontSize,
-                in: settings.minFontSize...settings.maxFontSize,
-                step: settings.fontSizeStep
-            ) {
-                Text("Editor font size: \(Int(settings.fontSize)) pt")
+            // Bounds and step come from `ZoomScaleRule.editorFont`, the same rule
+            // the zoom gestures and ⌘0 go through, so a stepper press and a zoom
+            // step land on the same grid, and the store's clamp-on-write can never
+            // be driven out of range from here.
+            SettingsRow(label: "Editor font size") {
+                ChromeStepper(
+                    label: "Editor font size",
+                    value: $settings.fontSize,
+                    rule: ZoomScaleRule.editorFont,
+                    format: { "\(Int($0)) pt" }
+                )
             }
 
             // The terminal zone's size, beside the code zone's — the two are
             // independent settings and this is the one place both are visible at
-            // once. Bounds and step come from `ZoomScaleRule.terminalFont`, the
-            // same rule the zoom gestures and ⌘0 go through, so a stepper press
-            // and a zoom step land on the same grid and the store's
-            // clamp-on-write can never be driven out of range from here.
-            Stepper(
-                value: $settings.terminalFontSize,
-                in: ZoomScaleRule.terminalFont.minimum...ZoomScaleRule.terminalFont.maximum,
-                step: ZoomScaleRule.terminalFont.step
-            ) {
-                Text("Terminal font size: \(Int(settings.terminalFontSize)) pt")
+            // once. Its grid is `ZoomScaleRule.terminalFont`, for the editor row's
+            // reason.
+            SettingsRow(label: "Terminal font size") {
+                ChromeStepper(
+                    label: "Terminal font size",
+                    value: $settings.terminalFontSize,
+                    rule: ZoomScaleRule.terminalFont,
+                    format: { "\(Int($0)) pt" }
+                )
             }
 
             // The same flag the status-bar lightbulb writes: both bind straight
@@ -227,7 +337,9 @@ struct GeneralSettingsView: View {
             // is total — the automatic popup *and* explicit invocation (⌃Space,
             // Find > Complete, AppKit's stock ⌥⎋/F5) — while the symbol index,
             // the LSP layer and Go to Definition are untouched.
-            Toggle("Offer completions as you type", isOn: $settings.completionEnabled)
+            SettingsRow(label: "Offer completions as you type") {
+                ChromeSwitch(label: "Offer completions as you type", isOn: $settings.completionEnabled)
+            }
 
             // The editor's second switch, bound straight through to the store
             // like the first: no local state, so the surface and the preference
@@ -236,11 +348,10 @@ struct GeneralSettingsView: View {
             // and computes nothing; the text, the selection and every other
             // background are unchanged either way, because the blocks are a pass
             // underneath them rather than a styling of the text.
-            Toggle("Highlight indentation levels", isOn: $settings.indentLevelHighlightingEnabled)
+            SettingsRow(label: "Highlight indentation levels") {
+                ChromeSwitch(label: "Highlight indentation levels", isOn: $settings.indentLevelHighlightingEnabled)
+            }
         }
-        .font(metrics.scaledFont(.body))
-        .padding(metrics.scaled(20))
-        .frame(width: metrics.scaled(340))
     }
 }
 

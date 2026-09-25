@@ -84,7 +84,10 @@ import XCTest
 ///   the first time either is touched.
 /// - **An indicator strip's bottom rule is drawn behind its tabs.** An overlaid
 ///   rule paints over the lower point of the active tab's accent indicator — a
-///   one-point overlap no compiler or headless test can see.
+///   one-point overlap no compiler or headless test can see. And the rule is
+///   applied *before* the strip's own opaque ground, since each later
+///   `.background` is drawn further back: a rule that exists, is drawn with the
+///   right modifier, and is invisible.
 /// - **The changed-file status mapping is Core's one answer.** The letter and
 ///   role a status is drawn in were written out twice before; a view growing a
 ///   third `switch` compiles and disagrees with the panel beside it the first
@@ -119,11 +122,13 @@ import XCTest
 ///   lies inside a `performAsCurrentDrawingAppearance` body, naming `hairline` and
 ///   `bgPopover` respectively.
 /// - **One field shape.** No gated file spells the rounded-border style; the
-///   shared field/box is constructed in exactly five callers plus the defining
+///   shared field/box is constructed in exactly seven callers plus the defining
 ///   file, and the shared query toggle in exactly two.
 /// - **Each measurement follows its own zone.** The Find in Files match row
-///   carries no fixed height and is sized by the code font, and each popover's
-///   corner radius is scaled with the interface metrics.
+///   carries no fixed height and is sized by the code font, each popover's
+///   corner radius is scaled with the interface metrics, and every `.frame(` in
+///   the commit dialog's `messageBox` names `messageLineHeight` and never the
+///   interface metrics — the box is counted in lines of the code font it draws at.
 /// - **A secondary window's ground is set in the window subclass.** The six
 ///   controllers constructing `EscClosableWindow` set no `backgroundColor`; the
 ///   subclass's designated initializer sets `bgPanel`. Two setters compete
@@ -134,7 +139,8 @@ import XCTest
 ///   role's colour — a composed alpha is a second wash nothing re-themes.
 /// - **One primary button, one secondary, one checkbox.** No gated file spells a
 ///   platform toggle or button style; the shared controls' callers are pinned;
-///   every button in part five (b)'s files is styled. A platform control
+///   every button in part five (b)'s and part five (c)'s files is styled, by a
+///   per-file count of constructions against `.buttonStyle(`. A platform control
 ///   compiles and looks plausible in whichever appearance the reviewer is in.
 /// - **A code pane's ground goes through one definition.** `CodePaneGround` has
 ///   four callers, and no view's `backgroundColor` is set outside its body but
@@ -158,6 +164,16 @@ import XCTest
 ///   `listRowBackground` under a `List` binding `selection:` is pinned, per
 ///   file and per list, by set equality; the rule does not read the
 ///   conditional, so any changed expression fails and a person re-confirms it.
+/// - **No gated file builds a platform form control.** A `Form`, `Picker`,
+///   `Stepper`, `Toggle` or `TabView` draws in the platform's colours and
+///   metrics; the chrome draws a replacement for every one.
+/// - **A picker's shape follows its set, and each settings shape has its pinned callers.**
+///   A small build-time set is segmented, a run-time set a menu field, a
+///   preference a switch; the callers of each shape are pinned by set, and
+///   each caller's construction count by file, so a control changing shape
+///   changes a count even inside a file already spelling both shapes. The
+///   menu field's chevron lies inside its `Menu`'s label, so the arrow it
+///   draws is the control.
 ///
 /// What a rule here may do, and nothing more: pin a set by equality, assert the
 /// presence or absence of a token through `containsToken`, or take a
@@ -168,7 +184,9 @@ import XCTest
 /// Thirty-one is now a total ban with its sites pinned by file and count, and
 /// thirty-five a pinned set of row-background expressions that reads no
 /// conditional; thirty-four is the one rule still reading a modifier chain,
-/// narrowed rather than extended. No fourth shape, no exception. A property
+/// narrowed rather than extended. Thirty-four is the third shape — a balanced
+/// region per link, then a token assertion inside it — which is why no rule is
+/// excepted from the three. No fourth shape, no exception. A property
 /// this cannot express belongs in the app-layer bundle or the acceptance
 /// review, not here (`core-theme.md`, beside the rules).
 final class ChromeThemeSourceGatingTests: XCTestCase {
@@ -248,6 +266,19 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         // Part five (b): the Local History window — its revisions list, the
         // row and the Restore footer.
         "LocalHistoryView.swift",
+        // Part five (c): the Preferences host, General and the catalog tab.
+        "SettingsView.swift",
+        // Part five (c): the Language Servers page and the installed licences
+        // it reads (the latter paints nothing — see `roleNamingExemptions`).
+        "LSPServerSettingsView.swift",
+        "LSPInstalledLicenses.swift",
+        // Part five (c): Acknowledgements and the licence pane behind it. The
+        // pane's iOS half is not swept (see `pinnedBackgroundAssignments`).
+        "AcknowledgementsView.swift",
+        "LicenseTextView.swift",
+        // Part five (c): the create and merge pull-request sheets.
+        "NewPullRequestSheet.swift",
+        "PullRequestMergeSheet.swift",
     ]
 
     func testEveryGatedFileExists() throws {
@@ -1317,7 +1348,8 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     // MARK: - Rule sixteen: an indicator strip's bottom rule is drawn behind its tabs
 
     /// The strips whose tabs draw an accent indicator on the strip's own bottom
-    /// edge: the tab strip above the editor and the dock's tab row.
+    /// edge: the tab strip above the editor, the dock's tab row and the
+    /// Preferences window's tab bar.
     ///
     /// The defect this pins is one point tall. Such a strip also draws its own
     /// one-point `hairline` along that same edge, and when the rule was an
@@ -1336,18 +1368,44 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// altogether. An overlay at the bottom that draws the *accent* itself (the
     /// tab strip's cell does) is the indicator, not the rule, and is allowed.
     ///
+    /// And the rule must be drawn *in front of* the strip's own ground. SwiftUI
+    /// draws each later `.background` further back, so a rule applied after an
+    /// opaque `.background(theme.color(.bgPanel))` lands behind that fill and is
+    /// never seen — a rule that exists, is drawn with the right modifier, and is
+    /// invisible. Part five (c) shipped exactly that on the Preferences tab bar,
+    /// whose page below is the same `bgPanel`, so bar and page ran together. So
+    /// inside the same body, the first `.background(alignment: .bottom)` naming
+    /// `hairline` must come **before** every plain `.background(` whose argument
+    /// names a background role (`bgCanvas`, `bgPanel`, `bgEditor`, `bgPopover`) —
+    /// two token positions compared inside one matched body, nothing parsed. A
+    /// strip that draws no ground on itself satisfies it vacuously: `DockTabRow`
+    /// is that case today (its ground belongs to the dock slot around it), which
+    /// is why the clause is not unreachable there, only unexercised.
+    ///
     /// A named list, rule fourteen's shape: a third strip with a bottom-edge
     /// indicator is added here as part of drawing it, rather than left unguarded.
-    private static let indicatorStripFiles = [
-        "TabStripView.swift",
-        "DockTabRow.swift",
+    /// An entry naming a declaration is read inside that declaration's
+    /// brace-matched body alone: the settings tab bar shares its file with every
+    /// other shared shape, and another shape's background there must not satisfy
+    /// the strip's.
+    private static let indicatorStripFiles: [(file: String, declaration: String?)] = [
+        ("TabStripView.swift", nil),
+        ("DockTabRow.swift", nil),
+        ("ChromeControls.swift", "struct ChromeSettingsTabBar"),
     ]
 
     func testAnIndicatorStripsBottomRuleIsDrawnBehindItsTabs() throws {
-        for name in Self.indicatorStripFiles {
-            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
-                try Self.read(Self.source(named: name))
+        for (file, declaration) in Self.indicatorStripFiles {
+            let whole = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
+                try Self.read(Self.source(named: file))
             )
+            let name = declaration.map { "\(file)'s \($0)" } ?? file
+            let code = try declaration.map {
+                try XCTUnwrap(
+                    Self.matchedBody(after: $0, in: whole),
+                    "\(name) is gone or renamed — re-point this rule rather than losing it"
+                )
+            } ?? whole
             let overlays = Self.matchedBodies(afterCall: ".overlay(alignment: .bottom)", in: code)
             XCTAssertFalse(
                 overlays.contains { LSPSourceGatingTests.containsToken("hairline", in: $0) },
@@ -1361,6 +1419,38 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
                 backgrounds.contains { LSPSourceGatingTests.containsToken("hairline", in: $0) },
                 "\(name) draws no bottom hairline behind its tabs — re-point this rule rather than losing it"
             )
+            let rulePosition = Self.callRanges(".background(alignment: .bottom)", in: code)
+                .first { range in
+                    Self.trailingBody(from: range.upperBound, in: Substring(code))
+                        .map { LSPSourceGatingTests.containsToken("hairline", in: $0) } ?? false
+                }?.lowerBound
+            for ground in Self.groundBackgroundPositions(in: code) {
+                XCTAssertTrue(
+                    rulePosition.map { $0 < ground } ?? false,
+                    """
+                    \(name) applies its bottom hairline after an opaque ground — each later .background \
+                    is drawn further back, so the rule lands behind the fill and is invisible; apply the \
+                    rule first and the ground after, as TabStripView does
+                    """
+                )
+            }
+        }
+    }
+
+    /// The background roles — the four grounds a strip can fill itself with.
+    private static let groundRoles = ["bgCanvas", "bgPanel", "bgEditor", "bgPopover"]
+
+    /// The position of every plain `.background(` in `code` — one whose
+    /// argument list does not open with `alignment:` — that names a background
+    /// role inside its parenthesised arguments.
+    private static func groundBackgroundPositions(in code: String) -> [String.Index] {
+        callRanges(".background(", in: code).compactMap { range in
+            let open = code.index(before: range.upperBound)
+            guard let end = balancedEnd(from: open, in: code) else { return nil }
+            let arguments = code[range.upperBound..<code.index(before: end)]
+            guard !arguments.drop { $0.isWhitespace }.hasPrefix("alignment") else { return nil }
+            let text = String(arguments)
+            return groundRoles.contains { LSPSourceGatingTests.containsToken($0, in: text) } ? range.lowerBound : nil
         }
     }
 
@@ -1499,6 +1589,17 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         "PullRequestsPanelView.swift",
     ]
 
+    /// The gated files whose case labels share a spelling with a checks state
+    /// but name another type's case, each pinned by its exact label count so a
+    /// third label — a real checks table — is still red.
+    ///
+    /// `LSPServerSettingsView.swift`'s two are `case .pending:` in the Go and
+    /// Rust rows' status sentences: the toolchain search's first state
+    /// (`LSPGoServerRow.status`, `LSPRustServerRow.status`), not a checks state.
+    private static let sharedSpellingCaseLabels: [String: Int] = [
+        "LSPServerSettingsView.swift": 2,
+    ]
+
     func testTheChecksStateMappingIsCoresOneAnswer() throws {
         var readers: Set<String> = []
         for url in try Self.swiftSources() where url.path.contains("/Sources/Pisaka/") {
@@ -1522,8 +1623,9 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         )
         for url in try Self.swiftSources() where Self.gatedFiles.contains(url.lastPathComponent) {
             let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
-            XCTAssertNil(
-                labels.firstMatch(in: code, range: NSRange(code.startIndex..., in: code)),
+            XCTAssertEqual(
+                labels.numberOfMatches(in: code, range: NSRange(code.startIndex..., in: code)),
+                Self.sharedSpellingCaseLabels[url.lastPathComponent, default: 0],
                 """
                 \(url.lastPathComponent) spells a checks-state case label — a checks mapping in a view is a \
                 second table; read the Core glyph, words and ChromeColorRole.checksRole(for:)
@@ -1695,6 +1797,21 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
             // Local Changes' revert checkbox, lifted here in part five (b): the
             // label and value it owed moved with it.
             ControlBuilder(path: ["struct ChromeCheckbox"],
+                           required: [".accessibilityLabel(", ".accessibilityValue("], hidesSymbols: true),
+            // Part five (c)'s settings shapes and the lifted menu field: each owes
+            // its accessibility inside its own body.
+            ControlBuilder(path: ["struct ChromeSegmentedControl"],
+                           required: [".accessibilityLabel(", ".accessibilityValue("], hidesSymbols: false),
+            ControlBuilder(path: ["struct ChromeStepper"],
+                           required: [".accessibilityLabel(", ".accessibilityValue(", ".accessibilityAdjustableAction("],
+                           hidesSymbols: false),
+            ControlBuilder(path: ["struct ChromeStepper", "private func stepButton("],
+                           required: [".accessibilityLabel("], hidesSymbols: true),
+            ControlBuilder(path: ["struct ChromeSwitch"],
+                           required: [".accessibilityLabel(", ".accessibilityValue("], hidesSymbols: false),
+            ControlBuilder(path: ["struct ChromeSettingsTabBar"],
+                           required: [".accessibilityValue("], hidesSymbols: false),
+            ControlBuilder(path: ["struct ChromeMenuField"],
                            required: [".accessibilityLabel(", ".accessibilityValue("], hidesSymbols: true),
         ]),
         ("SearchBarView.swift", [
@@ -2018,9 +2135,13 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// two pinned sets together make a fourth `Menu` without `Section` visible
     /// — the previous `hasSection && hasMenu` equality could not see it, as
     /// `BranchSwitcherView.swift` and `LogFilterBar.swift` already demonstrated.
+    ///
+    /// `LogFilterBar.swift` left the set in part five (c): its branch menu is now
+    /// the shared `ChromeMenuField`, so the one `Menu` it drew lives in
+    /// `ChromeControls.swift`, which joined in its place.
     private static let menuFiles: Set<String> = [
         "BranchSwitcherView.swift",
-        "LogFilterBar.swift",
+        "ChromeControls.swift",
         "SearchHistoryMenu.swift",
         "ProjectTreeView.swift",
         "LocalChangesView.swift",
@@ -2143,6 +2264,8 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         "ProjectSearchView.swift",
         "BranchSwitcherView.swift",
         "CommitDialogView.swift",
+        "NewPullRequestSheet.swift",
+        "PullRequestMergeSheet.swift",
         "ChromeControls.swift",
     ]
 
@@ -2177,7 +2300,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         }
         XCTAssertEqual(
             constructors, Self.sharedFieldConstructors,
-            "the files constructing the shared field or box must be exactly its five callers plus the defining file"
+            "the files constructing the shared field or box must be exactly its seven callers plus the defining file"
         )
 
         var toggleConstructors: Set<String> = []
@@ -2252,6 +2375,36 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
             hasFrameHeight,
             "ProjectSearchView.swift's row body spells .frame(height: — the row carries no fixed height, sized by its code-font content"
         )
+
+        // The commit message box is counted in lines of the code font it draws
+        // at: every frame in it names that line height, and none names the
+        // interface metrics — a fixed point height followed no zone at all.
+        let commitDialogCode = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
+            try Self.read(Self.source(named: "CommitDialogView.swift"))
+        )
+        let messageBoxBody = try XCTUnwrap(
+            Self.matchedBody(after: "private var messageBox", in: commitDialogCode),
+            "CommitDialogView.swift's private var messageBox is gone or renamed — re-point this rule rather than losing it"
+        )
+        let messageBoxFrames = Self.callRanges(".frame(", in: messageBoxBody)
+        XCTAssertGreaterThan(
+            messageBoxFrames.count, 0,
+            "CommitDialogView.swift's messageBox applies no .frame( — the box's height must be counted in code-font lines"
+        )
+        for call in messageBoxFrames {
+            let open = messageBoxBody.index(before: call.upperBound)
+            let end = try XCTUnwrap(Self.balancedEnd(from: open, in: messageBoxBody))
+            let args = String(messageBoxBody[open..<end])
+            XCTAssertTrue(
+                LSPSourceGatingTests.containsToken("messageLineHeight", in: args),
+                "CommitDialogView.swift's messageBox has a .frame( that does not name messageLineHeight — the box follows the code zone"
+            )
+            XCTAssertFalse(
+                LSPSourceGatingTests.containsToken("metrics", in: args),
+                "CommitDialogView.swift's messageBox has a .frame( that names metrics"
+                    + " — the message box's height is the code zone's, not the interface's"
+            )
+        }
 
         for name in ["CompletionPanel.swift", "HoverPanel.swift"] {
             let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
@@ -2473,12 +2626,20 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
 
     /// The files spelling each shared control, the defining file included.
     private static let sharedControlCallers: [(token: String, files: Set<String>)] = [
-        ("chromePrimary", ["ChromeControls.swift", "CommitDialogView.swift", "MergeView.swift"]),
+        ("chromePrimary", [
+            "ChromeControls.swift", "CommitDialogView.swift", "MergeView.swift",
+            "NewPullRequestSheet.swift", "PullRequestMergeSheet.swift",
+        ]),
         ("chromeSecondary", [
             "ChromeControls.swift", "SearchBarView.swift", "ProjectSearchView.swift",
             "CommitDialogView.swift", "MergeView.swift", "LocalHistoryView.swift",
+            "SettingsView.swift", "LSPServerSettingsView.swift",
+            "NewPullRequestSheet.swift", "PullRequestMergeSheet.swift",
         ]),
-        ("ChromeCheckbox", ["ChromeControls.swift", "CommitDialogView.swift", "LogFilterBar.swift", "LocalChangesView.swift"]),
+        ("ChromeCheckbox", [
+            "ChromeControls.swift", "CommitDialogView.swift", "LogFilterBar.swift", "LocalChangesView.swift",
+            "NewPullRequestSheet.swift",
+        ]),
     ]
 
     /// Each of part five (b)'s ten files: how many `Button` constructions it
@@ -2498,8 +2659,26 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         "EscClosableWindow.swift": 0,
     ]
 
+    /// Part five (c)'s seven files, held to the same rule on the same terms.
+    /// `SettingsView.swift` spells three: the account row builds one of
+    /// Sign In… / Sign Out conditionally, but both are spelled, and the catalog
+    /// tab's Change… is the third.
+    private static let partFiveCButtonCounts: [String: Int] = [
+        "SettingsView.swift": 3,
+        "LSPServerSettingsView.swift": 6,
+        "AcknowledgementsView.swift": 1,
+        "NewPullRequestSheet.swift": 2,
+        "PullRequestMergeSheet.swift": 2,
+        "LSPInstalledLicenses.swift": 0,
+        "LicenseTextView.swift": 0,
+    ]
+
     func testOnePrimaryButtonOneSecondaryOneCheckbox() throws {
         XCTAssertEqual(Set(Self.partFiveBButtonCounts.keys), Self.partFiveBFiles)
+        XCTAssertTrue(
+            Set(Self.partFiveCButtonCounts.keys).isSubset(of: Self.gatedFiles),
+            "a part five (c) button count names a file that is not gated"
+        )
         // A declaration named like the checkbox's measurements: side, radius,
         // glyph — `checkboxSide`, `checkmarkSide`, `checkboxRadius`.
         let checkboxMeasure = try NSRegularExpression(
@@ -2539,11 +2718,11 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
                     "\(name) declares a checkbox measurement of its own — the checkbox's side, radius and glyph are ChromeControls.swift's"
                 )
             }
-            if let expected = Self.partFiveBButtonCounts[name] {
+            if let expected = Self.partFiveBButtonCounts[name] ?? Self.partFiveCButtonCounts[name] {
                 let buttons = Self.tokenCount("Button", in: code)
                 XCTAssertEqual(
                     buttons, Self.tokenCount("buttonStyle", in: code),
-                    "\(name) constructs a Button it does not style — every button in part five (b)'s files names a style"
+                    "\(name) constructs a Button it does not style — every button in part five (b)'s and (c)'s files names a style"
                 )
                 XCTAssertEqual(
                     buttons, expected,
@@ -2600,6 +2779,9 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
             1, "`.clear` on a borderless NSPanel, which must stay clear for its own rounded layer to draw — not a code pane"
         ),
         "ProjectSearchView.swift": (1, "a text attribute's background, not a view's"),
+        "LicenseTextView.swift": (
+            1, "the unswept iOS half's `.clear` on a UITextView, so the screen's ground shows through — not a code pane"
+        ),
     ]
 
     /// **Total, and it resolves no types.** Across the gated set plus
@@ -3234,6 +3416,9 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         "LocalHistoryView.swift": [
             ["snapshot.fileName == selection.wrappedValue ? Color.clear : chromeColor(.bgPanel)"],
         ],
+        // The dependency list sets no row background at all: the platform draws
+        // the selection, and nothing paints over it.
+        "AcknowledgementsView.swift": [[]],
     ]
 
     /// On macOS a `listRowBackground` is drawn **over** the selection box the
@@ -3374,6 +3559,134 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         return tokens
     }
 
+    // MARK: - Rule thirty-six: no gated file builds a platform form control
+
+    /// The platform's form controls — a `Form`, a `Picker` in any style, a
+    /// `Stepper`, a `Toggle`, a `TabView` and its `tabItem` — each draw in the
+    /// platform's own colours and metrics, compile, and look plausible in
+    /// whichever appearance the reviewer is in. The chrome draws a replacement
+    /// for every one of them in `ChromeControls.swift`.
+    ///
+    /// Two already-gated surfaces were swept to make this green on day one: the
+    /// commit dialog's author editor (a `Form` of two fields, now two stacked
+    /// shared fields) and the Log bar's branch menu (an inline `Picker`, now the
+    /// shared menu field's first caller). `Toggle` overlaps rule thirty on
+    /// purpose, so the whole family is listed in one place.
+    ///
+    /// Matched through `containsToken`, so `ChromeStepper(` is not a `Stepper`
+    /// and `ChromeQueryToggle(` not a `Toggle`; `pickerStyle` and `tabItem` are
+    /// bare for the leading-dot reason rule thirty states.
+    private static let platformFormControls = [
+        "Form", "Picker", "pickerStyle", "Stepper", "Toggle", "TabView", "tabItem",
+    ]
+
+    func testNoGatedFileBuildsAPlatformFormControl() throws {
+        for (name, code) in try Self.strippedGatedSources() {
+            for token in Self.platformFormControls {
+                XCTAssertFalse(
+                    LSPSourceGatingTests.containsToken(token, in: code),
+                    "\(name) spells \(token) — a gated surface builds the shared chrome control, not the platform's"
+                )
+            }
+        }
+    }
+
+    // MARK: - Rule thirty-seven: a picker's shape follows its set, and each settings shape has its pinned callers
+
+    /// Each settings shape's constructions, per calling file. The defining
+    /// file, `ChromeControls.swift`, constructs none of them and spells each
+    /// only in its declaration, so it is not a key here; the mention rule below
+    /// adds it back.
+    private static let settingsShapeConstructions: [(token: String, counts: [String: Int])] = [
+        ("ChromeSegmentedControl", ["SettingsView.swift": 2, "PullRequestMergeSheet.swift": 1]),
+        ("ChromeMenuField", ["LogFilterBar.swift": 1, "SettingsView.swift": 1, "NewPullRequestSheet.swift": 1]),
+        ("ChromeStepper", ["SettingsView.swift": 2]),
+        ("ChromeSwitch", ["SettingsView.swift": 2]),
+        ("ChromeSettingsTabBar", ["SettingsView.swift": 1]),
+    ]
+
+    /// A picker's shape follows its set: a small set known when the app is
+    /// built (the tab placement, the theme, the merge methods) is a segmented
+    /// control, and a set read at run time (branches, languages) is a menu
+    /// field; a standing preference is a switch, and an option of one action is
+    /// a checkbox. The rule cannot read a set's size, so it pins two things
+    /// per shape: the files that spell it (the defining file included), by set
+    /// equality, and how many times each of those files *constructs* it,
+    /// counted through `callRanges(_:in:)` so a wrapped call counts — rule
+    /// thirty's shape, applied to the five settings shapes. The sets alone were
+    /// blind to a shape change inside a file that already spells both shapes:
+    /// `SettingsView.swift` builds two segmented controls and one menu field, so
+    /// turning one into the other kept it in both sets. A segmented
+    /// base-branch list, a switch where a checkbox belongs, or a second segmented
+    /// control added to a pinned file each changes a count or a set and fails
+    /// here, and a person decides whether the new shape is right before updating
+    /// the pin.
+    func testAPickersShapeFollowsItsSetAndEachSettingsShapeHasItsPinnedCallers() throws {
+        var callers: [String: Set<String>] = [:]
+        var constructions: [String: [String: Int]] = [:]
+        for url in try Self.swiftSources() {
+            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            let name = url.lastPathComponent
+            for (token, _) in Self.settingsShapeConstructions {
+                if LSPSourceGatingTests.containsToken(token, in: code) {
+                    callers[token, default: []].insert(name)
+                }
+                let count = Self.callCount("\(token)(", in: code)
+                if count > 0 { constructions[token, default: [:]][name] = count }
+            }
+        }
+        for (token, counts) in Self.settingsShapeConstructions {
+            XCTAssertEqual(
+                callers[token, default: []], Set(counts.keys).union(["ChromeControls.swift"]),
+                "the files spelling \(token) must be exactly its pinned callers plus the defining file"
+            )
+            XCTAssertEqual(
+                constructions[token, default: [:]], counts,
+                "the constructions of \(token) per file must be exactly the pinned counts — a control changed shape or was added"
+            )
+        }
+    }
+
+    /// The menu field's shape is whole: its chevron is part of the `Menu`'s own
+    /// label, so the arrow the field draws is the control. The field was lifted
+    /// from the Log bar with the glyph a *sibling* of the `Menu`, which draws
+    /// the same and opens nothing when the arrow is clicked — and the lift
+    /// carried that to every caller.
+    ///
+    /// Read as tokens inside matched bodies, not as a view tree: the struct's
+    /// body spells exactly one `Image(` (the chevron — the options' checkmark is
+    /// a `Label`), and the body matched after `label:` following the `Menu`'s
+    /// content closure spells it too, hidden from accessibility there.
+    func testTheMenuFieldsChevronIsPartOfItsMenusLabel() throws {
+        let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
+            try Self.read(try Self.source(named: "ChromeControls.swift"))
+        )
+        let field = try XCTUnwrap(
+            Self.matchedBody(after: "struct ChromeMenuField", in: code),
+            "struct ChromeMenuField is gone or renamed"
+        )
+        XCTAssertEqual(
+            Self.callCount("Image(", in: field), 1,
+            "ChromeMenuField must draw exactly one glyph, its chevron"
+        )
+        let content = try XCTUnwrap(
+            Self.matchedBodyRange(after: "Menu", in: field),
+            "ChromeMenuField no longer builds a Menu"
+        )
+        let label = try XCTUnwrap(
+            Self.matchedBody(after: "label:", in: String(field[content.upperBound...])),
+            "ChromeMenuField's Menu has no label: closure"
+        )
+        XCTAssertTrue(
+            Self.spellsCall("Image(", in: label),
+            "ChromeMenuField's chevron sits outside the Menu's label — the arrow it draws opens nothing"
+        )
+        XCTAssertTrue(
+            Self.spellsCall(".accessibilityHidden(", in: label),
+            "ChromeMenuField's chevron must stay hidden from accessibility inside the label"
+        )
+    }
+
     // MARK: - Self-check
 
     /// Every gated file draws with roles and must therefore name one — with two
@@ -3393,8 +3706,15 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// was the pane's ground, which now comes from `CodePaneGround` in
     /// `DiffView.swift`. It is gated for rules one and two and for the code-pane
     /// ground rule — a second, private ground being the regression it can commit.
+    ///
+    /// `LSPInstalledLicenses.swift` is exempt on `ChromeThemeEnvironment.swift`'s
+    /// footing: it is a Foundation-only enum that returns the installed licence
+    /// documents and has no view, so it paints nothing and names no role by
+    /// construction. It is gated for rules one and two, which are the rules it
+    /// could break — a system colour or a hex literal creeping into it.
     private static let roleNamingExemptions: Set<String> = [
         "ChromeThemeEnvironment.swift",
+        "LSPInstalledLicenses.swift",
         "CommitGraphView.swift",
         "DiffWindowController.swift",
         "MergeWindowController.swift",
@@ -3459,6 +3779,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         25: "twenty-five", 26: "twenty-six", 27: "twenty-seven",
         28: "twenty-eight", 29: "twenty-nine", 30: "thirty", 31: "thirty-one",
         32: "thirty-two", 33: "thirty-three", 34: "thirty-four", 35: "thirty-five",
+        36: "thirty-six", 37: "thirty-seven",
     ]
 
     func testBothSummariesSpellTheSuitesOwnRuleCount() throws {

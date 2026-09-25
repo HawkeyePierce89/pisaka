@@ -1612,6 +1612,19 @@ Draft checkbox, and above the buttons the three sentences naming everything
 Create will do. A failure leaves the sheet open with every field intact — the
 reader has just typed a description.
 
+**Its chrome comes wholly from the colour roles** (part five (c) of the chrome
+sweep, `core-theme.md`). The sheet stands on `bgPanel` with its title in
+`textPrimary`; the title field is the shared `ChromeThemedTextField` and the
+body the shared `ChromeControlBox` around a `TextEditor` with its scroll
+background hidden — the commit dialog's message-box shape. The base branch is
+the shared `ChromeMenuField` (a set read at run time, the local branch list, so
+a menu rather than a segmented control), framed at `menuFieldHeight`. **Draft
+is a `ChromeCheckbox`, not a switch**: it is an option of this one action, not
+a standing preference — the same shape as Amend and Push in the commit dialog.
+The plan's refusal is `statusRed`, the three sentences `textSecondary`; Cancel
+is `.chromeSecondary`, Create `.chromePrimary`. The small `ProgressView` stays,
+an open question of the sweep.
+
 ### `PullRequestMergeSheet.swift`
 
 `NewPullRequestSheet`'s shape, and **nothing here decides anything**: the method
@@ -1630,6 +1643,19 @@ be stale the moment one was. A failure leaves the sheet open with every field
 intact and `gh`'s own words under them (the create sheet's reason); a merge that
 landed closes it, and so does an arming, whose whole point is to stop anybody
 sitting in front of it.
+
+**Its chrome comes wholly from the colour roles** (part five (c), the create
+sheet's treatment). The method is the shared `ChromeSegmentedControl` although
+its segments are filtered: the allowed methods are a subset of the closed
+three-case `GitHubMergeMethod`, so the most it can ever lay out is known when
+the app is built, and `plan.showsMethodPicker` already hides a one-method
+control; the binding stays `GitHubMergeMethod?`, each option's value
+`Optional(method)`. Subject and body take the create sheet's field and box.
+**An armable refusal reads as a warning**: the one refusal a reader can
+knowingly sit through — checks still running, the one behind *Merge when checks
+pass* — is `statusYellow`, every other refusal `statusRed`, read from the
+refusal's own `isArmable` rather than from a table in the view. Cancel is
+`.chromeSecondary`, the plan-labelled button `.chromePrimary`.
 
 ### `PullRequestIndicatorView.swift`
 

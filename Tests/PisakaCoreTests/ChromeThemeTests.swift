@@ -70,6 +70,27 @@ final class ChromeThemeTests: XCTestCase {
         XCTAssertEqual(ChromeGeometry.dialogEdgeStripHeight, 44)
         XCTAssertEqual(ChromeGeometry.checkboxSide, 14)
         XCTAssertEqual(ChromeGeometry.checkboxCornerRadius, 3)
+        XCTAssertEqual(ChromeGeometry.segmentedControlHeight, 26)
+        XCTAssertEqual(ChromeGeometry.segmentHeight, 22)
+        XCTAssertEqual(ChromeGeometry.segmentedControlInset, 2)
+        XCTAssertEqual(ChromeGeometry.segmentGap, 2)
+        XCTAssertEqual(ChromeGeometry.segmentPaddingX, 12)
+        XCTAssertEqual(ChromeGeometry.stepperHeight, 24)
+        XCTAssertEqual(ChromeGeometry.stepperPaddingX, 8)
+        XCTAssertEqual(ChromeGeometry.stepperPartGap, 10)
+        XCTAssertEqual(ChromeGeometry.switchWidth, 36)
+        XCTAssertEqual(ChromeGeometry.switchHeight, 20)
+        XCTAssertEqual(ChromeGeometry.switchInset, 2)
+        XCTAssertEqual(ChromeGeometry.switchKnobSide, 16)
+        XCTAssertEqual(ChromeGeometry.settingsTabBarHeight, 36)
+        XCTAssertEqual(ChromeGeometry.settingsTabBarPaddingX, 16)
+        XCTAssertEqual(ChromeGeometry.settingsTabGap, 4)
+        XCTAssertEqual(ChromeGeometry.settingsTabLabelPaddingX, 10)
+        XCTAssertEqual(ChromeGeometry.settingsPagePadding, 28)
+        XCTAssertEqual(ChromeGeometry.settingsRowSpacing, 22)
+        XCTAssertEqual(ChromeGeometry.settingsLabelColumnWidth, 180)
+        XCTAssertEqual(ChromeGeometry.settingsLabelGap, 16)
+        XCTAssertEqual(ChromeGeometry.menuFieldHeight, 26)
     }
 
     /// `ChromeGeometry` is a namespace of `static let`s, so its membership is
@@ -90,6 +111,12 @@ final class ChromeThemeTests: XCTestCase {
             "dockTabLabelPaddingX", "accentIndicator", "buttonPaddingX", "buttonCornerRadius",
             "fieldCornerRadius", "fieldFocusedBorderWidth", "fieldPaddingX", "secondaryButtonHeight",
             "secondaryButtonPaddingX", "dialogEdgeStripHeight", "checkboxSide", "checkboxCornerRadius",
+            "segmentedControlHeight", "segmentHeight", "segmentedControlInset", "segmentGap",
+            "segmentPaddingX", "stepperHeight", "stepperPaddingX", "stepperPartGap", "switchWidth",
+            "switchHeight", "switchInset", "switchKnobSide", "settingsTabBarHeight",
+            "settingsTabBarPaddingX", "settingsTabGap", "settingsTabLabelPaddingX",
+            "settingsPagePadding", "settingsRowSpacing", "settingsLabelColumnWidth",
+            "settingsLabelGap", "menuFieldHeight",
         ])
         for suspect in ["font", "Font", "fontSize", "textSize"] {
             XCTAssertFalse(

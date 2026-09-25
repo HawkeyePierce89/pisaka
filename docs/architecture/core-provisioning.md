@@ -832,6 +832,17 @@ below. All of it, with decisions D21–D24, is in `core-lsp.md`.
     A thin view in the `GeneralSettingsView` mould — every rule (which actions
     apply, what the state is, what it costs) is a property of `LSPServerRow` and
     is unit-tested in Core.
+    **Its chrome comes wholly from the colour roles** (part five (c) of the
+    chrome sweep, `core-theme.md`). The page owns no frame: the Preferences host
+    frames every page at one size, and this one's `ScrollView` fills it — it
+    scrolls because a failure sentence is unbounded, not to size itself. It pads
+    by `settingsPagePadding`; the rows sit in one `bgEditor` container clipped
+    and bordered at `cornerRadiusMax`, with a `hairline` border and `hairline`
+    rules between rows at `hairlineWidth` (no `Divider()`, whose system value
+    would disagree with the table). A row's name is `textPrimary`; the component
+    id, state line, runtime note, intro and footnotes are `textSecondary`; a
+    failure is `statusRed`; Install / Retry / Remove are `.chromeSecondary`. The
+    small `ProgressView` stays, an open question of the sweep.
     **The Go row is last, under the same rules from a different model.** It
     renders `LSPGoServerRow` — D19's states plus the `pending` one the lifecycle
     starts in, drawn as "Looking for a Go toolchain…" rather than guessed at —
@@ -890,6 +901,12 @@ below. All of it, with decisions D21–D24, is in `core-lsp.md`.
     the separator line ("everything above this line is the verbatim text of the
     file named at the top of this entry") would then restate, compounding the
     mislabel instead of containing it.
+    **Gated by the chrome theme, painting nothing** (part five (c),
+    `core-theme.md`): a Foundation-only enum that returns documents and has no
+    view, it names no colour role by construction and sits in
+    `roleNamingExemptions` on the same footing as `ChromeThemeEnvironment.swift`
+    — gated for rules one and two, the ones it could break (a system colour or a
+    hex literal creeping in), and holding zero `Button`s in rule thirty's table.
     **gopls is deliberately not here.** `go install` writes one binary and
     nothing else, so there is no licence file in the installed tree to read —
     and nothing for `licenses.json` to cover either, this app bundling no gopls

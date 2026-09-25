@@ -241,7 +241,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     are now aliases of `ZoomScaleRule.editorFont`, and the *macOS* zoom path does
     not go through them at all — `ZoomController` calls the zone-keyed
     `stepZoom(_:by:)`/`resetZoom(_:)` below. They survive because the iOS pinch
-    (`RootView_iOS`) and both platforms' Preferences steppers still name them.
+    (`RootView_iOS`), the iOS Preferences stepper (`SettingsView_iOS`) and the
+    Core `clampFontSize(_:)` callers (`LeetCodeStatementDocument`,
+    `MarkdownPreviewPage`) still name them. The macOS Preferences stepper named
+    them too until part five (c) of the chrome theme, which moved it onto
+    `ZoomScaleRule.editorFont` directly.
     Fully unit-tested in `SettingsStoreTests` (defaults, clamping at
     both bounds, the step helper staying clamped, a persistence round-trip across
     two instances over one suite, and the enums' raw-value stability).

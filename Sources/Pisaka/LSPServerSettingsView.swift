@@ -39,31 +39,32 @@ struct LSPServerSettingsView: View {
     @ObservedObject var rust: LSPRustProvisioningModel
 
     /// The interface zone's metrics, inherited from the `Settings` scene root.
-    /// Reaches the pane's own fixed size too: the failure sentences this tab
-    /// exists to show are the longest text in Preferences, and a scaled sentence
-    /// inside an unscaled 480×300 frame is the one that gets clipped.
     @Environment(\.interfaceMetrics) private var metrics
 
-    /// The pane scrolls rather than sizing to its content, and that is about the
+    /// The chrome theme, inherited from the `Settings` scene root like the
+    /// metrics — this page is a child of `SettingsView`, not a root of its own.
+    @Environment(\.chromeTheme) private var theme
+
+    /// The page scrolls rather than sizing to its content, and that is about the
     /// failure messages rather than about the rows.
     ///
-    /// Three rows, their states and the footer fit the fixed 480×300 with room to
-    /// spare — but `failureMessage` is unbounded in a way nothing here controls:
+    /// The host (`SettingsView`) frames every Preferences page at one size, so
+    /// this page fills whatever it is given and owns no frame of its own. Three
+    /// rows, their states and the footer fit that size with room to spare — but
+    /// `failureMessage` is unbounded in a way nothing here controls:
     /// `LSPArchiveUnpacker` reports up to 200 characters of `tar`'s last line, and
     /// a `URLError` adds a whole sentence to the engine's own prefix, each of
     /// which wraps to several `.caption` lines inside the row's narrow text
-    /// column. Two of the servers failing therefore overflows the frame, and since a
-    /// plain `VStack` neither clips nor scrolls, the overflow would simply draw
-    /// past the frame — losing the bottom of the very sentence the user opened
-    /// this tab to read, because D15 makes this row the *only* place an install
-    /// failure is ever surfaced. Dropping the fixed height instead would fix the
-    /// clipping and resize the Preferences window when a message arrived, since
-    /// `TabView` sizes to its largest tab.
+    /// column. Two of the servers failing therefore overflows the page, and since
+    /// a plain `VStack` neither clips nor scrolls, the overflow would simply draw
+    /// past it — losing the bottom of the very sentence the user opened this tab
+    /// to read, because D15 makes this row the *only* place an install failure is
+    /// ever surfaced.
     var body: some View {
         ScrollView {
             content
         }
-        .frame(width: metrics.scaled(480), height: metrics.scaled(300))
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var content: some View {
@@ -78,12 +79,12 @@ struct LSPServerSettingsView: View {
                 + "until you ask for it, and the languages keep working without it."
             )
             .font(metrics.scaledFont(.callout))
-            .foregroundStyle(.secondary)
+            .foregroundStyle(theme.color(.textSecondary))
             .fixedSize(horizontal: false, vertical: true)
 
             VStack(spacing: 0) {
                 ForEach(Array(provisioning.rows.enumerated()), id: \.element.id) { index, row in
-                    if index > 0 { Divider() }
+                    if index > 0 { hairlineRule }
                     self.row(row)
                 }
                 // Last, and after a rule like every other row: the downloadable
@@ -95,16 +96,19 @@ struct LSPServerSettingsView: View {
                 // added, which is also the order they read best in: Go's row is
                 // never a download and Rust's always is, so the section runs from
                 // the row least like the ones above it to the one most like them.
-                Divider()
+                hairlineRule
                 goRow(gopls.row)
-                Divider()
+                hairlineRule
                 rustRow(rust.row)
             }
-            .background(Color(NSColor.textBackgroundColor))
-            .clipShape(RoundedRectangle(cornerRadius: metrics.scaled(6)))
+            .background(theme.color(.bgEditor))
+            .clipShape(RoundedRectangle(cornerRadius: metrics.scaled(ChromeGeometry.cornerRadiusMax)))
             .overlay(
-                RoundedRectangle(cornerRadius: metrics.scaled(6))
-                    .stroke(Color(NSColor.separatorColor))
+                RoundedRectangle(cornerRadius: metrics.scaled(ChromeGeometry.cornerRadiusMax))
+                    .stroke(
+                        theme.color(.hairline),
+                        lineWidth: metrics.scaled(ChromeGeometry.hairlineWidth)
+                    )
             )
 
             // Where the files are is part of the contract (D12): the state *is*
@@ -119,7 +123,7 @@ struct LSPServerSettingsView: View {
                 + "\(LSPInstallLayout.directoryName)."
             )
             .font(metrics.scaledFont(.caption))
-            .foregroundStyle(.secondary)
+            .foregroundStyle(theme.color(.textSecondary))
 
             // gopls's whole licence surface, and the reason it is a sentence
             // rather than a row in Acknowledgements: `go install` writes one
@@ -135,7 +139,7 @@ struct LSPServerSettingsView: View {
                 + "database."
             )
             .font(metrics.scaledFont(.caption))
-            .foregroundStyle(.secondary)
+            .foregroundStyle(theme.color(.textSecondary))
             .fixedSize(horizontal: false, vertical: true)
 
             // rust-analyzer's whole licence surface, for gopls's reason arrived at
@@ -154,23 +158,32 @@ struct LSPServerSettingsView: View {
                 + "pinned checksum before it is used."
             )
             .font(metrics.scaledFont(.caption))
-            .foregroundStyle(.secondary)
+            .foregroundStyle(theme.color(.textSecondary))
             .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(metrics.scaled(20))
-        .frame(width: metrics.scaled(480), alignment: .topLeading)
+        .padding(metrics.scaled(ChromeGeometry.settingsPagePadding))
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+    }
+
+    /// The rule between two rows: the chrome's hairline, at its own width, in
+    /// place of the platform divider.
+    private var hairlineRule: some View {
+        Rectangle()
+            .fill(theme.color(.hairline))
+            .frame(height: metrics.scaled(ChromeGeometry.hairlineWidth))
     }
 
     private func row(_ row: LSPServerRow) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: metrics.scaled(12)) {
             VStack(alignment: .leading, spacing: metrics.scaled(2)) {
                 Text(row.displayName)
+                    .foregroundStyle(theme.color(.textPrimary))
                 Text(row.server.serverComponentID)
                     .font(metrics.scaledFont(.caption))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(theme.color(.textSecondary))
                 Text(status(of: row))
                     .font(metrics.scaledFont(.caption))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(theme.color(.textSecondary))
                 // The same sentence the consent banner prints, from the same
                 // Core field, beside the state line — so the two surfaces cannot
                 // disagree about what a server does on the network and neither
@@ -184,7 +197,7 @@ struct LSPServerSettingsView: View {
                 if let note = row.runtimeNetworkNote {
                     Text(note)
                         .font(metrics.scaledFont(.caption))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(theme.color(.textSecondary))
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 // The entire failure surface of this feature. Present only after
@@ -193,7 +206,7 @@ struct LSPServerSettingsView: View {
                 if let failure = row.failureMessage {
                     Text(failure)
                         .font(metrics.scaledFont(.caption))
-                        .foregroundStyle(.red)
+                        .foregroundStyle(theme.color(.statusRed))
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
@@ -217,12 +230,14 @@ struct LSPServerSettingsView: View {
                 Button(row.failureMessage == nil || row.failureWasRemoval ? "Install" : "Retry") {
                     Task { await provisioning.install(row.server) }
                 }
+                .buttonStyle(.chromeSecondary)
             }
 
             if row.canRemove {
                 Button("Remove") {
                     Task { await provisioning.remove(row.server) }
                 }
+                .buttonStyle(.chromeSecondary)
             }
         }
         .font(metrics.scaledFont(.body))
@@ -244,16 +259,17 @@ struct LSPServerSettingsView: View {
         HStack(alignment: .firstTextBaseline, spacing: metrics.scaled(12)) {
             VStack(alignment: .leading, spacing: metrics.scaled(2)) {
                 Text("Go")
+                    .foregroundStyle(theme.color(.textPrimary))
                 Text(LSPGopls.componentID)
                     .font(metrics.scaledFont(.caption))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(theme.color(.textSecondary))
                 Text(status(of: row))
                     .font(metrics.scaledFont(.caption))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(theme.color(.textSecondary))
                 if let failure = row.failureMessage {
                     Text(failure)
                         .font(metrics.scaledFont(.caption))
-                        .foregroundStyle(.red)
+                        .foregroundStyle(theme.color(.statusRed))
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
@@ -275,12 +291,14 @@ struct LSPServerSettingsView: View {
                 Button(row.failureMessage == nil || row.failureWasRemoval ? "Install" : "Retry") {
                     Task { await gopls.install() }
                 }
+                .buttonStyle(.chromeSecondary)
             }
 
             if row.canRemove {
                 Button("Remove") {
                     Task { await gopls.remove() }
                 }
+                .buttonStyle(.chromeSecondary)
             }
         }
         .font(metrics.scaledFont(.body))
@@ -303,16 +321,17 @@ struct LSPServerSettingsView: View {
         HStack(alignment: .firstTextBaseline, spacing: metrics.scaled(12)) {
             VStack(alignment: .leading, spacing: metrics.scaled(2)) {
                 Text("Rust")
+                    .foregroundStyle(theme.color(.textPrimary))
                 Text(LSPRustAnalyzer.componentID)
                     .font(metrics.scaledFont(.caption))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(theme.color(.textSecondary))
                 Text(status(of: row))
                     .font(metrics.scaledFont(.caption))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(theme.color(.textSecondary))
                 if let failure = row.failureMessage {
                     Text(failure)
                         .font(metrics.scaledFont(.caption))
-                        .foregroundStyle(.red)
+                        .foregroundStyle(theme.color(.statusRed))
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
@@ -332,12 +351,14 @@ struct LSPServerSettingsView: View {
                 Button(row.failureMessage == nil || row.failureWasRemoval ? "Install" : "Retry") {
                     Task { await rust.install() }
                 }
+                .buttonStyle(.chromeSecondary)
             }
 
             if row.canRemove {
                 Button("Remove") {
                     Task { await rust.remove() }
                 }
+                .buttonStyle(.chromeSecondary)
             }
         }
         .font(metrics.scaledFont(.body))

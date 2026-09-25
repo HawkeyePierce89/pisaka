@@ -26,11 +26,10 @@ struct AcknowledgementsView: View {
     /// manifest and the layout, and knows which components are actually on disk.
     let installEngine: LSPInstallEngine
 
-    /// Computed, not stored: `SettingsView`'s `TabView` builds every tab view
-    /// eagerly, so a stored property would read the whole `Licenses/` directory
-    /// off disk whenever Preferences opens — including the General tab. The
-    /// loader caches, so resolving these per body evaluation costs nothing after
-    /// the first.
+    /// Computed, not stored. The Preferences host builds only the selected page
+    /// now, so this no longer guards against an eager build of every tab; it
+    /// stays computed because the loader caches, so resolving these per body
+    /// evaluation costs nothing after the first and nothing is held twice.
     private var documents: [LicenseDocument] { LicenseCatalogLoader.documents }
     private var failure: String? { LicenseCatalogLoader.failureDescription }
 
@@ -39,6 +38,9 @@ struct AcknowledgementsView: View {
     /// this view's body re-evaluates on every selection change.
     @State private var installed: [LicenseDocument] = []
 
+    /// Resets on each visit: the host builds only the selected page, so leaving
+    /// Acknowledgements for another tab discards this view and its state, and
+    /// coming back selects the first bundled entry again (the `.task` below).
     @State private var selection: LicenseDocument.ID?
 
     /// The interface zone's metrics, inherited from the `Settings` scene root.
@@ -50,6 +52,8 @@ struct AcknowledgementsView: View {
     /// `NSFont.smallSystemFontSize`). The iOS half of that shared pane is passed
     /// no size and keeps its own.
     @Environment(\.interfaceMetrics) private var metrics
+    @Environment(\.chromeTheme) private var theme
+    @Environment(\.openURL) private var openURL
 
     var body: some View {
         Group {
@@ -59,11 +63,12 @@ struct AcknowledgementsView: View {
                 VStack(spacing: metrics.scaled(8)) {
                     Image(systemName: "exclamationmark.triangle")
                         .font(metrics.scaledFont(.largeTitle))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(theme.color(.textSecondary))
+                        .accessibilityHidden(true)
                     Text(failure)
                         .font(metrics.scaledFont(.body))
                         .multilineTextAlignment(.center)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(theme.color(.textSecondary))
                 }
                 .padding(metrics.scaled(24))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -74,12 +79,12 @@ struct AcknowledgementsView: View {
                 }
             }
         }
-        // Sized for reading a license: the Preferences window takes the widest tab,
-        // so the General form keeps its own 340pt width and this one drives the
-        // window. Both dimensions scale, so the detail pane keeps its share of the
-        // width as the list beside it grows — `InterfaceMetricsTests` pins that the
-        // room left over never shrinks.
-        .frame(width: metrics.scaled(640), height: metrics.scaled(420))
+        // Fills the page the Preferences host frames: the one page size every tab
+        // shares is the size this pane needs for reading a license, and it lives
+        // in `SettingsView`'s layout. Both dimensions scale there, so the detail
+        // pane keeps its share of the width as the list beside it grows —
+        // `InterfaceMetricsTests` pins that the room left over never shrinks.
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         // Re-read on open and whenever a row changes state. Keyed on the rows
         // rather than on a timer or a notification: `rows` is the model's own
         // published summary, so an install completing, a removal finishing and a
@@ -103,19 +108,27 @@ struct AcknowledgementsView: View {
     private var allDocuments: [LicenseDocument] { documents + installed }
 
     private var dependencyList: some View {
+        // The platform draws the selection: no row background is set, so nothing
+        // paints over the selected row's box (rule thirty-five).
         List(selection: $selection) {
-            Section("Bundled") {
+            Section {
                 ForEach(documents) { row($0) }
+            } header: {
+                sectionHeader("Bundled")
             }
             // Present only while something is provisioned: a section listing
             // nothing would suggest the app ships these, which is the one thing
             // this screen must not imply.
             if !installed.isEmpty {
-                Section("Language Servers") {
+                Section {
                     ForEach(installed) { row($0) }
+                } header: {
+                    sectionHeader("Language Servers")
                 }
             }
         }
+        .scrollContentBackground(.hidden)
+        .background(theme.color(.bgPanel))
         .frame(
             minWidth: metrics.scaled(180),
             idealWidth: metrics.scaled(200),
@@ -123,13 +136,20 @@ struct AcknowledgementsView: View {
         )
     }
 
+    private func sectionHeader(_ title: String) -> some View {
+        Text(title)
+            .font(metrics.scaledFont(.subheadline))
+            .foregroundStyle(theme.color(.textSecondary))
+    }
+
     private func row(_ document: LicenseDocument) -> some View {
         VStack(alignment: .leading, spacing: metrics.scaled(2)) {
             Text(document.notice.name)
                 .font(metrics.scaledFont(.body))
+                .foregroundStyle(theme.color(.textPrimary))
             Text(document.notice.spdx)
                 .font(metrics.scaledFont(.caption))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(theme.color(.textSecondary))
         }
         .padding(.vertical, metrics.scaled(2))
     }
@@ -139,7 +159,9 @@ struct AcknowledgementsView: View {
         if let document = allDocuments.first(where: { $0.id == selection }) {
             VStack(alignment: .leading, spacing: 0) {
                 header(for: document.notice)
-                Divider()
+                Rectangle()
+                    .fill(theme.color(.hairline))
+                    .frame(height: metrics.scaled(ChromeGeometry.hairlineWidth))
                 // TextKit-backed rather than `ScrollView { Text(…) }`: libgit2's
                 // text is 66 KB and a single `Text` would lay all of it out on the
                 // main thread and risk clipping the tail. See `LicenseTextView`.
@@ -151,18 +173,22 @@ struct AcknowledgementsView: View {
                 // margin is handed down for the same reason and from the same
                 // base as the header's own `padding(metrics.scaled(12))` above,
                 // so the license text stays in line with the header it belongs
-                // to at every step of the range.
+                // to at every step of the range. The `bgEditor` ground is painted
+                // here, behind the representable, which keeps drawing no
+                // background of its own — an AppKit `backgroundColor` would be a
+                // second ground (rule thirty-one).
                 LicenseTextView(
                     text: document.text,
                     pointSize: metrics.font(.subheadline),
                     inset: metrics.pt(12)
                 )
+                .background(theme.color(.bgEditor))
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             Text("Select a dependency.")
                 .font(metrics.scaledFont(.body))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(theme.color(.textSecondary))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
@@ -171,9 +197,10 @@ struct AcknowledgementsView: View {
         VStack(alignment: .leading, spacing: metrics.scaled(4)) {
             Text(notice.name)
                 .font(metrics.scaledFont(.headline, weight: .semibold))
+                .foregroundStyle(theme.color(.textPrimary))
             Text(notice.spdx)
                 .font(metrics.scaledFont(.subheadline))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(theme.color(.textSecondary))
             // `version` is nil for the revision-pinned packages and the vendored
             // grammar with no upstream release — omit the row rather than render a
             // blank one. The revision is always present and is what makes the text
@@ -186,6 +213,7 @@ struct AcknowledgementsView: View {
         }
         .padding(metrics.scaled(12))
         .frame(maxWidth: .infinity, alignment: .leading)
+        .background(theme.color(.bgPanel))
     }
 
     /// Remote dependencies get a clickable URL; the two vendored grammars name a
@@ -197,9 +225,13 @@ struct AcknowledgementsView: View {
             HStack(spacing: metrics.scaled(4)) {
                 Text("Origin")
                     .font(metrics.scaledFont(.caption))
-                    .foregroundStyle(.secondary)
-                Link(notice.origin, destination: url)
+                    .foregroundStyle(theme.color(.textSecondary))
+                // A plain button with an `accent` label rather than a `Link`,
+                // whose colour is the platform's link colour, not the role.
+                Button(notice.origin) { openURL(url) }
+                    .buttonStyle(.plain)
                     .font(metrics.scaledFont(.caption))
+                    .foregroundStyle(theme.color(.accent))
             }
         } else {
             LabeledField(label: "Origin", value: notice.origin)
@@ -215,13 +247,15 @@ private struct LabeledField: View {
 
     /// The interface zone's metrics, inherited from the `Settings` scene root.
     @Environment(\.interfaceMetrics) private var metrics
+    @Environment(\.chromeTheme) private var theme
 
     var body: some View {
         HStack(spacing: metrics.scaled(4)) {
             Text(label)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(theme.color(.textSecondary))
             Text(value)
                 .font(metrics.scaledFont(.caption, design: monospaced ? .monospaced : .default))
+                .foregroundStyle(theme.color(.textPrimary))
                 .textSelection(.enabled)
         }
         .font(metrics.scaledFont(.caption))

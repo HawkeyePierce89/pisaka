@@ -509,19 +509,30 @@ pass while the code it describes was deleted) and asserts:
     the four builds one — the empty-region rule, which the check above cannot
     see: all four files stay in the surface set even while their panes' blank
     areas zoom the chrome.
-  - **The Preferences terminal stepper reads its bounds and step from
-    `ZoomScaleRule.terminalFont`** rather than restating them. `SettingsStoreTests`
-    can only assert that the *store* accepts those bounds; whether the row
-    presents them is a fact about a view, and hard-coding `in: 8...40, step: 2`
-    there would compile and drift from the grid ⌘0 and the gestures land on.
+  - **Both Preferences steppers name their zone's `ZoomScaleRule`** — the
+    terminal one `ZoomScaleRule.terminalFont`, the editor one
+    `ZoomScaleRule.editorFont` — rather than restating bounds, and the shared
+    `ChromeStepper` steps through that rule's `stepped(_:by:)`.
+    `SettingsStoreTests` can only assert that the *store* accepts those bounds;
+    whether the row presents them is a fact about a view, and hard-coded bounds
+    (the terminal row once spelled `in: 8...40, step: 2`) would compile and drift
+    from the grid ⌘0 and the gestures land on. The stepper's two halves are
+    checked **separately**, each in its own matched body: `stepButton(…)`, the
+    visible minus and plus, and `adjust(_:)`, the accessibility action. Until
+    part five (c)'s review round the clause asked for `stepped` anywhere in the
+    stepper's whole body, which `adjust` alone satisfied while the glyph buttons
+    could have drifted to arithmetic of their own.
 
 ## Known limits
 
 **AppKit-drawn chrome is outside the interface zone by construction.** Context
 menus, `DefinitionPicker`'s `NSMenu`, the completion popup `CompletionController`
-drives, `NSAlert`/`PlatformAlert` dialogs, the open/save panels in `FilePanels`
-and the Preferences window's own tab bar are drawn by the system, not by SwiftUI
-views the environment can reach, so they stay at the system size at every scale.
+drives, `NSAlert`/`PlatformAlert` dialogs and the open/save panels in
+`FilePanels` are drawn by the system, not by SwiftUI views the environment can
+reach, so they stay at the system size at every scale. The Preferences window's
+own tab bar was on this list until part five (c) of the chrome theme replaced the
+system tab view with `ChromeSettingsTabBar`, a SwiftUI view reading
+`\.interfaceMetrics`, so it now follows the interface scale like any other chrome.
 This is a boundary, not a gap: nothing about `\.interfaceMetrics` can reach them
 short of overriding the system's own menu and panel appearance.
 

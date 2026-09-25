@@ -87,14 +87,14 @@ enum LSPInstalledLicenses {
             // The artifact for the slice this app is *running as* — the x64 Node
             // tarball on a Rosetta-translated build — so the digest below names
             // the bytes that were actually verified and installed.
-            let primary = component.artifacts(for: architecture).first
+            let installedArtifact = component.artifacts(for: architecture).first
         else { return nil }
 
         return LicenseDocument(
             notice: LicenseNotice(
                 id: component.id,
                 name: component.id,
-                origin: primary.url.absoluteString,
+                origin: installedArtifact.url.absoluteString,
                 version: component.version,
                 // The manifest pins by digest rather than by commit, and the
                 // digest is what makes this text verifiable for the same reason
@@ -102,7 +102,7 @@ enum LSPInstalledLicenses {
                 // archive these bytes came out of. Spelled with its algorithm,
                 // because the header renders the field as "Revision" and a bare
                 // 64 hex characters there would read as a git object id.
-                revision: "sha256:\(primary.sha256)",
+                revision: "sha256:\(installedArtifact.sha256)",
                 spdx: component.licenseSPDX,
                 file: heading
             ),

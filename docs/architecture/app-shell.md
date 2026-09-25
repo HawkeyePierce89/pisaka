@@ -1919,7 +1919,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     observers would make it invisible and fragile — hence
     `AutosaveController.flushNow()` being internal and `PisakaApp` calling both
     back to back from one place.
-  - `SettingsView.swift` — the Preferences window (⌘,), a four-tab `TabView`:
+  - `SettingsView.swift` — the Preferences window (⌘,), four pages under a
+    `ChromeSettingsTabBar` (`core-theme.md`):
     "General" (`GeneralSettingsView`, the form below), "Language Servers"
     (`LSPServerSettingsView`, phase 2b — full entry in `core-provisioning.md`),
     "LeetCode" (`LeetCodeSettingsView` — the account, the solutions folder and the
@@ -1928,10 +1929,21 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `let` — nothing in `SettingsView.body` reads anything published on it, and
     observing it there would re-evaluate the whole window, Acknowledgements and its
     66 KB license texts included, on every statement fetch and busy transition)
-    and "Acknowledgements" (`AcknowledgementsView`). A `TabView` sizes to its widest
-    tab, which is why the split is worth noting: `GeneralSettingsView` keeps its
-    own `.frame(width: 340)` while the Acknowledgements tab — needing room to read
-    a license — is what drives the window. `PisakaApp` constructs
+    and "Acknowledgements" (`AcknowledgementsView`). The selection is a private
+    four-case enum in `@State`, starting on General, and **only the selected page
+    is built** (a `TabView` built every tab eagerly). Every page is framed at the
+    one size Acknowledgements needs to read a license — the private
+    `SettingsLayout`, `metrics.scaled(640)` × `metrics.scaled(420)` — under the
+    36-point tab bar, on `bgPanel`, so switching tabs never resizes the window;
+    the old per-page widths (340 for General, 460 for LeetCode) are gone. General
+    and LeetCode lay out through two private views: `SettingsRow` (a
+    `settingsLabelColumnWidth` label column, `callout` in `textSecondary`, wrapping
+    rather than clipped, `settingsLabelGap`, then the control at its natural
+    width) and `SettingsPage` (rows `settingsRowSpacing` apart, padded by
+    `settingsPagePadding`). Where a row's control is a shared shape it speaks the
+    row's label itself and the label column is hidden from accessibility, so the
+    name is read once; a composite row (LeetCode's account and folder rows) keeps
+    its label readable. `PisakaApp` constructs
     `SettingsView(settings:provisioning:gopls:rust:installEngine:leetCode:)`,
     threading the
     provisioning models and engine through to the tabs that read them rather
@@ -1941,16 +1953,15 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     rust-analyzer's bare `.gz` unpacks one binary and no license file either — so
     neither leaves anything in the installed tree for Acknowledgements to read,
     and each row names the origin and the SPDX id instead.
-    `GeneralSettingsView` is the former Preferences form, verbatim: a thin
-    `@ObservedObject
-    SettingsStore` view (a `Form` with a `Picker` for tab orientation, a `Picker`
-    for theme, a `Stepper` + numeric "Editor font size: N pt" display bound to
-    `settings.fontSize`, ranged/stepped through the store's constants, and a
-    `Toggle` bound to `settings.completionEnabled`, "Offer completions as you
-    type", and a second `Toggle` bound to
-    `settings.indentLevelHighlightingEnabled`, "Highlight indentation levels" —
-    bound straight through in the same way, but unlike the completion flag it has
-    no second surface, so this checkbox is the only place it is set). The
+    `GeneralSettingsView` is a thin `@ObservedObject SettingsStore` view: a
+    `ChromeSegmentedControl` for tab orientation (Vertical, Horizontal) and for
+    theme (System, Light, Dark), a `ChromeStepper` for "Editor font size" bound to
+    `settings.fontSize` over `ZoomScaleRule.editorFont`, and two `ChromeSwitch`es —
+    "Offer completions as you type" bound to `settings.completionEnabled`, and
+    "Highlight indentation levels" bound to
+    `settings.indentLevelHighlightingEnabled`, bound straight through in the same
+    way, but unlike the completion flag it has no second surface, so this switch
+    is the only place it is set. The
     completion row is the *same flag* the bottom bar's lightbulb writes
     (`app-window.md`): both bind straight through to the store with no local
     `@State`, which is what makes it impossible for the two surfaces to disagree —
@@ -1971,10 +1982,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     as a plain (undefaulted) value on `CodeEditorView` plus the Find > "Complete"
     item's `.disabled` in `PisakaApp`, and indentation-level highlighting as a
     second such value on `CodeEditorView` (`app-editor-overlays.md`).
-    The zoom feature adds a **"Terminal font size: N pt" `Stepper`** beside the
-    editor's, bound to `settings.terminalFontSize` over the same rule's
-    range/step, so the two font zones read as one pair of rows and share the
-    store's clamping; the interface zone has no row of its own (it is a gesture
+    The zoom feature adds a **"Terminal font size" `ChromeStepper`** beside the
+    editor's, bound to `settings.terminalFontSize` over `ZoomScaleRule.terminalFont`
+    (both show `"<n> pt"` and step through the rule's `stepped(_:by:)`, pinned by
+    `ZoomSourceGatingTests`), so the two font zones read as one pair of rows and
+    share the store's clamping; the interface zone has no row of its own (it is a gesture
     and ⌘=/⌘−/⌘0, per `core-zoom.md`). The Preferences form is itself *scaled* by
     the interface zone — `PisakaApp` applies `.interfaceScaled(settings)` to the
     `Settings` scene rather than inside `SettingsView`, because an environment
@@ -2007,9 +2019,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `LoaderError.missingManifest`.
   - `Platform/LicenseTextView.swift` — the read-only, selectable, scrolling pane
     that renders one verbatim license text, shared by both Acknowledgements
-    screens (non-gated for the same reason as the loader: only the concrete text
-    view differs — `NSTextView` in an `NSScrollView` on macOS, `UITextView` on
-    iOS). **It is TextKit and not `ScrollView { Text(…) }`, and that is the
+    screens (in `Platform/` for the same reason as the loader: only the concrete
+    text view differs — `NSTextView` in an `NSScrollView` on macOS, `UITextView`
+    on iOS; unlike the loader it is in the chrome theme's gated set since part
+    five (c), see the paragraph closing this entry). **It is TextKit and not `ScrollView { Text(…) }`, and that is the
     point.** These texts are not label-sized: `libgit2.txt` is 66 KB / 1,323
     lines and `tree-sitter.txt` is 22 KB, which at caption-monospaced on a phone
     width wraps to a laid-out height in the tens of thousands of points. A
@@ -2043,24 +2056,40 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     changes both without changing the text, and re-assigning the 66 KB string on
     every step would drop the selection and scroll position that guard exists to
     protect.
+    **The macOS half draws on the chrome roles** (part five (c), `core-theme.md`):
+    its text colour is `ChromePalette.nsColor(.textPrimary)`, a dynamic colour
+    set once in `apply` that resolves whenever the text draws, so an appearance
+    change needs no re-assignment; the scroll view and the text view keep
+    `drawsBackground = false`, and the `bgEditor` ground is painted by the
+    SwiftUI caller behind the representable — an AppKit `backgroundColor` here
+    would be a second ground (chrome rule thirty-one). **The iOS half is not
+    swept** (iOS is outside the chrome theme): its `backgroundColor = .clear` on
+    the `UITextView`, so the screen's ground shows through, is the sixth site
+    rule thirty-one pins by file and count, and its `textColor = .label` is a
+    UIKit name rule one's AppKit/SwiftUI list does not carry — recorded as an
+    open question, not an exemption.
   - `AcknowledgementsView.swift` — the Preferences "Acknowledgements" tab: an
     `HSplitView` with the dependency list (name + SPDX, `minWidth: 180` /
     `maxWidth: 280`) beside the selected entry's identity (name, SPDX,
-    version/revision, origin) and its full license text, at a fixed 640×420. The
+    version/revision, origin) and its full license text, filling the one page
+    size the Preferences host frames (`SettingsView`'s 640×420, the size this
+    tab always needed; the frame moved there in part five (c)). The
     text pane is the shared `LicenseTextView` above (TextKit-backed, monospaced,
     selectable), rendered **whole** — never truncated or reflowed, the copyright
     lines and the permission notice being the obligation itself.
     `version` is omitted when `nil` (three entries have no upstream tag) rather
     than rendered blank; `revision` is always shown in full, the 40 hex characters
-    being what makes the text verifiable; `origin` becomes a `Link` exactly when
+    being what makes the text verifiable; `origin` becomes a clickable button
+    (a `.plain` button with an `accent` label calling `@Environment(\.openURL)`;
+    a `Link` would draw the platform's link colour) exactly when
     Core's `LicenseNotice.originURL` is non-nil (the `https://` remotes; the two
     `Vendor/<name>` paths stay plain text) — the rule lives there, not here, so
     the two platform screens cannot drift apart on it. The loader's
     `documents`/`failureDescription` are read through *computed* properties, not
-    stored ones: `SettingsView`'s `TabView` builds both tab views eagerly, so a
-    stored property would read the whole `Licenses/` directory off disk on the
-    main thread whenever Preferences opens — General tab included — and the
-    loader's one-shot cache makes the repeated lookup free. When the
+    stored ones. The reason they were first given — `SettingsView`'s `TabView`
+    building every tab eagerly — is gone: the host builds only the selected page
+    since part five (c). They stay computed because the loader's one-shot cache
+    makes the repeated lookup free and nothing is held twice. When the
     loader fails, the view shows `failureDescription` in place of the list, so "no
     dependencies" can never be the silent reading. No logic (untested like the
     rest of the view layer); the iOS peer is `AcknowledgementsView_iOS` in
@@ -2076,4 +2105,17 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `@State` re-read on `.task(id: provisioning.rows)` rather than a computed
     property, because — unlike the bundled catalog — it *can* change while the
     window is open; a removal that deletes the selected entry falls back to the
-    first bundled one instead of leaving the placeholder.
+    first bundled one instead of leaving the placeholder. Because only the
+    selected page is built, **the list selection resets on each visit**: leaving
+    Acknowledgements discards the view and its `@State`, and coming back selects
+    the first bundled entry again.
+    **Chrome (part five (c), `core-theme.md`).** The list is a selectable `List`
+    with `.scrollContentBackground(.hidden)` over `bgPanel` and **no row
+    background at all**, so the platform's selection box is never painted over —
+    pinned by rule thirty-five as an empty list of backgrounds; the platform's
+    selection itself stays, an open question. Section headers and SPDX lines are
+    `textSecondary`, names `textPrimary`. The detail stands on a `bgPanel` header
+    above a `hairline` rule (a `Rectangle` at `hairlineWidth`, where a
+    `Divider()` stood) and the license text on `bgEditor`, painted behind the
+    representable. The failure state's glyph and sentence are `textSecondary`.
+    `HSplitView`'s divider stays the platform's, as in three other gated files.

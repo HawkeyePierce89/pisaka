@@ -330,25 +330,69 @@ final class ZoomSourceGatingTests: XCTestCase {
 
     // MARK: - The Preferences stepper shares the zoom grid
 
-    func testThePreferencesTerminalStepperReadsItsGridFromTheZoomRule() throws {
+    func testThePreferencesStepperReadsItsGridFromTheZoomRule() throws {
         // `SettingsStoreTests` can only assert that the *store* accepts the rule's
         // bounds; whether the row presents them is a fact about a view no unit
-        // test can reach. Hard-coding `in: 8...40, step: 2` here would compile and
-        // drift silently from the grid ⌘0 and the gestures land on.
-        let url = try XCTUnwrap(
-            try Self.swiftSources().first { $0.lastPathComponent == "SettingsView.swift" }
-        )
-        let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+        // test can reach. A stepper handed hard-coded bounds would compile and
+        // drift silently from the grid ⌘0 and the gestures land on — so each
+        // `ChromeStepper(` names its zone's rule, and the stepper itself steps
+        // through that rule's `stepped(_:by:)` rather than a grid of its own.
+        let sources = try Self.swiftSources()
+        let settingsURL = try XCTUnwrap(sources.first { $0.lastPathComponent == "SettingsView.swift" })
+        let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(settingsURL))
+        let calls = ChromeThemeSourceGatingTests.callRanges("ChromeStepper(", in: code)
+            .compactMap { Self.parenthesizedArguments(openingAt: code.index(before: $0.upperBound), in: code) }
+        for (binding, rule) in [
+            ("$settings.terminalFontSize", "ZoomScaleRule.terminalFont"),
+            ("$settings.fontSize", "ZoomScaleRule.editorFont"),
+        ] {
+            let bound = calls.filter { LSPSourceGatingTests.containsToken(binding, in: $0) }
+            XCTAssertEqual(bound.count, 1, "Preferences should hold exactly one ChromeStepper bound to \(binding)")
+            for arguments in bound {
+                XCTAssertTrue(
+                    LSPSourceGatingTests.containsToken(rule, in: arguments),
+                    "the stepper bound to \(binding) does not name \(rule)"
+                )
+            }
+        }
+        let controlsURL = try XCTUnwrap(sources.first { $0.lastPathComponent == "ChromeControls.swift" })
+        let controls = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(controlsURL))
         let stepper = try XCTUnwrap(
-            code.range(of: "$settings.terminalFontSize").map { code[$0.lowerBound...] },
-            "the terminal font-size Stepper is gone from Preferences"
+            ChromeThemeSourceGatingTests.matchedBody(after: "struct ChromeStepper", in: controls),
+            "ChromeStepper is gone from ChromeControls.swift"
         )
-        // Read only as far as the row's own closing brace region: the next
-        // `Stepper(`/`Toggle(` after it starts a different row.
-        let row = String(stepper.prefix(400))
-        XCTAssertTrue(row.contains("ZoomScaleRule.terminalFont.minimum"), "the lower bound is not the rule's")
-        XCTAssertTrue(row.contains("ZoomScaleRule.terminalFont.maximum"), "the upper bound is not the rule's")
-        XCTAssertTrue(row.contains("ZoomScaleRule.terminalFont.step"), "the step is not the rule's")
+        // Each half is read on its own: `stepped` in the whole body would stay
+        // green on the accessibility action alone while the visible glyph
+        // buttons drifted to arithmetic of their own, and the reverse.
+        for (declaration, half) in [
+            ("private func stepButton(", "the visible minus/plus buttons (stepButton)"),
+            ("private func adjust(", "the accessibility adjust action (adjust)"),
+        ] {
+            let body = try XCTUnwrap(
+                ChromeThemeSourceGatingTests.matchedBody(after: declaration, in: stepper),
+                "ChromeStepper no longer declares \(declaration)…)"
+            )
+            XCTAssertTrue(
+                LSPSourceGatingTests.containsToken("stepped", in: body),
+                "ChromeStepper: \(half) no longer steps through its rule's stepped(_:by:)"
+            )
+        }
+    }
+
+    /// The parenthesis-matched argument list whose `(` sits at `open`.
+    private static func parenthesizedArguments(openingAt open: String.Index, in code: String) -> String? {
+        guard code[open] == "(" else { return nil }
+        var depth = 0
+        var index = open
+        while index < code.endIndex {
+            if code[index] == "(" { depth += 1 }
+            if code[index] == ")" {
+                depth -= 1
+                if depth == 0 { return String(code[code.index(after: open)..<index]) }
+            }
+            index = code.index(after: index)
+        }
+        return nil
     }
 
     // MARK: - Reading the sources

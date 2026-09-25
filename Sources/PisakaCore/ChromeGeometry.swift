@@ -26,11 +26,26 @@ import Foundation
 ///
 /// The inventory below is the whole table, and it is pinned by set equality in
 /// `ChromeThemeTests` — a token added here without its test fails the suite.
-/// Six of them are insets rather than sizes (`rowPaddingX`, `barPaddingX`,
-/// `panelHeaderPaddingX`, `dockTabRowPaddingX`, `dockTabLabelPaddingX`,
-/// `buttonPaddingX`) and
-/// they are deliberately distinct tokens for distinct measurements, even where
-/// two values coincide; see `barPaddingX`'s own comment.
+/// Some of them are insets, paddings, gaps or spacings rather than sizes
+/// (`rowPaddingX`, `barPaddingX`, `panelHeaderPaddingX`, `dockTabRowPaddingX`,
+/// `dockTabLabelPaddingX`, `buttonPaddingX`, `fieldPaddingX`,
+/// `secondaryButtonPaddingX`, `segmentedControlInset`, `segmentGap`,
+/// `segmentPaddingX`, `stepperPaddingX`, `stepperPartGap`, `switchInset`,
+/// `settingsTabBarPaddingX`, `settingsTabGap`, `settingsTabLabelPaddingX`,
+/// `settingsPagePadding`, `settingsRowSpacing`, `settingsLabelGap`) and they
+/// are deliberately distinct tokens for distinct measurements, even where two
+/// values coincide; see `barPaddingX`'s own comment. The list carries no count:
+/// a stated count fell behind the table twice, and the test's set is the count.
+///
+/// The Preferences window's tab bar carries measurements of its own
+/// (`settingsTabBarHeight`, `settingsTabBarPaddingX`, `settingsTabGap`,
+/// `settingsTabLabelPaddingX`), deliberately *not* the dock tab row's: the two
+/// rows are drawn from one pattern — an accent indicator under the selected
+/// label, `accentIndicator` on both — but they are two surfaces measured by two
+/// designs, and sharing a token would make one of them move whenever the other
+/// is retuned. The shared shapes' radii are reused rather than duplicated: the
+/// segmented control's outer corner is `cornerRadiusMax` and its segments'
+/// `fieldCornerRadius`, and the stepper's box is `fieldCornerRadius` too.
 public enum ChromeGeometry {
     /// A tree or list row's total height, hover highlight included.
     public static let rowHeight: Double = 24
@@ -107,4 +122,67 @@ public enum ChromeGeometry {
     public static let checkboxSide: Double = 14
     /// The chrome checkbox's corner radius.
     public static let checkboxCornerRadius: Double = 3
+    /// The shared segmented control's outer height. Equal to `menuFieldHeight`,
+    /// but a measurement of its own: no surface draws both today, and the menu
+    /// field's 26 was chosen to agree with this should a page ever draw both.
+    /// Its outer corner is `cornerRadiusMax`, not a token of its own.
+    public static let segmentedControlHeight: Double = 26
+    /// One segment's height inside the control. Its corner is
+    /// `fieldCornerRadius`, not a token of its own.
+    public static let segmentHeight: Double = 22
+    /// The inset between the segmented control's edge and its segments.
+    /// Equal to `segmentGap`, but the edge's inset, not the gap between two
+    /// segments.
+    public static let segmentedControlInset: Double = 2
+    /// The gap between two adjacent segments. Equal to `segmentedControlInset`;
+    /// see that token's comment.
+    public static let segmentGap: Double = 2
+    /// A segment's horizontal padding around its title. Equal to `barPaddingX`,
+    /// but a segment's box around its title, not a strip's inset.
+    public static let segmentPaddingX: Double = 12
+    /// The shared stepper's height. Its corner is `fieldCornerRadius`, not a
+    /// token of its own.
+    public static let stepperHeight: Double = 24
+    /// The stepper's horizontal padding inside its box. Equal to `rowPaddingX`,
+    /// but a control's padding, not a row's.
+    public static let stepperPaddingX: Double = 8
+    /// The gap between the stepper's parts: the decrement glyph, the value and
+    /// the increment glyph.
+    public static let stepperPartGap: Double = 10
+    /// The shared switch's track width.
+    public static let switchWidth: Double = 36
+    /// The shared switch's track height.
+    public static let switchHeight: Double = 20
+    /// The inset between the switch's track and its knob. Equal to
+    /// `segmentedControlInset`, but the switch's own measurement.
+    public static let switchInset: Double = 2
+    /// The side of the switch's round knob. A token of its own: the knob is
+    /// not computed from `switchHeight` and `switchInset`.
+    public static let switchKnobSide: Double = 16
+    /// The Preferences window's tab bar height. Deliberately *not*
+    /// `dockTabRowHeight`; see the type's doc comment.
+    public static let settingsTabBarHeight: Double = 36
+    /// The settings tab bar's horizontal inset from the window edge. Equal to
+    /// `treeIndentStep`, but a strip's inset, not a nesting step.
+    public static let settingsTabBarPaddingX: Double = 16
+    /// The gap between two settings tabs.
+    public static let settingsTabGap: Double = 4
+    /// A settings tab's horizontal padding around its label — the box the
+    /// accent indicator spans. Equal to `dockTabLabelPaddingX`, but deliberately
+    /// not it; see the type's doc comment.
+    public static let settingsTabLabelPaddingX: Double = 10
+    /// A settings page's padding on every edge.
+    public static let settingsPagePadding: Double = 28
+    /// The vertical spacing between two settings rows.
+    public static let settingsRowSpacing: Double = 22
+    /// The width of a settings row's label column.
+    public static let settingsLabelColumnWidth: Double = 180
+    /// The gap between a settings row's label column and its control. Equal to
+    /// `settingsTabBarPaddingX`, but a column gap, not a strip's inset.
+    public static let settingsLabelGap: Double = 16
+    /// The shared menu field's height. Equal to `segmentedControlHeight`, but a
+    /// measurement of its own — two shapes are two measurements. The design
+    /// draws no menu field on a settings page and no surface draws both today;
+    /// 26 is chosen to agree with the segmented control should a page ever do.
+    public static let menuFieldHeight: Double = 26
 }
