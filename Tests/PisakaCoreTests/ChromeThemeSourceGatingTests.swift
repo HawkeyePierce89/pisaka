@@ -254,6 +254,10 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         // it reads (the latter paints nothing — see `roleNamingExemptions`).
         "LSPServerSettingsView.swift",
         "LSPInstalledLicenses.swift",
+        // Part five (c): Acknowledgements and the licence pane behind it. The
+        // pane's iOS half is not swept (see `pinnedBackgroundAssignments`).
+        "AcknowledgementsView.swift",
+        "LicenseTextView.swift",
     ]
 
     func testEveryGatedFileExists() throws {
@@ -2681,6 +2685,9 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
             1, "`.clear` on a borderless NSPanel, which must stay clear for its own rounded layer to draw — not a code pane"
         ),
         "ProjectSearchView.swift": (1, "a text attribute's background, not a view's"),
+        "LicenseTextView.swift": (
+            1, "the unswept iOS half's `.clear` on a UITextView, so the screen's ground shows through — not a code pane"
+        ),
     ]
 
     /// **Total, and it resolves no types.** Across the gated set plus
@@ -3315,6 +3322,9 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         "LocalHistoryView.swift": [
             ["snapshot.fileName == selection.wrappedValue ? Color.clear : chromeColor(.bgPanel)"],
         ],
+        // The dependency list sets no row background at all: the platform draws
+        // the selection, and nothing paints over it.
+        "AcknowledgementsView.swift": [[]],
     ]
 
     /// On macOS a `listRowBackground` is drawn **over** the selection box the

@@ -323,28 +323,28 @@ Every shape below reads `\.interfaceMetrics` and `\.chromeTheme`, and takes ever
 - Modify: `Sources/Pisaka/Platform/LicenseTextView.swift`
 - Modify: `Tests/PisakaCoreTests/ChromeThemeSourceGatingTests.swift`
 
-- [ ] **Failure state:**
+- [x] **Failure state:**
   - the glyph is `textSecondary`, keeps its scaled font and is hidden by its own `.accessibilityHidden(true)`;
   - the sentence is `textSecondary`.
-- [ ] **The list:**
+- [x] **The list:**
   - `.scrollContentBackground(.hidden)` on `bgPanel`, with platform selection and no `listRowBackground`;
   - section headers become `Section { … } header: { Text(…) }` in `textSecondary`;
   - a row's name is `textPrimary` and its SPDX line `textSecondary`.
-- [ ] **The detail pane:**
+- [x] **The detail pane:**
   - the header is on `bgPanel`: name `textPrimary`, SPDX `textSecondary`, `LabeledField` labels `textSecondary` and values `textPrimary`;
   - the origin becomes a `.plain` button with an `accent` label calling `openURL` (decision 14);
   - the `Divider()` becomes a horizontal `hairline` rule;
   - `LicenseTextView` is backed by `bgEditor` (decision 12);
   - "Select a dependency." is `textSecondary`.
-- [ ] The 640×420 frame moves to the host (Task 4), and the page fills it. Update the comments that named the `TabView`.
-- [ ] **`LicenseTextView.swift`, macOS half:**
+- [x] The 640×420 frame moves to the host (Task 4), and the page fills it. Update the comments that named the `TabView`.
+- [x] **`LicenseTextView.swift`, macOS half:**
   - `textColor = ChromePalette.nsColor(.textPrimary)` instead of `.labelColor`. A dynamic colour needs no appearance bracket; one line says so.
   - Correct the header comment that calls `Platform/` non-gated for this file.
   - The iOS half is untouched (decision 13).
-- [ ] Add `AcknowledgementsView.swift` and `LicenseTextView.swift` to `gatedFiles`.
-- [ ] **Rule thirty-five:** pin `"AcknowledgementsView.swift": [[]]`, one selectable list with no row background, with a comment saying the platform draws the selection.
-- [ ] **Rule thirty-one:** add `"LicenseTextView.swift": (1, …)` with decision 13's reason.
-- [ ] Run `swift test` and the macOS build. Both must pass. `InterfaceMetricsTests`' Acknowledgements arithmetic is unchanged and must stay green.
+- [x] Add `AcknowledgementsView.swift` and `LicenseTextView.swift` to `gatedFiles`.
+- [x] **Rule thirty-five:** pin `"AcknowledgementsView.swift": [[]]`, one selectable list with no row background, with a comment saying the platform draws the selection.
+- [x] **Rule thirty-one:** add `"LicenseTextView.swift": (1, …)` with decision 13's reason.
+- [x] Run `swift test` and the macOS build. Both must pass. `InterfaceMetricsTests`' Acknowledgements arithmetic is unchanged and must stay green.
 
 ### Task 7: The two pull-request sheets
 

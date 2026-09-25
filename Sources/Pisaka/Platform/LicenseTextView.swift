@@ -4,9 +4,13 @@ import SwiftUI
 /// A read-only, selectable, scrolling pane for one verbatim license text — the
 /// body of both Acknowledgements screens.
 ///
-/// Lives in the non-gated `Platform/` layer because both screens need it and the
-/// only per-platform part is which concrete text view backs it. It makes no
-/// decisions about *what* is shown: it takes a `String` and renders all of it.
+/// Lives in `Platform/` because both screens need it and the only per-platform
+/// part is which concrete text view backs it. The file is in the chrome theme's
+/// gated set (`ChromeThemeSourceGatingTests`): the macOS half draws its text in
+/// the `textPrimary` role, and the ground behind it is the caller's `bgEditor`.
+/// The iOS half is not swept — iOS is outside the chrome theme — and its one
+/// `backgroundColor = .clear` is a pinned assignment of rule thirty-one. It makes
+/// no decisions about *what* is shown: it takes a `String` and renders all of it.
 ///
 /// **Why this is TextKit and not `ScrollView { Text(...) }`.** The texts here are
 /// not label-sized. `libgit2.txt` is 66 KB / 1,323 lines, and `tree-sitter.txt`
@@ -60,6 +64,7 @@ struct LicenseTextView: View {
 
 #if os(macOS)
 import AppKit
+import PisakaCore
 
 extension LicenseTextView {
     fileprivate struct Representable: NSViewRepresentable {
@@ -131,7 +136,9 @@ extension LicenseTextView {
         private func apply(text: String, to textView: NSTextView) {
             textView.string = text
             textView.font = font
-            textView.textColor = .labelColor
+            // A dynamic colour resolves whenever the text draws, so an
+            // appearance change needs no bracket and no re-assignment here.
+            textView.textColor = ChromePalette.nsColor(.textPrimary)
         }
 
         private var font: NSFont {
