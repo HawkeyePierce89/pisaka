@@ -91,6 +91,8 @@ final class ChromeThemeTests: XCTestCase {
         XCTAssertEqual(ChromeGeometry.settingsLabelColumnWidth, 180)
         XCTAssertEqual(ChromeGeometry.settingsLabelGap, 16)
         XCTAssertEqual(ChromeGeometry.menuFieldHeight, 26)
+        XCTAssertEqual(ChromeGeometry.spinnerSide, 16)
+        XCTAssertEqual(ChromeGeometry.spinnerLineWidth, 2)
     }
 
     /// `ChromeGeometry` is a namespace of `static let`s, so its membership is
@@ -116,7 +118,7 @@ final class ChromeThemeTests: XCTestCase {
             "switchHeight", "switchInset", "switchKnobSide", "settingsTabBarHeight",
             "settingsTabBarPaddingX", "settingsTabGap", "settingsTabLabelPaddingX",
             "settingsPagePadding", "settingsRowSpacing", "settingsLabelColumnWidth",
-            "settingsLabelGap", "menuFieldHeight",
+            "settingsLabelGap", "menuFieldHeight", "spinnerSide", "spinnerLineWidth",
         ])
         for suspect in ["font", "Font", "fontSize", "textSize"] {
             XCTAssertFalse(

@@ -185,4 +185,8 @@ public enum ChromeGeometry {
     /// draws no menu field on a settings page and no surface draws both today;
     /// 26 is chosen to agree with the segmented control should a page ever do.
     public static let menuFieldHeight: Double = 26
+    /// The shared spinner's side — the small control size it replaces.
+    public static let spinnerSide: Double = 16
+    /// The width of the stroke the shared spinner's arc is drawn with.
+    public static let spinnerLineWidth: Double = 2
 }

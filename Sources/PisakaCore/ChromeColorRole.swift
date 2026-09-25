@@ -156,6 +156,40 @@ extension ChromeColorRole {
         }
     }
 
+    /// A problem's difficulty → the role its word is drawn in. The chrome's
+    /// **one** answer, read by the problem-catalog browser's rows alone; the
+    /// view keeps the word, never a colour table. There is no orange role, so
+    /// medium takes `statusYellow` — the same role an attempted problem takes.
+    public static func difficultyRole(for difficulty: LeetCodeDifficulty) -> ChromeColorRole {
+        switch difficulty {
+        case .easy: return .statusGreen
+        case .medium: return .statusYellow
+        case .hard: return .statusRed
+        }
+    }
+
+    /// How far the account has got with a problem → its status cell's role. One
+    /// answer, read by the problem-catalog browser's rows alone; the glyph and
+    /// the word stay the view's. A problem never started is a remark, not a
+    /// condition, and is drawn in `textSecondary`.
+    public static func problemStatusRole(for status: LeetCodeProblemStatus) -> ChromeColorRole {
+        switch status {
+        case .solved: return .statusGreen
+        case .attempted: return .statusYellow
+        case .notStarted: return .textSecondary
+        }
+    }
+
+    /// A judge verdict → the role its header is drawn in. One answer, read by
+    /// the judge section alone, and it carries the "good" rule with it: a
+    /// verdict is good when it is `.accepted` **and** the run did not report
+    /// a mismatch against the expected output (`matchedExpected == false`). A
+    /// run passes its own `matchedExpected`; a submit, which compares against
+    /// no expected output, passes `nil`. Every other verdict is `statusRed`.
+    public static func verdictRole(for verdict: LeetCodeVerdict, matchedExpected: Bool?) -> ChromeColorRole {
+        verdict == .accepted && matchedExpected != false ? .statusGreen : .statusRed
+    }
+
     /// A side-by-side diff row's wash on one side, or `nil` for a plain row.
     /// A modified row is washed on both sides; an added row only on the new
     /// side and a removed row only on the old — the opposite side's filler row

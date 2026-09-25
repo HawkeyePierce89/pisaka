@@ -157,17 +157,17 @@ Rule forty then bans `ProgressView` in every gated file.
 - Modify: `Sources/PisakaCore/ChromeGeometry.swift`
 - Modify: `Tests/PisakaCoreTests/ChromeRoleMappingTests.swift`
 - Modify: `Tests/PisakaCoreTests/ChromeThemeTests.swift`
-- [ ] Add `difficultyRole(for: LeetCodeDifficulty) -> ChromeColorRole`: easy `statusGreen`, medium `statusYellow`, hard `statusRed` (decision 15).
-- [ ] Add `problemStatusRole(for: LeetCodeProblemStatus) -> ChromeColorRole`: solved `statusGreen`, attempted `statusYellow`, notStarted `textSecondary`.
-- [ ] Add `verdictRole(for: LeetCodeVerdict, matchedExpected: Bool?) -> ChromeColorRole` (decision 14).
-- [ ] Each answer gets a doc comment in the existing answers' manner, naming its one reader.
-- [ ] Update the type's header paragraph only where it inventories the answers.
-- [ ] Add `spinnerSide` = 16 and `spinnerLineWidth` = 2 to `ChromeGeometry`, each with a one-line comment. Neither is derived from another.
-- [ ] Tests, total over every case:
+- [x] Add `difficultyRole(for: LeetCodeDifficulty) -> ChromeColorRole`: easy `statusGreen`, medium `statusYellow`, hard `statusRed` (decision 15).
+- [x] Add `problemStatusRole(for: LeetCodeProblemStatus) -> ChromeColorRole`: solved `statusGreen`, attempted `statusYellow`, notStarted `textSecondary`.
+- [x] Add `verdictRole(for: LeetCodeVerdict, matchedExpected: Bool?) -> ChromeColorRole` (decision 14).
+- [x] Each answer gets a doc comment in the existing answers' manner, naming its one reader.
+- [x] Update the type's header paragraph only where it inventories the answers. (No change needed: the header inventories spent roles, not answers, and the three answers spend no new role.)
+- [x] Add `spinnerSide` = 16 and `spinnerLineWidth` = 2 to `ChromeGeometry`, each with a one-line comment. Neither is derived from another.
+- [x] Tests, total over every case:
   - `testEveryDifficultyHasItsRole` and `testEveryProblemStatusHasItsRole`, over `allCases`;
   - `testEveryVerdictHasItsRoleForEveryMatchAnswer`, over every `LeetCodeVerdict` × {`nil`, `true`, `false`};
   - extend the two geometry tests (the table values and the set-equality inventory).
-- [ ] Run `swift test`. It must pass.
+- [x] Run `swift test`. It must pass.
 
 ### Task 2: The shared spinner, and the fifteen already-gated sites
 

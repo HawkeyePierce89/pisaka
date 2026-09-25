@@ -5,7 +5,8 @@ import XCTest
 /// changed-file status (letter, word and role), the pull-request checks (the
 /// summary's glyph, words and role; one job's bucket's words and role — the job
 /// row draws a dot, not a glyph) and the diff row
-/// wash and marker. Every answer is pinned verbatim over `allCases`, so a case
+/// wash and marker, and the problem catalog's three (difficulty, problem
+/// status and the judge verdict). Every answer is pinned verbatim over `allCases`, so a case
 /// added to any of these vocabularies fails here until it is given one.
 final class ChromeRoleMappingTests: XCTestCase {
 
@@ -138,5 +139,51 @@ final class ChromeRoleMappingTests: XCTestCase {
             Set(MergeLineKind.allCases.filter { ChromeColorRole.mergeWashRole(for: $0) == .conflictBackground }),
             [.ours, .theirs, .conflictUnresolved]
         )
+    }
+
+    // MARK: - Problem catalog
+
+    func testEveryDifficultyHasItsRole() {
+        let expected: [LeetCodeDifficulty: ChromeColorRole] = [
+            .easy: .statusGreen,
+            .medium: .statusYellow,
+            .hard: .statusRed,
+        ]
+        XCTAssertEqual(Set(expected.keys), Set(LeetCodeDifficulty.allCases))
+        for difficulty in LeetCodeDifficulty.allCases {
+            XCTAssertEqual(ChromeColorRole.difficultyRole(for: difficulty), expected[difficulty], "\(difficulty)")
+        }
+    }
+
+    func testEveryProblemStatusHasItsRole() {
+        let expected: [LeetCodeProblemStatus: ChromeColorRole] = [
+            .solved: .statusGreen,
+            .attempted: .statusYellow,
+            .notStarted: .textSecondary,
+        ]
+        XCTAssertEqual(Set(expected.keys), Set(LeetCodeProblemStatus.allCases))
+        for status in LeetCodeProblemStatus.allCases {
+            XCTAssertEqual(ChromeColorRole.problemStatusRole(for: status), expected[status], "\(status)")
+        }
+    }
+
+    /// Every verdict × every match answer: green only for an accepted verdict
+    /// whose run did not report a mismatch (a submit passes `nil`).
+    func testEveryVerdictHasItsRoleForEveryMatchAnswer() {
+        let matchAnswers: [Bool?] = [nil, true, false]
+        for verdict in LeetCodeVerdict.allCases {
+            for matched in matchAnswers {
+                let expected: ChromeColorRole = verdict == .accepted && matched != false
+                    ? .statusGreen : .statusRed
+                XCTAssertEqual(
+                    ChromeColorRole.verdictRole(for: verdict, matchedExpected: matched), expected,
+                    "\(verdict)/\(String(describing: matched))"
+                )
+            }
+        }
+        XCTAssertEqual(ChromeColorRole.verdictRole(for: .accepted, matchedExpected: nil), .statusGreen)
+        XCTAssertEqual(ChromeColorRole.verdictRole(for: .accepted, matchedExpected: true), .statusGreen)
+        XCTAssertEqual(ChromeColorRole.verdictRole(for: .accepted, matchedExpected: false), .statusRed)
+        XCTAssertEqual(ChromeColorRole.verdictRole(for: .wrongAnswer, matchedExpected: true), .statusRed)
     }
 }
