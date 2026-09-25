@@ -519,7 +519,7 @@ pass while the code it describes was deleted) and asserts:
     from the grid ⌘0 and the gestures land on. The stepper's two halves are
     checked **separately**, each in its own matched body: `stepButton(…)`, the
     visible minus and plus, and `adjust(_:)`, the accessibility action. Until
-    fix 01 of part five (c) the clause asked for `stepped` anywhere in the
+    part five (c)'s review round the clause asked for `stepped` anywhere in the
     stepper's whole body, which `adjust` alone satisfied while the glyph buttons
     could have drifted to arithmetic of their own.
 
