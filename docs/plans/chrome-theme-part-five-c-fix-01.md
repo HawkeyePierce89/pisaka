@@ -269,13 +269,19 @@ gate green, on the exact regression the failure message names. `core-zoom.md` cl
 
 ### Task 7: Verify the gates
 
-- [ ] Run every command in **Validation Commands**. All must pass. Report exact
+- [x] Run every command in **Validation Commands**. All must pass. Report exact
       counts: the Core test total, the app-bundle total, the SwiftLint violation and
       file counts, and both build verdicts.
-- [ ] Confirm the rule count and the gated-file count agree in all four places they
+      (swift test: 5776 tests, 0 failures; app bundle: 122 tests, 0 failures,
+      TEST SUCCEEDED; SwiftLint --strict: 0 violations, 0 serious in 589 files;
+      macOS Release build and generic iOS build: BUILD SUCCEEDED.)
+- [x] Confirm the rule count and the gated-file count agree in all four places they
       are spelled — the suite's markers, the suite's header inventory,
       `core-theme.md`'s canonical list and `CLAUDE.md`.
-- [ ] Confirm `git status --porcelain` is empty.
+      (37 rule markers, 37 header bullets, 37 canonical list items, "thirty-seven"
+      in CLAUDE.md; 51 gated files in the set, "fifty-one" in core-theme.md and
+      CLAUDE.md.)
+- [x] Confirm `git status --porcelain` is empty.
 
 ## Post-Completion
 
