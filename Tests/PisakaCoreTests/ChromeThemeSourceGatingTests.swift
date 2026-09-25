@@ -166,9 +166,11 @@ import XCTest
 ///   metrics; the chrome draws a replacement for every one.
 /// - **A picker's shape follows its set, and each settings shape has its pinned callers.**
 ///   A small build-time set is segmented, a run-time set a menu field, a
-///   preference a switch; the callers of each shape are pinned, so a control
-///   changing shape moves a file between sets. The menu field's chevron lies
-///   inside its `Menu`'s label, so the arrow it draws is the control.
+///   preference a switch; the callers of each shape are pinned by set, and
+///   each caller's construction count by file, so a control changing shape
+///   changes a count even inside a file already spelling both shapes. The
+///   menu field's chevron lies inside its `Menu`'s label, so the arrow it
+///   draws is the control.
 ///
 /// What a rule here may do, and nothing more: pin a set by equality, assert the
 /// presence or absence of a token through `containsToken`, or take a
@@ -3588,39 +3590,56 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
 
     // MARK: - Rule thirty-seven: a picker's shape follows its set, and each settings shape has its pinned callers
 
-    /// The files spelling each settings shape, the defining file included.
-    private static let settingsShapeCallers: [(token: String, files: Set<String>)] = [
-        ("ChromeSegmentedControl", [
-            "ChromeControls.swift", "SettingsView.swift", "PullRequestMergeSheet.swift",
-        ]),
-        ("ChromeMenuField", [
-            "ChromeControls.swift", "LogFilterBar.swift", "SettingsView.swift", "NewPullRequestSheet.swift",
-        ]),
-        ("ChromeStepper", ["ChromeControls.swift", "SettingsView.swift"]),
-        ("ChromeSwitch", ["ChromeControls.swift", "SettingsView.swift"]),
-        ("ChromeSettingsTabBar", ["ChromeControls.swift", "SettingsView.swift"]),
+    /// Each settings shape's constructions, per calling file. The defining
+    /// file, `ChromeControls.swift`, constructs none of them and spells each
+    /// only in its declaration, so it is not a key here; the mention rule below
+    /// adds it back.
+    private static let settingsShapeConstructions: [(token: String, counts: [String: Int])] = [
+        ("ChromeSegmentedControl", ["SettingsView.swift": 2, "PullRequestMergeSheet.swift": 1]),
+        ("ChromeMenuField", ["LogFilterBar.swift": 1, "SettingsView.swift": 1, "NewPullRequestSheet.swift": 1]),
+        ("ChromeStepper", ["SettingsView.swift": 2]),
+        ("ChromeSwitch", ["SettingsView.swift": 2]),
+        ("ChromeSettingsTabBar", ["SettingsView.swift": 1]),
     ]
 
     /// A picker's shape follows its set: a small set known when the app is
     /// built (the tab placement, the theme, the merge methods) is a segmented
     /// control, and a set read at run time (branches, languages) is a menu
     /// field; a standing preference is a switch, and an option of one action is
-    /// a checkbox. The rule cannot read a set's size, so the pinned sets below
-    /// are its whole expression — a segmented base-branch list, or a switch
-    /// where a checkbox belongs, moves a file between sets and fails here, and a
-    /// person decides whether the new shape is right before updating the pin.
+    /// a checkbox. The rule cannot read a set's size, so it pins two things
+    /// per shape: the files that spell it (the defining file included), by set
+    /// equality, and how many times each of those files *constructs* it,
+    /// counted through `callRanges(_:in:)` so a wrapped call counts — rule
+    /// thirty's shape, applied to the five settings shapes. The sets alone were
+    /// blind to a shape change inside a file that already spells both shapes:
+    /// `SettingsView.swift` builds two segmented controls and one menu field, so
+    /// turning one into the other kept it in both sets. A segmented
+    /// base-branch list, a switch where a checkbox belongs, or a second segmented
+    /// control added to a pinned file each changes a count or a set and fails
+    /// here, and a person decides whether the new shape is right before updating
+    /// the pin.
     func testAPickersShapeFollowsItsSetAndEachSettingsShapeHasItsPinnedCallers() throws {
         var callers: [String: Set<String>] = [:]
+        var constructions: [String: [String: Int]] = [:]
         for url in try Self.swiftSources() {
             let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
-            for (token, _) in Self.settingsShapeCallers where LSPSourceGatingTests.containsToken(token, in: code) {
-                callers[token, default: []].insert(url.lastPathComponent)
+            let name = url.lastPathComponent
+            for (token, _) in Self.settingsShapeConstructions {
+                if LSPSourceGatingTests.containsToken(token, in: code) {
+                    callers[token, default: []].insert(name)
+                }
+                let count = Self.callCount("\(token)(", in: code)
+                if count > 0 { constructions[token, default: [:]][name] = count }
             }
         }
-        for (token, files) in Self.settingsShapeCallers {
+        for (token, counts) in Self.settingsShapeConstructions {
             XCTAssertEqual(
-                callers[token, default: []], files,
+                callers[token, default: []], Set(counts.keys).union(["ChromeControls.swift"]),
                 "the files spelling \(token) must be exactly its pinned callers plus the defining file"
+            )
+            XCTAssertEqual(
+                constructions[token, default: [:]], counts,
+                "the constructions of \(token) per file must be exactly the pinned counts — a control changed shape or was added"
             )
         }
     }

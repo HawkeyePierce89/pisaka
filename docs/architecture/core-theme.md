@@ -1457,8 +1457,11 @@ is a menu field. The merge methods are a filtered subset, but of the closed
 three-case `GitHubMergeMethod`, so the most the control can ever lay out is
 known at build time; `plan.showsMethodPicker` already hides a one-method
 control. Rule thirty-seven is the rule's whole expression: it cannot read a
-set's size, so it pins each shape's callers, and a shape change moves a file
-between sets.
+set's size, so it pins each shape's callers by set and each caller's
+constructions by count. Until part five (c)'s review round it pinned the sets
+alone, and a shape change moved a file between sets only when the file spelled
+one shape; `SettingsView.swift` spells both, so one of its segmented controls
+could have become a menu field with the gate green. The counts close that.
 
 **Why the settings tab bar is not the dock's.** Both draw one pattern — an
 accent indicator under the selected label, `accentIndicator` on both, the rule
@@ -2197,9 +2200,18 @@ The thirty-seven rules, each invisible to the compiler:
     `ChromeMenuField` — `ChromeControls.swift`, `LogFilterBar.swift`,
     `SettingsView.swift`, `NewPullRequestSheet.swift`; `ChromeStepper`,
     `ChromeSwitch` and `ChromeSettingsTabBar` — `ChromeControls.swift` and
-    `SettingsView.swift`. The rule cannot read a set's size, so the two sets
-    together are its whole expression: a segmented base-branch list, or a
-    switch where a checkbox belongs, moves a file between sets and fails.
+    `SettingsView.swift`. Each caller's constructions are pinned by count
+    besides, matched through `callRanges(_:in:)` so a wrapped call counts —
+    rule thirty's shape applied to these five: `SettingsView.swift` two
+    segmented controls, one menu field, two steppers, two switches and one
+    tab bar; `PullRequestMergeSheet.swift` one segmented control;
+    `LogFilterBar.swift` and `NewPullRequestSheet.swift` one menu field each;
+    the defining file none. The rule cannot read a set's size, so the sets and
+    the counts together are its whole expression: a segmented base-branch
+    list, or a switch where a checkbox belongs, moves a file between sets or
+    changes a count and fails. The counts arrived in the part's review round:
+    the sets alone missed a shape change inside a file already spelling both
+    shapes, which `SettingsView.swift` is.
     The menu field's shape is pinned whole besides: inside `struct
     ChromeMenuField`'s matched body its one `Image(` — the chevron — lies in the
     body matched after the `Menu`'s `label:`, hidden from accessibility there.

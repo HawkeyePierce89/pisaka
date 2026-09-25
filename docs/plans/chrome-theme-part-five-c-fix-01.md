@@ -174,19 +174,19 @@ still in both sets and the gate green — while the rule's own comment, its head
 bullet and `core-theme.md` all say the pinned sets are the picker rule's whole
 expression.
 
-- [ ] Pin a **per-file construction count** for each of the five shapes, the way
+- [x] Pin a **per-file construction count** for each of the five shapes, the way
       rule thirty already counts `Button` against `buttonStyle`. Count constructions
       through `callRanges(_:in:)` so a wrapped call counts.
-- [ ] Confirm every number against the tree before writing it; a count this plan
+- [x] Confirm every number against the tree before writing it; a count this plan
       guessed is a count that will be wrong.
-- [ ] Correct the three places that claim the sets are the rule's whole expression,
+- [x] Correct the three places that claim the sets are the rule's whole expression,
       so the document describes what the rule now does.
-- [ ] Mutation-verify with the regression the old rule allowed: change one of
+- [x] Mutation-verify with the regression the old rule allowed: change one of
       `SettingsView`'s two segmented controls into a `ChromeMenuField` and confirm
       red — the file stays in both sets, so only the count can catch it. Then add a
       sixth construction to a pinned file and confirm red. Revert and confirm green,
       with a clean `git status`.
-- [ ] Run `swift test`. It must pass.
+- [x] Run `swift test`. It must pass.
 
 ### Task 4: The stepper's visible buttons are checked, not just its accessibility action
 
