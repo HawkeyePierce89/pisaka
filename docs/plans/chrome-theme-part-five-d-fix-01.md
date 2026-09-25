@@ -193,16 +193,16 @@ confirmed by `adversarial`, `bugs+impl` and `docs+tests`, confidence 99.
 This is the class three rounds of part five (b) were spent on: a rule weaker than
 its own comment. The suite already has the right idiom one screen away.
 
-- [ ] Match `.accessibilityHidden(true)` exactly where the contract says exactly
+- [x] Match `.accessibilityHidden(true)` exactly where the contract says exactly
       that, following `isHiddenByItsOwnChain`, which already does. A conditional or
       a `false` must fail.
-- [ ] **Sweep for the shape, not the site.** Every other clause in this suite that
+- [x] **Sweep for the shape, not the site.** Every other clause in this suite that
       asserts a modifier by its call prefix while its own comment names a specific
       argument is the same defect. Grep the suite for `spellsCall(` and
       `containsToken(` uses whose comment promises a value, check each against
       what it actually matches, and fix every one in this same commit — or state
       that the search found none.
-- [ ] **Ride-along, promoted from the round's immaterial list** (same class, same
+- [x] **Ride-along, promoted from the round's immaterial list** (same class, same
       file, confirmed by three agents at confidence 85): rule forty-one bans
       `alternatingRowBackgrounds`, `isTinted` and `isMultiple`, but a zebra written
       the ordinary way, `index % 2 == 0`, sails straight through. Tighten it
@@ -213,18 +213,18 @@ its own comment. The suite already has the right idiom one screen away.
       expression means, **leave rule forty-one exactly as it is and say so in the
       commit message** — a leaky check replaced by a different leaky check is not
       an improvement, and the convention forbids a rule that has to interpret.
-- [ ] **The test that would have caught it** is the mutation the round's absence
+- [x] **The test that would have caught it** is the mutation the round's absence
       proves was never run. Add to the suite's mutation record and demonstrate each
       as red before green:
   - `ChromeSpinner().accessibilityHidden(false)` at a pinned site;
   - `ChromeSpinner().accessibilityHidden(someFlag)` at a pinned site;
   - if rule forty-one was tightened, a `.background(index % 2 == 0 ? … : …)` in the
     console.
-- [ ] Re-read every count the two rules carry: the per-file spinner pairs must still
+- [x] Re-read every count the two rules carry: the per-file spinner pairs must still
       sum to twenty, and the rule count must still read forty-one in the markers,
       the header, `core-theme.md` and `CLAUDE.md`.
-- [ ] Confirm the tree is clean apart from the intended changes.
-- [ ] Run `swift test`. It must pass.
+- [x] Confirm the tree is clean apart from the intended changes.
+- [x] Run `swift test`. It must pass.
 
 ### Task 5: Gates
 

@@ -185,7 +185,8 @@ import XCTest
 ///   callers are pinned by set, and each caller's labelled/hidden pair by file,
 ///   the twenty sites summed.
 /// - **No alternating row fill.** A gated table reads by selection and hover; no
-///   gated file spells `alternatingRowBackgrounds`, `isMultiple` or `isTinted`.
+///   gated file spells `alternatingRowBackgrounds`, `isMultiple` or `isTinted`,
+///   and no `.background` modifier's own text spells `% 2`.
 ///
 /// What a rule here may do, and nothing more: pin a set by equality, assert the
 /// presence or absence of a token through `containsToken`, or take a
@@ -1861,7 +1862,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
             ControlBuilder(path: ["private var footer: some View"],
                            required: [".accessibilityLabel("], hidesSymbols: true),
             ControlBuilder(path: ["private func pagingGlyph("],
-                           required: [".accessibilityHidden("], hidesSymbols: true),
+                           required: [".accessibilityHidden(true)"], hidesSymbols: true),
         ]),
         // The problem browser's row: one combined element carrying the
         // selected trait and a named Open action, its Premium lock spoken by
@@ -1880,7 +1881,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
             ControlBuilder(path: ["private var collapsedStrip: some View"],
                            required: [".accessibilityLabel("], hidesSymbols: true),
             ControlBuilder(path: ["private func iconGlyph("],
-                           required: [".accessibilityHidden("], hidesSymbols: true),
+                           required: [".accessibilityHidden(true)"], hidesSymbols: true),
         ]),
     ]
 
@@ -1929,7 +1930,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// nothing, and which is the call site's to say. Every `ChromeSpinner(` call's
     /// own modifier chain — the postfix links after the call, read from stripped
     /// text, nothing parsed — spells exactly one of `.accessibilityLabel(` (it
-    /// stands alone and names what is happening) or `.accessibilityHidden(` (a
+    /// stands alone and names what is happening) or `.accessibilityHidden(true)` (a
     /// neighbour already names it, so VoiceOver reads that sentence once rather
     /// than followed by a second, vaguer one). Never neither — an unnamed element
     /// — and never both.
@@ -1997,7 +1998,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
                     marker.labelled != marker.hidden,
                     """
                     \(name) constructs a ChromeSpinner whose own modifier chain spells \
-                    \(marker.labelled ? "both" : "neither") of .accessibilityLabel( and .accessibilityHidden( — \
+                    \(marker.labelled ? "both" : "neither") of .accessibilityLabel( and .accessibilityHidden(true) — \
                     the call site says exactly once whether the spinner names its activity or a \
                     neighbour already does
                     """
@@ -2046,6 +2047,15 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// two accessibility markers its own modifier chain spells; `nil` when a
     /// call does not close. Read by rule twenty's clause (exactly one marker per
     /// construction) and rule forty (the per-file pair).
+    ///
+    /// The hidden marker is `.accessibilityHidden(true)` exactly, the literal the
+    /// contract names — `isHiddenByItsOwnChain(imageAt:in:)`'s own match — never
+    /// the call prefix: `.accessibilityHidden(false)` leaves an unnamed element,
+    /// and `.accessibilityHidden(someFlag)` leaves one whenever the flag is false,
+    /// so both count as no marker and fail the clause as "neither". The stripped
+    /// text keeps `true`, which is not a string literal. Shown red against both
+    /// mutations at `LeetCodeJudgeView.swift`'s spinner before it was committed;
+    /// the prefix match it replaces stayed green on each.
     static func spinnerMarkers(in code: String) -> [(labelled: Bool, hidden: Bool)]? {
         var markers: [(labelled: Bool, hidden: Bool)] = []
         for call in callRanges("ChromeSpinner(", in: code) {
@@ -2054,7 +2064,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
             let chain = String(modifierChain(from: end, in: code))
             markers.append((
                 labelled: spellsCall(".accessibilityLabel(", in: chain),
-                hidden: spellsCall(".accessibilityHidden(", in: chain)
+                hidden: spellsCall(".accessibilityHidden(true)", in: chain)
             ))
         }
         return markers
@@ -4011,7 +4021,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
             "ChromeMenuField's chevron sits outside the Menu's label — the arrow it draws opens nothing"
         )
         XCTAssertTrue(
-            Self.spellsCall(".accessibilityHidden(", in: label),
+            Self.spellsCall(".accessibilityHidden(true)", in: label),
             "ChromeMenuField's chevron must stay hidden from accessibility inside the label"
         )
     }
@@ -4138,7 +4148,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// `progressViewStyle`; the files spelling `ChromeSpinner` equal the
     /// classified callers plus the defining file; and each caller's pair — how
     /// many constructions carry `.accessibilityLabel(` and how many
-    /// `.accessibilityHidden(`, read with rule twenty's clause — equals its row
+    /// `.accessibilityHidden(true)`, read with rule twenty's clause — equals its row
     /// in `spinnerClassification`, the pairs summing to the twenty sites. A site
     /// swapping one marker for the other, dropping both or appearing anew moves
     /// a number.
@@ -4203,6 +4213,17 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// own alternation left with the `Table` (rule thirty-eight). No gated file
     /// spells `alternatingRowBackgrounds`, `isMultiple` or `isTinted`, matched
     /// through `containsToken`.
+    ///
+    /// A second clause reads the ordinary spelling of a zebra, `index % 2 == 0`,
+    /// **inside a matched body only**: no `.background` modifier's own text — its
+    /// brace-matched argument list and its trailing closure, when it has one —
+    /// spells `% 2`. `%` is not banned across the gated files, which would reach
+    /// every arithmetic use in fifty-eight of them; the clause asks for a token
+    /// inside the one modifier a row fill goes through and resolves nothing.
+    /// Stated limit: a parity computed elsewhere and handed to `.background(` as
+    /// a name (`let fill = …; .background(fill)`) is not seen. Shown red against
+    /// `.background(index % 2 == 0 ? … : …)` in the console's result rows before
+    /// it was committed; the token clause alone stayed green on it.
     private static let alternationTokens = ["alternatingRowBackgrounds", "isMultiple", "isTinted"]
 
     func testNoAlternatingRowFill() throws {
@@ -4213,6 +4234,35 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
                     "\(name) spells \(token) — a gated table reads by selection and hover, never by alternation"
                 )
             }
+            for text in Self.backgroundModifierTexts(in: code) {
+                XCTAssertNil(
+                    text.range(of: #"%\s*2(?![0-9])"#, options: .regularExpression),
+                    "\(name) fills a background by row parity — a gated table reads by selection and hover"
+                )
+            }
+        }
+    }
+
+    /// The text of every `.background` modifier in `code`: its brace-matched
+    /// argument list when it has one, followed by its trailing closure's body
+    /// when one opens right after — `.background(…)`, `.background(…) { … }` and
+    /// `.background { … }` alike. A call that does not close yields nothing.
+    private static func backgroundModifierTexts(in code: String) -> [String] {
+        guard let expression = try? NSRegularExpression(pattern: #"\.\s*background(?![A-Za-z0-9_])"#) else {
+            preconditionFailure("backgroundModifierTexts could not compile its pattern")
+        }
+        return expression.matches(in: code, range: NSRange(code.startIndex..., in: code)).compactMap { match in
+            guard let found = Range(match.range, in: code) else { return nil }
+            var text = ""
+            var after = found.upperBound
+            let gap = code[after...].prefix { $0.isWhitespace }
+            if gap.endIndex < code.endIndex, code[gap.endIndex] == "(" {
+                guard let end = balancedEnd(from: gap.endIndex, in: code) else { return nil }
+                text += code[gap.endIndex..<end]
+                after = end
+            }
+            if let body = trailingBody(from: after, in: Substring(code)) { text += body }
+            return text
         }
     }
 

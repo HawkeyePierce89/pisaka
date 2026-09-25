@@ -2200,7 +2200,12 @@ The forty-one rules, each invisible to the compiler:
    the type's body**: every `ChromeSpinner(` call's trailing modifier chain (the
    lines after the call that begin with `.`, read from stripped text, nothing
    parsed) spells exactly one of `.accessibilityLabel(` or
-   `.accessibilityHidden(` — never neither, never both. The type carries no
+   `.accessibilityHidden(true)` — never neither, never both; the hidden marker
+   is that literal, never the call prefix, so `.accessibilityHidden(false)` and
+   a conditional `.accessibilityHidden(someFlag)` count as no marker and fail
+   as "neither" (the prefix match this replaced stayed green on both, each
+   shown red at `LeetCodeJudgeView.swift`'s spinner before the fix was
+   committed). The type carries no
    default label because a default would be the very duplicate a hidden site
    avoids; the contract follows `SettingsView.swift`'s hidden label column and
    `ChromeControls.swift`'s hidden glyphs. Rule forty pins how many of each
@@ -2520,7 +2525,7 @@ The forty-one rules, each invisible to the compiler:
     `progressViewStyle`; the files spelling `ChromeSpinner` equal the
     classified callers plus `ChromeControls.swift`, by set equality; and each
     caller's pair — how many of its constructions carry
-    `.accessibilityLabel(` and how many `.accessibilityHidden(`, read from each
+    `.accessibilityLabel(` and how many `.accessibilityHidden(true)`, read from each
     construction's trailing modifier chain with rule twenty's clause — equals
     its row of `spinnerClassification`, the pairs summing to twenty. A site
     swapping one marker for the other, dropping both, or appearing anew moves a
@@ -2529,7 +2534,14 @@ The forty-one rules, each invisible to the compiler:
     `alternatingRowBackgrounds`, `isMultiple` or `isTinted`. The design's
     tables read by selection and hover; the database grid's and the console's
     zebras are deleted, and the platform's own alternation left with the
-    `Table` (rule thirty-eight).
+    `Table` (rule thirty-eight). A second clause reads the ordinary spelling,
+    `index % 2 == 0`, inside a matched body only: no `.background` modifier's
+    own text — its brace-matched argument list and its trailing closure —
+    spells `% 2`; `%` is not banned across the gated files. Stated limit: a
+    parity computed elsewhere and handed over as a name
+    (`.background(fill)`) is not seen. Shown red against
+    `.background(index % 2 == 0 ? … : …)` in the console's result rows, in both
+    the argument and the trailing-closure spelling, before it was committed.
 
 Plus a **self-check** in the suite's own idiom: every gated file must actually
 *name* a `ChromeColorRole`, or the checks above have gone vacuous — with nine
