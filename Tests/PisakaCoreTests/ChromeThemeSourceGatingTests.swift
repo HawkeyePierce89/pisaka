@@ -248,6 +248,8 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         // Part five (b): the Local History window — its revisions list, the
         // row and the Restore footer.
         "LocalHistoryView.swift",
+        // Part five (c): the Preferences host, General and the catalog tab.
+        "SettingsView.swift",
     ]
 
     func testEveryGatedFileExists() throws {
@@ -2539,6 +2541,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         ("chromeSecondary", [
             "ChromeControls.swift", "SearchBarView.swift", "ProjectSearchView.swift",
             "CommitDialogView.swift", "MergeView.swift", "LocalHistoryView.swift",
+            "SettingsView.swift",
         ]),
         ("ChromeCheckbox", ["ChromeControls.swift", "CommitDialogView.swift", "LogFilterBar.swift", "LocalChangesView.swift"]),
     ]

@@ -252,19 +252,19 @@ Every shape below reads `\.interfaceMetrics` and `\.chromeTheme`, and takes ever
 - Modify: `Tests/PisakaCoreTests/ZoomSourceGatingTests.swift`
 - Modify: `Tests/PisakaCoreTests/ChromeThemeSourceGatingTests.swift`
 
-- [ ] **Host.**
+- [x] **Host.**
   - A private four-case enum in today's order: General, Language Servers, the catalog tab, Acknowledgements. The titles are the existing ones, verbatim.
   - `@State` holds the selection, starting on General.
   - The body is a `VStack(spacing: 0)`: a `ChromeSettingsTabBar`, then the selected page framed at the one page size (decision 7), on `bgPanel`.
   - `TabView`, `tabItem` and the tab icons are deleted.
   - Rewrite the doc comment, which described the `TabView` sizing.
-- [ ] **One private `SettingsRow` view**, the design's layout:
+- [x] **One private `SettingsRow` view**, the design's layout:
   - an `HStack` holding a label column `settingsLabelColumnWidth` wide, `.callout` in `textSecondary`, which may wrap (`.fixedSize(horizontal: false, vertical: true)`) and is never clipped;
   - `settingsLabelGap` to the control;
   - the control at its natural width with a trailing `Spacer`.
   - A page stacks rows with `settingsRowSpacing` and pads by `settingsPagePadding`.
   - Where a row's control is one of the shared shapes, the control speaks the row's label and the label column is hidden from accessibility, so the name is read once. A composite row keeps its label readable.
-- [ ] **General:**
+- [x] **General:**
   - "Tab orientation" → `ChromeSegmentedControl` (Vertical, Horizontal).
   - "Theme" → `ChromeSegmentedControl` (System, Light, Dark).
   - "Editor font size" → `ChromeStepper` over `ZoomScaleRule.editorFont`.
@@ -272,7 +272,7 @@ Every shape below reads `\.interfaceMetrics` and `\.chromeTheme`, and takes ever
   - Both steppers show `"<n> pt"`.
   - The two editor flags → `ChromeSwitch`, labelled with their existing sentences.
   - Keep the existing comments on each row, adjusted where they named `Stepper` or `Toggle`.
-- [ ] **The catalog tab (`LeetCodeSettingsView`)**, with its Form sections dissolved into three rows:
+- [x] **The catalog tab (`LeetCodeSettingsView`)**, with its Form sections dissolved into three rows:
   - **Account row:**
     - the description is `textPrimary` when signed in and `textSecondary` otherwise;
     - Sign In… / Sign Out use `.chromeSecondary`;
@@ -282,12 +282,12 @@ Every shape below reads `\.interfaceMetrics` and `\.chromeTheme`, and takes ever
     - Change… uses `.chromeSecondary`.
   - **Default language row:** a `ChromeMenuField` over `offerableLanguages` by `displayName`, framed at `menuFieldHeight`.
   - The rest is unchanged: `resolveAccount()` on appear (its comment corrected per decision 7), the sign-in sheet, `LeetCodeFolderChooser`.
-- [ ] **Re-point the zoom suite's stepper test** as `testThePreferencesStepperReadsItsGridFromTheZoomRule`:
+- [x] **Re-point the zoom suite's stepper test** as `testThePreferencesStepperReadsItsGridFromTheZoomRule`:
   - `SettingsView.swift`'s `ChromeStepper(` call bound to `$settings.terminalFontSize` names `ZoomScaleRule.terminalFont`, and the one bound to `$settings.fontSize` names `ZoomScaleRule.editorFont`, each read inside that call's brace-matched argument list;
   - `ChromeStepper`'s body in `ChromeControls.swift` spells the `stepped` token;
   - it no longer asserts `.minimum` / `.maximum` / `.step` at the call site.
-- [ ] Add `SettingsView.swift` to `gatedFiles`, and add `SettingsView.swift` to rule thirty's `chromeSecondary` callers.
-- [ ] Run `swift test` and the macOS build. Both must pass. `LeetCodeAccountSourceGatingTests` must stay green.
+- [x] Add `SettingsView.swift` to `gatedFiles`, and add `SettingsView.swift` to rule thirty's `chromeSecondary` callers.
+- [x] Run `swift test` and the macOS build. Both must pass. `LeetCodeAccountSourceGatingTests` must stay green.
 
 ### Task 5: Language Servers and the installed licences
 

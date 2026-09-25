@@ -1919,7 +1919,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     observers would make it invisible and fragile — hence
     `AutosaveController.flushNow()` being internal and `PisakaApp` calling both
     back to back from one place.
-  - `SettingsView.swift` — the Preferences window (⌘,), a four-tab `TabView`:
+  - `SettingsView.swift` — the Preferences window (⌘,), four pages under a
+    `ChromeSettingsTabBar` (`core-theme.md`):
     "General" (`GeneralSettingsView`, the form below), "Language Servers"
     (`LSPServerSettingsView`, phase 2b — full entry in `core-provisioning.md`),
     "LeetCode" (`LeetCodeSettingsView` — the account, the solutions folder and the
@@ -1928,10 +1929,21 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `let` — nothing in `SettingsView.body` reads anything published on it, and
     observing it there would re-evaluate the whole window, Acknowledgements and its
     66 KB license texts included, on every statement fetch and busy transition)
-    and "Acknowledgements" (`AcknowledgementsView`). A `TabView` sizes to its widest
-    tab, which is why the split is worth noting: `GeneralSettingsView` keeps its
-    own `.frame(width: 340)` while the Acknowledgements tab — needing room to read
-    a license — is what drives the window. `PisakaApp` constructs
+    and "Acknowledgements" (`AcknowledgementsView`). The selection is a private
+    four-case enum in `@State`, starting on General, and **only the selected page
+    is built** (a `TabView` built every tab eagerly). Every page is framed at the
+    one size Acknowledgements needs to read a license — the private
+    `SettingsLayout`, `metrics.scaled(640)` × `metrics.scaled(420)` — under the
+    36-point tab bar, on `bgPanel`, so switching tabs never resizes the window;
+    the old per-page widths (340 for General, 460 for LeetCode) are gone. General
+    and LeetCode lay out through two private views: `SettingsRow` (a
+    `settingsLabelColumnWidth` label column, `callout` in `textSecondary`, wrapping
+    rather than clipped, `settingsLabelGap`, then the control at its natural
+    width) and `SettingsPage` (rows `settingsRowSpacing` apart, padded by
+    `settingsPagePadding`). Where a row's control is a shared shape it speaks the
+    row's label itself and the label column is hidden from accessibility, so the
+    name is read once; a composite row (LeetCode's account and folder rows) keeps
+    its label readable. `PisakaApp` constructs
     `SettingsView(settings:provisioning:gopls:rust:installEngine:leetCode:)`,
     threading the
     provisioning models and engine through to the tabs that read them rather
@@ -1941,16 +1953,15 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     rust-analyzer's bare `.gz` unpacks one binary and no license file either — so
     neither leaves anything in the installed tree for Acknowledgements to read,
     and each row names the origin and the SPDX id instead.
-    `GeneralSettingsView` is the former Preferences form, verbatim: a thin
-    `@ObservedObject
-    SettingsStore` view (a `Form` with a `Picker` for tab orientation, a `Picker`
-    for theme, a `Stepper` + numeric "Editor font size: N pt" display bound to
-    `settings.fontSize`, ranged/stepped through the store's constants, and a
-    `Toggle` bound to `settings.completionEnabled`, "Offer completions as you
-    type", and a second `Toggle` bound to
-    `settings.indentLevelHighlightingEnabled`, "Highlight indentation levels" —
-    bound straight through in the same way, but unlike the completion flag it has
-    no second surface, so this checkbox is the only place it is set). The
+    `GeneralSettingsView` is a thin `@ObservedObject SettingsStore` view: a
+    `ChromeSegmentedControl` for tab orientation (Vertical, Horizontal) and for
+    theme (System, Light, Dark), a `ChromeStepper` for "Editor font size" bound to
+    `settings.fontSize` over `ZoomScaleRule.editorFont`, and two `ChromeSwitch`es —
+    "Offer completions as you type" bound to `settings.completionEnabled`, and
+    "Highlight indentation levels" bound to
+    `settings.indentLevelHighlightingEnabled`, bound straight through in the same
+    way, but unlike the completion flag it has no second surface, so this switch
+    is the only place it is set. The
     completion row is the *same flag* the bottom bar's lightbulb writes
     (`app-window.md`): both bind straight through to the store with no local
     `@State`, which is what makes it impossible for the two surfaces to disagree —
@@ -1971,10 +1982,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     as a plain (undefaulted) value on `CodeEditorView` plus the Find > "Complete"
     item's `.disabled` in `PisakaApp`, and indentation-level highlighting as a
     second such value on `CodeEditorView` (`app-editor-overlays.md`).
-    The zoom feature adds a **"Terminal font size: N pt" `Stepper`** beside the
-    editor's, bound to `settings.terminalFontSize` over the same rule's
-    range/step, so the two font zones read as one pair of rows and share the
-    store's clamping; the interface zone has no row of its own (it is a gesture
+    The zoom feature adds a **"Terminal font size" `ChromeStepper`** beside the
+    editor's, bound to `settings.terminalFontSize` over `ZoomScaleRule.terminalFont`
+    (both show `"<n> pt"` and step through the rule's `stepped(_:by:)`, pinned by
+    `ZoomSourceGatingTests`), so the two font zones read as one pair of rows and
+    share the store's clamping; the interface zone has no row of its own (it is a gesture
     and ⌘=/⌘−/⌘0, per `core-zoom.md`). The Preferences form is itself *scaled* by
     the interface zone — `PisakaApp` applies `.interfaceScaled(settings)` to the
     `Settings` scene rather than inside `SettingsView`, because an environment
