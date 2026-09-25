@@ -1924,7 +1924,11 @@ the limits the design carries.
     `ScrollViewReader` keeps it visible; Return opens through a zero-sized
     shortcut button enabled only while the list holds focus (the database grid's
     idiom, since `onKeyPress` is macOS 14); single tap selects, double tap opens,
-    the context menu offers Open, and the Open button stays. **Accessibility**:
+    the context menu offers Open, and the Open button stays. Below the last row
+    a right-click offers Open for the current selection (nothing without one)
+    and a plain click clears the selection, as the `Table` did — a clear
+    background behind the rows, stretched to the viewport; every Open reaches
+    the one `open(slug:)`. **Accessibility**:
     each row is one combined element carrying the `.isSelected` trait and a named
     "Open" action, and the lock speaks "LeetCode Premium". The six difficulty and
     status filters are the shared `ChromeCheckbox` — set-membership filters, an

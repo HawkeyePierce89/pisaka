@@ -316,23 +316,50 @@ struct LeetCodeBrowserView: View {
     /// grid's Return idiom, since a key-press handler is newer than this target.
     /// A click selects and takes focus, a double-click opens, and the row's
     /// context menu offers Open; the Open button above stays the fourth way in.
+    /// Below the last row, a click clears the selection and a right-click offers
+    /// Open for it, as the platform table did.
     private var problemList: some View {
         VStack(spacing: 0) {
             columnHeader
             ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVStack(spacing: 0) {
-                        ForEach(browser.visibleProblems, id: \.slug) { problem in
-                            LeetCodeBrowserRow(
-                                problem: problem,
-                                isSelected: selection == problem.slug,
-                                onSelect: {
-                                    selection = problem.slug
+                GeometryReader { viewport in
+                    ScrollView {
+                        LazyVStack(spacing: 0) {
+                            ForEach(browser.visibleProblems, id: \.slug) { problem in
+                                LeetCodeBrowserRow(
+                                    problem: problem,
+                                    isSelected: selection == problem.slug,
+                                    onSelect: {
+                                        selection = problem.slug
+                                        focus = .list
+                                    },
+                                    onOpen: { open(slug: problem.slug) }
+                                )
+                                .id(problem.slug)
+                            }
+                        }
+                        .frame(minHeight: viewport.size.height, alignment: .top)
+                        // The area below the last row, standing in for what the
+                        // platform table gave it: a plain click clears the
+                        // selection, and a right-click offers Open for the
+                        // current selection — nothing at all when there is none.
+                        // It sits *behind* the rows, stretched to the viewport by
+                        // the frame above, so a row's own click and menu win
+                        // wherever there is a row and this answers only where
+                        // there is not. Its Open is the same `open(slug:)` every
+                        // other way in reaches.
+                        .background {
+                            Color.clear
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    selection = nil
                                     focus = .list
-                                },
-                                onOpen: { open(slug: problem.slug) }
-                            )
-                            .id(problem.slug)
+                                }
+                                .contextMenu {
+                                    if let selection {
+                                        Button("Open") { open(slug: selection) }
+                                    }
+                                }
                         }
                     }
                 }

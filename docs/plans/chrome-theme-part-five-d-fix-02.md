@@ -124,17 +124,17 @@ still offered *Open* for the current selection. HEAD attaches
 menu at all. `Table(rows, selection: $selection)` also cleared the selection on a
 click in that empty area; nothing does now.
 
-- [ ] Restore both: a right-click below the rows offers *Open* for the current
+- [x] Restore both: a right-click below the rows offers *Open* for the current
       selection (and offers nothing when there is no selection), and a plain
       click there clears the selection. Keep the per-row menu as it is.
-- [ ] Do not reintroduce a platform table, and do not add a second definition of
+- [x] Do not reintroduce a platform table, and do not add a second definition of
       what Open does — the row's `onOpen` and the explicit button must still
       reach one call site.
-- [ ] **The test that would have caught it** is not a token rule either: what is
+- [x] **The test that would have caught it** is not a token rule either: what is
       assertable is that the row list's container spells a `.contextMenu` of its
       own. Add that to rule twenty's browser entry alongside the row's, or say
       why it cannot be pinned and leave it to the Post-Completion check.
-- [ ] Run `swift test` and the macOS build. Both must pass.
+- [x] Run `swift test` and the macOS build. Both must pass.
 
 ### Task 3: Rule twenty's browser entry does not hold two of the four things it claims
 

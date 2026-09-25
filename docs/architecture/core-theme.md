@@ -1717,7 +1717,11 @@ differed:
    zero-sized shortcut button enabled only while the list holds focus (the
    viewer's `returnOpensTheFocusedCell` idiom, since `onKeyPress` is macOS 14);
    single tap selects, double tap opens, the context menu offers Open, and the
-   explicit Open button stays. Accessibility: each row is one combined element
+   explicit Open button stays. Below the last row — where the rows' container is
+   stretched to the viewport and a clear, hit-testable background sits behind
+   the rows — a right-click offers Open for the current selection (nothing
+   when there is none) and a plain click clears the selection, as the platform
+   table did; every Open still reaches the one `open(slug:)`. Accessibility: each row is one combined element
    carrying `.isSelected` and a named "Open" action, and the lock glyph speaks
    "LeetCode Premium".
 7. **The viewer's error banner** is a `bgPanel` strip with a `hairline` bottom
@@ -2208,7 +2212,14 @@ The forty-one rules, each invisible to the compiler:
    (d) adds the database footer (the two paging buttons' labels, `footer`) and
    its hidden `pagingGlyph(`, the problem browser's `LeetCodeBrowserRow` body
    (`.accessibilityAddTraits(` for the selected trait, `.accessibilityAction(`
-   for Open, `.accessibilityLabel(` for the spoken lock), and the statement
+   for Open, `.accessibilityLabel(` for the spoken lock, `.contextMenu {` for the
+   row's own Open) and its `problemList` container (`.contextMenu {` and
+   `.onTapGesture {` for the area below the last row — fix round 02 restored the
+   platform table's right-click Open for the selection and its click-to-clear
+   there, which the row-only menu had silently dropped; whether the menu
+   *appears* is the Post-Completion check, the container spelling one is what a
+   token rule can see; a needle may end on a trailing closure's brace for
+   exactly this), and the statement
    pane's `header(`, `collapsedStrip` and their shared hidden `iconGlyph(`. It
    also adds a **spinner clause, checked at the constructions rather than in
    the type's body**: every `ChromeSpinner(` call's trailing modifier chain (the

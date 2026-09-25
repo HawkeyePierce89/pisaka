@@ -1869,11 +1869,22 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         ]),
         // The problem browser's row: one combined element carrying the
         // selected trait and a named Open action, its Premium lock spoken by
-        // name (so not hidden) — the row's words are the element's.
+        // name (so not hidden) — the row's words are the element's. The row
+        // offers Open in a context menu of its own, and so does the list's
+        // container, for the area below the last row where no row is: the
+        // platform table this list replaced answered a right-click there with
+        // Open for the selection and cleared the selection on a click, and a
+        // menu only on the rows silently lost both. Whether that menu *appears*
+        // is not something a token rule can see; the container spelling one is.
         ("LeetCodeBrowserView.swift", [
             ControlBuilder(path: ["private struct LeetCodeBrowserRow", "var body: some View"],
-                           required: [".accessibilityAddTraits(", ".accessibilityAction(", ".accessibilityLabel("],
+                           required: [
+                               ".accessibilityAddTraits(", ".accessibilityAction(", ".accessibilityLabel(",
+                               ".contextMenu {",
+                           ],
                            hidesSymbols: false),
+            ControlBuilder(path: ["private var problemList: some View"],
+                           required: [".contextMenu {", ".onTapGesture {"], hidesSymbols: false),
         ]),
         // The statement pane's three icon-only buttons — hide and open on the
         // site in the header, show in the collapsed strip — each named outright
@@ -1909,7 +1920,8 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
                         """
                         \(name)'s \(described) must spell \(modifier) — a panel control is named after its \
                         glyph, and a state drawn as a colour or a shape is unspoken, until an explicit label \
-                        and value replace them
+                        and value replace them (and a menu or click the entry's comment names is lost until it is \
+                        spelled again)
                         """
                     )
                 }
@@ -3040,8 +3052,9 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         // platform dialog's buttons and take no style.
         "DatabaseConsoleView.swift": (buttons: 3, styled: 1),
         // Open, Sign In…, Refresh and the hidden Return button are styled; the
-        // row's context-menu Open is a menu item.
-        "LeetCodeBrowserView.swift": (buttons: 5, styled: 4),
+        // row's context-menu Open and the list's (below the last row) are menu
+        // items.
+        "LeetCodeBrowserView.swift": (buttons: 6, styled: 4),
         // The three icon-only buttons are all `.plain`.
         "LeetCodeDescriptionView.swift": (buttons: 3, styled: 3),
         // Run and Submit.
@@ -3911,7 +3924,9 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// identifier boundary (`NSImage(` is not `Image(`); a modifier's dot is its
     /// own boundary. Each range runs from the callee's first character through
     /// the last character the needle names, so with a bare `"Name("` needle
-    /// `code.index(before: range.upperBound)` is the parenthesis.
+    /// `code.index(before: range.upperBound)` is the parenthesis. A needle may
+    /// end on a trailing closure's brace instead (`".contextMenu {"`), for a
+    /// modifier that is spelled without one.
     ///
     /// The suite's one call matcher. A contiguous search is blind to every
     /// wrapped spelling of the call it names, and this suite has shipped that
@@ -3920,7 +3935,10 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// arguments goes through here — or through `callCount(_:in:)` /
     /// `spellsCall(_:in:)` — rather than through `contains` or `range(of:)`.
     static func callRanges(_ needle: String, in code: String) -> [Range<String.Index>] {
-        precondition(needle.contains("("), "callRanges needs a needle spelling its opening parenthesis: \(needle)")
+        precondition(
+            needle.contains("(") || needle.contains("{"),
+            "callRanges needs a needle spelling its opening parenthesis or trailing closure's brace: \(needle)"
+        )
         let tokens = callTokens(needle)
         let leadsWithIdentifier = tokens.first?.first.map { $0.isLetter || $0 == "_" } ?? false
         let pattern = (leadsWithIdentifier ? "(?<![A-Za-z0-9_])" : "")
