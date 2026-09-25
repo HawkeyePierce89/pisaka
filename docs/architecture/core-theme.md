@@ -915,8 +915,11 @@ colour). The suite grows from twenty-two rules to twenty-seven.
 `accent` at `fieldFocusedBorderWidth` while focused, and `fieldCornerRadius`,
 taking its horizontal inset as a parameter and stating no height so the container
 decides (22 in the filter strip, 33 in Find in Files). `ChromeThemedTextField`
-is a plain `TextField` with `textPrimary` content, a `textSecondary` placeholder,
-an optional leading glyph hidden from accessibility, and a spoken label, focus
+is a plain `TextField` with `textPrimary` content, an optional leading glyph
+hidden from accessibility, and a spoken name — drawn as a `textSecondary`
+placeholder while the field is empty when built with `title:`, never drawn when
+built with `spokenName:` (the grid's cell editor alone, pinned by set equality),
+focus
 coming in as a `FocusState` binding plus the value it equals — taking a
 text-style parameter defaulting to `.callout` (so the Log filter bar's pixels stay
 as they are) and an inner gap defaulting to `6`, with Find in Files' three
@@ -957,8 +960,8 @@ via the themed field with its own `FocusState`) and — since part five (b) —
 `PullRequestMergeSheet.swift` (each sheet's title or subject through the themed
 field, and its body through the box alone around its `TextEditor`, the commit
 dialog's shape) and — since part five (d) — `DatabaseViewerView.swift` (the
-grid's cell editor, through the themed field over the grid's own focus state,
-speaking the column's name), `LeetCodeBrowserView.swift` (the browser's query,
+grid's cell editor, through the themed field's `spokenName:` initializer over
+the grid's own focus state — the column's name spoken, never drawn), `LeetCodeBrowserView.swift` (the browser's query,
 through the themed field with the magnifying-glass glyph),
 `LeetCodeOpenProblemSheet.swift` (the sheet's problem input, through the themed
 field over its own focus state) and `LeetCodeJudgeView.swift` (the test-case
@@ -1679,7 +1682,9 @@ differed:
 4. **The fields.** The browser's query (with the magnifying-glass glyph) and the
    open-problem sheet's input are `ChromeThemedTextField`, each over a private
    focus enum; the grid's cell editor is `ChromeThemedTextField` over the grid's
-   own `$focus`/`.editor(coordinate)` and speaks the column's name, its
+   own `$focus`/`.editor(coordinate)`, built with `spokenName:` so the column's
+   name is spoken and never drawn in an empty field (grey is how the grid draws
+   NULL), its
    `.onSubmit`/Escape handling staying on the outer view; the judge's test-case
    `TextEditor` is wrapped in `ChromeControlBox` (the commit dialog's message
    box shape) and its `separatorColor` stroke is gone; the console's input is a

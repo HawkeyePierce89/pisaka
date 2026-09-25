@@ -2557,6 +2557,77 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         }
     }
 
+    /// Every `ChromeThemedTextField(` construction whose name is *drawn* as the
+    /// empty field's placeholder (`title:`), by file and count.
+    private static let sharedFieldDrawnNameCallers: [String: Int] = [
+        "CommitDialogView.swift": 2,
+        "ProjectSearchView.swift": 3,
+        "SearchBarView.swift": 2,
+        "NewPullRequestSheet.swift": 1,
+        "PullRequestMergeSheet.swift": 1,
+        "BranchSwitcherView.swift": 1,
+        "LogFilterBar.swift": 3,
+        "LeetCodeOpenProblemSheet.swift": 1,
+        "LeetCodeBrowserView.swift": 1,
+    ]
+
+    /// Every `ChromeThemedTextField(` construction whose name is spoken and
+    /// **never drawn** (`spokenName:`), by file and count: the database grid's
+    /// cell editor alone. An empty cell editor is itself a value — a NULL cell
+    /// seeds empty, so does an empty-string cell — and a grey column name in it
+    /// reads as a dimmed stored value, grey being how the grid draws NULL. The
+    /// field it replaced drew nothing there; part five (d) drew the name and the
+    /// fix round moved it back.
+    private static let sharedFieldSpokenOnlyCallers: [String: Int] = [
+        "DatabaseViewerView.swift": 1,
+    ]
+
+    /// Which shared-field callers draw their name and which only speak it, both
+    /// pinned by file and count, so moving a caller from one initializer to the
+    /// other fails until the pin moves with it. The regression it names: the
+    /// grid's cell editor passing `title:`, which puts the column's name in grey
+    /// inside an empty field where grey means NULL. Every construction must lead
+    /// with one of the two labels — nothing else reaches the field.
+    func testSharedFieldDrawsItsNameExceptAtTheCellEditor() throws {
+        var drawn: [String: Int] = [:]
+        var spokenOnly: [String: Int] = [:]
+        for url in try Self.swiftSources() {
+            let name = url.lastPathComponent
+            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            for arguments in Self.matchedArguments(after: "ChromeThemedTextField", in: code) {
+                let inside = String(arguments.dropFirst())
+                let first = Self.topLevelArguments(inside).first ?? ""
+                if first.hasPrefix("title:") {
+                    drawn[name, default: 0] += 1
+                } else if first.hasPrefix("spokenName:") {
+                    spokenOnly[name, default: 0] += 1
+                } else {
+                    XCTFail("\(name) constructs ChromeThemedTextField leading with neither title: nor spokenName: (\(first))")
+                }
+            }
+        }
+        XCTAssertEqual(
+            drawn, Self.sharedFieldDrawnNameCallers,
+            "the shared field's drawn-name callers (title:) must be exactly the pinned set"
+        )
+        XCTAssertEqual(
+            spokenOnly, Self.sharedFieldSpokenOnlyCallers,
+            "the shared field's spoken-only callers (spokenName:) must be exactly the grid's cell editor"
+        )
+
+        let controls = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
+            try Self.read(try Self.source(named: "ChromeControls.swift"))
+        )
+        let field = try XCTUnwrap(
+            Self.matchedBody(after: "struct ChromeThemedTextField", in: controls),
+            "ChromeThemedTextField's declaration is gone or renamed — re-point this rule"
+        )
+        XCTAssertTrue(
+            LSPSourceGatingTests.containsToken("drawsTitle", in: field),
+            "ChromeThemedTextField no longer reads drawsTitle — spokenName: would draw the name after all"
+        )
+    }
+
     // MARK: - Rule twenty-seven: each measurement follows its own zone
 
     /// The Find in Files match row is sized by the code font rather than a fixed

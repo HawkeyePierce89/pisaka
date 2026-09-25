@@ -43,22 +43,89 @@ struct ChromeControlBox<Content: View>: View {
 
 /// A themed text field built on `ChromeControlBox`.
 ///
-/// A plain `TextField` with `textPrimary` content, a `textSecondary`
-/// placeholder, an optional leading glyph hidden from accessibility, and a
-/// spoken label. Focus comes in as a `FocusState` binding plus the value it
-/// equals, so each caller keeps its own focus enum.
+/// A plain `TextField` with `textPrimary` content, an optional leading glyph
+/// hidden from accessibility, and a spoken label. Focus comes in as a
+/// `FocusState` binding plus the value it equals, so each caller keeps its own
+/// focus enum.
+///
+/// The name is always spoken; whether it is also *drawn* is the initializer's
+/// label, so the choice is visible at every call site. `title:` draws it as a
+/// `textSecondary` placeholder while the field is empty — right for a field the
+/// name describes. `spokenName:` draws nothing in an empty field — right where
+/// an empty field is itself a value a grey word would misrepresent (the
+/// database grid's cell editor, where grey is how the grid draws NULL).
 struct ChromeThemedTextField<FocusValue: Hashable>: View {
     let title: String
+    let drawsTitle: Bool
     @Binding var text: String
     var glyph: String?
     let focus: FocusState<FocusValue>.Binding
     let focusedEquals: FocusValue
-    var horizontalPadding: Double = ChromeGeometry.fieldPaddingX
-    var textStyle: InterfaceTextStyle = .callout
-    var spacing: Double = 6
+    var horizontalPadding: Double
+    var textStyle: InterfaceTextStyle
+    var spacing: Double
 
     @Environment(\.interfaceMetrics) private var metrics
     @Environment(\.chromeTheme) private var theme
+
+    /// A field whose name is spoken *and* drawn as its empty-state placeholder.
+    init(
+        title: String,
+        text: Binding<String>,
+        glyph: String? = nil,
+        focus: FocusState<FocusValue>.Binding,
+        focusedEquals: FocusValue,
+        horizontalPadding: Double = ChromeGeometry.fieldPaddingX,
+        textStyle: InterfaceTextStyle = .callout,
+        spacing: Double = 6
+    ) {
+        self.init(
+            name: title, drawsName: true, text: text, glyph: glyph, focus: focus,
+            focusedEquals: focusedEquals, horizontalPadding: horizontalPadding,
+            textStyle: textStyle, spacing: spacing
+        )
+    }
+
+    /// A field whose name is spoken to assistive technology and never drawn:
+    /// an empty field stays empty.
+    init(
+        spokenName: String,
+        text: Binding<String>,
+        glyph: String? = nil,
+        focus: FocusState<FocusValue>.Binding,
+        focusedEquals: FocusValue,
+        horizontalPadding: Double = ChromeGeometry.fieldPaddingX,
+        textStyle: InterfaceTextStyle = .callout,
+        spacing: Double = 6
+    ) {
+        self.init(
+            name: spokenName, drawsName: false, text: text, glyph: glyph, focus: focus,
+            focusedEquals: focusedEquals, horizontalPadding: horizontalPadding,
+            textStyle: textStyle, spacing: spacing
+        )
+    }
+
+    private init(
+        name: String,
+        drawsName: Bool,
+        text: Binding<String>,
+        glyph: String?,
+        focus: FocusState<FocusValue>.Binding,
+        focusedEquals: FocusValue,
+        horizontalPadding: Double,
+        textStyle: InterfaceTextStyle,
+        spacing: Double
+    ) {
+        self.title = name
+        self.drawsTitle = drawsName
+        self._text = text
+        self.glyph = glyph
+        self.focus = focus
+        self.focusedEquals = focusedEquals
+        self.horizontalPadding = horizontalPadding
+        self.textStyle = textStyle
+        self.spacing = spacing
+    }
 
     var body: some View {
         ChromeControlBox(isFocused: focus.wrappedValue == focusedEquals, horizontalPadding: horizontalPadding) {
@@ -69,7 +136,7 @@ struct ChromeThemedTextField<FocusValue: Hashable>: View {
                         .accessibilityHidden(true)
                 }
                 ZStack(alignment: .leading) {
-                    if text.isEmpty {
+                    if drawsTitle, text.isEmpty {
                         Text(title)
                             .foregroundStyle(theme.color(.textSecondary))
                             .lineLimit(1)

@@ -1116,7 +1116,11 @@ only *consults* one, before each of its two writes.
   on `bgPanel`, its Tables/Views headers `Section { } header: { }` in
   `textSecondary`, and no row background, so the selection stays the platform's.
   The **cell editor is the shared field** (`ChromeThemedTextField`) over the
-  grid's own `$focus`/`.editor(coordinate)`, speaking the column's name; its
+  grid's own `$focus`/`.editor(coordinate)`, built through its `spokenName:`
+  initializer: the column's name is spoken to assistive technology and **never
+  drawn**, so an empty field (a NULL cell seeds empty, and so does an
+  empty-string cell) stays empty, exactly as before the sweep — a grey word in it
+  would read as a dimmed stored value, and grey is how the grid draws NULL. Its
   `.onSubmit`/Escape handling stays on the outer view. The footer's paging
   chevrons are `.plain` buttons named "Previous page"/"Next page" with scaled,
   hidden glyphs and their `.disabled(… || model.isWriteInFlight)` terms verbatim,

@@ -514,8 +514,10 @@ struct DatabaseViewerView: View {
             .contextMenu { cellMenu(value, at: coordinate, refusal: refusal, request: request) }
     }
 
-    /// The open editor: the chrome's shared field, seeded from the cell and
-    /// speaking the column's name.
+    /// The open editor: the chrome's shared field, seeded from the cell. The
+    /// column's name is *spoken* to assistive technology and never drawn — an
+    /// empty field stays empty, because a grey word in it would read as a
+    /// dimmed stored value, and grey is how the grid draws NULL.
     ///
     /// A NULL cell seeds **empty**, because an empty entry is the empty string and
     /// NULL is a gesture: seeding the marker would make Return store the *text*
@@ -524,7 +526,7 @@ struct DatabaseViewerView: View {
     /// both handled out here, on the view the field sits in.
     private func cellEditor(_ coordinate: CellCoordinate) -> some View {
         ChromeThemedTextField(
-            title: columnName(at: coordinate.column),
+            spokenName: columnName(at: coordinate.column),
             text: $draft,
             focus: $focus,
             focusedEquals: .editor(coordinate),

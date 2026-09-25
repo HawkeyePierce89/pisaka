@@ -100,29 +100,29 @@ This is a behaviour change the sweep was not allowed to make, and it lands in th
 worst possible place: a grey word inside the cell editor is indistinguishable from
 how the grid renders NULL.
 
-- [ ] The cell editor must speak the column's name to assistive technology and
+- [x] The cell editor must speak the column's name to assistive technology and
       draw **nothing** in an empty field, as it did before this branch. Give the
       shared field a way to carry a spoken name that is not also drawn, rather
       than passing an empty title and adding a separate `.accessibilityLabel` at
       the call site — the shape owes its own accessibility, which is why it takes
       the name at all.
-- [ ] **Enumerate what you touched.** The shared field's other callers must be
+- [x] **Enumerate what you touched.** The shared field's other callers must be
       unaffected: list every `ChromeThemedTextField(` construction in the tree and
       confirm each one still draws the placeholder it drew before this task, and
       that each still speaks a name. A caller that legitimately wants the name
       drawn keeps it drawn.
-- [ ] Correct the `cellEditor` doc comment and the matching sentence in
+- [x] Correct the `cellEditor` doc comment and the matching sentence in
       `docs/architecture/core-database-viewer.md`: they say the field is "speaking
       the column's name", which describes only the accessibility half and is what
       let the visible half through review.
-- [ ] **The test that would have caught it.** In `ChromeThemeSourceGatingTests`,
+- [x] **The test that would have caught it.** In `ChromeThemeSourceGatingTests`,
       pin by set equality which `ChromeThemedTextField(` callers pass a drawn
       placeholder and which pass a spoken-only name, so moving a caller from one
       to the other fails until the pin moves with it. Name the grid's cell editor
       as the spoken-only one and say why in the comment.
-- [ ] Show the pin **red** by restoring the drawn title at the cell editor, then
+- [x] Show the pin **red** by restoring the drawn title at the cell editor, then
       green. Confirm the tree is clean afterwards.
-- [ ] Run `swift test` and the macOS build. Both must pass. The viewer's two write
+- [x] Run `swift test` and the macOS build. Both must pass. The viewer's two write
       paths, its write-gate consultations and its `isWriteInFlight` disable terms
       must be untouched — confirm by diffing them, not by assuming.
 
