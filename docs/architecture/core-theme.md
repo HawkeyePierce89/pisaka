@@ -1705,9 +1705,12 @@ The thirty-five rules, each invisible to the compiler:
    `{PullRequestIndicatorView.swift, PullRequestsPanelView.swift}`; and no gated
    file spells a case label naming `.noChecks`, `.pending`, `.failure`,
    `.success`, `.pass`, `.fail`, `.skipping` or `.cancel`, or a
-   `GitHubChecksSummary.`/`GitHubCheckBucket.`-qualified one. Stated limit: rule
-   fifteen's — a dictionary literal, an `==` chain, a `case` list continued past
-   its first line.
+   `GitHubChecksSummary.`/`GitHubCheckBucket.`-qualified one — except where a
+   label shares the spelling but names another type's case, pinned per file by
+   its exact count (`LSPServerSettingsView.swift`: 2, the Go and Rust rows'
+   `case .pending:`, the toolchain search's first state), so a third label is
+   still red. Stated limit: rule fifteen's — a dictionary literal, an `==`
+   chain, a `case` list continued past its first line.
 19. **The diff row wash is Core's one answer, and a macOS diff side is one
    type.** No app file but the palette names `diffAddedBackground` /
    `diffRemovedBackground`; none declares `func diffWashRole` / `func

@@ -250,6 +250,10 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         "LocalHistoryView.swift",
         // Part five (c): the Preferences host, General and the catalog tab.
         "SettingsView.swift",
+        // Part five (c): the Language Servers page and the installed licences
+        // it reads (the latter paints nothing — see `roleNamingExemptions`).
+        "LSPServerSettingsView.swift",
+        "LSPInstalledLicenses.swift",
     ]
 
     func testEveryGatedFileExists() throws {
@@ -1514,6 +1518,17 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         "PullRequestsPanelView.swift",
     ]
 
+    /// The gated files whose case labels share a spelling with a checks state
+    /// but name another type's case, each pinned by its exact label count so a
+    /// third label — a real checks table — is still red.
+    ///
+    /// `LSPServerSettingsView.swift`'s two are `case .pending:` in the Go and
+    /// Rust rows' status sentences: the toolchain search's first state
+    /// (`LSPGoServerRow.status`, `LSPRustServerRow.status`), not a checks state.
+    private static let sharedSpellingCaseLabels: [String: Int] = [
+        "LSPServerSettingsView.swift": 2,
+    ]
+
     func testTheChecksStateMappingIsCoresOneAnswer() throws {
         var readers: Set<String> = []
         for url in try Self.swiftSources() where url.path.contains("/Sources/Pisaka/") {
@@ -1537,8 +1552,9 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         )
         for url in try Self.swiftSources() where Self.gatedFiles.contains(url.lastPathComponent) {
             let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
-            XCTAssertNil(
-                labels.firstMatch(in: code, range: NSRange(code.startIndex..., in: code)),
+            XCTAssertEqual(
+                labels.numberOfMatches(in: code, range: NSRange(code.startIndex..., in: code)),
+                Self.sharedSpellingCaseLabels[url.lastPathComponent, default: 0],
                 """
                 \(url.lastPathComponent) spells a checks-state case label — a checks mapping in a view is a \
                 second table; read the Core glyph, words and ChromeColorRole.checksRole(for:)
@@ -2541,7 +2557,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         ("chromeSecondary", [
             "ChromeControls.swift", "SearchBarView.swift", "ProjectSearchView.swift",
             "CommitDialogView.swift", "MergeView.swift", "LocalHistoryView.swift",
-            "SettingsView.swift",
+            "SettingsView.swift", "LSPServerSettingsView.swift",
         ]),
         ("ChromeCheckbox", ["ChromeControls.swift", "CommitDialogView.swift", "LogFilterBar.swift", "LocalChangesView.swift"]),
     ]
@@ -3458,8 +3474,15 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// was the pane's ground, which now comes from `CodePaneGround` in
     /// `DiffView.swift`. It is gated for rules one and two and for the code-pane
     /// ground rule — a second, private ground being the regression it can commit.
+    ///
+    /// `LSPInstalledLicenses.swift` is exempt on `ChromeThemeEnvironment.swift`'s
+    /// footing: it is a Foundation-only enum that returns the installed licence
+    /// documents and has no view, so it paints nothing and names no role by
+    /// construction. It is gated for rules one and two, which are the rules it
+    /// could break — a system colour or a hex literal creeping into it.
     private static let roleNamingExemptions: Set<String> = [
         "ChromeThemeEnvironment.swift",
+        "LSPInstalledLicenses.swift",
         "CommitGraphView.swift",
         "DiffWindowController.swift",
         "MergeWindowController.swift",

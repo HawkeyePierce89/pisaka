@@ -296,24 +296,24 @@ Every shape below reads `\.interfaceMetrics` and `\.chromeTheme`, and takes ever
 - Modify: `Sources/Pisaka/LSPServerSettingsView.swift`
 - Modify: `Tests/PisakaCoreTests/ChromeThemeSourceGatingTests.swift`
 
-- [ ] **Page.**
+- [x] **Page.**
   - The `ScrollView` fills the page frame. The 480×300 frame and the inner 480 width are deleted, and the doc comment's sizing paragraph is rewritten: the page scrolls because failure sentences are unbounded, and the host now fixes the size.
   - Padding is `settingsPagePadding` (decision 8).
   - The intro and the three footnotes are `textSecondary`.
-- [ ] **Rows container:**
+- [x] **Rows container:**
   - `bgEditor` instead of `textBackgroundColor`;
   - clipped and bordered at `cornerRadiusMax`;
   - the border is `hairline` at `hairlineWidth` instead of `separatorColor`.
-- [ ] **The three `Divider()`s** (the `index > 0` separator run and the two around the toolchain rows) become horizontal `hairline` rules at `hairlineWidth`.
-- [ ] **Each of the three row builders:**
+- [x] **The three `Divider()`s** (the `index > 0` separator run and the two around the toolchain rows) become horizontal `hairline` rules at `hairlineWidth`.
+- [x] **Each of the three row builders:**
   - the name is `textPrimary`;
   - the component id, status and runtime note are `textSecondary`;
   - a failure is `statusRed`;
   - Install / Retry / Remove use `.chromeSecondary`;
   - `ProgressView` stays (decision 15).
-- [ ] Add `LSPServerSettingsView.swift` and `LSPInstalledLicenses.swift` to `gatedFiles`, and add `LSPInstalledLicenses.swift` to `roleNamingExemptions` with decision 2 in the comment.
-- [ ] Add `LSPServerSettingsView.swift` to rule thirty's `chromeSecondary` callers.
-- [ ] Run `swift test` and the macOS build. Both must pass. `LSPSourceGatingTests` must stay green.
+- [x] Add `LSPServerSettingsView.swift` and `LSPInstalledLicenses.swift` to `gatedFiles`, and add `LSPInstalledLicenses.swift` to `roleNamingExemptions` with decision 2 in the comment.
+- [x] Add `LSPServerSettingsView.swift` to rule thirty's `chromeSecondary` callers.
+- [x] Run `swift test` and the macOS build. Both must pass. `LSPSourceGatingTests` must stay green.
 
 ### Task 6: Acknowledgements and the licence pane
 
