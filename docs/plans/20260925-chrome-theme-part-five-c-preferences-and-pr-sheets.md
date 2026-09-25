@@ -387,11 +387,11 @@ Every shape below reads `\.interfaceMetrics` and `\.chromeTheme`, and takes ever
 - Modify: `docs/architecture/core-theme.md` (canonical list items 36–37 and the convention sentence)
 - Modify: `CLAUDE.md` (the rule count only)
 
-- [ ] **Rule thirty-six: no gated file builds a platform form control.**
+- [x] **Rule thirty-six: no gated file builds a platform form control.**
   - No gated file spells any of these tokens: `Form`, `Picker`, `pickerStyle`, `Stepper`, `Toggle`, `TabView`, `tabItem`.
   - Match through `containsToken`. `pickerStyle` and `tabItem` are bare because of the leading-dot reason.
   - The comment names the two surfaces swept to make this green (decision 4) and states that `Toggle` overlaps rule thirty on purpose, so the family is listed whole in one place.
-- [ ] **Rule thirty-seven: a picker's shape follows its set, and each settings shape has its pinned callers.**
+- [x] **Rule thirty-seven: a picker's shape follows its set, and each settings shape has its pinned callers.**
   - The files spelling each token are pinned by set equality, the defining file included:
     - `ChromeSegmentedControl`: `ChromeControls`, `SettingsView`, `PullRequestMergeSheet`;
     - `ChromeMenuField`: `ChromeControls`, `LogFilterBar`, `SettingsView`, `NewPullRequestSheet`;
@@ -399,8 +399,8 @@ Every shape below reads `\.interfaceMetrics` and `\.chromeTheme`, and takes ever
     - `ChromeSwitch`: `ChromeControls`, `SettingsView`;
     - `ChromeSettingsTabBar`: `ChromeControls`, `SettingsView`.
   - The comment states the picker rule and that the two sets together are its whole expression: a segmented base-branch list, or a switch where a checkbox belongs, moves a file between sets.
-- [ ] **Rule thirty gains part five (c)'s styled-button table:** each of the seven files' `Button` count equals its `buttonStyle` count and its stated number. Expected today:
-  - `SettingsView` 2 (the account row builds one of Sign In… / Sign Out conditionally, but both are spelled; state the tree's actual count);
+- [x] **Rule thirty gains part five (c)'s styled-button table:** each of the seven files' `Button` count equals its `buttonStyle` count and its stated number. Expected today:
+  - `SettingsView` 2 — the tree's actual count is 3 (Sign In…, Sign Out and Change…), stated as 3 (the account row builds one of Sign In… / Sign Out conditionally, but both are spelled; state the tree's actual count);
   - `LSPServerSettingsView` 6;
   - `AcknowledgementsView` 1;
   - `NewPullRequestSheet` 2;
@@ -408,9 +408,9 @@ Every shape below reads `\.interfaceMetrics` and `\.chromeTheme`, and takes ever
   - `LSPInstalledLicenses` 0;
   - `LicenseTextView` 0.
   - Each number is confirmed against the tree before it is written.
-- [ ] **Carried item 9a.** In both places the convention appears (the suite's closing header paragraph and `core-theme.md` beside the rules), add one sentence: thirty-four is the third shape — a balanced region per link, then a token assertion inside it — which is why "no rule is excepted from the three" holds.
-- [ ] Extend `spelled` to thirty-seven. Add header bullets for rules thirty-six and thirty-seven, titled as their markers. Add canonical items 36–37 to `core-theme.md`, and set `CLAUDE.md`'s count to "thirty-seven", so the four count checks agree.
-- [ ] **Mutation-verify every new rule and every new clause.** For each regression below, confirm it is red, then revert:
+- [x] **Carried item 9a.** In both places the convention appears (the suite's closing header paragraph and `core-theme.md` beside the rules), add one sentence: thirty-four is the third shape — a balanced region per link, then a token assertion inside it — which is why "no rule is excepted from the three" holds.
+- [x] Extend `spelled` to thirty-seven. Add header bullets for rules thirty-six and thirty-seven, titled as their markers. Add canonical items 36–37 to `core-theme.md`, and set `CLAUDE.md`'s count to "thirty-seven", so the four count checks agree.
+- [x] **Mutation-verify every new rule and every new clause.** For each regression below, confirm it is red, then revert:
   - **Rule thirty-six**, using the guarded files' real formatting:
     - a `Picker(` wrapped across lines in `SettingsView`;
     - `Form {` in `AuthorEditorView`;
@@ -431,8 +431,8 @@ Every shape below reads `\.interfaceMetrics` and `\.chromeTheme`, and takes ever
   - **Rule thirty-five:** a `listRowBackground` added to the Acknowledgements list.
   - **Rule thirty-one:** a second `backgroundColor =` in `LicenseTextView`.
   - **Rule one:** `.labelColor` restored in `LicenseTextView`.
-- [ ] Confirm `git status` is clean apart from the intended changes.
-- [ ] Run `swift test`. It must pass.
+- [x] Confirm `git status` is clean apart from the intended changes.
+- [x] Run `swift test`. It must pass.
 
 ### Task 9: Verify acceptance criteria
 

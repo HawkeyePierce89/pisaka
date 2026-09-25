@@ -158,6 +158,13 @@ import XCTest
 ///   `listRowBackground` under a `List` binding `selection:` is pinned, per
 ///   file and per list, by set equality; the rule does not read the
 ///   conditional, so any changed expression fails and a person re-confirms it.
+/// - **No gated file builds a platform form control.** A `Form`, `Picker`,
+///   `Stepper`, `Toggle` or `TabView` draws in the platform's colours and
+///   metrics; the chrome draws a replacement for every one.
+/// - **A picker's shape follows its set, and each settings shape has its pinned callers.**
+///   A small build-time set is segmented, a run-time set a menu field, a
+///   preference a switch; the callers of each shape are pinned, so a control
+///   changing shape moves a file between sets.
 ///
 /// What a rule here may do, and nothing more: pin a set by equality, assert the
 /// presence or absence of a token through `containsToken`, or take a
@@ -168,7 +175,9 @@ import XCTest
 /// Thirty-one is now a total ban with its sites pinned by file and count, and
 /// thirty-five a pinned set of row-background expressions that reads no
 /// conditional; thirty-four is the one rule still reading a modifier chain,
-/// narrowed rather than extended. No fourth shape, no exception. A property
+/// narrowed rather than extended. Thirty-four is the third shape — a balanced
+/// region per link, then a token assertion inside it — which is why no rule is
+/// excepted from the three. No fourth shape, no exception. A property
 /// this cannot express belongs in the app-layer bundle or the acceptance
 /// review, not here (`core-theme.md`, beside the rules).
 final class ChromeThemeSourceGatingTests: XCTestCase {
@@ -2595,8 +2604,26 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         "EscClosableWindow.swift": 0,
     ]
 
+    /// Part five (c)'s seven files, held to the same rule on the same terms.
+    /// `SettingsView.swift` spells three: the account row builds one of
+    /// Sign In… / Sign Out conditionally, but both are spelled, and the catalog
+    /// tab's Change… is the third.
+    private static let partFiveCButtonCounts: [String: Int] = [
+        "SettingsView.swift": 3,
+        "LSPServerSettingsView.swift": 6,
+        "AcknowledgementsView.swift": 1,
+        "NewPullRequestSheet.swift": 2,
+        "PullRequestMergeSheet.swift": 2,
+        "LSPInstalledLicenses.swift": 0,
+        "LicenseTextView.swift": 0,
+    ]
+
     func testOnePrimaryButtonOneSecondaryOneCheckbox() throws {
         XCTAssertEqual(Set(Self.partFiveBButtonCounts.keys), Self.partFiveBFiles)
+        XCTAssertTrue(
+            Set(Self.partFiveCButtonCounts.keys).isSubset(of: Self.gatedFiles),
+            "a part five (c) button count names a file that is not gated"
+        )
         // A declaration named like the checkbox's measurements: side, radius,
         // glyph — `checkboxSide`, `checkmarkSide`, `checkboxRadius`.
         let checkboxMeasure = try NSRegularExpression(
@@ -2636,11 +2663,11 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
                     "\(name) declares a checkbox measurement of its own — the checkbox's side, radius and glyph are ChromeControls.swift's"
                 )
             }
-            if let expected = Self.partFiveBButtonCounts[name] {
+            if let expected = Self.partFiveBButtonCounts[name] ?? Self.partFiveCButtonCounts[name] {
                 let buttons = Self.tokenCount("Button", in: code)
                 XCTAssertEqual(
                     buttons, Self.tokenCount("buttonStyle", in: code),
-                    "\(name) constructs a Button it does not style — every button in part five (b)'s files names a style"
+                    "\(name) constructs a Button it does not style — every button in part five (b)'s and (c)'s files names a style"
                 )
                 XCTAssertEqual(
                     buttons, expected,
@@ -3477,6 +3504,77 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         return tokens
     }
 
+    // MARK: - Rule thirty-six: no gated file builds a platform form control
+
+    /// The platform's form controls — a `Form`, a `Picker` in any style, a
+    /// `Stepper`, a `Toggle`, a `TabView` and its `tabItem` — each draw in the
+    /// platform's own colours and metrics, compile, and look plausible in
+    /// whichever appearance the reviewer is in. The chrome draws a replacement
+    /// for every one of them in `ChromeControls.swift`.
+    ///
+    /// Two already-gated surfaces were swept to make this green on day one: the
+    /// commit dialog's author editor (a `Form` of two fields, now two stacked
+    /// shared fields) and the Log bar's branch menu (an inline `Picker`, now the
+    /// shared menu field's first caller). `Toggle` overlaps rule thirty on
+    /// purpose, so the whole family is listed in one place.
+    ///
+    /// Matched through `containsToken`, so `ChromeStepper(` is not a `Stepper`
+    /// and `ChromeQueryToggle(` not a `Toggle`; `pickerStyle` and `tabItem` are
+    /// bare for the leading-dot reason rule thirty states.
+    private static let platformFormControls = [
+        "Form", "Picker", "pickerStyle", "Stepper", "Toggle", "TabView", "tabItem",
+    ]
+
+    func testNoGatedFileBuildsAPlatformFormControl() throws {
+        for (name, code) in try Self.strippedGatedSources() {
+            for token in Self.platformFormControls {
+                XCTAssertFalse(
+                    LSPSourceGatingTests.containsToken(token, in: code),
+                    "\(name) spells \(token) — a gated surface builds the shared chrome control, not the platform's"
+                )
+            }
+        }
+    }
+
+    // MARK: - Rule thirty-seven: a picker's shape follows its set, and each settings shape has its pinned callers
+
+    /// The files spelling each settings shape, the defining file included.
+    private static let settingsShapeCallers: [(token: String, files: Set<String>)] = [
+        ("ChromeSegmentedControl", [
+            "ChromeControls.swift", "SettingsView.swift", "PullRequestMergeSheet.swift",
+        ]),
+        ("ChromeMenuField", [
+            "ChromeControls.swift", "LogFilterBar.swift", "SettingsView.swift", "NewPullRequestSheet.swift",
+        ]),
+        ("ChromeStepper", ["ChromeControls.swift", "SettingsView.swift"]),
+        ("ChromeSwitch", ["ChromeControls.swift", "SettingsView.swift"]),
+        ("ChromeSettingsTabBar", ["ChromeControls.swift", "SettingsView.swift"]),
+    ]
+
+    /// A picker's shape follows its set: a small set known when the app is
+    /// built (the tab placement, the theme, the merge methods) is a segmented
+    /// control, and a set read at run time (branches, languages) is a menu
+    /// field; a standing preference is a switch, and an option of one action is
+    /// a checkbox. The rule cannot read a set's size, so the pinned sets below
+    /// are its whole expression — a segmented base-branch list, or a switch
+    /// where a checkbox belongs, moves a file between sets and fails here, and a
+    /// person decides whether the new shape is right before updating the pin.
+    func testAPickersShapeFollowsItsSetAndEachSettingsShapeHasItsPinnedCallers() throws {
+        var callers: [String: Set<String>] = [:]
+        for url in try Self.swiftSources() {
+            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            for (token, _) in Self.settingsShapeCallers where LSPSourceGatingTests.containsToken(token, in: code) {
+                callers[token, default: []].insert(url.lastPathComponent)
+            }
+        }
+        for (token, files) in Self.settingsShapeCallers {
+            XCTAssertEqual(
+                callers[token, default: []], files,
+                "the files spelling \(token) must be exactly its pinned callers plus the defining file"
+            )
+        }
+    }
+
     // MARK: - Self-check
 
     /// Every gated file draws with roles and must therefore name one — with two
@@ -3569,6 +3667,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         25: "twenty-five", 26: "twenty-six", 27: "twenty-seven",
         28: "twenty-eight", 29: "twenty-nine", 30: "thirty", 31: "thirty-one",
         32: "thirty-two", 33: "thirty-three", 34: "thirty-four", 35: "thirty-five",
+        36: "thirty-six", 37: "thirty-seven",
     ]
 
     func testBothSummariesSpellTheSuitesOwnRuleCount() throws {

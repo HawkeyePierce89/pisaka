@@ -1439,7 +1439,7 @@ although it is an editing affordance rather than a row: an inline draft
 for. `TabStripView.swift` covers `TabStatusMark` too, the slot view the two
 orientations share, which is why that extraction did not add a seventh file.
 
-The thirty-five rules, each invisible to the compiler:
+The thirty-seven rules, each invisible to the compiler:
 
 1. **No gated view names a system semantic colour.** A closed forbidden-token
    list — AppKit's semantic set (`labelColor`, `separatorColor`,
@@ -1848,8 +1848,12 @@ The thirty-five rules, each invisible to the compiler:
     the files spelling `chromePrimary`, `chromeSecondary` and `ChromeCheckbox`
     are pinned by set equality, the defining file included; no gated file but
     `ChromeControls.swift` declares a checkbox or checkmark measurement; and in
-    each of part five (b)'s ten files the `Button` count equals the
-    `buttonStyle` count, each file's number stated.
+    each of part five (b)'s ten files and part five (c)'s seven the `Button`
+    count equals the `buttonStyle` count, each file's number stated
+    (`SettingsView.swift` 3 — Sign In… and Sign Out are both spelled, one built
+    at a time, plus Change… — `LSPServerSettingsView.swift` 6,
+    `AcknowledgementsView.swift` 1, the two pull-request sheets 2 each,
+    `LSPInstalledLicenses.swift` and `LicenseTextView.swift` 0).
 31. **A code pane's ground goes through one definition.** `CodePaneGround.apply(`
     is called in exactly `CodeEditorView.swift`, `SourceViewerContent.swift`,
     `DiffView.swift` and `MergeView.swift`; the rule is **total and resolves no
@@ -1935,6 +1939,29 @@ The thirty-five rules, each invisible to the compiler:
     over the platform's selection box, so an unconditional one hides the
     selection outright — the Local History revisions list shipped that way,
     and its selected row is the one Restore applies.
+36. **No gated file builds a platform form control.** No gated file spells the
+    tokens `Form`, `Picker`, `pickerStyle`, `Stepper`, `Toggle`, `TabView` or
+    `tabItem` (matched through `containsToken`, so `ChromeStepper(` is not a
+    `Stepper` and `ChromeQueryToggle(` not a `Toggle`; `pickerStyle` and
+    `tabItem` bare for the leading-dot reason). Each draws in the platform's
+    colours and metrics, and the chrome draws a replacement for every one in
+    `ChromeControls.swift`. Two already-gated surfaces were swept to make it
+    green: the commit dialog's author editor (`Form`, now two stacked shared
+    fields) and the Log bar's branch menu (an inline `Picker`, now the shared
+    menu field's first caller). `Toggle` overlaps rule thirty on purpose, so
+    the family is listed whole in one place.
+37. **A picker's shape follows its set, and each settings shape has its pinned
+    callers.** A small set known at build time is a segmented control, a set
+    read at run time a menu field; a standing preference is a switch, an option
+    of one action a checkbox. The files spelling each shape are pinned by set
+    equality, the defining file included: `ChromeSegmentedControl` —
+    `ChromeControls.swift`, `SettingsView.swift`, `PullRequestMergeSheet.swift`;
+    `ChromeMenuField` — `ChromeControls.swift`, `LogFilterBar.swift`,
+    `SettingsView.swift`, `NewPullRequestSheet.swift`; `ChromeStepper`,
+    `ChromeSwitch` and `ChromeSettingsTabBar` — `ChromeControls.swift` and
+    `SettingsView.swift`. The rule cannot read a set's size, so the two sets
+    together are its whole expression: a segmented base-branch list, or a
+    switch where a checkbox belongs, moves a file between sets and fails.
 
 Plus a **self-check** in the suite's own idiom: every gated file must actually
 *name* a `ChromeColorRole`, or the checks above have gone vacuous — with eight
@@ -1993,7 +2020,9 @@ assignment with its sanctioned sites pinned by file and count, and thirty-five
 pins every selectable list's `listRowBackground` expression by set equality and
 no longer reads the conditional at all, so any changed expression fails and a
 person re-confirms it. Thirty-four stays the one rule still reading a modifier
-chain, narrowed rather than extended. No fourth shape is permitted and no rule
+chain, narrowed rather than extended. Thirty-four is the third shape — a
+balanced region per link, then a token assertion inside it — which is why the
+next sentence's second half holds. No fourth shape is permitted and no rule
 is excepted from the three.
 
 The consequence, stated plainly: a property that cannot be expressed this way
