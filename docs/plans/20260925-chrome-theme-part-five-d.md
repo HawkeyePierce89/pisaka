@@ -191,30 +191,30 @@ Rule forty then bans `ProgressView` in every gated file.
 
 - Modify: `Sources/Pisaka/DatabaseViewerView.swift`
 - Modify: `Tests/PisakaCoreTests/ChromeThemeSourceGatingTests.swift`
-- [ ] **Ground and colour.** The pane stands on `bgPanel` and the grid on `bgEditor`. Every `.secondary` becomes `textSecondary` and every value text `textPrimary`.
-- [ ] **NULL.** A NULL cell keeps its italic and takes `textSecondary`; an ordinary value takes `textPrimary`. Correct the doc comment that says "tertiary". `refusedCellOpacity` stays a view opacity.
-- [ ] **The error banner** (decision 7).
-- [ ] **The sidebar list** (decision 10). The schema header is `textSecondary`. The key glyph gets its own scaled font and keeps its help.
-- [ ] **The grid:**
+- [x] **Ground and colour.** The pane stands on `bgPanel` and the grid on `bgEditor`. Every `.secondary` becomes `textSecondary` and every value text `textPrimary`.
+- [x] **NULL.** A NULL cell keeps its italic and takes `textSecondary`; an ordinary value takes `textPrimary`. Correct the doc comment that says "tertiary". `refusedCellOpacity` stays a view opacity.
+- [x] **The error banner** (decision 7).
+- [x] **The sidebar list** (decision 10). The schema header is `textSecondary`. The key glyph gets its own scaled font and keeps its help.
+- [x] **The grid:**
   - the header row is `bgPanel` with the sort chevron in `textSecondary` and a `hairline` bottom rule drawn behind;
   - the column separators become vertical `hairline` rules at `hairlineWidth`;
   - `isTinted` and its zebra expression are deleted (the ticket's requirement 2);
   - rows take `hoverTint`, and the focused cell `accentTintStrong` (decision 5);
   - the cell editor becomes the shared field (decision 4).
-- [ ] **The footer:**
+- [x] **The footer:**
   - the two chevron buttons become `.plain`, named "Previous page" / "Next page", with scaled, hidden glyphs;
   - their `.disabled(… || model.isWriteInFlight)` terms stay verbatim;
   - the spinner becomes `ChromeSpinner`, marked hidden or labelled per decision 8 from what stands beside it.
-- [ ] **The seven `Divider()`s** become the surface's own hairlines.
-- [ ] Add the file to `gatedFiles`, and bring each rule's pins up to the tree:
+- [x] **The seven `Divider()`s** become the surface's own hairlines.
+- [x] Add the file to `gatedFiles`, and bring each rule's pins up to the tree:
   - rule twenty (the paging buttons; the spinner's construction marker);
-  - rule twenty-four (`menuFiles`, and `menuSectionFiles` too if the list's `Section` makes it one; state why);
+  - rule twenty-four (`menuFiles`, and `menuSectionFiles` too if the list's `Section` makes it one; state why); (Both: the file builds a context menu and spells `Section` for the sidebar list, and the computed set pairs the two; the cell menu itself has no separator.)
   - rule twenty-six (`sharedFieldConstructors`, plus the two `core-theme.md` passages that enumerate it);
   - rule thirty (part five (d)'s two-number table, decision 16);
   - rule thirty-four (every glyph sized);
   - rule thirty-five (`"DatabaseViewerView.swift": [[]]`);
   - the spinner classification table (this file's row).
-- [ ] Run `swift test` and the macOS build. Both must pass. `DatabaseViewerSourceGatingTests` must stay green.
+- [x] Run `swift test` and the macOS build. Both must pass. `DatabaseViewerSourceGatingTests` must stay green.
 
 ### Task 4: The SQL console
 

@@ -25,6 +25,12 @@ import SwiftUI
 /// `ZoomSurface` — the pointer over it zooms the interface, which is what a table
 /// of data means.
 ///
+/// Every colour is a role read from `\.chromeTheme`: the pane stands on `bgPanel`
+/// and the grid on `bgEditor`, the header row and the footer draw their own
+/// `hairline`s, a row takes `hoverTint` under the pointer and the focused cell
+/// `accentTintStrong`. The grid has no row selection, and no alternating fill —
+/// a zebra wash is a second meaning nobody reads.
+///
 /// **Editing decides nothing either.** Whether a cell may be written at all is
 /// `DatabaseViewerModel.editRefusal(row:column:)`, what a typed string means as a
 /// stored value is `DatabaseCellEntry`, and whether the write landed is the
@@ -59,6 +65,7 @@ struct DatabaseViewerView: View {
 
     /// The interface zone's metrics, inherited from the window root.
     @Environment(\.interfaceMetrics) private var metrics
+    @Environment(\.chromeTheme) private var theme
 
     /// The cell whose editor is open, or `nil` while the grid is only being read.
     ///
@@ -110,12 +117,11 @@ struct DatabaseViewerView: View {
         VStack(spacing: 0) {
             if let message = model.errorMessage {
                 errorBanner(message)
-                Divider()
             }
             HStack(spacing: 0) {
                 sidebar
                     .frame(width: metrics.scaled(220))
-                Divider()
+                hairline(horizontal: false)
                 // The console sits under the *grid* and not under the whole pane,
                 // so the sidebar keeps its full height: the tables and the schema
                 // are what a reader writes SQL against, and a split that shortened
@@ -129,6 +135,7 @@ struct DatabaseViewerView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
+        .background(theme.color(.bgPanel))
         // Keyed on the model, not on its `fileURL`: a rename retargets the tab and
         // the model follows it, and a task re-fired by that would race a `reload()`
         // already in flight for the same reconnect. One model is one tab is one
@@ -149,42 +156,78 @@ struct DatabaseViewerView: View {
     /// SQLite's own sentence, never one written here. Kept at the top of the pane
     /// and out of the scrolling grid so it is visible whatever the reader is
     /// looking at.
+    ///
+    /// A `bgPanel` strip whose mark and sentence are both `statusRed`, with its
+    /// bottom `hairline` drawn behind the ground rather than over it: a failure
+    /// is said in the failure's colour, not in a wash over the whole strip.
     private func errorBanner(_ message: String) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: metrics.scaled(6)) {
             Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundStyle(.orange)
+                .font(metrics.scaledFont(.callout))
+                .foregroundStyle(theme.color(.statusRed))
+                .accessibilityHidden(true)
             Text(message)
                 .font(metrics.scaledFont(.callout))
+                .foregroundStyle(theme.color(.statusRed))
                 .textSelection(.enabled)
             Spacer()
         }
         .padding(.horizontal, metrics.scaled(10))
         .padding(.vertical, metrics.scaled(6))
-        .background(Color.orange.opacity(0.12))
+        .background(alignment: .bottom) { hairline(horizontal: true) }
+        .background(theme.color(.bgPanel))
+    }
+
+    /// The one-point rule the surface draws along its own edges and between the
+    /// grid's columns: a horizontal rule when `horizontal` is true, a vertical
+    /// one otherwise.
+    private func hairline(horizontal: Bool) -> some View {
+        Rectangle()
+            .fill(theme.color(.hairline))
+            .frame(
+                width: horizontal ? nil : metrics.scaled(ChromeGeometry.hairlineWidth),
+                height: horizontal ? metrics.scaled(ChromeGeometry.hairlineWidth) : nil
+            )
     }
 
     // MARK: - Tables, views and the schema
 
     private var sidebar: some View {
         VStack(spacing: 0) {
+            // Plain rather than `.sidebar`: the sidebar style draws the
+            // platform's translucent material under the rows, a step off the
+            // pane's `bgPanel`. The platform still draws the selection, and no
+            // row sets a background over it.
             List(selection: selectionBinding) {
-                Section("Tables") {
+                Section {
                     ForEach(model.entries.filter { $0.kind == .table }) { entry in
                         entryRow(entry)
                     }
+                } header: {
+                    sectionHeader("Tables")
                 }
-                Section("Views") {
+                Section {
                     ForEach(model.entries.filter { $0.kind == .view }) { entry in
                         entryRow(entry)
                     }
+                } header: {
+                    sectionHeader("Views")
                 }
             }
-            .listStyle(.sidebar)
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
             if !model.columns.isEmpty {
-                Divider()
+                hairline(horizontal: true)
                 schema
             }
         }
+        .background(theme.color(.bgPanel))
+    }
+
+    private func sectionHeader(_ title: String) -> some View {
+        Text(title)
+            .font(metrics.scaledFont(.caption, weight: .semibold))
+            .foregroundStyle(theme.color(.textSecondary))
     }
 
     /// The sidebar's selection, routed through `select(table:)` so picking a row
@@ -207,6 +250,7 @@ struct DatabaseViewerView: View {
     private func entryRow(_ entry: DatabaseTableEntry) -> some View {
         Label(entry.name, systemImage: entry.kind == .table ? "tablecells" : "eye")
             .font(metrics.scaledFont(.body))
+            .foregroundStyle(theme.color(.textPrimary))
             .tag(entry.name)
     }
 
@@ -215,7 +259,7 @@ struct DatabaseViewerView: View {
         VStack(alignment: .leading, spacing: metrics.scaled(2)) {
             Text("Schema")
                 .font(metrics.scaledFont(.caption, weight: .semibold))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(theme.color(.textSecondary))
                 .padding(.bottom, metrics.scaled(2))
             ScrollView {
                 VStack(alignment: .leading, spacing: metrics.scaled(3)) {
@@ -236,14 +280,16 @@ struct DatabaseViewerView: View {
         HStack(spacing: metrics.scaled(4)) {
             if column.isPrimaryKey {
                 Image(systemName: "key.fill")
-                    .foregroundStyle(.secondary)
+                    .font(metrics.scaledFont(.caption))
+                    .foregroundStyle(theme.color(.textSecondary))
                     .help("Primary key, position \(column.primaryKeyPosition ?? 1)")
             }
             Text(column.name)
                 .font(metrics.scaledFont(.caption))
+                .foregroundStyle(theme.color(.textPrimary))
             Text(schemaDetail(column))
                 .font(metrics.scaledFont(.caption))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(theme.color(.textSecondary))
             Spacer(minLength: 0)
         }
     }
@@ -279,13 +325,13 @@ struct DatabaseViewerView: View {
                     // fixed column width `headerRow` uses.
                     LazyVStack(alignment: .leading, spacing: 0) {
                         headerRow
-                        Divider()
                         ForEach(Array(model.rows.enumerated()), id: \.offset) { index, row in
-                            dataRow(row, at: index, isTinted: !index.isMultiple(of: 2))
+                            dataRow(row, at: index)
                         }
                     }
                 }
-                Divider()
+                .background(theme.color(.bgEditor))
+                hairline(horizontal: true)
                 footer
                 returnOpensTheFocusedCell
             }
@@ -327,10 +373,12 @@ struct DatabaseViewerView: View {
                     HStack(spacing: metrics.scaled(3)) {
                         Text(name)
                             .font(metrics.scaledFont(.caption, weight: .semibold))
+                            .foregroundStyle(theme.color(.textPrimary))
                             .lineLimit(1)
                         if let sort = model.sort, sort.columnIndex == index {
                             Image(systemName: sort.direction.isAscending ? "chevron.up" : "chevron.down")
                                 .font(metrics.scaledFont(.caption2))
+                                .foregroundStyle(theme.color(.textSecondary))
                         }
                         Spacer(minLength: 0)
                     }
@@ -346,19 +394,25 @@ struct DatabaseViewerView: View {
                 // the one answer both are asked through, so neither surface has
                 // to remember the other exists.
                 .disabled(model.isWriteInFlight)
-                Divider()
+                hairline(horizontal: false)
             }
         }
+        // The rule is drawn behind the ground, never over it, so the strip's
+        // own fill cannot paint across it.
+        .background(alignment: .bottom) { hairline(horizontal: true) }
+        .background(theme.color(.bgPanel))
     }
 
-    private func dataRow(_ row: [DatabaseValue], at index: Int, isTinted: Bool) -> some View {
+    /// One page row. No alternating fill: the pointer's row takes `hoverTint`,
+    /// which is the one row state the grid has — it has no row selection.
+    private func dataRow(_ row: [DatabaseValue], at index: Int) -> some View {
         HStack(spacing: 0) {
             ForEach(Array(row.enumerated()), id: \.offset) { column, value in
                 cell(value, at: CellCoordinate(row: index, column: column))
-                Divider()
+                hairline(horizontal: false)
             }
         }
-        .background(isTinted ? Color.primary.opacity(0.04) : Color.clear)
+        .modifier(GridRowHover())
     }
 
     /// One cell: the field while it is being edited, the value the rest of the
@@ -372,9 +426,11 @@ struct DatabaseViewerView: View {
         }
     }
 
-    /// One cell's value. NULL is dimmed and italic **as well as** carrying the
-    /// marker, which is the only thing that tells it apart from a text value
-    /// spelling the same word.
+    /// One cell's value. NULL is `textSecondary` and italic **as well as**
+    /// carrying the marker, which is the only thing that tells it apart from a
+    /// text value spelling the same word; an ordinary value is `textPrimary`.
+    /// The cell holding the keyboard draws `accentTintStrong` — the grid's one
+    /// selection-like state.
     ///
     /// No longer `.textSelection(.enabled)`: on selectable text a double-click
     /// selects a word, and that is the gesture that now has to open the editor.
@@ -389,7 +445,7 @@ struct DatabaseViewerView: View {
     ///
     /// The dimming is `.opacity` on the whole cell rather than a second
     /// foreground style, so it composes with the NULL rendering instead of
-    /// competing with it: a refused NULL stays italic and tertiary and simply
+    /// competing with it: a refused NULL stays italic and `textSecondary` and simply
     /// reads fainter, where a greyer `foregroundStyle` would have made a refused
     /// value and an editable NULL the same colour. It is what tells a view or an
     /// unaddressable table apart from an editable one at a glance, which hovering
@@ -411,13 +467,14 @@ struct DatabaseViewerView: View {
         return Text(value.displayText)
             .font(metrics.scaledFont(.caption))
             .italic(value.isNull)
-            .foregroundStyle(value.isNull ? AnyShapeStyle(.tertiary) : AnyShapeStyle(.primary))
+            .foregroundStyle(theme.color(value.isNull ? .textSecondary : .textPrimary))
             .lineLimit(1)
             .truncationMode(.tail)
             .padding(.horizontal, metrics.scaled(6))
             .padding(.vertical, metrics.scaled(3))
             .frame(width: metrics.scaled(160), alignment: .leading)
             .opacity(refusal == nil ? 1 : Self.refusedCellOpacity)
+            .background(focus == .cell(coordinate) ? theme.color(.accentTintStrong) : Color.clear)
             .contentShape(Rectangle())
             .help(refusal?.message ?? "")
             .focusable(refusal == nil && isGridIdle)
@@ -457,22 +514,32 @@ struct DatabaseViewerView: View {
             .contextMenu { cellMenu(value, at: coordinate, refusal: refusal, request: request) }
     }
 
-    /// The open editor: a plain field seeded from the cell.
+    /// The open editor: the chrome's shared field, seeded from the cell and
+    /// speaking the column's name.
     ///
     /// A NULL cell seeds **empty**, because an empty entry is the empty string and
     /// NULL is a gesture: seeding the marker would make Return store the *text*
     /// `NULL`, which is the one confusion the marker exists to prevent. Return
-    /// commits through the model, Escape closes the field and writes nothing.
+    /// commits through the model, Escape closes the field and writes nothing —
+    /// both handled out here, on the view the field sits in.
     private func cellEditor(_ coordinate: CellCoordinate) -> some View {
-        TextField("", text: $draft)
-            .textFieldStyle(.roundedBorder)
-            .font(metrics.scaledFont(.caption))
-            .focused($focus, equals: .editor(coordinate))
-            .onSubmit { commitEditing(coordinate) }
-            .onExitCommand { cancelEditing() }
-            .padding(.horizontal, metrics.scaled(2))
-            .frame(width: metrics.scaled(160), alignment: .leading)
-            .onAppear { focus = .editor(coordinate) }
+        ChromeThemedTextField(
+            title: columnName(at: coordinate.column),
+            text: $draft,
+            focus: $focus,
+            focusedEquals: .editor(coordinate),
+            textStyle: .caption
+        )
+        .onSubmit { commitEditing(coordinate) }
+        .onExitCommand { cancelEditing() }
+        .padding(.horizontal, metrics.scaled(2))
+        .frame(width: metrics.scaled(160), alignment: .leading)
+        .onAppear { focus = .editor(coordinate) }
+    }
+
+    /// The grid column's name at `index`, or nothing past the end.
+    private func columnName(at index: Int) -> String {
+        model.gridColumns.indices.contains(index) ? model.gridColumns[index] : ""
     }
 
     /// The cell's menu: the rendered text, and the one gesture that reaches NULL.
@@ -611,28 +678,45 @@ struct DatabaseViewerView: View {
                 let request = model.prepareForRowsChange()
                 Task { await model.goToPage(target, request: request) }
             } label: {
-                Image(systemName: "chevron.left")
+                pagingGlyph("chevron.left")
             }
+            .buttonStyle(.plain)
             .disabled(!model.page.hasPrevious || model.isWriteInFlight)
+            .help("Previous page")
+            .accessibilityLabel("Previous page")
             Button {
                 let target = model.page.index + 1
                 let request = model.prepareForRowsChange()
                 Task { await model.goToPage(target, request: request) }
             } label: {
-                Image(systemName: "chevron.right")
+                pagingGlyph("chevron.right")
             }
+            .buttonStyle(.plain)
             .disabled(!model.page.hasNext || model.isWriteInFlight)
+            .help("Next page")
+            .accessibilityLabel("Next page")
             Text(positionText)
                 .font(metrics.scaledFont(.caption))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(theme.color(.textSecondary))
             if model.isLoadingRows {
-                ProgressView()
-                    .controlSize(.small)
+                // Labelled: once a page is on screen the text beside it is the
+                // row range, which says nothing about a load in flight.
+                ChromeSpinner()
+                    .accessibilityLabel("Loading rows")
             }
             Spacer()
         }
         .padding(.horizontal, metrics.scaled(10))
         .padding(.vertical, metrics.scaled(5))
+    }
+
+    /// A paging chevron: sized in the interface zone and hidden, since the button
+    /// it labels is named outright.
+    private func pagingGlyph(_ symbol: String) -> some View {
+        Image(systemName: symbol)
+            .font(metrics.scaledFont(.body))
+            .foregroundStyle(theme.color(.textSecondary))
+            .accessibilityHidden(true)
     }
 
     /// What the footer says, straight off `DatabasePage`. An uncounted total is
@@ -654,8 +738,25 @@ struct DatabaseViewerView: View {
     private func placeholder(_ text: String) -> some View {
         Text(text)
             .font(metrics.scaledFont(.body))
-            .foregroundStyle(.secondary)
+            .foregroundStyle(theme.color(.textSecondary))
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(theme.color(.bgEditor))
+    }
+}
+
+/// A grid row's pointer wash: `hoverTint` while the pointer is over it.
+///
+/// A modifier with its own state rather than a hovered index on the surface, so
+/// the pointer crossing a 200-row page re-renders the one row it enters and the
+/// one it leaves, not the whole grid.
+private struct GridRowHover: ViewModifier {
+    @Environment(\.chromeTheme) private var theme
+    @State private var isHovering = false
+
+    func body(content: Content) -> some View {
+        content
+            .background(isHovering ? theme.color(.hoverTint) : Color.clear)
+            .onHover { isHovering = $0 }
     }
 }
 

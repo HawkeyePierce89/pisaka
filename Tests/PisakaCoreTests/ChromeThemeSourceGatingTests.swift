@@ -122,7 +122,7 @@ import XCTest
 ///   lies inside a `performAsCurrentDrawingAppearance` body, naming `hairline` and
 ///   `bgPopover` respectively.
 /// - **One field shape.** No gated file spells the rounded-border style; the
-///   shared field/box is constructed in exactly seven callers plus the defining
+///   shared field/box is constructed in exactly eight callers plus the defining
 ///   file, and the shared query toggle in exactly two.
 /// - **Each measurement follows its own zone.** The Find in Files match row
 ///   carries no fixed height and is sized by the code font, each popover's
@@ -279,6 +279,9 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         // Part five (c): the create and merge pull-request sheets.
         "NewPullRequestSheet.swift",
         "PullRequestMergeSheet.swift",
+        // Part five (d): the database viewer tab — its sidebar, grid, footer
+        // and error banner.
+        "DatabaseViewerView.swift",
     ]
 
     func testEveryGatedFileExists() throws {
@@ -1826,6 +1829,14 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
             ControlBuilder(path: ["private var replaceRow: some View"],
                            required: [".accessibilityLabel("], hidesSymbols: false),
         ]),
+        // Part five (d): the grid footer's two paging chevrons, icon-only, each
+        // named outright over a glyph hidden where it is drawn.
+        ("DatabaseViewerView.swift", [
+            ControlBuilder(path: ["private var footer: some View"],
+                           required: [".accessibilityLabel("], hidesSymbols: true),
+            ControlBuilder(path: ["private func pagingGlyph("],
+                           required: [".accessibilityHidden("], hidesSymbols: true),
+        ]),
     ]
 
     func testThePanelsControlsAreIdentifiableWithoutSight() throws {
@@ -1911,6 +1922,9 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         "LocalHistoryView.swift": (labelled: 1, hidden: 0),
         // In the header; "Searching…" is the empty list's alone.
         "UsagesPanelView.swift": (labelled: 1, hidden: 0),
+        // The grid footer's: once a page is on screen the text beside it is
+        // the row range, which names no load; "Loading…" is the empty page's.
+        "DatabaseViewerView.swift": (labelled: 1, hidden: 0),
     ]
 
     func testEverySpinnerConstructionSpeaksItsActivityOrNothing() throws {
@@ -2213,10 +2227,17 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// menu's separator is a `Section` boundary in this repository, and
     /// `Divider()` is the platform's separator colour at the system's thickness,
     /// a step off the `hairline` role.
+    ///
+    /// `DatabaseViewerView.swift` is here by the rule's own reading rather than
+    /// by a separator: its cell menu (Copy, Set to NULL) has two items and none,
+    /// and the `Section` it spells is the sidebar list's (Tables, Views). The
+    /// computed set pairs any `Section` with any menu in the same file, so the
+    /// file lands in both sets and is pinned in both, deliberately.
     private static let menuSectionFiles: Set<String> = [
         "SearchHistoryMenu.swift",
         "ProjectTreeView.swift",
         "LocalChangesView.swift",
+        "DatabaseViewerView.swift",
     ]
 
     /// Every gated file that builds a `Menu` (whether or not it separates).
@@ -2234,6 +2255,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         "SearchHistoryMenu.swift",
         "ProjectTreeView.swift",
         "LocalChangesView.swift",
+        "DatabaseViewerView.swift",
     ]
 
     func testNoGatedFileSpellsDividerAndEveryMenuUsesSection() throws {
@@ -2355,6 +2377,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         "CommitDialogView.swift",
         "NewPullRequestSheet.swift",
         "PullRequestMergeSheet.swift",
+        "DatabaseViewerView.swift",
         "ChromeControls.swift",
     ]
 
@@ -2389,7 +2412,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         }
         XCTAssertEqual(
             constructors, Self.sharedFieldConstructors,
-            "the files constructing the shared field or box must be exactly its seven callers plus the defining file"
+            "the files constructing the shared field or box must be exactly its eight callers plus the defining file"
         )
 
         var toggleConstructors: Set<String> = []
@@ -2762,11 +2785,27 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         "LicenseTextView.swift": 0,
     ]
 
+    /// Part five (d)'s files, whose buttons are not all styleable: a menu item
+    /// and a confirmation dialog's button take no button style. So each file
+    /// states two numbers, its `Button` count and its `.buttonStyle(` count,
+    /// both confirmed against the tree, and the difference is the unstyleable
+    /// buttons named in the entry's comment.
+    private static let partFiveDButtonCounts: [String: (buttons: Int, styled: Int)] = [
+        // The sort headers, the hidden Return button and the two paging
+        // chevrons are styled; the cell menu's Copy and Set to NULL are menu
+        // items.
+        "DatabaseViewerView.swift": (buttons: 6, styled: 4),
+    ]
+
     func testOnePrimaryButtonOneSecondaryOneCheckbox() throws {
         XCTAssertEqual(Set(Self.partFiveBButtonCounts.keys), Self.partFiveBFiles)
         XCTAssertTrue(
             Set(Self.partFiveCButtonCounts.keys).isSubset(of: Self.gatedFiles),
             "a part five (c) button count names a file that is not gated"
+        )
+        XCTAssertTrue(
+            Set(Self.partFiveDButtonCounts.keys).isSubset(of: Self.gatedFiles),
+            "a part five (d) button count names a file that is not gated"
         )
         // A declaration named like the checkbox's measurements: side, radius,
         // glyph — `checkboxSide`, `checkmarkSide`, `checkboxRadius`.
@@ -2805,6 +2844,17 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
                 XCTAssertNil(
                     checkboxMeasure.firstMatch(in: code, range: NSRange(code.startIndex..., in: code)),
                     "\(name) declares a checkbox measurement of its own — the checkbox's side, radius and glyph are ChromeControls.swift's"
+                )
+            }
+            if let expected = Self.partFiveDButtonCounts[name] {
+                let actual = (buttons: Self.tokenCount("Button", in: code), styled: Self.tokenCount("buttonStyle", in: code))
+                XCTAssertTrue(
+                    actual == expected,
+                    """
+                    \(name) constructs \(actual.buttons) Button and styles \(actual.styled), pinned as \
+                    \(expected.buttons) and \(expected.styled) — restate both, style a new button that can \
+                    take a style, and name one that cannot in the entry's comment
+                    """
                 )
             }
             if let expected = Self.partFiveBButtonCounts[name] ?? Self.partFiveCButtonCounts[name] {
@@ -3508,6 +3558,9 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         // The dependency list sets no row background at all: the platform draws
         // the selection, and nothing paints over it.
         "AcknowledgementsView.swift": [[]],
+        // The database viewer's tables-and-views sidebar, the same answer: the
+        // platform draws the selection and no row paints a background.
+        "DatabaseViewerView.swift": [[]],
     ]
 
     /// On macOS a `listRowBackground` is drawn **over** the selection box the
