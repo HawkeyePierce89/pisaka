@@ -4625,14 +4625,9 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// directions fail — a new unswept surface appearing, and this one being
     /// swept without the rule being updated.
     ///
-    /// - `BracketOverlayLayoutManager.swift` — the fold placeholder, painted from
-    ///   `NSColor.secondaryLabelColor`; the file's own comment calls it chrome
-    ///   standing in for text. Whether it belongs to the chrome or to the code
-    ///   zone is a design question left for a part of its own (`core-theme.md`,
-    ///   *What is still waiting*).
-    private static let unsweptColorSurfaces: Set<String> = [
-        "BracketOverlayLayoutManager.swift",
-    ]
+    /// Empty: the fold placeholder (`BracketOverlayLayoutManager.swift`) left
+    /// the set in part five (f), when it began drawing from the palette.
+    private static let unsweptColorSurfaces: Set<String> = []
 
     /// What a document may not say while `unsweptColorSurfaces` is non-empty.
     ///

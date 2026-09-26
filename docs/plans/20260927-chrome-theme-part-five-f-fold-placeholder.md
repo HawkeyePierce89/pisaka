@@ -82,24 +82,24 @@ Dependencies: none.
 - Modify: `Sources/Pisaka/BracketOverlayLayoutManager.swift`
 - Modify: `Sources/Pisaka/LineNumberRulerView.swift`
 
-- [ ] Add an `internal` computed `placeholderAttributes` to `BracketOverlayLayoutManager`: `[.font: editorFont, .foregroundColor: ChromePalette.nsColor(.textSecondary)]`. Use the **dynamic** form, never `nsColor(_:in:)`. Its doc comment mirrors `numberAttributes`: it is `internal` because the app-layer suite reads it, and the dynamic colour answers under both appearances without the manager being told which.
-- [ ] Add an `internal` computed `placeholderOutlineColor` returning `ChromePalette.nsColor(.hairline)`. Document it as the chrome's one answer for a rounded container's one-point border (the shared field, secondary button, off checkbox, segmented control, stepper and off switch track in `ChromeControls.swift`). It stays quieter than the glyph, which is what the former half alpha was for.
-- [ ] Rewrite `paintFoldPlaceholders` so it **spends both seams**:
+- [x] Add an `internal` computed `placeholderAttributes` to `BracketOverlayLayoutManager`: `[.font: editorFont, .foregroundColor: ChromePalette.nsColor(.textSecondary)]`. Use the **dynamic** form, never `nsColor(_:in:)`. Its doc comment mirrors `numberAttributes`: it is `internal` because the app-layer suite reads it, and the dynamic colour answers under both appearances without the manager being told which.
+- [x] Add an `internal` computed `placeholderOutlineColor` returning `ChromePalette.nsColor(.hairline)`. Document it as the chrome's one answer for a rounded container's one-point border (the shared field, secondary button, off checkbox, segmented control, stepper and off switch track in `ChromeControls.swift`). It stays quieter than the glyph, which is what the former half alpha was for.
+- [x] Rewrite `paintFoldPlaceholders` so it **spends both seams**:
   - build the text from `placeholderAttributes`
   - stroke with `placeholderOutlineColor.setStroke()`
   - set `outline.lineWidth = CGFloat(ChromeGeometry.hairlineWidth)`, unscaled. The comment is **one clause** naming the precedent it follows, `LineNumberRulerView.swift`'s gutter hairline, and stops there. Do not restate the four-line reason: two copies of one reason are two things to keep in agreement.
   - keep `insetBy(dx: 0.5, dy: 0.5)` as a bare local number (rule seven)
   - leave no `NSColor`, `ChromePalette`, `.foregroundColor` or `withAlphaComponent` in the method body itself
-- [ ] Replace the doc comment that justified `secondaryLabelColor` by answering it:
+- [x] Replace the doc comment that justified `secondaryLabelColor` by answering it:
   - The bridge is appearance-aware too. A dynamic colour resolves at draw time under `.aqua` and `.darkAqua`, so there is still no second table.
   - The stronger reason: the gutter chevron draws the same fact (*this block is folded*) from the same role, so the two agree by construction.
   - The code zone cannot hold `…`: its table is keyed by `SyntaxTokenKind`, and nothing in the buffer says `…`.
-- [ ] State the two zone departures at their sites, as zone statements and not as exceptions:
+- [x] State the two zone departures at their sites, as zone statements and not as exceptions:
   - on the seam's `.font` (and `editorFont`): the placeholder is drawn at the **code** font because it stands in the document's own text flow
   - in `placeholderRect(forFoldedRangeAt:)`: the inset, gap and height are measured **from that font**, which is the code zone's measurement, not the chrome's point tokens
   - geometry values are unchanged
-- [ ] In `LineNumberRulerView.swift`, add an `internal` computed `foldChevronColor` returning `ChromePalette.nsColor(.textSecondary)`. Make `drawFoldChevron` spend it instead of its local palette call. Document it as the seam the placeholder is compared against.
-- [ ] Build the macOS scheme and run `swift test`. No Core test changes are expected yet, but the full suite must pass.
+- [x] In `LineNumberRulerView.swift`, add an `internal` computed `foldChevronColor` returning `ChromePalette.nsColor(.textSecondary)`. Make `drawFoldChevron` spend it instead of its local palette call. Document it as the seam the placeholder is compared against.
+- [x] Build the macOS scheme and run `swift test`. No Core test changes are expected yet, but the full suite must pass. (Rule forty-three's set-equality forced `unsweptColorSurfaces` to empty in this same commit, since the swept file stopped measuring; its doc-comment rewrite stays in Task 4.)
 
 ### Task 2: The app-layer test: glyph, outline and chevron, under both appearances
 

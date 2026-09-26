@@ -771,6 +771,17 @@ final class LineNumberRulerView: NSRulerView, ZoomSurfaceProviding {
         ]
     }
 
+    /// The colour the fold chevron is drawn in: the chrome's `textSecondary`.
+    ///
+    /// `internal` for `numberAttributes`' reason, and the seam the fold
+    /// placeholder is compared against: the placeholder
+    /// (`BracketOverlayLayoutManager.placeholderAttributes`) draws the same fact,
+    /// *this block is folded*, and the app-layer suite asserts the two agree
+    /// under both appearances. Dynamic, like every palette colour here.
+    var foldChevronColor: NSColor {
+        ChromePalette.nsColor(.textSecondary)
+    }
+
     /// The rectangle the gutter's background fill covers, given the rectangle
     /// `drawHashMarksAndLabels` was handed and the gutter's own width.
     ///
@@ -1006,7 +1017,7 @@ final class LineNumberRulerView: NSRulerView, ZoomSurfaceProviding {
         let isFolded = foldedState.folded(containing: line) != nil
         guard isFolded || foldCandidateByHeaderLine[line] != nil else { return }
         let symbolName = isFolded ? "chevron.right" : "chevron.down"
-        let color = ChromePalette.nsColor(.textSecondary)
+        let color = foldChevronColor
         guard let image = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil) else { return }
         let side = chevronSide
         let configuration = NSImage.SymbolConfiguration(pointSize: side, weight: .regular)
