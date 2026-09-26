@@ -17,8 +17,12 @@ import Foundation
 /// AppKit/UIKit and because a document that is a pure function of its inputs is
 /// one a unit test can assert light and dark differ in. The view layer resolves
 /// `ThemePreference.system` against the appearance it is actually running in and
-/// passes the answer in — `Theme.resolved(_:systemPrefersDark:)` is that one
-/// mapping, kept here so both platforms make it identically.
+/// passes the answer in. The one mapping from preference to appearance is
+/// `ChromeAppearance.resolved(_:systemPrefersDark:)`; `Theme` is the shared
+/// ``DocumentPageChrome``, whose `resolved(_:systemPrefersDark:)` delegates to it
+/// and picks the restated block — iOS is that form's remaining caller, while
+/// macOS asks `ChromeAppearance` directly and builds the page's chrome from its
+/// palette.
 ///
 /// **The fragment is never rewritten.** It is interpolated verbatim, including
 /// whatever markup LeetCode chose; sanitising it would be a second, silently

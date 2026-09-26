@@ -86,8 +86,10 @@ struct LeetCodeDescriptionPane: View {
     @Environment(\.interfaceMetrics) private var metrics
     /// The chrome's colours, injected at `ContentView`'s root: the header, the
     /// collapsed strip, the rules and the resize handle draw from the roles.
-    /// The statement page itself is not chrome and stays unthemed here — the
-    /// served document carries its own colours.
+    /// The statement page's colours come from the palette too, but not through
+    /// this value: `html(for:)` hands the document
+    /// `ChromePalette.documentPageChrome(in:)`, so Core's restated block never
+    /// reaches the page on macOS.
     @Environment(\.chromeTheme) private var theme
 
     /// Narrower than this and the statement's example blocks stop being

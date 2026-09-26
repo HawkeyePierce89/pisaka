@@ -1045,8 +1045,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     drawing call**: `markdownPreviewTheme(prefersDark:)` (macOS), which resolves
     every `SyntaxTokenKind` through `nsColor(for:)` and spells each as a
     `#rrggbb` CSS string, then hands them to `MarkdownPreviewTheme.light`/`.dark`
-    through `withCodeColors(_:)` — Core's chrome survives, this file supplies the
-    code palette. A fenced Swift block in the preview and the same block in the
+    through `withCodeColors(_:)` — this file supplies the code palette, and the
+    pane then replaces the chrome from the palette
+    (`ChromePalette.documentPageChrome(in:)` through `withChrome(_:)`), so none
+    of Core's restated chrome reaches the page on macOS. A fenced Swift block in the preview and the same block in the
     text view beside it are the same code read twice, so the preview must carry no
     palette *of its own on screen*; deriving it here, where a kind already has a
     colour, is what makes the page show the editor's values. Core's own

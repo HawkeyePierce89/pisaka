@@ -131,12 +131,12 @@ mapping, kept here so both platforms make it identically". Both halves are false
 macOS no longer calls it, and it is no longer defined in this file — `Theme` is a
 typealias and `resolved` delegates to `ChromeAppearance.resolved`.
 
-- [ ] Fix A: say where the page's colours now come from, and keep the true half — the header, the collapsed strip, the rules and the resize handle draw from the roles.
-- [ ] Fix B: rewrite the entry to say what happens now — this file supplies the code palette, and the pane replaces the chrome from the palette, so Core's restated chrome does not reach the page on macOS.
-- [ ] Fix C: say that the mapping is `ChromeAppearance.resolved`, that `Theme` is the shared `DocumentPageChrome`, and that iOS is its remaining caller.
-- [ ] **Sweep for the shape, not the site:** grep the repository for every other sentence asserting that the served pages carry their own colours, that Core's chrome survives into the preview, or that both platforms share the statement's resolution, and fix each in this commit. Grep for the constructs, not the literal phrases — a sentence wrapped across a line break survives a search for the phrase.
-- [ ] Test: this task's surface is prose, so the check is the sweep above plus the suite's own count and inventory tests; state in the commit message which files the sweep touched and that it was run.
-- [ ] Run `swift test`; it must pass before Task 6.
+- [x] Fix A: say where the page's colours now come from, and keep the true half — the header, the collapsed strip, the rules and the resize handle draw from the roles.
+- [x] Fix B: rewrite the entry to say what happens now — this file supplies the code palette, and the pane replaces the chrome from the palette, so Core's restated chrome does not reach the page on macOS.
+- [x] Fix C: say that the mapping is `ChromeAppearance.resolved`, that `Theme` is the shared `DocumentPageChrome`, and that iOS is its remaining caller.
+- [x] **Sweep for the shape, not the site:** grep the repository for every other sentence asserting that the served pages carry their own colours, that Core's chrome survives into the preview, or that both platforms share the statement's resolution, and fix each in this commit. Grep for the constructs, not the literal phrases — a sentence wrapped across a line break survives a search for the phrase.
+- [x] Test: this task's surface is prose, so the check is the sweep above plus the suite's own count and inventory tests; state in the commit message which files the sweep touched and that it was run.
+- [x] Run `swift test`; it must pass before Task 6.
 
 ### Task 6: the gates
 
