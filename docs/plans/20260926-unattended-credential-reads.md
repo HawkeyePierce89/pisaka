@@ -236,12 +236,12 @@ app resumes".
 
 ### Task 5: Verify acceptance criteria
 
-- [ ] Run `swift test` (full Core suite).
-- [ ] Run `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination
+- [x] Run `swift test` (full Core suite).
+- [x] Run `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination
   'platform=macOS' test` (app bundle). Derived data goes under
   `~/Library/Developer/Xcode/DerivedData/pisaka-<purpose>`.
-- [ ] Run `swiftlint --strict` from the repository root. It must be clean.
-- [ ] Confirm the resolution-path test fails with the resolution site set to
+- [x] Run `swiftlint --strict` from the repository root. It must be clean.
+- [x] Confirm the resolution-path test fails with the resolution site set to
   attended (Task 2), and record that in the progress log.
 
 ### Task 6: Update documentation
