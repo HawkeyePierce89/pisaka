@@ -121,6 +121,15 @@ final class LeetCodeStatementDocumentTests: XCTestCase {
         }
     }
 
+    /// The statement's theme is the shared served-page chrome, so the statement
+    /// and the preview draw the same page in each appearance.
+    func testTheStatementThemeIsTheSharedDocumentPageChrome() {
+        XCTAssertEqual(LeetCodeStatementDocument.Theme.light, DocumentPageChrome.light)
+        XCTAssertEqual(LeetCodeStatementDocument.Theme.dark, DocumentPageChrome.dark)
+        XCTAssertEqual(LeetCodeStatementDocument.Theme.light, MarkdownPreviewTheme.light.chrome)
+        XCTAssertEqual(LeetCodeStatementDocument.Theme.dark, MarkdownPreviewTheme.dark.chrome)
+    }
+
     func testThemeResolutionFollowsThePreference() {
         XCTAssertEqual(
             LeetCodeStatementDocument.Theme.resolved(.light, systemPrefersDark: true),

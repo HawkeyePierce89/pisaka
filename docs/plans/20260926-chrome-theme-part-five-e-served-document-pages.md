@@ -169,21 +169,21 @@ This plan reads it as three conditions, and the new gating rule pins the counts:
 - Modify: `Sources/PisakaCore/MarkdownPreviewTheme.swift`, `Sources/PisakaCore/LeetCodeStatementDocument.swift`, `Sources/PisakaCore/MarkdownPreviewPage.swift`, `Resources/MarkdownPreview/preview.css`
 - Modify: `Tests/PisakaCoreTests/MarkdownPreviewThemeTests.swift`, `MarkdownPreviewPageTests.swift`, `LeetCodeStatementDocumentTests.swift`, and `MarkdownPreviewModelTests.swift` only if field paths need updating
 
-- [ ] `MarkdownPreviewTheme`:
+- [x] `MarkdownPreviewTheme`:
   - Its chrome becomes one stored `chrome: DocumentPageChrome`, and `tableBorder` is removed.
   - `.light` and `.dark` take `DocumentPageChrome.light` and `.dark`, so the preview theme spells no chrome literal of its own.
   - Add `withChrome(_:)`, the chrome counterpart of `withCodeColors(_:)`. It replaces the chrome wholesale and leaves `codeColors` untouched.
   - `withCodeColors(_:)` behaves exactly as before. `color(for:)`'s fallback reads `chrome.text`.
   - Update the doc comments: the chrome is now shared by construction, not by assertion. The long restatement paragraph gains the chrome half's pair of tests (Task 3).
-- [ ] `LeetCodeStatementDocument.Theme`:
+- [x] `LeetCodeStatementDocument.Theme`:
   - Becomes `public typealias Theme = DocumentPageChrome`. It is not a second table, and the statement file spells no hex literal.
   - `html(...)` and the stylesheet are unchanged apart from field access.
   - The doc comment says the statement page and the preview share one chrome source.
-- [ ] `MarkdownPreviewPage` stops emitting `--table-border`.
-- [ ] In `preview.css`, the table-cell rule reads `var(--border)`.
+- [x] `MarkdownPreviewPage` stops emitting `--table-border`.
+- [x] In `preview.css`, the table-cell rule reads `var(--border)`.
   - Add no pin (there is none), and do not add or update anything in `VENDORED.md`.
   - The stylesheet's existing "no colour of its own" invariant still holds.
-- [ ] Tests:
+- [x] Tests:
   - Delete `testTheTwoBorderColoursAreDistinct`. Its reason was "border and tableBorder are two fields because a table draws a grid of them; if they were ever collapsed to one value the distinction would be gone without anything else changing".
   - Replace it with a test asserting that the theme has exactly one line colour: the table grid and the rule both read `chrome.border`, and the page emits no second line property.
   - The replacing test's doc comment must answer the deleted reason with all four points from the Overview:
@@ -197,7 +197,7 @@ This plan reads it as three conditions, and the new gating rule pins the counts:
   - The preview page emits `--border` and no `--table-border`.
   - A Core test reads `preview.css` and asserts that no `var(--table-border)` remains.
   - Existing statement-document tests stay green. One new test asserts the statement's light/dark theme equals `DocumentPageChrome.light`/`.dark`.
-- [ ] Run `swift test`; it must pass before Task 3.
+- [x] Run `swift test`; it must pass before Task 3.
 
 ### Task 3: App — the palette's CSS reading and the one derivation
 

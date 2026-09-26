@@ -25,28 +25,17 @@ import Foundation
 /// lets a theme change re-write the shell without touching the body.
 public struct MarkdownPreviewTheme: Equatable, Sendable {
 
-    /// The page's background — the surface the preview pane reads as.
-    public let background: String
-    /// Body text.
-    public let text: String
-    /// Muted text: a blockquote's content and a table's header row.
-    public let secondaryText: String
-    /// Link text. Also what an autolink is drawn in.
-    public let link: String
-    /// The fill behind `<code>` and `<pre>`. A code fence is most of a technical
-    /// document, so this is the colour that decides whether the pane reads as one
-    /// surface or two.
-    public let codeBackground: String
-    /// Thematic breaks and the blockquote bar.
-    public let border: String
-    /// A table's cell borders. Separate from `border` because a table draws a
-    /// grid of them — a weight that reads as structure between cells would read
-    /// as a scar across a paragraph.
-    public let tableBorder: String
-    /// `"light"` or `"dark"`, emitted as CSS `color-scheme` so the web view's own
-    /// scrollbars and the disabled task-item checkboxes match the page rather
-    /// than staying stubbornly light inside a dark pane.
-    public let colorScheme: String
+    /// The page's chrome — ground, text, link, code ground and its one line
+    /// colour — as the one value both served pages take.
+    ///
+    /// **Shared by construction, not by assertion.** It *is* a
+    /// ``DocumentPageChrome``, the type the problem statement's theme is too, so
+    /// the two document surfaces in the window cannot disagree about what white
+    /// the page is; every field names a `ChromeColorRole`
+    /// (``DocumentPageChrome/role(for:)``). The page emits `border` for the
+    /// thematic break, the blockquote bar *and* a table's grid — one line colour,
+    /// because the closed vocabulary names one.
+    public let chrome: DocumentPageChrome
     /// One colour per token kind, keyed by the editor's own semantic vocabulary.
     ///
     /// A dictionary rather than one stored property per kind because the page
@@ -56,28 +45,14 @@ public struct MarkdownPreviewTheme: Equatable, Sendable {
     public let codeColors: [SyntaxTokenKind: String]
 
     public init(
-        background: String,
-        text: String,
-        secondaryText: String,
-        link: String,
-        codeBackground: String,
-        border: String,
-        tableBorder: String,
-        colorScheme: String,
+        chrome: DocumentPageChrome,
         codeColors: [SyntaxTokenKind: String]
     ) {
-        self.background = background
-        self.text = text
-        self.secondaryText = secondaryText
-        self.link = link
-        self.codeBackground = codeBackground
-        self.border = border
-        self.tableBorder = tableBorder
-        self.colorScheme = colorScheme
+        self.chrome = chrome
         self.codeColors = codeColors
     }
 
-    /// The colour for a token kind, falling back to `text`.
+    /// The colour for a token kind, falling back to the chrome's `text`.
     ///
     /// Total by construction rather than by hoping the dictionary is complete: a
     /// missing entry would otherwise emit an empty CSS custom property, and a
@@ -86,7 +61,7 @@ public struct MarkdownPreviewTheme: Equatable, Sendable {
     /// off its own. Body text is the honest fallback, being what an unhighlighted
     /// run is already drawn in.
     public func color(for kind: SyntaxTokenKind) -> String {
-        codeColors[kind] ?? text
+        codeColors[kind] ?? chrome.text
     }
 
     /// The CSS custom-property name a token kind's colour travels under.
@@ -116,13 +91,13 @@ public struct MarkdownPreviewTheme: Equatable, Sendable {
 
     /// The light theme.
     ///
-    /// The chrome colours are `LeetCodeStatementDocument.Theme.light`'s, plus a
-    /// table border: the two panes sit in the same window and there is no reason
-    /// for one document surface to be a different white from the other. They are
-    /// untouched by the code palette below and stay that way — the chrome is
-    /// shared with the other document surface in the window.
+    /// The chrome is ``DocumentPageChrome/light`` — the value the statement page
+    /// takes too — so this theme spells no chrome literal of its own. It is
+    /// untouched by the code palette below and stays that way.
     ///
-    /// The `codeColors` block is the editor palette's light variants, restated
+    /// Both halves are restated fallbacks the app replaces wholesale, each
+    /// through its own member, and each pinned by its own pair of app-layer
+    /// tests. The `codeColors` block is the editor palette's light variants, restated
     /// here only so the domain layer has a complete theme to test and to fall
     /// back on. It is not a second opinion: the app overwrites every entry from
     /// the editor's own table at run time through `withCodeColors(_:)`, which is
@@ -133,16 +108,13 @@ public struct MarkdownPreviewTheme: Equatable, Sendable {
     /// pins that the derivation carries the editor's table, and
     /// `testTheDomainLayersRestatedCodeColoursEqualTheEditorTable` pins that this
     /// block still states the same values, which the first cannot see because
-    /// `withCodeColors(_:)` replaces it wholesale.
+    /// `withCodeColors(_:)` replaces it wholesale. The chrome half is the same
+    /// shape: `withChrome(_:)` takes the value `ChromePalette.documentPageChrome(in:)`
+    /// derives, one test pins that the derivation carries the palette, and a
+    /// separate one pins that ``DocumentPageChrome/light``/``DocumentPageChrome/dark``
+    /// still state the palette's values.
     public static let light = MarkdownPreviewTheme(
-        background: "#ffffff",
-        text: "#1d1d1f",
-        secondaryText: "#6e6e73",
-        link: "#0066cc",
-        codeBackground: "#f2f2f7",
-        border: "#d2d2d7",
-        tableBorder: "#c7c7cc",
-        colorScheme: "light",
+        chrome: .light,
         codeColors: [
             .keyword: "#8250b0",
             .string: "#4f7942",
@@ -163,20 +135,14 @@ public struct MarkdownPreviewTheme: Equatable, Sendable {
 
     /// The dark theme — the light one's counterpart, field for field.
     ///
-    /// Its chrome is likewise out of the code palette's reach. The `codeColors`
+    /// Its chrome is ``DocumentPageChrome/dark``, likewise out of the code
+    /// palette's reach. The `codeColors`
     /// block is the editor palette's dark variants, restated for the same reason
     /// the light ones are: the domain layer needs a complete theme to test and to
     /// fall back on, while the app replaces the whole block from the editor's
     /// table through `withCodeColors(_:)`.
     public static let dark = MarkdownPreviewTheme(
-        background: "#1e1e1e",
-        text: "#e8e8ed",
-        secondaryText: "#9a9aa0",
-        link: "#6bb3ff",
-        codeBackground: "#2a2a2e",
-        border: "#3a3a3e",
-        tableBorder: "#4a4a4e",
-        colorScheme: "dark",
+        chrome: .dark,
         codeColors: [
             .keyword: "#b48ead",
             .string: "#9db97b",
@@ -214,21 +180,19 @@ public struct MarkdownPreviewTheme: Equatable, Sendable {
     /// A copy of this theme carrying another code palette, with the chrome
     /// untouched.
     ///
-    /// The app's one use: keep Core's chrome, replace the code colours with the
-    /// editor's resolved ones. A dedicated member rather than a re-spelled
-    /// initializer call at the call site, so adding a chrome colour later does
-    /// not silently drop out of the app's copy.
+    /// The app's one use: replace the code colours with the editor's resolved
+    /// ones. A dedicated member rather than a re-spelled initializer call at the
+    /// call site, so the chrome cannot silently drop out of the app's copy.
     public func withCodeColors(_ colors: [SyntaxTokenKind: String]) -> MarkdownPreviewTheme {
-        MarkdownPreviewTheme(
-            background: background,
-            text: text,
-            secondaryText: secondaryText,
-            link: link,
-            codeBackground: codeBackground,
-            border: border,
-            tableBorder: tableBorder,
-            colorScheme: colorScheme,
-            codeColors: colors
-        )
+        MarkdownPreviewTheme(chrome: chrome, codeColors: colors)
+    }
+
+    /// A copy of this theme carrying another chrome, with the code colours
+    /// untouched — ``withCodeColors(_:)``'s counterpart.
+    ///
+    /// The app's one use: replace the restated chrome wholesale with the value
+    /// the palette derives, so on macOS no restated chrome string survives.
+    public func withChrome(_ chrome: DocumentPageChrome) -> MarkdownPreviewTheme {
+        MarkdownPreviewTheme(chrome: chrome, codeColors: codeColors)
     }
 }

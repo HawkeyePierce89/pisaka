@@ -11,7 +11,8 @@ import Foundation
 /// composes, and the platform views on both sides load a `String` rather than
 /// each growing their own copy of the same `<head>`.
 ///
-/// **Colours arrive as values.** `Theme` is six strings; nothing here reads
+/// **Colours arrive as values.** `Theme` is six strings (the shared
+/// ``DocumentPageChrome``); nothing here reads
 /// `NSColor`, `UIColor` or the system appearance, because Core may not import
 /// AppKit/UIKit and because a document that is a pure function of its inputs is
 /// one a unit test can assert light and dark differ in. The view layer resolves
@@ -27,83 +28,17 @@ import Foundation
 /// value this app supplies.
 public enum LeetCodeStatementDocument {
 
-    /// The handful of colours the statement's CSS needs, as CSS colour strings.
+    /// The statement's colours: the one served-page chrome value.
     ///
-    /// Six, not a palette: the statement is body text, links, code and a rule.
-    /// `colorScheme` is the CSS `color-scheme` keyword — what makes the web
-    /// view's own scrollbars and any form control in the markup match rather than
-    /// staying stubbornly light inside a dark panel.
-    public struct Theme: Equatable, Sendable {
-        public let background: String
-        public let text: String
-        /// Muted text: the difficulty line and anything LeetCode marks up as
-        /// secondary.
-        public let secondaryText: String
-        public let link: String
-        /// The fill behind `<code>` and `<pre>` — the example blocks are most of a
-        /// LeetCode statement, so this is the colour that decides whether the
-        /// panel reads as one surface or two.
-        public let codeBackground: String
-        public let border: String
-        /// `"light"` or `"dark"`, emitted as CSS `color-scheme`.
-        public let colorScheme: String
-
-        public init(
-            background: String,
-            text: String,
-            secondaryText: String,
-            link: String,
-            codeBackground: String,
-            border: String,
-            colorScheme: String
-        ) {
-            self.background = background
-            self.text = text
-            self.secondaryText = secondaryText
-            self.link = link
-            self.codeBackground = codeBackground
-            self.border = border
-            self.colorScheme = colorScheme
-        }
-
-        public static let light = Theme(
-            background: "#ffffff",
-            text: "#1d1d1f",
-            secondaryText: "#6e6e73",
-            link: "#0066cc",
-            codeBackground: "#f2f2f7",
-            border: "#d2d2d7",
-            colorScheme: "light"
-        )
-
-        public static let dark = Theme(
-            background: "#1e1e1e",
-            text: "#e8e8ed",
-            secondaryText: "#9a9aa0",
-            link: "#6bb3ff",
-            codeBackground: "#2a2a2e",
-            border: "#3a3a3e",
-            colorScheme: "dark"
-        )
-
-        /// The theme a preference resolves to in an app that is currently running
-        /// light or dark.
-        ///
-        /// `ThemePreference.system` carries no colour by itself — it means
-        /// "whatever the OS says" — so the caller supplies the answer to that
-        /// question and this mapping stays total. Both platforms call it, which is
-        /// why it is not written twice in the view layer.
-        public static func resolved(
-            _ preference: ThemePreference,
-            systemPrefersDark: Bool
-        ) -> Theme {
-            switch preference {
-            case .light: return .light
-            case .dark: return .dark
-            case .system: return systemPrefersDark ? .dark : .light
-            }
-        }
-    }
+    /// Not a second table. The statement page and the Markdown preview share one
+    /// chrome source, ``DocumentPageChrome`` — its role mapping, its restated
+    /// `light`/`dark` fallback (which iOS reads) and its `resolved(_:systemPrefersDark:)`
+    /// — so this file spells no colour at all. Six strings, not a palette: the
+    /// statement is body text, links, code and a rule. `colorScheme` is the CSS
+    /// `color-scheme` keyword — what makes the web view's own scrollbars and any
+    /// form control in the markup match rather than staying stubbornly light
+    /// inside a dark panel.
+    public typealias Theme = DocumentPageChrome
 
     /// The complete document for one statement.
     ///

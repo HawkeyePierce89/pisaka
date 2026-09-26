@@ -177,13 +177,9 @@ final class MarkdownPreviewThemeTests: XCTestCase {
         let light = MarkdownPreviewTheme.light
         let dark = MarkdownPreviewTheme.dark
 
-        XCTAssertNotEqual(light.background, dark.background)
-        XCTAssertNotEqual(light.text, dark.text)
-        XCTAssertNotEqual(light.secondaryText, dark.secondaryText)
-        XCTAssertNotEqual(light.link, dark.link)
-        XCTAssertNotEqual(light.codeBackground, dark.codeBackground)
-        XCTAssertNotEqual(light.border, dark.border)
-        XCTAssertNotEqual(light.tableBorder, dark.tableBorder)
+        for field in DocumentPageChrome.Field.allCases {
+            XCTAssertNotEqual(light.chrome[field], dark.chrome[field], "\(field) is the same in both appearances")
+        }
 
         for kind in SyntaxTokenKind.allCases {
             XCTAssertNotEqual(
@@ -194,20 +190,50 @@ final class MarkdownPreviewThemeTests: XCTestCase {
         }
     }
 
-    /// `border` and `tableBorder` are two fields because a table draws a grid of
-    /// them; if they were ever collapsed to one value the distinction would be
-    /// gone without anything else changing.
-    func testTheTwoBorderColoursAreDistinct() {
-        XCTAssertNotEqual(MarkdownPreviewTheme.light.border, MarkdownPreviewTheme.light.tableBorder)
-        XCTAssertNotEqual(MarkdownPreviewTheme.dark.border, MarkdownPreviewTheme.dark.tableBorder)
+    /// The theme has exactly one line colour: the table grid and the rule both
+    /// read `chrome.border`, and the page emits no second line property.
+    ///
+    /// This replaces a test that pinned a separate table-grid colour distinct
+    /// from `border`, on the reasoning that a table draws a grid of them and
+    /// collapsing the two would lose the distinction without anything else
+    /// changing. The collapse is deliberate, and this is the answer to that
+    /// reason:
+    ///
+    /// 1. **The closed vocabulary requires it; it is not a preference.** The
+    ///    chrome names exactly one line colour, `hairline`, and no role for a
+    ///    stronger separator, so a served page may not draw a line stronger than
+    ///    the one every other swept surface draws.
+    /// 2. **The measured cost.** Dark: the table grid goes from `#4a4a4e` on a
+    ///    `#1e1e1e` page to `#393b40` on a `#2f3136` page — a strong grid becomes
+    ///    exactly as subtle as every other hairline in the app. Light: from
+    ///    `#c7c7cc` on white to `#d1d1d6` on white.
+    /// 3. **This is the one place the collapse is felt.** A code block's ground
+    ///    may be subtle because it is a large filled area; a one-pixel line may
+    ///    not. So the code ground moving is invisible and the rule line moving is
+    ///    not.
+    /// 4. **The remedy, if it reads badly on screen,** is a change to `hairline`
+    ///    itself, which moves every swept surface — never a page-local override
+    ///    and never a twenty-second role.
+    func testTheThemeHasExactlyOneLineColour() {
+        for theme in [MarkdownPreviewTheme.light, .dark] {
+            XCTAssertEqual(DocumentPageChrome.role(for: .border), .hairline)
+            let page = MarkdownPreviewPage.html(theme: theme, fontSize: 13)
+            XCTAssertTrue(page.contains("--border: \(theme.chrome.border);"))
+            XCTAssertFalse(page.contains("--table-border"))
+            let lineProperties = page.components(separatedBy: "\n").filter {
+                $0.trimmingCharacters(in: .whitespaces).hasPrefix("--")
+                    && $0.contains("border")
+            }
+            XCTAssertEqual(lineProperties, ["  --border: \(theme.chrome.border);"])
+        }
     }
 
     /// `colorScheme` is a CSS keyword, not a label: anything else and the web
     /// view's own scrollbars and the task-item checkboxes stay light inside a
     /// dark pane.
     func testColorSchemeIsExactlyTheCSSKeyword() {
-        XCTAssertEqual(MarkdownPreviewTheme.light.colorScheme, "light")
-        XCTAssertEqual(MarkdownPreviewTheme.dark.colorScheme, "dark")
+        XCTAssertEqual(MarkdownPreviewTheme.light.chrome.colorScheme, "light")
+        XCTAssertEqual(MarkdownPreviewTheme.dark.chrome.colorScheme, "dark")
     }
 
     func testResolvedFollowsThePreferenceAndTheSystemAnswer() {
@@ -222,7 +248,7 @@ final class MarkdownPreviewThemeTests: XCTestCase {
     func testAMissingKindFallsBackToBodyText() {
         let partial = MarkdownPreviewTheme.light.withCodeColors([.keyword: "#ff0000"])
         XCTAssertEqual(partial.color(for: .keyword), "#ff0000")
-        XCTAssertEqual(partial.color(for: .comment), MarkdownPreviewTheme.light.text)
+        XCTAssertEqual(partial.color(for: .comment), MarkdownPreviewTheme.light.chrome.text)
     }
 
     /// The app's one use of the copy member: the editor's resolved palette
@@ -232,15 +258,38 @@ final class MarkdownPreviewThemeTests: XCTestCase {
         let base = MarkdownPreviewTheme.dark
         let copy = base.withCodeColors([.keyword: "#123456"])
 
-        XCTAssertEqual(copy.background, base.background)
-        XCTAssertEqual(copy.text, base.text)
-        XCTAssertEqual(copy.secondaryText, base.secondaryText)
-        XCTAssertEqual(copy.link, base.link)
-        XCTAssertEqual(copy.codeBackground, base.codeBackground)
-        XCTAssertEqual(copy.border, base.border)
-        XCTAssertEqual(copy.tableBorder, base.tableBorder)
-        XCTAssertEqual(copy.colorScheme, base.colorScheme)
+        XCTAssertEqual(copy.chrome, base.chrome)
         XCTAssertEqual(copy.codeColors, [.keyword: "#123456"])
+    }
+
+    /// The chrome counterpart: the palette's derived value replaces every chrome
+    /// field wholesale and the code colours survive untouched.
+    func testWithChromeReplacesEveryChromeFieldAndKeepsTheCodeColours() {
+        let base = MarkdownPreviewTheme.dark
+        let chrome = DocumentPageChrome(
+            background: "#010203",
+            text: "#040506",
+            secondaryText: "#070809",
+            link: "#0a0b0c",
+            codeBackground: "#0d0e0f",
+            border: "#101112",
+            colorScheme: "light"
+        )
+        let copy = base.withChrome(chrome)
+
+        XCTAssertEqual(copy.chrome, chrome)
+        for field in DocumentPageChrome.Field.allCases {
+            XCTAssertNotEqual(copy.chrome[field], base.chrome[field], "\(field) was not replaced")
+        }
+        XCTAssertNotEqual(copy.chrome.colorScheme, base.chrome.colorScheme)
+        XCTAssertEqual(copy.codeColors, base.codeColors)
+    }
+
+    /// The preview's restated chrome is the shared value itself, so the theme
+    /// spells no chrome literal of its own.
+    func testBothThemesCarryTheSharedChrome() {
+        XCTAssertEqual(MarkdownPreviewTheme.light.chrome, DocumentPageChrome.light)
+        XCTAssertEqual(MarkdownPreviewTheme.dark.chrome, DocumentPageChrome.dark)
     }
 
     // MARK: - The custom-property names

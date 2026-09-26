@@ -164,17 +164,40 @@ final class MarkdownPreviewPageTests: XCTestCase {
         let theme = MarkdownPreviewTheme.light
         let expected = [
             "color-scheme: light;",
-            "--background: \(theme.background);",
-            "--text: \(theme.text);",
-            "--secondary-text: \(theme.secondaryText);",
-            "--link: \(theme.link);",
-            "--code-background: \(theme.codeBackground);",
-            "--border: \(theme.border);",
-            "--table-border: \(theme.tableBorder);",
+            "--background: \(theme.chrome.background);",
+            "--text: \(theme.chrome.text);",
+            "--secondary-text: \(theme.chrome.secondaryText);",
+            "--link: \(theme.chrome.link);",
+            "--code-background: \(theme.chrome.codeBackground);",
+            "--border: \(theme.chrome.border);",
         ]
         for declaration in expected {
             XCTAssertTrue(page.contains(declaration), "missing \(declaration)")
         }
+    }
+
+    /// The page has one line colour: `--border` is emitted and the former
+    /// table-grid property is not, in either appearance.
+    func testThePageEmitsBorderAndNoSecondLineProperty() {
+        for theme in [MarkdownPreviewTheme.light, .dark] {
+            let page = MarkdownPreviewPage.html(theme: theme, fontSize: fontSize)
+            XCTAssertTrue(page.contains("--border: \(theme.chrome.border);"))
+            XCTAssertFalse(page.contains("--table-border"))
+        }
+    }
+
+    /// The stylesheet the shell loads reads no retired property: a
+    /// `var(--table-border)` left behind would resolve to nothing now the page no
+    /// longer emits it, and a table would silently lose its grid.
+    func testTheBundledStylesheetReadsNoTableBorderProperty() throws {
+        let stylesheet = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Resources/MarkdownPreview/preview.css")
+        let css = try String(contentsOf: stylesheet, encoding: .utf8)
+        XCTAssertFalse(css.contains("var(--table-border)"))
+        XCTAssertTrue(css.contains("var(--border)"))
     }
 
     func testEveryHighlightScopeGetsOneRuleReadingItsKindsProperty() {
