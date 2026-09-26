@@ -180,14 +180,14 @@ app resumes".
 **Files:**
 - Modify: `Sources/Pisaka/Platform/LeetCodeKeychainStore.swift`
 
-- [ ] Implement `load(_:)`. The attended read is today's query unchanged.
-- [ ] Unattended read on macOS:
+- [x] Implement `load(_:)`. The attended read is today's query unchanged.
+- [x] Unattended read on macOS:
   - Save the current value with `SecKeychainGetUserInteractionAllowed`, set it
     to `false`, run the same query, and restore the saved value in a `defer`.
   - Any non-success status (`errSecAuthFailed`, `errSecInteractionNotAllowed`,
     and the rest) is `nil`, as today.
-- [ ] Unattended read on iOS: today's query unchanged, the same as attended.
-- [ ] Explain in comments, in this file only:
+- [x] Unattended read on iOS: today's query unchanged, the same as attended.
+- [x] Explain in comments, in this file only:
   - Why the legacy switch rather than the documented flags on macOS: both
     `kSecUseAuthenticationUIFail` and a non-interactive authentication context
     were measured raising the panel against the file-based login keychain.
@@ -200,12 +200,12 @@ app resumes".
     asking, which this file already maps to `nil`. For the same reason the
     measured-and-failed flag is not reached for there: it would guard a path
     that never prompts, with a mechanism that did not hold where it was tested.
-- [ ] Rewrite the note that says the model reads the store on the main actor
+- [x] Rewrite the note that says the model reads the store on the main actor
   and "nothing here needs" otherwise. It is safe there only because a
   main-actor read the user did not ask for is non-interactive. An attended read
   on the main actor blocks the window while a panel stands, which is the
   recorded known limit.
-- [ ] Build the app for macOS (Release) and for `generic/platform=iOS`. Run the
+- [x] Build the app for macOS (Release) and for `generic/platform=iOS`. Run the
   app-layer test bundle. Derived data goes outside the repository root.
 
 ### Task 4: Source-gating keeps meaning what it claims
