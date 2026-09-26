@@ -572,7 +572,33 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     ///
     /// Shaped after `FoldingSourceGatingTests`' reveal-funnel rule: one
     /// definition, a counted set of callers, plus the forbidden bare form.
+    ///
+    /// **The second clause** (part five (f)) applies the same principle — *a
+    /// seam pins nothing its call site does not spend* — to the two other
+    /// colour seams an app-layer test reads, so this rule is where a later
+    /// reader auditing which seams must be spent finds all three: the gutter
+    /// fill (`backgroundRect(in:ruleThickness:)`), the fold placeholder
+    /// (`placeholderAttributes` for the `…` and `placeholderOutlineColor` for
+    /// its outline, both in `BracketOverlayLayoutManager.swift`) and the fold
+    /// chevron (`foldChevronColor`, in the ruler). `GutterFoldTests` asserts
+    /// what the placeholder's two seams and the chevron's answer, and that the
+    /// glyph and the chevron agree under both appearances; nothing there can see
+    /// `paintFoldPlaceholders` inlining an equivalent attribute dictionary, or
+    /// `drawFoldChevron` going back to its own palette call — either leaves the
+    /// seam's test green while the draw answers something else. So the clause
+    /// reads each drawing body: it names its seams, and the placeholder's names
+    /// none of `ChromePalette`, `NSColor`, `foregroundColor` or
+    /// `withAlphaComponent`, the chevron's no `ChromePalette`.
+    ///
+    /// Verified by mutation, not assumed: re-inlining
+    /// `[.font: editorFont, .foregroundColor: ChromePalette.nsColor(.textSecondary)]`
+    /// in `paintFoldPlaceholders` turned the clause red, and so, separately, did
+    /// restoring `drawFoldChevron`'s local `ChromePalette.nsColor(.textSecondary)`;
+    /// both were restored.
     private static let rulerFile = "LineNumberRulerView.swift"
+
+    /// The fold placeholder's file, read by rule six's second clause.
+    private static let overlayFile = "BracketOverlayLayoutManager.swift"
 
     func testTheGutterFillGoesThroughItsOwnRule() throws {
         let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
@@ -603,6 +629,42 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
             the ruler is handed the rectangle it was asked to redraw, which regularly spans the whole \
             editor pane — filling it wholesale paints the code out
             """
+        )
+
+        // Second clause: the fold placeholder and the chevron spend their seams.
+        let overlay = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
+            try Self.read(Self.source(named: Self.overlayFile))
+        )
+        let placeholderDraw = try XCTUnwrap(
+            Self.matchedBody(after: "func paintFoldPlaceholders(", in: overlay),
+            "paintFoldPlaceholders is gone or renamed — re-point this rule rather than losing it"
+        )
+        for seam in ["placeholderAttributes", "placeholderOutlineColor"] {
+            XCTAssertTrue(
+                LSPSourceGatingTests.containsToken(seam, in: placeholderDraw),
+                "paintFoldPlaceholders must spend \(seam) — a seam its draw does not read pins nothing"
+            )
+        }
+        for forbidden in ["ChromePalette", "NSColor", "foregroundColor", "withAlphaComponent"] {
+            XCTAssertFalse(
+                LSPSourceGatingTests.containsToken(forbidden, in: placeholderDraw),
+                """
+                paintFoldPlaceholders names \(forbidden) — the placeholder's colours come from its two \
+                seams, which the app-layer test reads; a colour composed in the draw is one it cannot see
+                """
+            )
+        }
+        let chevronDraw = try XCTUnwrap(
+            Self.matchedBody(after: "func drawFoldChevron(", in: code),
+            "drawFoldChevron is gone or renamed — re-point this rule rather than losing it"
+        )
+        XCTAssertTrue(
+            LSPSourceGatingTests.containsToken("foldChevronColor", in: chevronDraw),
+            "drawFoldChevron must spend foldChevronColor — the seam the placeholder is compared against"
+        )
+        XCTAssertFalse(
+            LSPSourceGatingTests.containsToken("ChromePalette", in: chevronDraw),
+            "drawFoldChevron resolves its own palette colour — the chevron's seam is foldChevronColor"
         )
     }
 

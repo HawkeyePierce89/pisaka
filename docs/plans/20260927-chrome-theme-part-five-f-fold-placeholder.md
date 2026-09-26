@@ -123,14 +123,14 @@ Dependencies: none.
 **Files:**
 - Modify: `Tests/PisakaCoreTests/ChromeThemeSourceGatingTests.swift`
 
-- [ ] Grow rule six (`testTheGutterFillGoesThroughItsOwnRule`) with a **second clause** in the same test method. It is not a new rule, so the declared count stays forty-three. Keep the rule's marker title unchanged, so the canonical-list and summary-count tests stay green. The clause checks the stripped source:
+- [x] Grow rule six (`testTheGutterFillGoesThroughItsOwnRule`) with a **second clause** in the same test method. It is not a new rule, so the declared count stays forty-three. Keep the rule's marker title unchanged, so the canonical-list and summary-count tests stay green. The clause checks the stripped source:
   - the body of `paintFoldPlaceholders` in `BracketOverlayLayoutManager.swift` names `placeholderAttributes` and `placeholderOutlineColor`
   - it names none of `ChromePalette`, `NSColor`, `foregroundColor`, `withAlphaComponent`
   - `drawFoldChevron` in the ruler names `foldChevronColor` and not `ChromePalette`
   - each missing body fails with a "re-point this rule rather than losing it" message, in the first clause's idiom
-- [ ] Extend rule six's doc comment: the principle "a seam pins nothing its call site does not spend" now has three spent seams, the gutter fill, the placeholder and the chevron. A later reader auditing which seams must be spent finds all three here.
-- [ ] Mutation-check: re-inline an equivalent attribute dictionary in the draw, and separately restore the chevron's local palette call. Confirm the clause goes red each time, then restore. Record this in rule six's doc comment.
-- [ ] Run `swift test`. It must pass.
+- [x] Extend rule six's doc comment: the principle "a seam pins nothing its call site does not spend" now has three spent seams, the gutter fill, the placeholder and the chevron. A later reader auditing which seams must be spent finds all three here.
+- [x] Mutation-check: re-inline an equivalent attribute dictionary in the draw, and separately restore the chevron's local palette call. Confirm the clause goes red each time, then restore. Record this in rule six's doc comment.
+- [x] Run `swift test`. It must pass.
 
 ### Task 4: The gated set grows to sixty; the unswept set empties; rule twenty-nine's gap is named
 
