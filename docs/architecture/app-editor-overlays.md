@@ -338,10 +338,31 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     lines up with the row whatever the font does. Nothing is cached, for the
     indentation tints' reason: a zoom, a font change or an appearance switch needs no
     bookkeeping, the next draw simply measures again. The font is read off the text
-    view (the zoom changes it and nothing here would be told) and the color is
-    `secondaryLabelColor` — the placeholder is chrome standing in for text, not a
-    token, and the platform color is appearance-aware, so light and dark need no
-    second table. Only ranges whose start the drawn glyphs reach are painted.
+    view (the zoom changes it and nothing here would be told): the placeholder is
+    drawn **at the code font** because it stands in the document's own text flow,
+    and the inset, gap and height `placeholderRect(forFoldedRangeAt:)` answers are
+    measured *from that font* — the code zone's measurements, not the chrome's
+    point tokens, stated as such at both sites. Its colours are the chrome's
+    (part five (f), `core-theme.md`): the glyph is **`textSecondary`** — the code
+    zone's table is keyed by `SyntaxTokenKind` and nothing in the buffer says `…`,
+    and the gutter's fold chevron draws the same fact, *this block is folded*,
+    from the same role, so the two agree by construction — and the rounded
+    outline is **`hairline` at its own value**, stroked at
+    `ChromeGeometry.hairlineWidth` **unscaled**, following the ruler's gutter
+    hairline precedent (below), with **no composed alpha** (the former
+    `secondaryLabelColor` at half alpha is gone; `hairline` is already quieter
+    than the glyph). Both colours are dynamic palette colours, so light and dark
+    still need no second table. They come from **two `internal` seams**,
+    `placeholderAttributes` (the code font + `textSecondary`) and
+    `placeholderOutlineColor`, for `numberAttributes`' reason: the app-layer
+    `GutterFoldTests` asserts what each answers under `.aqua` and `.darkAqua`, and
+    that the glyph's colour equals the ruler's `foldChevronColor` under both —
+    and `paintFoldPlaceholders` **spends both and names no colour of its own**,
+    which rule six's second clause of `ChromeThemeSourceGatingTests` pins (a seam
+    the draw does not read pins nothing). The outline's half-point inset stays a
+    bare local `0.5`, never `hairlineWidth / 2` (rule seven bans deriving a
+    geometry token by arithmetic). Only ranges whose start the drawn glyphs reach
+    are painted.
     **`numberOfGlyphs` is deliberately never read** in the measurement, which is why
     its bound is `offset < storageLength` rather than a `min(…, numberOfGlyphs - 1)`
     clamp: `offset` names the first hidden character of a non-empty range, so it
@@ -747,7 +768,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     replaces the earlier louder-when-folded treatment, which spelled
     `labelColor` against the open one's `secondaryLabelColor`) — and nothing on
     any other line, the column being blank rather
-    than absent. **Either set can put a chevron on a line**, not the candidate map
+    than absent. The colour is read through the `internal` seam
+    **`foldChevronColor`**, which `drawFoldChevron` spends (rule six's second
+    clause pins it): it is the seam the fold placeholder is compared against,
+    since the placeholder's `…` draws the same fact from the same role, and
+    `GutterFoldTests` asserts the two agree under both appearances. **Either set can put a chevron on a line**, not the candidate map
     alone: a tab switch restores the incoming file's folded state and publishes it
     with an empty candidate list, which the answer only fills a provider round trip
     later, so drawing from the candidates alone would leave a restored fold's text

@@ -165,13 +165,13 @@ Dependencies: none.
 - Modify: `docs/architecture/core-theme.md`
 - Modify: `CLAUDE.md`
 
-- [ ] **`app-editor-overlays.md`, overlay entry**:
+- [x] **`app-editor-overlays.md`, overlay entry**:
   - the placeholder's colours: glyph `textSecondary`, outline `hairline` at `hairlineWidth` unscaled (following the ruler's precedent), no composed alpha
   - the two seams, and that the draw spends them (rule six)
   - the chevron agreement
   - the code-font and font-measured geometry as the code zone's measurements
-- [ ] **`app-editor-overlays.md`, ruler entry**: add `foldChevronColor`.
-- [ ] **`core-theme.md`, new section *Part five (f): the fold placeholder***:
+- [x] **`app-editor-overlays.md`, ruler entry**: add `foldChevronColor`.
+- [x] **`core-theme.md`, new section *Part five (f): the fold placeholder***:
   - the decision and its three reasons: the role's definition, the code zone's table has no token for `…`, and the chevron settles the tie
   - the outline's `hairline` and why
   - no new role; the gated set goes from fifty-nine to sixty
@@ -179,22 +179,22 @@ Dependencies: none.
   - rule six's second clause
   - rule twenty-nine's recorded gap
   - the mutation verifications
-- [ ] **`core-theme.md`, the sweep claim**: say **once** that the macOS colour sweep is closed, meaning every macOS chrome surface draws from the roles. In the same place, say what closed does **not** mean: the theme still has open questions, and they stay named (the terminal's own palette, the caret readout, the lane hues, the unified diff's per-line checkbox glyph and changed-line text tint, and now the tree's drop-target alpha). No sentence may read as "the theme is finished".
-- [ ] **`core-theme.md`, part five (e)'s paragraph and part five (d)'s opening**: reconcile both so neither reads as a present-tense statement about what remains. Keep the facts that the claim was made twice and was twice false, and that this surface is what made the second one wrong.
-- [ ] **`core-theme.md`, *What is still waiting***:
+- [x] **`core-theme.md`, the sweep claim**: say **once** that the macOS colour sweep is closed, meaning every macOS chrome surface draws from the roles. In the same place, say what closed does **not** mean: the theme still has open questions, and they stay named (the terminal's own palette, the caret readout, the lane hues, the unified diff's per-line checkbox glyph and changed-line text tint, and now the tree's drop-target alpha). No sentence may read as "the theme is finished".
+- [x] **`core-theme.md`, part five (e)'s paragraph and part five (d)'s opening**: reconcile both so neither reads as a present-tense statement about what remains. Keep the facts that the claim was made twice and was twice false, and that this surface is what made the second one wrong.
+- [x] **`core-theme.md`, *What is still waiting***:
   - drop the placeholder as a remaining surface
   - add `ProjectTreeView.swift`'s drop-target (`resolving(.accent).opacity(0.4)`) as a measured item for a part of its own. State why it is not fixed here: `accentTint` carries alpha `0x22` and `accentTintStrong` `0x33` against the `0.4` in use, so a role swap is a visible change to the drop-target highlight and is another surface's design question.
   - keep the other deferred items
   - update the surface count (fifty-five to fifty-six) and the unspent-roles sentence (still `currentLine` and `bracketMatch`)
-- [ ] **`core-theme.md`, gated-set paragraph**: add part five (f)'s one file, **sixty** in all.
-- [ ] **`core-theme.md`, rule six's entry**: grows with the second clause (the placeholder's two seams and the chevron's, each spent by its draw). Its title is unchanged.
-- [ ] **`core-theme.md`, rule twenty-nine's entry**: add the known gap.
-- [ ] **`core-theme.md`, rule forty-three's entry**:
+- [x] **`core-theme.md`, gated-set paragraph**: add part five (f)'s one file, **sixty** in all.
+- [x] **`core-theme.md`, rule six's entry**: grows with the second clause (the placeholder's two seams and the chevron's, each spent by its draw). Its title is unchanged.
+- [x] **`core-theme.md`, rule twenty-nine's entry**: add the known gap.
+- [x] **`core-theme.md`, rule forty-three's entry**:
   - the set is now `{}`
   - the live half and its bound: files neither gated nor exempt; a newly gated file falls to rule one
   - the dormant document half
   - the mutation verification
-- [ ] **`CLAUDE.md`**:
+- [x] **`CLAUDE.md`**:
   - "fifty-nine" becomes "sixty"
   - the rule-forty-three clause loses "today the fold placeholder's `BracketOverlayLayoutManager.swift`". It states that the set is empty and that the live half still guards the ungated, non-exempt macOS files.
   - the rule-six clause (the gutter's fill) notes that the placeholder's and chevron's seams are spent too
@@ -202,7 +202,7 @@ Dependencies: none.
   - add the one bounded closure sentence, consistent with `core-theme.md`
   - keep "forty-three rules" unchanged
   - index and invariant text only; no essays
-- [ ] Run `swift test`. `testBothSummariesSpellTheSuitesOwnRuleCount` and the canonical-list tests must stay green.
+- [x] Run `swift test`. `testBothSummariesSpellTheSuitesOwnRuleCount` and the canonical-list tests must stay green.
 
 ### Task 6: Verify acceptance criteria
 
