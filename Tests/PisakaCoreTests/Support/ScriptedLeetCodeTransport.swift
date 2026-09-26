@@ -286,14 +286,23 @@ final class InMemoryLeetCodeCredentialStore: LeetCodeCredentialStore {
     /// signed in" but "how many times did it ask". Counted rather than latched,
     /// because the interesting failures are a second read (resolution that is not
     /// idempotent) as much as a first one (a read at construction).
-    private(set) var loadCount = 0
+    var loadCount: Int { reads.count }
+    /// Every read's kind, in order — the log `loadCount` counts. The assertion
+    /// behind "resolution never asks for a read that may interact" reads this.
+    private(set) var reads: [LeetCodeCredentialRead] = []
+    /// When set, the store behaves like a keychain that wants the user's
+    /// permission before handing the item over: an `.unattended` read is refused
+    /// (`nil`, exactly like nothing stored) and an `.attended` read — the one that
+    /// may ask — answers the stored pair.
+    var wantsPermission = false
 
     init(_ stored: LeetCodeCredentials? = nil) {
         self.stored = stored
     }
 
-    func load() -> LeetCodeCredentials? {
-        loadCount += 1
+    func load(_ read: LeetCodeCredentialRead) -> LeetCodeCredentials? {
+        reads.append(read)
+        if wantsPermission, read == .unattended { return nil }
         return stored
     }
 

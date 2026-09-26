@@ -78,7 +78,7 @@ final class LeetCodeKeychainStore: LeetCodeCredentialStore, @unchecked Sendable 
     /// session cannot be used and the recovery for both is the same sign-in, so
     /// the store reports the state the app can act on rather than a diagnosis it
     /// has no screen for.
-    func load() -> LeetCodeCredentials? {
+    func load(_ read: LeetCodeCredentialRead) -> LeetCodeCredentials? {
         var query = baseQuery
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne

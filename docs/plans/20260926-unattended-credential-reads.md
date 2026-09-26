@@ -109,23 +109,23 @@ app resumes".
 - Modify: `Tests/PisakaCoreTests/Support/ScriptedLeetCodeTransport.swift`
 - Modify: `Tests/PisakaCoreTests/LeetCodeCredentialsTests.swift`
 
-- [ ] Introduce a closed two-case read kind (working name
+- [x] Introduce a closed two-case read kind (working name
   `LeetCodeCredentialRead`, cases `unattended` and `attended`). Each case's doc
   comment states its rule:
   - unattended: may fail, never waits on a person.
   - attended: follows an explicit action and may ask.
-- [ ] Replace `load()` with `load(_ read:)`, defaulted to `nil` in the protocol
+- [x] Replace `load()` with `load(_ read:)`, defaulted to `nil` in the protocol
   extension. A store that implements nothing still reads as signed out, never
   as "ask the user". Remove the parameterless member rather than keep two ways
   to read.
-- [ ] Extend `InMemoryLeetCodeCredentialStore`:
+- [x] Extend `InMemoryLeetCodeCredentialStore`:
   - Record every read's kind in order. Keep `loadCount` as the log's count so
     the existing assertions stand.
   - Add a switch that simulates a keychain wanting permission: an unattended
     read answers `nil`, an attended read answers the stored pair.
-- [ ] Update `LeetCodeCredentialsTests`' local stores and the defaults test.
+- [x] Update `LeetCodeCredentialsTests`' local stores and the defaults test.
   The empty store must answer `nil` for both kinds.
-- [ ] Run `swift test`. It must pass before Task 2.
+- [x] Run `swift test`. It must pass before Task 2.
 
 ### Task 2: Classify every read site in the model; the regression test
 

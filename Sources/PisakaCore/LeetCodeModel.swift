@@ -1151,7 +1151,7 @@ public final class LeetCodeModel: ObservableObject {
     /// The persisted session — unless the user has signed out this run, in which
     /// case there is none as far as this app is concerned, whatever the Keychain
     /// still holds. **The one place the store is read at all**, `resolveAccount()`
-    /// included: nothing else in this file names `credentialStore.load()`.
+    /// included: nothing else in this file names `credentialStore.load(_:)`.
     ///
     /// One *place*, deliberately not one *read*: the three
     /// `cachedCredentials ?? storedCredentials()` sites are still consulted after
@@ -1163,7 +1163,7 @@ public final class LeetCodeModel: ObservableObject {
     /// way, which is the read the whole rule is about.
     private func storedCredentials() -> LeetCodeCredentials? {
         guard !storedCredentialsAreDiscarded else { return nil }
-        return credentialStore.load()
+        return credentialStore.load(.attended)
     }
 
     /// Record a failure, and let a rejected session change the account state as
