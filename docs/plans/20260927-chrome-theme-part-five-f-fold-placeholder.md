@@ -216,8 +216,8 @@ Dependencies: none.
 
 ### Task 7: Update documentation
 
-- [ ] README.md: no user-facing change (the placeholder's colour shifts slightly; no feature or shortcut changes), so there is nothing to update. Confirm.
-- [ ] CLAUDE.md: already updated in Task 5. Re-read the colour-invariant paragraph once to confirm the counts agree: sixty gated, fifty-six surfaces, forty-three rules, two unspent roles.
+- [x] README.md: no user-facing change (the placeholder's colour shifts slightly; no feature or shortcut changes), so there is nothing to update. Confirm.
+- [x] CLAUDE.md: already updated in Task 5. Re-read the colour-invariant paragraph once to confirm the counts agree: sixty gated, fifty-six surfaces, forty-three rules, two unspent roles.
 
 ## Post-Completion
 
