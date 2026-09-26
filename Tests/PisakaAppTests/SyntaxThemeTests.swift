@@ -205,17 +205,12 @@ final class SyntaxThemeTests: XCTestCase {
                 XCTAssertEqual(carried, wanted, "\(kind), prefersDark: \(prefersDark)")
             }
 
-            // The derivation overwrites code colours and nothing else: the page's
-            // chrome is shared with the other document surface in the window and
-            // stays the domain layer's.
-            XCTAssertEqual(derived.background, base.background)
-            XCTAssertEqual(derived.text, base.text)
-            XCTAssertEqual(derived.secondaryText, base.secondaryText)
-            XCTAssertEqual(derived.link, base.link)
-            XCTAssertEqual(derived.codeBackground, base.codeBackground)
-            XCTAssertEqual(derived.border, base.border)
-            XCTAssertEqual(derived.tableBorder, base.tableBorder)
-            XCTAssertEqual(derived.colorScheme, base.colorScheme)
+            // The derivation overwrites code colours and nothing else: it reads
+            // no chrome role, so the chrome it returns is still Core's restated
+            // block. The pane replaces that from the palette
+            // (`withChrome(ChromePalette.documentPageChrome(in:))`), which
+            // `ChromePaletteTests` pins.
+            XCTAssertEqual(derived.chrome, base.chrome)
         }
     }
 
@@ -242,8 +237,10 @@ final class SyntaxThemeTests: XCTestCase {
     /// at all: colour is the view layer's business, and the domain layer is the
     /// side holding the copy.
     ///
-    /// What it cannot see: the chrome entries beside `codeColors`, which are not
-    /// the editor's to state and have no counterpart to compare against.
+    /// What it cannot see: the chrome beside `codeColors`, which is not the
+    /// editor's to state — its counterpart is the chrome palette, and
+    /// `ChromePaletteTests.testCoresRestatedDocumentPageChromeEqualsThePalettesDerivation`
+    /// is the comparison.
     func testTheDomainLayersRestatedCodeColoursEqualTheEditorTable() throws {
         for prefersDark in [true, false] {
             let theme = prefersDark ? MarkdownPreviewTheme.dark : MarkdownPreviewTheme.light

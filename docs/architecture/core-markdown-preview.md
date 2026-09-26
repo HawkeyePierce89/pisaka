@@ -269,9 +269,10 @@ highlight.js classifies a token by writing a *scope* into a `class`;
 `MarkdownHighlightClasses.scopeKinds` maps every scope of the bundled standard
 build onto a `SyntaxTokenKind`, and `SyntaxTheme.markdownPreviewTheme(prefersDark:)`
 resolves that vocabulary against an `NSAppearance` and hands Core the colours as
-`#rrggbb` strings. Of `MarkdownPreviewTheme.light`/`.dark` only the chrome
-survives on macOS: every code colour is overwritten through
-`withCodeColors(_:)`, which replaces the block wholesale. Those two themes still
+`#rrggbb` strings. Of `MarkdownPreviewTheme.light`/`.dark` nothing survives
+on macOS: every code colour is overwritten through `withCodeColors(_:)`, which
+replaces the block wholesale, and — since chrome theme part five (e) — the
+chrome through `withChrome(_:)`, from the chrome palette. Those two themes still
 *carry* a full `codeColors` block, so the domain layer has a complete theme to
 test and to fall back on — a second copy macOS never reads. Adding a token kind
 is therefore two edits, a row in each table, and
@@ -669,20 +670,29 @@ Every colour the page draws with, as CSS strings — the
 running in and passes the answer across, so the page stays a pure function of its
 inputs and a test can assert light and dark differ.
 
-Eight chrome fields (`background`, `text`, `secondaryText`, `link`,
-`codeBackground`, `border`, `tableBorder`, `colorScheme`) plus `codeColors`, one
-entry per `SyntaxTokenKind` (M10). `tableBorder` is separate from `border`
-because a table draws a *grid* of them — a weight that reads as structure between
-cells would read as a scar across a paragraph. `colorScheme` is emitted as CSS
-`color-scheme`, which is what makes the web view's own scrollbars and the
-disabled task-item checkboxes match a dark pane.
+Two halves: `chrome`, a `DocumentPageChrome` (`core-theme.md`) — the one
+served-page chrome value the statement panel takes too, six colour fields each
+named by a `ChromeColorRole` plus `colorScheme` — and `codeColors`, one entry per
+`SyntaxTokenKind` (M10). `light`/`.dark` take `DocumentPageChrome.light`/`.dark`
+as their chrome, so this file spells no chrome literal of its own; its only hex
+literals are the code half's 28, a count gating rule forty-two pins.
+**`tableBorder` is gone** (chrome theme part five (e)): it collapsed into
+`border`, which is `hairline`, because the closed role vocabulary names exactly
+one line colour — the reasoning, the measured cost in both appearances and the
+one permitted remedy are `core-theme.md`'s part five (e). `colorScheme` is
+emitted as CSS `color-scheme`, which is what makes the web view's own scrollbars
+and the disabled task-item checkboxes match a dark pane.
 
 `color(for:)` makes reading the dictionary total (falling back to `text`);
 `cssVariableName(for:)` is the custom-property name per kind;
 `resolved(_:systemPrefersDark:)` is `ThemePreference`'s total mapping, the
-statement panel's signature; `withCodeColors(_:)` is the app's one use — keep
-Core's chrome, replace the code palette — as a dedicated member so adding a
-chrome colour later cannot silently drop out of the app's copy.
+statement panel's signature, and is what iOS-shaped callers and tests read.
+The app replaces **both** halves wholesale, each through a dedicated member:
+`withCodeColors(_:)` swaps the code palette and keeps the chrome, and
+`withChrome(_:)` — its counterpart since part five (e) — swaps the chrome for
+`ChromePalette.documentPageChrome(in:)` and keeps the code colours. Two members
+rather than one initializer call at the site, so neither half can silently drop
+out of the app's copy when the other changes.
 
 The two restated `codeColors` tables now carry the **editor's own palette**,
 fourteen entries each as lowercase `#rrggbb`. They exist only so the domain
@@ -690,9 +700,16 @@ layer has a complete theme to test and to fall back on; the app overwrites them
 at run time from `SyntaxTheme.table` through `withCodeColors(_:)`, which is
 unchanged and is still the copy that actually reaches the page. Nothing here is
 a second opinion about a colour, and the derivation must not be reimplemented.
-The **chrome fields of both themes are deliberately untouched** by that palette
-work — they are shared with the other document surface drawn in this window, so
-changing them is a different decision from changing the code zone's.
+The **chrome fields were deliberately untouched** by that palette work — they
+are shared with the other document surface drawn in this window, so changing
+them was a different decision from changing the code zone's. Part five (e) made
+that decision for both pages at once: the chrome is now `DocumentPageChrome`,
+Core's copy a restatement of the palette's six roles, pinned by its own
+app-bundle pair — `ChromePaletteTests.testTheDocumentPageChromeCarriesThePaletteInBothAppearances`
+(the derivation) and `testCoresRestatedDocumentPageChromeEqualsThePalettesDerivation`
+(the restated block, separate because `withChrome(_:)` replaces it wholesale
+and the first test therefore cannot see it) — the same two-test shape as the
+code half below.
 
 That agreement removes a check that used to be free. Until the palette landed,
 Core's restatement and the editor's table *disagreed*, so a derivation that
@@ -703,8 +720,9 @@ it instead: for each `prefersDark`, every `SyntaxTokenKind`'s `codeColors` entry
 is read through `XCTUnwrap` (not through `color(for:)`, so a missing entry fails
 rather than falling through to the theme's body text) and compared against the
 CSS string formatted from the suite's own restated row — and the derived theme's
-chrome fields are asserted still equal to the base theme's, so a future edit
-cannot quietly widen the derivation into that shared chrome. Stated honestly,
+`chrome` is asserted still equal to the base theme's, so a future edit cannot
+quietly widen the code derivation into the shared chrome (which reaches the page
+through `withChrome(_:)` alone). Stated honestly,
 that pin catches a wrong, partial or wrongly-appearance-resolved derivation, and
 an edit to `SyntaxTheme.table` not carried into the suite's restated rows — and
 nothing more: the derived theme is built wholly from `table`, and
@@ -851,7 +869,10 @@ The scheme, the URLs, the document and the four entry points (M2, M3, M4, M7).
   is set on the shell already loaded (M7). Everything else about the page reaches it
   through JavaScript instead. `themeStylesheet` generates both halves — the
   custom properties `preview.css` reads (including `--code-font-size`, a point
-  smaller than the body for the statement panel's reason) and one colour rule
+  smaller than the body for the statement panel's reason; there is no
+  `--table-border` since part five (e) — the stylesheet's table-cell rule reads
+  `--border`, which keeps `VENDORED.md`'s existing "no colour of its own"
+  statement about `preview.css` true) and one colour rule
   per highlight scope, emitted by walking the class table so a scope added there
   gets its rule for free. The `<link>` precedes the generated block: the theme
   is what must win, so it is written last.
@@ -1336,7 +1357,12 @@ The document and the appearance travel on different paths in the model, so they
 are forwarded through different `onChange` modifiers; the appearance is keyed on
 its **inputs** (`prefersDark` + font size) rather than on the theme, because
 deriving the theme resolves every editor colour against an `NSAppearance` and
-this body is re-evaluated on every keystroke. `onAppear` forwards the appearance
+this body is re-evaluated on every keystroke. The theme it forwards is
+composed from **both** app-side derivations: `SyntaxTheme`'s code palette, then
+`.withChrome(ChromePalette.documentPageChrome(in:))` for the page's chrome
+(since chrome theme part five (e)), so no restated Core colour reaches the page
+on macOS; gating rule forty-two pins this file as one of that derivation's two
+callers. `onAppear` forwards the appearance
 first — it installs the shell, and the body that follows is held by the page
 until that document has loaded (M7).
 

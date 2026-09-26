@@ -191,6 +191,20 @@ import XCTest
 /// - **No alternating row fill.** A gated table reads by selection and hover; no
 ///   gated file spells `alternatingRowBackgrounds`, `isMultiple` or `isTinted`,
 ///   and no `.background`/`.listRowBackground` modifier's own text spells `% 2`.
+/// - **A served page's chrome is the palette's.** Both served pages take their
+///   chrome from `ChromePalette.documentPageChrome(in:)` on macOS; no served
+///   page draws Core's restated block — it is replaced from the palette before
+///   the page is built. Deleting the wiring
+///   compiles and draws Core's block, which looks right until one palette value
+///   moves — so the wiring's two sites are pinned, the fallback's readers are
+///   banned outside iOS, Core's CSS hex literals are pinned to the two restated
+///   blocks by count, and the one formatter is defined once.
+/// - **No document calls the sweep closed while a surface remains.** Part five
+///   (d) and part five (e) each claimed to be the last part, and neither was:
+///   the macOS files still painting outside the roles are measured, pinned by
+///   set equality and named in the failure, and while that set is non-empty no
+///   document under `docs/` (plans aside) or `CLAUDE.md` may say the sweep is
+///   closed, finished or complete.
 ///
 /// What a rule here may do, and nothing more: pin a set by equality, assert the
 /// presence or absence of a token through `containsToken`, or take a
@@ -305,7 +319,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         // The problem-catalog browser window: its filter bar, rows and footer.
         "LeetCodeBrowserView.swift",
         // The statement pane beside the editor: its header, collapsed strip,
-        // rules and resize handle (the served page itself stays unthemed).
+        // rules and resize handle.
         "LeetCodeDescriptionView.swift",
         // The judge section under the statement.
         "LeetCodeJudgeView.swift",
@@ -313,6 +327,9 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         "LeetCodeOpenProblemSheet.swift",
         // The sign-in sheet's header and footer around the site's own page.
         "LeetCodeLoginView.swift",
+        // Part five (e): the text prompt's reason line, an alert accessory
+        // coloured through the palette's dynamic AppKit path.
+        "FilePanels.swift",
     ]
 
     func testEveryGatedFileExists() throws {
@@ -4455,6 +4472,285 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         }
     }
 
+    // MARK: - Rule forty-two: a served page's chrome is the palette's
+
+    /// The two served pages — the Markdown preview and the problem statement —
+    /// take their chrome from one Core value, `DocumentPageChrome`, and on macOS
+    /// that value is **derived from the palette** (`ChromePalette
+    /// .documentPageChrome(in:)`) and handed over wholesale. Core restates the
+    /// same values as `DocumentPageChrome.light`/`.dark`, a fallback iOS reads
+    /// and a test can check. Nothing the compiler sees tells the two apart: a
+    /// pane passing Core's block instead of the derivation draws identical
+    /// colours today and stops following the palette the first time one value
+    /// moves. Four clauses:
+    ///
+    /// - (a) The app files spelling `ChromePalette.documentPageChrome(` equal
+    ///   `pageChromeSites` by set equality — deleting either wiring fails here.
+    /// - (b) No macOS app file (outside `Sources/Pisaka/iOS/`) spells
+    ///   `LeetCodeStatementDocument.Theme.resolved(` or
+    ///   `DocumentPageChrome.resolved(`: macOS never *resolves* Core's fallback
+    ///   into a page. This is a narrow ban, not the whole guarantee. The
+    ///   restated block does reach macOS by two legitimate paths —
+    ///   `MarkdownPreviewTheme.light`/`.dark` carry it as the chrome
+    ///   `withChrome(_:)` overwrites, and
+    ///   `SyntaxTheme.markdownPreviewTheme(prefersDark:)` starts from those two
+    ///   values — so macOS *reads* it; what
+    ///   holds is that no served page *draws* it, because it is replaced from the
+    ///   palette before the page is built. That guarantee is clause (a): both
+    ///   served-page sites hand over the palette's derivation, and removing
+    ///   either (the preview's `withChrome(...)` included) fails there. Clause
+    ///   (b) only closes the direct route a pane would otherwise take, and does
+    ///   not widen its token list to chase the starting values above.
+    /// - (c) The Core files spelling a CSS hex literal (`#rrggbb`) equal the two
+    ///   restated blocks, by set equality, with each file's count pinned — the
+    ///   preview theme's code half (28) and `DocumentPageChrome.swift` (12) — and
+    ///   `LeetCodeStatementDocument.swift` spells none. A test pins each block
+    ///   equal to its app-side table, so a third block would be a table nothing
+    ///   checks.
+    /// - (d) `func cssHex(` is defined in `ChromePalette.swift` alone: the one
+    ///   place a colour is formatted into a string.
+    ///
+    /// **Clause (c) is the fifth stated exception to the stripped reading.** It
+    /// matches against `GitHubSourceGatingTests.strippingComments(_:)` — comments
+    /// removed, **string literals kept** — because a CSS hex literal *is* a string
+    /// literal, and the ordinary scanner would delete exactly the text the clause
+    /// counts. That the same scanner also drops comments is **inherited, not
+    /// load-bearing**: no Core comment spells a hex value today, so the raw text
+    /// and the stripped text give the same 28 and 12, and nothing in the tree
+    /// exercises the exclusion. No test is added for it on purpose — dropping the
+    /// stripping could only make a future comment quoting a value *fail* the
+    /// clause, never hide a real literal from it, so the one way it can go wrong
+    /// is loud. The other three clauses read the ordinary scanner.
+    private static let pageChromeSites: Set<String> = [
+        "MarkdownPreviewPane.swift",
+        "LeetCodeDescriptionView.swift",
+    ]
+
+    /// Core's restated CSS blocks and the number of hex literals each spells.
+    private static let coreCSSHexCounts: [String: Int] = [
+        "MarkdownPreviewTheme.swift": 28,
+        "DocumentPageChrome.swift": 12,
+    ]
+
+    private static let coreFallbackReaders = [
+        "LeetCodeStatementDocument.Theme.resolved(",
+        "DocumentPageChrome.resolved(",
+    ]
+
+    func testAServedPagesChromeIsThePalettes() throws {
+        let sources = try Self.swiftSources()
+        let app = sources.filter { $0.pathComponents.contains("Pisaka") && !$0.pathComponents.contains("PisakaCore") }
+        let core = sources.filter { $0.pathComponents.contains("PisakaCore") }
+        XCTAssertFalse(app.isEmpty, "found no app sources — the walk is broken, not the code")
+        XCTAssertFalse(core.isEmpty, "found no Core sources — the walk is broken, not the code")
+
+        var chromeSites: Set<String> = []
+        var formatterDefinitions: Set<String> = []
+        for url in sources {
+            let name = url.lastPathComponent
+            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            if app.contains(url), code.contains("ChromePalette.documentPageChrome(") { chromeSites.insert(name) }
+            if code.range(of: #"func\s+cssHex\s*\("#, options: .regularExpression) != nil {
+                formatterDefinitions.insert(name)
+            }
+            if app.contains(url), !url.pathComponents.contains("iOS") {
+                for reader in Self.coreFallbackReaders {
+                    XCTAssertFalse(
+                        code.contains(reader),
+                        "\(name) spells \(reader) — a macOS page takes the palette's derivation, never Core's resolved fallback"
+                    )
+                }
+            }
+        }
+        XCTAssertEqual(
+            chromeSites, Self.pageChromeSites,
+            "exactly the two served-page surfaces take ChromePalette.documentPageChrome(in:)"
+        )
+        XCTAssertEqual(
+            formatterDefinitions, ["ChromePalette.swift"],
+            "cssHex is the one place a colour is formatted into a string"
+        )
+
+        let hex = try NSRegularExpression(pattern: "#[0-9A-Fa-f]{6}")
+        var counts: [String: Int] = [:]
+        for url in core {
+            let code = GitHubSourceGatingTests.strippingComments(try Self.read(url))
+            let found = hex.numberOfMatches(in: code, range: NSRange(code.startIndex..., in: code))
+            if found > 0 { counts[url.lastPathComponent] = found }
+        }
+        XCTAssertEqual(
+            counts, Self.coreCSSHexCounts,
+            """
+            Core's CSS hex literals live in the two restated blocks alone, each pinned equal to its app-side \
+            table — a third block is a table nothing checks
+            """
+        )
+        XCTAssertNil(counts["LeetCodeStatementDocument.swift"], "the statement page's chrome is the shared value")
+    }
+
+    /// Beside rule forty-two, and the sentence `core-leetcode.md` states about
+    /// it: no macOS app file (outside `Sources/Pisaka/iOS/`) spells
+    /// `Theme.resolved(`. On macOS a served page's appearance is asked of
+    /// `ChromeAppearance.resolved(_:systemPrefersDark:)` — both panes ask it that
+    /// way — and never answered by building a themed value only to compare it
+    /// against a case. Matched as a **substring** of the stripped text, not as an
+    /// identifier-bounded token, so a prefix cannot hide the spelling:
+    /// `MarkdownPreviewTheme.resolved(` and `LeetCodeStatementDocument.Theme
+    /// .resolved(` both contain it, and the first is exactly the shape this
+    /// replaced in `MarkdownPreviewPane.swift`.
+    func testNoMacOSAppFileSpellsThemeResolved() throws {
+        let app = try Self.swiftSources().filter {
+            $0.pathComponents.contains("Pisaka") && !$0.pathComponents.contains("PisakaCore")
+                && !$0.pathComponents.contains("iOS")
+        }
+        XCTAssertFalse(app.isEmpty, "found no macOS app sources — the walk is broken, not the code")
+        for url in app {
+            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            XCTAssertFalse(
+                code.contains("Theme.resolved("),
+                """
+                \(url.lastPathComponent) spells Theme.resolved( — macOS asks ChromeAppearance.resolved for \
+                the appearance and takes a served page's chrome from the palette
+                """
+            )
+        }
+    }
+
+    // MARK: - Rule forty-three: no document calls the sweep closed while a surface remains
+
+    /// The macOS app files still painting outside the roles: outside
+    /// `Sources/Pisaka/iOS/`, outside `gatedFiles`, outside the four
+    /// `colorExemptions`, and naming a system semantic colour, a SwiftUI hue or a
+    /// `0xRRGGBB` literal. Today's answer, pinned by set equality so both
+    /// directions fail — a new unswept surface appearing, and this one being
+    /// swept without the rule being updated.
+    ///
+    /// - `BracketOverlayLayoutManager.swift` — the fold placeholder, painted from
+    ///   `NSColor.secondaryLabelColor`; the file's own comment calls it chrome
+    ///   standing in for text. Whether it belongs to the chrome or to the code
+    ///   zone is a design question left for a part of its own (`core-theme.md`,
+    ///   *What is still waiting*).
+    private static let unsweptColorSurfaces: Set<String> = [
+        "BracketOverlayLayoutManager.swift",
+    ]
+
+    /// What a document may not say while `unsweptColorSurfaces` is non-empty.
+    ///
+    /// Constructs, not one literal phrase: the claim has been made in more than
+    /// one wording, and a rule that bans one sentence is satisfied by the next.
+    /// Matched lower-cased over whitespace-collapsed text with `*` dropped, so a
+    /// line break or an emphasis inside the claim does not hide it. The history
+    /// is recorded in the past or in the negative ("was first written up as
+    /// closing…", "is not the last either"), which none of these match.
+    private static let sweepClosureClaims: [String] = [
+        #"\b(closes|completes|finishes|ends) the (macos )?colou?r sweep\b"#,
+        #"\bcolou?r sweep (is|is now|has been) (closed|finished|complete|completed|done|over)\b"#,
+        #"\bthe last (part|surface|view) (of|in) the (macos )?(colou?r )?sweep\b"#,
+        #"\b(this|the) (part|surface|view) is the last\b"#,
+        #"\bno (macos )?chrome (view|surface|file) (is left|remains) (unswept|ungated)\b"#,
+    ]
+
+    /// A colour-channel argument label (`green:` in `init(srgbRed:green:blue:alpha:)`)
+    /// — not a hue. `PlatformColor.swift` composes a colour out of its channels
+    /// and spells two of these words while naming no colour, the same collision
+    /// the palette is exempted from the hue half of rule one for; here it is
+    /// removed instead, because an ungated file has no exemption to lean on and
+    /// a real `.green` must still count.
+    private static let channelLabel = #"(?<![.\w])(red|green|blue)\s*:"#
+
+    /// Rule forty-three, the completeness claim checked against the measurement
+    /// that decides it — the way the documented rule count is checked against the
+    /// markers. Part five (d) and then part five (e) each called itself the last
+    /// part; both were wrong, and nothing read the claim against the tree.
+    ///
+    /// The sources are read through the **ordinary** scanner
+    /// (`strippingCommentsAndStringLiterals`), not a literal-keeping one: the
+    /// subject is what a file *paints with*, and a doc comment discussing
+    /// `.secondaryLabelColor` — `BracketOverlayLayoutManager.swift` has one, and
+    /// the gated files document their own rules the same way — paints nothing.
+    /// A colour named only inside a string literal is not a colour either. The
+    /// `FileIcon(` lines are dropped as in rule one, since a `FileIconColor` case
+    /// is a Core token, not a hue. The documents are read raw: a claim is prose.
+    func testNoDocumentCallsTheSweepClosedWhileASurfaceRemains() throws {
+        let hex = try NSRegularExpression(pattern: "0x[0-9A-Fa-f]{6}")
+        let label = try NSRegularExpression(pattern: Self.channelLabel)
+        let macOSApp = try Self.swiftSources().filter {
+            $0.pathComponents.contains("Pisaka") && !$0.pathComponents.contains("PisakaCore")
+                && !$0.pathComponents.contains("iOS")
+        }
+        XCTAssertFalse(macOSApp.isEmpty, "found no macOS app sources — the walk is broken, not the code")
+
+        var unswept: Set<String> = []
+        for url in macOSApp {
+            let name = url.lastPathComponent
+            if Self.gatedFiles.contains(name) || Self.colorExemptions.contains(name) { continue }
+            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            let paints = Self.iconFreeLines(of: code).contains { line in
+                let unlabelled = label.stringByReplacingMatches(
+                    in: line, range: NSRange(line.startIndex..., in: line), withTemplate: ""
+                )
+                return (Self.forbiddenSemanticColors + Self.forbiddenHues).contains {
+                    LSPSourceGatingTests.containsToken($0, in: unlabelled)
+                }
+            }
+            if paints || hex.firstMatch(in: code, range: NSRange(code.startIndex..., in: code)) != nil {
+                unswept.insert(name)
+            }
+        }
+        XCTAssertEqual(
+            unswept, Self.unsweptColorSurfaces,
+            """
+            the macOS files painting outside the roles are \(unswept.sorted()) — sweep a new one or add it \
+            to unsweptColorSurfaces with its reason; a swept one leaves the set in the same commit
+            """
+        )
+        guard !unswept.isEmpty else { return }
+
+        var claims: [String] = []
+        let patterns = try Self.sweepClosureClaims.map { try NSRegularExpression(pattern: $0) }
+        for document in try Self.sweepDocuments() {
+            let text = try Self.read(document)
+                .replacingOccurrences(of: "*", with: "")
+                .lowercased()
+                .components(separatedBy: .whitespacesAndNewlines)
+                .filter { !$0.isEmpty }
+                .joined(separator: " ")
+            for pattern in patterns {
+                for match in pattern.matches(in: text, range: NSRange(text.startIndex..., in: text)) {
+                    if let range = Range(match.range, in: text) {
+                        claims.append("\(document.lastPathComponent): \"\(text[range])\"")
+                    }
+                }
+            }
+        }
+        XCTAssertEqual(
+            claims, [],
+            """
+            a document claims the colour sweep is closed while \(unswept.sorted()) still paint outside \
+            the roles — sweep them first, or say what remains
+            """
+        )
+    }
+
+    /// `CLAUDE.md` and every Markdown file under `docs/` but `docs/plans/`,
+    /// whose tickets and archive quote the claim in order to retract it.
+    private static func sweepDocuments() throws -> [URL] {
+        let docs = try document("docs")
+        let enumerator = try XCTUnwrap(
+            FileManager.default.enumerator(at: docs, includingPropertiesForKeys: nil),
+            "docs/ is unreadable"
+        )
+        let markdown = enumerator
+            .compactMap { $0 as? URL }
+            .filter { $0.pathExtension == "md" && !$0.pathComponents.contains("plans") }
+            .sorted { $0.path < $1.path }
+        XCTAssertTrue(
+            markdown.contains { $0.lastPathComponent == "core-theme.md" },
+            "core-theme.md is not among the documents read — the walk is broken, not the prose"
+        )
+        return try [document("CLAUDE.md")] + markdown
+    }
+
     // MARK: - Self-check
 
     /// Every gated file draws with roles and must therefore name one — with two
@@ -4548,7 +4844,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         28: "twenty-eight", 29: "twenty-nine", 30: "thirty", 31: "thirty-one",
         32: "thirty-two", 33: "thirty-three", 34: "thirty-four", 35: "thirty-five",
         36: "thirty-six", 37: "thirty-seven", 38: "thirty-eight", 39: "thirty-nine",
-        40: "forty", 41: "forty-one",
+        40: "forty", 41: "forty-one", 42: "forty-two", 43: "forty-three",
     ]
 
     func testBothSummariesSpellTheSuitesOwnRuleCount() throws {

@@ -256,7 +256,7 @@ extension MarkdownPreviewPage {
     public static func html(theme: MarkdownPreviewTheme, fontSize: Double) -> String {
         """
             <!DOCTYPE html>
-            <html lang="en" data-color-scheme="\(theme.colorScheme)">
+            <html lang="en" data-color-scheme="\(theme.chrome.colorScheme)">
             <head>
             <meta charset="utf-8">
             <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -329,14 +329,13 @@ extension MarkdownPreviewPage {
     private static func customProperties(theme: MarkdownPreviewTheme, fontSize: Double) -> String {
         let sizes = fontSizes(for: fontSize)
         var lines = [
-            "  color-scheme: \(theme.colorScheme);",
-            "  --background: \(theme.background);",
-            "  --text: \(theme.text);",
-            "  --secondary-text: \(theme.secondaryText);",
-            "  --link: \(theme.link);",
-            "  --code-background: \(theme.codeBackground);",
-            "  --border: \(theme.border);",
-            "  --table-border: \(theme.tableBorder);",
+            "  color-scheme: \(theme.chrome.colorScheme);",
+            "  --background: \(theme.chrome.background);",
+            "  --text: \(theme.chrome.text);",
+            "  --secondary-text: \(theme.chrome.secondaryText);",
+            "  --link: \(theme.chrome.link);",
+            "  --code-background: \(theme.chrome.codeBackground);",
+            "  --border: \(theme.chrome.border);",
             "  \(bodyFontSizeProperty): \(css(sizes.body))px;",
             "  \(codeFontSizeProperty): \(css(sizes.code))px;",
         ]

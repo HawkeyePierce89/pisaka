@@ -305,6 +305,71 @@ final class ChromePaletteTests: XCTestCase {
         return String(path.dropFirst(root.count + 1))
     }
 
+    // MARK: - The served pages' chrome
+
+    /// This suite's own CSS spelling of a restated row — formatted here, not
+    /// through `cssHex`, so the formatter is checked against something other
+    /// than itself.
+    private static func css(_ rgb: UInt32, alpha: UInt8) -> String {
+        let r = (rgb >> 16) & 0xFF, g = (rgb >> 8) & 0xFF, b = rgb & 0xFF
+        let digits = "0123456789abcdef".map { $0 }
+        func byte(_ value: UInt32) -> String {
+            String([digits[Int(value >> 4)], digits[Int(value & 0xF)]])
+        }
+        let base = "#" + byte(r) + byte(g) + byte(b)
+        return alpha == 0xFF ? base : base + byte(UInt32(alpha))
+    }
+
+    /// The derivation carries the palette in both appearances.
+    ///
+    /// What it pins: every field of `documentPageChrome(in:)` equals this
+    /// suite's restated row for the role Core maps that field to, formatted
+    /// independently, and `colorScheme` follows the appearance. A derivation
+    /// that reads the wrong appearance, the wrong role or formats wrongly fails
+    /// here.
+    ///
+    /// What it cannot see: Core's restated `DocumentPageChrome.light`/`.dark`.
+    /// The derivation replaces that block wholesale, so it is never read here —
+    /// the next test is the comparison, kept separate for that reason (the
+    /// same split as the preview's code half in `SyntaxThemeTests`).
+    func testTheDocumentPageChromeCarriesThePaletteInBothAppearances() throws {
+        for appearance in [ChromeAppearance.dark, .light] {
+            let chrome = ChromePalette.documentPageChrome(in: appearance)
+            for field in DocumentPageChrome.Field.allCases {
+                let role = DocumentPageChrome.role(for: field)
+                let row = try XCTUnwrap(Self.expected[role], "\(role) has no expected row")
+                XCTAssertEqual(
+                    chrome[field],
+                    Self.css(appearance == .dark ? row.dark : row.light, alpha: row.alpha),
+                    "\(field) → \(role), \(appearance)"
+                )
+            }
+            XCTAssertEqual(chrome.colorScheme, appearance.rawValue)
+        }
+    }
+
+    /// `cssHex` against known entries: an opaque one in each appearance, and a
+    /// translucent one for the eight-digit form.
+    func testTheCSSReadingSpellsKnownEntries() {
+        XCTAssertEqual(ChromePalette.cssHex(.bgEditor, in: .dark), "#2f3136")
+        XCTAssertEqual(ChromePalette.cssHex(.bgEditor, in: .light), "#ffffff")
+        XCTAssertEqual(ChromePalette.cssHex(.accent, in: .light), "#2f6fe0")
+        XCTAssertEqual(ChromePalette.cssHex(.hoverTint, in: .light), "#0000000a")
+        XCTAssertEqual(ChromePalette.cssHex(.accentTint, in: .dark), "#4f8dff22")
+    }
+
+    /// Core's restated chrome equals the palette's derivation, per appearance.
+    ///
+    /// iOS reads `DocumentPageChrome.light`/`.dark` (it has no palette) while
+    /// macOS replaces them wholesale, so a palette edit made here alone leaves
+    /// Core's block stale with every macOS screen correct. This is the net that
+    /// fails until Core follows — the intended second safety net, separate from
+    /// the derivation test above because that one cannot see this block.
+    func testCoresRestatedDocumentPageChromeEqualsThePalettesDerivation() {
+        XCTAssertEqual(DocumentPageChrome.light, ChromePalette.documentPageChrome(in: .light))
+        XCTAssertEqual(DocumentPageChrome.dark, ChromePalette.documentPageChrome(in: .dark))
+    }
+
     // MARK: - The resolution the roots perform
 
     func testThePreferenceResolvesTheAppearanceTheThemeCarries() throws {

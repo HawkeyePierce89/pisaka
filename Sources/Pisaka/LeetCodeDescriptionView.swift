@@ -46,7 +46,7 @@ struct LeetCodeDescriptionPane: View {
     var activeFileURL: URL?
 
     /// The appearance the window is *actually* drawn in, which is what resolves
-    /// `ThemePreference.system` — `Theme.resolved(_:systemPrefersDark:)` needs an
+    /// `ThemePreference.system` — `ChromeAppearance.resolved(_:systemPrefersDark:)` needs an
     /// answer to that question and Core may not ask AppKit for one. `ContentView`
     /// applies `.preferredColorScheme` at the window root, so this reflects an
     /// explicit light/dark preference too (in which case `resolved` ignores it).
@@ -86,8 +86,10 @@ struct LeetCodeDescriptionPane: View {
     @Environment(\.interfaceMetrics) private var metrics
     /// The chrome's colours, injected at `ContentView`'s root: the header, the
     /// collapsed strip, the rules and the resize handle draw from the roles.
-    /// The statement page itself is not chrome and stays unthemed here — the
-    /// served document carries its own colours.
+    /// The statement page's colours come from the palette too, but not through
+    /// this value: `html(for:)` hands the document
+    /// `ChromePalette.documentPageChrome(in:)`, so Core's restated block never
+    /// reaches the page on macOS.
     @Environment(\.chromeTheme) private var theme
 
     /// Narrower than this and the statement's example blocks stop being
@@ -340,9 +342,12 @@ struct LeetCodeDescriptionPane: View {
         LeetCodeStatementDocument.html(
             fragment: statement.fragment,
             title: "\(statement.number). \(statement.title)",
-            theme: LeetCodeStatementDocument.Theme.resolved(
-                settings.themePreference,
-                systemPrefersDark: colorScheme == .dark
+            // The palette's own values, not Core's restated block.
+            theme: ChromePalette.documentPageChrome(
+                in: ChromeAppearance.resolved(
+                    settings.themePreference,
+                    systemPrefersDark: colorScheme == .dark
+                )
             ),
             fontSize: settings.fontSize
         )

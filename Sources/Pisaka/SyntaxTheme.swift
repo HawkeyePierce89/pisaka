@@ -207,11 +207,12 @@ struct SyntaxTheme {
     /// view beside it highlights the same block with tree-sitter. They are the
     /// same code read twice, so the preview must not carry a palette of its own —
     /// it carries *this* one, derived here, at the one place where a
-    /// `SyntaxTokenKind` already has a colour. On this platform only the chrome
-    /// (background, body text, links, borders) survives from
-    /// `MarkdownPreviewTheme.light`/`.dark`: every code colour is overwritten
-    /// from `table` through `withCodeColors(_:)`, which replaces the block
-    /// wholesale. Those two themes nonetheless *carry* a full `codeColors` block
+    /// `SyntaxTokenKind` already has a colour. This is the code half only and
+    /// reads no chrome role: every code colour is overwritten from `table`
+    /// through `withCodeColors(_:)`, which replaces the block wholesale, and the
+    /// chrome it returns is Core's restated block, which does not survive either —
+    /// `MarkdownPreviewPane` replaces it from the palette through
+    /// `withChrome(ChromePalette.documentPageChrome(in:))`. Those two themes nonetheless *carry* a full `codeColors` block
     /// of their own, so the domain layer has a complete theme to test and to fall
     /// back on — a second copy, not a fallback macOS ever reads. Adding a token
     /// kind is therefore two edits, not one: a row here and a row there, and

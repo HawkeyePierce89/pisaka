@@ -164,17 +164,76 @@ final class MarkdownPreviewPageTests: XCTestCase {
         let theme = MarkdownPreviewTheme.light
         let expected = [
             "color-scheme: light;",
-            "--background: \(theme.background);",
-            "--text: \(theme.text);",
-            "--secondary-text: \(theme.secondaryText);",
-            "--link: \(theme.link);",
-            "--code-background: \(theme.codeBackground);",
-            "--border: \(theme.border);",
-            "--table-border: \(theme.tableBorder);",
+            "--background: \(theme.chrome.background);",
+            "--text: \(theme.chrome.text);",
+            "--secondary-text: \(theme.chrome.secondaryText);",
+            "--link: \(theme.chrome.link);",
+            "--code-background: \(theme.chrome.codeBackground);",
+            "--border: \(theme.chrome.border);",
         ]
         for declaration in expected {
             XCTAssertTrue(page.contains(declaration), "missing \(declaration)")
         }
+    }
+
+    /// The page has one line colour: `--border` is emitted and the former
+    /// table-grid property is not, in either appearance.
+    func testThePageEmitsBorderAndNoSecondLineProperty() {
+        for theme in [MarkdownPreviewTheme.light, .dark] {
+            let page = MarkdownPreviewPage.html(theme: theme, fontSize: fontSize)
+            XCTAssertTrue(page.contains("--border: \(theme.chrome.border);"))
+            XCTAssertFalse(page.contains("--table-border"))
+        }
+    }
+
+    /// The stylesheet the shell loads reads no retired property: a
+    /// `var(--table-border)` left behind would resolve to nothing now the page no
+    /// longer emits it, and a table would silently lose its grid.
+    func testTheBundledStylesheetReadsNoTableBorderProperty() throws {
+        let css = try bundledStylesheet()
+        XCTAssertFalse(css.contains("var(--table-border)"))
+    }
+
+    /// The table grid is drawn from the page's one line colour: the `th, td`
+    /// rule's own body declares its border through `var(--border)`.
+    ///
+    /// The assertion reads that rule's body and nothing else. A whole-file
+    /// search for `var(--border)` cannot see the grid, because the heading rule,
+    /// the `hr` rule and the blockquote rule read the same property — deleting
+    /// the cell border left such a search green. Checked rather than assumed:
+    /// this test is red with the `th, td` border declaration deleted from
+    /// `preview.css` and green with it restored.
+    func testTheTableCellRuleDrawsItsBorderFromTheOneLineColour() throws {
+        let body = try XCTUnwrap(
+            ruleBody(selector: "th, td", in: bundledStylesheet()),
+            "preview.css has no `th, td` rule"
+        )
+        let declarations = body
+            .split(separator: ";")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        XCTAssertTrue(
+            declarations.contains { $0.hasPrefix("border:") && $0.contains("var(--border)") },
+            "the `th, td` rule declares no border reading var(--border): \(body)"
+        )
+    }
+
+    private func bundledStylesheet() throws -> String {
+        let stylesheet = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Resources/MarkdownPreview/preview.css")
+        return try String(contentsOf: stylesheet, encoding: .utf8)
+    }
+
+    /// The body of the rule whose selector list is exactly `selector`, written
+    /// at the start of a line — so `table th, td {` or `th, td.x {` is not it.
+    private func ruleBody(selector: String, in css: String) -> String? {
+        let opener = "\n\(selector) {"
+        guard let start = ("\n" + css).range(of: opener)?.upperBound else { return nil }
+        let rest = ("\n" + css)[start...]
+        guard let end = rest.firstIndex(of: "}") else { return nil }
+        return String(rest[..<end])
     }
 
     func testEveryHighlightScopeGetsOneRuleReadingItsKindsProperty() {

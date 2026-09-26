@@ -208,8 +208,8 @@ final class MarkdownPreviewModelTests: XCTestCase {
 
         XCTAssertEqual(parser.parsed, parsedBefore, "a theme change must not re-parse")
         XCTAssertEqual(sink.shellReloads.count, 2)
-        XCTAssertTrue(sink.shellReloads[0].contains(MarkdownPreviewTheme.light.background))
-        XCTAssertTrue(sink.shellReloads[1].contains(MarkdownPreviewTheme.dark.background))
+        XCTAssertTrue(sink.shellReloads[0].contains(MarkdownPreviewTheme.light.chrome.background))
+        XCTAssertTrue(sink.shellReloads[1].contains(MarkdownPreviewTheme.dark.chrome.background))
         // The reloaded shell ships an empty container, so the same body is sent
         // again rather than suppressed as unchanged.
         XCTAssertEqual(sink.bodies, ["", body(for: "alpha"), body(for: "alpha")])
@@ -265,7 +265,7 @@ final class MarkdownPreviewModelTests: XCTestCase {
 
         XCTAssertEqual(sink.shellReloads.count, 1)
         XCTAssertTrue(sink.shellReloads[0].contains("--font-size: 16px"))
-        XCTAssertTrue(sink.shellReloads[0].contains(MarkdownPreviewTheme.dark.background))
+        XCTAssertTrue(sink.shellReloads[0].contains(MarkdownPreviewTheme.dark.chrome.background))
         // Both halves: `fontSizeCalls` drops anything it cannot read as two
         // numbers, so on its own it would call a *malformed* step "no step".
         XCTAssertEqual(sink.fontSizeCalls, [])

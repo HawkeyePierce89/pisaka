@@ -791,13 +791,23 @@ the limits the design carries.
     Roman on white, mojibake for every non-ASCII character, and broken images. So
     `html(fragment:title:theme:fontSize:)` emits `<!DOCTYPE>`, `<meta charset>`, a
     viewport meta, `<base href="https://leetcode.com/">` and an inline stylesheet.
-    **Colours arrive as values**: `Theme` is six CSS colour strings plus the
-    `color-scheme` keyword (what makes the web view's own scrollbars match), and
-    `Theme.resolved(_:systemPrefersDark:)` is the one mapping both platforms call —
-    `ThemePreference.system` carries no colour by itself, so the *caller* supplies
-    the appearance it is actually running in and the document stays a pure function
-    of its inputs, which is what lets a test assert light and dark differ without
-    Core importing AppKit. Every field is asserted to reach the CSS, so a colour
+    **Colours arrive as values**: `Theme` is a typealias for `DocumentPageChrome`
+    (`core-theme.md`) — the one served-page chrome both pages take, six CSS colour
+    strings each named by a `ChromeColorRole` plus the `color-scheme` keyword (what
+    makes the web view's own scrollbars match) — so this file spells no colour of
+    its own (chrome theme part five (e); gating rule forty-two pins it at zero hex
+    literals). The document is a pure function of the value it is handed, which is
+    what lets a test assert light and dark differ without Core importing AppKit.
+    **Where that value comes from differs by platform.** macOS hands in
+    `ChromePalette.documentPageChrome(in:)`, derived from the palette with the
+    appearance resolved through `ChromeAppearance.resolved(_:systemPrefersDark:)`,
+    and never reads Core's restated block. iOS, which has no palette, calls
+    `Theme.resolved(_:systemPrefersDark:)` — `ThemePreference.system` carries no
+    colour by itself, so the *caller* supplies the appearance it is running in —
+    and so draws `DocumentPageChrome.light`/`.dark`, the restated block an
+    app-layer test pins equal to the palette's derivation. iOS therefore moves
+    with the palette too (its page ground, link and code ground changed with part
+    five (e)) though no file under `Sources/Pisaka/iOS/` was edited. Every field is asserted to reach the CSS, so a colour
     that is declared and never interpolated fails the suite rather than silently
     doing nothing. `fontSize` goes through `SettingsStore.clampFontSize` because an
     unparsable `font-size` drops the whole declaration silently rather than failing
@@ -1810,8 +1820,14 @@ the limits the design carries.
     `bgPanel` fill with a top-aligned hairline), its cursor still pushed through
     `syncResizeHandleCursor()` and released from `onDisappear` exactly as above
     (the function is pinned in `ChromeThemeSourceGatingTests`' rule twenty-two).
-    The web view and its code-zone marker are untouched, and the served statement
-    document keeps its own stylesheet: it is not themed from the chrome roles.
+    The web view and its code-zone marker are untouched. **Since part five (e) the
+    served statement page is themed too**: `html(for:)` hands the document
+    `ChromePalette.documentPageChrome(in:)` for the resolved appearance — the
+    palette's own values, never Core's restated block, which gating rule
+    forty-two pins from both sides (this file is one of the derivation's two
+    callers, and no macOS app file spells `Theme.resolved(`). The page ground is
+    `bgEditor` and a code block `bgCanvas`, the same paper as the editor beside
+    it; the full account is `core-theme.md`'s part five (e).
   - `LeetCodeJudgeView.swift` (macOS) — `LeetCodeJudgeSection`, hosted by
     `LeetCodeDescriptionPane` below the statement web view and inside the same
     pane, because Run and Submit are about the problem the user is reading.
