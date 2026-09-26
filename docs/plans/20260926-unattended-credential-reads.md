@@ -135,7 +135,7 @@ app resumes".
 - Modify: `Tests/PisakaCoreTests/LeetCodeBrowserModelTests.swift`
 - Modify: `Tests/PisakaCoreTests/LeetCodeJudgeModelTests.swift`
 
-- [ ] Make the private accessor take the read kind. Each call site names its
+- [x] Make the private accessor take the read kind. Each call site names its
   kind in place, so its choice is readable without tracing callers.
   - Unattended:
     - `resolveAccount(startingConfirmation:)`, and through it the four
@@ -148,10 +148,10 @@ app resumes".
       attended.
     - `statement(forFileAt:in:)`, the fetch after a deliberate solution-tab
       activation.
-- [ ] Update the accessor's doc comment. It is still the one place the store is
+- [x] Update the accessor's doc comment. It is still the one place the store is
   read. The kind is now a per-site argument rather than a property of the
   accessor.
-- [ ] Write the test that matters: resolving the account never asks for a read
+- [x] Write the test that matters: resolving the account never asks for a read
   that may interact. Cover each path with a stored pair and a scripted
   user-status answer:
   - `resolveAccount()`
@@ -161,7 +161,7 @@ app resumes".
 
   The read log must contain no attended read. Confirm by hand that the test
   fails when the resolution site is switched to attended, then switch it back.
-- [ ] Test that a refused unattended read is indistinguishable from "nothing
+- [x] Test that a refused unattended read is indistinguishable from "nothing
   stored". With the permission-wanting store:
   - Resolution publishes `.signedOut`, starts no confirmation, leaves the
     catalog untold, and surfaces no error.
@@ -170,10 +170,10 @@ app resumes".
     existing recovery rule, now pinned.
   - A judge Run and a statement fetch after the same refused resolution each
     make an attended read.
-- [ ] Check the existing `loadCount` tests still hold. Tighten them to the kind
+- [x] Check the existing `loadCount` tests still hold. Tighten them to the kind
   where that is the claim: for example, construction and ordinary tabs read
   nothing, and sign-in/sign-out read nothing.
-- [ ] Run `swift test`. It must pass before Task 3.
+- [x] Run `swift test`. It must pass before Task 3.
 
 ### Task 3: The Keychain store honours the read kind
 

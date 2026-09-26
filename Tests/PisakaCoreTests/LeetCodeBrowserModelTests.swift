@@ -102,11 +102,12 @@ final class LeetCodeBrowserModelTests: XCTestCase {
         tree: StubFileTree,
         transport: ScriptedLeetCodeTransport,
         signedIn: Bool = true,
-        resolved: Bool = true
+        resolved: Bool = true,
+        store: InMemoryLeetCodeCredentialStore? = nil
     ) -> LeetCodeModel {
         let model = LeetCodeModel(
             transport: transport,
-            credentialStore: InMemoryLeetCodeCredentialStore(signedIn ? credentials : nil),
+            credentialStore: store ?? InMemoryLeetCodeCredentialStore(signedIn ? credentials : nil),
             fileService: tree,
             cacheLayout: LeetCodeCacheLayout(base: cacheBase),
             solutionsFolder: solutionsFolder,
@@ -262,6 +263,44 @@ final class LeetCodeBrowserModelTests: XCTestCase {
         XCTAssertEqual(transport.count(for: .problemList), 0)
         XCTAssertNil(model.browser.lastError)
         XCTAssertFalse(model.browser.isLoading)
+    }
+
+    /// The browser's pre-token resolve is a resolution like any other, so it
+    /// reads **unattended**: the browser opens from a window appearing, and a read
+    /// that may interact has no business there. Asked on both entry points,
+    /// with a stored pair, so the read has something to hand over.
+    func testTheBrowsersOwnResolutionNeverAsksForAnInteractiveRead() async {
+        for entry in ["load", "refresh"] {
+            let tree = makeTree()
+            let transport = makeTransport()
+            let store = InMemoryLeetCodeCredentialStore(credentials)
+            let model = makeModel(tree: tree, transport: transport, resolved: false, store: store)
+
+            if entry == "load" { await model.browser.load() } else { await model.browser.refresh() }
+
+            XCTAssertEqual(store.reads, [.unattended], entry)
+            XCTAssertEqual(model.browser.problems.map(\.slug), recordedSlugs, entry)
+        }
+    }
+
+    /// A keychain that refuses the unattended read reads as signed out. The
+    /// browser shows its offer, sends nothing and reports no error, exactly as it
+    /// does when nothing is stored. The browser's own lookup is gated on the
+    /// published state, so it does not escalate to an attended read either.
+    /// Asking belongs to an explicit action, and opening a list is not one.
+    func testARefusedUnattendedReadShowsTheOfferAndAsksNothing() async {
+        let tree = makeTree(warmCache())
+        let transport = makeTransport()
+        let store = InMemoryLeetCodeCredentialStore(credentials)
+        store.wantsPermission = true
+        let model = makeModel(tree: tree, transport: transport, resolved: false, store: store)
+
+        await model.browser.load()
+
+        XCTAssertEqual(store.reads, [.unattended])
+        XCTAssertEqual(model.browser.availability, .notSignedIn)
+        XCTAssertNil(model.browser.lastError)
+        XCTAssertEqual(transport.sent.count, 0)
     }
 
     /// The explicit affordance: Refresh fetches whatever the age, which is the

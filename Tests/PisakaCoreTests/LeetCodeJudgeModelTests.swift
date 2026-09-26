@@ -85,7 +85,8 @@ final class LeetCodeJudgeModelTests: XCTestCase {
         fileName: String = "0001-two-sum.swift",
         savedText: String = "class Solution {}\n",
         signedIn: Bool = true,
-        resolved: Bool = true
+        resolved: Bool = true,
+        store: InMemoryLeetCodeCredentialStore? = nil
     ) throws -> World {
         let path = "Solutions/\(fileName)"
         let tree = StubFileTree(root: treeRoot, files: [path: savedText])
@@ -96,7 +97,7 @@ final class LeetCodeJudgeModelTests: XCTestCase {
         transport.serve(.submit(slug: "two-sum"), body: Self.fixture("judge-submit-id.json"))
         let model = LeetCodeModel(
             transport: transport,
-            credentialStore: InMemoryLeetCodeCredentialStore(signedIn ? credentials : nil),
+            credentialStore: store ?? InMemoryLeetCodeCredentialStore(signedIn ? credentials : nil),
             fileService: tree,
             cacheLayout: LeetCodeCacheLayout(base: cacheBase),
             solutionsFolder: solutionsFolder,
@@ -672,6 +673,37 @@ final class LeetCodeJudgeModelTests: XCTestCase {
         try await world.model.signIn(with: credentials)
 
         XCTAssertEqual(world.judge.availability, .ready(swift))
+    }
+
+    /// A keychain that refused resolution's unattended read leaves the surface
+    /// signed out. The Run button is disabled in that state, and a Run pressed
+    /// anyway states the refusal without reading. After an explicit open
+    /// (Open Problem) the attended read hands the pair over, the accepted
+    /// response flips the account, and the same Run then judges from the cached
+    /// pair. That is two reads in all: the unattended one refused, the attended
+    /// one answered.
+    func testARunAfterARefusedResolutionWaitsForAnAttendedRead() async throws {
+        let store = InMemoryLeetCodeCredentialStore(credentials)
+        store.wantsPermission = true
+        let world = try makeWorld(store: store)
+        await world.judge.prepare(forFileAt: world.url, in: solutionsFolder)
+        XCTAssertEqual(world.model.account, .signedOut)
+        XCTAssertEqual(world.judge.availability, .notSignedIn)
+
+        await world.judge.run()
+        XCTAssertEqual(store.reads, [.unattended], "a disabled Run read the store")
+        XCTAssertNotNil(world.judge.lastError)
+
+        world.transport.serve(.problemList, body: Self.fixture("problem-list.json"))
+        _ = try await world.model.openProblem(input: .slug("two-sum"), language: swift)
+        XCTAssertEqual(store.reads, [.unattended, .attended])
+        XCTAssertEqual(world.model.account, .signedIn)
+
+        serveChecks(world, id: runID, ["judge-check-run-accepted.json"])
+        await world.judge.run()
+
+        XCTAssertEqual(world.judge.lastRun?.verdict, .accepted)
+        XCTAssertEqual(store.reads, [.unattended, .attended], "the Run re-read a pair already held")
     }
 
     /// The session arrived after the surface was prepared, so the context was
