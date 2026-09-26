@@ -243,6 +243,23 @@ final class MarkdownPreviewThemeTests: XCTestCase {
         XCTAssertEqual(MarkdownPreviewTheme.resolved(.system, systemPrefersDark: false), .light)
     }
 
+    /// The macOS pane's `prefersDark` asks `ChromeAppearance.resolved` directly,
+    /// as the statement pane does, where it used to build a whole theme and
+    /// compare it to `.dark`. The two questions must answer the same Bool for
+    /// every preference in both system appearances, or that refactor changed
+    /// what the pane draws.
+    func testThePanesAppearanceQuestionAnswersAsTheThemeUsedTo() {
+        for preference in ThemePreference.allCases {
+            for systemPrefersDark in [false, true] {
+                XCTAssertEqual(
+                    ChromeAppearance.resolved(preference, systemPrefersDark: systemPrefersDark) == .dark,
+                    MarkdownPreviewTheme.resolved(preference, systemPrefersDark: systemPrefersDark) == .dark,
+                    "\(preference), system dark: \(systemPrefersDark)"
+                )
+            }
+        }
+    }
+
     /// The fallback is body text, and it is reachable only for a theme built by
     /// hand with a gap in it.
     func testAMissingKindFallsBackToBodyText() {

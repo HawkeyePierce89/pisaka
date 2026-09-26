@@ -69,7 +69,9 @@ struct MarkdownPreviewPane: View {
 
     private var appearanceKey: AppearanceKey {
         AppearanceKey(
-            prefersDark: MarkdownPreviewTheme.resolved(
+            // The appearance itself, asked the way the statement pane asks it —
+            // not a whole theme built only to be compared against `.dark`.
+            prefersDark: ChromeAppearance.resolved(
                 settings.themePreference,
                 systemPrefersDark: colorScheme == .dark
             ) == .dark,

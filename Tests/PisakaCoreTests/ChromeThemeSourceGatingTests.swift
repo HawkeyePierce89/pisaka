@@ -4565,6 +4565,34 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         XCTAssertNil(counts["LeetCodeStatementDocument.swift"], "the statement page's chrome is the shared value")
     }
 
+    /// Beside rule forty-two, and the sentence `core-leetcode.md` states about
+    /// it: no macOS app file (outside `Sources/Pisaka/iOS/`) spells
+    /// `Theme.resolved(`. On macOS a served page's appearance is asked of
+    /// `ChromeAppearance.resolved(_:systemPrefersDark:)` — both panes ask it that
+    /// way — and never answered by building a themed value only to compare it
+    /// against a case. Matched as a **substring** of the stripped text, not as an
+    /// identifier-bounded token, so a prefix cannot hide the spelling:
+    /// `MarkdownPreviewTheme.resolved(` and `LeetCodeStatementDocument.Theme
+    /// .resolved(` both contain it, and the first is exactly the shape this
+    /// replaced in `MarkdownPreviewPane.swift`.
+    func testNoMacOSAppFileSpellsThemeResolved() throws {
+        let app = try Self.swiftSources().filter {
+            $0.pathComponents.contains("Pisaka") && !$0.pathComponents.contains("PisakaCore")
+                && !$0.pathComponents.contains("iOS")
+        }
+        XCTAssertFalse(app.isEmpty, "found no macOS app sources — the walk is broken, not the code")
+        for url in app {
+            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            XCTAssertFalse(
+                code.contains("Theme.resolved("),
+                """
+                \(url.lastPathComponent) spells Theme.resolved( — macOS asks ChromeAppearance.resolved for \
+                the appearance and takes a served page's chrome from the palette
+                """
+            )
+        }
+    }
+
     // MARK: - Self-check
 
     /// Every gated file draws with roles and must therefore name one — with two
