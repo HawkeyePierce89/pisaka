@@ -243,15 +243,15 @@ This plan reads it as three conditions, and the new gating rule pins the counts:
 **Files:**
 - Modify: `Tests/PisakaCoreTests/ChromeThemeSourceGatingTests.swift`
 
-- [ ] Add `// MARK: - Rule forty-two: a served page's chrome is the palette's`, with a matching bold bullet in the header inventory, in marker order. The rule has four clauses:
+- [x] Add `// MARK: - Rule forty-two: a served page's chrome is the palette's`, with a matching bold bullet in the header inventory, in marker order. The rule has four clauses:
   - (a) The set of app files spelling `ChromePalette.documentPageChrome(` equals exactly `{MarkdownPreviewPane.swift, LeetCodeDescriptionView.swift}`. Deleting the app-side wiring fails here.
   - (b) No macOS app file outside `Sources/Pisaka/iOS/` spells `LeetCodeStatementDocument.Theme.resolved(` or `DocumentPageChrome.resolved(`. macOS never reads Core's fallback.
   - (c) The set of Core files spelling a CSS hex literal (`#[0-9A-Fa-f]{6}`) equals exactly `{MarkdownPreviewTheme.swift, DocumentPageChrome.swift}`, with the counts pinned at 28 and 12. `LeetCodeStatementDocument.swift` spells none.
   - (d) `cssHex(` is defined only in `ChromePalette.swift`.
-- [ ] Clause (c) uses the comments-only scanner (`GitHubSourceGatingTests.strippingComments`), because its subject is a string literal. Doc-comment it as the fifth stated exception, in the same terms as the other four.
-- [ ] Extend `spelled` with `42: "forty-two"`.
-- [ ] Update the docs the count test reads in this same task, or `testBothSummariesSpellTheSuitesOwnRuleCount` fails. Task 6 carries the full prose.
-- [ ] Run `swift test` and the app-layer bundle; both must pass before Task 6.
+- [x] Clause (c) uses the comments-only scanner (`GitHubSourceGatingTests.strippingComments`), because its subject is a string literal. Doc-comment it as the fifth stated exception, in the same terms as the other four.
+- [x] Extend `spelled` with `42: "forty-two"`.
+- [x] Update the docs the count test reads in this same task, or `testBothSummariesSpellTheSuitesOwnRuleCount` fails. Task 6 carries the full prose.
+- [x] Run `swift test` and the app-layer bundle; both must pass before Task 6.
 
 ### Task 6: Documentation
 

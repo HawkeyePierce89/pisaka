@@ -1907,7 +1907,7 @@ although it is an editing affordance rather than a row: an inline draft
 for. `TabStripView.swift` covers `TabStatusMark` too, the slot view the two
 orientations share, which is why that extraction did not add a seventh file.
 
-The forty-one rules, each invisible to the compiler:
+The forty-two rules, each invisible to the compiler:
 
 1. **No gated view names a system semantic colour.** A closed forbidden-token
    list — AppKit's semantic set (`labelColor`, `separatorColor`,
@@ -2623,6 +2623,19 @@ The forty-one rules, each invisible to the compiler:
     gated files, stays the real defence. Shown red against
     `.background(index % 2 == 0 ? … : …)` in the console's result rows, in both
     the argument and the trailing-closure spelling, before it was committed.
+42. **A served page's chrome is the palette's.** Four clauses. (a) The app
+    files spelling `ChromePalette.documentPageChrome(` equal
+    `{MarkdownPreviewPane.swift, LeetCodeDescriptionView.swift}` by set
+    equality, so deleting either wiring fails. (b) No macOS app file outside
+    `Sources/Pisaka/iOS/` spells `LeetCodeStatementDocument.Theme.resolved(` or
+    `DocumentPageChrome.resolved(`: macOS never reads Core's fallback. (c) The
+    Core files spelling a CSS hex literal equal the two restated blocks, each
+    count pinned — `MarkdownPreviewTheme.swift`'s code half (28) and
+    `DocumentPageChrome.swift` (12) — and `LeetCodeStatementDocument.swift`
+    spells none. (d) `func cssHex(` is defined in `ChromePalette.swift` alone.
+    Clause (c) reads the comments-only scanner, literals kept, because a CSS
+    hex literal *is* a string literal — the suite's stated exception to the
+    stripped reading.
 
 Plus a **self-check** in the suite's own idiom: every gated file must actually
 *name* a `ChromeColorRole`, or the checks above have gone vacuous — with nine

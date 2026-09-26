@@ -191,6 +191,13 @@ import XCTest
 /// - **No alternating row fill.** A gated table reads by selection and hover; no
 ///   gated file spells `alternatingRowBackgrounds`, `isMultiple` or `isTinted`,
 ///   and no `.background`/`.listRowBackground` modifier's own text spells `% 2`.
+/// - **A served page's chrome is the palette's.** Both served pages take their
+///   chrome from `ChromePalette.documentPageChrome(in:)` on macOS; Core's
+///   restated block is a fallback nothing on macOS reads. Deleting the wiring
+///   compiles and draws Core's block, which looks right until one palette value
+///   moves — so the wiring's two sites are pinned, the fallback's readers are
+///   banned outside iOS, Core's CSS hex literals are pinned to the two restated
+///   blocks by count, and the one formatter is defined once.
 ///
 /// What a rule here may do, and nothing more: pin a set by equality, assert the
 /// presence or absence of a token through `containsToken`, or take a
@@ -4458,6 +4465,106 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         }
     }
 
+    // MARK: - Rule forty-two: a served page's chrome is the palette's
+
+    /// The two served pages — the Markdown preview and the problem statement —
+    /// take their chrome from one Core value, `DocumentPageChrome`, and on macOS
+    /// that value is **derived from the palette** (`ChromePalette
+    /// .documentPageChrome(in:)`) and handed over wholesale. Core restates the
+    /// same values as `DocumentPageChrome.light`/`.dark`, a fallback iOS reads
+    /// and a test can check. Nothing the compiler sees tells the two apart: a
+    /// pane passing Core's block instead of the derivation draws identical
+    /// colours today and stops following the palette the first time one value
+    /// moves. Four clauses:
+    ///
+    /// - (a) The app files spelling `ChromePalette.documentPageChrome(` equal
+    ///   `pageChromeSites` by set equality — deleting either wiring fails here.
+    /// - (b) No macOS app file (outside `Sources/Pisaka/iOS/`) spells
+    ///   `LeetCodeStatementDocument.Theme.resolved(` or
+    ///   `DocumentPageChrome.resolved(`: macOS never reads Core's fallback.
+    /// - (c) The Core files spelling a CSS hex literal (`#rrggbb`) equal the two
+    ///   restated blocks, by set equality, with each file's count pinned — the
+    ///   preview theme's code half (28) and `DocumentPageChrome.swift` (12) — and
+    ///   `LeetCodeStatementDocument.swift` spells none. A test pins each block
+    ///   equal to its app-side table, so a third block would be a table nothing
+    ///   checks.
+    /// - (d) `func cssHex(` is defined in `ChromePalette.swift` alone: the one
+    ///   place a colour is formatted into a string.
+    ///
+    /// **Clause (c) is the fifth stated exception to the stripped reading.** It
+    /// matches against `GitHubSourceGatingTests.strippingComments(_:)` — comments
+    /// removed, **string literals kept** — because a CSS hex literal *is* a string
+    /// literal, and the ordinary scanner would delete exactly the text the clause
+    /// counts. Comments are still dropped, so a doc comment quoting a value (as
+    /// `DocumentPageChrome.swift`'s does) is not counted. The other three clauses
+    /// read the ordinary scanner.
+    private static let pageChromeSites: Set<String> = [
+        "MarkdownPreviewPane.swift",
+        "LeetCodeDescriptionView.swift",
+    ]
+
+    /// Core's restated CSS blocks and the number of hex literals each spells.
+    private static let coreCSSHexCounts: [String: Int] = [
+        "MarkdownPreviewTheme.swift": 28,
+        "DocumentPageChrome.swift": 12,
+    ]
+
+    private static let coreFallbackReaders = [
+        "LeetCodeStatementDocument.Theme.resolved(",
+        "DocumentPageChrome.resolved(",
+    ]
+
+    func testAServedPagesChromeIsThePalettes() throws {
+        let sources = try Self.swiftSources()
+        let app = sources.filter { $0.pathComponents.contains("Pisaka") && !$0.pathComponents.contains("PisakaCore") }
+        let core = sources.filter { $0.pathComponents.contains("PisakaCore") }
+        XCTAssertFalse(app.isEmpty, "found no app sources — the walk is broken, not the code")
+        XCTAssertFalse(core.isEmpty, "found no Core sources — the walk is broken, not the code")
+
+        var chromeSites: Set<String> = []
+        var formatterDefinitions: Set<String> = []
+        for url in sources {
+            let name = url.lastPathComponent
+            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            if app.contains(url), code.contains("ChromePalette.documentPageChrome(") { chromeSites.insert(name) }
+            if code.range(of: #"func\s+cssHex\s*\("#, options: .regularExpression) != nil {
+                formatterDefinitions.insert(name)
+            }
+            if app.contains(url), !url.pathComponents.contains("iOS") {
+                for reader in Self.coreFallbackReaders {
+                    XCTAssertFalse(
+                        code.contains(reader),
+                        "\(name) spells \(reader) — macOS takes the palette's derivation, never Core's fallback"
+                    )
+                }
+            }
+        }
+        XCTAssertEqual(
+            chromeSites, Self.pageChromeSites,
+            "exactly the two served-page surfaces take ChromePalette.documentPageChrome(in:)"
+        )
+        XCTAssertEqual(
+            formatterDefinitions, ["ChromePalette.swift"],
+            "cssHex is the one place a colour is formatted into a string"
+        )
+
+        let hex = try NSRegularExpression(pattern: "#[0-9A-Fa-f]{6}")
+        var counts: [String: Int] = [:]
+        for url in core {
+            let code = GitHubSourceGatingTests.strippingComments(try Self.read(url))
+            let found = hex.numberOfMatches(in: code, range: NSRange(code.startIndex..., in: code))
+            if found > 0 { counts[url.lastPathComponent] = found }
+        }
+        XCTAssertEqual(
+            counts, Self.coreCSSHexCounts,
+            """
+            Core's CSS hex literals live in the two restated blocks alone, each pinned equal to its app-side \
+            table — a third block is a table nothing checks
+            """
+        )
+        XCTAssertNil(counts["LeetCodeStatementDocument.swift"], "the statement page's chrome is the shared value")
+    }
+
     // MARK: - Self-check
 
     /// Every gated file draws with roles and must therefore name one — with two
@@ -4551,7 +4658,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         28: "twenty-eight", 29: "twenty-nine", 30: "thirty", 31: "thirty-one",
         32: "thirty-two", 33: "thirty-three", 34: "thirty-four", 35: "thirty-five",
         36: "thirty-six", 37: "thirty-seven", 38: "thirty-eight", 39: "thirty-nine",
-        40: "forty", 41: "forty-one",
+        40: "forty", 41: "forty-one", 42: "forty-two",
     ]
 
     func testBothSummariesSpellTheSuitesOwnRuleCount() throws {
