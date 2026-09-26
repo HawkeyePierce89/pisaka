@@ -70,11 +70,11 @@ macOS and is replaced from the palette before any page is built, so none of it
 reaches a served page. Clause (a) is the rule that catches the realistic
 regression and it stays exactly as it is.
 
-- [ ] Reword clause (b)'s doc comment, the suite's header inventory line, the sentence in `CLAUDE.md` and the one in `core-theme.md` so each says that no served page *draws* Core's restated chrome — it is replaced from the palette before the page is built — rather than that macOS never reads it.
-- [ ] Name in clause (b)'s doc comment the two paths by which the restated block legitimately does reach macOS (`MarkdownPreviewTheme.light`/`.dark` as the value `withChrome(_:)` overwrites, and `SyntaxTheme`'s starting point), so the next reader does not take the clause for a wider guarantee than it gives.
-- [ ] Leave clause (b)'s token list as it is, and say in the comment why it is a narrow ban and not the whole guarantee: the whole guarantee is clause (a).
-- [ ] Test: keep every existing clause green, and confirm by mutation that clause (a) still fails when the pane's `withChrome(...)` is removed.
-- [ ] Run `swift test`; it must pass before Task 3.
+- [x] Reword clause (b)'s doc comment, the suite's header inventory line, the sentence in `CLAUDE.md` and the one in `core-theme.md` so each says that no served page *draws* Core's restated chrome — it is replaced from the palette before the page is built — rather than that macOS never reads it.
+- [x] Name in clause (b)'s doc comment the two paths by which the restated block legitimately does reach macOS (`MarkdownPreviewTheme.light`/`.dark` as the value `withChrome(_:)` overwrites, and `SyntaxTheme`'s starting point), so the next reader does not take the clause for a wider guarantee than it gives.
+- [x] Leave clause (b)'s token list as it is, and say in the comment why it is a narrow ban and not the whole guarantee: the whole guarantee is clause (a).
+- [x] Test: keep every existing clause green, and confirm by mutation that clause (a) still fails when the pane's `withChrome(...)` is removed.
+- [x] Run `swift test`; it must pass before Task 3.
 
 ### Task 3: the stylesheet test sees the rule it names
 

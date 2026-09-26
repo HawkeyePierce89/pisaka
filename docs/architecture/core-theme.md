@@ -1927,8 +1927,9 @@ is added (the suite growing from forty-one to forty-two).
 **Both pages take the palette.** The preview composes
 `.withChrome(ChromePalette.documentPageChrome(in:))` onto the code palette it
 already derived, and the statement pane hands the same derivation to
-`LeetCodeStatementDocument` directly. Core's restated block is macOS's value
-nowhere; iOS reads it, and because it now states these same values the iOS
+`LeetCodeStatementDocument` directly. Core's restated block is drawn on no
+macOS page — it is a starting value there, replaced from the palette before the
+page is built; iOS draws it, and because it now states these same values the iOS
 statement page moves the same way with no iOS file edited.
 
 **What moved.** The page is the editor's paper, a code block recesses to the
@@ -2764,7 +2765,13 @@ The forty-two rules, each invisible to the compiler:
     `{MarkdownPreviewPane.swift, LeetCodeDescriptionView.swift}` by set
     equality, so deleting either wiring fails. (b) No macOS app file outside
     `Sources/Pisaka/iOS/` spells `LeetCodeStatementDocument.Theme.resolved(` or
-    `DocumentPageChrome.resolved(`: macOS never reads Core's fallback. (c) The
+    `DocumentPageChrome.resolved(`: macOS never resolves Core's fallback
+    into a page. That is a narrow ban, not the whole guarantee: the restated
+    block does reach macOS — as the chrome `MarkdownPreviewTheme.light`/`.dark`
+    carry for `withChrome(_:)` to overwrite, and as `SyntaxTheme`'s starting
+    point — and what holds is that no served page *draws* it, because it is
+    replaced from the palette before the page is built, which clause (a)
+    guarantees. (c) The
     Core files spelling a CSS hex literal equal the two restated blocks, each
     count pinned — `MarkdownPreviewTheme.swift`'s code half (28) and
     `DocumentPageChrome.swift` (12) — and `LeetCodeStatementDocument.swift`

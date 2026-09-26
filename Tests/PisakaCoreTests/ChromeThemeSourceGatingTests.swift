@@ -192,8 +192,9 @@ import XCTest
 ///   gated file spells `alternatingRowBackgrounds`, `isMultiple` or `isTinted`,
 ///   and no `.background`/`.listRowBackground` modifier's own text spells `% 2`.
 /// - **A served page's chrome is the palette's.** Both served pages take their
-///   chrome from `ChromePalette.documentPageChrome(in:)` on macOS; Core's
-///   restated block is a fallback nothing on macOS reads. Deleting the wiring
+///   chrome from `ChromePalette.documentPageChrome(in:)` on macOS; no served
+///   page draws Core's restated block — it is replaced from the palette before
+///   the page is built. Deleting the wiring
 ///   compiles and draws Core's block, which looks right until one palette value
 ///   moves — so the wiring's two sites are pinned, the fallback's readers are
 ///   banned outside iOS, Core's CSS hex literals are pinned to the two restated
@@ -4481,7 +4482,19 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     ///   `pageChromeSites` by set equality — deleting either wiring fails here.
     /// - (b) No macOS app file (outside `Sources/Pisaka/iOS/`) spells
     ///   `LeetCodeStatementDocument.Theme.resolved(` or
-    ///   `DocumentPageChrome.resolved(`: macOS never reads Core's fallback.
+    ///   `DocumentPageChrome.resolved(`: macOS never *resolves* Core's fallback
+    ///   into a page. This is a narrow ban, not the whole guarantee. The
+    ///   restated block does reach macOS by two legitimate paths —
+    ///   `MarkdownPreviewTheme.light`/`.dark` carry it as the chrome
+    ///   `withChrome(_:)` overwrites, and
+    ///   `SyntaxTheme.markdownPreviewTheme(prefersDark:)` starts from those two
+    ///   values — so macOS *reads* it; what
+    ///   holds is that no served page *draws* it, because it is replaced from the
+    ///   palette before the page is built. That guarantee is clause (a): both
+    ///   served-page sites hand over the palette's derivation, and removing
+    ///   either (the preview's `withChrome(...)` included) fails there. Clause
+    ///   (b) only closes the direct route a pane would otherwise take, and does
+    ///   not widen its token list to chase the starting values above.
     /// - (c) The Core files spelling a CSS hex literal (`#rrggbb`) equal the two
     ///   restated blocks, by set equality, with each file's count pinned — the
     ///   preview theme's code half (28) and `DocumentPageChrome.swift` (12) — and
@@ -4534,7 +4547,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
                 for reader in Self.coreFallbackReaders {
                     XCTAssertFalse(
                         code.contains(reader),
-                        "\(name) spells \(reader) — macOS takes the palette's derivation, never Core's fallback"
+                        "\(name) spells \(reader) — a macOS page takes the palette's derivation, never Core's resolved fallback"
                     )
                 }
             }
