@@ -1904,12 +1904,20 @@ The spinner question part five (c) left open is **closed**.
 
 #### Part five (e) — the two served document pages and the alert accessory
 
-The part that closes the macOS colour sweep. Three surfaces: the **Markdown
-preview page**, the **problem statement page** — both served web documents that
-kept a colour family of their own (fourteen and twelve chrome hex literals in
-Core) — and the **alert accessory** in `FilePanels.swift`, the text prompt's
-refusal sentence, which set `.systemRed` and was this document's verified
-counterexample to part five (d) having been the last. **No new role**:
+Three surfaces: the **Markdown preview page**, the **problem statement page** —
+both served web documents that kept a colour family of their own (fourteen and
+twelve chrome hex literals in Core) — and the **alert accessory** in
+`FilePanels.swift`, the text prompt's refusal sentence, which set `.systemRed`
+and was this document's verified counterexample to part five (d) having been the
+last. **This part is not the last either.** It was first written up as the part
+that closes the macOS colour sweep — the same claim part five (d) made, made
+again one part later without the measurement that would have disproved it, and
+again wrong: `BracketOverlayLayoutManager.swift` still paints the fold
+placeholder from `NSColor.secondaryLabelColor`, and that file's own comment
+calls the placeholder "chrome standing in for text, not a token". It is recorded
+here because a document that keeps the mistake is what stops the next part
+repeating it (the surface itself is named under *What is still waiting*).
+**No new role**:
 `ChromeColorRole` stays at twenty-one, and `currentLine` and `bracketMatch` stay
 the two unspent. One Core value is added, `DocumentPageChrome` (its entry
 above, with the role table), plus the palette's CSS reading. One file joins the
@@ -1982,9 +1990,16 @@ The dock is finished, the popovers and search surfaces are swept, and so are the
 commit dialog, the merge editor, every secondary window's ground, Preferences,
 the two pull-request sheets, the database viewer and its console, the
 problem-catalog surfaces, the two served document pages and the alert
-accessory. After them: any macOS chrome view still ungated that a later audit
-finds (part five (d) claimed to be the last and was not, so none is claimed
-here) and the terminal's own palette. Each follows the six-step guide at the end of this document, on its
+accessory. After them: the **fold placeholder** in
+`BracketOverlayLayoutManager.swift`, the one surface known to remain — it paints
+from `NSColor.secondaryLabelColor`, and the file's own comment calls it "chrome
+standing in for text, not a token". It is left for a part of its own because
+whether a placeholder standing in for text belongs to the chrome or to the code
+zone is a design question, and this sweep's stated refusal is to stop at a
+design question rather than decide it under another part's heading. Beyond it:
+any macOS chrome view still ungated that a later audit finds (part five (d) and
+then part five (e) each claimed to be the last and neither was, so none is
+claimed here) and the terminal's own palette. Each follows the six-step guide at the end of this document, on its
 own, with `gatedFiles` growing as part of the restyle rather than afterwards.
 
 The dock's tab row is **no longer deferred** — part four (a) drew it, and
