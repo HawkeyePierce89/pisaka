@@ -141,27 +141,27 @@ This plan reads it as three conditions, and the new gating rule pins the counts:
 - Create: `Sources/PisakaCore/DocumentPageChrome.swift`
 - Create: `Tests/PisakaCoreTests/DocumentPageChromeTests.swift`
 
-- [ ] Add a public `DocumentPageChrome` (Equatable, Sendable) with:
+- [x] Add a public `DocumentPageChrome` (Equatable, Sendable) with:
   - six colour fields: `background`, `text`, `secondaryText`, `link`, `codeBackground`, `border`, plus `colorScheme`;
   - a public memberwise init;
   - a closed `Field` enum (CaseIterable) and `static func role(for: Field) -> ChromeColorRole`, carrying the table above;
   - `init(appearance: ChromeAppearance, value: (ChromeColorRole) -> String)`, which fills every field from its role and sets `colorScheme` from the appearance;
   - `static let light` and `static let dark`, which restate the palette's values from the table above as lowercase `#rrggbb` strings;
   - `static func resolved(_ preference: ThemePreference, systemPrefersDark: Bool)`.
-- [ ] Write a doc comment that says:
+- [x] Write a doc comment that says:
   - This is the one chrome source both served pages take.
   - The `light`/`dark` blocks are a fallback: iOS reads them, and a Core test can assert them.
   - macOS replaces them wholesale with values from the palette.
   - A code block has no border, so its ground role must stay distinguishable from the page's. Only a change that adds a border may revisit that pair.
   - There is one line colour, `hairline`, because the vocabulary names one (point it to core-theme.md's part five (e) for the full reasoning).
-- [ ] Write tests:
+- [x] Write tests:
   - the role table, pinned exactly, field by field;
   - the six roles are distinct, and in particular the page-ground role differs from the code-ground role;
   - `init(appearance:value:)` routes each field through its own role, checked with a closure that echoes the role's raw value;
   - `colorScheme` follows the appearance;
   - light ≠ dark on every colour field;
   - `resolved` covers all three preferences.
-- [ ] Run `swift test`; it must pass before Task 2.
+- [x] Run `swift test`; it must pass before Task 2.
 
 ### Task 2: Core — both themes carry the shared chrome; tableBorder collapses
 
