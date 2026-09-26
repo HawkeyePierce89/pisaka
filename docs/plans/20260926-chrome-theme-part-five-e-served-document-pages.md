@@ -290,14 +290,14 @@ This plan reads it as three conditions, and the new gating rule pins the counts:
 
 ### Task 7: Verify acceptance criteria
 
-- [ ] Run `swift test`.
-- [ ] Run `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' test`, with DerivedData outside the repository.
-- [ ] Run `swiftlint --strict` from the repository root.
-- [ ] Build macOS Release and iOS (`generic/platform=iOS`), both unsigned, as CI does.
-- [ ] Grep checks:
+- [x] Run `swift test`.
+- [x] Run `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' test`, with DerivedData outside the repository.
+- [x] Run `swiftlint --strict` from the repository root.
+- [x] Build macOS Release and iOS (`generic/platform=iOS`), both unsigned, as CI does.
+- [x] Grep checks:
   - Core for `#[0-9A-Fa-f]{6}`: only the two restated blocks match.
   - The macOS app layer for `0x[0-9A-Fa-f]{6}`: only `ChromePalette.swift` and the four exemptions match.
   - `.system[A-Z]` colours: nothing matches outside the exemptions and `Sources/Pisaka/iOS/`.
-- [ ] Confirm the two safety nets are separate, then revert both mutations:
+- [x] Confirm the two safety nets are separate, then revert both mutations:
   - Changing one value in `DocumentPageChrome.light` fails only the restatement test.
   - Replacing the pane's `withChrome(...)` call with the bare theme fails rule forty-two (a).
