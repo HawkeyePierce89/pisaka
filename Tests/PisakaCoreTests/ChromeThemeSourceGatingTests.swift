@@ -330,6 +330,9 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         // Part five (e): the text prompt's reason line, an alert accessory
         // coloured through the palette's dynamic AppKit path.
         "FilePanels.swift",
+        // Part five (f): the fold placeholder — its `…` glyph and rounded
+        // outline, drawn from the palette through two spent seams.
+        "BracketOverlayLayoutManager.swift",
     ]
 
     func testEveryGatedFileExists() throws {
@@ -3060,6 +3063,16 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// `MinimapView.swift`'s `withAlphaComponent(0.6)` is outside the rule by
     /// what it applies to — a syntax-table colour, the code zone's, not a role's.
     /// This part's ten files, written against the rule, ban the token outright.
+    ///
+    /// **Known gap, named rather than fixed.** The alpha clause sees an alpha
+    /// chained *directly* onto `nsColor(`, `.color(` or `chromeColor(` and
+    /// nothing else, so two forms pass while breaking what this comment says:
+    /// the local-variable form (the fold placeholder's former
+    /// `color.withAlphaComponent(0.5)`, removed in part five (f) rather than
+    /// caught) and the helper-call form (`ProjectTreeView.swift`'s drop-target
+    /// `resolving(.accent).opacity(0.4)`, which passes today). The rule is not
+    /// strengthened here; `core-theme.md` names that surface under *What is
+    /// still waiting*.
     private static let mergeWashReaders: Set<String> = ["MergeView.swift"]
 
     func testTheMergeWashIsCoresOneAnswer() throws {
@@ -4684,11 +4697,22 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// `Sources/Pisaka/iOS/`, outside `gatedFiles`, outside the four
     /// `colorExemptions`, and naming a system semantic colour, a SwiftUI hue or a
     /// `0xRRGGBB` literal. Today's answer, pinned by set equality so both
-    /// directions fail — a new unswept surface appearing, and this one being
-    /// swept without the rule being updated.
+    /// directions fail — a measured surface missing from the set, and a set
+    /// member no longer measured.
     ///
-    /// Empty: the fold placeholder (`BracketOverlayLayoutManager.swift`) left
-    /// the set in part five (f), when it began drawing from the palette.
+    /// Empty today: the fold placeholder (`BracketOverlayLayoutManager.swift`)
+    /// left the set in part five (f), when it began drawing from the palette and
+    /// joined `gatedFiles`.
+    ///
+    /// The bound, stated because the claim was once written wider than it is:
+    /// the **live half** of rule forty-three is the set-equality check between
+    /// the measured surfaces and this set, and its measurement skips gated and
+    /// exempt files — so it guards only the macOS app files that are **neither
+    /// gated nor exempt**, failing when one of those starts painting outside the
+    /// roles. A file that has joined the gated set is guarded by rule one instead,
+    /// not by this one. The **document half** (no document calling the sweep
+    /// closed) is dormant while the set is empty and wakes again only when the
+    /// live half measures a surface. A dormant half is not a dead rule.
     private static let unsweptColorSurfaces: Set<String> = []
 
     /// What a document may not say while `unsweptColorSurfaces` is non-empty.
@@ -4718,7 +4742,18 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// Rule forty-three, the completeness claim checked against the measurement
     /// that decides it — the way the documented rule count is checked against the
     /// markers. Part five (d) and then part five (e) each called itself the last
-    /// part; both were wrong, and nothing read the claim against the tree.
+    /// part; both were wrong, and nothing read the claim against the tree then.
+    ///
+    /// Its reach is bounded by its measurement (see `unsweptColorSurfaces`): the
+    /// live half sees only macOS app files that are neither gated nor exempt, so
+    /// a gated file painting a system colour is rule one's failure, not this
+    /// rule's. The document half runs only while that measurement is non-empty;
+    /// since part five (f) it is dormant, not dead.
+    ///
+    /// Verified live by mutation with the set empty, not assumed: an
+    /// `_ = NSColor.systemRed` added to `DefinitionPicker.swift` (ungated, not
+    /// exempt) turned this test red with "the macOS files painting outside the
+    /// roles are ["DefinitionPicker.swift"]", and went green again once restored.
     ///
     /// The sources are read through the **ordinary** scanner
     /// (`strippingCommentsAndStringLiterals`), not a literal-keeping one: the

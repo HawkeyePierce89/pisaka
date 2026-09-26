@@ -137,26 +137,26 @@ Dependencies: none.
 **Files:**
 - Modify: `Tests/PisakaCoreTests/ChromeThemeSourceGatingTests.swift`
 
-- [ ] Add `BracketOverlayLayoutManager.swift` to `gatedFiles` with a comment naming part five (f).
-- [ ] Empty `unsweptColorSurfaces` (`[]`). Rewrite its doc comment, stating the bound:
+- [x] Add `BracketOverlayLayoutManager.swift` to `gatedFiles` with a comment naming part five (f).
+- [x] Empty `unsweptColorSurfaces` (`[]`). Rewrite its doc comment, stating the bound:
   - The set is empty today. The fold placeholder left it in part five (f).
   - The **live half** of rule forty-three is the set-equality check between the measured surfaces and this set. Its measurement skips gated and exempt files, so it guards only the macOS app files that are **neither gated nor exempt**. It fails when one of those starts painting outside the roles.
   - A file that has joined the gated set is guarded by rule one instead, not by rule forty-three.
   - The **document half** is dormant while the set is empty. It wakes up again only when the live half measures a surface.
   - A dormant half is not a dead rule.
   - Do not write that it fails the moment *any* new unswept surface appears.
-- [ ] Update rule forty-three's doc comment with the same bound. Its history reads in the past tense: part five (d) and part five (e) each made the claim, and neither was true.
-- [ ] Add a **named known gap** to rule twenty-nine's doc comment. The alpha clause sees an alpha chained directly onto `nsColor(`, `.color(` or `chromeColor(` only, so it misses:
+- [x] Update rule forty-three's doc comment with the same bound. Its history reads in the past tense: part five (d) and part five (e) each made the claim, and neither was true.
+- [x] Add a **named known gap** to rule twenty-nine's doc comment. The alpha clause sees an alpha chained directly onto `nsColor(`, `.color(` or `chromeColor(` only, so it misses:
   - the local-variable form (the fold placeholder's former `color.withAlphaComponent(0.5)`, removed in part five (f))
   - the helper-call form (`ProjectTreeView.swift`'s drop-target `resolving(.accent).opacity(0.4)`, which passes today)
   - The rule is not strengthened here, and `core-theme.md` names the surface under *What is still waiting*. Do not change the rule's regex and do not touch `ProjectTreeView.swift`.
-- [ ] Mutation-verify rule forty-three:
+- [x] Mutation-verify rule forty-three:
   - temporarily introduce a semantic colour (e.g. `.systemRed`) into an ungated, non-exempt macOS chrome file
   - confirm the test fails and its message names that file
   - restore the file
   - record the verification (file used, message seen) in the rule's doc comment
-- [ ] Confirm by running the suite that every membership-keyed rule passes for the new member, with no rule changed beyond the set and comment edits above.
-- [ ] Run `swift test`. It must pass.
+- [x] Confirm by running the suite that every membership-keyed rule passes for the new member, with no rule changed beyond the set and comment edits above.
+- [x] Run `swift test`. It must pass.
 
 ### Task 5: Documentation
 
