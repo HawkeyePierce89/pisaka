@@ -42,9 +42,16 @@ import Security
 /// `.entitlements`.
 ///
 /// `@unchecked Sendable` over an immutable `let`: there is no mutable state, and
-/// the Keychain is thread-safe. `LeetCodeModel` reads it on the main actor, at
-/// the first use of the feature rather than at launch (L27), but the protocol is
-/// not main-actor-bound and nothing here needs it.
+/// the Keychain is thread-safe. `LeetCodeModel` reads it synchronously on the
+/// main actor, at the first use of the feature rather than at launch (L27). That
+/// is safe **only because a read nobody asked for is non-interactive**: account
+/// resolution runs from on-appear bodies, which execute inside the window's
+/// layout pass, and an authorization panel raised there freezes the app until it
+/// is force-quit. So resolution reads `.unattended`, which this file guarantees
+/// never waits on a person (see `load(_:)`). An `.attended` read — one that
+/// follows an explicit action — may raise the panel, and because it too runs on
+/// the main actor the window cannot redraw while the panel stands; the app
+/// resumes once it is answered. That brief block is the recorded known limit.
 final class LeetCodeKeychainStore: LeetCodeCredentialStore, @unchecked Sendable {
     /// The Keychain service every LeetCode session is stored under. Distinct
     /// from the git PAT store's service, so "sign out of LeetCode" cannot reach
@@ -78,13 +85,37 @@ final class LeetCodeKeychainStore: LeetCodeCredentialStore, @unchecked Sendable 
     /// session cannot be used and the recovery for both is the same sign-in, so
     /// the store reports the state the app can act on rather than a diagnosis it
     /// has no screen for.
-    func load() -> LeetCodeCredentials? {
+    ///
+    /// **An `.attended` read is the plain query**, free to raise whatever the
+    /// system asks. **An `.unattended` read never waits on a person**, and how
+    /// that is guaranteed differs by destination:
+    ///
+    /// - **macOS** turns the legacy keychain's user interaction off for the one
+    ///   query (`copyMatchingWithoutInteraction(_:_:)`). A refused read then
+    ///   fails at once — any non-success status, `errSecAuthFailed` and
+    ///   `errSecInteractionNotAllowed` alike, is `nil`, as before.
+    /// - **iOS** runs the same plain query for both kinds. This item carries no
+    ///   access-control flags, so reading it never shows UI; the one case the
+    ///   system cannot answer — a read before first unlock — already returns
+    ///   `errSecInteractionNotAllowed` without asking, which is `nil` here.
+    func load(_ read: LeetCodeCredentialRead) -> LeetCodeCredentials? {
         var query = baseQuery
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
 
         var item: CFTypeRef?
-        guard SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess,
+        let status: OSStatus
+        #if os(macOS)
+        switch read {
+        case .attended:
+            status = SecItemCopyMatching(query as CFDictionary, &item)
+        case .unattended:
+            status = Self.copyMatchingWithoutInteraction(query, &item)
+        }
+        #else
+        status = SecItemCopyMatching(query as CFDictionary, &item)
+        #endif
+        guard status == errSecSuccess,
               let data = item as? Data,
               let credentials = try? JSONDecoder().decode(LeetCodeCredentials.self, from: data),
               !credentials.session.isEmpty,
@@ -92,6 +123,59 @@ final class LeetCodeKeychainStore: LeetCodeCredentialStore, @unchecked Sendable 
         else { return nil }
         return credentials
     }
+
+    #if os(macOS)
+    /// `SecItemCopyMatching` with the keychain's user interaction switched off
+    /// for exactly this one query, and restored to whatever it was afterwards.
+    ///
+    /// **Why the legacy switch and not the documented flags.** On macOS this item
+    /// lives in the file-based login keychain (see the type's note), and against
+    /// it both documented ways of saying "do not ask" were measured failing: a
+    /// query carrying `kSecUseAuthenticationUIFail`, and one carrying an
+    /// authentication context whose `interactionNotAllowed` is set, each still
+    /// raised the authorization panel for a binary the keychain did not
+    /// recognise and hung. `SecKeychainSetUserInteractionAllowed(false)` alone
+    /// held: the same read returned `errSecAuthFailed` in a few milliseconds with
+    /// no panel.
+    ///
+    /// **The switch is process-wide.** It is held only for the duration of one
+    /// synchronous read on the main actor, and nothing else in the macOS process
+    /// uses the Keychain (the git PAT store is iOS-only), so no other read can
+    /// observe it. The saved value is restored in a `defer`, so every exit
+    /// leaves the process as it found it.
+    ///
+    /// **A switch that did not turn off is a refusal, not a query.** The guarantee
+    /// this file makes is "an unattended read never waits on a person". If
+    /// switching interaction off fails, the switch is in a state nobody measured,
+    /// and running the query anyway is not that guarantee but the hope of it — on
+    /// a binary the login keychain does not recognise, the panel it raises would
+    /// freeze the layout pass this read was made unattended for. So the failure's
+    /// own status is returned without the query; `load` turns any non-success
+    /// into `nil`, which is the seam's answer for "could not read without asking".
+    ///
+    /// **The restore's status is kept, not dropped.** Nothing here can recover
+    /// from a failed restore — the process would stay unable to ask until it
+    /// restarts, and a second attempt meets the same keychain — but a DEBUG build
+    /// stops on it rather than carrying on as if it had held.
+    ///
+    /// **Its deprecation warning is accepted on purpose**: the API is deprecated
+    /// together with the file-based keychain it governs, and that keychain is
+    /// exactly where the item lives while the app ships no entitlements.
+    private static func copyMatchingWithoutInteraction(
+        _ query: [String: Any],
+        _ item: inout CFTypeRef?
+    ) -> OSStatus {
+        var wasAllowed: DarwinBoolean = true
+        let saved = SecKeychainGetUserInteractionAllowed(&wasAllowed) == errSecSuccess
+        let switchedOff = SecKeychainSetUserInteractionAllowed(false)
+        guard switchedOff == errSecSuccess else { return switchedOff }
+        defer {
+            let restored = SecKeychainSetUserInteractionAllowed(saved ? wasAllowed.boolValue : true)
+            assert(restored == errSecSuccess, "Keychain user interaction could not be restored: \(restored)")
+        }
+        return SecItemCopyMatching(query as CFDictionary, &item)
+    }
+    #endif
 
     /// Persist `credentials`, replacing any previously stored pair
     /// (delete-then-add, so the ordinary path is a single idempotent branch rather

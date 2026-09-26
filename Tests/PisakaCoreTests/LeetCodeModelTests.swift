@@ -496,7 +496,7 @@ final class LeetCodeModelTests: XCTestCase {
         let model = makeModel(tree: tree, transport: transport, store: store)
 
         model.resolveAccount()
-        XCTAssertEqual(store.loadCount, 1)
+        XCTAssertEqual(store.reads, [.unattended], "resolution's one read may not interact")
         XCTAssertEqual(model.account, .signedIn)
 
         await model.awaitAccountResolution()
@@ -518,7 +518,7 @@ final class LeetCodeModelTests: XCTestCase {
         model.resolveAccount()
         await model.awaitAccountResolution()
 
-        XCTAssertEqual(store.loadCount, 1, "resolution is not idempotent")
+        XCTAssertEqual(store.reads, [.unattended], "resolution is not idempotent")
         XCTAssertEqual(transport.count(for: .userStatus), 1)
     }
 
@@ -531,7 +531,7 @@ final class LeetCodeModelTests: XCTestCase {
 
         model.resolveAccount()
 
-        XCTAssertEqual(store.loadCount, 1)
+        XCTAssertEqual(store.reads, [.unattended])
         XCTAssertEqual(model.account, .signedOut)
         await model.awaitAccountResolution()
         XCTAssertEqual(transport.sent.count, 0)
@@ -644,7 +644,7 @@ final class LeetCodeModelTests: XCTestCase {
         _ = await model.refreshUserStatus()
         await model.awaitAccountResolution()
 
-        XCTAssertEqual(store.loadCount, 1)
+        XCTAssertEqual(store.reads, [.unattended])
         XCTAssertEqual(transport.count(for: .userStatus), 1, "resolution spawned a second refresh")
         XCTAssertEqual(model.account, .signedIn)
     }
@@ -705,7 +705,7 @@ final class LeetCodeModelTests: XCTestCase {
 
         await model.awaitAccountResolution()
 
-        XCTAssertEqual(store.loadCount, 1)
+        XCTAssertEqual(store.reads, [.unattended])
         XCTAssertEqual(transport.sent.count, 0)
         XCTAssertEqual(model.account, .signedOut)
     }
@@ -723,7 +723,8 @@ final class LeetCodeModelTests: XCTestCase {
         _ = try await model.openProblem(input: .slug("two-sum"), language: swift)
         await model.awaitAccountResolution()
 
-        XCTAssertEqual(store.loadCount, 1)
+        // Resolution found the pair, so the attended fallback was never reached.
+        XCTAssertEqual(store.reads, [.unattended])
         XCTAssertEqual(model.account, .signedIn)
         XCTAssertEqual(transport.count(for: .userStatus), 1)
     }
@@ -742,7 +743,7 @@ final class LeetCodeModelTests: XCTestCase {
         )
         await model.awaitAccountResolution()
 
-        XCTAssertEqual(store.loadCount, 1)
+        XCTAssertEqual(store.reads, [.unattended])
         XCTAssertEqual(model.account, .signedIn)
     }
 
@@ -757,7 +758,7 @@ final class LeetCodeModelTests: XCTestCase {
         _ = try await model.judgeContext(forSlug: "two-sum")
         await model.awaitAccountResolution()
 
-        XCTAssertEqual(store.loadCount, 1)
+        XCTAssertEqual(store.reads, [.unattended])
         XCTAssertEqual(model.account, .signedIn)
     }
 
@@ -772,7 +773,7 @@ final class LeetCodeModelTests: XCTestCase {
 
         _ = try await model.openProblem(input: .slug("two-sum"), language: swift)
         await model.awaitAccountResolution()
-        XCTAssertEqual(store.loadCount, 1)
+        XCTAssertEqual(store.reads, [.unattended])
 
         _ = await model.statement(
             forFileAt: treeRoot.appendingPathComponent(twoSumPath),
@@ -782,7 +783,7 @@ final class LeetCodeModelTests: XCTestCase {
         _ = await model.refreshUserStatus()
         await model.awaitAccountResolution()
 
-        XCTAssertEqual(store.loadCount, 1, "a later entry resolved a second time")
+        XCTAssertEqual(store.reads, [.unattended], "a later entry resolved a second time")
         XCTAssertEqual(
             transport.count(for: .userStatus), 2,
             "one confirmation from resolution, one from the explicit refresh"
@@ -844,6 +845,118 @@ final class LeetCodeModelTests: XCTestCase {
         _ = try await model.signIn(with: credentials)
 
         XCTAssertEqual(store.loadCount, 0, "signing in read the credential store")
+        XCTAssertEqual(model.account, .signedIn)
+    }
+
+    // MARK: - What kind of read resolution may make
+
+    /// **The property this whole seam exists for: resolving the account never
+    /// asks for a read that may interact.** Every appearance body on both
+    /// platforms resolves, and on macOS an on-appear body runs inside the
+    /// window's layout pass. A read that put an authorization panel on screen
+    /// there froze the app until it was force-quit. So the log is read for the
+    /// *kind* of every read, on every path that resolves, with a stored pair and a
+    /// confirmation that answers. Counting reads is not enough, because an
+    /// attended resolution reads exactly as many times.
+    ///
+    /// Checked by hand once: switching the resolution site to `.attended` fails
+    /// every path below.
+    func testResolvingTheAccountNeverAsksForAnInteractiveRead() async throws {
+        let paths: [(name: String, resolve: (LeetCodeModel) async -> Void)] = [
+            ("resolveAccount()", { $0.resolveAccount(); await $0.awaitAccountResolution() }),
+            ("awaitAccountResolution()", { await $0.awaitAccountResolution() }),
+            ("browser.load()", { await $0.browser.load() }),
+            ("browser.refresh()", { await $0.browser.refresh() }),
+            ("refreshUserStatus()", { _ = await $0.refreshUserStatus() }),
+        ]
+        for path in paths {
+            let tree = makeTree()
+            let transport = makeTransport()
+            let store = InMemoryLeetCodeCredentialStore(credentials)
+            let model = makeModel(tree: tree, transport: transport, store: store)
+
+            await path.resolve(model)
+
+            XCTAssertFalse(store.reads.isEmpty, "\(path.name) resolved nothing")
+            XCTAssertFalse(
+                store.reads.contains(.attended),
+                "\(path.name) asked for a read that may interact: \(store.reads)"
+            )
+            XCTAssertEqual(model.account, .signedIn, path.name)
+            XCTAssertEqual(
+                transport.count(for: .userStatus), 1,
+                "\(path.name) did not confirm exactly once"
+            )
+        }
+    }
+
+    /// A refused unattended read is **indistinguishable from nothing stored**.
+    /// Signed out, no confirmation, no error, and the catalog is not told about
+    /// a session. Then the first explicit action makes the one attended read,
+    /// succeeds, and the successful response flips the account to signed in.
+    /// That is the existing recovery rule, pinned here against the store that
+    /// makes it necessary.
+    func testARefusedUnattendedReadReadsAsSignedOutAndAnOpenRecovers() async throws {
+        let tree = makeTree()
+        let transport = makeTransport()
+        let store = InMemoryLeetCodeCredentialStore(credentials)
+        store.wantsPermission = true
+        let model = makeModel(tree: tree, transport: transport, store: store)
+
+        await model.awaitAccountResolution()
+
+        XCTAssertEqual(store.reads, [.unattended])
+        XCTAssertEqual(model.account, .signedOut)
+        XCTAssertEqual(transport.sent.count, 0, "a refused read started a confirmation")
+        XCTAssertNil(model.lastError, "a refused read is not an error")
+        // Untold: an undeclared catalog is unconstrained, so a refresh with the
+        // pair the keychain is still holding back goes to the wire.
+        try await model.catalog.refresh(credentials: credentials)
+        XCTAssertEqual(transport.count(for: .problemList), 1, "the catalog was told about a session")
+
+        let outcome = try await model.openProblem(input: .slug("two-sum"), language: swift)
+
+        XCTAssertTrue(outcome.wasCreated)
+        XCTAssertEqual(store.reads, [.unattended, .attended], "the open made not exactly one attended read")
+        XCTAssertEqual(model.account, .signedIn, "the accepted response did not flip the account")
+        XCTAssertNil(model.lastError)
+    }
+
+    /// The same recovery through the statement fetch: a solution file becoming
+    /// the active tab is a deliberate act, so its read may ask.
+    func testAStatementFetchAfterARefusedResolutionReadsAttended() async throws {
+        let tree = makeTree([twoSumPath: "solution"])
+        let transport = makeTransport()
+        let store = InMemoryLeetCodeCredentialStore(credentials)
+        store.wantsPermission = true
+        let model = makeModel(tree: tree, transport: transport, store: store)
+
+        let statement = await model.statement(
+            forFileAt: treeRoot.appendingPathComponent(twoSumPath),
+            in: solutionsFolder
+        )
+
+        XCTAssertEqual(store.reads, [.unattended, .attended])
+        XCTAssertNotNil(statement)
+        XCTAssertEqual(model.account, .signedIn)
+        XCTAssertNil(model.lastError)
+    }
+
+    /// …and through the judge's context, which reaches the session through
+    /// `requireCredentials()` like opening a problem does.
+    func testTheJudgeContextAfterARefusedResolutionReadsAttended() async throws {
+        let tree = makeTree()
+        let transport = makeTransport()
+        let store = InMemoryLeetCodeCredentialStore(credentials)
+        store.wantsPermission = true
+        let model = makeModel(tree: tree, transport: transport, store: store)
+        model.resolveAccount()
+        XCTAssertEqual(model.account, .signedOut)
+
+        let context = try await model.judgeContext(forSlug: "two-sum")
+
+        XCTAssertNotNil(context)
+        XCTAssertEqual(store.reads, [.unattended, .attended])
         XCTAssertEqual(model.account, .signedIn)
     }
 

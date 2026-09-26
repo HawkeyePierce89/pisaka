@@ -91,6 +91,34 @@ public struct LeetCodeCredentials: Equatable, Sendable, Codable {
     }
 }
 
+/// What kind of read of the credential store is being made — the one thing the
+/// model tells the store about *why* it is asking.
+///
+/// Closed on purpose: the store has exactly two behaviours to choose between, and
+/// the distinction is who is waiting. A read the model makes on its own — while
+/// resolving the account for a surface that has just appeared, which on macOS
+/// runs inside the window's layout pass — must not be able to put a panel on
+/// screen, because a panel raised there freezes the app. An attended read runs
+/// outside any layout pass, where a panel can be answered.
+public enum LeetCodeCredentialRead: Equatable, Sendable {
+    /// A read nobody asked for. It **may fail, and never waits on a person**: a
+    /// store that would have to ask before answering answers `nil` instead, which
+    /// the model reads exactly as "nothing stored".
+    case unattended
+    /// A read made outside any layout pass: opening a problem, and the statement
+    /// fetch. It **may ask** the user before answering. Run/Submit and the
+    /// browser's lookup are not among them: they refuse on the signed-out state
+    /// before any read, so they never make one after a refusal.
+    ///
+    /// The statement fetch is not an explicit action. This read follows the
+    /// selection of a solution tab, and a selection can be restored at launch,
+    /// moved by a folder change, or moved by closing another tab — so on a
+    /// machine whose login keychain does not recognise the binary its panel can
+    /// appear at launch, before the user has done anything: outside any layout
+    /// pass, and no worse than before L27, which is why the read stays attended.
+    case attended
+}
+
 /// Where the LeetCode session is kept between launches.
 ///
 /// The pure, testable seam over the Keychain wrapper (`LeetCodeKeychainStore`,
@@ -104,7 +132,14 @@ public protocol LeetCodeCredentialStore {
     /// The stored session, or `nil` when none is stored — or when it is
     /// unreadable, which is deliberately not distinguished: an unreadable session
     /// cannot be used, and the recovery for both is the same sign-in.
-    func load() -> LeetCodeCredentials?
+    ///
+    /// `read` says whether the caller may be kept waiting on a person
+    /// (`LeetCodeCredentialRead`). An `.unattended` read that could only be
+    /// answered by asking answers `nil`; the model then treats it as signed out
+    /// and asks again, attended, only when the user next opens a problem or a
+    /// solution tab is next selected — the judge and the browser refuse on the
+    /// signed-out state before they reach a read.
+    func load(_ read: LeetCodeCredentialRead) -> LeetCodeCredentials?
     /// Persist `credentials`, replacing any previously stored pair.
     func save(_ credentials: LeetCodeCredentials) throws
     /// Remove the stored session (a no-op when none is stored). Sign-out calls
@@ -114,7 +149,9 @@ public protocol LeetCodeCredentialStore {
 }
 
 public extension LeetCodeCredentialStore {
-    func load() -> LeetCodeCredentials? { nil }
+    /// `nil` for both kinds: a store that implements nothing reads as signed out,
+    /// never as "ask the user".
+    func load(_ read: LeetCodeCredentialRead) -> LeetCodeCredentials? { nil }
     func save(_ credentials: LeetCodeCredentials) throws {}
     func clear() throws {}
 }

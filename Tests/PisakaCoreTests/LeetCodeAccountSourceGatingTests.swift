@@ -54,13 +54,57 @@ import XCTest
 ///    `.onAppear` of its own, so a `guard browser.availability.isReady` in front
 ///    of it tests the very value that call was going to publish.
 ///
+/// 5. **The read kind and its enforcement live in one place each.**
+///    `LeetCodeCredentialRead` and its two cases are spelled in no app file but
+///    `Platform/LeetCodeKeychainStore.swift`, which implements the seam — pinned
+///    by set equality — so no view can choose an interactive read from a render
+///    path. The macOS mechanism is pinned in that file alone:
+///    `SecKeychainSetUserInteractionAllowed` is spelled nowhere else in the app
+///    tree and only inside an `#if os(macOS)` block. Each switch-off (`false`)
+///    is matched, in its own function body, by a restoring call inside a
+///    `defer`, and no call inside a `defer` passes `false`; each binds its
+///    status, refuses the read on a failure — so the Keychain query is
+///    unreachable while the switch is in an unknown state — and arms its
+///    restoring `defer` as the very next statement.
+/// 6. **The model reads the store once, and asks attended at two named sites.**
+///    In `Sources/PisakaCore/LeetCodeModel.swift` the store's read member is
+///    spelled exactly once (the private accessor every read goes through). The
+///    attended kind is spelled exactly once inside each of two brace-matched
+///    bodies — `requireCredentials()`'s and `statement(forFileAt:in:)`'s — and
+///    the two resolution bodies, `resolveAccount(startingConfirmation:)`'s and
+///    `refreshUserStatus()`'s, each spell `unattended` and never `attended`. On
+///    top of the per-body pins the file's total of `attended` is exactly two, so
+///    a third attended site anywhere has to be argued here rather than slipping
+///    in beside a pinned one; the per-body pins are what fail when a kind moves
+///    between functions and the total does not change.
+/// 7. **The statement fetch's trigger is the selection, and nothing else.** The
+///    attended fetch rule 6 pins is reached from the app tree in exactly three
+///    files, by count: `ContentView.swift` once and `iOS/RootView_iOS.swift`
+///    twice (each root's `.task(id: leetCodeStatementKey)` plus, on iOS, the
+///    failed-open re-ask) and `PisakaApp.swift` once (the macOS failed-open
+///    re-ask). In both roots one call sits inside that task's body, and the
+///    key's computed body is pinned **verbatim** (whitespace collapsed): the
+///    selected file's path and the solutions folder's path, joined, and no
+///    other input. This one reading keeps string literals — comments dropped
+///    through `GitHubSourceGatingTests.strippingComments` — because an
+///    interpolation inside the key's literal is an input to the trigger, and
+///    the ordinary scanner deletes exactly that text.
+///    This is what L27's sentence "a selection can be restored at launch, moved
+///    by a folder change, or moved by closing another tab" is true of; a change
+///    to the trigger fails here and forces that sentence to be revisited.
+///
 /// **Why the compiler cannot see any of this:** a launch-time
 /// `refreshUserStatus()`, or a `resolveAccount()` in the scene's `onAppear`,
 /// compiles and runs perfectly. Its only symptom is a Keychain read and a
-/// network round trip on every launch of a session that never opens the feature
-/// — and, on an ad-hoc-signed build, a confirmation dialog in front of an editor
-/// nobody asked to sign in from. Nothing crashes, no test fails, and no pixel is
-/// wrong; only a suite counting call sites keeps the moment where it was put.
+/// network round trip on every launch of a session that never opens the feature.
+/// Resolution's read is unattended, so it can no longer raise the keychain's
+/// authorization panel wherever it is called from — but an **attended** read
+/// reached from resolution, or from any other path an on-appear body runs,
+/// compiles and runs just as perfectly and freezes the app inside the window's
+/// layout pass, on exactly the machine whose login keychain does not recognise
+/// the binary and on no other. Nothing crashes, no test fails, and no pixel is
+/// wrong anywhere else; only a suite counting call sites keeps each read where it
+/// was put.
 final class LeetCodeAccountSourceGatingTests: XCTestCase {
 
     private static let repositoryRoot = URL(fileURLWithPath: #filePath)
@@ -214,5 +258,308 @@ final class LeetCodeAccountSourceGatingTests: XCTestCase {
                 + "it is a surface that could have resolved on appear instead; this file no longer naming it "
                 + "is the menu deciding on a stored-but-dead session, which raises no sheet."
         )
+    }
+
+    // MARK: - The read kind is chosen in Core and enforced in one file
+
+    private static let keychainStore = "Platform/LeetCodeKeychainStore.swift"
+
+    /// Rule 5, first half: the read kind is Core's vocabulary, and the only app
+    /// file that may spell it is the store that honours it. A view naming
+    /// `.attended` is a render path choosing a read that may ask.
+    func testTheReadKindIsSpelledInTheKeychainStoreAlone() throws {
+        XCTAssertEqual(
+            try appFilesNaming(["LeetCodeCredentialRead", "unattended", "attended"]),
+            [Self.keychainStore],
+            "The credential read kind is chosen by LeetCodeModel and honoured by the Keychain store; no other app "
+                + "file may name it. A view choosing an attended read can raise the authorization panel from "
+                + "inside a layout pass, which freezes the app."
+        )
+    }
+
+    /// Rule 5, second half: the macOS mechanism — the process-wide legacy
+    /// interaction switch — lives in the store alone, inside a macOS-only block,
+    /// and no exit from an unattended read leaves the process switched off.
+    ///
+    /// "No exit" is asserted per switch-off, not as "a defer exists somewhere in
+    /// the file", which a second unattended path switching off with no defer of
+    /// its own would leave green:
+    ///
+    /// - every `SecKeychainSetUserInteractionAllowed(false)` sits in a function
+    ///   body, and in each such body the switch-offs outside a `defer` equal the
+    ///   restoring calls inside one — a restore being any call whose argument is
+    ///   not `false`;
+    /// - no call inside a `defer` passes `false`, so a defer cannot pose as the
+    ///   restore while switching off again;
+    /// - every switch-off binds its status, is followed at once by `guard
+    ///   <status> == errSecSuccess else { return <status> }` — a switch that
+    ///   failed refuses the read, so the Keychain query is unreachable while the
+    ///   switch is in an unknown state — and the statement after that guard is
+    ///   the restoring `defer`, so no statement, and therefore no `return`, can
+    ///   stand between the switch taking effect and its restore being armed.
+    func testTheInteractionSwitchIsMacOnlyScopedAndRestored() throws {
+        let switchName = "SecKeychainSetUserInteractionAllowed"
+        XCTAssertEqual(
+            try appFilesNaming([switchName]),
+            [Self.keychainStore],
+            "\(switchName) is process-wide; it must be spelled in the Keychain store alone, where it is held "
+                + "for one read and restored."
+        )
+        guard let file = try appFiles().first(where: { $0.name == Self.keychainStore }) else {
+            XCTFail("\(Self.keychainStore) must exist in the app tree; if it moved, rule 5 is passing vacuously.")
+            return
+        }
+        let code = file.code
+
+        var conditions: [String] = []
+        var spellings = 0
+        for rawLine in code.components(separatedBy: "\n") {
+            let line = rawLine.trimmingCharacters(in: .whitespaces)
+            if line.hasPrefix("#if ") {
+                conditions.append(String(line.dropFirst(4)).trimmingCharacters(in: .whitespaces))
+            } else if line.hasPrefix("#else") || line.hasPrefix("#elseif") {
+                if !conditions.isEmpty { conditions[conditions.count - 1] = "!" + conditions[conditions.count - 1] }
+            } else if line.hasPrefix("#endif") {
+                _ = conditions.popLast()
+            } else if LSPSourceGatingTests.containsToken(switchName, in: line) {
+                spellings += 1
+                XCTAssertTrue(
+                    conditions.contains("os(macOS)"),
+                    "Every \(switchName) call must sit inside an #if os(macOS) block; found one outside: \(line)"
+                )
+            }
+        }
+        XCTAssertGreaterThan(
+            spellings, 0,
+            "The unattended macOS read must switch keychain interaction off; without \(switchName) an unattended "
+                + "read can raise the authorization panel inside a layout pass."
+        )
+
+        let functions = try Self.bracedBodies(following: "\\bfunc\\s", in: code)
+        let defers = try Self.bracedBodies(following: "\\bdefer\\s*(?=\\{)", in: code)
+        let calls = try Self.calls(to: switchName, in: code)
+        let switchOffs = calls.filter { $0.argument == "false" }
+        XCTAssertFalse(switchOffs.isEmpty, "The unattended read must switch interaction off with \(switchName)(false).")
+
+        var switchOffsByBody: [Range<String.Index>: Int] = [:]
+        var restoresByBody: [Range<String.Index>: Int] = [:]
+        for call in calls {
+            let inDefer = defers.contains { $0.contains(call.position) }
+            // The innermost function holding the call is the body whose exits it must survive.
+            let body = functions.filter { $0.contains(call.position) }.min {
+                code.distance(from: $0.lowerBound, to: $0.upperBound)
+                    < code.distance(from: $1.lowerBound, to: $1.upperBound)
+            }
+            if call.argument == "false" {
+                XCTAssertFalse(
+                    inDefer,
+                    "A \(switchName) call inside a defer must restore, never pass false: a defer that switches "
+                        + "interaction off leaves every exit through it switched off."
+                )
+                guard let body else {
+                    XCTFail("Every \(switchName)(false) must sit in a function body whose exits a defer can cover.")
+                    continue
+                }
+                switchOffsByBody[body, default: 0] += 1
+            } else if inDefer, let body {
+                restoresByBody[body, default: 0] += 1
+            }
+        }
+        for (body, count) in switchOffsByBody {
+            XCTAssertEqual(
+                restoresByBody[body, default: 0], count,
+                "In each function body, every \(switchName)(false) must be matched by one restoring \(switchName) "
+                    + "call inside a defer; a switch-off with no deferred restore of its own can leave the process "
+                    + "unable to ask for keychain access until it restarts."
+            )
+        }
+
+        let armedAtOnce = try NSRegularExpression(
+            pattern: "\\blet\\s+(\\w+)\\s*=\\s*\(switchName)\\s*\\(\\s*false\\s*\\)\\s*"
+                + "guard\\s+\\1\\s*==\\s*errSecSuccess\\s+else\\s*\\{\\s*return\\s+\\1\\s*\\}\\s*"
+                + "defer\\s*\\{"
+        ).numberOfMatches(in: code, range: NSRange(code.startIndex..., in: code))
+        XCTAssertEqual(
+            armedAtOnce, switchOffs.count,
+            "Every \(switchName)(false) must bind its status, be followed at once by `guard <status> == "
+                + "errSecSuccess else { return <status> }` — a switch-off that failed refuses the read rather than "
+                + "run the Keychain query with interaction in an unknown state — and then at once by the restoring "
+                + "defer, so no return can fall between the switch taking effect and its restore being armed."
+        )
+    }
+
+    /// The brace-matched body ranges following every match of `pattern`, read
+    /// the same way `ChromeThemeSourceGatingTests.matchedBodyRange` reads one.
+    private static func bracedBodies(following pattern: String, in code: String) throws -> [Range<String.Index>] {
+        try NSRegularExpression(pattern: pattern)
+            .matches(in: code, range: NSRange(code.startIndex..., in: code))
+            .compactMap { match in
+                guard let start = Range(match.range, in: code),
+                      let open = code[start.upperBound...].firstIndex(of: "{") else { return nil }
+                var depth = 0
+                var index = open
+                while index < code.endIndex {
+                    if code[index] == "{" { depth += 1 }
+                    if code[index] == "}" {
+                        depth -= 1
+                        if depth == 0 { return code.index(after: open)..<index }
+                    }
+                    index = code.index(after: index)
+                }
+                return nil
+            }
+    }
+
+    /// Every call to `name`, with its paren-matched argument text, trimmed.
+    private static func calls(to name: String, in code: String) throws -> [(position: String.Index, argument: String)] {
+        try NSRegularExpression(pattern: "\\b\(name)\\s*\\(")
+            .matches(in: code, range: NSRange(code.startIndex..., in: code))
+            .compactMap { match in
+                guard let range = Range(match.range, in: code) else { return nil }
+                var depth = 1
+                var index = range.upperBound
+                while index < code.endIndex {
+                    if code[index] == "(" { depth += 1 }
+                    if code[index] == ")" {
+                        depth -= 1
+                        if depth == 0 {
+                            let argument = code[range.upperBound..<index].trimmingCharacters(in: .whitespacesAndNewlines)
+                            return (position: range.lowerBound, argument: argument)
+                        }
+                    }
+                    index = code.index(after: index)
+                }
+                return nil
+            }
+    }
+
+    // MARK: - The model reads the store once, and asks attended twice
+
+    private func modelCode() throws -> String {
+        let url = Self.repositoryRoot.appendingPathComponent("Sources/PisakaCore/LeetCodeModel.swift")
+        return LSPSourceGatingTests.strippingCommentsAndStringLiterals(try String(contentsOf: url, encoding: .utf8))
+    }
+
+    /// Rule 6. A new attended site compiles, runs and passes every behavioural
+    /// test — it freezes only on the machine whose keychain disagrees, and only
+    /// if an appearance body reaches it — so the site is what makes it argued.
+    ///
+    /// The kind is asserted inside each named body, not only as a file total: a
+    /// swap that moves `.attended` from the statement fetch onto
+    /// `refreshUserStatus()`'s read and makes the fetch unattended keeps the total
+    /// at two, and only the per-body pins see it.
+    func testTheModelReadsTheStoreOnceAndAsksAttendedAtTwoSites() throws {
+        let code = try modelCode()
+        let reads = try NSRegularExpression(pattern: "\\.load\\s*\\(")
+            .numberOfMatches(in: code, range: NSRange(code.startIndex..., in: code))
+        XCTAssertEqual(
+            reads, 1,
+            "LeetCodeModel must read the credential store in exactly one place, the private accessor that takes "
+                + "the read kind; a second read site bypasses the per-site choice this rule counts."
+        )
+
+        let attendedSites = ["func requireCredentials(", "func statement(forFileAt"]
+        for declaration in attendedSites {
+            let body = try XCTUnwrap(
+                ChromeThemeSourceGatingTests.matchedBody(after: declaration, in: code),
+                "LeetCodeModel must declare `\(declaration)`; if it was renamed, re-point rule 6 rather than "
+                    + "letting it pass on a body it cannot find."
+            )
+            XCTAssertEqual(
+                ChromeThemeSourceGatingTests.tokenCount("attended", in: body), 1,
+                "`\(declaration)`'s body must read attended exactly once: it follows an explicit action, so it "
+                    + "is where a keychain that refused an unattended read gets its chance to ask."
+            )
+        }
+
+        let unattendedSites = ["func resolveAccount(startingConfirmation", "func refreshUserStatus("]
+        for declaration in unattendedSites {
+            let body = try XCTUnwrap(
+                ChromeThemeSourceGatingTests.matchedBody(after: declaration, in: code),
+                "LeetCodeModel must declare `\(declaration)`; if it was renamed, re-point rule 6 rather than "
+                    + "letting it pass on a body it cannot find."
+            )
+            XCTAssertEqual(
+                ChromeThemeSourceGatingTests.tokenCount("attended", in: body), 0,
+                "`\(declaration)`'s body must never read attended: resolution and the confirmation it starts are "
+                    + "reached from on-appear bodies, where an attended read can raise the authorization panel "
+                    + "inside a layout pass and freeze the app."
+            )
+            XCTAssertGreaterThan(
+                ChromeThemeSourceGatingTests.tokenCount("unattended", in: body), 0,
+                "`\(declaration)`'s body must read unattended; with no read kind spelled there, the attended pins "
+                    + "above are counting a model that no longer distinguishes the two."
+            )
+        }
+
+        XCTAssertEqual(
+            ChromeThemeSourceGatingTests.tokenCount("attended", in: code), attendedSites.count,
+            "The attended read kind is spelled at exactly the two pinned sites above and nowhere else in "
+                + "LeetCodeModel. A third must be argued here: if an on-appear body can reach it, it can raise the "
+                + "authorization panel inside a layout pass and freeze the app."
+        )
+    }
+
+    // MARK: - The statement fetch runs on the selection, and on nothing else
+
+    /// Rule 7. L27 states when the attended statement fetch runs — whenever a
+    /// solution tab becomes the selection, which a launch-time restore, a folder
+    /// change or another tab's close can each cause. That sentence is only true
+    /// while the trigger reads the selection and the folder and nothing else, so
+    /// the trigger's composition is pinned here rather than trusted.
+    func testTheStatementFetchIsTriggeredByTheSelectionAndTheFolderAlone() throws {
+        let files = try appFiles()
+        let fetch = try NSRegularExpression(pattern: "\\bstatement\\s*\\(\\s*forFileAt\\b")
+        var counts: [String: Int] = [:]
+        for file in files {
+            let found = fetch.numberOfMatches(in: file.code, range: NSRange(file.code.startIndex..., in: file.code))
+            if found > 0 { counts[file.name] = found }
+        }
+        XCTAssertEqual(
+            counts,
+            ["ContentView.swift": 1, "iOS/RootView_iOS.swift": 2, "PisakaApp.swift": 1],
+            "The attended statement fetch must be reached from each root's `.task(id: leetCodeStatementKey)` and "
+                + "each platform's failed-open re-ask, and from nowhere else. A new caller is a new moment the "
+                + "keychain panel can appear; argue it here and in L27's sentence about when the read runs."
+        )
+
+        let expectedKey = #"let file = model.selectedFile?.url?.path ?? "" "#
+            + #"let folder = settings.leetCodeFolderURL?.path ?? "" "#
+            + #"return file + "\u{0}" + folder"#
+        for root in ["ContentView.swift", "iOS/RootView_iOS.swift"] {
+            let code = try XCTUnwrap(
+                files.first { $0.name == root }?.code,
+                "\(root) must exist; if it moved, re-point rule 7 rather than letting it pass on nothing."
+            )
+            let taskBody = try XCTUnwrap(
+                ChromeThemeSourceGatingTests.matchedBody(after: ".task(id: leetCodeStatementKey)", in: code),
+                "\(root) must run the statement fetch from `.task(id: leetCodeStatementKey)`; a different trigger "
+                    + "changes when the attended read runs, which L27 states."
+            )
+            XCTAssertEqual(
+                fetch.numberOfMatches(in: taskBody, range: NSRange(taskBody.startIndex..., in: taskBody)), 1,
+                "\(root)'s `.task(id: leetCodeStatementKey)` must call the statement fetch exactly once."
+            )
+            let withLiterals = GitHubSourceGatingTests.strippingComments(
+                try String(
+                    contentsOf: Self.repositoryRoot.appendingPathComponent(Self.appTree).appendingPathComponent(root),
+                    encoding: .utf8
+                )
+            )
+            let keyBody = try XCTUnwrap(
+                ChromeThemeSourceGatingTests.matchedBody(after: "var leetCodeStatementKey", in: withLiterals),
+                "\(root) must compute `leetCodeStatementKey`; if it was renamed, re-point rule 7."
+            )
+            let collapsed = keyBody
+                .split(whereSeparator: { $0.isWhitespace })
+                .joined(separator: " ")
+            XCTAssertEqual(
+                collapsed, expectedKey,
+                "\(root)'s `leetCodeStatementKey` must be composed of the selected file's path and the solutions "
+                    + "folder's path and nothing else. L27 says the attended fetch runs when the selection is "
+                    + "restored at launch, moved by a folder change or moved by closing another tab; a new input to "
+                    + "the key is a new moment it runs, so that sentence has to be revisited with it."
+            )
+        }
     }
 }

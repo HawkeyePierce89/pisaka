@@ -1079,7 +1079,7 @@ in that suite's doc comments).
 **Every one of these suites matches against comment- and literal-stripped
 text** — load-bearing, not tidy: these files quote their own settings in
 comments, so a raw `contains` stays green when the setting it names is deleted.
-**Three stated exceptions**, all the same argument read the other way:
+**Four stated exceptions**, all the same argument read the other way:
 `GitHubSourceGatingTests`' `gh`-vocabulary rule strips comments *only*, because
 the tokens it forbids in the app layer (`--json`, `"pr", "list"`) **are** string
 literals, and the usual scanner would delete the very thing that rule checks
@@ -1092,7 +1092,11 @@ live command, so no `::error::` sentence in either workflow may spell
 the HTML shapes no app file of the preview may compose and the four spellings of
 the app scheme's vocabulary — which read the literal-keeping scanner for
 `GitHubSourceGatingTests`' own reason, the ordinary one deleting exactly the text
-they are about (`core-markdown-preview.md`).
+they are about (`core-markdown-preview.md`); and
+`LeetCodeAccountSourceGatingTests`' rule 7, which pins the statement fetch's
+`leetCodeStatementKey` body verbatim off the literal-keeping scanner, because an
+interpolation inside the key's string literal is an input to the trigger and
+the ordinary scanner deletes it (`core-leetcode.md`).
 Follow the pattern for anything that ships in the bundle with no Swift code
 behind it, and for any architectural rule `swift test` cannot otherwise see.
 Non-Swift test data lives in `Tests/PisakaCoreTests/Fixtures/<area>/`, read

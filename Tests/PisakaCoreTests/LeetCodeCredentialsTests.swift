@@ -6,7 +6,7 @@ final class LeetCodeCredentialsTests: XCTestCase {
     private final class MemoryStore: LeetCodeCredentialStore {
         var stored: LeetCodeCredentials?
         var clearCount = 0
-        func load() -> LeetCodeCredentials? { stored }
+        func load(_ read: LeetCodeCredentialRead) -> LeetCodeCredentials? { stored }
         func save(_ credentials: LeetCodeCredentials) throws { stored = credentials }
         func clear() throws {
             stored = nil
@@ -151,22 +151,43 @@ final class LeetCodeCredentialsTests: XCTestCase {
 
     // MARK: - the store protocol
 
-    func testDefaultStoreReadsAsSignedOut() {
+    /// The default answers `nil` for *both* kinds — a store that implements
+    /// nothing is signed out, and in particular never "ask the user".
+    func testDefaultStoreReadsAsSignedOutForBothReadKinds() {
         let store = EmptyDefaultStore()
-        XCTAssertNil(store.load())
+        XCTAssertNil(store.load(.unattended))
+        XCTAssertNil(store.load(.attended))
         XCTAssertNoThrow(try store.save(LeetCodeCredentials(session: "s", csrfToken: "c")))
         XCTAssertNoThrow(try store.clear())
-        XCTAssertNil(store.load())
+        XCTAssertNil(store.load(.unattended))
+        XCTAssertNil(store.load(.attended))
     }
 
     func testMemoryStoreSavesLoadsAndClears() throws {
         let store = MemoryStore()
-        XCTAssertNil(store.load())
+        XCTAssertNil(store.load(.attended))
         let credentials = LeetCodeCredentials(session: "sess-abc", csrfToken: "csrf-xyz")
         try store.save(credentials)
-        XCTAssertEqual(store.load(), credentials)
+        XCTAssertEqual(store.load(.attended), credentials)
+        XCTAssertEqual(store.load(.unattended), credentials)
         try store.clear()
-        XCTAssertNil(store.load())
+        XCTAssertNil(store.load(.attended))
         XCTAssertEqual(store.clearCount, 1)
+    }
+
+    // MARK: - the scripted store's permission switch
+
+    /// The shared test store's "keychain wants permission" switch: an unattended
+    /// read is refused, an attended one answers the stored pair — and every read
+    /// is logged by kind, with `loadCount` the log's count.
+    func testScriptedStoreRefusesUnattendedReadsWhenPermissionIsWanted() {
+        let credentials = LeetCodeCredentials(session: "s", csrfToken: "c")
+        let store = InMemoryLeetCodeCredentialStore(credentials)
+        XCTAssertEqual(store.load(.unattended), credentials)
+        store.wantsPermission = true
+        XCTAssertNil(store.load(.unattended))
+        XCTAssertEqual(store.load(.attended), credentials)
+        XCTAssertEqual(store.reads, [.unattended, .unattended, .attended])
+        XCTAssertEqual(store.loadCount, 3)
     }
 }

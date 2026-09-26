@@ -441,8 +441,10 @@ public final class LeetCodeModel: ObservableObject {
     ///
     /// This is what `init` used to do, moved to the moment the feature is actually
     /// used. The trigger: on a build whose signature the login keychain cannot
-    /// remember, reading the store costs a confirmation dialog — and paying it at
-    /// launch charges every session for a feature most of them never open. So
+    /// remember, an interactive read of the store costs a confirmation dialog —
+    /// and paying it at launch charged every session for a feature most of them
+    /// never open. Resolution's own read is now unattended and cannot raise it
+    /// at all (see `resolveAccount(startingConfirmation:)`). So
     /// construction touches nothing and this is the whole of the account's
     /// resolution: the store is read once, the pair is cached, the state is
     /// published, and the catalog is told who it is holding rows for.
@@ -469,8 +471,13 @@ public final class LeetCodeModel: ObservableObject {
     private func resolveAccount(startingConfirmation: Bool) {
         guard account == .unresolved else { return }
         // Through the accessor, so an explicit sign-out this run still answers
-        // `nil` without a read — see `storedCredentials()`.
-        let stored = storedCredentials()
+        // `nil` without a read — see `storedCredentials(_:)`. **Unattended**:
+        // every caller of this is an appearance body, a token capture or an entry
+        // that has not yet decided anything, and an on-appear body runs inside
+        // the window's layout pass — a read that put a panel on screen there
+        // would freeze the app. A refused read reads as no session; the next
+        // explicit action's own read is the one allowed to ask.
+        let stored = storedCredentials(.unattended)
         cachedCredentials = stored
         account = stored == nil ? .signedOut : .signedIn
         // The catalog's rows carry a per-account `status`, and it cannot tell on
@@ -653,7 +660,9 @@ public final class LeetCodeModel: ObservableObject {
         resolveAccount(startingConfirmation: false)
         accountGeneration += 1
         let generation = accountGeneration
-        guard let credentials = cachedCredentials ?? storedCredentials() else {
+        // Unattended: this is the confirmation resolution starts, reached from
+        // the same appearance bodies resolution is.
+        guard let credentials = cachedCredentials ?? storedCredentials(.unattended) else {
             markSessionRejected()
             return nil
         }
@@ -964,7 +973,13 @@ public final class LeetCodeModel: ObservableObject {
         // `slugsKnownAbsent`.
         if slugsKnownAbsent.contains(slug) { return published }
 
-        guard let credentials = cachedCredentials ?? storedCredentials() else {
+        // Attended. This read follows the selection of a solution tab, and a
+        // selection can be restored at launch, moved by a folder change, or moved
+        // by closing another tab — so on a machine whose login keychain does not
+        // recognise the binary its panel can appear at launch, before the user has
+        // done anything: outside any layout pass, and no worse than before L27,
+        // which is why the read stays attended.
+        guard let credentials = cachedCredentials ?? storedCredentials(.attended) else {
             if published == nil { publish(.notLoggedIn) }
             return published
         }
@@ -1140,10 +1155,16 @@ public final class LeetCodeModel: ObservableObject {
     /// Run/Submit and its context resolution, the browser's own lookup — asks for
     /// itself, and no view has to remember to. `resolveAccount()` is idempotent,
     /// so on every call but the first this costs a comparison.
+    ///
+    /// The leading resolution reads **unattended**, like every resolution; only
+    /// the fallback read below is **attended**, because reaching it means an
+    /// explicit action needs a session resolution could not find — which is
+    /// exactly how a keychain that refused to answer unattended gets its chance
+    /// to ask.
     func requireCredentials() throws -> LeetCodeCredentials {
         resolveAccount()
         if let cachedCredentials { return cachedCredentials }
-        guard let stored = storedCredentials() else { throw LeetCodeError.notLoggedIn }
+        guard let stored = storedCredentials(.attended) else { throw LeetCodeError.notLoggedIn }
         cachedCredentials = stored
         return stored
     }
@@ -1151,19 +1172,27 @@ public final class LeetCodeModel: ObservableObject {
     /// The persisted session — unless the user has signed out this run, in which
     /// case there is none as far as this app is concerned, whatever the Keychain
     /// still holds. **The one place the store is read at all**, `resolveAccount()`
-    /// included: nothing else in this file names `credentialStore.load()`.
+    /// included: nothing else in this file names `credentialStore.load(_:)`.
+    ///
+    /// **The kind of read is each call site's argument, not this accessor's
+    /// property**, so every site's choice is readable where it is made:
+    /// `.unattended` (may fail, never waits on a person) for resolution and the
+    /// confirmation it starts, `.attended` (may ask) for the two sites that follow
+    /// an explicit action — `requireCredentials()`'s fallback and the statement
+    /// fetch. An unattended read that is refused answers `nil`, indistinguishable
+    /// from nothing stored, and the retry below is what recovers from it.
     ///
     /// One *place*, deliberately not one *read*: the three
-    /// `cachedCredentials ?? storedCredentials()` sites are still consulted after
+    /// `cachedCredentials ?? storedCredentials(_:)` sites are still consulted after
     /// resolution has cached `nil`, and that is the retry the resolution comment
     /// anticipates. A Keychain locked at first use answers `nil` without there
     /// being no session, and asking again on the next entry that actually needs
     /// one is how that run recovers — where caching the `nil` as final would
     /// strand it signed out until relaunch. A stored pair costs one read either
     /// way, which is the read the whole rule is about.
-    private func storedCredentials() -> LeetCodeCredentials? {
+    private func storedCredentials(_ read: LeetCodeCredentialRead) -> LeetCodeCredentials? {
         guard !storedCredentialsAreDiscarded else { return nil }
-        return credentialStore.load()
+        return credentialStore.load(read)
     }
 
     /// Record a failure, and let a rejected session change the account state as
