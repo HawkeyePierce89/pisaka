@@ -96,16 +96,16 @@ read and `statement(forFileAt:in:)`'s fetch. The assertion is
 `refreshUserStatus()`'s read, and making the statement fetch unattended, keeps the
 count at two and the rule green — through the very regression it claims to guard.
 
-- [ ] Assert the kind inside each named function's own brace-matched body, following
+- [x] Assert the kind inside each named function's own brace-matched body, following
       the convention the gating suites already use for this shape, so the rule fails
       when a kind moves between functions even though the totals are unchanged.
-- [ ] Keep a total as well, so a third attended site anywhere still has to be argued
+- [x] Keep a total as well, so a third attended site anywhere still has to be argued
       rather than slipping in beside a pinned one.
-- [ ] Bring the doc comment, the failure messages and `core-leetcode.md`'s sentence
+- [x] Bring the doc comment, the failure messages and `core-leetcode.md`'s sentence
       into line with what is asserted.
-- [ ] Verify by hand that the rule goes red under the swap described above, then
+- [x] Verify by hand that the rule goes red under the swap described above, then
       restore and confirm green.
-- [ ] `swift test` must pass before the next task.
+- [x] `swift test` must pass before the next task.
 
 ### Task 4: L27 must name only the paths that actually recover
 

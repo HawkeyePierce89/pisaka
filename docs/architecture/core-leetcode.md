@@ -2669,8 +2669,13 @@ means, what a file is named, when a fetch happens, and what gets written.
   actor, so while its panel stands the window cannot redraw; it is no longer
   inside a layout pass, so the panel can be answered and the app resumes
   afterwards. `LeetCodeAccountSourceGatingTests` rule 6 pins the store's read
-  member to one spelling in the model and the attended kind to those two sites,
-  and rule 5 pins the kind and the macOS mechanism to the Keychain store alone.
+  member to one spelling in the model, the attended kind to exactly one spelling
+  inside each of the two named bodies — `requireCredentials()`'s and
+  `statement(forFileAt:in:)`'s — and to none inside
+  `resolveAccount(startingConfirmation:)`'s or `refreshUserStatus()`'s, which
+  each spell `unattended`, plus a file total of exactly two so a third attended
+  site anywhere must be argued; the per-body pins are what catch a kind moving
+  between functions with the total unchanged. Rule 5 pins the kind and the macOS mechanism to the Keychain store alone.
 
 ## Known limits
 

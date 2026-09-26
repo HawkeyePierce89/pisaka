@@ -66,12 +66,17 @@ import XCTest
 ///    status, refuses the read on a failure — so the Keychain query is
 ///    unreachable while the switch is in an unknown state — and arms its
 ///    restoring `defer` as the very next statement.
-/// 6. **The model reads the store once, and asks attended twice.** In
-///    `Sources/PisakaCore/LeetCodeModel.swift` the store's read member is spelled
-///    exactly once (the private accessor every read goes through), and the
-///    attended kind at exactly two sites: `requireCredentials()`'s fallback read
-///    and `statement(forFileAt:in:)`'s fetch. A third attended site has to be
-///    argued here rather than slipping into a path an appearance body reaches.
+/// 6. **The model reads the store once, and asks attended at two named sites.**
+///    In `Sources/PisakaCore/LeetCodeModel.swift` the store's read member is
+///    spelled exactly once (the private accessor every read goes through). The
+///    attended kind is spelled exactly once inside each of two brace-matched
+///    bodies — `requireCredentials()`'s and `statement(forFileAt:in:)`'s — and
+///    the two resolution bodies, `resolveAccount(startingConfirmation:)`'s and
+///    `refreshUserStatus()`'s, each spell `unattended` and never `attended`. On
+///    top of the per-body pins the file's total of `attended` is exactly two, so
+///    a third attended site anywhere has to be argued here rather than slipping
+///    in beside a pinned one; the per-body pins are what fail when a kind moves
+///    between functions and the total does not change.
 ///
 /// **Why the compiler cannot see any of this:** a launch-time
 /// `refreshUserStatus()`, or a `resolveAccount()` in the scene's `onAppear`,
@@ -422,7 +427,12 @@ final class LeetCodeAccountSourceGatingTests: XCTestCase {
 
     /// Rule 6. A new attended site compiles, runs and passes every behavioural
     /// test — it freezes only on the machine whose keychain disagrees, and only
-    /// if an appearance body reaches it — so the count is what makes it argued.
+    /// if an appearance body reaches it — so the site is what makes it argued.
+    ///
+    /// The kind is asserted inside each named body, not only as a file total: a
+    /// swap that moves `.attended` from the statement fetch onto
+    /// `refreshUserStatus()`'s read and makes the fetch unattended keeps the total
+    /// at two, and only the per-body pins see it.
     func testTheModelReadsTheStoreOnceAndAsksAttendedAtTwoSites() throws {
         let code = try modelCode()
         let reads = try NSRegularExpression(pattern: "\\.load\\s*\\(")
@@ -432,17 +442,46 @@ final class LeetCodeAccountSourceGatingTests: XCTestCase {
             "LeetCodeModel must read the credential store in exactly one place, the private accessor that takes "
                 + "the read kind; a second read site bypasses the per-site choice this rule counts."
         )
+
+        let attendedSites = ["func requireCredentials(", "func statement(forFileAt"]
+        for declaration in attendedSites {
+            let body = try XCTUnwrap(
+                ChromeThemeSourceGatingTests.matchedBody(after: declaration, in: code),
+                "LeetCodeModel must declare `\(declaration)`; if it was renamed, re-point rule 6 rather than "
+                    + "letting it pass on a body it cannot find."
+            )
+            XCTAssertEqual(
+                ChromeThemeSourceGatingTests.tokenCount("attended", in: body), 1,
+                "`\(declaration)`'s body must read attended exactly once: it follows an explicit action, so it "
+                    + "is where a keychain that refused an unattended read gets its chance to ask."
+            )
+        }
+
+        let unattendedSites = ["func resolveAccount(startingConfirmation", "func refreshUserStatus("]
+        for declaration in unattendedSites {
+            let body = try XCTUnwrap(
+                ChromeThemeSourceGatingTests.matchedBody(after: declaration, in: code),
+                "LeetCodeModel must declare `\(declaration)`; if it was renamed, re-point rule 6 rather than "
+                    + "letting it pass on a body it cannot find."
+            )
+            XCTAssertEqual(
+                ChromeThemeSourceGatingTests.tokenCount("attended", in: body), 0,
+                "`\(declaration)`'s body must never read attended: resolution and the confirmation it starts are "
+                    + "reached from on-appear bodies, where an attended read can raise the authorization panel "
+                    + "inside a layout pass and freeze the app."
+            )
+            XCTAssertGreaterThan(
+                ChromeThemeSourceGatingTests.tokenCount("unattended", in: body), 0,
+                "`\(declaration)`'s body must read unattended; with no read kind spelled there, the attended pins "
+                    + "above are counting a model that no longer distinguishes the two."
+            )
+        }
+
         XCTAssertEqual(
-            ChromeThemeSourceGatingTests.tokenCount("attended", in: code), 2,
-            "The attended read kind belongs at exactly two sites: requireCredentials()'s fallback read and "
-                + "statement(forFileAt:in:)'s fetch, both following an explicit action. A third must be argued "
-                + "here: if an on-appear body can reach it, it can raise the authorization panel inside a layout "
-                + "pass and freeze the app."
-        )
-        XCTAssertGreaterThan(
-            ChromeThemeSourceGatingTests.tokenCount("unattended", in: code), 0,
-            "Resolution must read unattended; with no unattended site left, the attended count above is "
-                + "counting a model that no longer distinguishes the two."
+            ChromeThemeSourceGatingTests.tokenCount("attended", in: code), attendedSites.count,
+            "The attended read kind is spelled at exactly the two pinned sites above and nowhere else in "
+                + "LeetCodeModel. A third must be argued here: if an on-appear body can reach it, it can raise the "
+                + "authorization panel inside a layout pass and freeze the app."
         )
     }
 }
