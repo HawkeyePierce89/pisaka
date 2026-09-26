@@ -51,12 +51,12 @@ A claim of completeness must be checked against the measurement that decides it,
 the way the suite already checks its own rule count against the two documents that
 spell it. Without that, the next part can make the claim a third time.
 
-- [ ] Add a gating rule pairing the two: collect the macOS app-layer files (excluding `Sources/Pisaka/iOS/`) that are outside `gatedFiles` and outside the four stated exemptions and that name a system semantic colour or a hex literal; if that set is non-empty, no document may claim the sweep is closed, finished or complete.
-- [ ] Implement it so the failure message **names the files in the set**, so whoever trips it learns what is left rather than only that a sentence is banned.
-- [ ] Seed the rule with today's answer: the set is `{BracketOverlayLayoutManager.swift}`, pinned by set equality, so both directions fail — a new un-swept surface appearing, and this one being swept without the rule being updated.
-- [ ] Read the sources through the suite's usual comment- and literal-stripped scanner, so a doc comment merely *discussing* `.secondaryLabelColor` does not count as painting with it; state which scanner was chosen and why in the rule's doc comment.
-- [ ] Extend `spelled` if the rule count moves, and update the count in `CLAUDE.md` and `core-theme.md` in the same task, or the existing count test fails.
-- [ ] Test: verify by mutation that the rule is red both ways — with the closure claim restored into the document while the set is non-empty, and with a file added to or removed from the pinned set — then restore.
+- [x] Add a gating rule pairing the two: collect the macOS app-layer files (excluding `Sources/Pisaka/iOS/`) that are outside `gatedFiles` and outside the four stated exemptions and that name a system semantic colour or a hex literal; if that set is non-empty, no document may claim the sweep is closed, finished or complete.
+- [x] Implement it so the failure message **names the files in the set**, so whoever trips it learns what is left rather than only that a sentence is banned.
+- [x] Seed the rule with today's answer: the set is `{BracketOverlayLayoutManager.swift}`, pinned by set equality, so both directions fail — a new un-swept surface appearing, and this one being swept without the rule being updated.
+- [x] Read the sources through the suite's usual comment- and literal-stripped scanner, so a doc comment merely *discussing* `.secondaryLabelColor` does not count as painting with it; state which scanner was chosen and why in the rule's doc comment.
+- [x] Extend `spelled` if the rule count moves, and update the count in `CLAUDE.md` and `core-theme.md` in the same task, or the existing count test fails.
+- [x] Test: verify by mutation that the rule is red both ways — with the closure claim restored into the document while the set is non-empty, and with a file added to or removed from the pinned set — then restore.
 
 ### Task 3: the gates
 

@@ -741,7 +741,7 @@ ci.yml's `lint` job, and the version-bump procedure.
   live in both directions when the system appearance changed under it. A
   reader: it takes no writer gate, is gated by none and writes nothing.
   `ChromeThemeSourceGatingTests` pins which files obey the rule (fifty-nine, by set
-  equality) and its forty-two rules — no system semantic colour, no hex literal
+  equality) and its forty-three rules — no system semantic colour, no hex literal
   outside the table, the four exemptions stay exemptions, the theme injected at
   the scale's roots, no view constructing a theme, the gutter's fill still going
   through its own rule (a seam pins nothing its call site does not spend, and
@@ -775,7 +775,10 @@ ci.yml's `lint` job, and the version-bump procedure.
   `ChromePalette.documentPageChrome(in:)`, no served page drawing Core's
   restated block — it is replaced from the palette before the page is built —
   and Core's CSS hex literals confined to the two restated blocks, counts
-  pinned) — plus, beside the rules rather
+  pinned), and no document calling the sweep closed while a surface remains
+  (the macOS files still painting outside the roles measured, pinned by set
+  equality — today the fold placeholder's `BracketOverlayLayoutManager.swift`
+  — and named in the failure) — plus, beside the rules rather
   than among them, the cross-file count that keeps this sentence and
   `core-theme.md`'s own list equal to the number of rules the suite declares —
   while **four files are exempt because they are not

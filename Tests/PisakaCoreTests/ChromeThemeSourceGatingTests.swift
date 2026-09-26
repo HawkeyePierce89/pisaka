@@ -199,6 +199,12 @@ import XCTest
 ///   moves — so the wiring's two sites are pinned, the fallback's readers are
 ///   banned outside iOS, Core's CSS hex literals are pinned to the two restated
 ///   blocks by count, and the one formatter is defined once.
+/// - **No document calls the sweep closed while a surface remains.** Part five
+///   (d) and part five (e) each claimed to be the last part, and neither was:
+///   the macOS files still painting outside the roles are measured, pinned by
+///   set equality and named in the failure, and while that set is non-empty no
+///   document under `docs/` (plans aside) or `CLAUDE.md` may say the sweep is
+///   closed, finished or complete.
 ///
 /// What a rule here may do, and nothing more: pin a set by equality, assert the
 /// presence or absence of a token through `containsToken`, or take a
@@ -4610,6 +4616,141 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         }
     }
 
+    // MARK: - Rule forty-three: no document calls the sweep closed while a surface remains
+
+    /// The macOS app files still painting outside the roles: outside
+    /// `Sources/Pisaka/iOS/`, outside `gatedFiles`, outside the four
+    /// `colorExemptions`, and naming a system semantic colour, a SwiftUI hue or a
+    /// `0xRRGGBB` literal. Today's answer, pinned by set equality so both
+    /// directions fail — a new unswept surface appearing, and this one being
+    /// swept without the rule being updated.
+    ///
+    /// - `BracketOverlayLayoutManager.swift` — the fold placeholder, painted from
+    ///   `NSColor.secondaryLabelColor`; the file's own comment calls it chrome
+    ///   standing in for text. Whether it belongs to the chrome or to the code
+    ///   zone is a design question left for a part of its own (`core-theme.md`,
+    ///   *What is still waiting*).
+    private static let unsweptColorSurfaces: Set<String> = [
+        "BracketOverlayLayoutManager.swift",
+    ]
+
+    /// What a document may not say while `unsweptColorSurfaces` is non-empty.
+    ///
+    /// Constructs, not one literal phrase: the claim has been made in more than
+    /// one wording, and a rule that bans one sentence is satisfied by the next.
+    /// Matched lower-cased over whitespace-collapsed text with `*` dropped, so a
+    /// line break or an emphasis inside the claim does not hide it. The history
+    /// is recorded in the past or in the negative ("was first written up as
+    /// closing…", "is not the last either"), which none of these match.
+    private static let sweepClosureClaims: [String] = [
+        #"\b(closes|completes|finishes|ends) the (macos )?colou?r sweep\b"#,
+        #"\bcolou?r sweep (is|is now|has been) (closed|finished|complete|completed|done|over)\b"#,
+        #"\bthe last (part|surface|view) (of|in) the (macos )?(colou?r )?sweep\b"#,
+        #"\b(this|the) (part|surface|view) is the last\b"#,
+        #"\bno (macos )?chrome (view|surface|file) (is left|remains) (unswept|ungated)\b"#,
+    ]
+
+    /// A colour-channel argument label (`green:` in `init(srgbRed:green:blue:alpha:)`)
+    /// — not a hue. `PlatformColor.swift` composes a colour out of its channels
+    /// and spells two of these words while naming no colour, the same collision
+    /// the palette is exempted from the hue half of rule one for; here it is
+    /// removed instead, because an ungated file has no exemption to lean on and
+    /// a real `.green` must still count.
+    private static let channelLabel = #"(?<![.\w])(red|green|blue)\s*:"#
+
+    /// Rule forty-three, the completeness claim checked against the measurement
+    /// that decides it — the way the documented rule count is checked against the
+    /// markers. Part five (d) and then part five (e) each called itself the last
+    /// part; both were wrong, and nothing read the claim against the tree.
+    ///
+    /// The sources are read through the **ordinary** scanner
+    /// (`strippingCommentsAndStringLiterals`), not a literal-keeping one: the
+    /// subject is what a file *paints with*, and a doc comment discussing
+    /// `.secondaryLabelColor` — `BracketOverlayLayoutManager.swift` has one, and
+    /// the gated files document their own rules the same way — paints nothing.
+    /// A colour named only inside a string literal is not a colour either. The
+    /// `FileIcon(` lines are dropped as in rule one, since a `FileIconColor` case
+    /// is a Core token, not a hue. The documents are read raw: a claim is prose.
+    func testNoDocumentCallsTheSweepClosedWhileASurfaceRemains() throws {
+        let hex = try NSRegularExpression(pattern: "0x[0-9A-Fa-f]{6}")
+        let label = try NSRegularExpression(pattern: Self.channelLabel)
+        let macOSApp = try Self.swiftSources().filter {
+            $0.pathComponents.contains("Pisaka") && !$0.pathComponents.contains("PisakaCore")
+                && !$0.pathComponents.contains("iOS")
+        }
+        XCTAssertFalse(macOSApp.isEmpty, "found no macOS app sources — the walk is broken, not the code")
+
+        var unswept: Set<String> = []
+        for url in macOSApp {
+            let name = url.lastPathComponent
+            if Self.gatedFiles.contains(name) || Self.colorExemptions.contains(name) { continue }
+            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            let paints = Self.iconFreeLines(of: code).contains { line in
+                let unlabelled = label.stringByReplacingMatches(
+                    in: line, range: NSRange(line.startIndex..., in: line), withTemplate: ""
+                )
+                return (Self.forbiddenSemanticColors + Self.forbiddenHues).contains {
+                    LSPSourceGatingTests.containsToken($0, in: unlabelled)
+                }
+            }
+            if paints || hex.firstMatch(in: code, range: NSRange(code.startIndex..., in: code)) != nil {
+                unswept.insert(name)
+            }
+        }
+        XCTAssertEqual(
+            unswept, Self.unsweptColorSurfaces,
+            """
+            the macOS files painting outside the roles are \(unswept.sorted()) — sweep a new one or add it \
+            to unsweptColorSurfaces with its reason; a swept one leaves the set in the same commit
+            """
+        )
+        guard !unswept.isEmpty else { return }
+
+        var claims: [String] = []
+        let patterns = try Self.sweepClosureClaims.map { try NSRegularExpression(pattern: $0) }
+        for document in try Self.sweepDocuments() {
+            let text = try Self.read(document)
+                .replacingOccurrences(of: "*", with: "")
+                .lowercased()
+                .components(separatedBy: .whitespacesAndNewlines)
+                .filter { !$0.isEmpty }
+                .joined(separator: " ")
+            for pattern in patterns {
+                for match in pattern.matches(in: text, range: NSRange(text.startIndex..., in: text)) {
+                    if let range = Range(match.range, in: text) {
+                        claims.append("\(document.lastPathComponent): \"\(text[range])\"")
+                    }
+                }
+            }
+        }
+        XCTAssertEqual(
+            claims, [],
+            """
+            a document claims the colour sweep is closed while \(unswept.sorted()) still paint outside \
+            the roles — sweep them first, or say what remains
+            """
+        )
+    }
+
+    /// `CLAUDE.md` and every Markdown file under `docs/` but `docs/plans/`,
+    /// whose tickets and archive quote the claim in order to retract it.
+    private static func sweepDocuments() throws -> [URL] {
+        let docs = try document("docs")
+        let enumerator = try XCTUnwrap(
+            FileManager.default.enumerator(at: docs, includingPropertiesForKeys: nil),
+            "docs/ is unreadable"
+        )
+        let markdown = enumerator
+            .compactMap { $0 as? URL }
+            .filter { $0.pathExtension == "md" && !$0.pathComponents.contains("plans") }
+            .sorted { $0.path < $1.path }
+        XCTAssertTrue(
+            markdown.contains { $0.lastPathComponent == "core-theme.md" },
+            "core-theme.md is not among the documents read — the walk is broken, not the prose"
+        )
+        return try [document("CLAUDE.md")] + markdown
+    }
+
     // MARK: - Self-check
 
     /// Every gated file draws with roles and must therefore name one — with two
@@ -4703,7 +4844,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         28: "twenty-eight", 29: "twenty-nine", 30: "thirty", 31: "thirty-one",
         32: "thirty-two", 33: "thirty-three", 34: "thirty-four", 35: "thirty-five",
         36: "thirty-six", 37: "thirty-seven", 38: "thirty-eight", 39: "thirty-nine",
-        40: "forty", 41: "forty-one", 42: "forty-two",
+        40: "forty", 41: "forty-one", 42: "forty-two", 43: "forty-three",
     ]
 
     func testBothSummariesSpellTheSuitesOwnRuleCount() throws {

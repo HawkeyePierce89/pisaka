@@ -1910,13 +1910,14 @@ twelve chrome hex literals in Core) — and the **alert accessory** in
 `FilePanels.swift`, the text prompt's refusal sentence, which set `.systemRed`
 and was this document's verified counterexample to part five (d) having been the
 last. **This part is not the last either.** It was first written up as the part
-that closes the macOS colour sweep — the same claim part five (d) made, made
+closing the macOS colour sweep — the same claim part five (d) made, made
 again one part later without the measurement that would have disproved it, and
 again wrong: `BracketOverlayLayoutManager.swift` still paints the fold
 placeholder from `NSColor.secondaryLabelColor`, and that file's own comment
 calls the placeholder "chrome standing in for text, not a token". It is recorded
 here because a document that keeps the mistake is what stops the next part
-repeating it (the surface itself is named under *What is still waiting*).
+repeating it (the surface itself is named under *What is still waiting*), and
+rule forty-three is what now reads such a claim against the tree.
 **No new role**:
 `ChromeColorRole` stays at twenty-one, and `currentLine` and `bracketMatch` stay
 the two unspent. One Core value is added, `DocumentPageChrome` (its entry
@@ -1996,7 +1997,9 @@ from `NSColor.secondaryLabelColor`, and the file's own comment calls it "chrome
 standing in for text, not a token". It is left for a part of its own because
 whether a placeholder standing in for text belongs to the chrome or to the code
 zone is a design question, and this sweep's stated refusal is to stop at a
-design question rather than decide it under another part's heading. Beyond it:
+design question rather than decide it under another part's heading. Rule
+forty-three pins it as the one member of `unsweptColorSurfaces`, so the part
+that sweeps it takes it out of that set in the same commit. Beyond it:
 any macOS chrome view still ungated that a later audit finds (part five (d) and
 then part five (e) each claimed to be the last and neither was, so none is
 claimed here) and the terminal's own palette. Each follows the six-step guide at the end of this document, on its
@@ -2059,7 +2062,7 @@ although it is an editing affordance rather than a row: an inline draft
 for. `TabStripView.swift` covers `TabStatusMark` too, the slot view the two
 orientations share, which is why that extraction did not add a seventh file.
 
-The forty-two rules, each invisible to the compiler:
+The forty-three rules, each invisible to the compiler:
 
 1. **No gated view names a system semantic colour.** A closed forbidden-token
    list — AppKit's semantic set (`labelColor`, `separatorColor`,
@@ -2794,6 +2797,23 @@ The forty-two rules, each invisible to the compiler:
     Clause (c) reads the comments-only scanner, literals kept, because a CSS
     hex literal *is* a string literal — the suite's stated exception to the
     stripped reading.
+43. **No document calls the sweep closed while a surface remains.** The macOS
+    app files outside `Sources/Pisaka/iOS/`, outside `gatedFiles` and outside
+    the four exemptions that name a system semantic colour, a SwiftUI hue or a
+    `0xRRGGBB` literal equal `{BracketOverlayLayoutManager.swift}` by set
+    equality — the fold placeholder under *What is still waiting* — so a new
+    unswept surface fails, and so does sweeping that one without updating the
+    set; the failure names the files. While the set is non-empty, no Markdown
+    file under `docs/` (except `docs/plans/`, whose tickets quote the claim to
+    retract it) and not `CLAUDE.md` may call the colour sweep closed,
+    finished or complete, or a part the last — matched as constructs,
+    lower-cased over whitespace-collapsed text, not as one literal sentence.
+    Sources read through the ordinary scanner, because the subject is what a
+    file paints with and a doc comment discussing `.secondaryLabelColor`
+    paints nothing; a colour-channel argument label (`green:` in
+    `PlatformColor.swift`'s sRGB initializer) is removed before the hue check,
+    since it names no colour. Part five (d) and part five (e) each made the
+    claim and neither was true; this is the measurement that would have said so.
 
 Plus a **self-check** in the suite's own idiom: every gated file must actually
 *name* a `ChromeColorRole`, or the checks above have gone vacuous — with nine
