@@ -206,13 +206,13 @@ Dependencies: none.
 
 ### Task 6: Verify acceptance criteria
 
-- [ ] Grep the stripped `BracketOverlayLayoutManager.swift`: no platform semantic colour and no hex literal; its colour statements reach the palette.
-- [ ] Grep all docs and `CLAUDE.md` for any sentence claiming the theme itself is finished, and for any claim that rule forty-three guards gated files. Expect none of either.
-- [ ] `swift test`: green.
-- [ ] App-layer bundle: `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' -derivedDataPath ~/Library/Developer/Xcode/DerivedData/pisaka-test test`: green.
-- [ ] `swiftlint --strict` from the repository root: clean.
-- [ ] macOS build: `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' -configuration Release -derivedDataPath ~/Library/Developer/Xcode/DerivedData/pisaka-build build`.
-- [ ] iOS build: `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'generic/platform=iOS' -derivedDataPath ~/Library/Developer/Xcode/DerivedData/pisaka-ios build`.
+- [x] Grep the stripped `BracketOverlayLayoutManager.swift`: no platform semantic colour and no hex literal; its colour statements reach the palette.
+- [x] Grep all docs and `CLAUDE.md` for any sentence claiming the theme itself is finished, and for any claim that rule forty-three guards gated files. Expect none of either.
+- [x] `swift test`: green.
+- [x] App-layer bundle: `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' -derivedDataPath ~/Library/Developer/Xcode/DerivedData/pisaka-test test`: green.
+- [x] `swiftlint --strict` from the repository root: clean.
+- [x] macOS build: `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' -configuration Release -derivedDataPath ~/Library/Developer/Xcode/DerivedData/pisaka-build build`.
+- [x] iOS build: `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'generic/platform=iOS' -derivedDataPath ~/Library/Developer/Xcode/DerivedData/pisaka-ios build`.
 
 ### Task 7: Update documentation
 
