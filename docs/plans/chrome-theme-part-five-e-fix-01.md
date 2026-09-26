@@ -86,11 +86,11 @@ appears in the heading rule (line 64), the `hr` rule (90) and the blockquote rul
 (96). Deleting the `th, td` border on line 280 — the single rule the whole
 `tableBorder` collapse is about — leaves the assertion green.
 
-- [ ] Assert the table-cell rule specifically: find the `th, td` block and assert *its* body reads `var(--border)`, rather than searching the whole stylesheet for the substring.
-- [ ] Keep the existing negative assertion that `var(--table-border)` appears nowhere.
-- [ ] **Sweep for the shape, not the site:** any other assertion in this suite that reads a whole-file `contains` where it means "this rule declares this property" gets the same treatment in this commit.
-- [ ] Test: verify the new assertion is red when the `th, td` border declaration is deleted and green when it is restored, and say so in the doc comment so the next reader knows it was checked rather than assumed.
-- [ ] Run `swift test`; it must pass before Task 4.
+- [x] Assert the table-cell rule specifically: find the `th, td` block and assert *its* body reads `var(--border)`, rather than searching the whole stylesheet for the substring.
+- [x] Keep the existing negative assertion that `var(--table-border)` appears nowhere.
+- [x] **Sweep for the shape, not the site:** any other assertion in this suite that reads a whole-file `contains` where it means "this rule declares this property" gets the same treatment in this commit.
+- [x] Test: verify the new assertion is red when the `th, td` border declaration is deleted and green when it is restored, and say so in the doc comment so the next reader knows it was checked rather than assumed.
+- [x] Run `swift test`; it must pass before Task 4.
 
 ### Task 4: clause (c)'s doc stops citing an example that does not exist
 
