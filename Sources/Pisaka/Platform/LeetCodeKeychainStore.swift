@@ -144,6 +144,20 @@ final class LeetCodeKeychainStore: LeetCodeCredentialStore, @unchecked Sendable 
     /// observe it. The saved value is restored in a `defer`, so every exit
     /// leaves the process as it found it.
     ///
+    /// **A switch that did not turn off is a refusal, not a query.** The guarantee
+    /// this file makes is "an unattended read never waits on a person". If
+    /// switching interaction off fails, the switch is in a state nobody measured,
+    /// and running the query anyway is not that guarantee but the hope of it — on
+    /// a binary the login keychain does not recognise, the panel it raises would
+    /// freeze the layout pass this read was made unattended for. So the failure's
+    /// own status is returned without the query; `load` turns any non-success
+    /// into `nil`, which is the seam's answer for "could not read without asking".
+    ///
+    /// **The restore's status is kept, not dropped.** Nothing here can recover
+    /// from a failed restore — the process would stay unable to ask until it
+    /// restarts, and a second attempt meets the same keychain — but a DEBUG build
+    /// stops on it rather than carrying on as if it had held.
+    ///
     /// **Its deprecation warning is accepted on purpose**: the API is deprecated
     /// together with the file-based keychain it governs, and that keychain is
     /// exactly where the item lives while the app ships no entitlements.
@@ -153,8 +167,12 @@ final class LeetCodeKeychainStore: LeetCodeCredentialStore, @unchecked Sendable 
     ) -> OSStatus {
         var wasAllowed: DarwinBoolean = true
         let saved = SecKeychainGetUserInteractionAllowed(&wasAllowed) == errSecSuccess
-        SecKeychainSetUserInteractionAllowed(false)
-        defer { SecKeychainSetUserInteractionAllowed(saved ? wasAllowed.boolValue : true) }
+        let switchedOff = SecKeychainSetUserInteractionAllowed(false)
+        guard switchedOff == errSecSuccess else { return switchedOff }
+        defer {
+            let restored = SecKeychainSetUserInteractionAllowed(saved ? wasAllowed.boolValue : true)
+            assert(restored == errSecSuccess, "Keychain user interaction could not be restored: \(restored)")
+        }
         return SecItemCopyMatching(query as CFDictionary, &item)
     }
     #endif

@@ -60,7 +60,9 @@ import XCTest
 ///    by set equality — so no view can choose an interactive read from a render
 ///    path. The macOS mechanism is pinned in that file alone:
 ///    `SecKeychainSetUserInteractionAllowed` is spelled nowhere else in the app
-///    tree, only inside an `#if os(macOS)` block, and is restored in a `defer`.
+///    tree, only inside an `#if os(macOS)` block, and is restored in a `defer`;
+///    every switch-off binds its status and refuses the read on a failure, so
+///    the Keychain query is unreachable while the switch is in an unknown state.
 /// 6. **The model reads the store once, and asks attended twice.** In
 ///    `Sources/PisakaCore/LeetCodeModel.swift` the store's read member is spelled
 ///    exactly once (the private accessor every read goes through), and the
@@ -298,6 +300,25 @@ final class LeetCodeAccountSourceGatingTests: XCTestCase {
             0,
             "The saved interaction setting must be restored in a defer, so every exit from the unattended read "
                 + "leaves the process as it found it."
+        )
+
+        // A switch-off that failed leaves the switch in an unmeasured state; a
+        // query run then may still raise the panel. Each switch-off's status is
+        // therefore bound and refused on at once — the guard sits directly after
+        // the binding, so no query can run between the failure and the return.
+        let fullRange = NSRange(file.code.startIndex..., in: file.code)
+        let switchOffs = try NSRegularExpression(pattern: "\\b\(switchName)\\s*\\(\\s*false\\s*\\)")
+            .numberOfMatches(in: file.code, range: fullRange)
+        let boundAndRefused = try NSRegularExpression(
+            pattern: "\\blet\\s+(\\w+)\\s*=\\s*\(switchName)\\s*\\(\\s*false\\s*\\)\\s*"
+                + "guard\\s+\\1\\s*==\\s*errSecSuccess\\s+else\\s*\\{\\s*return\\s+\\1\\s*\\}"
+        ).numberOfMatches(in: file.code, range: fullRange)
+        XCTAssertGreaterThan(switchOffs, 0, "The unattended read must switch interaction off with \(switchName)(false).")
+        XCTAssertEqual(
+            boundAndRefused, switchOffs,
+            "Every \(switchName)(false) must bind its status and be followed at once by `guard <status> == "
+                + "errSecSuccess else { return <status> }`: a switch-off that failed must refuse the read, never "
+                + "run the Keychain query with interaction in an unknown state."
         )
     }
 
