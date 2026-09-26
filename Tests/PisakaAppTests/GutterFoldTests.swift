@@ -313,6 +313,64 @@ final class GutterFoldTests: XCTestCase {
         }
     }
 
+    /// The fold placeholder's glyph and outline come from `ChromePalette`, and
+    /// the glyph agrees with the gutter chevron that draws the same fact.
+    ///
+    /// As with the ruler, the draw cannot be asserted headlessly, but the two
+    /// seams `paintFoldPlaceholders` spends can: `placeholderAttributes` (the
+    /// `…` glyph) must resolve to `textSecondary` and `placeholderOutlineColor`
+    /// to `hairline`, and neither may be the semantic grey the placeholder drew
+    /// with before (the glyph at full strength, the outline at half alpha). The
+    /// glyph must also equal the ruler's `foldChevronColor` — *this block is
+    /// folded* said once in the gutter and once in the text, from one role, is
+    /// this part's whole point. Every assertion is read under `.aqua` and
+    /// `.darkAqua` in turn: a value frozen at construction would pass one
+    /// appearance and fail the other.
+    ///
+    /// Mutation-checked by doing it, not assumed: (a) `placeholderAttributes`'
+    /// palette call replaced with `NSColor.secondaryLabelColor`, (b)
+    /// `placeholderOutlineColor` moved to another role, and (c)
+    /// `foldChevronColor` moved to another role each turned this test red, and
+    /// each was restored.
+    func testFoldPlaceholderResolvesItsColoursFromThePaletteInBothAppearances() throws {
+        let harness = makeRulerHarness(text: "one {\n  two\n}")
+        let manager = try XCTUnwrap(
+            harness.textView.layoutManager as? BracketOverlayLayoutManager,
+            "the harness's text view carries no overlay layout manager"
+        )
+        let glyph = try XCTUnwrap(
+            manager.placeholderAttributes[.foregroundColor] as? NSColor,
+            "the placeholder attributes carry no foreground colour"
+        )
+        let outline = manager.placeholderOutlineColor
+        let chevron = harness.ruler.foldChevronColor
+
+        for name in [NSAppearance.Name.aqua, .darkAqua] {
+            try assertSameColour(
+                glyph, ChromePalette.nsColor(.textSecondary), under: name,
+                "the placeholder glyph under \(name.rawValue)"
+            )
+            XCTAssertNotEqual(
+                components(of: try resolved(glyph, under: name)),
+                components(of: try resolved(NSColor.secondaryLabelColor, under: name)),
+                "the placeholder glyph is AppKit's secondaryLabelColor under \(name.rawValue)"
+            )
+            try assertSameColour(
+                outline, ChromePalette.nsColor(.hairline), under: name,
+                "the placeholder outline under \(name.rawValue)"
+            )
+            XCTAssertNotEqual(
+                components(of: try resolved(outline, under: name)),
+                components(of: try resolved(NSColor.secondaryLabelColor.withAlphaComponent(0.5), under: name)),
+                "the placeholder outline is its former half-alpha semantic grey under \(name.rawValue)"
+            )
+            try assertSameColour(
+                glyph, chevron, under: name,
+                "the placeholder glyph and the gutter chevron disagree under \(name.rawValue)"
+            )
+        }
+    }
+
     /// The four severity roles the gutter draws with resolve to four **pairwise
     /// distinct** colours under both appearances.
     ///

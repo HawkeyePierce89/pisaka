@@ -106,17 +106,17 @@ Dependencies: none.
 **Files:**
 - Modify: `Tests/PisakaAppTests/GutterFoldTests.swift`, or create `Tests/PisakaAppTests/FoldPlaceholderColourTests.swift` alongside it, whichever keeps the helpers single. Do not duplicate `resolved`, `components` or `assertSameColour`; if a second file needs them, lift them to a shared internal helper.
 
-- [ ] Add a placeholder test mirroring `testRulerResolvesItsColoursFromThePaletteInBothAppearances`. For `.aqua` and `.darkAqua`, assert:
+- [x] Add a placeholder test mirroring `testRulerResolvesItsColoursFromThePaletteInBothAppearances`. For `.aqua` and `.darkAqua`, assert:
   - `placeholderAttributes[.foregroundColor]` resolves to the palette's `textSecondary`
   - it is **not** `NSColor.secondaryLabelColor`
   - `placeholderOutlineColor` resolves to the palette's `hairline`
   - the outline is not `secondaryLabelColor` at 0.5 alpha, the colour it drew with before
-- [ ] Assert that the placeholder's glyph colour equals the ruler's `foldChevronColor` under both appearances. This agreement is the part's whole point. State in the doc comment that a value frozen at construction would pass one appearance and fail the other.
-- [ ] Mutation-check each of the following and restore after each. Record in the test's doc comment that this was checked by doing it, not assumed:
+- [x] Assert that the placeholder's glyph colour equals the ruler's `foldChevronColor` under both appearances. This agreement is the part's whole point. State in the doc comment that a value frozen at construction would pass one appearance and fail the other.
+- [x] Mutation-check each of the following and restore after each. Record in the test's doc comment that this was checked by doing it, not assumed:
   - (a) replace the palette call in `placeholderAttributes` with `NSColor.secondaryLabelColor`: the test goes red
   - (b) change `placeholderOutlineColor` to another role: red
   - (c) change `foldChevronColor` to another role: red
-- [ ] Run the app bundle and confirm it passes: `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' -derivedDataPath ~/Library/Developer/Xcode/DerivedData/pisaka-test test`
+- [x] Run the app bundle and confirm it passes: `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' -derivedDataPath ~/Library/Developer/Xcode/DerivedData/pisaka-test test`
 
 ### Task 3: The draw spends the seams, as rule six's second clause
 
