@@ -118,8 +118,12 @@ struct MarkdownPreviewPane: View {
 
     private func forwardAppearance() {
         let key = appearanceKey
+        // The code half from the editor's syntax table, the chrome from the
+        // palette — each replacing Core's restated block wholesale.
+        let appearance: ChromeAppearance = key.prefersDark ? .dark : .light
         controller.updateAppearance(
-            theme: SyntaxTheme.shared.markdownPreviewTheme(prefersDark: key.prefersDark),
+            theme: SyntaxTheme.shared.markdownPreviewTheme(prefersDark: key.prefersDark)
+                .withChrome(ChromePalette.documentPageChrome(in: appearance)),
             fontSize: key.fontSize
         )
     }

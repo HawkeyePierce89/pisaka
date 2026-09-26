@@ -205,22 +205,22 @@ This plan reads it as three conditions, and the new gating rule pins the counts:
 - Modify: `Sources/Pisaka/ChromePalette.swift`, `Sources/Pisaka/MarkdownPreviewPane.swift`, `Sources/Pisaka/LeetCodeDescriptionView.swift`, `Sources/Pisaka/SyntaxTheme.swift` (comment only)
 - Modify: `Tests/PisakaAppTests/ChromePaletteTests.swift`, `Tests/PisakaAppTests/SyntaxThemeTests.swift`
 
-- [ ] `ChromePalette`:
+- [x] `ChromePalette`:
   - Add `static func cssHex(_ role: ChromeColorRole, in appearance: ChromeAppearance) -> String`.
     - It returns lowercase `#rrggbb`, or `#rrggbbaa` when the entry's alpha is not `0xFF`.
     - It is the only place a colour is formatted into a string.
   - Add `static func documentPageChrome(in appearance: ChromeAppearance) -> DocumentPageChrome`, built as `DocumentPageChrome(appearance:) { cssHex($0, in: appearance) }`.
   - The exhaustive switch is not touched.
-- [ ] Wire the two macOS sites:
+- [x] Wire the two macOS sites:
   - `MarkdownPreviewPane` composes `SyntaxTheme.shared.markdownPreviewTheme(prefersDark:).withChrome(ChromePalette.documentPageChrome(in:))` with the matching appearance.
   - `LeetCodeDescriptionView` passes `ChromePalette.documentPageChrome(in: ChromeAppearance.resolved(settings.themePreference, systemPrefersDark: colorScheme == .dark))` instead of `LeetCodeStatementDocument.Theme.resolved(...)`.
   - `SyntaxTheme.markdownPreviewTheme(prefersDark:)` stays code-half only and reads no role. Update its comment: the pane replaces the chrome from the palette; Core's block does not survive there.
-- [ ] Test 1, the derivation carries the palette in both appearances:
+- [x] Test 1, the derivation carries the palette in both appearances:
   - For each appearance and each `Field`, the value from `documentPageChrome(in:)` equals the palette entry's integer for `role(for:)`, formatted independently inside the test.
   - Spot-check `cssHex` against known entries, including one translucent role for the 8-digit form.
-- [ ] Test 2, a separate test: Core's restated `DocumentPageChrome.light`/`.dark` equal `ChromePalette.documentPageChrome(in: .light/.dark)`. It is separate because the derivation replaces Core's block wholesale, so Test 1 cannot see that block.
-- [ ] Update `SyntaxThemeTests`' derived-theme test: drop the `tableBorder` line and compare `chrome`.
-- [ ] Run `xcodegen generate`, then the app-layer bundle and `swift test`; both must pass before Task 4.
+- [x] Test 2, a separate test: Core's restated `DocumentPageChrome.light`/`.dark` equal `ChromePalette.documentPageChrome(in: .light/.dark)`. It is separate because the derivation replaces Core's block wholesale, so Test 1 cannot see that block.
+- [x] Update `SyntaxThemeTests`' derived-theme test: drop the `tableBorder` line and compare `chrome`.
+- [x] Run `xcodegen generate`, then the app-layer bundle and `swift test`; both must pass before Task 4.
 
 ### Task 4: FilePanels joins the gated set
 

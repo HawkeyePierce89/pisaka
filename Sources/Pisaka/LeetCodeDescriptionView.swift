@@ -46,7 +46,7 @@ struct LeetCodeDescriptionPane: View {
     var activeFileURL: URL?
 
     /// The appearance the window is *actually* drawn in, which is what resolves
-    /// `ThemePreference.system` — `Theme.resolved(_:systemPrefersDark:)` needs an
+    /// `ThemePreference.system` — `ChromeAppearance.resolved(_:systemPrefersDark:)` needs an
     /// answer to that question and Core may not ask AppKit for one. `ContentView`
     /// applies `.preferredColorScheme` at the window root, so this reflects an
     /// explicit light/dark preference too (in which case `resolved` ignores it).
@@ -340,9 +340,12 @@ struct LeetCodeDescriptionPane: View {
         LeetCodeStatementDocument.html(
             fragment: statement.fragment,
             title: "\(statement.number). \(statement.title)",
-            theme: LeetCodeStatementDocument.Theme.resolved(
-                settings.themePreference,
-                systemPrefersDark: colorScheme == .dark
+            // The palette's own values, not Core's restated block.
+            theme: ChromePalette.documentPageChrome(
+                in: ChromeAppearance.resolved(
+                    settings.themePreference,
+                    systemPrefersDark: colorScheme == .dark
+                )
             ),
             fontSize: settings.fontSize
         )

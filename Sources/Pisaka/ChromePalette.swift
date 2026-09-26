@@ -168,6 +168,32 @@ enum ChromePalette {
             opacity: Double(entry.opacity)
         )
     }
+
+    // MARK: - The CSS path
+
+    /// A role as a CSS colour string in one appearance: lowercase `#rrggbb`, or
+    /// `#rrggbbaa` when the entry is translucent.
+    ///
+    /// The only place a palette colour is formatted into a string. A served page
+    /// reads the palette through this and nothing else, so its chrome is the
+    /// same value the native chrome draws, not a second spelling of it.
+    static func cssHex(_ role: ChromeColorRole, in appearance: ChromeAppearance) -> String {
+        let entry = entry(for: role)
+        let rgb = appearance == .dark ? entry.dark : entry.light
+        let base = "#" + String(format: "%06x", rgb & 0xFFFFFF)
+        return entry.alpha == 0xFF ? base : base + String(format: "%02x", entry.alpha)
+    }
+
+    /// A served document page's chrome in one appearance, derived from this
+    /// table through Core's role mapping (`DocumentPageChrome.role(for:)`).
+    ///
+    /// Both served pages take this on macOS and it replaces Core's restated
+    /// `DocumentPageChrome.light`/`.dark` wholesale, so no restated string
+    /// survives here; `ChromePaletteTests` pins those blocks equal to this
+    /// derivation so iOS, which reads them, draws the same page.
+    static func documentPageChrome(in appearance: ChromeAppearance) -> DocumentPageChrome {
+        DocumentPageChrome(appearance: appearance) { cssHex($0, in: appearance) }
+    }
 }
 
 /// The chrome's colours for one view tree, as SwiftUI reads them.
