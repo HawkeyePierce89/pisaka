@@ -312,7 +312,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         // The problem-catalog browser window: its filter bar, rows and footer.
         "LeetCodeBrowserView.swift",
         // The statement pane beside the editor: its header, collapsed strip,
-        // rules and resize handle (the served page itself stays unthemed).
+        // rules and resize handle.
         "LeetCodeDescriptionView.swift",
         // The judge section under the statement.
         "LeetCodeJudgeView.swift",

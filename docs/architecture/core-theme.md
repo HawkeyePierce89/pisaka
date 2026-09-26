@@ -197,8 +197,62 @@ two new geometry tokens) and each with its readers pinned by a gating
     carry, which keeps the mapping total. It is the **third** instance of a
     signature this repository already spells twice —
     `MarkdownPreviewTheme.resolved(_:systemPrefersDark:)` and
-    `LeetCodeStatementDocument.Theme.resolved(_:systemPrefersDark:)` — and is
+    `DocumentPageChrome.resolved(_:systemPrefersDark:)` (which
+    `LeetCodeStatementDocument.Theme` aliases since part five (e), and which now
+    delegates to this one) — and is
     kept identical on purpose.
+  - `DocumentPageChrome.swift` — the chrome of a **served document page**, as
+    CSS colour strings: the one value both served pages take since part five
+    (e) — the Markdown preview (`MarkdownPreviewTheme.chrome`) and the problem
+    statement (`LeetCodeStatementDocument.Theme`, a typealias for it). Six colour
+    fields and `colorScheme`, and **every colour field is a role**:
+    `role(for: Field)` is the whole mapping, and `init(appearance:value:)` fills
+    a value from it through a `(ChromeColorRole) -> String` the app supplies, so a
+    page never names a colour of its own — only which role each of its meanings
+    takes. Seven page meanings map onto six existing roles, no twenty-second:
+
+    | Page meaning | Role | dark | light |
+    |---|---|---|---|
+    | `background` (the page) | `bgEditor` | `#2f3136` | `#ffffff` |
+    | `text` | `textPrimary` | `#dfe1e5` | `#1d1d1f` |
+    | `secondaryText` | `textSecondary` | `#a0a3aa` | `#6e6e73` |
+    | `link` | `accent` | `#4f8dff` | `#2f6fe0` |
+    | `codeBackground` (`pre`, `code`, a table's header row) | `bgCanvas` | `#1e1f22` | `#f5f5f7` |
+    | `border` (and the former `tableBorder`) | `hairline` | `#393b40` | `#d1d1d6` |
+
+    `colorScheme` is `"dark"` or `"light"`, taken from the appearance — CSS
+    `color-scheme`, not a colour.
+    **The page ground is `bgEditor`; a code block is `bgCanvas`.** The roles' own
+    definitions decide it: `bgCanvas` is the window's ground, behind everything
+    that has no surface of its own, and a served page *has* one — it sits beside
+    the editor and reads as the same paper — while a fenced block is a recess
+    showing the window ground beneath it. `bgCanvas` for the page was rejected
+    (the page would become the window ground, and in light the code blocks would
+    be the brightest thing on screen), and so was `bgPanel` for code: **a code
+    block draws no border on either page** — `preview.css`'s `pre` rule sets
+    only background, radius and padding, and the statement stylesheet the same —
+    so the difference between the two grounds is the only thing separating a
+    block from the page, and in dark `#2b2d30` against `#2f3136` would make it
+    effectively invisible. The two grounds must therefore stay distinguishable
+    (`DocumentPageChromeTests` asserts the six roles pairwise distinct and the
+    two grounds apart), and **only a change that adds a border to a code block
+    may revisit the pair**.
+    **The shape is fallback plus derivation**, the code half's
+    `withCodeColors(_:)` precedent. `light`/`.dark` restate the palette's
+    entries for the six roles — the fallback iOS reads (it has no palette) and a
+    Core test can check (`DocumentPageChromeTests`: the role table pinned
+    exactly, the fill routing each field through its own role, the restated
+    blocks lowercase six-digit hex). macOS replaces them **wholesale** with
+    `ChromePalette.documentPageChrome(in:)`, so no restated string survives
+    there. Two app-bundle tests, deliberately separate: `ChromePaletteTests`'
+    `testTheDocumentPageChromeCarriesThePaletteInBothAppearances` pins the
+    derivation against the palette in both appearances, and
+    `testCoresRestatedDocumentPageChromeEqualsThePalettesDerivation` pins Core's
+    restated blocks equal to it — a second test because the derivation replaces
+    Core's block and the first therefore cannot see it. Changing a palette value
+    changes both served pages on macOS with no other edit; the second test then
+    fails until Core's fallback follows, which is the intended second safety net
+    rather than a second edit the screen needs.
   - `TreeRowState.swift` — what a project-tree row is currently *showing*:
     `plain`, `hover`, `selectedFocused`, `selectedUnfocused`, `dropTarget`, and
     the one total function `state(isSelected:isWindowKey:isHovering:
@@ -327,6 +381,15 @@ Three accessors, one table:
     dynamic form.
   - `color(_ role:in:)` — the SwiftUI `Color` of one appearance, composed from
     the same row rather than converted from an `NSColor`.
+
+Since part five (e) the table has a **CSS reading** as well, for the two served
+pages. `cssHex(_:in:)` formats one role's entry of one appearance as lowercase
+`#rrggbb` — `#rrggbbaa` when the row's alpha is not `0xFF` — and is defined in
+this file alone (gating rule forty-two, clause (d)), so a hex string for a role
+is spelled one way. `documentPageChrome(in:)` is the one derivation both pages
+take: `DocumentPageChrome(appearance:value:)` filled through `cssHex`, the role
+mapping staying Core's. Its two callers, `MarkdownPreviewPane.swift` and
+`LeetCodeDescriptionView.swift`, are pinned by set equality (clause (a)).
 
 ### The fourth exemption — `CommitGraphPalette.swift`
 
@@ -1788,7 +1851,8 @@ differed:
     their scaled glyphs, and join rule twenty's builders.
 18. **The page inside the statement pane stays unthemed.** The pane — header,
     collapsed strip, dividers, resize handle — is chrome and is swept; the served
-    statement document is not, and keeps its own stylesheet. The sign-in sheet's
+    statement document is not, and keeps its own stylesheet. (Superseded by part
+    five (e), which themes the served page from the palette.) The sign-in sheet's
     web page is the site's own; only its header and footer are chrome.
 
 The surfaces in detail: the viewer pane stands on `bgPanel` and the grid on
@@ -1838,16 +1902,88 @@ changed.
 
 The spinner question part five (c) left open is **closed**.
 
+#### Part five (e) — the two served document pages and the alert accessory
+
+The part that closes the macOS colour sweep. Three surfaces: the **Markdown
+preview page**, the **problem statement page** — both served web documents that
+kept a colour family of their own (fourteen and twelve chrome hex literals in
+Core) — and the **alert accessory** in `FilePanels.swift`, the text prompt's
+refusal sentence, which set `.systemRed` and was this document's verified
+counterexample to part five (d) having been the last. **No new role**:
+`ChromeColorRole` stays at twenty-one, and `currentLine` and `bracketMatch` stay
+the two unspent. One Core value is added, `DocumentPageChrome` (its entry
+above, with the role table), plus the palette's CSS reading. One file joins the
+gated set, taking it from fifty-eight to **fifty-nine**: `FilePanels.swift`,
+whose line now reads `ChromePalette.nsColor(.statusRed)` — the dynamic colour,
+never the resolved `nsColor(_:in:)` — and whose `NSFont.smallSystemFontSize`
+stays, with a comment saying why: an alert is a platform surface the app does
+not scale, and the accessory matches the alert's own small system size. The two
+pages add no gated file: `LeetCodeDescriptionView.swift` was already gated (part
+five (d) swept the statement pane), and `MarkdownPreviewPane.swift` draws nothing
+of its own — a served page's colours reach it as CSS strings, not as views — so
+both are pinned instead as the derivation's two callers by rule forty-two, which
+is added (the suite growing from forty-one to forty-two).
+
+**Both pages take the palette.** The preview composes
+`.withChrome(ChromePalette.documentPageChrome(in:))` onto the code palette it
+already derived, and the statement pane hands the same derivation to
+`LeetCodeStatementDocument` directly. Core's restated block is macOS's value
+nowhere; iOS reads it, and because it now states these same values the iOS
+statement page moves the same way with no iOS file edited.
+
+**What moved.** The page is the editor's paper, a code block recesses to the
+window ground, and both pages now match the window they sit in. *Light barely
+moves*: page, text and secondary text are unchanged; link `#0066cc` →
+`#2f6fe0`, code `#f2f2f7` → `#f5f5f7`, border `#d2d2d7` → `#d1d1d6`, table
+border `#c7c7cc` → `#d1d1d6`. *Dark moves on purpose*, the page rising to the
+editor ground and code recessing to the window ground: page `#1e1e1e` →
+`#2f3136`, code `#2a2a2e` → `#1e1f22`, text `#e8e8ed` → `#dfe1e5`, secondary
+text `#9a9aa0` → `#a0a3aa`, link `#6bb3ff` → `#4f8dff`, border `#3a3a3e` →
+`#393b40`, table border `#4a4a4e` → `#393b40`. **The table header row inverts
+with the code ground**: `th` reads `--code-background`, so in dark it goes from
+raised (`#2a2a2e` on `#1e1e1e`) to recessed (`#1e1f22` on `#2f3136`) — still told
+apart by its ground, the direction of the difference flipped exactly as it is
+for code blocks.
+
+**`tableBorder` collapses into `border`, which is `hairline`.** The preview's
+separate grid colour existed because a weight reading as structure between cells
+would read as a scar across a paragraph. The answer, in four parts:
+
+1. **The closed vocabulary requires it; it is not a preference.** The
+   vocabulary names exactly one line colour and no role for a stronger
+   separator, so a served page may not draw a line stronger than the one every
+   other swept surface draws.
+2. **The measured cost.** Dark: the grid goes from `#4a4a4e` on a `#1e1e1e` page
+   to `#393b40` on a `#2f3136` page — a strong grid becomes exactly as subtle as
+   every other hairline in the app. Light: from `#c7c7cc` on white to `#d1d1d6`
+   on white.
+3. **Why the line is the one place the collapse is felt.** A code block's ground
+   may be subtle because it is a large filled area; a one-pixel line may not be.
+   So `codeBackground` moving is invisible and the rule line moving is not.
+4. **The remedy, if it reads badly on screen**, is a change to `hairline`
+   itself, which moves every swept surface — never a page-local override and
+   never a twenty-second role.
+
+`MarkdownPreviewPage` no longer emits `--table-border`, and `preview.css`'s
+table-cell rule reads `var(--border)` (`core-markdown-preview.md`).
+
+**The acceptance line on hex literals**, "no hex literal in Core outside
+`SHA256.swift`", cannot hold literally — the code half's 28 are out of scope and
+the chrome fallback must be restated — so it is read as three conditions, all
+pinned by rule forty-two's clause (c): every CSS hex literal in Core sits in one
+of exactly two restated blocks, `MarkdownPreviewTheme.swift`'s code half (28) and
+`DocumentPageChrome.swift` (12); a test pins each block equal to its app-side
+table; and `LeetCodeStatementDocument.swift` spells none.
+
 #### What is still waiting
 
 The dock is finished, the popovers and search surfaces are swept, and so are the
 commit dialog, the merge editor, every secondary window's ground, Preferences,
-the two pull-request sheets, the database viewer and its console, and the
-problem-catalog surfaces. After them: every macOS chrome view still ungated —
-part five (d) was not the last of them; `FilePanels.swift`, for one, sets
-`reason.textColor = .systemRed` on the project tree's inline-naming refusal
-sentence and appears nowhere in `ChromeThemeSourceGatingTests` — and the
-terminal's own palette. Each follows the six-step guide at the end of this document, on its
+the two pull-request sheets, the database viewer and its console, the
+problem-catalog surfaces, the two served document pages and the alert
+accessory. After them: any macOS chrome view still ungated that a later audit
+finds (part five (d) claimed to be the last and was not, so none is claimed
+here) and the terminal's own palette. Each follows the six-step guide at the end of this document, on its
 own, with `gatedFiles` growing as part of the restyle rather than afterwards.
 
 The dock's tab row is **no longer deferred** — part four (a) drew it, and
@@ -1860,7 +1996,7 @@ waits on a design decision rather than on a file, the **lane hues**, and the
 unified diff's **per-line checkbox glyph** and **changed-line text tint** (part
 five (b)'s departures six and seven), all open design questions. Two roles
 remain unspent — `currentLine` and `bracketMatch`, both code zone — after
-fifty-two surfaces, the same two and the same count
+fifty-five surfaces, the same two and the same count
 `ChromeColorRole.swift`'s own doc comment states.
 
 ### The monochrome-icon decision
@@ -1899,7 +2035,7 @@ five: `TabListView.swift`, `TabRowView.swift`, `BreadcrumbBarView.swift`,
 `MainWindowChrome.swift`, `ContentView.swift`, `ProjectSwitcherView.swift`,
 `BranchSwitcherView.swift`, `PullRequestIndicatorView.swift` — plus part four
 (a)'s `DockTabRow.swift`, `ProblemsPanelView.swift`, `UsagesPanelView.swift` and
-`TerminalPanelView.swift`, **twenty** in all. Part four (b), part five (a), part five (b), part five (c) and part five (d) add seven, seven, ten, seven and seven more, each named in its own section above — **fifty-eight** in all today. `ProjectTreeView.swift` is not among the third part's additions because it
+`TerminalPanelView.swift`, **twenty** in all. Part four (b), part five (a), part five (b), part five (c), part five (d) and part five (e) add seven, seven, ten, seven, seven and one more, each named in its own section above — **fifty-nine** in all today. `ProjectTreeView.swift` is not among the third part's additions because it
 was already there: part three restyled the surface *around* the rows part one
 had swept, and a file joins this set once. The draft field is in the set
 although it is an editing affordance rather than a row: an inline draft

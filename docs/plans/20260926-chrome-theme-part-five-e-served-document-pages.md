@@ -258,7 +258,7 @@ This plan reads it as three conditions, and the new gating rule pins the counts:
 **Files:**
 - Modify: `docs/architecture/core-theme.md`, `docs/architecture/core-markdown-preview.md`, `docs/architecture/core-leetcode.md`, `CLAUDE.md`, `Sources/Pisaka/LeetCodeDescriptionView.swift` (comment only), `Tests/PisakaCoreTests/ChromeThemeSourceGatingTests.swift` (comment only)
 
-- [ ] `core-theme.md`:
+- [x] `core-theme.md`:
   - A new `DocumentPageChrome.swift` entry covering:
     - the role table;
     - the reasoning for the ground pair, with the no-border condition;
@@ -272,21 +272,21 @@ This plan reads it as three conditions, and the new gating rule pins the counts:
   - The gated file count, fifty-eight → fifty-nine.
   - The swept-surface count updated.
   - The unspent roles unchanged: `currentLine` and `bracketMatch`.
-- [ ] `core-markdown-preview.md`:
+- [x] `core-markdown-preview.md`:
   - `MarkdownPreviewTheme`: `chrome` and `withChrome(_:)`; `tableBorder` is gone.
   - `MarkdownPreviewPage`: no `--table-border`. The stylesheet's table-cell rule reads `--border`. Cite `VENDORED.md`'s existing "no colour of its own" invariant; do not restate it.
   - `MarkdownPreviewPane`: composes the palette's chrome.
-- [ ] `core-leetcode.md`:
+- [x] `core-leetcode.md`:
   - `LeetCodeStatementDocument`: `Theme` is the shared chrome.
   - `LeetCodeDescriptionView`: takes the palette derivation; remove the "served page stays unthemed" remark.
   - iOS reads the restated block and moves with it.
-- [ ] `CLAUDE.md`:
+- [x] `CLAUDE.md`:
   - Add an index line for `DocumentPageChrome.swift` under `core-theme.md`.
   - The chrome invariant sentence: fifty-nine files and forty-two rules, the new rule named briefly, and part five (e) appended to the swept-surface list with the updated count and the same two unspent roles.
   - The Tests section's paragraph on stated exceptions: four → five, naming rule forty-two's clause (c).
   - Add no per-file essays.
-- [ ] Update the `gatedFiles` comment for `LeetCodeDescriptionView.swift` to drop "(the served page itself stays unthemed)".
-- [ ] Run `swift test`; it must pass. This task's test coverage is the count and inventory checks.
+- [x] Update the `gatedFiles` comment for `LeetCodeDescriptionView.swift` to drop "(the served page itself stays unthemed)".
+- [x] Run `swift test`; it must pass. This task's test coverage is the count and inventory checks.
 
 ### Task 7: Verify acceptance criteria
 
