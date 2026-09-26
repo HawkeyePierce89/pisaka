@@ -213,26 +213,26 @@ app resumes".
 **Files:**
 - Modify: `Tests/PisakaCoreTests/LeetCodeAccountSourceGatingTests.swift`
 
-- [ ] Re-check rules 1–4 against the tree. The call shapes (`resolveAccount`,
+- [x] Re-check rules 1–4 against the tree. The call shapes (`resolveAccount`,
   `awaitAccountResolution`, `refreshUserStatus`, `browser.load()`) do not
   change, so their pins stay.
-- [ ] Rewrite the prose that describes the ad-hoc build's confirmation dialog
+- [x] Rewrite the prose that describes the ad-hoc build's confirmation dialog
   as the cost of a resolution. After this change a resolution cannot raise it.
-- [ ] Add rule 5: the read kind and its enforcement live in one place each.
+- [x] Add rule 5: the read kind and its enforcement live in one place each.
   - The read kind's type and case names are spelled in no app file except
     `Platform/LeetCodeKeychainStore.swift`, which implements it, pinned by set
     equality. No view can choose an interactive read from a render path.
   - The macOS mechanism alone is pinned: `SecKeychainSetUserInteractionAllowed`
     is spelled in that file only, inside an `#if os(macOS)` block, and restored
     in a `defer`.
-- [ ] Add rule 6: in `Sources/PisakaCore/LeetCodeModel.swift`:
+- [x] Add rule 6: in `Sources/PisakaCore/LeetCodeModel.swift`:
   - The store's read member is spelled exactly once.
   - The attended kind is spelled at exactly the two sites named in Task 2.
 
   A new attended site then has to be argued rather than slipping into a path an
   appearance body reaches. The doc comment explains that this regression
   compiles, runs, and freezes only on the machine whose keychain disagrees.
-- [ ] Run `swift test`. It must pass.
+- [x] Run `swift test`. It must pass.
 
 ### Task 5: Verify acceptance criteria
 

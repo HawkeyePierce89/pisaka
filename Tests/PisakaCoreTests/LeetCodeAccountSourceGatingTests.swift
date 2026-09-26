@@ -54,13 +54,32 @@ import XCTest
 ///    `.onAppear` of its own, so a `guard browser.availability.isReady` in front
 ///    of it tests the very value that call was going to publish.
 ///
+/// 5. **The read kind and its enforcement live in one place each.**
+///    `LeetCodeCredentialRead` and its two cases are spelled in no app file but
+///    `Platform/LeetCodeKeychainStore.swift`, which implements the seam — pinned
+///    by set equality — so no view can choose an interactive read from a render
+///    path. The macOS mechanism is pinned in that file alone:
+///    `SecKeychainSetUserInteractionAllowed` is spelled nowhere else in the app
+///    tree, only inside an `#if os(macOS)` block, and is restored in a `defer`.
+/// 6. **The model reads the store once, and asks attended twice.** In
+///    `Sources/PisakaCore/LeetCodeModel.swift` the store's read member is spelled
+///    exactly once (the private accessor every read goes through), and the
+///    attended kind at exactly two sites: `requireCredentials()`'s fallback read
+///    and `statement(forFileAt:in:)`'s fetch. A third attended site has to be
+///    argued here rather than slipping into a path an appearance body reaches.
+///
 /// **Why the compiler cannot see any of this:** a launch-time
 /// `refreshUserStatus()`, or a `resolveAccount()` in the scene's `onAppear`,
 /// compiles and runs perfectly. Its only symptom is a Keychain read and a
-/// network round trip on every launch of a session that never opens the feature
-/// — and, on an ad-hoc-signed build, a confirmation dialog in front of an editor
-/// nobody asked to sign in from. Nothing crashes, no test fails, and no pixel is
-/// wrong; only a suite counting call sites keeps the moment where it was put.
+/// network round trip on every launch of a session that never opens the feature.
+/// Resolution's read is unattended, so it can no longer raise the keychain's
+/// authorization panel wherever it is called from — but an **attended** read
+/// reached from resolution, or from any other path an on-appear body runs,
+/// compiles and runs just as perfectly and freezes the app inside the window's
+/// layout pass, on exactly the machine whose login keychain does not recognise
+/// the binary and on no other. Nothing crashes, no test fails, and no pixel is
+/// wrong anywhere else; only a suite counting call sites keeps each read where it
+/// was put.
 final class LeetCodeAccountSourceGatingTests: XCTestCase {
 
     private static let repositoryRoot = URL(fileURLWithPath: #filePath)
@@ -213,6 +232,105 @@ final class LeetCodeAccountSourceGatingTests: XCTestCase {
                 + "optimistic answer, and LeetCodeCommands.signIn() is where it lives. A second file awaiting "
                 + "it is a surface that could have resolved on appear instead; this file no longer naming it "
                 + "is the menu deciding on a stored-but-dead session, which raises no sheet."
+        )
+    }
+
+    // MARK: - The read kind is chosen in Core and enforced in one file
+
+    private static let keychainStore = "Platform/LeetCodeKeychainStore.swift"
+
+    /// Rule 5, first half: the read kind is Core's vocabulary, and the only app
+    /// file that may spell it is the store that honours it. A view naming
+    /// `.attended` is a render path choosing a read that may ask.
+    func testTheReadKindIsSpelledInTheKeychainStoreAlone() throws {
+        XCTAssertEqual(
+            try appFilesNaming(["LeetCodeCredentialRead", "unattended", "attended"]),
+            [Self.keychainStore],
+            "The credential read kind is chosen by LeetCodeModel and honoured by the Keychain store; no other app "
+                + "file may name it. A view choosing an attended read can raise the authorization panel from "
+                + "inside a layout pass, which freezes the app."
+        )
+    }
+
+    /// Rule 5, second half: the macOS mechanism — the process-wide legacy
+    /// interaction switch — lives in the store alone, inside a macOS-only block,
+    /// and is put back in a `defer` so no exit leaves the process switched off.
+    func testTheInteractionSwitchIsMacOnlyScopedAndRestored() throws {
+        let switchName = "SecKeychainSetUserInteractionAllowed"
+        XCTAssertEqual(
+            try appFilesNaming([switchName]),
+            [Self.keychainStore],
+            "\(switchName) is process-wide; it must be spelled in the Keychain store alone, where it is held "
+                + "for one read and restored."
+        )
+        guard let file = try appFiles().first(where: { $0.name == Self.keychainStore }) else {
+            XCTFail("\(Self.keychainStore) must exist in the app tree; if it moved, rule 5 is passing vacuously.")
+            return
+        }
+
+        var conditions: [String] = []
+        var spellings = 0
+        for rawLine in file.code.components(separatedBy: "\n") {
+            let line = rawLine.trimmingCharacters(in: .whitespaces)
+            if line.hasPrefix("#if ") {
+                conditions.append(String(line.dropFirst(4)).trimmingCharacters(in: .whitespaces))
+            } else if line.hasPrefix("#else") || line.hasPrefix("#elseif") {
+                if !conditions.isEmpty { conditions[conditions.count - 1] = "!" + conditions[conditions.count - 1] }
+            } else if line.hasPrefix("#endif") {
+                _ = conditions.popLast()
+            } else if LSPSourceGatingTests.containsToken(switchName, in: line) {
+                spellings += 1
+                XCTAssertTrue(
+                    conditions.contains("os(macOS)"),
+                    "Every \(switchName) call must sit inside an #if os(macOS) block; found one outside: \(line)"
+                )
+            }
+        }
+        XCTAssertGreaterThan(
+            spellings, 0,
+            "The unattended macOS read must switch keychain interaction off; without \(switchName) an unattended "
+                + "read can raise the authorization panel inside a layout pass."
+        )
+
+        let restoredInDefer = try NSRegularExpression(pattern: "defer\\s*\\{[^}]*\\b\(switchName)\\s*\\(")
+        XCTAssertGreaterThan(
+            restoredInDefer.numberOfMatches(in: file.code, range: NSRange(file.code.startIndex..., in: file.code)),
+            0,
+            "The saved interaction setting must be restored in a defer, so every exit from the unattended read "
+                + "leaves the process as it found it."
+        )
+    }
+
+    // MARK: - The model reads the store once, and asks attended twice
+
+    private func modelCode() throws -> String {
+        let url = Self.repositoryRoot.appendingPathComponent("Sources/PisakaCore/LeetCodeModel.swift")
+        return LSPSourceGatingTests.strippingCommentsAndStringLiterals(try String(contentsOf: url, encoding: .utf8))
+    }
+
+    /// Rule 6. A new attended site compiles, runs and passes every behavioural
+    /// test — it freezes only on the machine whose keychain disagrees, and only
+    /// if an appearance body reaches it — so the count is what makes it argued.
+    func testTheModelReadsTheStoreOnceAndAsksAttendedAtTwoSites() throws {
+        let code = try modelCode()
+        let reads = try NSRegularExpression(pattern: "\\.load\\s*\\(")
+            .numberOfMatches(in: code, range: NSRange(code.startIndex..., in: code))
+        XCTAssertEqual(
+            reads, 1,
+            "LeetCodeModel must read the credential store in exactly one place, the private accessor that takes "
+                + "the read kind; a second read site bypasses the per-site choice this rule counts."
+        )
+        XCTAssertEqual(
+            ChromeThemeSourceGatingTests.tokenCount("attended", in: code), 2,
+            "The attended read kind belongs at exactly two sites: requireCredentials()'s fallback read and "
+                + "statement(forFileAt:in:)'s fetch, both following an explicit action. A third must be argued "
+                + "here: if an on-appear body can reach it, it can raise the authorization panel inside a layout "
+                + "pass and freeze the app."
+        )
+        XCTAssertGreaterThan(
+            ChromeThemeSourceGatingTests.tokenCount("unattended", in: code), 0,
+            "Resolution must read unattended; with no unattended site left, the attended count above is "
+                + "counting a model that no longer distinguishes the two."
         )
     }
 }
