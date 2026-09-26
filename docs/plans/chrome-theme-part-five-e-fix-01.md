@@ -140,8 +140,8 @@ typealias and `resolved` delegates to `ChromeAppearance.resolved`.
 
 ### Task 6: the gates
 
-- [ ] `swift test`.
-- [ ] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' test`, DerivedData outside the repository.
-- [ ] `swiftlint --strict` from the repository root.
-- [ ] Unsigned macOS Release and iOS (`generic/platform=iOS`) builds, as CI runs them.
-- [ ] Confirm no product or brand name entered any file this plan touched.
+- [x] `swift test`.
+- [x] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' test`, DerivedData outside the repository.
+- [x] `swiftlint --strict` from the repository root.
+- [x] Unsigned macOS Release and iOS (`generic/platform=iOS`) builds, as CI runs them.
+- [x] Confirm no product or brand name entered any file this plan touched.
