@@ -105,8 +105,10 @@ public enum LeetCodeCredentialRead: Equatable, Sendable {
     /// store that would have to ask before answering answers `nil` instead, which
     /// the model reads exactly as "nothing stored".
     case unattended
-    /// A read that follows an explicit action — opening a problem, Run/Submit, a
-    /// deliberate tab activation. It **may ask** the user before answering.
+    /// A read that follows an explicit action — opening a problem, a deliberate
+    /// tab activation. It **may ask** the user before answering. Run/Submit and
+    /// the browser's lookup are not among them: they refuse on the signed-out
+    /// state before any read, so they never make one after a refusal.
     case attended
 }
 
@@ -127,8 +129,9 @@ public protocol LeetCodeCredentialStore {
     /// `read` says whether the caller may be kept waiting on a person
     /// (`LeetCodeCredentialRead`). An `.unattended` read that could only be
     /// answered by asking answers `nil`; the model then treats it as signed out
-    /// and asks again, attended, when the user next does something that needs a
-    /// session.
+    /// and asks again, attended, only when the user next opens a problem or
+    /// selects a solution tab — the judge and the browser refuse on the
+    /// signed-out state before they reach a read.
     func load(_ read: LeetCodeCredentialRead) -> LeetCodeCredentials?
     /// Persist `credentials`, replacing any previously stored pair.
     func save(_ credentials: LeetCodeCredentials) throws

@@ -120,18 +120,18 @@ reaching `requireCredentials()`, and the browser's `currentCredentials()` return
 at the same guard. Run, Submit and browser Refresh therefore never make the attended
 read. The branch's own tests already assert this.
 
-- [ ] Say which two paths recover — opening a problem, and the statement fetch for a
+- [x] Say which two paths recover — opening a problem, and the statement fetch for a
       selected solution tab — and say plainly that the judge and the browser refuse on
       the signed-out state before they reach the read.
-- [ ] Name the two tests that pin it, so the sentence and the assertions are readable
+- [x] Name the two tests that pin it, so the sentence and the assertions are readable
       against each other: the judge test asserting the reads after a Run are
       `[.unattended]`, and the browser test asserting a refused read shows the offer
       and asks nothing.
-- [ ] No new test: the behaviour is already pinned by those two, and the defect is in
+- [x] No new test: the behaviour is already pinned by those two, and the defect is in
       the prose. The checkbox is to confirm, by reading them, that the corrected
       sentence says what they assert — not to add a third test for a claim already
       covered.
-- [ ] `swift test` must pass before the next task.
+- [x] `swift test` must pass before the next task.
 
 ### Task 5: The statement fetch's contract text must match when that read actually runs
 

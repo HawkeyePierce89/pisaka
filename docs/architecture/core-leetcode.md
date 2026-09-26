@@ -2656,16 +2656,28 @@ means, what a file is named, when a fetch happens, and what gets written.
   `refreshUserStatus()` read **unattended**, and with them the four on-appear
   surfaces, the browser's pre-token resolve and the menu's await; exactly two
   sites read **attended** — `requireCredentials()`'s own fallback read (its
-  leading `resolveAccount()` stays unattended), covering opening a problem, the
-  judge's Run/Submit and context and the browser's lookup, and
+  leading `resolveAccount()` stays unattended), and
   `statement(forFileAt:in:)`'s fetch after a deliberate solution-tab activation.
   A refused unattended read is indistinguishable from "nothing stored":
   resolution publishes `.signedOut`, starts no confirmation, tells the catalog
-  nothing and surfaces no error; the next explicit action reads attended, and
-  `markSessionAccepted()` flips the account to signed in once its request
-  succeeds. **The cost:** a login keychain that genuinely refuses without asking
-  now reads as no session until the user does something explicit, which then
-  asks. **The known limit:** an attended read is still synchronous on the main
+  nothing and surfaces no error. **Exactly two paths recover from it**, because
+  exactly two reach an attended read from the signed-out state: opening a
+  problem, and the statement fetch for a selected solution tab; either one's
+  attended read hands the pair over and `markSessionAccepted()` flips the account
+  to signed in once its request succeeds. **The judge and the browser do not
+  recover on their own**: Run, Submit and the context refuse at the judge's
+  `guard isSignedIn`, and the browser's `currentCredentials()` returns `nil` at the
+  same guard, both *before* `requireCredentials()` is reached — so a refused
+  resolution leaves them signed out, asking nothing, until one of the two paths
+  above succeeds. Pinned by
+  `LeetCodeJudgeModelTests.testARunAfterARefusedResolutionWaitsForAnAttendedRead`
+  (after a refused resolution a Run leaves the reads at `[.unattended]`; only the
+  open adds `.attended`) and
+  `LeetCodeBrowserModelTests.testARefusedUnattendedReadShowsTheOfferAndAsksNothing`
+  (a refused read shows the sign-in offer, and the reads stay `[.unattended]`).
+  **The cost:** a login keychain that genuinely refuses without asking now reads
+  as no session until the user opens a problem or selects a solution tab, which
+  then asks. **The known limit:** an attended read is still synchronous on the main
   actor, so while its panel stands the window cannot redraw; it is no longer
   inside a layout pass, so the panel can be answered and the app resumes
   afterwards. `LeetCodeAccountSourceGatingTests` rule 6 pins the store's read
@@ -2728,7 +2740,10 @@ means, what a file is named, when a fetch happens, and what gets written.
   (L27). The read is synchronous on the main actor, so if the login keychain asks
   for permission after an explicit action the window cannot redraw until the
   panel is answered; the app then resumes. Resolution's reads cannot raise it at
-  all, so a keychain that would ask reads as no session until such an action.
+  all, so a keychain that would ask reads as no session until one of the two
+  recovering paths runs — opening a problem, or the statement fetch for a
+  selected solution tab. The judge's Run/Submit and the browser's lookup are not
+  among them: they refuse on the signed-out state before reaching the read.
 - **One account at a time.** The Keychain item *is* the session, filed under a
   constant account; switching accounts is a sign-out followed by a sign-in.
 - **A Run or Submit that outruns its budget does not undo the submission.**
