@@ -246,7 +246,7 @@ app resumes".
 
 ### Task 6: Update documentation
 
-- [ ] `docs/architecture/core-leetcode.md`, L27:
+- [x] `docs/architecture/core-leetcode.md`, L27:
   - Replace "an ad-hoc build costs a keychain confirmation dialog, out of
     scope" with the rule: resolution's reads are unattended and forbidden to
     interact, because an on-appear body runs inside the window's layout pass and
@@ -255,14 +255,14 @@ app resumes".
     until the user does something explicit, which then asks.
   - State the known limit: an attended read still blocks the main thread while
     its panel stands, and the app resumes once the panel is answered.
-- [ ] `docs/architecture/core-leetcode.md`, `LeetCodeCredentials.swift` entry:
+- [x] `docs/architecture/core-leetcode.md`, `LeetCodeCredentials.swift` entry:
   the read kind and its defaults. Keychain-store entry: the macOS mechanism, why
   iOS runs today's query unchanged, and the conditioned main-actor sentence.
-- [ ] The `LeetCodeAccountSourceGatingTests` inventory and rules 5–6 wherever
+- [x] The `LeetCodeAccountSourceGatingTests` inventory and rules 5–6 wherever
   that doc lists them.
-- [ ] `CLAUDE.md`: leave unchanged. "Nothing is read or requested until the
+- [x] `CLAUDE.md`: leave unchanged. "Nothing is read or requested until the
   feature is first used" stays true, and the index lines stay accurate.
-- [ ] README / `docs/FEATURES.md`: no user-facing change, so leave unchanged.
+- [x] README / `docs/FEATURES.md`: no user-facing change, so leave unchanged.
 
 ## Post-Completion
 

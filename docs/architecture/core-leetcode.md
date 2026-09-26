@@ -155,6 +155,16 @@ the limits the design carries.
     in-memory stub compiles — and the defaults are chosen so **absence is the
     explicit signal**: a store that implements nothing reads as "signed out",
     which is the safe verdict when every operation here requires a session.
+    **Every read states its kind** — `load(_ read: LeetCodeCredentialRead)`, the
+    one read member (the parameterless `load()` is gone, so there is exactly one
+    way to read). `LeetCodeCredentialRead` is closed and two-case:
+    `unattended`, a read nobody asked for, which **may fail and never waits on a
+    person** — a store that could only answer by asking answers `nil`, which the
+    model reads exactly as "nothing stored"; and `attended`, a read that follows
+    an explicit action and **may ask**. The default answers `nil` for **both**
+    kinds, so an unimplemented store reads as signed out and never as "ask the
+    user". Core chooses the kind at each call site (L27); what "never waits"
+    means on each destination is the Keychain store's business, not Core's.
   - `LeetCodeError.swift` — every way an operation can fail, as one
     `Error`/`LocalizedError`: `notLoggedIn`, `network(reason:)`,
     `apiChanged(detail:)`, `paidOnly(slug:)`, `throttled(retryAfter:)`,
@@ -1451,12 +1461,34 @@ the limits the design carries.
     out and reports it as signed in. So a duplicate falls through to `SecItemUpdate`
     with the same accessibility set alongside the data (the two halves still cannot
     disagree), and only a failure of *that* is thrown.
-    `load()` treats undecodable as **absent** — same recovery, one sign-in — and the
+    `load(_:)` treats undecodable as **absent** — same recovery, one sign-in — and the
     failure type is a local `LocalizedError`, deliberately *not* a `LeetCodeError`:
     the model already knows a save failure costs one sign-in next launch, and
     `fileSystem` would attribute a Keychain refusal to the disk. The existing
     iOS-only `KeychainCredentialStore` (git PATs) is left alone: different secret,
     different service, different key shape.
+    **The read kind is honoured here.** An attended read is the plain query. An
+    unattended one on **macOS** saves `SecKeychainGetUserInteractionAllowed`, sets
+    `SecKeychainSetUserInteractionAllowed(false)`, runs the same query and restores
+    the saved value in a `defer`; any non-success status (`errSecAuthFailed`,
+    `errSecInteractionNotAllowed`, the rest) is `nil`, as before. The legacy switch
+    rather than the documented flags because on macOS this item lives in the
+    file-based login keychain, and against it both `kSecUseAuthenticationUIFail`
+    and an authentication context with `interactionNotAllowed` set were **measured
+    raising the authorization panel and hanging** for a binary the keychain did
+    not recognise, while the switch returned `errSecAuthFailed` in milliseconds
+    with no panel. It is process-wide, held only for one synchronous main-actor
+    read, and no other Keychain user runs in the macOS process; its deprecation
+    warning is accepted on purpose. On **iOS** both kinds run today's query
+    unchanged: the item carries no access-control flags, so reading it never
+    shows UI, and the one case the system cannot answer (before first unlock)
+    already returns `errSecInteractionNotAllowed` without asking, which maps to
+    `nil` — so the measured-and-failed flag is not reached for there either.
+    The model reads this store synchronously on the main actor, and that is safe
+    **only because a main-actor read nobody asked for is non-interactive**:
+    resolution runs from on-appear bodies inside the window's layout pass. An
+    attended read on the main actor still blocks the window while its panel
+    stands, and the app resumes once the panel is answered (the known limit, L27).
   - `Platform/LeetCodeSupportDirectory.swift` — the one place that answers "where
     is the cache base on this platform": `…/Application Support/Pisaka/LeetCode`,
     which resolves to `~/Library/…` on the unsandboxed Mac and to the container's
@@ -2192,7 +2224,8 @@ the limits the design carries.
   - `LeetCodeCredentialsTests` / `LeetCodeErrorTests` / `LeetCodeTransportTests` —
     the cookie rule (both present, one missing, empty value, duplicates, extra
     cookies ignored), every error sentence non-empty and distinct, the
-    case-insensitive header lookup.
+    case-insensitive header lookup, and the store defaults answering `nil` for both
+    read kinds.
   - `LeetCodeLoginGateTests` — the login decision the observers no longer make,
     asserted as **behavior and request counts** (`count(for: .userStatus)`) over
     `ScriptedLeetCodeTransport`: a confirmed candidate handed back on the first
@@ -2229,7 +2262,16 @@ the limits the design carries.
     `ScriptedLSPTransport` shape: canned answers keyed by route — including a
     `.question(slug:)` route read out of the request's own `variables` — a
     recording, gates and per-step delays, plus `InMemoryLeetCodeCredentialStore`
-    with `saveFails`/`clearFails`). They cover the cold/warm/stale/miss/corrupt
+    with `saveFails`/`clearFails`, a log of every read's kind in order —
+    `loadCount` is its count — and a switch simulating a keychain that wants
+    permission: unattended answers `nil`, attended the stored pair). The read
+    log carries L27's unattended rule: resolving the account — `resolveAccount()`,
+    `awaitAccountResolution()` with the confirmation it starts, the browser's
+    `load()`/`refresh()`, a direct `refreshUserStatus()` — never asks attended
+    (and was watched failing with the resolution site switched to attended), a
+    refused unattended read reads as signed out with no confirmation and no
+    error, and the following open, judge Run and statement fetch each read
+    attended. They cover the cold/warm/stale/miss/corrupt
     cache paths, the light-vs-dark and every-colour-reaches-the-CSS assertions, the
     full open-problem happy path for all three input forms, the byte-identical
     re-open, every failure path leaving no partial file, two overlapping opens
@@ -2528,11 +2570,7 @@ means, what a file is named, when a fetch happens, and what gets written.
   `LeetCodeModel` used to read the Keychain in `init`, and both app layers fired
   `refreshUserStatus()` from a launch-time `onAppear` — so every launch cost a
   credential-store read and a network round trip for a feature the user might
-  never open, and on an ad-hoc-signed build it cost a Keychain confirmation
-  dialog on top, because the login keychain cannot remember a signature that
-  changes with every build. (Whether such a build *should* be signed differently
-  is a separate question, deliberately out of scope: the rule below is worth
-  having on its own terms, on both platforms, for a signed release too.) So
+  never open. So
   construction became inert and the account is resolved **the first time any code
   path needs to know whether there is a session**, never before.
   That needs a third published value: `LeetCodeAccountState` is
@@ -2609,6 +2647,30 @@ means, what a file is named, when a fetch happens, and what gets written.
   resolution from exactly four files; `LeetCodeAccountSourceGatingTests` pins both
   by set equality, since a re-added launch-time call is invisible to every other
   gate.
+  **Resolution's reads are unattended and forbidden to interact.** An on-appear
+  body runs inside the window's layout pass, and a keychain authorization panel
+  raised there — which is what a login keychain that does not recognise the
+  binary raises, e.g. for a locally built copy — freezes the app until it is
+  force-quit. So every credential read names its kind in place
+  (`LeetCodeCredentialRead`): `resolveAccount(startingConfirmation:)` and
+  `refreshUserStatus()` read **unattended**, and with them the four on-appear
+  surfaces, the browser's pre-token resolve and the menu's await; exactly two
+  sites read **attended** — `requireCredentials()`'s own fallback read (its
+  leading `resolveAccount()` stays unattended), covering opening a problem, the
+  judge's Run/Submit and context and the browser's lookup, and
+  `statement(forFileAt:in:)`'s fetch after a deliberate solution-tab activation.
+  A refused unattended read is indistinguishable from "nothing stored":
+  resolution publishes `.signedOut`, starts no confirmation, tells the catalog
+  nothing and surfaces no error; the next explicit action reads attended, and
+  `markSessionAccepted()` flips the account to signed in once its request
+  succeeds. **The cost:** a login keychain that genuinely refuses without asking
+  now reads as no session until the user does something explicit, which then
+  asks. **The known limit:** an attended read is still synchronous on the main
+  actor, so while its panel stands the window cannot redraw; it is no longer
+  inside a layout pass, so the panel can be answered and the app resumes
+  afterwards. `LeetCodeAccountSourceGatingTests` rule 6 pins the store's read
+  member to one spelling in the model and the attended kind to those two sites,
+  and rule 5 pins the kind and the macOS mechanism to the Keychain store alone.
 
 ## Known limits
 
@@ -2657,6 +2719,11 @@ means, what a file is named, when a fetch happens, and what gets written.
 - **SSO cookies outlive the sign-in sheet** (the persistent `WKWebsiteDataStore` is
   what makes SSO work at all). Sign Out purges `leetcode.com` cookies only,
   deliberately leaving every other site a web view in this app has loaded alone.
+- **An attended credential read blocks the window while its panel stands**
+  (L27). The read is synchronous on the main actor, so if the login keychain asks
+  for permission after an explicit action the window cannot redraw until the
+  panel is answered; the app then resumes. Resolution's reads cannot raise it at
+  all, so a keychain that would ask reads as no session until such an action.
 - **One account at a time.** The Keychain item *is* the session, filed under a
   constant account; switching accounts is a sign-out followed by a sign-in.
 - **A Run or Submit that outruns its budget does not undo the submission.**
