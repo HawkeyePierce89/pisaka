@@ -60,9 +60,12 @@ import XCTest
 ///    by set equality — so no view can choose an interactive read from a render
 ///    path. The macOS mechanism is pinned in that file alone:
 ///    `SecKeychainSetUserInteractionAllowed` is spelled nowhere else in the app
-///    tree, only inside an `#if os(macOS)` block, and is restored in a `defer`;
-///    every switch-off binds its status and refuses the read on a failure, so
-///    the Keychain query is unreachable while the switch is in an unknown state.
+///    tree and only inside an `#if os(macOS)` block. Each switch-off (`false`)
+///    is matched, in its own function body, by a restoring call inside a
+///    `defer`, and no call inside a `defer` passes `false`; each binds its
+///    status, refuses the read on a failure — so the Keychain query is
+///    unreachable while the switch is in an unknown state — and arms its
+///    restoring `defer` as the very next statement.
 /// 6. **The model reads the store once, and asks attended twice.** In
 ///    `Sources/PisakaCore/LeetCodeModel.swift` the store's read member is spelled
 ///    exactly once (the private accessor every read goes through), and the
@@ -256,7 +259,24 @@ final class LeetCodeAccountSourceGatingTests: XCTestCase {
 
     /// Rule 5, second half: the macOS mechanism — the process-wide legacy
     /// interaction switch — lives in the store alone, inside a macOS-only block,
-    /// and is put back in a `defer` so no exit leaves the process switched off.
+    /// and no exit from an unattended read leaves the process switched off.
+    ///
+    /// "No exit" is asserted per switch-off, not as "a defer exists somewhere in
+    /// the file", which a second unattended path switching off with no defer of
+    /// its own would leave green:
+    ///
+    /// - every `SecKeychainSetUserInteractionAllowed(false)` sits in a function
+    ///   body, and in each such body the switch-offs outside a `defer` equal the
+    ///   restoring calls inside one — a restore being any call whose argument is
+    ///   not `false`;
+    /// - no call inside a `defer` passes `false`, so a defer cannot pose as the
+    ///   restore while switching off again;
+    /// - every switch-off binds its status, is followed at once by `guard
+    ///   <status> == errSecSuccess else { return <status> }` — a switch that
+    ///   failed refuses the read, so the Keychain query is unreachable while the
+    ///   switch is in an unknown state — and the statement after that guard is
+    ///   the restoring `defer`, so no statement, and therefore no `return`, can
+    ///   stand between the switch taking effect and its restore being armed.
     func testTheInteractionSwitchIsMacOnlyScopedAndRestored() throws {
         let switchName = "SecKeychainSetUserInteractionAllowed"
         XCTAssertEqual(
@@ -269,10 +289,11 @@ final class LeetCodeAccountSourceGatingTests: XCTestCase {
             XCTFail("\(Self.keychainStore) must exist in the app tree; if it moved, rule 5 is passing vacuously.")
             return
         }
+        let code = file.code
 
         var conditions: [String] = []
         var spellings = 0
-        for rawLine in file.code.components(separatedBy: "\n") {
+        for rawLine in code.components(separatedBy: "\n") {
             let line = rawLine.trimmingCharacters(in: .whitespaces)
             if line.hasPrefix("#if ") {
                 conditions.append(String(line.dropFirst(4)).trimmingCharacters(in: .whitespaces))
@@ -294,32 +315,102 @@ final class LeetCodeAccountSourceGatingTests: XCTestCase {
                 + "read can raise the authorization panel inside a layout pass."
         )
 
-        let restoredInDefer = try NSRegularExpression(pattern: "defer\\s*\\{[^}]*\\b\(switchName)\\s*\\(")
-        XCTAssertGreaterThan(
-            restoredInDefer.numberOfMatches(in: file.code, range: NSRange(file.code.startIndex..., in: file.code)),
-            0,
-            "The saved interaction setting must be restored in a defer, so every exit from the unattended read "
-                + "leaves the process as it found it."
-        )
+        let functions = try Self.bracedBodies(following: "\\bfunc\\s", in: code)
+        let defers = try Self.bracedBodies(following: "\\bdefer\\s*(?=\\{)", in: code)
+        let calls = try Self.calls(to: switchName, in: code)
+        let switchOffs = calls.filter { $0.argument == "false" }
+        XCTAssertFalse(switchOffs.isEmpty, "The unattended read must switch interaction off with \(switchName)(false).")
 
-        // A switch-off that failed leaves the switch in an unmeasured state; a
-        // query run then may still raise the panel. Each switch-off's status is
-        // therefore bound and refused on at once — the guard sits directly after
-        // the binding, so no query can run between the failure and the return.
-        let fullRange = NSRange(file.code.startIndex..., in: file.code)
-        let switchOffs = try NSRegularExpression(pattern: "\\b\(switchName)\\s*\\(\\s*false\\s*\\)")
-            .numberOfMatches(in: file.code, range: fullRange)
-        let boundAndRefused = try NSRegularExpression(
+        var switchOffsByBody: [Range<String.Index>: Int] = [:]
+        var restoresByBody: [Range<String.Index>: Int] = [:]
+        for call in calls {
+            let inDefer = defers.contains { $0.contains(call.position) }
+            // The innermost function holding the call is the body whose exits it must survive.
+            let body = functions.filter { $0.contains(call.position) }.min {
+                code.distance(from: $0.lowerBound, to: $0.upperBound)
+                    < code.distance(from: $1.lowerBound, to: $1.upperBound)
+            }
+            if call.argument == "false" {
+                XCTAssertFalse(
+                    inDefer,
+                    "A \(switchName) call inside a defer must restore, never pass false: a defer that switches "
+                        + "interaction off leaves every exit through it switched off."
+                )
+                guard let body else {
+                    XCTFail("Every \(switchName)(false) must sit in a function body whose exits a defer can cover.")
+                    continue
+                }
+                switchOffsByBody[body, default: 0] += 1
+            } else if inDefer, let body {
+                restoresByBody[body, default: 0] += 1
+            }
+        }
+        for (body, count) in switchOffsByBody {
+            XCTAssertEqual(
+                restoresByBody[body, default: 0], count,
+                "In each function body, every \(switchName)(false) must be matched by one restoring \(switchName) "
+                    + "call inside a defer; a switch-off with no deferred restore of its own can leave the process "
+                    + "unable to ask for keychain access until it restarts."
+            )
+        }
+
+        let armedAtOnce = try NSRegularExpression(
             pattern: "\\blet\\s+(\\w+)\\s*=\\s*\(switchName)\\s*\\(\\s*false\\s*\\)\\s*"
-                + "guard\\s+\\1\\s*==\\s*errSecSuccess\\s+else\\s*\\{\\s*return\\s+\\1\\s*\\}"
-        ).numberOfMatches(in: file.code, range: fullRange)
-        XCTAssertGreaterThan(switchOffs, 0, "The unattended read must switch interaction off with \(switchName)(false).")
+                + "guard\\s+\\1\\s*==\\s*errSecSuccess\\s+else\\s*\\{\\s*return\\s+\\1\\s*\\}\\s*"
+                + "defer\\s*\\{"
+        ).numberOfMatches(in: code, range: NSRange(code.startIndex..., in: code))
         XCTAssertEqual(
-            boundAndRefused, switchOffs,
-            "Every \(switchName)(false) must bind its status and be followed at once by `guard <status> == "
-                + "errSecSuccess else { return <status> }`: a switch-off that failed must refuse the read, never "
-                + "run the Keychain query with interaction in an unknown state."
+            armedAtOnce, switchOffs.count,
+            "Every \(switchName)(false) must bind its status, be followed at once by `guard <status> == "
+                + "errSecSuccess else { return <status> }` — a switch-off that failed refuses the read rather than "
+                + "run the Keychain query with interaction in an unknown state — and then at once by the restoring "
+                + "defer, so no return can fall between the switch taking effect and its restore being armed."
         )
+    }
+
+    /// The brace-matched body ranges following every match of `pattern`, read
+    /// the same way `ChromeThemeSourceGatingTests.matchedBodyRange` reads one.
+    private static func bracedBodies(following pattern: String, in code: String) throws -> [Range<String.Index>] {
+        try NSRegularExpression(pattern: pattern)
+            .matches(in: code, range: NSRange(code.startIndex..., in: code))
+            .compactMap { match in
+                guard let start = Range(match.range, in: code),
+                      let open = code[start.upperBound...].firstIndex(of: "{") else { return nil }
+                var depth = 0
+                var index = open
+                while index < code.endIndex {
+                    if code[index] == "{" { depth += 1 }
+                    if code[index] == "}" {
+                        depth -= 1
+                        if depth == 0 { return code.index(after: open)..<index }
+                    }
+                    index = code.index(after: index)
+                }
+                return nil
+            }
+    }
+
+    /// Every call to `name`, with its paren-matched argument text, trimmed.
+    private static func calls(to name: String, in code: String) throws -> [(position: String.Index, argument: String)] {
+        try NSRegularExpression(pattern: "\\b\(name)\\s*\\(")
+            .matches(in: code, range: NSRange(code.startIndex..., in: code))
+            .compactMap { match in
+                guard let range = Range(match.range, in: code) else { return nil }
+                var depth = 1
+                var index = range.upperBound
+                while index < code.endIndex {
+                    if code[index] == "(" { depth += 1 }
+                    if code[index] == ")" {
+                        depth -= 1
+                        if depth == 0 {
+                            let argument = code[range.upperBound..<index].trimmingCharacters(in: .whitespacesAndNewlines)
+                            return (position: range.lowerBound, argument: argument)
+                        }
+                    }
+                    index = code.index(after: index)
+                }
+                return nil
+            }
     }
 
     // MARK: - The model reads the store once, and asks attended twice

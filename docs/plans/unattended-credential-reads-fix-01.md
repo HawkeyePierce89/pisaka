@@ -70,19 +70,19 @@ keychain interaction disabled, which is the exact defect the rule names. The
 This finding was dropped by the round's synthesis as a duplicate of rule 6's weakness;
 it is a different rule and it is real.
 
-- [ ] Count the switch-offs — the calls whose argument is `false` — and require each
+- [x] Count the switch-offs — the calls whose argument is `false` — and require each
       to be matched by a restoring call in a `defer` within the same body. At minimum
       the two counts must agree, and a call inside a `defer` must not itself pass
       `false`.
-- [ ] Fold in Task 1's requirement: the status of each switch-off is bound, and the
+- [x] Fold in Task 1's requirement: the status of each switch-off is bound, and the
       Keychain query is not reached on a failure.
-- [ ] Rewrite the rule's doc comment and its failure messages so they state exactly
+- [x] Rewrite the rule's doc comment and its failure messages so they state exactly
       what is now asserted — a rule weaker than its own comment is what this task is
       about, and restating the old claim over a stronger assertion would repeat it.
-- [ ] Verify by hand that the rule goes red when a second
+- [x] Verify by hand that the rule goes red when a second
       `SecKeychainSetUserInteractionAllowed(false)` is added to the store with no
       defer, then remove the mutation and confirm green.
-- [ ] `swift test` must pass before the next task.
+- [x] `swift test` must pass before the next task.
 
 ### Task 3: Rule 6 must pin the two named sites, not a token total
 
