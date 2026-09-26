@@ -60,7 +60,7 @@ spell it. Without that, the next part can make the claim a third time.
 
 ### Task 3: the gates
 
-- [ ] `swift test`.
-- [ ] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' test`, DerivedData outside the repository.
-- [ ] `swiftlint --strict` from the repository root.
-- [ ] Confirm no product or brand name entered any file this plan touched.
+- [x] `swift test`.
+- [x] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' test`, DerivedData outside the repository.
+- [x] `swiftlint --strict` from the repository root.
+- [x] Confirm no product or brand name entered any file this plan touched.
