@@ -145,8 +145,11 @@ enum FilePanels {
         field.translatesAutoresizingMaskIntoConstraints = false
 
         let reason = NSTextField(wrappingLabelWithString: "")
+        // The alert is a platform surface the app does not scale, so the
+        // accessory deliberately matches the alert's own small system size
+        // rather than reading the interface zoom.
         reason.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
-        reason.textColor = .systemRed
+        reason.textColor = ChromePalette.nsColor(.statusRed)
         reason.preferredMaxLayoutWidth = promptFieldWidth
         reason.isHidden = true
         reason.translatesAutoresizingMaskIntoConstraints = false

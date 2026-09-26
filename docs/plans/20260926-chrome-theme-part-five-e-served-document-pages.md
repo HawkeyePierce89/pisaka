@@ -228,15 +228,15 @@ This plan reads it as three conditions, and the new gating rule pins the counts:
 - Modify: `Sources/Pisaka/FilePanels.swift`
 - Modify: `Tests/PisakaCoreTests/ChromeThemeSourceGatingTests.swift`
 
-- [ ] Change the line to `reason.textColor = ChromePalette.nsColor(.statusRed)`. This is the dynamic colour, never the resolved `nsColor(_:in:)`.
-- [ ] Beside line 148, add a comment stating why `NSFont.smallSystemFontSize` stays:
+- [x] Change the line to `reason.textColor = ChromePalette.nsColor(.statusRed)`. This is the dynamic colour, never the resolved `nsColor(_:in:)`.
+- [x] Beside line 148, add a comment stating why `NSFont.smallSystemFontSize` stays:
   - An alert is a platform surface the app does not scale.
   - The accessory deliberately matches the alert's own small system size.
-- [ ] Add `"FilePanels.swift"` to `gatedFiles` under a "Part five (e)" comment. The existing set-equality checks then cover it in both directions.
-- [ ] Run the full gating suite.
+- [x] Add `"FilePanels.swift"` to `gatedFiles` under a "Part five (e)" comment. The existing set-equality checks then cover it in both directions.
+- [x] Run the full gating suite.
   - If `FilePanels.swift` trips an existing rule, fix it within that rule's intent.
   - If a rule cannot be satisfied without a new role or an exemption, stop and report.
-- [ ] Run `swift test`; it must pass before Task 5.
+- [x] Run `swift test`; it must pass before Task 5.
 
 ### Task 5: Gating rule forty-two — a served page's chrome is the palette's
 

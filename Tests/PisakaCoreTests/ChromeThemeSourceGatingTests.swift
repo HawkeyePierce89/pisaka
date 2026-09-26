@@ -313,6 +313,9 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         "LeetCodeOpenProblemSheet.swift",
         // The sign-in sheet's header and footer around the site's own page.
         "LeetCodeLoginView.swift",
+        // Part five (e): the text prompt's reason line, an alert accessory
+        // coloured through the palette's dynamic AppKit path.
+        "FilePanels.swift",
     ]
 
     func testEveryGatedFileExists() throws {
