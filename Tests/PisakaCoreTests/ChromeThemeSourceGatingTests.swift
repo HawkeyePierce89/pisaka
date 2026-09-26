@@ -4508,9 +4508,13 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// matches against `GitHubSourceGatingTests.strippingComments(_:)` — comments
     /// removed, **string literals kept** — because a CSS hex literal *is* a string
     /// literal, and the ordinary scanner would delete exactly the text the clause
-    /// counts. Comments are still dropped, so a doc comment quoting a value (as
-    /// `DocumentPageChrome.swift`'s does) is not counted. The other three clauses
-    /// read the ordinary scanner.
+    /// counts. That the same scanner also drops comments is **inherited, not
+    /// load-bearing**: no Core comment spells a hex value today, so the raw text
+    /// and the stripped text give the same 28 and 12, and nothing in the tree
+    /// exercises the exclusion. No test is added for it on purpose — dropping the
+    /// stripping could only make a future comment quoting a value *fail* the
+    /// clause, never hide a real literal from it, so the one way it can go wrong
+    /// is loud. The other three clauses read the ordinary scanner.
     private static let pageChromeSites: Set<String> = [
         "MarkdownPreviewPane.swift",
         "LeetCodeDescriptionView.swift",

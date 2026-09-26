@@ -102,10 +102,10 @@ given for why the comments-only scanner matters does not exist, and nothing in t
 tree exercises the comment-exclusion half: if the stripping were dropped, the
 pinned counts of 28 and 12 would stay green today.
 
-- [ ] Correct the doc comment so it no longer cites a comment that is not there.
-- [ ] Decide and state which of the two the clause needs, and do that one rather than both: either the comment-exclusion half is genuinely load-bearing here, in which case give it something to exercise, or it is inherited from the scanner and nothing in this file depends on it, in which case say that plainly instead of illustrating it with an invented case.
-- [ ] Test: whichever was chosen, the suite must be able to tell the difference — if the exclusion is kept as load-bearing, a case in the tree must make the counts move when the stripping is removed; if it is documented as inherited, no test is added and the comment says why none is.
-- [ ] Run `swift test`; it must pass before Task 5.
+- [x] Correct the doc comment so it no longer cites a comment that is not there.
+- [x] Decide and state which of the two the clause needs, and do that one rather than both: either the comment-exclusion half is genuinely load-bearing here, in which case give it something to exercise, or it is inherited from the scanner and nothing in this file depends on it, in which case say that plainly instead of illustrating it with an invented case.
+- [x] Test: whichever was chosen, the suite must be able to tell the difference — if the exclusion is kept as load-bearing, a case in the tree must make the counts move when the stripping is removed; if it is documented as inherited, no test is added and the comment says why none is.
+- [x] Run `swift test`; it must pass before Task 5.
 
 ### Task 5: the three stale statements
 
