@@ -171,10 +171,10 @@ The decision is recorded: **the read stays attended and the text comes to realit
 
 ### Task 6: Run the gates
 
-- [ ] `swift test` — full Core suite, report the exact count.
-- [ ] The app-layer test bundle, report the exact count.
-- [ ] `swiftlint --strict` from the repository root — must be clean.
-- [ ] macOS Release build and the `generic/platform=iOS` build — both must succeed,
+- [x] `swift test` — full Core suite, report the exact count.
+- [x] The app-layer test bundle, report the exact count.
+- [x] `swiftlint --strict` from the repository root — must be clean.
+- [x] macOS Release build and the `generic/platform=iOS` build — both must succeed,
       with derived data outside the repository.
-- [ ] Record in the progress log the by-hand red/green confirmations from Tasks 1, 2
+- [x] Record in the progress log the by-hand red/green confirmations from Tasks 1, 2
       and 3, naming the mutation used for each.
