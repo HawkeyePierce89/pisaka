@@ -2657,7 +2657,18 @@ means, what a file is named, when a fetch happens, and what gets written.
   surfaces, the browser's pre-token resolve and the menu's await; exactly two
   sites read **attended** — `requireCredentials()`'s own fallback read (its
   leading `resolveAccount()` stays unattended), and
-  `statement(forFileAt:in:)`'s fetch after a deliberate solution-tab activation.
+  `statement(forFileAt:in:)`'s fetch. That fetch is not an explicit action:
+  this read follows the selection of a solution tab, and a selection can be
+  restored at launch, moved by a folder change, or moved by closing another tab —
+  so on a machine whose login keychain does not recognise the binary its panel
+  can appear at launch, before the user has done anything: outside any layout
+  pass, and no worse than before L27, which is why the read stays attended. The
+  trigger is `.task(id: leetCodeStatementKey)` on the window root (macOS
+  `ContentView`, iOS `RootView_iOS`), keyed on the selected file and the
+  solutions folder and nothing else, plus the failed-open re-ask each platform's
+  open path makes for the selected tab; rule 7 of
+  `LeetCodeAccountSourceGatingTests` pins that composition, so a change to the
+  trigger forces this sentence to be revisited.
   A refused unattended read is indistinguishable from "nothing stored":
   resolution publishes `.signedOut`, starts no confirmation, tells the catalog
   nothing and surfaces no error. **Exactly two paths recover from it**, because
@@ -2676,7 +2687,7 @@ means, what a file is named, when a fetch happens, and what gets written.
   `LeetCodeBrowserModelTests.testARefusedUnattendedReadShowsTheOfferAndAsksNothing`
   (a refused read shows the sign-in offer, and the reads stay `[.unattended]`).
   **The cost:** a login keychain that genuinely refuses without asking now reads
-  as no session until the user opens a problem or selects a solution tab, which
+  as no session until the user opens a problem or a solution tab is selected, which
   then asks. **The known limit:** an attended read is still synchronous on the main
   actor, so while its panel stands the window cannot redraw; it is no longer
   inside a layout pass, so the panel can be answered and the app resumes
@@ -2744,6 +2755,12 @@ means, what a file is named, when a fetch happens, and what gets written.
   recovering paths runs — opening a problem, or the statement fetch for a
   selected solution tab. The judge's Run/Submit and the browser's lookup are not
   among them: they refuse on the signed-out state before reaching the read.
+  The statement fetch's panel is not always behind an action: this read follows
+  the selection of a solution tab, and a selection can be restored at launch,
+  moved by a folder change, or moved by closing another tab — so on a machine
+  whose login keychain does not recognise the binary its panel can appear at
+  launch, before the user has done anything: outside any layout pass, and no
+  worse than before L27, which is why the read stays attended.
 - **One account at a time.** The Keychain item *is* the session, filed under a
   constant account; switching accounts is a sign-out followed by a sign-in.
 - **A Run or Submit that outruns its budget does not undo the submission.**

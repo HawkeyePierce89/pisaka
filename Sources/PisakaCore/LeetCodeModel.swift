@@ -973,8 +973,12 @@ public final class LeetCodeModel: ObservableObject {
         // `slugsKnownAbsent`.
         if slugsKnownAbsent.contains(slug) { return published }
 
-        // Attended: a solution file becoming the active tab is a deliberate act,
-        // and this read runs from its task, never inside a layout pass.
+        // Attended. This read follows the selection of a solution tab, and a
+        // selection can be restored at launch, moved by a folder change, or moved
+        // by closing another tab — so on a machine whose login keychain does not
+        // recognise the binary its panel can appear at launch, before the user has
+        // done anything: outside any layout pass, and no worse than before L27,
+        // which is why the read stays attended.
         guard let credentials = cachedCredentials ?? storedCredentials(.attended) else {
             if published == nil { publish(.notLoggedIn) }
             return published

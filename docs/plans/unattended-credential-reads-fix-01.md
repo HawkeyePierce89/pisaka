@@ -152,22 +152,22 @@ contract text asserting something that is not true of this site.
 
 The decision is recorded: **the read stays attended and the text comes to reality.**
 
-- [ ] Say that this read follows the *selection* of a solution tab, and that a
+- [x] Say that this read follows the *selection* of a solution tab, and that a
       selection can be restored at launch, moved by a folder change, or moved by
       closing another tab.
-- [ ] Record as a known limit that on a machine whose keychain does not recognise the
+- [x] Record as a known limit that on a machine whose keychain does not recognise the
       binary the panel can appear at launch through this path — outside any layout
       pass, and no worse than before this branch, which is why the read stays attended
       rather than being demoted.
-- [ ] Make the three texts agree word for word on this point. They disagreeing again
+- [x] Make the three texts agree word for word on this point. They disagreeing again
       is the regression this task is about.
-- [ ] If the trigger's composition can be pinned cheaply — that the statement key is
+- [x] If the trigger's composition can be pinned cheaply — that the statement key is
       the selected file and the folder and nothing else — add that assertion, so a
       future change to the trigger forces this sentence to be revisited. If it cannot
       be pinned without inventing a rule that holds less than it claims, say so in the
       progress log and add nothing: this task exists because a claim outran its
       enforcement.
-- [ ] `swift test` must pass before the next task.
+- [x] `swift test` must pass before the next task.
 
 ### Task 6: Run the gates
 

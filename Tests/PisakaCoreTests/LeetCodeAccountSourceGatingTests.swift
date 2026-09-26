@@ -77,6 +77,21 @@ import XCTest
 ///    a third attended site anywhere has to be argued here rather than slipping
 ///    in beside a pinned one; the per-body pins are what fail when a kind moves
 ///    between functions and the total does not change.
+/// 7. **The statement fetch's trigger is the selection, and nothing else.** The
+///    attended fetch rule 6 pins is reached from the app tree in exactly three
+///    files, by count: `ContentView.swift` once and `iOS/RootView_iOS.swift`
+///    twice (each root's `.task(id: leetCodeStatementKey)` plus, on iOS, the
+///    failed-open re-ask) and `PisakaApp.swift` once (the macOS failed-open
+///    re-ask). In both roots one call sits inside that task's body, and the
+///    key's computed body is pinned **verbatim** (whitespace collapsed): the
+///    selected file's path and the solutions folder's path, joined, and no
+///    other input. This one reading keeps string literals — comments dropped
+///    through `GitHubSourceGatingTests.strippingComments` — because an
+///    interpolation inside the key's literal is an input to the trigger, and
+///    the ordinary scanner deletes exactly that text.
+///    This is what L27's sentence "a selection can be restored at launch, moved
+///    by a folder change, or moved by closing another tab" is true of; a change
+///    to the trigger fails here and forces that sentence to be revisited.
 ///
 /// **Why the compiler cannot see any of this:** a launch-time
 /// `refreshUserStatus()`, or a `resolveAccount()` in the scene's `onAppear`,
@@ -483,5 +498,68 @@ final class LeetCodeAccountSourceGatingTests: XCTestCase {
                 + "LeetCodeModel. A third must be argued here: if an on-appear body can reach it, it can raise the "
                 + "authorization panel inside a layout pass and freeze the app."
         )
+    }
+
+    // MARK: - The statement fetch runs on the selection, and on nothing else
+
+    /// Rule 7. L27 states when the attended statement fetch runs — whenever a
+    /// solution tab becomes the selection, which a launch-time restore, a folder
+    /// change or another tab's close can each cause. That sentence is only true
+    /// while the trigger reads the selection and the folder and nothing else, so
+    /// the trigger's composition is pinned here rather than trusted.
+    func testTheStatementFetchIsTriggeredByTheSelectionAndTheFolderAlone() throws {
+        let files = try appFiles()
+        let fetch = try NSRegularExpression(pattern: "\\bstatement\\s*\\(\\s*forFileAt\\b")
+        var counts: [String: Int] = [:]
+        for file in files {
+            let found = fetch.numberOfMatches(in: file.code, range: NSRange(file.code.startIndex..., in: file.code))
+            if found > 0 { counts[file.name] = found }
+        }
+        XCTAssertEqual(
+            counts,
+            ["ContentView.swift": 1, "iOS/RootView_iOS.swift": 2, "PisakaApp.swift": 1],
+            "The attended statement fetch must be reached from each root's `.task(id: leetCodeStatementKey)` and "
+                + "each platform's failed-open re-ask, and from nowhere else. A new caller is a new moment the "
+                + "keychain panel can appear; argue it here and in L27's sentence about when the read runs."
+        )
+
+        let expectedKey = #"let file = model.selectedFile?.url?.path ?? "" "#
+            + #"let folder = settings.leetCodeFolderURL?.path ?? "" "#
+            + #"return file + "\u{0}" + folder"#
+        for root in ["ContentView.swift", "iOS/RootView_iOS.swift"] {
+            let code = try XCTUnwrap(
+                files.first { $0.name == root }?.code,
+                "\(root) must exist; if it moved, re-point rule 7 rather than letting it pass on nothing."
+            )
+            let taskBody = try XCTUnwrap(
+                ChromeThemeSourceGatingTests.matchedBody(after: ".task(id: leetCodeStatementKey)", in: code),
+                "\(root) must run the statement fetch from `.task(id: leetCodeStatementKey)`; a different trigger "
+                    + "changes when the attended read runs, which L27 states."
+            )
+            XCTAssertEqual(
+                fetch.numberOfMatches(in: taskBody, range: NSRange(taskBody.startIndex..., in: taskBody)), 1,
+                "\(root)'s `.task(id: leetCodeStatementKey)` must call the statement fetch exactly once."
+            )
+            let withLiterals = GitHubSourceGatingTests.strippingComments(
+                try String(
+                    contentsOf: Self.repositoryRoot.appendingPathComponent(Self.appTree).appendingPathComponent(root),
+                    encoding: .utf8
+                )
+            )
+            let keyBody = try XCTUnwrap(
+                ChromeThemeSourceGatingTests.matchedBody(after: "var leetCodeStatementKey", in: withLiterals),
+                "\(root) must compute `leetCodeStatementKey`; if it was renamed, re-point rule 7."
+            )
+            let collapsed = keyBody
+                .split(whereSeparator: { $0.isWhitespace })
+                .joined(separator: " ")
+            XCTAssertEqual(
+                collapsed, expectedKey,
+                "\(root)'s `leetCodeStatementKey` must be composed of the selected file's path and the solutions "
+                    + "folder's path and nothing else. L27 says the attended fetch runs when the selection is "
+                    + "restored at launch, moved by a folder change or moved by closing another tab; a new input to "
+                    + "the key is a new moment it runs, so that sentence has to be revisited with it."
+            )
+        }
     }
 }
