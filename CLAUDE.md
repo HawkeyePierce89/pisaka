@@ -740,12 +740,13 @@ ci.yml's `lint` job, and the version-bump procedure.
   paints its own background and overrides nothing — was measured recolouring
   live in both directions when the system appearance changed under it. A
   reader: it takes no writer gate, is gated by none and writes nothing.
-  `ChromeThemeSourceGatingTests` pins which files obey the rule (fifty-nine, by set
+  `ChromeThemeSourceGatingTests` pins which files obey the rule (sixty, by set
   equality) and its forty-three rules — no system semantic colour, no hex literal
   outside the table, the four exemptions stay exemptions, the theme injected at
   the scale's roots, no view constructing a theme, the gutter's fill still going
   through its own rule (a seam pins nothing its call site does not spend, and
-  that call site was this sweep's one regression), no geometry token derived by
+  that call site was this sweep's one regression — the fold placeholder's two
+  seams and the fold chevron's spent by their draws too), no geometry token derived by
   arithmetic, the tab icon rule spelled once, the window's chrome configured
   in one file, and every bottom-bar control identifiable without sight (the
   toggles are icon-only, so the `Label` that used to supply each one's
@@ -777,15 +778,17 @@ ci.yml's `lint` job, and the version-bump procedure.
   and Core's CSS hex literals confined to the two restated blocks, counts
   pinned), and no document calling the sweep closed while a surface remains
   (the macOS files still painting outside the roles measured, pinned by set
-  equality — today the fold placeholder's `BracketOverlayLayoutManager.swift`
-  — and named in the failure) — plus, beside the rules rather
+  equality and named in the failure — the set is empty today, and that live
+  half still guards every macOS file neither gated nor exempt, a gated one
+  falling to the first two rules — the first for a system colour or a hue, the
+  second for a hex literal) — plus, beside the rules rather
   than among them, the cross-file count that keeps this sentence and
   `core-theme.md`'s own list equal to the number of rules the suite declares —
   while **four files are exempt because they are not
   chrome**: `SyntaxTheme.swift` (the code zone's own theme), `TerminalTheme.swift`
   (a protocol's ANSI-16 vocabulary), `FileIcon.swift` (a Core token iOS still
   paints) and `CommitGraphPalette.swift` (a lane colour is an identity token, not
-  a chrome meaning). Fifty-five surfaces are swept so far — part one's tab strip, line-number
+  a chrome meaning). Fifty-six surfaces are swept so far — part one's tab strip, line-number
   ruler and project tree rows (the inline draft field with them), part two's
   vertical tab column, breadcrumb, minimap chrome and language-server consent
   strip, part three's window ground and title bar, sidebar host and header,
@@ -797,7 +800,7 @@ ci.yml's `lint` job, and the version-bump procedure.
   Terminal panel host, which spend no new role, and part four (b)'s Log panel,
   its filter bar, its graph gutter, the Local Changes panel, the Pull Requests
   panel, the side-by-side diff pane and the unified diff's wash, which spend the
-  two diff grounds leaving four roles unspent (`bgPopover`, `currentLine`, `bracketMatch`, `conflictBackground`), and part five (a)'s completion panel, hover popover, find/replace bar, Find in Files window and its window controller, recent-searches menu, two bottom-bar popovers and Log calendar popover on `bgPopover`, the badge monochrome and the shared field shape, which spend `bgPopover` and leave three roles unspent (`currentLine`, `bracketMatch`, `conflictBackground`), and part five (b)'s commit dialog, its author editor sheet, the merge editor, the diff window, the Local History window, the source viewer and every secondary window's ground (set once, in `EscClosableWindow`), with the shared primary button and checkbox, which spend `conflictBackground` on the merge panes and leave two roles unspent (`currentLine`, `bracketMatch`), both code zone, and part five (c)'s Preferences host with its tab bar, General, Language Servers, the problem-catalog tab, Acknowledgements, the licence pane and the two pull-request sheets, with the shared segmented control, stepper, switch, settings tab bar and menu field (the last lifted from the Log bar), which spend no new role, and part five (d)'s database viewer, its SQL console, the problem-catalog browser, the statement pane, the judge section, the open-problem sheet with its menu commands and the sign-in sheet, with the shared spinner, which spend no new role and leave the same two unspent (`currentLine`, `bracketMatch`), and part five (e)'s two served document pages (the Markdown preview and the problem statement, one shared `DocumentPageChrome` derived from the palette, `tableBorder` collapsed into `hairline`) and the text prompt's alert accessory, which spend no new role and leave the same two unspent; the rest is the follow-up sweep, whose procedure
+  two diff grounds leaving four roles unspent (`bgPopover`, `currentLine`, `bracketMatch`, `conflictBackground`), and part five (a)'s completion panel, hover popover, find/replace bar, Find in Files window and its window controller, recent-searches menu, two bottom-bar popovers and Log calendar popover on `bgPopover`, the badge monochrome and the shared field shape, which spend `bgPopover` and leave three roles unspent (`currentLine`, `bracketMatch`, `conflictBackground`), and part five (b)'s commit dialog, its author editor sheet, the merge editor, the diff window, the Local History window, the source viewer and every secondary window's ground (set once, in `EscClosableWindow`), with the shared primary button and checkbox, which spend `conflictBackground` on the merge panes and leave two roles unspent (`currentLine`, `bracketMatch`), both code zone, and part five (c)'s Preferences host with its tab bar, General, Language Servers, the problem-catalog tab, Acknowledgements, the licence pane and the two pull-request sheets, with the shared segmented control, stepper, switch, settings tab bar and menu field (the last lifted from the Log bar), which spend no new role, and part five (d)'s database viewer, its SQL console, the problem-catalog browser, the statement pane, the judge section, the open-problem sheet with its menu commands and the sign-in sheet, with the shared spinner, which spend no new role and leave the same two unspent (`currentLine`, `bracketMatch`), and part five (e)'s two served document pages (the Markdown preview and the problem statement, one shared `DocumentPageChrome` derived from the palette, `tableBorder` collapsed into `hairline`) and the text prompt's alert accessory, which spend no new role and leave the same two unspent, and part five (f)'s fold placeholder (glyph `textSecondary` agreeing with the fold chevron, outline `hairline`), which spends no new role and leaves the same two unspent. With it the macOS colour sweep is closed in one bounded sense — every macOS chrome surface draws from the roles — and the theme is not thereby finished: its open questions stay named in `core-theme.md` (the terminal's own palette, the caret readout, the lane hues, the unified diff's checkbox glyph and changed-line tint, the tree's drop-target alpha); the follow-up procedure
   and its one refusal ("a surface needing a twenty-second role has found a design
   question") are in `core-theme.md`.
 - **Zoom is three zones, one arithmetic, one pointer rule** (macOS only): `code`

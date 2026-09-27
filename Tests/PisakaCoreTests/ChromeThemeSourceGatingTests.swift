@@ -330,6 +330,9 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         // Part five (e): the text prompt's reason line, an alert accessory
         // coloured through the palette's dynamic AppKit path.
         "FilePanels.swift",
+        // Part five (f): the fold placeholder — its `…` glyph and rounded
+        // outline, drawn from the palette through two spent seams.
+        "BracketOverlayLayoutManager.swift",
     ]
 
     func testEveryGatedFileExists() throws {
@@ -452,8 +455,30 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
 
     // MARK: - Rule two: no gated view spells a hex literal
 
+    /// The `0xRRGGBB` colour literal, one declaration read by two rules: rule two
+    /// asks it of the gated files and rule forty-three of the files neither gated
+    /// nor exempt. They are the two halves of one question, so they must ask it in
+    /// the same words — two copies could be widened apart, and a gated file
+    /// spelling the new form would then fail neither (rule forty-three skips gated
+    /// files by construction), while the documents still promised the handoff.
+    /// One declaration cannot disagree with itself, which is what makes that
+    /// documented handoff true by construction rather than by coincidence — the
+    /// prose alone could be corrected and drift again.
+    ///
+    /// Verified by mutation, not assumed: widened to `0x[0-9A-Fa-f]{2}`, rule
+    /// forty-three measured four ungated files (`CodeEditorView.swift`,
+    /// `DatabaseConnectionService.swift`, `PlatformColor.swift`,
+    /// `SymbolExtractor.swift`) while rule two, which no gated file but the
+    /// palette answers in either form, held; changed to `0x[0-9A-Fa-f]{8}`, rule
+    /// two lost `ChromePalette.swift` and failed. Both rules moved with the one
+    /// declaration, and both went green again once it was restored.
+    ///
+    /// Not rule forty-two's `#[0-9A-Fa-f]{6}`: that is CSS hex in Core's served
+    /// page chrome, a different question with its own counts. Do not merge the two.
+    static let hexColorLiteralPattern = "0x[0-9A-Fa-f]{6}"
+
     func testOnlyThePaletteSpellsAHexColorLiteral() throws {
-        let hex = try NSRegularExpression(pattern: "0x[0-9A-Fa-f]{6}")
+        let hex = try NSRegularExpression(pattern: Self.hexColorLiteralPattern)
         var spellers: Set<String> = []
         for url in try Self.swiftSources() where Self.gatedFiles.contains(url.lastPathComponent) {
             let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
@@ -572,7 +597,33 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     ///
     /// Shaped after `FoldingSourceGatingTests`' reveal-funnel rule: one
     /// definition, a counted set of callers, plus the forbidden bare form.
+    ///
+    /// **The second clause** (part five (f)) applies the same principle — *a
+    /// seam pins nothing its call site does not spend* — to the two other
+    /// colour seams an app-layer test reads, so this rule is where a later
+    /// reader auditing which seams must be spent finds all three: the gutter
+    /// fill (`backgroundRect(in:ruleThickness:)`), the fold placeholder
+    /// (`placeholderAttributes` for the `…` and `placeholderOutlineColor` for
+    /// its outline, both in `BracketOverlayLayoutManager.swift`) and the fold
+    /// chevron (`foldChevronColor`, in the ruler). `GutterFoldTests` asserts
+    /// what the placeholder's two seams and the chevron's answer, and that the
+    /// glyph and the chevron agree under both appearances; nothing there can see
+    /// `paintFoldPlaceholders` inlining an equivalent attribute dictionary, or
+    /// `drawFoldChevron` going back to its own palette call — either leaves the
+    /// seam's test green while the draw answers something else. So the clause
+    /// reads each drawing body: it names its seams, and the placeholder's names
+    /// none of `ChromePalette`, `NSColor`, `foregroundColor` or
+    /// `withAlphaComponent`, the chevron's no `ChromePalette`.
+    ///
+    /// Verified by mutation, not assumed: re-inlining
+    /// `[.font: editorFont, .foregroundColor: ChromePalette.nsColor(.textSecondary)]`
+    /// in `paintFoldPlaceholders` turned the clause red, and so, separately, did
+    /// restoring `drawFoldChevron`'s local `ChromePalette.nsColor(.textSecondary)`;
+    /// both were restored.
     private static let rulerFile = "LineNumberRulerView.swift"
+
+    /// The fold placeholder's file, read by rule six's second clause.
+    private static let overlayFile = "BracketOverlayLayoutManager.swift"
 
     func testTheGutterFillGoesThroughItsOwnRule() throws {
         let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
@@ -603,6 +654,42 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
             the ruler is handed the rectangle it was asked to redraw, which regularly spans the whole \
             editor pane — filling it wholesale paints the code out
             """
+        )
+
+        // Second clause: the fold placeholder and the chevron spend their seams.
+        let overlay = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
+            try Self.read(Self.source(named: Self.overlayFile))
+        )
+        let placeholderDraw = try XCTUnwrap(
+            Self.matchedBody(after: "func paintFoldPlaceholders(", in: overlay),
+            "paintFoldPlaceholders is gone or renamed — re-point this rule rather than losing it"
+        )
+        for seam in ["placeholderAttributes", "placeholderOutlineColor"] {
+            XCTAssertTrue(
+                LSPSourceGatingTests.containsToken(seam, in: placeholderDraw),
+                "paintFoldPlaceholders must spend \(seam) — a seam its draw does not read pins nothing"
+            )
+        }
+        for forbidden in ["ChromePalette", "NSColor", "foregroundColor", "withAlphaComponent"] {
+            XCTAssertFalse(
+                LSPSourceGatingTests.containsToken(forbidden, in: placeholderDraw),
+                """
+                paintFoldPlaceholders names \(forbidden) — the placeholder's colours come from its two \
+                seams, which the app-layer test reads; a colour composed in the draw is one it cannot see
+                """
+            )
+        }
+        let chevronDraw = try XCTUnwrap(
+            Self.matchedBody(after: "func drawFoldChevron(", in: code),
+            "drawFoldChevron is gone or renamed — re-point this rule rather than losing it"
+        )
+        XCTAssertTrue(
+            LSPSourceGatingTests.containsToken("foldChevronColor", in: chevronDraw),
+            "drawFoldChevron must spend foldChevronColor — the seam the placeholder is compared against"
+        )
+        XCTAssertFalse(
+            LSPSourceGatingTests.containsToken("ChromePalette", in: chevronDraw),
+            "drawFoldChevron resolves its own palette colour — the chevron's seam is foldChevronColor"
         )
     }
 
@@ -2998,6 +3085,16 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// `MinimapView.swift`'s `withAlphaComponent(0.6)` is outside the rule by
     /// what it applies to — a syntax-table colour, the code zone's, not a role's.
     /// This part's ten files, written against the rule, ban the token outright.
+    ///
+    /// **Known gap, named rather than fixed.** The alpha clause sees an alpha
+    /// chained *directly* onto `nsColor(`, `.color(` or `chromeColor(` and
+    /// nothing else, so two forms pass while breaking what this comment says:
+    /// the local-variable form (the fold placeholder's former
+    /// `color.withAlphaComponent(0.5)`, removed in part five (f) rather than
+    /// caught) and the helper-call form (`ProjectTreeView.swift`'s drop-target
+    /// `resolving(.accent).opacity(0.4)`, which passes today). The rule is not
+    /// strengthened here; `core-theme.md` names that surface under *What is
+    /// still waiting*.
     private static let mergeWashReaders: Set<String> = ["MergeView.swift"]
 
     func testTheMergeWashIsCoresOneAnswer() throws {
@@ -4622,17 +4719,24 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// `Sources/Pisaka/iOS/`, outside `gatedFiles`, outside the four
     /// `colorExemptions`, and naming a system semantic colour, a SwiftUI hue or a
     /// `0xRRGGBB` literal. Today's answer, pinned by set equality so both
-    /// directions fail — a new unswept surface appearing, and this one being
-    /// swept without the rule being updated.
+    /// directions fail — a measured surface missing from the set, and a set
+    /// member no longer measured.
     ///
-    /// - `BracketOverlayLayoutManager.swift` — the fold placeholder, painted from
-    ///   `NSColor.secondaryLabelColor`; the file's own comment calls it chrome
-    ///   standing in for text. Whether it belongs to the chrome or to the code
-    ///   zone is a design question left for a part of its own (`core-theme.md`,
-    ///   *What is still waiting*).
-    private static let unsweptColorSurfaces: Set<String> = [
-        "BracketOverlayLayoutManager.swift",
-    ]
+    /// Empty today: the fold placeholder (`BracketOverlayLayoutManager.swift`)
+    /// left the set in part five (f), when it began drawing from the palette and
+    /// joined `gatedFiles`.
+    ///
+    /// The bound, stated because the claim was once written wider than it is:
+    /// the **live half** of rule forty-three is the set-equality check between
+    /// the measured surfaces and this set, and its measurement skips gated and
+    /// exempt files — so it guards only the macOS app files that are **neither
+    /// gated nor exempt**, failing when one of those starts painting outside the
+    /// roles. A file that has joined the gated set is guarded by rules one and
+    /// two instead, not by this one — rule one for a system semantic colour or a
+    /// SwiftUI hue, rule two for a `0xRRGGBB` literal. The **document half** (no document calling the sweep
+    /// closed) is dormant while the set is empty and wakes again only when the
+    /// live half measures a surface. A dormant half is not a dead rule.
+    private static let unsweptColorSurfaces: Set<String> = []
 
     /// What a document may not say while `unsweptColorSurfaces` is non-empty.
     ///
@@ -4661,18 +4765,31 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// Rule forty-three, the completeness claim checked against the measurement
     /// that decides it — the way the documented rule count is checked against the
     /// markers. Part five (d) and then part five (e) each called itself the last
-    /// part; both were wrong, and nothing read the claim against the tree.
+    /// part; both were wrong, and nothing read the claim against the tree then.
+    ///
+    /// Its reach is bounded by its measurement (see `unsweptColorSurfaces`): the
+    /// live half sees only macOS app files that are neither gated nor exempt, so
+    /// a gated file painting a system colour is rule one's failure, not this
+    /// rule's. The document half runs only while that measurement is non-empty;
+    /// since part five (f) it is dormant, not dead.
+    ///
+    /// Verified live by mutation with the set empty, not assumed: an
+    /// `_ = NSColor.systemRed` added to `DefinitionPicker.swift` (ungated, not
+    /// exempt) turned this test red with "the macOS files painting outside the
+    /// roles are ["DefinitionPicker.swift"]", and went green again once restored.
     ///
     /// The sources are read through the **ordinary** scanner
     /// (`strippingCommentsAndStringLiterals`), not a literal-keeping one: the
     /// subject is what a file *paints with*, and a doc comment discussing
-    /// `.secondaryLabelColor` — `BracketOverlayLayoutManager.swift` has one, and
-    /// the gated files document their own rules the same way — paints nothing.
+    /// `.secondaryLabelColor` — the gated files document their own rules this
+    /// way — paints nothing. (No file is named as the example on purpose: a
+    /// named one goes stale the moment its comment is rewritten, and a comment
+    /// naming none has nothing to pin.)
     /// A colour named only inside a string literal is not a colour either. The
     /// `FileIcon(` lines are dropped as in rule one, since a `FileIconColor` case
     /// is a Core token, not a hue. The documents are read raw: a claim is prose.
     func testNoDocumentCallsTheSweepClosedWhileASurfaceRemains() throws {
-        let hex = try NSRegularExpression(pattern: "0x[0-9A-Fa-f]{6}")
+        let hex = try NSRegularExpression(pattern: Self.hexColorLiteralPattern)
         let label = try NSRegularExpression(pattern: Self.channelLabel)
         let macOSApp = try Self.swiftSources().filter {
             $0.pathComponents.contains("Pisaka") && !$0.pathComponents.contains("PisakaCore")

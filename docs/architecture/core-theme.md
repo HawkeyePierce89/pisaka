@@ -1675,9 +1675,10 @@ rule twenty-seven.
 
 #### Part five (d) — the database viewer, its SQL console and the problem-catalog surfaces
 
-Seven more macOS chrome views — the last this series of parts named, **not** the
-last unswept ones (see *What is still waiting* below for a verified
-counterexample): the database viewer tab and its SQL
+Seven more macOS chrome views — the last this series of parts had named at the
+time, and **not** the last unswept ones, though this part was written up as if
+they were: part five (e)'s alert accessory was the verified counterexample, and
+after it part five (f)'s fold placeholder a second. The database viewer tab and its SQL
 console, and the problem-catalog browser window, the statement pane, the judge
 section, the open-problem sheet (with the menu-bar commands in the same file) and
 the sign-in sheet. It spends **no new colour role** — `ChromeColorRole` stays at
@@ -1909,15 +1910,17 @@ both served web documents that kept a colour family of their own (fourteen and
 twelve chrome hex literals in Core) — and the **alert accessory** in
 `FilePanels.swift`, the text prompt's refusal sentence, which set `.systemRed`
 and was this document's verified counterexample to part five (d) having been the
-last. **This part is not the last either.** It was first written up as the part
-closing the macOS colour sweep — the same claim part five (d) made, made
+last. **This part was not the last either.** It was first written up as the
+part closing the macOS colour sweep — the same claim part five (d) made, made
 again one part later without the measurement that would have disproved it, and
-again wrong: `BracketOverlayLayoutManager.swift` still paints the fold
+again wrong: `BracketOverlayLayoutManager.swift` then still painted the fold
 placeholder from `NSColor.secondaryLabelColor`, and that file's own comment
-calls the placeholder "chrome standing in for text, not a token". It is recorded
-here because a document that keeps the mistake is what stops the next part
-repeating it (the surface itself is named under *What is still waiting*), and
-rule forty-three is what now reads such a claim against the tree.
+called the placeholder "chrome standing in for text, not a token". So the claim
+was made twice and was twice false, and the fold placeholder is the surface
+that made the second one wrong. It is recorded here because a document that
+keeps the mistake is what stops the next part repeating it (the surface itself
+was swept in part five (f), below), and rule forty-three is what now reads such
+a claim against the tree.
 **No new role**:
 `ChromeColorRole` stays at twenty-one, and `currentLine` and `bracketMatch` stay
 the two unspent. One Core value is added, `DocumentPageChrome` (its entry
@@ -1985,38 +1988,131 @@ of exactly two restated blocks, `MarkdownPreviewTheme.swift`'s code half (28) an
 `DocumentPageChrome.swift` (12); a test pins each block equal to its app-side
 table; and `LeetCodeStatementDocument.swift` spells none.
 
+#### Part five (f) — the fold placeholder
+
+One surface: the **fold placeholder**, the `…` and its rounded outline drawn
+where a collapsed block was, in `BracketOverlayLayoutManager.swift` — the
+surface that made part five (e)'s closing claim wrong. It painted the glyph from
+`NSColor.secondaryLabelColor` and the outline from the same colour at a composed
+half alpha.
+
+**The glyph is `textSecondary`.** Three reasons, the last deciding. The role's
+definition: `textSecondary` is the chrome's quieter text, and the placeholder is
+text the chrome draws, not text the buffer holds. The code zone cannot hold it:
+`SyntaxTheme`'s table is keyed by `SyntaxTokenKind`, and nothing in the buffer
+says `…`, so there is no token to colour it by. And **the chevron settles the
+tie**: the gutter's fold chevron already draws the same fact — *this block is
+folded* — in `textSecondary`, so the placeholder taking the same role makes the
+two agree by construction rather than by two values happening to match. The
+palette bridge is appearance-aware exactly as the platform colour was (a dynamic
+colour resolves at draw time under `.aqua` and `.darkAqua`), so there is still
+no second table.
+
+**The outline is `hairline`, at its own value.** `hairline` is the chrome's one
+answer for a rounded container's one-point border — the shared field, the
+secondary button, the off checkbox, the segmented control, the stepper and the
+off switch track in `ChromeControls.swift` all draw theirs with it — and it is
+already quieter than the glyph, which is all the former half alpha was for. So
+the composed `withAlphaComponent(0.5)` is gone, and the stroke is
+`ChromeGeometry.hairlineWidth`, **unscaled**, following the ruler's gutter
+hairline precedent (the token's own doc comment points there) rather than
+restating it. The half-point inset stays a bare local `0.5` — rule seven forbids
+writing it as `hairlineWidth / 2`.
+
+**Two zone statements, no exceptions.** The placeholder is drawn at the
+**code** font, because it stands in the document's own text flow, and
+`placeholderRect(forFoldedRangeAt:)`'s inset, gap and height are measured from
+that font — the code zone's measurements, not the chrome's point tokens. Both are
+said at their sites, so a later rule keyed on gated-set membership meets a stated
+reason rather than a silent number. Geometry is unchanged.
+
+**Spent seams.** Both colours reach the draw through `internal` seams, in the
+ruler's `numberAttributes` pattern: `placeholderAttributes` (the code font plus
+the dynamic `textSecondary`) and `placeholderOutlineColor`; the ruler gains the
+matching `foldChevronColor`, which `drawFoldChevron` now reads instead of its
+local palette call. The app-layer `GutterFoldTests` asserts, under both
+appearances, that the glyph resolves to the palette's `textSecondary` and not
+`secondaryLabelColor`, that the outline resolves to `hairline` and not
+`secondaryLabelColor` at half alpha, and that the glyph equals the chevron — a
+value frozen at construction would pass one appearance and fail the other. That
+the draws **spend** those seams is **rule six's second clause** (below), not a
+new rule. Mutation-checked, not assumed: swapping `placeholderAttributes`'
+colour for `secondaryLabelColor`, `placeholderOutlineColor` for another role, or
+`foldChevronColor` for another role each turned the app test red; re-inlining an
+equivalent attribute dictionary in `paintFoldPlaceholders`, and separately
+restoring the chevron's local palette call, each turned rule six red; each was
+restored.
+
+**No new role**: `ChromeColorRole` stays at twenty-one, `currentLine` and
+`bracketMatch` stay the two unspent, and nothing in Core changes. One file joins
+the gated set, taking it from fifty-nine to **sixty**:
+`BracketOverlayLayoutManager.swift`, and `unsweptColorSurfaces` empties. The
+suite's rule count stays forty-three.
+
+**Measured before drafting, rule by rule.** With the file added to `gatedFiles`
+in a scratch worktree, the glyph switched to the palette and the unswept set
+emptied, the whole suite passed — rule one (no system semantic colour), the
+hex-literal rule, rule seven (no arithmetic on a geometry token), rule
+twenty-seven (each measurement follows its own zone; its clauses are per-file,
+none keyed on membership), the chrome-glyph sizing rule (the file builds no
+symbol image), the severity rule (the file's `nsDiagnosticColor` is the code
+zone's `SyntaxTheme`, outside the rule), the layer-colour rule, the
+every-gated-file-names-a-role self-check and rule forty-three. The one finding
+was **rule twenty-nine**: its alpha clause sees an alpha chained directly onto
+`nsColor(`, `.color(` or `chromeColor(` only, so the placeholder's local
+`color.withAlphaComponent(0.5)` passed while breaking what the rule says, and so
+does `ProjectTreeView.swift`'s drop-target `resolving(.accent).opacity(0.4)`.
+This part removes its own instance and records the gap on rule twenty-nine's
+entry; it does not change the rule and does not touch the tree (the drop-target
+is named under *What is still waiting*).
+
+**Rule forty-three, bounded.** It was verified live by mutation with the set
+empty: an `_ = NSColor.systemRed` added to `DefinitionPicker.swift` (ungated, not
+exempt) turned it red naming that file, and green again once restored. Its entry
+now states the bound its measurement has always had.
+
+**The sweep is closed, and what that does not mean.** With this part the macOS
+colour sweep is closed, in one sense only: every macOS chrome surface draws
+from the roles, which rule forty-three's live half measures rather than asserts.
+It does **not** mean the theme is finished. The open questions stay open and
+stay named under *What is still waiting*: the terminal's own palette, the caret
+readout, the lane hues, the unified diff's per-line checkbox glyph and
+changed-line text tint, and now the tree's drop-target alpha.
+
 #### What is still waiting
 
 The dock is finished, the popovers and search surfaces are swept, and so are the
 commit dialog, the merge editor, every secondary window's ground, Preferences,
 the two pull-request sheets, the database viewer and its console, the
-problem-catalog surfaces, the two served document pages and the alert
-accessory. After them: the **fold placeholder** in
-`BracketOverlayLayoutManager.swift`, the one surface known to remain — it paints
-from `NSColor.secondaryLabelColor`, and the file's own comment calls it "chrome
-standing in for text, not a token". It is left for a part of its own because
-whether a placeholder standing in for text belongs to the chrome or to the code
-zone is a design question, and this sweep's stated refusal is to stop at a
-design question rather than decide it under another part's heading. Rule
-forty-three pins it as the one member of `unsweptColorSurfaces`, so the part
-that sweeps it takes it out of that set in the same commit. Beyond it:
-any macOS chrome view still ungated that a later audit finds (part five (d) and
-then part five (e) each claimed to be the last and neither was, so none is
-claimed here) and the terminal's own palette. Each follows the six-step guide at the end of this document, on its
-own, with `gatedFiles` growing as part of the restyle rather than afterwards.
+problem-catalog surfaces, the two served document pages, the alert accessory and
+the fold placeholder. No macOS surface is known to paint outside the roles —
+that is the bounded closure stated at the end of part five (f), and rule
+forty-three's live half is what would say otherwise the moment an ungated,
+non-exempt macOS file started to.
+
+**One measured item waits for a part of its own**: the project tree's
+**drop-target** highlight in `ProjectTreeView.swift`,
+`resolving(.accent).opacity(0.4)` — an alpha composed onto a role's colour
+through a helper call, the form rule twenty-nine's alpha clause cannot see. It
+is not fixed with the placeholder because it is not a role swap: `accentTint`
+carries alpha `0x22` and `accentTintStrong` `0x33` against the `0.4` in use, so
+moving it onto either is a visible change to the drop-target highlight, and that
+is another surface's design question — this sweep's stated refusal is to stop at
+a design question rather than decide it under another part's heading.
 
 The dock's tab row is **no longer deferred** — part four (a) drew it, and
 `ChromeGeometry.dockTabRowHeight` is spent. The popovers are **no longer
 deferred** — part five (a) drew them on `bgPopover` and replaced their
 `Divider()` calls with `hairline` rules, and `ChromeGeometry.fieldCornerRadius`
-and `secondaryButtonHeight` are spent on the shared field. What stays deferred
-inside surfaces already swept is the **caret readout** beside the bar, which
+and `secondaryButtonHeight` are spent on the shared field. What stays deferred:
+the **terminal's own palette**, the **caret readout** beside the bar, which
 waits on a design decision rather than on a file, the **lane hues**, and the
 unified diff's **per-line checkbox glyph** and **changed-line text tint** (part
-five (b)'s departures six and seven), all open design questions. Two roles
-remain unspent — `currentLine` and `bracketMatch`, both code zone — after
-fifty-five surfaces, the same two and the same count
-`ChromeColorRole.swift`'s own doc comment states.
+five (b)'s departures six and seven), all open design questions, plus the
+drop-target alpha above. Each follows the six-step guide at the end of this
+document, on its own. Two roles remain unspent — `currentLine` and
+`bracketMatch`, both code zone — after fifty-six surfaces, the same two and the
+same count `ChromeColorRole.swift`'s own doc comment states.
 
 ### The monochrome-icon decision
 
@@ -2054,7 +2150,7 @@ five: `TabListView.swift`, `TabRowView.swift`, `BreadcrumbBarView.swift`,
 `MainWindowChrome.swift`, `ContentView.swift`, `ProjectSwitcherView.swift`,
 `BranchSwitcherView.swift`, `PullRequestIndicatorView.swift` — plus part four
 (a)'s `DockTabRow.swift`, `ProblemsPanelView.swift`, `UsagesPanelView.swift` and
-`TerminalPanelView.swift`, **twenty** in all. Part four (b), part five (a), part five (b), part five (c), part five (d) and part five (e) add seven, seven, ten, seven, seven and one more, each named in its own section above — **fifty-nine** in all today. `ProjectTreeView.swift` is not among the third part's additions because it
+`TerminalPanelView.swift`, **twenty** in all. Part four (b), part five (a), part five (b), part five (c), part five (d), part five (e) and part five (f) add seven, seven, ten, seven, seven, one and one more, each named in its own section above — **sixty** in all today. `ProjectTreeView.swift` is not among the third part's additions because it
 was already there: part three restyled the surface *around* the rows part one
 had swept, and a file joins this set once. The draft field is in the set
 although it is an editing affordance rather than a row: an inline draft
@@ -2115,6 +2211,16 @@ The forty-three rules, each invisible to the compiler:
    regression this part exists to fix: it paints the code and the minimap out in
    `bgEditor` while the seam's own tests, `swift test`, the app bundle and
    SwiftLint all stay green. A seam pins nothing its call site does not spend.
+   **Second clause** (part five (f)), the same principle for the two other
+   colour seams the app-layer suite reads: in `BracketOverlayLayoutManager.swift`
+   the body of `paintFoldPlaceholders` names `placeholderAttributes` and
+   `placeholderOutlineColor` and none of `ChromePalette`, `NSColor`,
+   `foregroundColor` or `withAlphaComponent`, and in the ruler `drawFoldChevron`
+   names `foldChevronColor` and not `ChromePalette` — so the three spent seams
+   (the gutter fill, the placeholder, the chevron) are audited in one place. A
+   missing body fails asking for the rule to be re-pointed. Mutation-checked:
+   re-inlining an equivalent attribute dictionary in the draw, and separately
+   restoring the chevron's local palette call, each turned it red.
 7. **No gated view derives a geometry value by arithmetic on a token.** A
    `ChromeGeometry` token on either side of an operator from a number — a
    padding written as half a row-padding token, say — is matched in both
@@ -2564,7 +2670,13 @@ The forty-three rules, each invisible to the compiler:
     line breaks allowed — `MinimapView.swift`'s alpha on a syntax-table colour is
     code zone and outside the rule); part five (b)'s ten files spell
     `withAlphaComponent` nowhere; and `MergeView.swift` spells no
-    `performAsCurrentDrawingAppearance`.
+    `performAsCurrentDrawingAppearance`. **Known gap, named rather than fixed**:
+    the alpha clause sees an alpha chained *directly* onto `nsColor(`,
+    `.color(` or `chromeColor(` only, so it misses the local-variable form (the
+    fold placeholder's former `color.withAlphaComponent(0.5)`, removed in part
+    five (f) rather than caught) and the helper-call form (`ProjectTreeView.swift`'s
+    drop-target `resolving(.accent).opacity(0.4)`, which passes today and waits
+    under *What is still waiting*). The rule is not strengthened.
 30. **One primary button, one secondary, one checkbox.** No gated file spells the
     tokens `Toggle`, `toggleStyle` (bare, because `containsToken` rejects a dotted
     needle after an identifier character; the token match is also what keeps
@@ -2800,10 +2912,19 @@ The forty-three rules, each invisible to the compiler:
 43. **No document calls the sweep closed while a surface remains.** The macOS
     app files outside `Sources/Pisaka/iOS/`, outside `gatedFiles` and outside
     the four exemptions that name a system semantic colour, a SwiftUI hue or a
-    `0xRRGGBB` literal equal `{BracketOverlayLayoutManager.swift}` by set
-    equality — the fold placeholder under *What is still waiting* — so a new
-    unswept surface fails, and so does sweeping that one without updating the
-    set; the failure names the files. While the set is non-empty, no Markdown
+    `0xRRGGBB` literal equal `unsweptColorSurfaces` by set equality — `{}`
+    since part five (f) swept the fold placeholder — so a measured surface
+    missing from the set fails, and so does a set member no longer measured;
+    the failure names the files. **Its bound**: this live half's measurement
+    skips gated and exempt files, so it guards only the macOS app files that
+    are **neither gated nor exempt**, failing when one of them starts painting
+    outside the roles; a file that has joined the gated set is guarded by rules
+    one and two instead — rule one for a system semantic colour or a SwiftUI
+    hue, rule two for a `0xRRGGBB` literal. Verified by mutation with the set empty: an
+    `_ = NSColor.systemRed` in `DefinitionPicker.swift` (ungated, not exempt)
+    turned it red naming that file, green again once restored. **The document
+    half is dormant** while the set is empty and wakes only when the live half
+    measures a surface — dormant, not dead. While the set is non-empty, no Markdown
     file under `docs/` (except `docs/plans/`, whose tickets quote the claim to
     retract it) and not `CLAUDE.md` may call the colour sweep closed,
     finished or complete, or a part the last — matched as constructs,

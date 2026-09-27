@@ -620,6 +620,9 @@ final class BracketOverlayLayoutManager: NSLayoutManager {
         let glyphIndex = glyphIndexForCharacter(at: offset)
         let fragment = lineFragmentRect(forGlyphAt: glyphIndex, effectiveRange: nil)
         guard fragment.height > 0 else { return nil }
+        // The inset, the gap and the height are measured from the code font the
+        // placeholder is drawn in — the code zone's measurement, not the
+        // chrome's point tokens, since the box sits in the text flow.
         let font = editorFont
         let size = Self.placeholderText.size(withAttributes: [.font: font])
         let inset = (font.pointSize * 0.3).rounded()
@@ -635,40 +638,78 @@ final class BracketOverlayLayoutManager: NSLayoutManager {
         )
     }
 
+    /// The attributes the fold placeholder's `…` is drawn with: the editor's
+    /// font and the chrome's `textSecondary`.
+    ///
+    /// `internal` rather than `private` because it is the seam the app-layer
+    /// suite reads, as the ruler's `numberAttributes` is — the drawing cannot be
+    /// asserted, what it is about to draw with can. The colour is the *dynamic*
+    /// form, so the value this returns answers differently under `.aqua` and
+    /// `.darkAqua` without the manager being told which one it is in.
+    ///
+    /// The font is the **code** font, not an interface one: the placeholder
+    /// stands in the document's own text flow, where the text it replaces was,
+    /// so it is measured and drawn in the code zone — a zone statement, not an
+    /// exception to the chrome's.
+    var placeholderAttributes: [NSAttributedString.Key: Any] {
+        [
+            .font: editorFont,
+            .foregroundColor: ChromePalette.nsColor(.textSecondary),
+        ]
+    }
+
+    /// The colour the placeholder's rounded outline is stroked with: the
+    /// chrome's `hairline`, at its own value.
+    ///
+    /// `hairline` is the chrome's one answer for a rounded container's
+    /// one-point border — the shared field, the secondary button, the off
+    /// checkbox, the segmented control, the stepper and the off switch track in
+    /// `ChromeControls.swift` all draw theirs with it. It stays quieter than the
+    /// glyph, which is what the former composed half alpha was for. `internal`
+    /// for `placeholderAttributes`' reason.
+    var placeholderOutlineColor: NSColor {
+        ChromePalette.nsColor(.hairline)
+    }
+
     /// Draw the `…` of every folded range whose header line the drawn glyphs
     /// reach.
     ///
     /// Geometry is read here, at draw time, by the same technique the
     /// indentation tints use — see `placeholderRect(forFoldedRangeAt:)` for why
-    /// nothing is stored. The color is the platform's secondary label rather
-    /// than a syntax color: the placeholder is chrome standing in for text, not
-    /// a token, and the secondary label is appearance-aware, so light and dark
-    /// need no second table.
+    /// nothing is stored. The colours come from the two seams above and from
+    /// nowhere else, which rule six of `ChromeThemeSourceGatingTests` pins.
+    ///
+    /// The glyph is `textSecondary` rather than a syntax colour. The code zone
+    /// cannot hold `…`: its table is keyed by `SyntaxTokenKind`, and nothing in
+    /// the buffer says `…`. The palette bridge is appearance-aware too — a
+    /// dynamic colour resolves at draw time under `.aqua` and `.darkAqua` — so
+    /// there is still no second table. And the stronger reason: the gutter's
+    /// fold chevron draws the same fact, *this block is folded*, from the same
+    /// role (`LineNumberRulerView.foldChevronColor`), so the two agree by
+    /// construction.
     private func paintFoldPlaceholders(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {
         guard !foldedRanges.ranges.isEmpty, glyphsToShow.length > 0 else { return }
         let charRange = characterRange(forGlyphRange: glyphsToShow, actualGlyphRange: nil)
         let end = NSMaxRange(charRange)
-        let font = editorFont
-        let color = NSColor.secondaryLabelColor
-        let text = NSAttributedString(
-            string: Self.placeholderText,
-            attributes: [.font: font, .foregroundColor: color]
-        )
+        let text = NSAttributedString(string: Self.placeholderText, attributes: placeholderAttributes)
         let size = text.size()
         for range in foldedRanges.ranges where range.location >= charRange.location && range.location <= end {
             guard var rect = placeholderRect(forFoldedRangeAt: range.location) else { continue }
             rect.origin.x += origin.x
             rect.origin.y += origin.y
             let outline = NSBezierPath(roundedRect: rect.insetBy(dx: 0.5, dy: 0.5), xRadius: 3, yRadius: 3)
-            outline.lineWidth = 1
-            color.withAlphaComponent(0.5).setStroke()
+            // Unscaled, following `LineNumberRulerView.swift`'s gutter hairline.
+            outline.lineWidth = CGFloat(ChromeGeometry.hairlineWidth)
+            placeholderOutlineColor.setStroke()
             outline.stroke()
             text.draw(at: NSPoint(x: rect.midX - size.width / 2, y: rect.midY - size.height / 2))
         }
     }
 
     /// The font the editor is drawn in, read from the text view rather than
-    /// stored: the zoom changes it and nothing here would be told.
+    /// stored: the zoom changes it and nothing here would be told. The fold
+    /// placeholder is drawn and measured in it because it stands in the
+    /// document's own text flow — the code zone's font, not the chrome's.
     private var editorFont: NSFont {
         textContainers.first?.textView?.font ?? NSFont.monospacedSystemFont(ofSize: NSFont.systemFontSize, weight: .regular)
     }
