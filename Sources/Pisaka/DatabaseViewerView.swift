@@ -242,10 +242,17 @@ struct DatabaseViewerView: View {
     }
 
     /// `wanted` held between the sidebar's minimum and what the grid's minimum
-    /// leaves of `total` — the one clamp both the drawn width and a drag ask.
+    /// leaves of the available width — the one clamp both the drawn width and a
+    /// drag ask.
+    ///
+    /// The divide strip is a sibling in the stack and takes real layout width,
+    /// so it is spent before anything is divided — `ContentView`'s
+    /// `markdownSplitContent(for:size:)` spells the same rule. Dividing `total`
+    /// whole would hand the grid its minimum less the strip at the maximum.
     private func clampedSidebarWidth(total: CGFloat, wanted: CGFloat) -> CGFloat {
+        let available = max(0, total - metrics.scaled(DatabaseViewerLayout.divideHitWidth))
         let minimum = metrics.scaled(DatabaseViewerLayout.sidebarMinWidth)
-        let maximum = max(minimum, total - metrics.scaled(DatabaseViewerLayout.gridMinWidth))
+        let maximum = max(minimum, available - metrics.scaled(DatabaseViewerLayout.gridMinWidth))
         return min(max(wanted, minimum), maximum)
     }
 

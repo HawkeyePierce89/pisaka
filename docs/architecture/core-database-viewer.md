@@ -1131,10 +1131,16 @@ only *consults* one, before each of its two writes.
   points wide with the vertical `hairline` overlaid on it, so the rule is still
   drawn once — and never an `HSplitView`, whose divider is drawn in a colour no
   chrome role reaches. The width is **clamped** by `clampedSidebarWidth(total:)`
-  against the sidebar's own minimum (160) and the grid's (320): the maximum is
-  `max(minimum, total − grid minimum)`, so when the two bounds cross in a narrow
-  window the sidebar holds its minimum rather than inverting — the Log's detail
-  pane (`CommitLogView.clampedDetailWidth(total:)`) is the precedent. The drag
+  against the sidebar's own minimum (160) and the grid's (320). The drag strip is
+  a sibling in the stack and takes its 5 points of layout width, so it is **spent
+  before the split** — `available = max(0, total − strip)`, as
+  `ContentView.markdownSplitContent(for:size:)` spends its divider — and the
+  maximum is `max(minimum, available − grid minimum)`: the grid keeps its stated
+  minimum, and the two frames plus the strip sum to no more than the pane. When
+  the two bounds cross in a narrow window the sidebar holds its minimum rather
+  than inverting — the Log's detail pane
+  (`CommitLogView.clampedDetailWidth(total:)`) is the precedent for that floor,
+  though its handle is an overlay on the list and takes no width. The drag
   reads the global coordinate space and takes its base from the *rendered*,
   clamped width, as the statement pane's resize handle does. The sidebar
   **folds** from a Hide button in its header strip to a 28-point strip whose Show
