@@ -58,6 +58,11 @@ import XCTest
 ///    `.swiftlint.yml`, and CLAUDE.md names the style authority too — setup
 ///    instructions that quietly disappear are this repository's documented
 ///    failure mode.
+///  * CLAUDE.md stays under the character ceiling it states for itself, and
+///    states the ceiling this suite enforces — the file is loaded whole into
+///    every session, it was once allowed to pass its stated target fourfold
+///    because that target was prose nothing measured, and a ceiling known to
+///    only one of the two is a ceiling that drifts again.
 final class LintConfigurationTests: XCTestCase {
     func testBothConfigurationFilesExist() throws {
         for relativePath in [Self.rootConfigPath, Self.childConfigPath] {
@@ -527,6 +532,33 @@ final class LintConfigurationTests: XCTestCase {
             """)
     }
 
+    // MARK: - The instruction file's own size
+
+    func testTheInstructionFileStaysUnderItsOwnStatedCeiling() throws {
+        let text = try read(Self.instructionFilePath)
+        XCTAssertLessThanOrEqual(
+            text.count, Self.instructionFileCeiling,
+            """
+            \(Self.instructionFilePath) is \(text.count) characters, past its \
+            \(Self.instructionFileCeiling) ceiling. Move the longest paragraph to the \
+            docs/architecture/ document that owns the file it is about, leaving the claim and \
+            the pointer behind: the routing and the claims belong here, the reasoning does not
+            """
+        )
+    }
+
+    func testTheInstructionFileStatesTheCeilingThisSuiteEnforces() throws {
+        let sentence = "under \(Self.grouped(Self.instructionFileCeiling)) characters"
+        XCTAssertTrue(
+            try read(Self.instructionFilePath).contains(sentence),
+            """
+            \(Self.instructionFilePath) must state the ceiling this suite enforces, spelled \
+            "\(sentence)" — a ceiling only this suite knows is one the next writer never sees, \
+            and prose nobody measures is how the previous target was passed fourfold
+            """
+        )
+    }
+
     // MARK: - Enabling the hook
 
     /// A committed hook that nobody activates is decoration. Git will not wire
@@ -909,6 +941,19 @@ final class LintConfigurationTests: XCTestCase {
     // MARK: - Data
 
     private static let rootConfigPath = ".swiftlint.yml"
+
+    /// The agent-facing instruction file, and the ceiling this suite holds it under.
+    ///
+    /// Not a style preference. That file is loaded whole into every session and every agent
+    /// this repository's pipeline runs, so its length is a cost paid on every turn — and it
+    /// was allowed to reach 116,641 characters against a stated target of roughly 30,000,
+    /// four times over and for more than a month, because the target was prose nothing
+    /// measured. The number lives here and in the file's own "Documentation placement"
+    /// convention, and the two tests below hold them equal: a ceiling only this suite knows
+    /// is one the next writer never sees, and a ceiling only the prose knows is exactly the
+    /// situation that produced the 116,641.
+    private static let instructionFilePath = "CLAUDE.md"
+    private static let instructionFileCeiling = 60_000
     private static let childConfigPath = "Tests/.swiftlint.yml"
     private static let hookPath = ".githooks/pre-commit"
     private static let ciWorkflowPath = ".github/workflows/ci.yml"
@@ -980,6 +1025,20 @@ final class LintConfigurationTests: XCTestCase {
             ".swiftlint.yml must declare swiftlint_version: — the pin the hook and CI enforce"
         )
         return line.dropFirst(prefix.count).trimmingCharacters(in: .whitespaces)
+    }
+
+    /// `60000` → `"60,000"`: the spelling the prose uses, derived from the constant rather
+    /// than typed a second time beside it, so the two cannot drift apart.
+    private static func grouped(_ value: Int) -> String {
+        var digits = Array(String(value))
+        var out: [Character] = []
+        while digits.count > 3 {
+            out.insert(contentsOf: digits.suffix(3), at: 0)
+            out.insert(",", at: 0)
+            digits.removeLast(3)
+        }
+        out.insert(contentsOf: digits, at: 0)
+        return String(out)
     }
 
     private func read(_ relativePath: String) throws -> String {

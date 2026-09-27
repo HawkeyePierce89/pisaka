@@ -78,248 +78,64 @@ entry when you change behavior.**
 All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
 
 `docs/architecture/core-workspace.md` — files, paths & workspace:
-- `OpenFile.swift` — open-file model (`url`, `text`/`savedText`, `isDirty`).
-- `FileService.swift` — disk IO behind `FileServicing`; `FileStamp` (the index's change gate); `.git`/`.DS_Store` exclusion; typed errors.
-- `FileName.swift` — name/relative-path validation for the tree dialogs.
-- `GitRefName.swift` — branch-name validation.
-- `BranchRef.swift` — branch value type + switcher helpers.
-- `RemoteHost.swift` — host of an HTTPS remote URL (the iOS PAT Keychain key).
-- `GitCredentials.swift` — PAT-by-host resolution; the `CredentialStore` protocol.
-- `WorkspaceModel.swift` — tabs/selection/`projectRoot`; save/close/restore; tab↔tree reconciliation; the three revision tokens.
-- `CanonicalPath.swift` — "same file?" / "inside this dir?"; the `/private` caveat.
-- `DisplayPath.swift` — breadcrumb segments.
-- `MoveDropRule.swift` — the project tree's drag-and-drop engine: may this drop land, and where?
-- `TreeDraftDismissRule.swift` — the project tree's inline-naming draft: does this mouse-down cancel it?
+  `OpenFile.swift`, `FileService.swift`, `FileName.swift`, `GitRefName.swift`, `BranchRef.swift`, `RemoteHost.swift`, `GitCredentials.swift`, `WorkspaceModel.swift`, `CanonicalPath.swift`, `DisplayPath.swift`, `MoveDropRule.swift`, `TreeDraftDismissRule.swift`
 
 `docs/architecture/core-editor.md` — editor engines (pure, `NSString` + UTF-16 offsets):
-- `ColumnSelectionEngine.swift` — the middle-drag column-selection rule.
-- `DuplicateEngine.swift` — ⌘D duplicate (the established semantics).
-- `CommentStyle.swift` — language-to-comment-syntax mapping.
-- `ToggleCommentEngine.swift` — ⌘/ toggle comment computation.
-- `TreeRefreshFilter.swift` — FSEvents batch filter; root must arrive canonical.
-- `FileIcon.swift` — entry → icon symbol + color.
-- `SyntaxLanguage.swift` — file name → language.
-- `MinimapGeometry.swift` / `MinimapModel.swift` — minimap math + token runs.
-- `LineStartIndex.swift` — incremental line-start cache; the editor-wide separator set (LF/CR/CRLF/NEL/LS/PS).
-- `SyntaxTokenKind.swift` — capture name → semantic token kind.
-- `IndentEngine.swift` — Enter auto-indent + closing-bracket dedent.
-- `AutoPairEngine.swift` — auto-close/wrap/type-over/pair-delete decisions.
-- `BracketMatchEngine.swift` — caret↔bracket-pair matching.
-- `BracketDepthScanner.swift` — rainbow-bracket depth scan.
-- `IndentLevelScanner.swift` — leading whitespace → levelled runs *and* the content's column (what a depth comparison must ask); the two column widths, derived from `IndentUnitRule`'s unit.
-- `TextSearch.swift` — the find/replace engine shared by ⌘F and Find in Files.
-- `EditorViewport.swift` — per-tab caret + scroll anchor (a character offset) and the per-file memory.
+  `ColumnSelectionEngine.swift`, `DuplicateEngine.swift`, `CommentStyle.swift`, `ToggleCommentEngine.swift`, `TreeRefreshFilter.swift`, `FileIcon.swift`, `SyntaxLanguage.swift`, `MinimapGeometry.swift` / `MinimapModel.swift`, `LineStartIndex.swift`, `SyntaxTokenKind.swift`, `IndentEngine.swift`, `AutoPairEngine.swift`, `BracketMatchEngine.swift`, `BracketDepthScanner.swift`, `IndentLevelScanner.swift`, `TextSearch.swift`, `EditorViewport.swift`
 
 `docs/architecture/core-editorconfig.md` — `.editorconfig` (resolution, indentation, on-save transforms) + its app wiring:
-- `EditorConfigGlob.swift` — the section-name dialect; deliberately not gitignore's.
-- `EditorConfigFile.swift` — text → `root` + ordered sections; the merged property map.
-- `EditorConfigResolver.swift` — the outward walk; the `root` and project-root stops.
-- `EditorConfigModel.swift` — the synchronous per-file cache; two wholesale invalidations through one `invalidate()`; the `revision` counter derived readers compare.
-- `IndentUnitRule.swift` — the hybrid unit rule, the stricter Tab rule, the Tab plan.
-- `SaveTransform.swift` — the pure on-save engine: the three transforms, the spared line, the position remap.
-- `SaveTransformController.swift` (app, macOS) — the one save funnel; through the editor when it holds the buffer; also the two non-save buffer rewrites (restore, rename).
+  `EditorConfigGlob.swift`, `EditorConfigFile.swift`, `EditorConfigResolver.swift`, `EditorConfigModel.swift`, `IndentUnitRule.swift`, `SaveTransform.swift`, `SaveTransformController.swift` (app, macOS)
 
 `docs/architecture/core-search.md` — Find in Files & the search query history:
-- `GitignoreMatcher.swift` — gitignore(5) matching; oracle-tested against `git check-ignore`.
-- `ProjectSearchModel.swift` — project search / Replace All: streaming, caps, staleness re-checks, two generation tokens.
-- `SearchQueryHistory.swift` — the one recently-searched list both macOS search surfaces share: the recording rule, the cap, the whole-value encoding, the menu row's text.
+  `GitignoreMatcher.swift`, `ProjectSearchModel.swift`, `SearchQueryHistory.swift`
 
 `docs/architecture/core-intelligence.md` — code intelligence (index, definition, completion):
-- `Symbol.swift` — `SymbolKind` + `Symbol` value types.
-- `FuzzyMatch.swift` — the one completion matcher; the `Quality` sort key.
-- `SymbolIndex.swift` — the symbol store; ranks nothing.
-- `ProjectFileWalk.swift` — the one project traversal (shared with Find in Files).
-- `SymbolIndexModel.swift` — the async index lifecycle; a reader, never a writer.
-- `IdentifierScanner.swift` — the one identifier-boundary rule (incl. `isIdentifier(_:)`, the whole-string form).
-- `CompletionPopup.swift` — selection state machine and row values.
-- `LanguageKeywords.swift` — per-language keyword lists (+ the stated no-keyword set).
-- `CodeIntelligence.swift` — the async `CodeIntelligenceProviding` seam + value types.
-- `SymbolIntelligenceProvider.swift` — index-backed provider; every ranking rule + the completion-candidate rule.
-- `SyntaxContextVocabulary.swift` — per-language string/comment vocabulary and the gating policy.
-- `SyntaxContextScanner.swift` — pure syntax-context scanner (`code`/`string`/`comment`); single-offset boundary rule and hole re-entry.
-- `UsageResult.swift` — the usages row/answer value types; dedup, ordering, the 2 000 cap and the reveal-or-open clamp.
-- `TextualUsageScanner.swift` — the pure whole-word scan; boundaries delegated to `IdentifierScanner`.
-- `FindUsagesModel.swift` — the usages panel's model: the server first, the project walk second (never a provider fallback), two generation tokens.
+  `Symbol.swift`, `FuzzyMatch.swift`, `SymbolIndex.swift`, `ProjectFileWalk.swift`, `SymbolIndexModel.swift`, `IdentifierScanner.swift`, `CompletionPopup.swift`, `LanguageKeywords.swift`, `CodeIntelligence.swift`, `SymbolIntelligenceProvider.swift`, `SyntaxContextVocabulary.swift`, `SyntaxContextScanner.swift`, `UsageResult.swift`, `TextualUsageScanner.swift`, `FindUsagesModel.swift`
 
 `docs/architecture/core-lsp.md` — the LSP client (sourcekit-lsp, gopls, rust-analyzer), incl. decisions D1–D10 + D17–D39:
-- `LSPMessage.swift` — JSON-RPC envelopes; `null` vs. absent.
-- `LSPFraming.swift` — `Content-Length` framing; a framing error is terminal.
-- `LSPProtocolTypes.swift` — decode leniently, encode exactly; the closed capability tree.
-- `LSPPositionMap.swift` — offset ↔ `(line, character)`, LSP's separators only (D1).
-- `LSPTransport.swift` — the macOS/Core boundary; EOF reports a crash.
-- `LSPWriteBudget.swift` — the outgoing queue's ceiling; a backlog past it is the server's death (D39).
-- `LSPSession.swift` — one conversation: handshake, ids, budgets, cancel; both configuration channels (D27); the notification stream (D29).
-- `LSPServerDescription.swift` — description + registry (D9); the per-server `configuration` (D27).
-- `LSPWorkspace.swift` — one server per `(server, root)`; the D2 flush, D7 backoff, `updateRegistry(_:)` (D16); push routing + teardown clears (D31/D33).
-- `CompletionEditPlan.swift` — the pure auto-import rule.
-- `RenameEditPlan.swift` — `WorkspaceEdit` → the pure per-file rename plan: the five refusals, the `expectedText` verification, the disk/buffer split (+ `RenameNameRule`, what the dialog accepts).
-- `HoverContent.swift` — hover markup → renderable segments; the dwell delay and the three-dimensional cap (D25/D26).
-- `LSPIntelligenceProvider.swift` — protocol answers as seam values (D6 ranking).
-- `RoutingIntelligenceProvider.swift` — LSP first, tree-sitter otherwise; the whole-attempt budget.
-- `LSPGoToolchain.swift` — the gopls pin, discovery report, prompt, Settings row (D17–D19).
-- `LSPGoplsProvisioning.swift` — the Go seams + model; the second registry contributor (D18–D20).
-- `LSPRustToolchain.swift` — the rust-analyzer pin, discovery report, prompt, Settings row (D21–D24).
-- `LSPRustProvisioning.swift` — the Rust seam + model; the third registry contributor (D21–D24).
-- `Diagnostic.swift` — buffer-anchored diagnostic + closed severity; wire→buffer mapping, ordering key, hover merge (D34).
-- `DiagnosticShift.swift` — pure shift across one edit; what it touches is dropped (D32).
-- `DiagnosticStore.swift` — diagnostics keyed by document URL with server/version provenance; per-line worst severity, panel rows.
-- `DiagnosticsModel.swift` — observable reader over the store + sync/revision bookkeeping; the acceptance gate (D31/D32).
+  `LSPMessage.swift`, `LSPFraming.swift`, `LSPProtocolTypes.swift`, `LSPPositionMap.swift`, `LSPTransport.swift`, `LSPWriteBudget.swift`, `LSPSession.swift`, `LSPServerDescription.swift`, `LSPWorkspace.swift`, `CompletionEditPlan.swift`, `RenameEditPlan.swift`, `HoverContent.swift`, `LSPIntelligenceProvider.swift`, `RoutingIntelligenceProvider.swift`, `LSPGoToolchain.swift`, `LSPGoplsProvisioning.swift`, `LSPRustToolchain.swift`, `LSPRustProvisioning.swift`, `Diagnostic.swift`, `DiagnosticShift.swift`, `DiagnosticStore.swift`, `DiagnosticsModel.swift`
 
 `docs/architecture/core-provisioning.md` — server provisioning (TS/JS, Python + YAML), incl. D11–D16, D28 and the pinned manifest's update procedure:
-- `SHA256.swift` — FIPS 180-4 digest in Foundation alone.
-- `LSPProvisioningManifest.swift` — the pinned components/artifacts (D11); the YAML closure + its `runtimeNetworkNote` (D28).
-- `LSPInstallLayout.swift` — pure path math over the install root (D12/D13).
-- `LSPInstallEngine.swift` — download → verify → unpack → one rename (D12–D14).
-- `LSPProvisioning.swift` — consent, the row/prompt values (incl. the runtime-network note), `LSPProvisioningModel`.
+  `SHA256.swift`, `LSPProvisioningManifest.swift`, `LSPInstallLayout.swift`, `LSPInstallEngine.swift`, `LSPProvisioning.swift`
 
 `docs/architecture/core-leetcode.md` — the LeetCode integration, incl. decisions L1–L27:
-- `LeetCodeTransport.swift` — the one app/Core boundary seam.
-- `LeetCodeCredentials.swift` — the cookie pair; absence ≡ signed out, presence ≡ candidate (L26).
-- `LeetCodeLoginGate.swift` — the login-confirmation gate: candidate → session, the one latch (L26).
-- `LeetCodeError.swift` — the nine typed failures; `apiChanged(detail:)` names the key path.
-- `LeetCodeProblem.swift` — catalog row + detail (incl. the internal `questionID`, L16).
-- `LeetCodeJudge.swift` — the judge vocabulary; the strict verdict/state tables (L22).
-- `LeetCodeAPI.swift` — **the one schema file** (L1): endpoints, parsers, classification, the judge calls.
-- `LeetCodeProblemInput.swift` — number / slug / URL parsing (L4).
-- `LeetCodeSolutionFile.swift` — `0001-two-sum.swift` and its inverse (L5, L19); seeded contents.
-- `LeetCodeCacheLayout.swift` — path math over the cache base.
-- `LeetCodeCatalog.swift` — number → slug: staleness + refresh-on-miss (L6), the degrading write (L8).
-- `LeetCodeProblemFilter.swift` — the browser's one pure filter (L23).
-- `LeetCodeStatementDocument.swift` — the themed statement + its cache.
-- `LeetCodeModel.swift` — the main-actor flow: `openProblem` (never overwrites, L12), three generation counters (L10), the judge-context memo (L21).
-- `LeetCodeJudgeModel.swift` — the judge flow (L17): deadline-bounded poll (L18), the fourth generation token (L20).
-- `LeetCodeBrowserModel.swift` — the browser companion (L25): the fifth generation token, rows cleared on session change (L24).
+  `LeetCodeTransport.swift`, `LeetCodeCredentials.swift`, `LeetCodeLoginGate.swift`, `LeetCodeError.swift`, `LeetCodeProblem.swift`, `LeetCodeJudge.swift`, `LeetCodeAPI.swift`, `LeetCodeProblemInput.swift`, `LeetCodeSolutionFile.swift`, `LeetCodeCacheLayout.swift`, `LeetCodeCatalog.swift`, `LeetCodeProblemFilter.swift`, `LeetCodeStatementDocument.swift`, `LeetCodeModel.swift`, `LeetCodeJudgeModel.swift`, `LeetCodeBrowserModel.swift`
 
 `docs/architecture/core-git.md` — git protocol, status & blame:
-- `GitError.swift` — typed `GitServicing` failures.
-- `GitServicing.swift` — the whole async git protocol, defaulted for partial stubs; `pull(root:)` is `--ff-only` and nothing else.
-- `ChangedFile.swift` — `FileStatus` + `ChangedFile` value types.
-- `GitStatusParser.swift` — `--porcelain=v2` parser.
-- `BlameLine.swift` — blame value type + `--porcelain` parser.
-- `BlameAlignment.swift` — git's LF-only numbering ↔ the editor's line starts.
-- `BlameShift.swift` — incremental shift of annotations across one edit.
+  `GitError.swift`, `GitServicing.swift`, `ChangedFile.swift`, `GitStatusParser.swift`, `BlameLine.swift`, `BlameAlignment.swift`, `BlameShift.swift`
 
 `docs/architecture/core-diff-merge.md` — diff & three-way merge:
-- `MergeRegion.swift` / `ThreeWayMerge.swift` — diff3 regions.
-- `MergeLineKind.swift` — the merge panes' line vocabulary; its wash is `ChromeColorRole.mergeWashRole(for:)`.
-- `MergeDocument.swift` — editable merge state; marker-faithful `resolvedText`.
-- `MergeModel.swift` — merge editor over the `:1/:2/:3` index stages.
-- `LineDiff.swift` — side-by-side LCS line diff (capped matrix).
-- `TerminatedLines.swift` — the single line splitter (content + verbatim terminator); the bounded `ranges(in:range:)` is the primitive, `ranges(_:)`/`split(_:)` its projections.
-- `ChangeTree.swift` — by-folder grouping of changed files.
+  `MergeRegion.swift` / `ThreeWayMerge.swift`, `MergeLineKind.swift`, `MergeDocument.swift`, `MergeModel.swift`, `LineDiff.swift`, `TerminatedLines.swift`, `ChangeTree.swift`
 
 `docs/architecture/core-git-models.md` — Local Changes, Log & branch models:
-- `LocalChangesModel.swift` — Local Changes state; the full generation-token scheme.
-- `Commit.swift` — commit value type + `git log` parser.
-- `CommitChangesParser.swift` — `git diff-tree --name-status` parser.
-- `CommitGraphLayout.swift` — branch-graph lane layout.
-- `LogFilter.swift` — server-side filter args + client-side message search.
-- `LogFilterDraft.swift` — Log filter bar draft (the two seeding forms — a re-seed keeps a cleared bound's day — and assemble, day-boundary normalization, verbatim ref preservation, picker tag seam).
-- `CommitLogModel.swift` — Log view model (generation-pinned refresh).
-- `BranchSwitcherModel.swift` — branch list/switch/create/checkout-remote model.
+  `LocalChangesModel.swift`, `Commit.swift`, `CommitChangesParser.swift`, `CommitGraphLayout.swift`, `LogFilter.swift`, `LogFilterDraft.swift`, `CommitLogModel.swift`, `BranchSwitcherModel.swift`
 
 `docs/architecture/core-commit.md` — the commit-dialog domain:
-- `GitFileMode.swift` — file-mode constants, `ls-tree` parse.
-- `GitBlobText.swift` — blob byte classification.
-- `CommitDiffUnits.swift` — selectable units, whole-only reasons.
-- `PartialCommitBuilder.swift` — assemble HEAD + selected changes.
-- `CommitIdentity.swift` — per-field author-source resolution.
-- `CommitContext.swift` — repository state read at open.
-- `CommitGate.swift` — "may this commit run" blocks.
-- `PushPlan.swift` — push / set-upstream / unavailable decision.
-- `CommitPlan.swift` — plan entries, `CommitStaleness`, selection semantics.
-- `CommitDialogModel.swift` — the dialog model; `CommitOutcome`.
+  `GitFileMode.swift`, `GitBlobText.swift`, `CommitDiffUnits.swift`, `PartialCommitBuilder.swift`, `CommitIdentity.swift`, `CommitContext.swift`, `CommitGate.swift`, `PushPlan.swift`, `CommitPlan.swift`, `CommitDialogModel.swift`
 
 `docs/architecture/core-services.md` — terminal/run/test, settings, session:
-- `TerminalLaunch.swift` / `TerminalTabs.swift` — shell/cwd resolution; tab-close math.
-- `RunCommand.swift` / `TestCommand.swift` / `ShellQuote.swift` — run/test command resolution, POSIX quoting.
-- `BottomPanel.swift` — bottom-dock toggle state; the panels' one order (`CaseIterable`, read by both strips) and one name and glyph each (`title`, `systemImage`); the tab rule and its own answer type (`DockTabActivation`, not a second `BottomPanel?`).
-- `BottomPanelHeightRule.swift` — the bottom dock panel's height authority: the two upper bounds and the degenerate case.
-- `DiffWindowTitle.swift` — diff-window titles.
-- `TabOrientation.swift` / `ThemePreference.swift` — persisted preference enums.
-- `SettingsStore.swift` — persisted preferences; the three zoom scales and the zone-keyed API; the two editor flags (`completionEnabled`, `indentLevelHighlightingEnabled`); per-server LSP consent (D15).
-- `EditorSession.swift` — per-project session persistence (`SessionTab`, `SessionCatalog`, the keyed store + legacy migration).
-- `RecentProject.swift` — recent-projects projection (MRU order, `nil` excluded, existence closure, canonical identity).
-- `ScopedFileAccess.swift` — iOS security-scope helpers + `BookmarkStore`.
-- `TabLayout.swift` — iOS tab-presentation decision.
-- `LicenseNotice.swift` — license manifest model + `LicenseCatalog`; the coverage invariant lives in the same doc.
-- `PisakaCore.swift` — package constants/version.
+  `TerminalLaunch.swift` / `TerminalTabs.swift`, `RunCommand.swift` / `TestCommand.swift` / `ShellQuote.swift`, `BottomPanel.swift`, `BottomPanelHeightRule.swift`, `DiffWindowTitle.swift`, `TabOrientation.swift` / `ThemePreference.swift`, `SettingsStore.swift`, `EditorSession.swift`, `RecentProject.swift`, `ScopedFileAccess.swift`, `TabLayout.swift`, `LicenseNotice.swift`, `PisakaCore.swift`
 
 `docs/architecture/core-local-history.md` — Local History (Core + app halves, macOS only):
-- `LocalHistorySnapshot.swift` — the event vocabulary, ten cases incl. `pull` (the tag is on-disk) + the revision row; newest-first ordering.
-- `LocalHistoryLayout.swift` — pure path math over the store base + the snapshot-name codec (the name *is* the metadata).
-- `LocalHistoryPolicy.swift` — the skip precedence and the three retention rules; the four stated ceilings.
-- `LocalHistoryStore.swift` — the one `FileServicing` half: list/read/capture/prune, synchronous and `nonisolated`.
-- `LocalHistoryModel.swift` — the capture side: the serial write chain, the three save sites, the awaited pre-operation capture, the store sweep.
-- `LocalHistoryBrowserModel.swift` — the window's reader companion (one generation token) + `LocalHistoryRestore`, the restore plan, and `LocalHistoryCurrentText`, the buffer-or-deferred-disk seam; the plan is re-asked when the window becomes key.
+  `LocalHistorySnapshot.swift`, `LocalHistoryLayout.swift`, `LocalHistoryPolicy.swift`, `LocalHistoryStore.swift`, `LocalHistoryModel.swift`, `LocalHistoryBrowserModel.swift`
 
 `docs/architecture/core-folding.md` — code folding (macOS; Core + app halves):
-- `FoldRegion.swift` — the hidden range's two endpoints (the header line stays whole) + the one ordering key; the closed `FoldRegionKind`, read as absence when a server names another.
-- `FoldRegionScanner.swift` — the fallback answer: brackets (re-paired from `BracketDepthScanner`) + indentation (`IndentLevelScanner`, the carried widths); the two-line minimum, the blank-line rules, the bracket-wins merge.
-- `FoldState.swift` — what is folded (regions + merged coverage); the three maintenance rules (reconcile by header line, clamp, remap through a save's plan) + `FoldCaretRule`, `FoldReveal`, `FoldStateMemory` (no `prune`) and `FoldCommandRule`.
-- `FoldShift.swift` — `DiagnosticShift`'s rule applied to fold regions; what the edit touches unfolds, inconsistent input is `[]`.
-- `FoldController.swift` (app, macOS) — the 400 ms debounce, the generation token, the one publish; shift between answers, reconcile on one.
-- `FoldCommands.swift` (app, macOS) — *Fold* (⌘⌥←) / *Unfold* (⌘⌥→); the first responder, the one beep.
+  `FoldRegion.swift`, `FoldRegionScanner.swift`, `FoldState.swift`, `FoldShift.swift`, `FoldController.swift` (app, macOS), `FoldCommands.swift` (app, macOS)
 
 `docs/architecture/core-markdown-preview.md` — the Markdown preview beside the editor (macOS; Core + app halves), incl. decisions M1–M15:
-- `MarkdownDocument.swift` — the document tree (no raw-HTML case at all) + the `MarkdownParsing` seam.
-- `MarkdownListTightness.swift` — CommonMark's tight/loose rule, read off line spans *and* the source's blank lines (a gap is only the precondition — a link reference definition leaves a hole that is not one); what the caller owes it, the blank-line reading a code block's span needs, and the two shapes where cmark's own flag departs from the sentence it implements.
-- `MarkdownPreviewTheme.swift` — the page's colours as CSS strings; one entry per `SyntaxTokenKind`, the chrome/code split.
-- `MarkdownHighlightClasses.swift` — the pinned highlight-scope vocabulary → the editor's kinds; the class-name rule specificity rides on.
-- `MarkdownHeadingSlug.swift` — the heading `id`: the GFM slug rule (a tab removed, not folded; letter and digit Unicode's; `_` kept) + the document-ordered duplicate allocator and what it is seeded with; the renderer is its only caller.
-- `MarkdownRenderer.swift` — tree → HTML body: one escape, `data-line` on top-level blocks only, the heading's `id` (nothing else carries one), the three presentational decisions.
-- `MarkdownPreviewPage.swift` — the app scheme's whole vocabulary, the shell, the CSP and its pinned bootstrap hash, the four entry points + the one size helper both readings share + `MarkdownPreviewPageSink`.
-- `MarkdownPreviewAsset.swift` — the document context; target ↔ app-scheme URL in both directions (canonical containment) + the handler's four-case dispatch.
-- `MarkdownLinkRule.swift` — what a click does: four answers, no fifth.
-- `MarkdownScrollRule.swift` — the editor's top offset → the one line the page is given; one-directional by design.
-- `MarkdownPreviewWidthRule.swift` — the split as a fraction: the two bounds twice over, the degenerate case.
-- `MarkdownPreviewModel.swift` — the whole ordering behind two seams: the token, the debounce, the retarget/clear rules, the once-per-turn scroll flush.
-- `MarkdownParser.swift` (app, macOS) — the feature's one `import Markdown`; a mapping that decides nothing.
-- `MarkdownPreviewSchemeHandler.swift` (app, macOS) — the three served kinds, everything else a 404; no WebKit import.
-- `MarkdownPreviewWebView.swift` (app, macOS) — the one `import WebKit`: the served shell, the pending-source queue, every navigation cancelled.
-- `MarkdownPreviewController.swift` (app, macOS) — glue with no logic; one page per window, built lazily.
-- `MarkdownPreviewPane.swift` (app, macOS) — the pane's lifetime and the four forwarded facts; the fifth code zoom surface.
-- `EditorCommandTarget.swift` (app, macOS) — the one definition of "which editor is this keystroke for" + the preview's scoped passthrough marker.
+  `MarkdownDocument.swift`, `MarkdownListTightness.swift`, `MarkdownPreviewTheme.swift`, `MarkdownHighlightClasses.swift`, `MarkdownHeadingSlug.swift`, `MarkdownRenderer.swift`, `MarkdownPreviewPage.swift`, `MarkdownPreviewAsset.swift`, `MarkdownLinkRule.swift`, `MarkdownScrollRule.swift`, `MarkdownPreviewWidthRule.swift`, `MarkdownPreviewModel.swift`, `MarkdownParser.swift` (app, macOS), `MarkdownPreviewSchemeHandler.swift` (app, macOS), `MarkdownPreviewWebView.swift` (app, macOS), `MarkdownPreviewController.swift` (app, macOS), `MarkdownPreviewPane.swift` (app, macOS), `EditorCommandTarget.swift` (app, macOS)
 
 `docs/architecture/core-zoom.md` — the three macOS zoom zones (Core + app halves):
-- `ZoomZone.swift` — zone/surface vocabulary; the deepest-candidate pointer rule.
-- `ZoomScaleRule.swift` — the one clamp/step/reset arithmetic; the three rules' numbers.
-- `ZoomGestureAccumulator.swift` — scroll/pinch deltas → the keyboard's discrete steps.
-- `InterfaceMetrics.swift` — `InterfaceTextStyle` base sizes; scaled fonts/metrics.
+  `ZoomZone.swift`, `ZoomScaleRule.swift`, `ZoomGestureAccumulator.swift`, `InterfaceMetrics.swift`
 
 `docs/architecture/core-theme.md` — the chrome theme (macOS; Core + app halves):
-- `ChromeColorRole.swift` — the closed 21-role colour vocabulary; a role names a meaning, never a value; `diagnosticRole(for:)`, the chrome's one severity answer; the problem catalog's three answers (`difficultyRole(for:)`, `problemStatusRole(for:)`, `verdictRole(for:matchedExpected:)`).
-- `ChromeGeometry.swift` — the chrome's point tokens, scaled at the use site; no font size, ever.
-- `ChromeAppearance.swift` — `dark`/`light` + the third `resolved(_:systemPrefersDark:)`.
-- `DocumentPageChrome.swift` — a served page's chrome (both served pages share it): six fields, each a role; a restated fallback macOS replaces with the palette's derivation.
-- `TreeRowState.swift` — the tree row's four-plus-drop states and their precedence; selection and focus are derived.
-- `ChromeControls.swift` — the shared field shape, the primary and secondary button styles, the checkbox and query toggle, the settings shapes (segmented control, stepper, switch, settings tab bar and the menu field lifted from the Log bar) and the spinner, labelled or hidden at each call site.
+  `ChromeColorRole.swift`, `ChromeGeometry.swift`, `ChromeAppearance.swift`, `DocumentPageChrome.swift`, `TreeRowState.swift`, `ChromeControls.swift`
 
 `docs/architecture/core-database-viewer.md` — the database viewer tab (macOS; reads, plus two writes — the inline cell edit and the SQL console's confirmed mutation):
-- `DatabaseFileRule.swift` — the one recognized-extension rule; last extension only.
-- `DatabaseValue.swift` — the five storage classes + the one rendering (NULL vs. `""`, the blob placeholder); `DatabaseStatement`/`DatabaseResultSet`.
-- `DatabaseServicing.swift` — the async app/Core seam + `DatabaseError` (SQLite's words, verbatim); the write half — `DatabaseWriteTransaction`/`DatabaseWriteOutcome` and the defaulted `performWrite(_:)`, whose default is an honest refusal rather than a silent no-op; the console half — `DatabaseConsoleAnswer`/`DatabaseConsoleTransaction`, the three defaulted members and the six rules the app half owes.
-- `DatabaseQuery.swift` — the only SQL the repository *composes* (the console's is the reader's own, carried verbatim); identifier quoting (the three rowid alias spellings the one deliberate bare exception), the read statements (incl. the zero-limit shape probe a carried sort is checked against and the rowid probe), the one `UPDATE` and the transaction texts, bound `LIMIT`/`OFFSET`.
-- `DatabaseSchema.swift` — table/view + column value types and the two pure parsers; they refuse rather than guess.
-- `DatabasePage.swift` — the paging arithmetic (uncounted is a state, not a zero) + `DatabaseSortState`'s two rules.
-- `DatabaseCellEntry.swift` — type affinity (SQLite's five ordered rules) + the typing rule; NULL is a gesture, never a word, and nothing is trimmed.
-- `DatabaseRowIdentity.swift` — how a table's rows are addressed: rowid (first unshadowed spelling), the declared key in key order, or a typed gap; names matched, never positions.
-- `DatabaseUpdatePlan.swift` — the pure planner and its typed refusals (each carrying the sentence shown); one statement, `requiredAffectedRows == 1`.
-- `DatabaseConsolePlan.swift` — the console's vocabulary (SQLite's `.read`/`.write`, the classification and its horizon) + the whole pure policy: the four decisions, the confirmation prompt, the 500-row cap (its own number, not the page size), the two footers, the three refusals it owns (the two sentences that are *not* SQLite's and not the plan's — the model's rolled-back message and the app half's read-path refusal — are named in the doc).
-- `DatabaseConsoleModel.swift` — the console's flow: one generation token, its own message slot, the write's refusal order (the gate, then one write per tab), the post-commit order.
-- `DatabaseViewerModel.swift` — the tab's model: two generation tokens, a failure never blanks a good answer, every read bounded; the write consults the gate, captures the rows token and never blanks the page; owns the console, answers `isWriteInFlight` for both writers and `refreshAfterWrite()` after a console mutation.
+  `DatabaseFileRule.swift`, `DatabaseValue.swift`, `DatabaseServicing.swift`, `DatabaseQuery.swift`, `DatabaseSchema.swift`, `DatabasePage.swift`, `DatabaseCellEntry.swift`, `DatabaseRowIdentity.swift`, `DatabaseUpdatePlan.swift`, `DatabaseConsolePlan.swift`, `DatabaseConsoleModel.swift`, `DatabaseViewerModel.swift`
 
 `docs/architecture/core-github.md` — GitHub pull requests through the user's own `gh` (macOS; a reader except for three writes), incl. decisions G1–G15:
-- `GitHubCLI.swift` — the one app/Core seam: the command (incl. `refreshesExecutableLocation`), the result (both streams + status, raw), the transport protocol, the three typed launch failures, the non-interactive environment (G1, G5).
-- `GitHubCommands.swift` — **the whole argument vocabulary** (G6): nine subcommands, ten factories, the three ordered `--json` field lists, the three deadlines; no `--repo`, no `--web`, no `--admin`/`--auto`/`--delete-branch`.
-- `GitHubVersion.swift` — version parse/compare + the 2.50.0 minimum and its one reason (G4).
-- `GitHubAvailability.swift` — the probe value and the four states, each with its sentence and its exact next step (G8).
-- `GitHubPullRequest.swift` — the eight closed vocabularies (incl. mergeability, merge state and method), the rollup item, the four-case summary, and the values the surfaces read.
-- `GitHubAPI.swift` — **the one schema file** (G2): the five parsers (the row read by number goes through the list's own decoder), the key-path-carrying schema error, the summary rule; the create-URL number is its one deliberate non-refusal.
-- `GitHubCreatePlan.swift` — the create sheet's pure half: the `repo view` base, the commit dialog's own two refusals, the three stated sentences (G11).
-- `GitHubMergePlan.swift` — the merge sheet's pure half, read by the button, the write and every tick of the wait: the enabled rule, the seven refusals with their sentences and their `isArmable`/`mayResolveByWaiting`, the methods, the button's label (G13).
-- `PullRequestMergeWait.swift` — *Merge when checks pass*: the no-polling ban's stated exception — two named bounds, one sleep seam, one token, four endings — re-reading the row and deciding through the plan (G14).
-- `PullRequestModel.swift` — the main-actor reader behind both surfaces: four generation tokens, a failure never blanks a good list, availability re-probed on every refresh and never more often, `pr checks` judged on stdout alone (G3), and the three writes — create (push first), merge (guarded by `--match-head-commit`, owning the post-merge tail's order) and checkout (both composed here, run by the app's bracket).
+  `GitHubCLI.swift`, `GitHubCommands.swift`, `GitHubVersion.swift`, `GitHubAvailability.swift`, `GitHubPullRequest.swift`, `GitHubAPI.swift`, `GitHubCreatePlan.swift`, `GitHubMergePlan.swift`, `PullRequestMergeWait.swift`, `PullRequestModel.swift`
 
 ### `Pisaka` (app target, `Sources/Pisaka/`)
 
@@ -332,850 +148,322 @@ gate structurally cannot see (the download collector's ceiling) are tested
 headlessly in `Tests/PisakaAppTests`.
 
 `docs/architecture/app-ios.md` — platform shims & the whole iOS layer:
-- `Platform/PlatformColor.swift` / `PlatformFeedback.swift` / `PlatformAlert.swift` / `PlatformRoute.swift` — per-platform API shims.
-- `Platform/LicenseCatalogLoader.swift` — bundled-license reader (full entry in app-shell).
-- `Platform/LicenseTextView.swift` — TextKit license-text pane (full entry in app-shell).
-- `Platform/SymbolQueryCatalog.swift` — cached `symbols.scm` loader/compiler; DEBUG-only compile assertion.
-- `Platform/SymbolExtractor.swift` — text → `[Symbol]` via tree-sitter matches.
-- `Platform/SymbolIndexController.swift` — the index's two debounces; `installProvider(_:)` (the LSP swap-in point).
-- `iOS/PisakaApp_iOS.swift` / `RootView_iOS.swift` — iOS `@main` + adaptive root/navigation and orchestration.
-- `iOS/BranchSwitcherView_iOS.swift` — iOS branch-switcher widget.
-- `iOS/CodeEditorView_iOS.swift` / `CodeEditorCoordinator_iOS.swift` — `UITextView` editor.
-- `iOS/CompletionBar_iOS.swift` — completion strip (`inputAccessoryView`).
-- `iOS/DefinitionRoute_iOS.swift` — definition routing; token-guarded reveal.
-- `iOS/FilePicker_iOS.swift` / `SecurityScopedBookmarks.swift` — document picker + scoped-service decorator.
-- `iOS/LibGit2Service.swift` — in-process libgit2 `GitServicing` (HTTPS-only fetch).
-- `iOS/KeychainCredentialStore.swift` — Keychain-backed PAT store.
-- `iOS/TabStrip_iOS.swift` / `SettingsView_iOS.swift` — tabs strip/switcher; settings + PAT screen.
-- `iOS/AcknowledgementsView_iOS.swift` — Acknowledgements list → license text.
-- `iOS/LocalChangesView_iOS.swift` / `DiffView_iOS.swift` / `DiffRoute_iOS.swift` — Local Changes + diff screens.
-- `iOS/CommitLogView_iOS.swift` / `CommitGraphView_iOS.swift` / `LogFilterBar_iOS.swift` — Log + graph + filter bar.
-- `iOS/MergeView_iOS.swift` / `MergeRoute_iOS.swift` — adaptive 3-pane conflict resolver.
+  `Platform/PlatformColor.swift` / `PlatformFeedback.swift` / `PlatformAlert.swift` / `PlatformRoute.swift`, `Platform/LicenseCatalogLoader.swift`, `Platform/LicenseTextView.swift`, `Platform/SymbolQueryCatalog.swift`, `Platform/SymbolExtractor.swift`, `Platform/SymbolIndexController.swift`, `iOS/PisakaApp_iOS.swift` / `RootView_iOS.swift`, `iOS/BranchSwitcherView_iOS.swift`, `iOS/CodeEditorView_iOS.swift` / `CodeEditorCoordinator_iOS.swift`, `iOS/CompletionBar_iOS.swift`, `iOS/DefinitionRoute_iOS.swift`, `iOS/FilePicker_iOS.swift` / `SecurityScopedBookmarks.swift`, `iOS/LibGit2Service.swift`, `iOS/KeychainCredentialStore.swift`, `iOS/TabStrip_iOS.swift` / `SettingsView_iOS.swift`, `iOS/AcknowledgementsView_iOS.swift`, `iOS/LocalChangesView_iOS.swift` / `DiffView_iOS.swift` / `DiffRoute_iOS.swift`, `iOS/CommitLogView_iOS.swift` / `CommitGraphView_iOS.swift` / `LogFilterBar_iOS.swift`, `iOS/MergeView_iOS.swift` / `MergeRoute_iOS.swift`
 
 `docs/architecture/app-shell.md` — app orchestration (macOS):
-- `PisakaApp.swift` — `@main`: menus/shortcuts, every writer-coordination bracket, session restore, run/test.
-- `MainWindowFrameAutosave.swift` — the main window's by-hand frame persistence (the standard autosave is bypassed twice over).
-- `MainWindowChrome.swift` — the main window's title-bar chrome: one marker, a transparent title bar on a dynamic `bgPanel` ground.
-- `SoftwareUpdater.swift` — the whole Sparkle 2 surface; inert in DEBUG by not compiling the updater in.
-- `ProjectWatcher.swift` — FSEvents subscription (realpath'd root, dir-level events).
-- `AutosaveController.swift` — autosave triggers; two suspension counters.
-- `SessionController.swift` — debounced session writer.
-- `SettingsView.swift` — Preferences tab host + settings form.
-- `AcknowledgementsView.swift` — Preferences Acknowledgements tab.
+  `PisakaApp.swift`, `MainWindowFrameAutosave.swift`, `MainWindowChrome.swift`, `SoftwareUpdater.swift`, `ProjectWatcher.swift`, `AutosaveController.swift`, `SessionController.swift`, `SettingsView.swift`, `AcknowledgementsView.swift`
 
 `docs/architecture/core-provisioning.md` — the macOS provisioning surfaces (same doc as the Core half):
-- `LSPDownloadService.swift` / `LSPArchiveUnpacker.swift` — the two app-side seams (uncached `URLSession`; `tar`/`gunzip` on stdin).
-- `LSPConsentBanner.swift` / `LSPServerSettingsView.swift` / `LSPInstalledLicenses.swift` — consent strip, Preferences tab, installed licenses.
+  `LSPDownloadService.swift` / `LSPArchiveUnpacker.swift`, `LSPConsentBanner.swift` / `LSPServerSettingsView.swift` / `LSPInstalledLicenses.swift`
 
 `docs/architecture/core-leetcode.md` — the LeetCode app surfaces (same doc as the Core half):
-- `Platform/LeetCodeURLSessionTransport.swift` / `LeetCodeKeychainStore.swift` / `LeetCodeSupportDirectory.swift` — the app halves of the Core seams; the cache base.
-- `Platform/LeetCodeWebSession.swift` — login URL, shared cookie store, scoped purge, two-halves sign-out, `LeetCodeLoginObserver`.
-- `LeetCodeLoginView.swift` / `iOS/LeetCodeLoginView_iOS.swift` — the sign-in sheet / cover.
-- `LeetCodeOpenProblemSheet.swift` — the macOS sheet, menu items, folder chooser.
-- `LeetCodeDescriptionView.swift` — the macOS statement pane.
-- `iOS/LeetCodeRoute_iOS.swift` — `LeetCodeFolder_iOS` + the one iOS account/open screen.
-- `iOS/LeetCodeDescriptionView_iOS.swift` — the adaptive statement (pane/sheet).
-- `LeetCodeJudgeView.swift` / `iOS/LeetCodeJudgeView_iOS.swift` — the judge section under the statement.
-- `LeetCodeBrowserWindowController.swift` / `LeetCodeBrowserView.swift` — the single macOS browser window (⌘⇧B).
-- `iOS/LeetCodeBrowserView_iOS.swift` — the pushed iOS browser screen.
+  `Platform/LeetCodeURLSessionTransport.swift` / `LeetCodeKeychainStore.swift` / `LeetCodeSupportDirectory.swift`, `Platform/LeetCodeWebSession.swift`, `LeetCodeLoginView.swift` / `iOS/LeetCodeLoginView_iOS.swift`, `LeetCodeOpenProblemSheet.swift`, `LeetCodeDescriptionView.swift`, `iOS/LeetCodeRoute_iOS.swift`, `iOS/LeetCodeDescriptionView_iOS.swift`, `LeetCodeJudgeView.swift` / `iOS/LeetCodeJudgeView_iOS.swift`, `LeetCodeBrowserWindowController.swift` / `LeetCodeBrowserView.swift`, `iOS/LeetCodeBrowserView_iOS.swift`
 
 `docs/architecture/core-local-history.md` — the Local History app surfaces (same doc as the Core half):
-- `LocalHistorySupportDirectory.swift` — `…/Application Support/Pisaka/LocalHistory` (Support, not Caches).
-- `LocalHistoryWindowController.swift` — the one reusable, retargeted history window (⌘⇧H).
-- `LocalHistoryView.swift` — revisions list + `DiffView` + Restore; the empty state.
+  `LocalHistorySupportDirectory.swift`, `LocalHistoryWindowController.swift`, `LocalHistoryView.swift`
 
 `docs/architecture/core-zoom.md` — the zoom app surfaces (same doc as the Core half):
-- `ZoomSurface.swift` — the surface marker protocol/representable + the pointer walk.
-- `ZoomController.swift` — the one `NSEvent` monitor; the three View-menu items.
-- `InterfaceScaleEnvironment.swift` — `\.interfaceMetrics` + `.interfaceScaled(_:)`.
+  `ZoomSurface.swift`, `ZoomController.swift`, `InterfaceScaleEnvironment.swift`
 
 `docs/architecture/core-theme.md` — the chrome theme's app surfaces (same doc as the Core half):
-- `ChromePalette.swift` — the one hex table (exhaustive `switch`, no `default`) + the dynamic-`NSColor` bridge and `ChromeTheme`.
-- `ChromeThemeEnvironment.swift` — `\.chromeTheme` + `.chromeThemed(_:)` at the interface scale's own eight roots.
-- `TabStripView.swift` — the horizontal tab strip, the first surface drawn wholly from the roles.
-- `CommitGraphPalette.swift` — the branch graph's eight lane colours: the fourth colour exemption (a lane is an identity token, not a chrome meaning).
+  `ChromePalette.swift`, `ChromeThemeEnvironment.swift`, `TabStripView.swift`, `CommitGraphPalette.swift`
 
 `docs/architecture/core-database-viewer.md` — the viewer's app surfaces (same doc as the Core half):
-- `Platform/DatabaseConnectionService.swift` — the one SQLite-importing file: one actor-serialized read-only connection, busy timeout, verbatim messages; `performWrite(_:)`'s separate short-lived read-write connection; the console's one prepare-by-tail loop, its bounded stepping and its transaction bracket.
-- `DatabaseViewerTabs.swift` — one model (≡ one connection) per viewer tab; tab close observed, not called; forwards the gate question and the write hook; its own file so `PisakaApp` does not grow.
-- `DatabaseViewerView.swift` — the surface (+ `DatabaseViewerHost`); draws Core's answers, decides nothing — including the editable cell, its refusals and the NULL gesture; hosts the console under the grid in a resizable split.
-- `DatabaseConsoleView.swift` — the console pane: input, Run (⌘↩), the result table, the footer and the message line; shows Core's prompt verbatim, composes no SQL, declares no zoom surface.
+  `Platform/DatabaseConnectionService.swift`, `DatabaseViewerTabs.swift`, `DatabaseViewerView.swift`, `DatabaseConsoleView.swift`
 
 `docs/architecture/core-github.md` — the Pull Requests app surfaces (same doc as the Core half):
-- `ExecutableLocator.swift` — the one definition of the discovery search (inherited `PATH` → well-known dirs → login shell), returning the path *and* the `PATH` that found it; one definition, two callers (G7).
-- `GitHubCLIProcessTransport.swift` — the one app file that runs `Process` for `gh`: the environment overlay, the per-command deadline (SIGTERM→SIGKILL), and the per-refresh location cache with its three re-locate triggers (G7).
-- `PullRequestCoordinator.swift` — owns the model and the transport, wired once from the scene; holds the feature's refresh triggers and its three writer-bracket sites — the checkout, and the post-merge tail's switch and pull (G9, G12, G15).
-- `PullRequestsPanelView.swift` — the sixth dock panel: the not-ready states with their next step, the rows (Checkout, Merge, the armed wait's elapsed/Cancel), the dismissible wait-ending strip above the list, the expandable per-job checks, and the one `.onAppear` panel-shown trigger.
-- `NewPullRequestSheet.swift` — the create sheet: pre-filled title, base picker, Draft, and the three sentences naming everything Create will do.
-- `PullRequestMergeSheet.swift` — the merge sheet: method picker, pre-filled subject and optional body, the three stated sentences, and the button the plan labels (Merge, or Merge when checks pass).
-- `PullRequestIndicatorView.swift` — the bottom-bar `#N` + checks state beside the branch switcher; absent rather than empty, click opens the panel with that row expanded.
+  `ExecutableLocator.swift`, `GitHubCLIProcessTransport.swift`, `PullRequestCoordinator.swift`, `PullRequestsPanelView.swift`, `NewPullRequestSheet.swift`, `PullRequestMergeSheet.swift`, `PullRequestIndicatorView.swift`
 
 `docs/architecture/app-window.md` — window chrome (macOS):
-- `ContentView.swift` — window layout; deliberately non-observed `commitDialog`.
-- `ProjectSwitcherView.swift` — bottom-bar project switcher; read-at-open, empty state, delegates actions.
-- `ProblemsPanelView.swift` — the Problems dock panel: grouped rows, counts header, open-and-reveal callback.
-- `UsagesPanelView.swift` — the Usages dock panel beside Problems: the identifier header, the semantic/textual honesty line, grouped rows, row activation as a whole `UsageResult`.
-- `DockTabRow.swift` — the dock's own tab row, drawn once inside the panel slot: six tabs from `BottomPanel`, select-never-collapse, close alone.
-- `DiffWindowContent.swift` / `DiffWindowController.swift` — separate diff windows.
-- `SourceViewerWindowController.swift` / `SourceViewerContent.swift` — the read-only out-of-project definition window.
-- `ProjectTreeView.swift` — project tree (lazy children, `treeRevision` reloads).
-- `ProjectTreeDraftField.swift` — inline naming draft field.
-- `TabListView.swift` / `TabRowView.swift` — the vertical open-tabs column, on the chrome roles (the horizontal strip is `TabStripView.swift`, indexed under the chrome theme, and owns `TabStatusMark`, the trailing slot both orientations draw).
-- `BreadcrumbBarView.swift` — the breadcrumb above the editor, its own file so it can be gated; the outer/`.equatable()` split that keeps it both cheap and live.
+  `ContentView.swift`, `ProjectSwitcherView.swift`, `ProblemsPanelView.swift`, `UsagesPanelView.swift`, `DockTabRow.swift`, `DiffWindowContent.swift` / `DiffWindowController.swift`, `SourceViewerWindowController.swift` / `SourceViewerContent.swift`, `ProjectTreeView.swift`, `ProjectTreeDraftField.swift`, `TabListView.swift` / `TabRowView.swift`, `BreadcrumbBarView.swift`
 
 `docs/architecture/app-terminal.md` — embedded terminal (macOS):
-- `TerminalTheme.swift` — light/dark palette incl. themed ANSI-16.
-- `TerminalSession.swift` — one PTY shell; theme/font apply guards; the terminal zoom surface.
-- `TerminalSessionsModel.swift` — session/tab ownership, run/test sessions; theme/font fan-out.
-- `TerminalPanelView.swift` — panel host.
+  `TerminalTheme.swift`, `TerminalSession.swift`, `TerminalSessionsModel.swift`, `TerminalPanelView.swift`
 
 `docs/architecture/app-editor.md` — code editor & find (macOS):
-- `CodeEditorView.swift` — the `NSTextView` wrapper; the weak-capture retain-cycle rule.
-- `LSPDocumentSyncController.swift` — the 400 ms push sync (D30); revision pinned before the hop.
-- `EditorSearchState.swift` / `EditorSearchController.swift` / `SearchBarView.swift` — find/replace bar state, execution, UI.
-- `EditorRevealState.swift` — one-shot reveal request.
-- `FoldController.swift` / `FoldCommands.swift` — the fold owner and the two menu items (`core-folding.md`); the reveal funnel is `CodeEditorView.Coordinator.revealRange(_:)`.
-- `CompletionPanel.swift` — custom borderless completion panel, pointer-reachable.
-- `CompletionController.swift` — debounced candidate precompute for the completion panel; applies LSP auto-import edits.
-- `HoverController.swift` — the pointer's dwell, one generation token, the whole dismissal set.
-- `HoverPanel.swift` — the pass-through popover: `ignoresMouseEvents`, two fonts, truncation marker.
-- `DefinitionPicker.swift` — the multi-candidate `NSMenu`.
-- `LSPProcessTransport.swift` — the real `LSPTransport`: one process, three pipes, SIGTERM→SIGKILL teardown.
-- `LSPToolchain.swift` — `xcrun --find`, cached per app run.
-- `LSPGoToolchainService.swift` — the Go seams: discovery, `go install` with `GOBIN` staged.
-- `LSPRustToolchainService.swift` — the Rust seam: `cargo`/`rust-analyzer` discovery, `--version`-probed.
-- `ProjectSearchView.swift` / `ProjectSearchWindowController.swift` — Find in Files window (single window).
-- `SearchHistoryMenu.swift` — the clock menu both search surfaces render over the shared history.
+  `CodeEditorView.swift`, `LSPDocumentSyncController.swift`, `EditorSearchState.swift` / `EditorSearchController.swift` / `SearchBarView.swift`, `EditorRevealState.swift`, `FoldController.swift` / `FoldCommands.swift`, `CompletionPanel.swift`, `CompletionController.swift`, `HoverController.swift`, `HoverPanel.swift`, `DefinitionPicker.swift`, `LSPProcessTransport.swift`, `LSPToolchain.swift`, `LSPGoToolchainService.swift`, `LSPRustToolchainService.swift`, `ProjectSearchView.swift` / `ProjectSearchWindowController.swift`, `SearchHistoryMenu.swift`
 
 `docs/architecture/app-editor-overlays.md` — editor overlays (macOS):
-- `BracketOverlayLayoutManager.swift` — temporary-attribute overlay merge; both halves of fold hiding (`.null` glyphs + `FoldingTypesetter`) + the `…` placeholder.
-- `BracketHighlightController.swift` — debounced bracket scan.
-- `BlameController.swift` — blame-column owner (one-in-flight rule).
-- `LineNumberRulerView.swift` — gutter numbers + blame column + diagnostic severity markers + the fold chevron column and the hidden-line skip.
-- `MinimapTokenizer.swift` / `MinimapView.swift` — minimap parse + drawing.
-- `SyntaxLanguageConfiguration.swift` / `SyntaxTheme.swift` — grammar registry; color tables.
+  `BracketOverlayLayoutManager.swift`, `BracketHighlightController.swift`, `BlameController.swift`, `LineNumberRulerView.swift`, `MinimapTokenizer.swift` / `MinimapView.swift`, `SyntaxLanguageConfiguration.swift` / `SyntaxTheme.swift`
 
 `docs/architecture/app-git-views.md` — git UI & CLI service (macOS):
-- `FilePanels.swift` — open/save panels, confirm dialogs.
-- `BranchSwitcherView.swift` — bottom-bar branch widget.
-- `GitCLIService.swift` — the `Process`-backed `GitServicing`: serial queues, the temporary-index commit, `GIT_TERMINAL_PROMPT=0`.
-- `CommitDialogView.swift` / `CommitUnifiedDiffView.swift` — commit sheet + unified diff panel.
-- `MergeView.swift` / `MergeWindowController.swift` — 3-pane merge editor + windows.
-- `EscClosableWindow.swift` — Esc-closes-window subclass.
-- `LocalChangesView.swift` — Local Changes panel.
-- `DiffView.swift` — side-by-side read-only diff panes.
-- `CommitLogView.swift` / `CommitGraphView.swift` / `LogFilterBar.swift` — Log table, graph gutter, filter bar.
+  `FilePanels.swift`, `BranchSwitcherView.swift`, `GitCLIService.swift`, `CommitDialogView.swift` / `CommitUnifiedDiffView.swift`, `MergeView.swift` / `MergeWindowController.swift`, `EscClosableWindow.swift`, `LocalChangesView.swift`, `DiffView.swift`, `CommitLogView.swift` / `CommitGraphView.swift` / `LogFilterBar.swift`
 
 `docs/architecture/style-lint.md` — the SwiftLint enforcement machinery (no
 Swift files of its own): the two `.swiftlint.yml` files, `.githooks/pre-commit`,
 ci.yml's `lint` job, and the version-bump procedure.
 
-### Cross-cutting invariants (details in the docs above)
+### Cross-cutting invariants
+
+Each invariant below states the claim an agent must not break. The reasoning, the
+enumerations and the edge cases live in the document named with it — read that document
+before changing the behaviour, not this list.
 
 - **Generation tokens**: every async git/search model orders overlapping work by
-  monotonic tokens captured *synchronously* before the `Task` hop; superseded
-  work discards its result instead of publishing over newer state.
-- **Disk-writer coordination**: every worktree-mutating operation (revert, merge
-  apply, branch switch/create, project Replace All, commit, — the seventh, the
-  one that is not git's — a language server's project-wide **rename**, the
-  eighth, `gh pr checkout`, and the ninth, the post-merge tail's
-  `pull --ff-only` — the last two sharing the branch operations' own bracket,
-  which the tail's switch is a third caller of)
-  raises `autosave.suspend()` + `localChanges.beginRevert()` synchronously before its
-  first `await` (balanced by `defer`); the project-tree file ops, ⌘S, the
-  run/test saves and the three branch-checkout entry points themselves
-  (`switchBranch`, `checkoutRemote`, `createBranch` — the bracket raises the flag
-  but does not read it) refuse while the gate is up — as do the database viewer's two
-  writes (an inline cell edit and the SQL console's confirmed mutation), the
-  refusers that are not text-file writes and the ones that only *consult* the
-  flag (`core-database-viewer.md`).
-- **Readers do not take the writer gate**: the symbol index only *reads*, so it
-  neither raises the gate nor is gated by it — a refresh landing mid-revert
-  costs at worst one entry the next refresh corrects, while taking the gate
-  would serialize the editor behind a background walk.
-- **Language servers**: one server per `(server, root)`, started lazily and
-  never twice; sync is request-driven (the live buffer travels with the
-  request) — except for the diagnostics push channel (D29/D30), which re-syncs
-  each open served buffer on a 400 ms debounce and on tab open/switch so
-  `publishDiagnostics` has something to answer; fallback to tree-sitter is per
-  request and silent (no alert, ever),
-  and four failures mark that `(server, root)` unavailable for the app run. A
-  **reader**, like the index. `Process` lives only in `Sources/Pisaka` behind
-  `LSPTransport` — `LSPSourceGatingTests` asserts that. Registration is dynamic
-  (`updateRegistry(_:)`): un-registering a server shuts its process down. **Three
-  questions are exceptions to the silent tree-sitter fallback.** *Hover* (D25) and
-  *rename* (D35) have no second answer at all — tree-sitter knows names, not types
-  or references, so no server means no popover and no rename — and hover's popover
-  is itself chrome, not a code surface, because the pointer cannot reach it (D26,
-  `core-lsp.md`). *`references`* (D36) has a second answer that is **not this
-  layer's**: nothing in the provider chain ever walks the project, because a walk
-  inside the router's deadline race would be abandoned mid-flight with nobody left
-  to say so, so `FindUsagesModel` runs `TextualUsageScanner` where the walk, the
-  file service and the buffers already live. The panel always states which of the
-  two it is holding, and an answer is **never a mixture** (`UsageProvenance` has
-  two cases and no third). Rename is also the one answer in the layer that becomes
-  a *write*, applied by the app under the seventh writer bracket — the layer itself
-  still writes nothing (D10).
-- **Provisioned servers**: nothing downloads without per-server consent; what
-  *may* be downloaded is pinned data in Core (URL + SHA-256 + size), changed
-  only by shipping a new app version. The **size is enforced, not only
-  displayed** (D14): it crosses the download seam as a maximum, the app half
-  counts the bytes arriving and stops at the ceiling, and Core refuses anything
-  longer before the digest. Every install verifies
-  before unpacking and lands as one rename inside
-  `~/Library/Application Support/Pisaka/LanguageServers` — nothing global, so
-  deleting that directory de-provisions completely and the disk *is* the state.
-  Core never fetches or unpacks (the two seams are macOS app files); the whole
-  layer is a **reader**. gopls (D17–D20) and rust-analyzer (D21–D24) are the
-  second and third *registry contributors*, not second layers: gopls is
-  discovered or built once, on consent, by the user's own `go`; rust-analyzer is
-  a pinned component that is nonetheless *used* from `~/.cargo/bin` when the
-  user already has one — the app's own copy wins, Remove only touches that copy,
-  and no `cargo` means no prompt at all. `yaml-language-server` (D28) is an
-  ordinary third downloadable server — one pinned component whose whole
-  twenty-package runtime closure is pinned, one enum case, still no npm — and it
-  carries the **one stated exception** to "what may be downloaded is pinned
-  data": it fetches JSON schemas *while it runs* — the catalog from
-  schemastore.org, each schema from the host that catalog names, and whatever URL
-  a file names for itself (a `$schema=` header *or* a top-level `$schema:` key)
-  — which is said where consent is given (the
-  banner and the Settings row both print
-  `LSPDownloadableServer.runtimeNetworkNote`, which is `nil` for every other
-  server) and not only in the docs. It is not a second install — nothing lands
-  under the install root, so Remove still de-provisions completely. A server that
-  needs a setting gets it as data on its description (D27), delivered on both the
-  push and the pull channel; no server-specific code exists in the session.
-  Details in `core-provisioning.md` / `core-lsp.md`.
-- **LeetCode is a reader with exactly one create**: never takes the writer gate,
-  never gated by it. The only file it ever creates is a solution file that does
-  not exist (an existing one is returned untouched), plus its two caches under
-  `…/Application Support/Pisaka/LeetCode` (the catalog rewrites its own
-  `catalog.json` on a stale `load()` and every `refresh()`). Run/Submit judge
-  the *live editor buffer* — never the disk copy — and write nothing; the
-  browser filters the catalog already in hand and opens rows through
-  `openProblem`, so there is no second create path. All schema knowledge is in
-  one Core file, every operation requires a login, and opening a problem never
-  changes the project root. **Nothing is read or requested until the feature is
-  first used** (L27): building the model touches neither the credential store nor
-  the network, `refreshUserStatus(` is spelled in no app file, and the account
-  resolves — a closed tri-state whose third value is "not asked yet" — from the
-  four surfaces that render it plus every credential-needing entry, which resolves
-  for itself so no view has to remember, plus the one app site that must **await**
-  the confirmation rather than read the optimistic answer: the macOS menu's Sign
-  In…, which cannot observe its own opening (`core-leetcode.md`).
-- **Local History is a reader with a store of its own** (macOS only): it snapshots
-  every buffer the app writes and, under a label, every file the **nine** gated
-  operations are about to overwrite, into
-  `…/Application Support/Pisaka/LocalHistory` — outside the project, keyed by
-  (root, project-relative path), the file *name* carrying timestamp/event/hash so
-  a listing is one directory read. It never takes the writer gate and is never
-  gated by it; its **restore is a buffer edit** through `SaveTransformController`,
-  not a disk write, so the ordinary save funnel settles it. Each pre-operation
-  capture is the **first `await` inside the operation's bracket**, which is what
-  makes it pre-operation by construction, and the **quit flush is the one place it
-  writes on the main thread** (a `Task` hop is not guaranteed to run before the
-  process exits). Every skip and every failure is silent; retention is 14 days /
-  30 revisions with the newest always surviving (`core-local-history.md`).
-- **The database viewer is a reader with two writes, whose tab kind can never be
-  dirty** (macOS only): a recognized `.sqlite`/`.sqlite3`/`.db` file opens
-  as the **second kind of `OpenFile`** — `.viewer`, constructible only through
-  `init(id:viewerFor:)`, carrying no text, with `isDirty` `false` *by
-  construction*, which is what excludes it from autosave, the on-save transform
-  and Local History without a second filter at any of the three. The file is
-  **probed, never read** (`fileStamp(at:)`; a `nil` stamp is the new
-  `FileServiceError.missingFile`), the session record is unchanged (a viewer tab
-  persists as an ordinary `path` and comes back through `open(url:)`), and the
-  routing is **off unless the app turns it on**: `viewerTabsEnabled` is `false`
-  by default and `true` in `PisakaApp.swift` alone, so iOS — which opens files
-  through the same method from four sites and has no viewer surface — keeps
-  today's honest read failure. Core composes every byte of SQL (`DatabaseQuery` is
-  the only thing in the repository that *writes* SQL; identifiers quoted because
-  they cannot be parameters, everything else bound because it can) and reads
-  every answer — **the console is the one stated exception**, and not a second
-  composer: the reader's text is carried across the seam verbatim, never parsed,
-  re-split, rewritten or appended to, which is why its row cap travels as a
-  number enforced by stepping rather than as a `LIMIT` Core would have to write.
-  The app half is one actor-serialized SQLite connection per tab and knows
-  nothing about what any of it means. Every read is one bounded page, every
-  failure carries SQLite's own words and never blanks a good answer. The **first
-  write** is an inline cell edit: a parameterized `UPDATE … SET … WHERE` addressed by
-  `rowid` (the first of the three spellings the table does not shadow — written
-  *bare*, since a quoted one SQLite re-reads as a string literal) or by every
-  primary-key column in key order, conditioned with `IS` on the value the grid was
-  showing, carried across the seam as a `DatabaseWriteTransaction` and run by the
-  app half on a **separate, short-lived read-write connection** that commits only
-  when exactly one row changed — the tab's own connection stays read-only for its
-  whole life, so a viewer tab never holds unflushed state and termination's
-  best-effort `closeAll()` stays correct. Row identity travels as a **trailing**
-  result column split off by position and count, never by name; a grid column is
-  matched to its schema column by name, never by position (hidden columns make
-  the two lists diverge), and no unique match is a typed refusal, like a view, a
-  generated column, a blob cell and a table with no usable identity. What is
-  typed is text; what is stored is decided by the column's type affinity, with an
-  untyped column keeping the cell's previous storage class — and NULL is
-  reachable only through an explicit gesture, never by typing the word. The layer
-  still **never raises the writer gate**, but it now *consults* one: the model
-  takes an injected `isWriteBlocked` predicate (wired in the scene alone to
-  `LocalChangesModel.isReverting`) and refuses an edit while a worktree-mutating
-  operation is in flight, then calls an injected `didWrite` after a commit, so no
-  file under the viewer names a gate call or `localChanges` at all.
-  The **second write** is the SQL console's confirmed mutation, and it is a
-  second *member* rather than a second requirement on the first:
-  `performWrite(_:)` keeps the cell edit's exact-count rule byte for byte, while
-  `performConsoleWrite(_:)` carries one string and commits at whatever total it
-  reached ("no rows changed" being a real outcome for a `DELETE` that matched
-  nothing) — two members, two rules, no shared trap, since a multi-statement text
-  sent through the first would silently run only its first statement.
-  **Classification is SQLite's and honest about its horizon**: nothing runs until
-  `classifyConsole(_:)` has prepared the text statement by statement through the
-  tail without executing any of it, and because SQLite resolves names at *prepare*
-  time a migration-shaped text classifies only as far as its first unresolvable
-  name — after a read-only prefix that failure *is* the answer (a read cannot
-  have created what the next statement needs), after a writing one it is merely
-  the horizon and the rest is classified as it runs inside the same transaction.
-  A read runs on the tab's own connection, capped at 500 rows by stepping; a
-  mutation runs whole, as one transaction, on a connection of its own, reports its
-  affected-row total and shows no rows — a total charged as a
-  `sqlite3_total_changes` **delta**, since `sqlite3_changes` survives a statement
-  that is neither read-only nor DML and would report the last insert's count
-  twice. The console asks the same gate the cell
-  edit does, immediately before sending; **"one write per tab" is one rule read
-  from both sides** — `isWriteInFlight` is the term the cell edit refuses on and
-  the term the console is handed — and **the paging buttons, the sort
-  headers and Run are all disabled while either write is in flight**
-  (`isWriteInFlight`). A console mutation that *fails* still tells the write hook
-  and still re-reads, because a text carrying its own `COMMIT` closes the app's
-  bracket and leaves what follows durable.
-  `DatabaseViewerSourceGatingTests` pins the import, the
-  gating, the switch's one site, the tab-kind skips by count, the four gate rules
-  — asked before anything is sent, asked in one place, wired once in the scene,
-  and named by no read path — the surface's disable terms (the three controls, and
-  that no view asks the grid's half of the flag), and the console's own: it
-  composes no SQL, names no
-  gate, reaches the seam through one call site per member, and the scene knows
-  nothing about it (`core-database-viewer.md`).
-- **Pull requests are a reader with three writes, two of which move the worktree**
-  (macOS only): the panel, the two sheets and the bottom-bar indicator all speak to GitHub through the
-  user's own `gh`, discovered at run time and required to be 2.50.0 or newer
-  because that is where `pr checks --json` landed. Core composes every argument
-  list (`GitHubCommands` is the only place a `gh` flag is spelled — the app layer
-  spells none, and there is no `--repo`, so `gh` resolves the repository from the
-  remote already in the working directory and a GitHub Enterprise checkout works
-  for free) and reads every answer in **one schema file** whose closed tables
-  refuse rather than guess, naming the key path that did not match; `pr checks` is
-  the one command judged on its stdout parsing and **never on its exit status**,
-  because 8 means pending and 1 means a job failed and both print the JSON.
-  Freshness is **event-driven — a branch change, the panel becoming visible, one
-  of the feature's own writes — and never a timer, with exactly one stated
-  exception**: `PullRequestMergeWait`, the armed *Merge when checks pass* wait,
-  which is bounded (30 s ticks, 30 min), visible (its elapsed time is published,
-  and no view runs a clock), cancelable (Cancel, a project switch, quit, arming
-  another) and armed only by an explicit press on a button the plan itself
-  labels. It re-reads **the row** by number and decides through `GitHubMergePlan`
-  — never `pr checks`, whose bucket table cannot see `mergeable` or
-  `mergeStateStatus`, so a wait deciding "green" from it would hand a merge to
-  the plan that refuses it: one rule, one table, the same value the button is
-  drawn from. The exception is pinned term by term (named constants, one sleep
-  seam, no `Timer`, no `asyncAfter`, no `checks`), not granted by file name. With
-  availability re-probed
-  at the top of every refresh and at no other moment, three generation tokens
-  ordering the three independently re-triggerable reads, and a failure that never
-  blanks a good list — a rule about *one* repository, so the two exceptions are
-  availability going not-ready (a different world rather than a failed read) and
-  the project root changing, which the coordinator registers synchronously in the
-  folder switch's own turn so another repository's rows are never listed, or
-  checked out, under this one. Discovery is per *refresh*, not
-  per command and not per app run: the version probe is the one command carrying
-  `refreshesExecutableLocation`, so a refresh costs one login-shell spawn and a
-  `gh` installed a moment ago from the embedded terminal is still picked up.
-  Exactly **one write is in flight at a time** — create pushes the branch before
-  it opens anything, always with an explicit `--base` read from `repo view` and
-  deliberately **no `--head` at all**, because a `--head` value names a ref in the
-  *base* repository and a fork checkout's head lives in another one, which this
-  layer cannot name (it composes no `owner/repo`, and `gh` refuses an organization
-  as the `<user>` anyway); the branch-switch window that buys is closed by
-  re-reading the checked-out branch once the push returns and **refusing** when it
-  is no longer the branch the sheet's sentence named, and by *consulting* the same
-  gate the checkout asks so the plain `git push` a tracked branch resolves against
-  HEAD cannot publish a branch the plan never named; the **merge** is guarded by
-  `--match-head-commit` carrying the head of the row its plan was decided from
-  (so a push landing between the read and the merge is GitHub's refusal, in
-  GitHub's words), never carries `--admin`, `--auto` or `--delete-branch`, and is
-  decided by one rule three readers ask — the button, the write's own re-decision
-  from the row in hand, and every tick of the wait; and
-  `gh pr checkout` is the app's **eighth gated operation**, with the post-merge
-  tail's `pull --ff-only` the **ninth**: the model composes each command, asks an
-  injected gate before anything is sent and owns the tail's order (switch to the
-  base through the branch widget's own list, then pull, stopping at the first
-  failure and never reporting the merge as failed). **The tail asks that gate
-  again**, after its decision and ahead of the dirty-tree confirmation, because
-  the merge's own answer is spent before `gh pr merge` reaches the network and
-  the bracket the two steps ride raises the flag without reading it — which is
-  the very reason `switchBranch` and `checkoutRemote` refuse on it themselves.
-  Meanwhile
-  `PisakaApp.runBranchOperation(_:_:_:)` — which grew an optional completion
-  precisely because two bracketed operations cannot otherwise be ordered — is
-  reached through `PullRequestCoordinator` alone, its three sites, so no file
-  under the feature names `autosave` or `localChanges` at all (`core-github.md`).
-- **Colour reaches a gated chrome view only as a role** (macOS only): the
-  chrome — everything drawn *around* the code — is named in Core as a **closed**
-  21-case `ChromeColorRole` plus `ChromeGeometry`'s point tokens (scaled at the
-  use site — with one stated exception, `hairlineWidth` on an AppKit *code*-zoom
-  surface, which has no interface scale to ask and draws the token unscaled, a
-  hairline being one point by definition — and carrying **no font size**: the
-  chrome's three sizes are
-  `InterfaceTextStyle.body`/`.callout`/`.subheadline`, 13/12/11, read through
-  `metrics.font(_:)`), and coloured in the app layer by one table,
-  `ChromePalette`, whose **exhaustive `switch`** makes a role without a value a
-  compile error. The palette has **exactly two value sets and no third** — a dark
-  and a light entry per role, plus one alpha shared by both, since a wash is one
-  wash over either background — resolved through `ChromeAppearance`, the third
-  spelling of `resolved(_:systemPrefersDark:)`. Two paths, no others: SwiftUI
-  reads `@Environment(\.chromeTheme)`, injected by `.chromeThemed(_:)` at
-  **exactly the eight roots `.interfaceScaled(_:)` already names** (one list, read
-  from `ZoomSourceGatingTests`' own declaration), and AppKit asks
-  `ChromePalette.nsColor(_:)` for a **dynamic** colour — which is why no AppKit
-  chrome view caches a resolved colour or watches for a *colour* change; a
-  dynamic colour resolves whenever the drawing happens, and the gutter — which
-  paints its own background and overrides nothing — was measured recolouring
-  live in both directions when the system appearance changed under it. A
-  reader: it takes no writer gate, is gated by none and writes nothing.
+  monotonic tokens captured *synchronously* before the `Task` hop; superseded work
+  discards its result instead of publishing over newer state.
+- **Disk-writer coordination**: every worktree-mutating operation — nine of them today,
+  enumerated in `app-shell.md` and `core-github.md` — raises `autosave.suspend()` +
+  `localChanges.beginRevert()` synchronously before its first `await`, balanced by
+  `defer`. The bracket raises the flag without reading it, which is why the operations
+  that must not run under it refuse for themselves: the project-tree file ops, ⌘S, the
+  run/test saves, the three branch-checkout entry points, and the database viewer's two
+  writes, which only *consult* it.
+- **Readers do not take the writer gate**: the symbol index only *reads*, so it neither
+  raises the gate nor is gated by it — a refresh landing mid-revert costs at worst one
+  entry the next refresh corrects, while taking the gate would serialize the editor
+  behind a background walk.
+- **Language servers** (`core-lsp.md`, D1–D39): one server per `(server, root)`, started
+  lazily and never twice; registration is dynamic, and un-registering one shuts its process
+  down. Sync is request-driven — the live buffer travels with the request — except for the
+  diagnostics push channel, which re-syncs each open served buffer on a debounce and on tab
+  open/switch. Fallback to tree-sitter is per request and **silent, with no alert ever**, and
+  four failures mark that `(server, root)` unavailable for the app run. A **reader**;
+  `Process` lives only in `Sources/Pisaka` behind `LSPTransport`, which a gating suite
+  asserts. **Three questions are exceptions to the silent fallback**: hover and rename have no
+  second answer at all, and `references` has one that is **not this layer's** — nothing in the
+  provider chain ever walks the project, so the usages model runs the textual scan where the
+  walk, the file service and the buffers already live, always stating which of the two it
+  holds and never mixing them. Rename is the one answer that becomes a *write*, applied by the
+  app under the seventh writer bracket.
+
+- **Provisioned servers** (`core-provisioning.md`, D11–D16 + D28): nothing downloads without
+  per-server consent, and what *may* be downloaded is pinned data in Core — URL, SHA-256 and
+  byte count — changed only by shipping a new app version. The **size is enforced, not only
+  displayed**: it crosses the seam as a maximum, and Core refuses anything longer before the
+  digest. Every install verifies before unpacking and lands as one rename inside one
+  directory, so deleting that directory de-provisions completely and **the disk is the
+  state**. Core never fetches or unpacks; the whole layer is a **reader**. gopls,
+  rust-analyzer and the YAML server are further *registry contributors*, not second layers,
+  and the last carries the **one stated exception** to "what may be downloaded is pinned
+  data" — it fetches JSON schemas while it runs, which is printed where consent is given and
+  not only written here. A server that needs a setting gets it as data on its description; no
+  server-specific code exists in the session.
+
+- **LeetCode is a reader with exactly one create** (`core-leetcode.md`, L1–L27): never
+  takes the writer gate, never gated by it. The only file it creates is a solution file
+  that does not exist — an existing one is returned untouched — plus its two caches
+  outside the project. Run/Submit judge the **live editor buffer**, never the disk copy,
+  and write nothing. All schema knowledge is in one Core file, every operation requires a
+  login, and opening a problem never changes the project root. **Nothing is read or
+  requested until the feature is first used**, and the account is a closed tri-state whose
+  third value is "not asked yet".
+- **Local History is a reader with a store of its own** (macOS only,
+  `core-local-history.md`): it snapshots every buffer the app writes and, under a label,
+  every file the nine gated operations are about to overwrite, into a store **outside the
+  project** keyed by (root, project-relative path), the file *name* carrying the metadata
+  so a listing is one directory read. It never takes the writer gate and is never gated by
+  it; its **restore is a buffer edit** through the ordinary save funnel, not a disk write.
+  Each pre-operation capture is the **first `await` inside the operation's bracket**, which
+  is what makes it pre-operation by construction, and the **quit flush is the one place it
+  writes on the main thread**. Every skip and every failure is silent; retention is 14 days
+  / 30 revisions with the newest always surviving.
+- **The database viewer is a reader with two writes, whose tab kind can never be dirty**
+  (macOS only, `core-database-viewer.md`): a recognized database file opens as the **second
+  kind of `OpenFile`** — `.viewer`, carrying no text, with `isDirty` `false` *by
+  construction*, which is what excludes it from autosave, the on-save transform and Local
+  History without a second filter at any of the three. The file is **probed, never read**, and
+  the routing is **off unless the app turns it on**, so iOS keeps today's honest read failure.
+  Core composes every byte of SQL and reads every answer — **the console is the one stated
+  exception and not a second composer**: the reader's text crosses the seam verbatim, never
+  parsed, re-split or appended to. The app half is one actor-serialized **read-only**
+  connection per tab and knows nothing about what any of it means; every read is one bounded
+  page, every failure carries SQLite's own words and never blanks a good answer. Both writes
+  run on **separate, short-lived read-write connections**, under **two commit rules that are
+  deliberately not shared** — exactly one row for the cell edit, whatever total it reached for
+  the console's mutation — so the tab's own connection stays read-only for its whole life.
+  **NULL is reachable only through an explicit gesture, never by typing the word.** The layer
+  **never raises the writer gate but does consult one**; **"one write per tab" is one rule read
+  from both sides**, and the paging buttons, the sort headers and Run are all disabled while
+  either write is in flight. Nothing runs until the console's text has been classified
+  statement by statement without executing any of it, and that classification is **honest
+  about its horizon**, because names resolve at prepare time.
+
+- **Pull requests are a reader with three writes, two of which move the worktree** (macOS
+  only, `core-github.md`, G1–G15): every surface speaks to GitHub through the user's own `gh`,
+  discovered at run time and required to be 2.50.0 or newer. Core composes every argument list
+  — one file is the only place a `gh` flag is spelled, and there is no `--repo`, so the
+  repository resolves from the remote already in the working directory — and reads every
+  answer in **one schema file** whose closed tables refuse rather than guess. `pr checks` is
+  judged on its stdout parsing and **never on its exit status**. Freshness is **event-driven
+  and never a timer, with exactly one stated exception**: the armed *Merge when checks pass*
+  wait, which is bounded, visible, cancelable, armed only by an explicit press, and decides
+  through the merge plan rather than through `pr checks` — one rule, one table, the same value
+  the button is drawn from. Availability is re-probed at the top of every refresh and at no
+  other moment, and a failure never blanks a good list. **Exactly one write is in flight at a
+  time**: create pushes the branch first, with an explicit `--base` and deliberately **no
+  `--head`**, and refuses when the checked-out branch is no longer the one its sentence named;
+  the merge is guarded by `--match-head-commit` and never carries `--admin`, `--auto` or
+  `--delete-branch`; and the checkout and the post-merge tail's `pull --ff-only` are the app's
+  **eighth and ninth gated operations**, the tail asking the gate again because the merge's own
+  answer is spent before the network call.
+
+- **Colour reaches a gated chrome view only as a role** (macOS only, `core-theme.md`): the
+  chrome — everything drawn *around* the code — is named in Core as a **closed** 21-case
+  `ChromeColorRole` plus `ChromeGeometry`'s point tokens, scaled at the use site and carrying
+  **no font size**, and coloured in the app layer by one table, `ChromePalette`, whose
+  **exhaustive `switch`** makes a role without a value a compile error. The palette has
+  **exactly two value sets and no third**. Two paths reach a view and no others: SwiftUI reads
+  the injected environment at exactly the eight roots the interface scale already names, and
+  AppKit asks for a **dynamic** colour — which is why no AppKit chrome view caches a resolved
+  colour. A **reader**: no writer gate either way, and it writes nothing.
   `ChromeThemeSourceGatingTests` pins which files obey the rule (sixty, by set
-  equality) and its forty-three rules — no system semantic colour, no hex literal
-  outside the table, the four exemptions stay exemptions, the theme injected at
-  the scale's roots, no view constructing a theme, the gutter's fill still going
-  through its own rule (a seam pins nothing its call site does not spend, and
-  that call site was this sweep's one regression — the fold placeholder's two
-  seams and the fold chevron's spent by their draws too), no geometry token derived by
-  arithmetic, the tab icon rule spelled once, the window's chrome configured
-  in one file, and every bottom-bar control identifiable without sight (the
-  toggles are icon-only, so the `Label` that used to supply each one's
-  accessibility name for free is gone, and the three widgets hide every
-  decorative symbol they draw, since a `Button` combines its children and an
-  unhidden SF Symbol folds its own name in — the pull-request indicator the
-  stated exception, naming itself outright), every label a fixed-height
-  strip draws staying on one line (the bar states its own height now, so a label
-  that wraps is clipped rather than accommodated), the dock's tab row configured
-  in one place (drawn once, from the slot every panel passes through), every
-  dock tab and the row's close action identifiable without sight (a tab speaks
-  its selection as a value, the close glyph is named outright), the dock's
-  swept surfaces drawing their own hairlines (no `Divider()`), and the severity
-  mapping Core's one answer (`ChromeColorRole.diagnosticRole(for:)`, two known
-  readers, no second table in a view), and an indicator strip's bottom rule
-  drawn behind its tabs (an overlaid one paints over the active tab's accent
-  bar, a one-point overlap nothing else can see), the changed-file status, the
-  checks state and the diff row wash each Core's one answer (`FileStatus.letter`
-  + `changedFileRole(for:)`, `checksRole(for:)`, `diffWashRole(for:)`, each
-  with its readers pinned and no case-label table in a view) with a macOS diff
-  side Core's one `DiffSide`, the Log, Local Changes and Pull Requests
-  panels' controls identifiable without sight, and the Log's filter bar
-  stating no fixed width and scrolling below its floor (a row that cannot
-  shrink is clipped under the window's minimum width), every pushed resize
-  cursor released from a disappearance handler (a divider leaving the tree gets
-  neither `onHover(false)` nor `onEnded`), a popover surface names `bgPopover`, no gated file spells `Divider()` but one main menu built in a `Commands` builder (where a `Section` draws a separator on each side of its group), and every gated `Menu` file pinned as separating spells `Section`, AppKit layer colours are set only inside the drawing appearance, one field shape and one query toggle, each measurement follows its own zone, a secondary window's ground set in the window subclass alone, the merge wash Core's one answer (`mergeWashRole(for:)`, one reader, no alpha on a role's colour), one primary button, one secondary and one checkbox (no platform toggle or bordered/link button style), a code pane's ground through one definition (`CodePaneGround`, four callers), a window root resolving the theme the root way (no `\.chromeTheme` anywhere in a root struct), and the commit dialog's rows and controls (no fixed row height, the three row states, a spoken checkbox value, labelled chevrons), and every chrome glyph sized in the interface zone (its own scaled font, or a scaled frame on a resizable symbol, or a pinned declaration whose container font, button style or stated off-scale reason the rule re-checks), and a selectable list yielding its selected row's background (a row background is drawn over the selection box), and no platform form control in a gated file (no `Form`, `Picker`, `Stepper`, `Toggle` or `TabView` — the chrome draws a replacement for each), and a picker's shape following its set (a small build-time set segmented, a run-time set a menu field, a standing preference a switch, an option of one action a checkbox — each shape's callers pinned by set equality), and no platform table (no `Table` or `TableColumn` — the chrome draws its own rows), the problem catalog's three colour mappings Core's one answer each (`difficultyRole(for:)`, `problemStatusRole(for:)`, `verdictRole(for:matchedExpected:)`, one reader each, no `isGood` and no colour table in a view — the case-label tables that stay are pinned by count), one spinner (no `ProgressView` — the shared `ChromeSpinner`, each construction either labelled or hidden, never both and never neither, each file's pair pinned) and no alternating row fill (a table reads by selection and hover — the database grid, which has no row selection, by hover alone), and a served page's chrome the palette's (both served pages take
-  `ChromePalette.documentPageChrome(in:)`, no served page drawing Core's
-  restated block — it is replaced from the palette before the page is built —
-  and Core's CSS hex literals confined to the two restated blocks, counts
-  pinned), and no document calling the sweep closed while a surface remains
-  (the macOS files still painting outside the roles measured, pinned by set
-  equality and named in the failure — the set is empty today, and that live
-  half still guards every macOS file neither gated nor exempt, a gated one
-  falling to the first two rules — the first for a system colour or a hue, the
-  second for a hex literal) — plus, beside the rules rather
-  than among them, the cross-file count that keeps this sentence and
-  `core-theme.md`'s own list equal to the number of rules the suite declares —
-  while **four files are exempt because they are not
-  chrome**: `SyntaxTheme.swift` (the code zone's own theme), `TerminalTheme.swift`
-  (a protocol's ANSI-16 vocabulary), `FileIcon.swift` (a Core token iOS still
-  paints) and `CommitGraphPalette.swift` (a lane colour is an identity token, not
-  a chrome meaning). Fifty-six surfaces are swept so far — part one's tab strip, line-number
-  ruler and project tree rows (the inline draft field with them), part two's
-  vertical tab column, breadcrumb, minimap chrome and language-server consent
-  strip, part three's window ground and title bar, sidebar host and header,
-  bottom dock container with its two dividers, bottom bar with its icon-only
-  toggles, and the bar's three widgets — which spend the two roles that were
-  waiting for a surface rather than a decision, `bgCanvas` at the window root
-  and `statusGreen` on the pull-request indicator's checks mark, leaving six
-  unspent — part four (a)'s dock tab row, Problems panel, Usages panel and
-  Terminal panel host, which spend no new role, and part four (b)'s Log panel,
-  its filter bar, its graph gutter, the Local Changes panel, the Pull Requests
-  panel, the side-by-side diff pane and the unified diff's wash, which spend the
-  two diff grounds leaving four roles unspent (`bgPopover`, `currentLine`, `bracketMatch`, `conflictBackground`), and part five (a)'s completion panel, hover popover, find/replace bar, Find in Files window and its window controller, recent-searches menu, two bottom-bar popovers and Log calendar popover on `bgPopover`, the badge monochrome and the shared field shape, which spend `bgPopover` and leave three roles unspent (`currentLine`, `bracketMatch`, `conflictBackground`), and part five (b)'s commit dialog, its author editor sheet, the merge editor, the diff window, the Local History window, the source viewer and every secondary window's ground (set once, in `EscClosableWindow`), with the shared primary button and checkbox, which spend `conflictBackground` on the merge panes and leave two roles unspent (`currentLine`, `bracketMatch`), both code zone, and part five (c)'s Preferences host with its tab bar, General, Language Servers, the problem-catalog tab, Acknowledgements, the licence pane and the two pull-request sheets, with the shared segmented control, stepper, switch, settings tab bar and menu field (the last lifted from the Log bar), which spend no new role, and part five (d)'s database viewer, its SQL console, the problem-catalog browser, the statement pane, the judge section, the open-problem sheet with its menu commands and the sign-in sheet, with the shared spinner, which spend no new role and leave the same two unspent (`currentLine`, `bracketMatch`), and part five (e)'s two served document pages (the Markdown preview and the problem statement, one shared `DocumentPageChrome` derived from the palette, `tableBorder` collapsed into `hairline`) and the text prompt's alert accessory, which spend no new role and leave the same two unspent, and part five (f)'s fold placeholder (glyph `textSecondary` agreeing with the fold chevron, outline `hairline`), which spends no new role and leaves the same two unspent. With it the macOS colour sweep is closed in one bounded sense — every macOS chrome surface draws from the roles — and the theme is not thereby finished: its open questions stay named in `core-theme.md` (the terminal's own palette, the caret readout, the lane hues, the unified diff's checkbox glyph and changed-line tint, the tree's drop-target alpha); the follow-up procedure
-  and its one refusal ("a surface needing a twenty-second role has found a design
-  question") are in `core-theme.md`.
-- **Zoom is three zones, one arithmetic, one pointer rule** (macOS only): `code`
-  — which *is* `SettingsStore.fontSize`, never a second setting — `terminal` and
-  `interface` each clamp/step/reset through one `ZoomScaleRule`, and every
-  gesture *and* menu shortcut targets whichever zone the pointer is over then
-  (deepest surface wins; nothing hit ≡ interface). One local `NSEvent` monitor
-  receives them all — per-view `scrollWheel` overrides cannot reach the terminal
-  or the chrome. **Anything drawn at the code font the pointer can reach declares
-  itself a surface**, including views merely *beside* a text view (rulers, the
-  minimap); unreachable ≡ chrome exempts the hover popover alone (D26). The
-  interface scale reaches views only as
-  `InterfaceMetrics` through `\.interfaceMetrics`, never inline and never on a
-  code-font site. `ZoomSourceGatingTests` pins both sets (`core-zoom.md`).
-- **A completion candidate is one identifier-shaped token.** The symbol source of
-  both completion surfaces (the custom macOS panel and the iOS strip) is filtered by `SymbolIntelligenceProvider
-  .isCompletionCandidate(_:)`: `.heading` is excluded by name (a Markdown heading
-  is a jump target, never a thing anyone types), and every candidate's name must
-  satisfy `IdentifierScanner.isIdentifier(_:)` — the same boundary rule that
-  decides what the caret is completing decides what may be inserted, so it is
-  asked there rather than restated. The index, the walk and `definitions(for:)`
-  are **untouched**: ⌃⌘J still lists what typing now refuses, which is the whole
-  point (`core-intelligence.md`).
-- **Indentation is EditorConfig-first, inference-second.** The unit Enter
-  appends comes from `IndentUnitRule`, never from `IndentEngine
-  .inferIndentUnit(text:)` alone: `indent_style` decides tabs vs. spaces,
-  `indent_size`/`tab_width` the width, and each half that no applicable
-  `.editorconfig` states falls back to the inference — so a project without one
-  behaves byte-for-byte as before. **Tab is stricter**: it inserts spaces only
-  when a config says `indent_style = space` outright, so the inference alone can
-  never change what a keystroke does. The macOS indentation-level painting is a
-  **third consumer** of that same unit, never a second opinion about it
-  (`core-editor.md`), and the fold scanner's indentation blocks are a **fourth**,
-  measured from widths the app derives through that same rule and hands over on
-  `FoldRegionRequest` (`core-folding.md`). A **reader**, like the index: it takes no
-  writer gate, is not gated by one and **adds no write of its own**, and the walk
-  stops at the project root on both platforms because iOS cannot read above the
-  granted folder. **Six properties are acted on**, the rest parsed and carried.
-- **A save is the one thing EditorConfig rewrites.** The three on-save
-  properties — `end_of_line`, `trim_trailing_whitespace`,
-  `insert_final_newline` — are the single deliberate exception to "existing
-  content is never reformatted", and `SaveTransform` is the one engine that
-  decides what they change: one ascending, non-overlapping edit list against the
-  original offsets, the resulting text, and the remap that moves the caret, each
-  selection endpoint and the scroll anchor. Nothing is rewritten on open, on
-  close, on a tab switch or on a configuration change; no indentation already in a
-  file is ever rewritten; the other worktree writers (Replace All, git) write what
-  they always wrote; and there is no whole-project normalization command. The
-  **line holding the caret (or a selection endpoint) is spared from trimming**,
-  because autosave here is aggressive enough to delete indentation someone just
-  typed — sparing is trimming's alone, and the next save after the caret leaves
-  trims it. **Sparing is a deferral the app owes back**: the plan reports the run
-  it spared, `SaveTransformController` remembers those buffers and the autosave
-  re-offers them while a view still holds them (after the spared write the tab is
-  clean, so nothing else ever would; settling an owed trim behind a tab the user
-  has left would cost that tab its undo stack for a rewrite nobody asked for),
-  and a save that **abandons** the buffer — the close prompt's Save, the
-  quit flush, the folder-switch flush — protects no caret at all and trims in
-  full, which is the answer iOS's one save already gives. **NEL/LS/PS are left alone**, the feature's one stated limit: the
-  property's vocabulary does not name them. `end_of_line` is also what Enter
-  splices, so a written terminator and a typed one never disagree. On macOS every
-  save funnels through `SaveTransformController`, which applies the plan **through
-  the live text view** (one undoable step, one change notification, blame and
-  diagnostics re-seeded because the coalesced edit can be file-wide) and only
-  falls back to `WorkspaceModel.replaceText(_:for:)` — dropping that tab's undo
-  stack and viewport — for a buffer no editor holds; iOS's one save does the same
-  three steps inline (`core-editorconfig.md`).
-- **Folding is a reader that modifies no buffer** (macOS only): collapsing a
-  block hides it by **layout alone** — `GlyphProperty.null` for every hidden
-  character plus a typesetter answering `.zeroAdvancementAction` for the
-  separators inside the range, both halves in `BracketOverlayLayoutManager.swift`
-  and reading one set — so no edit is registered, no undo entry exists for a fold,
-  and every engine working on UTF-16 offsets keeps working on the full text (not
-  one existing overlay needed a fold-aware line). It takes no writer gate and is
-  gated by none. Where the blocks are comes from a language server
-  (`textDocument/foldingRange`, D38) or from the pure `FoldRegionScanner`, never
-  from a **mixture** of the two, and the router treats it as its ordinary shape —
-  an empty server answer falls through to the scanner. What is folded lives in a
-  per-file memory keyed by canonical path (never `OpenFile.id`, which is fresh per
-  open) that the **editor view owns** — `EditorViewportMemory`'s lifetime exactly —
-  and is **never written to the session**; it is not
-  pruned on close (a fold is a statement about the file, unlike a viewport) and is
-  cleared wholesale on a folder switch. Its rules are applied **in one place each**:
-  `FoldCaretRule` and `FoldReveal` in `CodeEditorView.swift` alone — every
-  jump-to-a-range in the editor goes through one coordinator method,
-  `revealRange(_:)`, which unfolds before it scrolls — `FoldShift` for what an edit
-  does (what it touches unfolds) and `SaveTransformPlan.remappedRange` for what a
-  save does (never the shift, or an autosave trimming inside a folded block would
-  spring it open) — including a save that catches a tab **off screen**, whose
-  remembered folds take the same remap rather than being dropped with that tab's
-  undo stack and viewport. The one buffer rewrite that *does* drop them through the
-  live view is a Local History **restore**: it substitutes another revision, so
-  there is nothing for a fold to travel through. `FoldingSourceGatingTests` pins all of it (`core-folding.md`).
-- **The Markdown preview is a reader that writes nothing at all** (macOS only): a
-  Markdown tab renders beside its editor in a `WKWebView`, and the feature never
-  raises `autosave.suspend()` / `localChanges.beginRevert()`, is never gated by
-  them, and adds no write of any kind — not the worktree, not a cache, not the
-  session. Its **only persisted state is two `SettingsStore` preferences** (is the
-  pane shown, where does the divider sit), and the first is written from one app
-  site, the View menu's ⌘⇧P toggle. Every decision is Core's — the tree, the
-  markup, the page, the CSP, the app-scheme mapping *in both directions*, the link
-  rule, the scroll line, the width arithmetic **and the whole update ordering**
-  (`MarkdownPreviewModel`: the generation token, the debounce, the retarget and
-  clear rules, the once-per-turn scroll flush) — while the app layer supplies two
-  capabilities behind one-method seams and no judgement: a parser
-  (`MarkdownParser`, the feature's one `import Markdown`) and a page
-  (`MarkdownPreviewWebView`, its one `import WebKit`). **Raw HTML is dropped
-  structurally**, the tree having no case to map it onto, which is the same
-  property the page's CSP states from the other side — `default-src 'none'`, no
-  network origin anywhere, scripts limited to the app scheme plus one hash of the
-  shell's own bootstrap line. The page is **served, never string-loaded**
-  (`loadHTMLString` is spelled nowhere), so the document, the four bundled files
-  and every project image share one app-scheme origin; a keystroke is an
-  `innerHTML` assignment into the document already loaded, a code-font step is one
-  call setting two custom properties on it, and only a theme change reloads the
-  shell. A file is reachable only inside the opened
-  project root, checked **canonically** in the direction that composes a URL and
-  again in the inverse that consumes one. Nothing is fetched at run time: the
-  highlighter and the diagram renderer are pinned offline assets (~3.4 MB,
-  accepted, macOS-only by destination filter). The one thing it changes elsewhere
-  is focus: the six caret-command call sites read
-  `EditorCommandTarget.focusedEditor(in:)`,
-  the single definition of that lookup, whose fallback is granted to the preview's
-  web view and its descendants alone, so every other responder keeps beeping.
-  `MarkdownPreviewSourceGatingTests` pins all of it
-  (`core-markdown-preview.md`).
-- **Open-tab resync** after an operation rewrites the worktree: buffers are
-  snapshotted before the hop; a clean, unchanged tab gets `reloadFromDisk`, an
-  edited one `reconcileSavedBaseline` + beep, a deleted file force-closes
-  (except after a commit, which never deletes worktree files).
-- **Pure engine + thin glue**: every decision lives in Core and is unit-tested;
-  SwiftUI glue only wires triggers to engines and is untested.
-- **Paths**: store as the user spelled them, match canonically
-  (`CanonicalPath`); the FSEvents watcher alone uses `realpath(3)` and
-  `LSPInstallLayout` alone is purely lexical — the three must not be unified
-  (documented on all). The fold memory key is the one stated exception:
-  `CanonicalPath` is `internal` to Core and the app layer already spells
-  `standardizedFileURL.resolvingSymlinksInPath().path` inline at six sites,
-  of which that key is one; the spelling is Core's `canonical(_:)` verbatim and
-  making it `public` to route all six through it is a cross-cutting change
-  deliberately not bundled here (see `CodeEditorView.Coordinator.foldMemoryKey`
-  and `core-folding.md`).
+  equality) and its forty-three rules, inventoried in that suite's own header and
+  `core-theme.md`'s canonical list; **four files are exempt because they are not chrome**. The macOS colour sweep
+  is closed in one bounded sense — every macOS chrome surface draws from the roles — and the
+  theme is **not thereby finished**: the open questions, the swept surfaces, the unspent roles,
+  the follow-up procedure and its one refusal all stay named in `core-theme.md`.
+
+- **Zoom is three zones, one arithmetic, one pointer rule** (macOS only, `core-zoom.md`):
+  `code` — which *is* `SettingsStore.fontSize`, never a second setting — `terminal` and
+  `interface` each clamp, step and reset through one rule, and every gesture *and* menu
+  shortcut targets whichever zone the pointer is over then (deepest surface wins; nothing
+  hit ≡ interface). One local `NSEvent` monitor receives them all, because per-view
+  `scrollWheel` overrides cannot reach the terminal or the chrome. **Anything drawn at the
+  code font the pointer can reach declares itself a surface**, including views merely
+  *beside* a text view; unreachable ≡ chrome exempts the hover popover alone. The interface
+  scale reaches views only as `InterfaceMetrics` through the environment, never inline and
+  never on a code-font site. `ZoomSourceGatingTests` pins both sets.
+- **A completion candidate is one identifier-shaped token** (`core-intelligence.md`): the
+  symbol source of both completion surfaces is filtered by one predicate — `.heading` is
+  excluded by name, and every candidate's name must satisfy the same boundary rule that
+  decides what the caret is completing, so it is asked there rather than restated. The
+  index, the walk and `definitions(for:)` are **untouched**: ⌃⌘J still lists what typing now
+  refuses, which is the whole point.
+- **Indentation is EditorConfig-first, inference-second** (`core-editorconfig.md`): the unit
+  Enter appends comes from `IndentUnitRule`, never from the inference alone; each half no
+  applicable `.editorconfig` states falls back to the inference, so a project without one
+  behaves byte-for-byte as before. **Tab is stricter**: it inserts spaces only when a config
+  says so outright, so the inference alone can never change what a keystroke does. The
+  indentation-level painting and the fold scanner's indentation blocks are third and fourth
+  consumers of that same unit, never second opinions about it. A **reader** that adds no
+  write of its own, and the walk stops at the project root on both platforms. **Six
+  properties are acted on**, the rest parsed and carried.
+- **A save is the one thing EditorConfig rewrites** (`core-editorconfig.md`): the three
+  on-save properties are the single deliberate exception to "existing content is never
+  reformatted", and one engine decides what they change — one ascending, non-overlapping edit
+  list against the original offsets, the resulting text, and the remap that moves the caret,
+  each selection endpoint and the scroll anchor. Nothing is rewritten on open, on close, on a
+  tab switch or on a configuration change; no indentation already in a file is ever rewritten;
+  there is no whole-project normalization command. The **line holding the caret is spared from
+  trimming**, and sparing is a **deferral the app owes back**: the autosave re-offers what was
+  spared while a view still holds the buffer, while a save that **abandons** the buffer trims
+  in full. **NEL/LS/PS are left alone**, the feature's one stated limit. On macOS every save
+  funnels through one controller, which applies the plan **through the live text view** and
+  falls back to a model rewrite only for a buffer no editor holds.
+
+- **Folding is a reader that modifies no buffer** (macOS only, `core-folding.md`):
+  collapsing a block hides it by **layout alone**, so no edit is registered, no undo entry
+  exists for a fold, and every engine working on UTF-16 offsets keeps working on the full
+  text. It takes no writer gate and is gated by none. Where the blocks are comes from a
+  language server or from the pure scanner, **never from a mixture**. What is folded lives
+  in a per-file memory keyed by canonical path that the **editor view owns** and is **never
+  written to the session**; it is not pruned on close, unlike a viewport, and is cleared
+  wholesale on a folder switch. Its rules are applied **in one place each**, with one
+  deliberate split: an edit's shift is not a save's remap, or an autosave trimming inside a
+  folded block would spring it open. `FoldingSourceGatingTests` pins all of it.
+- **The Markdown preview is a reader that writes nothing at all** (macOS only,
+  `core-markdown-preview.md`, M1–M15): no writer gate either way, and no write of any kind —
+  not the worktree, not a cache, not the session. Its **only persisted state is two
+  preferences**, one of them written from a single app site. Every decision is Core's,
+  including the whole update ordering; the app layer supplies two capabilities behind
+  one-method seams and no judgement. **Raw HTML is dropped structurally**, the tree having no
+  case to map it onto — the same property the page's CSP states from the other side. The page
+  is **served, never string-loaded**, so the document, the bundled files and every project
+  image share one origin, and only a theme change reloads the shell. A file is reachable only
+  inside the opened project root, checked **canonically in both directions**, and nothing is
+  fetched at run time. The one thing it changes elsewhere is focus: the caret-command sites
+  read one lookup whose fallback is granted to the preview's web view and its descendants
+  alone, so every other responder keeps beeping.
+
+- **Open-tab resync** after an operation rewrites the worktree: buffers are snapshotted
+  before the hop; a clean, unchanged tab gets `reloadFromDisk`, an edited one
+  `reconcileSavedBaseline` + beep, a deleted file force-closes (except after a commit,
+  which never deletes worktree files).
+- **Pure engine + thin glue**: every decision lives in Core and is unit-tested; SwiftUI
+  glue only wires triggers to engines and is untested.
+- **Paths**: store as the user spelled them, match canonically (`CanonicalPath`); the
+  FSEvents watcher alone uses `realpath(3)` and `LSPInstallLayout` alone is purely lexical
+  — the three must not be unified (documented on all). The fold memory key is the one
+  stated exception, and routing all six inline spellings through Core's own function is a
+  cross-cutting change deliberately not bundled there (`core-folding.md`).
 - **Line separators**: the editor splits on LF/CR/CRLF/NEL/LS/PS everywhere via
-  `LineStartIndex`/`TerminatedLines`; git speaks LF only — `BlameAlignment`
-  bridges — and regex `^`/`$` follow ICU's superset (known limit).
+  `LineStartIndex`/`TerminatedLines`; git speaks LF only — `BlameAlignment` bridges — and
+  regex `^`/`$` follow ICU's superset (known limit).
 
 ## Tests
 
-Unit tests live in `Tests/PisakaCoreTests/` and cover `PisakaCore` only.
-`Tests/PisakaAppTests/` is the second bundle — headless XCTest (not UI
-automation) covering what `swift test` is blind to, mostly the macOS AppKit
-overlays:
-`BracketOverlayLayoutManager`/`FoldingTypesetter`, `LineNumberRulerView`,
-the layout seams, the download collector's ceiling rule
-(`BoundedBodyCollectorTests`, `core-provisioning.md`), and the Markdown
-preview's five app-side suites — `MarkdownParserTests` (the pipeline's one
-*execution* of `import Markdown`, over a fixture), `MarkdownPreviewSchemeHandlerTests`,
-`MarkdownPreviewNavigationTests` (the first of the two gates that drive a real
-`WKWebView`: the shell the page asks for is *allowed and loads*, a policy resting
-on three of WebKit's own answers that no Core test can reach),
-`MarkdownPreviewDiagramIDTests` (the second, and the one that *executes the
-bundled mermaid*: a heading whose slug names a diagram id survives that
-diagram's render — mermaid deletes whatever element already carries the id it is
-handed, so the two id families must stay in disjoint alphabets)
-and `EditorCommandTargetTests` (`core-markdown-preview.md`), plus
-`ShellSymbolQueryTests` — which *executes* the shipped `shell/symbols.scm`
-against its grammar and over a fixture script, the one compile-and-run check no
-Core suite can reach because Core does not link tree-sitter
-(`core-intelligence.md`) — plus
-`SyntaxBaseForegroundGatingTests` — the code zone's one cross-file rule: every
-view attaching the syntax highlighter states its own base foreground, both sets
-pinned by set equality (`app-editor.md`) — plus the search
-history's two app-side sequencing suites — `EditorSearchStateTests` (the ⌘F
-bar's five recording sites) and `ProjectSearchWindowControllerTests` (the Find
-in Files close hook, `app-editor.md`). It exists because the folding launch-time trap
-(`FoldingTypesetter.init()` re-entered through Objective-C) passed **every gate
-the pipeline had** — the Core suites *and* the smoke launch, measured to survive
-the pre-fix build — so it is the only net for that class (`core-folding.md`).
-`swift test` remains the Foundation-only gate — `Package.swift` ignores
-`Tests/PisakaAppTests/` silently (no `path:`).
+**Two gates, and they see different things.** `swift test` runs
+`Tests/PisakaCoreTests/` — Foundation-only, dependency-free, the fast gate for all domain
+logic. `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS'
+test` runs `Tests/PisakaAppTests/`, headless XCTest (not UI automation) covering what
+`swift test` is blind to: the AppKit overlays with behaviour of their own, the app-layer
+rules the Core gate structurally cannot see, the two suites that drive a real `WKWebView`,
+the one that executes the bundled diagram renderer, the one that executes a shipped
+tree-sitter query, and the code zone's one cross-file rule. It exists because the folding
+launch-time trap passed **every gate the pipeline had** — the Core suites *and* the smoke
+launch — so it is the only net for that class. `Package.swift` ignores that directory
+silently, which is what keeps `swift test` dependency-free.
 
-A second class of suites in the same target verifies **repository files** rather
-than Core code — read through `#filePath` with Foundation only, so they run in
-`swift test` without an Xcode build: `VendoredGrammarQueryTests` (the in-repo
-highlight queries against each grammar's `node-types.json`), `SymbolQueryTests`
-(the shipped `symbols.scm` queries vs. `SyntaxLanguage.allCases` and
-`SymbolKind`), `DependencyPinTests` (`Package.resolved` schema and pins, and
-that each pin matches the requirement `project.yml` states),
-`ReleaseMetadataTests` (`Resources/Info.plist` incl. the two Sparkle keys'
-shape, `PrivacyInfo.xcprivacy`, the `project.yml` wiring, the iOS launch-screen
-setting, the macOS runpath pin `LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]`),
-`ReleaseWorkflowTests` (`.github/workflows/release.yml`'s whole shape, asserted
-*by mechanism* rather than by wording: the trigger/permissions by set equality,
-every preflight refusal's branch reaching `exit 1`, the throwaway signing
-keychain and all three private keys deleted by path on every path, the
-Developer ID identity/team/hardened runtime/`--timestamp` on the archive command
-line while `project.yml` stays signing-free, the inside-out re-sign of Sparkle's nested
-helpers verified on the app, the framework and every Mach-O inside it, the
-notarize→staple→`spctl` chain with both verdicts read explicitly, that no step
-can be non-fatal, the job budget against the notary timeout, step ordering,
-draft-then-promote, tool pins, `ci.yml`'s Release macOS build *launching what it
-built*, the two `.noindex` build output roots across both workflows,
-`.gitignore`, the style authority's `excluded:` list (the one
-`.swiftlint.yml` rule this suite owns, being about build *output*, not style)
-and the three documents that spell a root in a command a reader runs,
-the `SUFeedURL` cross-file pairs and the Gatekeeper-workaround strings
-absent everywhere; **full inventory in that suite's doc comments and
-`docs/RELEASING.md`** — do not restate it here),
-`LicenseCoverageTests` (`licenses.json` vs.
-`project.yml`/`Package.resolved`/`Vendor/`/`Resources/MarkdownPreview/`), `LSPSourceGatingTests` (the LSP
-layer's platform split, by set equality over both sides),
-`LibGit2FetchSourceGatingTests` (the iOS fetch's redirect policy —
-`follow_redirects = GIT_REMOTE_REDIRECT_NONE` exactly once, ordered between the
-file's single `git_fetch_options_init(` and its single `git_remote_fetch(`, on
-the *same* options value the fetch is handed, with neither permissive constant
-named; a text pin because `LibGit2Service.swift` is `#if os(iOS)` and no gate in
-this pipeline compiles or runs it; inventory in that suite's doc comments and
-`app-ios.md`), `SparkleSourceGatingTests` (`import Sparkle` in exactly one file inside both
-`#if os(macOS)` and `#if !DEBUG`, no `SPU…` reference in the DEBUG branch, and
-that file as the *only* DEBUG-only branch outside `Sources/Pisaka/iOS/`) and
-`ZoomSourceGatingTests` (the zoom zones' five view-layer rules — who may name
-`interfaceScale`, which roots inject the environment, which views declare a zoom
-surface, that the hover popover passes mouse events through and declares none,
-and the Preferences stepper reading its grid from `ZoomScaleRule` — the first
-three by set equality), `BottomPanelSourceGatingTests` (the bottom dock panel's
-four view-layer rules; inventory in that suite's doc comments and
-`app-window.md`), `MenuShortcutUniquenessTests` (every character key
-equivalent declared in `Sources/Pisaka`, by chord, asserted distinct — two
-commands sharing one compile and launch, and AppKit hands it to exactly one of
-them; the semantic and `KeyEquivalent`-constant forms are outside the matched
-set on purpose), `MainWindowFrameSourceGatingTests` (the main window's
-by-hand frame persistence: one persistence site, observers only after the
-final restore), `LocalHistorySourceGatingTests` (Local History's app-layer
-rules — capture sites, the autosave report, the one restore funnel, the reader
-rule; inventory in that suite's doc comments and `core-local-history.md`),
-`LeetCodeAccountSourceGatingTests` (where the LeetCode account is resolved —
-`refreshUserStatus(` spelled in no app file at all, `resolveAccount(` in exactly
-the four that render account state and `awaitAccountResolution(` in exactly the
-one that must await, the last two pinned apart by set equality because read
-together they cannot see either regression, and `PisakaApp.swift`'s absence as
-the whole point; inventory in that suite's doc comments and `core-leetcode.md`),
-`DatabaseViewerSourceGatingTests` (the viewer's cross-layer rules — SQLite
-imported in one app file and never in Core, the app-side files macOS-gated,
-`viewerTabsEnabled` spelled in `PisakaApp.swift` alone while the iOS app's
-workspace omits it, the reader rule, the text-shaped `openFiles` consumers
-pinned by count against the tab-kind filters, and the console's own rules: it
-composes no SQL, asks the gate once and before anything is sent, reaches the
-seam through one call site per member, and the scene knows nothing about it;
-inventory in that suite's doc comments and `core-database-viewer.md`),
-`GitHubSourceGatingTests` (the Pull Requests feature's cross-layer rules —
-`Process` for `gh` in one app file and never in Core, the app-side files
-macOS-gated and unnamed by the iOS layer, no `gh` argument spelled outside
-`GitHubCommands`, the feature's **three** bracket sites living in the coordinator
-alone (the checkout and the tail's two steps) with the scene handing the bracket
-over once and no file under the feature naming the writer gate, the tail's
-`pull --ff-only` pinned flag by flag in `GitCLIService.swift`, the locator's one
-definition and two callers, where each refresh trigger lives and that the scene
-holds none, the armed wait's four cancellations (two of them app-layer, hence
-invisible to every other test), and the no-polling ban with **two** stated
-exceptions — `GitHubCLIProcessTransport.swift` and `PullRequestMergeWait.swift`,
-the latter scoped term by term rather than granted by file name; inventory in
-that suite's doc comments and `core-github.md`), `FoldingSourceGatingTests`
-(code folding's cross-layer rules — hiding's two halves in one file, the fold
-commands in one file with the scene naming them once, **the reveal funnel by set
-equality** (its two caller files, `FoldReveal` in one, the four text views that
-scroll with their three named exclusions, and the two counted in-file sites — the
-editor's own two, one of which is named as *not* a reveal, and the search
-controller's zero), the caret rule in one file with three named non-callers, no
-view re-deriving what `FoldState` decides, the app-side files macOS-gated and
-unnamed by the iOS layer, and the reader rule — neither `autosave` nor
-`localChanges` named anywhere in the feature; inventory in that suite's doc
-comments and `core-folding.md`), `MarkdownPreviewSourceGatingTests` (the
-Markdown preview's cross-layer rules — the parser and the web view each in one
-file, the page served and updated in place (`loadHTMLString` nowhere), the app
-scheme's vocabulary spelled in one Core file with no app file of the feature
-splitting a preview URL or composing HTML, the one preference writer, the focus
-helper's one definition and its six call sites, the app-side files macOS-gated
-and unnamed by the iOS layer, and the reader rule; inventory in that suite's doc
-comments and `core-markdown-preview.md`), `MarkdownPreviewAssetPinTests` (the
-bundled page assets by byte count and SHA-256, each bundle's self-stated version,
-and `VENDORED.md` recording exactly the pinned set) and `LintConfigurationTests`
-(both `.swiftlint.yml` files — the version pin, `mandatory_comma`, the root and
-child disabled-rule sets by set equality, every measured threshold ceiling,
-every in-file disable counted by path/rule — plus `.githooks/pre-commit`'s gate
-shape and `ci.yml`'s lint job with the cross-file version pair; full inventory
-in that suite's doc comments).
-**Every one of these suites matches against comment- and literal-stripped
-text** — load-bearing, not tidy: these files quote their own settings in
-comments, so a raw `contains` stays green when the setting it names is deleted.
-**Five stated exceptions**, all the same argument read the other way:
-`GitHubSourceGatingTests`' `gh`-vocabulary rule strips comments *only*, because
-the tokens it forbids in the app layer (`--json`, `"pr", "list"`) **are** string
-literals, and the usual scanner would delete the very thing that rule checks
-(`core-github.md`); and `ReleaseWorkflowTests`' build-output-root rules read each
-*active* workflow line whole — comments dropped, literals kept — because a
-`run:` block's printed prose sits in a string on a line whose other half is a
-live command, so no `::error::` sentence in either workflow may spell
-`-derivedDataPath`/`-archivePath` (said at the one site, in `release.yml`); and
-`MarkdownPreviewSourceGatingTests`' two rules whose subject **is** a literal —
-the HTML shapes no app file of the preview may compose and the four spellings of
-the app scheme's vocabulary — which read the literal-keeping scanner for
-`GitHubSourceGatingTests`' own reason, the ordinary one deleting exactly the text
-they are about (`core-markdown-preview.md`); and
-`LeetCodeAccountSourceGatingTests`' rule 7, which pins the statement fetch's
-`leetCodeStatementKey` body verbatim off the literal-keeping scanner, because an
-interpolation inside the key's string literal is an input to the trigger and
-the ordinary scanner deletes it (`core-leetcode.md`); and
-`ChromeThemeSourceGatingTests`' rule forty-two clause (c), which counts Core's
-CSS hex literals off the comments-only scanner, because a CSS hex literal **is**
-a string literal (`core-theme.md`).
-Follow the pattern for anything that ships in the bundle with no Swift code
-behind it, and for any architectural rule `swift test` cannot otherwise see.
-Non-Swift test data lives in `Tests/PisakaCoreTests/Fixtures/<area>/`, read
-through `#filePath` the same way, and must be listed in the test target's
-`exclude:` (why, in `core-lsp.md`). The app bundle has its own
-`Tests/PisakaAppTests/Fixtures/`, read the same way but needing no `exclude:` —
-`Package.swift` does not see that bundle at all.
+**A second class of suites verifies repository files rather than Core code**, read through
+`#filePath` with Foundation only so they run in `swift test` without an Xcode build:
+`VendoredGrammarQueryTests`, `SymbolQueryTests`, `DependencyPinTests`,
+`ReleaseMetadataTests`, `ReleaseWorkflowTests`, `LicenseCoverageTests`,
+`LSPSourceGatingTests`, `LibGit2FetchSourceGatingTests`, `SparkleSourceGatingTests`,
+`ZoomSourceGatingTests`, `BottomPanelSourceGatingTests`, `MenuShortcutUniquenessTests`,
+`MainWindowFrameSourceGatingTests`, `LocalHistorySourceGatingTests`,
+`LeetCodeAccountSourceGatingTests`, `DatabaseViewerSourceGatingTests`,
+`GitHubSourceGatingTests`, `FoldingSourceGatingTests`,
+`MarkdownPreviewSourceGatingTests`, `MarkdownPreviewAssetPinTests`,
+`ChromeThemeSourceGatingTests` and `LintConfigurationTests`. **Each suite's own doc
+comment is its inventory** — read it there, and update it there. Follow this pattern for
+anything that ships in the bundle with no Swift code behind it, and for any architectural
+rule `swift test` cannot otherwise see.
 
-**Performance bounds are charged, not timed.** A test pinning a pathological
-input asserts the *work* — a budget driven to exhaustion **plus** the work that
-budget actually paid for (`EditorConfigGlob.matchWorkUnits(relativePath:)`), or a
-step count off an `internal` seam (`SyntaxContextScanner.validatorStepCount`) —
-never a wall clock. Exhaustion alone is not the property: these inputs backtrack
-through charged states too, so the ceiling lands at zero whether or not the
-quadratic work in question is charged, and only the ratio between work done and
-ceiling spent tells the two apart. **The work must be counted somewhere other
-than the charge**, or the assertion is a tautology that dies with the regression
-it names: a counter the charging call increments shrinks the moment a charge is
-deleted or undersized, so `EditorConfigGlob.MatchWork` keeps *double-entry*
-books — `record(_:)` for what a step costs, `spend(_:)` for what it is charged,
-the two deliberately kept apart at each site (never hoisted into a shared local,
-which re-couples them). When they agree
-the budget halts the search at the ceiling; when they disagree the recorded work
-runs into the millions while the budget sits at zero looking healthy. That is an
-invariant, where a clock is a reading off whichever machine ran it (one such
-bound fired spuriously in a release run, which is what started this). Two older
-suites still bound a *structural* cap with a generous clock rather than a budget
-(`GitignoreMatcherTests`' DP walk, `HoverContentTests`' two caps): neither has a
-budget to charge, so they are the stated exception, not the pattern to copy.
+Three conventions govern that class, and each is load-bearing rather than tidy:
 
-**Async Test Staging:** Async tests must stage races using a causal rendezvous (a wait on a signal that *must* arrive, never on a window that may already have closed) rather than using timed delays or `Task.yield()` spins. Use helpers like `Gate` and `waitFor` for condition-waits that fail loudly via `XCTFail` on timeout rather than passing vacuously. Assertions should poll for a sink's record instead of assuming any particular hop count.
+- **Match against comment- and literal-stripped text.** These files quote their own
+  settings in comments, so a raw `contains` stays green when the setting it names is
+  deleted. **A rule weaker than its own comment is a defect.**
+- **A rule whose subject *is* a literal reads a scanner that keeps literals**, or it
+  deletes the very text it checks. There are **five such exceptions** today, each stated
+  in its own suite's doc comment with its reason; a sixth needs the same statement.
+- **Prefer set equality to counting**, and where a count is the only shape available, pin
+  it cross-file so a restated number cannot drift from the thing it restates.
 
-Shared test helpers live in `Tests/PisakaCoreTests/Support/`: `YAMLLineMatching`
-(the comment-stripping and whole-line matching the workflow/`project.yml` suites
-share), `StubFileTree` (an in-memory `FileServicing` tree with
-unreadable-file/stamp hooks **plus a mutable half** — directory ops, per-call
-failure injection, call logs, a per-path executable bit — which is what makes
-the install engine's atomicity rules and the LeetCode catalog's degrading-write
-rule assertable), `Gate` (a blocking rendezvous that stages the
-folder-switch-mid-walk cases), `QueryScanner` (the `.scm` scanner two suites
-share), `ScriptedLSPTransport` (the deterministic `LSPTransport` fake),
-`ScriptedInstallSeams` (canned download/unpack plus the Go and Rust toolchain
-fakes — deliberately no Rust *installer* fake, that install is the shared pair)
-`ScriptedLeetCodeTransport` (+ `InMemoryLeetCodeCredentialStore`) and
-`ScriptedDatabaseService` (a scripted `DatabaseServicing`: answers keyed by SQL
-text, an unscripted statement throws, a write half that scripts outcomes and
-captures the transactions sent, and a console half that scripts a classification
-and an answer per text and reads the console transactions back verbatim) and
-`ScriptedGitHubCLI` (a scripted `GitHubCLITransport`: answers keyed by the
-argument list `GitHubCommands` composes, a queue per key whose last step sticks,
-an unscripted call throws, every command logged in order — and a `Gate` per key,
-scopable to **one** call, which is what makes a generation-token test real: hold
-the key and both racers resume in call order, so the stale run always publishes
-first and the assertion passes with or without the guard),
-`ScriptedMarkdownSeams` (the preview's two seams: a `MarkdownParsing` recording
-every text it was handed and holdable per text, so two parses can be staged in a
-chosen order, plus a `MarkdownPreviewPageSink` recording every evaluated source
-and every shell reload in order) and `MarkdownPreviewVendoredDoc` (the reader for
-`Resources/MarkdownPreview/VENDORED.md`, shared by the asset-pin and
-license-coverage suites so that document cannot satisfy one and drift from the
-other). Reach for
-these before writing a new stub. A fake standing in for a `nonisolated async`
-seam runs on the cooperative pool, so anything it writes into a `StubFileTree`
-must hop to the main actor first — two threads in one `Dictionary` is a
-corrupted hash table, not a flaky assertion.
+**Performance bounds are charged, not timed.** A test pinning a pathological input asserts
+the *work* — a budget driven to exhaustion **plus** the work that budget actually paid for,
+or a step count off an `internal` seam — never a wall clock. Exhaustion alone is not the
+property: these inputs backtrack through charged states too, so the ceiling lands at zero
+whether or not the quadratic work in question is charged, and only the ratio between work
+done and ceiling spent tells the two apart. **The work must be counted somewhere other than
+the charge**, or the assertion is a tautology that dies with the regression it names, which
+is why the work bookkeeping is *double-entry* — one call for what a step costs, one for what
+it is charged — with the two deliberately kept apart at each site and never hoisted into a
+shared local. When they agree the budget halts the search at the ceiling; when they disagree
+the recorded work runs into the millions while the budget sits at zero looking healthy. That
+is an invariant, where a clock is a reading off whichever machine ran it. Two older suites
+still bound a *structural* cap with a generous clock because they have no budget to charge:
+the stated exception, not the pattern to copy.
+
+**Async tests stage races with a causal rendezvous** — a wait on a signal that *must*
+arrive, never on a window that may already have closed — rather than timed delays or
+`Task.yield()` spins. Condition-waits fail loudly on timeout rather than passing vacuously,
+and assertions poll for a sink's record instead of assuming any particular hop count.
+
+**Reach for the shared helpers before writing a new stub.** They live in
+`Tests/PisakaCoreTests/Support/`: `YAMLLineMatching`, `StubFileTree`, `Gate`,
+`QueryScanner`, `ScriptedLSPTransport`, `ScriptedInstallSeams`,
+`ScriptedLeetCodeTransport`, `InMemoryLeetCodeCredentialStore`, `ScriptedDatabaseService`,
+`ScriptedGitHubCLI`, `ScriptedMarkdownSeams` and `MarkdownPreviewVendoredDoc`. A fake
+standing in for a `nonisolated async` seam runs on the cooperative pool, so anything it
+writes into a `StubFileTree` must hop to the main actor first — two threads in one
+`Dictionary` is a corrupted hash table, not a flaky assertion.
+
+Non-Swift test data lives in `Tests/PisakaCoreTests/Fixtures/<area>/`, read through
+`#filePath` the same way, and must be listed in the test target's `exclude:` (why, in
+`core-lsp.md`). The app bundle has its own `Tests/PisakaAppTests/Fixtures/`, needing no
+`exclude:` — `Package.swift` does not see that bundle at all.
 
 ## Commands
 
@@ -1241,152 +529,74 @@ owed are documented in `docs/RELEASING.md`.
 
 ## Conventions
 
-- Keep all domain logic in `PisakaCore`; keep the `Pisaka` app views thin
-  (macOS files under `#if os(macOS)`, iOS files in `Sources/Pisaka/iOS/`).
-- Every behavioral change must come with new/updated `PisakaCore` tests, and the
-  full suite must pass before moving on.
-- External dependencies are confined to the `Pisaka` app target only, declared
-  and pinned to an exact version/revision in `project.yml` (the SwiftPM manifest
-  stays dependency-free), with reproducibility locked by the committed workspace
-  `Package.resolved` — always regenerated (`xcodebuild
-  -resolvePackageDependencies`), never hand-edited, and kept in SwiftPM's v2
-  schema (a commit that rewrites it into the legacy v1 shape is format churn
-  hiding the real pin change; re-generate it instead). `DependencyPinTests`
-  closes the loop both ways: every `project.yml` requirement must equal the
-  recorded pin, every pin needs a 40-hex revision, and the branch pins must stay
-  the documented **set of two** — `swifttreesitter` (Neon's own manifest forces
-  it to `branch: main`) and `swift-cmark` (swift-markdown's forces it to
-  `branch: release/6.2`, and nothing in `project.yml` declares it at all) — each
-  carrying its own recorded revision and its own reason, because for both the pin
-  *is* the whole requirement; a **third** one fails the suite until it is
-  documented with a reason of its own. The full story is in that suite's doc
-  comment. The remote set: ChimeHQ's Neon (bringing
-  `SwiftTreeSitter`/`Rearrange`) plus one tree-sitter grammar per language;
-  SwiftTerm (the macOS terminal); libgit2 (`ibrahimcetin/libgit2`, built from C
-  source, the iOS `GitServicing`); swift-markdown (the macOS Markdown preview's
-  parser, pinned by revision because the repository publishes no semantic
-  versions, and the second dependency dragging a branch requirement in with it);
-  and Sparkle (the macOS auto-update — the one
-  SwiftPM `binaryTarget`, the one embedded framework, and the one
-  `destinationFilters: [macOS]` *dependency* — the preview's assets folder is
-  the only other filtered entry in the file, and it is a source entry; its peculiarities are recorded in
-  `project.yml`'s comments and `docs/architecture/core-services.md`). A
-  **second, differently-shaped pin set** deliberately lives nowhere near these:
-  the downloadable language servers in
-  `Sources/PisakaCore/LSPProvisioningManifest.swift`, pinned by URL + SHA-256 +
-  byte count (nothing links them — they arrive over the network at the user's
-  request or not at all), guarded by `LSPProvisioningManifestTests` and bumped
-  by the procedure in `docs/architecture/core-provisioning.md`. And a **third**,
-  shaped unlike either: the Markdown preview's page assets in
-  `Resources/MarkdownPreview/`, pinned by version + upstream commit + byte count
-  + SHA-256 in that directory's own `VENDORED.md` (nothing links them either —
-  they are copied into the bundle as a folder reference and served to a web
-  view), guarded by `MarkdownPreviewAssetPinTests` and bumped by the procedure in
-  that document. `PisakaCore` and
-  the test target stay dependency-free and must never import
-  Neon/SwiftTreeSitter/SwiftTerm/libgit2/AppKit/UIKit/CoreServices (the FSEvents
-  watcher is view-layer only; its one decision lives in Core as
-  `TreeRefreshFilter`) — Foundation only, so the domain logic stays portable and
-  testable.
-- **Adding a dependency also ships its license.** Copy the verbatim
-  `LICENSE`/`COPYING` *at the pinned revision* to `Resources/Licenses/<id>.txt`
-  and add a `licenses.json` entry (or an `excluded` entry with the reason);
-  `LicenseCoverageTests` fails until this is done. A package's own LICENSE is
-  not automatically the whole obligation — read its manifest for third-party
-  trees it vendors and compiles in (libgit2's LGPL `deps/xdiff`, tree-sitter's
-  ICU-licensed unicode code — appended to the shipped texts and pinned by
-  `testTextsCarryTheirBundledSubDependencyNotices`). Provisioned language
-  servers are the exception: their notices are read at display time out of the
-  installed tree, nothing in `swift test` can see them, and a manifest pin bump
-  must re-verify the license subpaths by hand — including the third outcome the
-  two above do not cover: an artifact that publishes *no* notice at all is
-  recorded as a named exception by destination in `LSPProvisioningManifestTests`
-  (`@vscode/l10n` is the only one), never as a silent omission, so a second one
-  fails the suite. **Third-party code that ships as *data* is the third source
-  class**: a file added under `Resources/MarkdownPreview/` needs a
-  `licenses.json` notice whose `origin` is its shipped repository path and whose
-  version/revision match that directory's `VENDORED.md`, and every file in that
-  directory must be either one of the three written here (`preview.js`,
-  `preview.css`, `VENDORED.md`) or the origin of exactly one notice — so an
-  unacknowledged bundle cannot ride in on the folder reference. Rationale and
-  procedures in `docs/architecture/core-services.md` + `core-provisioning.md`.
-- **Adding a language also ships its symbols query** —
-  `Resources/Queries/<raw value>/symbols.scm` under the shared capture
-  convention (captured node = the *name* node, capture name = the kind, optional
-  `@container`) or an entry in `SymbolIndexModel.unindexableLanguages` with the
-  reason — *and* a keyword list in `LanguageKeywords` or an entry in
-  `languagesWithoutKeywords`; `SymbolQueryTests` and `LanguageKeywordsTests`
-  compare both against `allCases` by set equality. A broken symbols query is
-  silent (an unindexed file looks like a file that declares nothing), so **every
-  grammar update additionally requires opening a file of that language in a
-  DEBUG build** and confirming ⌃⌘J answers — `SymbolQueryCatalog`'s DEBUG
-  assertion is the only thing that can see a query that no longer compiles.
-  Rationale in `docs/architecture/core-intelligence.md`.
-- **Required-reason APIs are declared for the whole linked binary**, not just
-  `Sources/`: libgit2 and the tree-sitter grammars compile from C source into
-  the app and ship no privacy manifest of their own. Any new use of a
-  required-reason API — by first-party code *or* a newly linked dependency —
-  means updating `Resources/PrivacyInfo.xcprivacy` and the audit record in
-  `docs/architecture/core-services.md` (which carries the `nm -u` symbol check
-  that catches the dependency half). `ReleaseMetadataTests` asserts the
-  category/reason set by *set equality*.
-- Four tree-sitter grammars are **vendored** under `Vendor/` as local path
-  dependencies (the directory content is the pin), for four different reasons,
-  each recorded in full in its package's `VENDORED.md`: `TreeSitterGitignore`
-  because upstream publishes no SwiftPM manifest, Swift binding header or
-  highlight query — all three are authored in this repo, which is why its
-  `VENDORED.md` carries a *mandatory verification recipe* re-run on every
-  grammar update (both failure modes of a hand-written query are silent: an
-  unknown node name degrades the file to plain text, a mistyped capture name
-  renders it default-colored); `TreeSitterDotenv` because upstream's own
-  manifest omits its external scanner from `sources:` and therefore never links
-  — the whole tree is verbatim and the one local change is that line;
-  `TreeSitterSql` because upstream ships no generated parser and its manifest is
-  a hard SwiftPM error; `TreeSitterEditorconfig` because upstream ships no SwiftPM manifest and no Swift binding, and its own query is unusable here. The
-  *static* half of the query verification is automated by
-  `VendoredGrammarQueryTests` (node names and anonymous literals against the
-  grammar's own `node-types.json` under the matching `named` flag, the emitted
-  capture set by equality — the named/anonymous two-set reasoning is in that
-  suite's doc comment); the *runtime* half needs SwiftTreeSitter, which Core
-  deliberately does not link, so the `VENDORED.md` recipe stays manual. The
-  remote grammars' queries are not in this repository; their capture names stay
-  pinned by hand in `SyntaxTokenKindTests`.
-- A multiplatform Xcode target links every SPM product into every destination
-  *unless the dependency carries a `destinationFilters:`* — which works
-  (`platformFilters` on the generated build file, iOS build green), correcting
-  an earlier note here that claimed package-product deps were all-or-nothing.
-  Only Sparkle uses it *as a dependency*, because its macOS-only manifest would
-  otherwise fail the iOS build; SwiftTerm, libgit2 and swift-markdown stay
-  unfiltered dead weight on the other destination (an explicitly out-of-scope
-  follow-up). The same key also works on a `type: folder` **source** entry —
-  attempted rather than assumed, and green on `generic/platform=iOS` — which is
-  what keeps the Markdown preview's ~3.4 MB of page assets off the iOS bundle;
-  copying a directory is not linking, which is why that one was in scope and the
-  three above are not. The actual platform
-  restriction stays the source-level `#if os(macOS)` / `#if os(iOS)` gating.
-- The iOS branch-switcher's network fetch is **HTTPS-only** (libgit2 over the
-  built-in Apple TLS backend, PAT from the Keychain). SSH is out on iOS: this
-  libgit2's SSH transport execs the system `ssh` binary and iOS has no
-  subprocess, so only an HTTPS `origin` can be fetched. **Off-site redirects are
-  refused** (`GIT_REMOTE_REDIRECT_NONE`, since the field's zero default sends
-  libgit2 to `http.followRedirects`, which permits an initial one), so a stored
-  PAT can never be presented to a host a `Location` named; same-host and
-  path-only redirects still follow, and `LibGit2FetchSourceGatingTests` is the
-  only thing in the pipeline that can see the rule (`app-ios.md`).
+- Keep all domain logic in `PisakaCore`; keep the `Pisaka` app views thin (macOS files
+  under `#if os(macOS)`, iOS files in `Sources/Pisaka/iOS/`).
+- Every behavioral change must come with new/updated `PisakaCore` tests, and the full suite
+  must pass before moving on.
+- **External dependencies live in the app target alone**, declared and pinned to an exact
+  version or revision in `project.yml`, with the SwiftPM manifest staying dependency-free
+  and reproducibility locked by the committed workspace `Package.resolved` — always
+  regenerated, never hand-edited, and kept in SwiftPM's v2 schema. `DependencyPinTests`
+  closes the loop both ways and holds the branch pins to a **documented set of two**, each
+  with its own recorded revision and its own reason; a third fails the suite until it is
+  documented too. The full story is in that suite's doc comment.
+  `PisakaCore` and the test target must never import any dependency, AppKit, UIKit or
+  CoreServices — Foundation only, so the domain logic stays portable and testable.
+- **Adding a dependency also ships its license.** Copy the verbatim license *at the pinned
+  revision* into `Resources/Licenses/` and add a manifest entry, or an `excluded` entry with
+  the reason; `LicenseCoverageTests` fails until this is done. A package's own license is
+  **not automatically the whole obligation** — read its manifest for third-party trees it
+  vendors and compiles in. Provisioned language servers are the exception: their notices are
+  read at display time out of the installed tree, nothing in `swift test` can see them, and a
+  manifest pin bump must re-verify the license subpaths **by hand** — including the third
+  outcome, an artifact that publishes no notice at all, which is recorded as a named
+  exception rather than a silent omission. Third-party code that ships as **data** is the
+  third source class and carries the same obligation (`core-services.md`,
+  `core-provisioning.md`).
+- **Adding a language also ships its symbols query** — under the shared capture convention —
+  or an entry in the unindexable list with its reason, *and* a keyword list or an entry in
+  the no-keyword set; two suites compare both against `allCases` by set equality. A broken
+  symbols query is **silent**, so every grammar update additionally requires **opening a file
+  of that language in a DEBUG build** and confirming ⌃⌘J answers (`core-intelligence.md`).
+- **Required-reason APIs are declared for the whole linked binary**, not just `Sources/`:
+  the C dependencies compile into the app and ship no privacy manifest of their own. Any new
+  use — by first-party code *or* a newly linked dependency — means updating
+  `Resources/PrivacyInfo.xcprivacy` and the audit record in `core-services.md`, which carries
+  the symbol check that catches the dependency half. `ReleaseMetadataTests` asserts the
+  category/reason set by set equality.
+- **Four tree-sitter grammars are vendored** under `Vendor/` as local path dependencies (the
+  directory content is the pin), for four different reasons, each recorded in full in its
+  package's `VENDORED.md` — one of which carries a **mandatory verification recipe re-run on
+  every grammar update**, because both failure modes of a hand-written query are silent. The
+  *static* half of that verification is automated; the *runtime* half needs a dependency Core
+  deliberately does not link, so the recipe stays manual.
+- A multiplatform Xcode target links every SPM product into every destination **unless the
+  dependency carries a `destinationFilters:`**, which works and is used by exactly one
+  dependency, whose macOS-only manifest would otherwise fail the iOS build; the same key also
+  works on a folder **source** entry, which is what keeps the preview's page assets off the
+  iOS bundle. Three dependencies stay unfiltered dead weight on the other destination, an
+  explicitly out-of-scope follow-up. The actual platform restriction is always the
+  source-level `#if os(macOS)` / `#if os(iOS)` gating.
+- The iOS branch-switcher's network fetch is **HTTPS-only**, and **off-site redirects are
+  refused**, so a stored token can never be presented to a host a `Location` named. SSH is
+  out on iOS (no subprocess). One gating suite is the only thing in the pipeline that can see
+  the redirect rule (`app-ios.md`).
 - Target platforms are macOS 13+ and iOS/iPadOS 17+.
-- **Style is enforced, not conventional**: `.swiftlint.yml` at the root is the
-  single style authority (the nested `Tests/.swiftlint.yml` carries the
-  test-tree exemptions; every relaxation lives in the config with its reason,
-  never as scattered in-file `swiftlint:disable` comments). The pinned version
-  is enforced by the `.githooks/pre-commit` hook (activate with
-  `git config core.hooksPath .githooks`) and by ci.yml's lint job;
-  `swiftlint --strict` from the repository root must be clean, and
-  `LintConfigurationTests` pins the config/hook/CI/doc shape. Running
-  `swiftlint --fix` against anything other than the committed configuration is
-  never the right move.
-- **Documentation placement**: this file must stay well under the 150k-char
-  context limit (target ≈30k) — it carries only the index and the invariants
-  above. Full per-file design rationale lives in `docs/architecture/*.md`.
-  When behavior changes, update the matching entry there; a new file gets one
-  index line here plus a full entry in the right doc. Never grow this file
-  back into per-file essays.
+- **Style is enforced, not conventional**: `.swiftlint.yml` at the root is the single style
+  authority (the nested `Tests/.swiftlint.yml` carries the test-tree exemptions; every
+  relaxation lives in the config with its reason, never as scattered in-file disables). The
+  pinned version is enforced by the pre-commit hook and by ci.yml's lint job;
+  `swiftlint --strict` from the repository root must be clean, and `LintConfigurationTests`
+  pins the config, hook, CI and doc shape. Running `swiftlint --fix` against anything other
+  than the committed configuration is never the right move (`style-lint.md`).
+- **Documentation placement.** This file is the **routing table and the claims**; the
+  **reasoning is `docs/architecture/`**. A paragraph belongs there, not here, when it
+  explains *why* a decision was taken, enumerates cases or edge cases, inventories what a
+  test pins, or restates what a file's own doc comment already says. What belongs here is
+  what an agent must know **before it has read anything**: where a file's contract lives, and
+  the claim it must not break. When behavior changes, update the matching entry in
+  `docs/architecture/`; a new file gets one index name here plus a full entry in the right
+  doc. **Never grow this file back into per-file essays** — it reached 116,641 characters that
+  way, four times the target it stated, which is why the size is now measured rather than
+  asked for: `LintConfigurationTests` holds this file **under 60,000 characters** and holds
+  that number equal to the one written in this sentence.
