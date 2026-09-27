@@ -99,14 +99,14 @@ file spelling the new form is caught by **neither**: rule forty-three skips gate
 files by construction, and rule two's narrower pattern does not match. The documents
 would still promise a handoff that no longer exists.
 
-- [ ] Hoist the `0xRRGGBB` pattern to one declaration both rules read, with a doc
+- [x] Hoist the `0xRRGGBB` pattern to one declaration both rules read, with a doc
       comment saying why it is shared: the gated half and the ungated half of the same
       question must ask it in the same words, or the handoff the documents describe
       becomes false silently.
-- [ ] **Leave line 4649 alone.** It is `#[0-9A-Fa-f]{6}` — CSS hex, rule forty-two's
+- [x] **Leave line 4649 alone.** It is `#[0-9A-Fa-f]{6}` — CSS hex, rule forty-two's
       served-page vocabulary — a different question that must not be folded into this
       one. Say so at the shared declaration so nobody merges them later.
-- [ ] This is the test for Task 2's defect, and say so where it lands: the prose could
+- [x] This is the test for Task 2's defect, and say so where it lands: the prose could
       be corrected and drift again, while one declaration cannot disagree with itself.
       Verify by mutation, not by assumption: widen the shared pattern, confirm both
       rule two and rule forty-three change behaviour together, restore, and record

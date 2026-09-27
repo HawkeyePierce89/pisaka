@@ -455,8 +455,30 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
 
     // MARK: - Rule two: no gated view spells a hex literal
 
+    /// The `0xRRGGBB` colour literal, one declaration read by two rules: rule two
+    /// asks it of the gated files and rule forty-three of the files neither gated
+    /// nor exempt. They are the two halves of one question, so they must ask it in
+    /// the same words — two copies could be widened apart, and a gated file
+    /// spelling the new form would then fail neither (rule forty-three skips gated
+    /// files by construction), while the documents still promised the handoff.
+    /// One declaration cannot disagree with itself, which is what makes that
+    /// documented handoff true by construction rather than by coincidence — the
+    /// prose alone could be corrected and drift again.
+    ///
+    /// Verified by mutation, not assumed: widened to `0x[0-9A-Fa-f]{2}`, rule
+    /// forty-three measured four ungated files (`CodeEditorView.swift`,
+    /// `DatabaseConnectionService.swift`, `PlatformColor.swift`,
+    /// `SymbolExtractor.swift`) while rule two, which no gated file but the
+    /// palette answers in either form, held; changed to `0x[0-9A-Fa-f]{8}`, rule
+    /// two lost `ChromePalette.swift` and failed. Both rules moved with the one
+    /// declaration, and both went green again once it was restored.
+    ///
+    /// Not rule forty-two's `#[0-9A-Fa-f]{6}`: that is CSS hex in Core's served
+    /// page chrome, a different question with its own counts. Do not merge the two.
+    static let hexColorLiteralPattern = "0x[0-9A-Fa-f]{6}"
+
     func testOnlyThePaletteSpellsAHexColorLiteral() throws {
-        let hex = try NSRegularExpression(pattern: "0x[0-9A-Fa-f]{6}")
+        let hex = try NSRegularExpression(pattern: Self.hexColorLiteralPattern)
         var spellers: Set<String> = []
         for url in try Self.swiftSources() where Self.gatedFiles.contains(url.lastPathComponent) {
             let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
@@ -4767,7 +4789,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// `FileIcon(` lines are dropped as in rule one, since a `FileIconColor` case
     /// is a Core token, not a hue. The documents are read raw: a claim is prose.
     func testNoDocumentCallsTheSweepClosedWhileASurfaceRemains() throws {
-        let hex = try NSRegularExpression(pattern: "0x[0-9A-Fa-f]{6}")
+        let hex = try NSRegularExpression(pattern: Self.hexColorLiteralPattern)
         let label = try NSRegularExpression(pattern: Self.channelLabel)
         let macOSApp = try Self.swiftSources().filter {
             $0.pathComponents.contains("Pisaka") && !$0.pathComponents.contains("PisakaCore")
