@@ -228,23 +228,23 @@ was brought level, so for this file the document and the suite now disagree.
 - Modify: `docs/architecture/core-theme.md`
 - Modify: `Tests/PisakaCoreTests/ChromeThemeSourceGatingTests.swift`
 
-- [ ] Bring item 30's numbers and item 20's builder list level with the pins.
-- [ ] **Sweep for the shape, not the site.** The defect is "a document sentence
+- [x] Bring item 30's numbers and item 20's builder list level with the pins.
+- [x] **Sweep for the shape, not the site.** The defect is "a document sentence
   restating a pin's numbers, which can drift from the pin". Check every other
   file whose counts item 30 and item 20 restate against what those pins now hold,
   and fix every one that has drifted in the same commit — not only the viewer's.
-- [ ] **The test that would have caught it.** Add a cross-file check, beside the
+- [x] **The test that would have caught it.** Add a cross-file check, beside the
   rules rather than among them so the rule count stays forty-three, that the
   numbers `core-theme.md` spells for each entry of `partFiveDButtonCounts` equal
   what the pin holds — generated from the pin, so the document cannot drift from
   it again. `testBothSummariesSpellTheSuitesOwnRuleCount` is the established
   shape for a check of this kind; follow it, including its failure message naming
   the file and both numbers.
-- [ ] If pinning item 20's builder list by generation proves brittle — a builder
+- [x] If pinning item 20's builder list by generation proves brittle — a builder
   list is prose, not a number — say so in the check's doc comment and pin only
   what can be read honestly, rather than writing a check that passes on a
   sentence it cannot actually verify.
-- [ ] Confirm the rule count is still forty-three and that both summaries' own
+- [x] Confirm the rule count is still forty-three and that both summaries' own
   cross-file count sentence is unchanged.
 
 ### Task 6: Run the gates
