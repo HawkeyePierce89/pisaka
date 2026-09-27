@@ -1982,10 +1982,22 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         // named outright over a glyph hidden where it is drawn. "Each" is a
         // count: the footer spells exactly three labels — the two chevrons' and
         // its spinner's — so deleting either chevron's is red (fix round 02).
+        // The sidebar's header holds the icon-only Hide button and its folded
+        // strip the icon-only Show button, the only way back. Each spells
+        // exactly one label because each holds exactly one control; the count
+        // makes deleting either red, since this rule has no completeness check
+        // and an unlisted builder would leave its label unguarded. The glyph
+        // helper is hidden where it is drawn, like `pagingGlyph`.
         ("DatabaseViewerView.swift", [
             ControlBuilder(path: ["private var footer: some View"],
                            required: [".accessibilityLabel("], hidesSymbols: true, labelCount: 3),
             ControlBuilder(path: ["private func pagingGlyph("],
+                           required: [".accessibilityHidden(true)"], hidesSymbols: true),
+            ControlBuilder(path: ["private var sidebarHeader: some View"],
+                           required: [".accessibilityLabel("], hidesSymbols: true, labelCount: 1),
+            ControlBuilder(path: ["private var collapsedSidebarStrip: some View"],
+                           required: [".accessibilityLabel("], hidesSymbols: true, labelCount: 1),
+            ControlBuilder(path: ["private func sidebarGlyph("],
                            required: [".accessibilityHidden(true)"], hidesSymbols: true),
         ]),
         // The problem browser's row: one combined element
@@ -3210,10 +3222,10 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// both confirmed against the tree, and the difference is the unstyleable
     /// buttons named in the entry's comment.
     private static let partFiveDButtonCounts: [String: (buttons: Int, styled: Int)] = [
-        // The sort headers, the hidden Return button and the two paging
-        // chevrons are styled; the cell menu's Copy and Set to NULL are menu
-        // items.
-        "DatabaseViewerView.swift": (buttons: 6, styled: 4),
+        // The sort headers, the hidden Return button, the two paging chevrons
+        // and the sidebar's Hide and Show buttons are styled; the cell menu's
+        // Copy and Set to NULL are menu items.
+        "DatabaseViewerView.swift": (buttons: 8, styled: 6),
         // Run is styled; the confirmation dialog's Run and Cancel are the
         // platform dialog's buttons and take no style.
         "DatabaseConsoleView.swift": (buttons: 3, styled: 1),

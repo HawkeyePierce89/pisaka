@@ -122,34 +122,34 @@ Three pinned sets in the chrome gating suite move with it: rules twenty, twenty-
 - Modify: `Sources/Pisaka/DatabaseViewerView.swift`
 - Modify: `Tests/PisakaCoreTests/ChromeThemeSourceGatingTests.swift`
 
-- [ ] Add `@State private var isSidebarCollapsed = false`, session state like the width.
-- [ ] Add `sidebarGlyph(_:)` in `pagingGlyph`'s shape: an `Image(systemName:)` with its own `.font(metrics.scaledFont(.body))`, `textSecondary` and `.accessibilityHidden(true)`. Each glyph is sized on its own chain, so rule thirty-four needs no exemption entry.
-- [ ] Give the sidebar a top header declaration, `private var sidebarHeader: some View`:
+- [x] Add `@State private var isSidebarCollapsed = false`, session state like the width.
+- [x] Add `sidebarGlyph(_:)` in `pagingGlyph`'s shape: an `Image(systemName:)` with its own `.font(metrics.scaledFont(.body))`, `textSecondary` and `.accessibilityHidden(true)`. Each glyph is sized on its own chain, so rule thirty-four needs no exemption entry.
+- [x] Give the sidebar a top header declaration, `private var sidebarHeader: some View`:
   - `metrics.scaled(sidebarHeaderHeight)` tall on `bgPanel`, with a bottom `hairline`.
   - A trailing `.plain` button labelled `sidebarGlyph("sidebar.left")`, with `.help("Hide the sidebar")` and `.accessibilityLabel("Hide the sidebar")`. Its action sets `isSidebarCollapsed = true`.
   - The glyph is `sidebar.left`, not `chevron.left`, because `chevron.left` already means "previous page" in this file's footer. One glyph must not mean two things in one tab.
-- [ ] Add `private var collapsedSidebarStrip: some View`:
+- [x] Add `private var collapsedSidebarStrip: some View`:
   - a `metrics.scaled(collapsedStripWidth)`-wide `bgPanel` column
   - a `.plain` button labelled `sidebarGlyph("sidebar.left")`, with `.help("Show the sidebar")` and `.accessibilityLabel("Show the sidebar")`; its action sets `isSidebarCollapsed = false`
   - Hide and Show share the glyph because they are never on screen together.
   - Its doc comment says this is the only control that can unfold the sidebar, so the sidebar can never be folded away with the way back lost.
-- [ ] When folded, the body lays out the strip, then a plain vertical `hairline` (no drag strip, since nothing is resizable while folded), then the split.
+- [x] When folded, the body lays out the strip, then a plain vertical `hairline` (no drag strip, since nothing is resizable while folded), then the split.
   - The divide leaves the tree when the sidebar folds, so its `onDisappear` releases any push. Say that in a comment.
   - The clamp is only asked when the sidebar is shown.
-- [ ] Update rule twenty's `panelControlBuilders` entry for `DatabaseViewerView.swift`, keeping the footer and `pagingGlyph` builders unchanged. Add:
+- [x] Update rule twenty's `panelControlBuilders` entry for `DatabaseViewerView.swift`, keeping the footer and `pagingGlyph` builders unchanged. Add:
   - `ControlBuilder(path: ["private var sidebarHeader: some View"], required: [".accessibilityLabel("], hidesSymbols: true, labelCount: 1)`
   - `ControlBuilder(path: ["private var collapsedSidebarStrip: some View"], required: [".accessibilityLabel("], hidesSymbols: true, labelCount: 1)`
   - `ControlBuilder(path: ["private func sidebarGlyph("], required: [".accessibilityHidden(true)"], hidesSymbols: true)`
-- [ ] Extend that entry's comment:
+- [x] Extend that entry's comment:
   - The header holds the icon-only Hide button, and the strip holds the icon-only Show button, the only way back.
   - Each spells exactly one label because each holds exactly one control. The count makes deleting either label red: rule twenty has no completeness check, so an unlisted builder would leave the label unguarded.
   - The glyph helper is hidden where it is drawn, like `pagingGlyph`.
-- [ ] Update rule thirty's `partFiveDButtonCounts` entry for `DatabaseViewerView.swift` from `(buttons: 6, styled: 4)` to `(buttons: 8, styled: 6)`. Rewrite its comment to name the sidebar's Hide and Show buttons among the styled ones, with the cell menu's Copy and Set to NULL still the two unstyled menu items.
-- [ ] Run `swift test`. It must be green:
+- [x] Update rule thirty's `partFiveDButtonCounts` entry for `DatabaseViewerView.swift` from `(buttons: 6, styled: 4)` to `(buttons: 8, styled: 6)`. Rewrite its comment to name the sidebar's Hide and Show buttons among the styled ones, with the cell menu's Copy and Set to NULL still the two unstyled menu items.
+- [x] Run `swift test`. It must be green:
   - rules twenty, thirty and thirty-four pass
   - the footer's `labelCount: 3` and the `pagingGlyph` builder are unchanged
   - no rule-thirty-four exemption entry was added
-- [ ] Temporarily delete one of the new `.accessibilityLabel(` calls and confirm rule twenty goes red, then restore it.
+- [x] Temporarily delete one of the new `.accessibilityLabel(` calls and confirm rule twenty goes red, then restore it.
 
 ### Task 4: Update documentation
 

@@ -108,6 +108,9 @@ struct DatabaseViewerView: View {
     /// Whether *this view* holds a resize cursor on `NSCursor`'s stack — see
     /// `syncSidebarDivideCursor()`. Session state only.
     @State private var sidebarDivideCursorPushed = false
+    /// Whether the sidebar is folded away to its strip. Session state only, like
+    /// the width: never persisted.
+    @State private var isSidebarCollapsed = false
 
     /// What a cell Core refuses is drawn at. Faint enough to read as unavailable
     /// beside an editable neighbour, legible enough that the value is still the
@@ -134,9 +137,18 @@ struct DatabaseViewerView: View {
             }
             GeometryReader { geo in
                 HStack(spacing: 0) {
-                    sidebar
-                        .frame(width: clampedSidebarWidth(total: geo.size.width))
-                    sidebarDivide(total: geo.size.width)
+                    if isSidebarCollapsed {
+                        // A plain rule, no drag strip: nothing is resizable while
+                        // folded. The divide leaves the tree as the sidebar folds,
+                        // so its `onDisappear` releases any cursor it pushed. The
+                        // clamp is asked only while the sidebar is shown.
+                        collapsedSidebarStrip
+                        hairline(horizontal: false)
+                    } else {
+                        sidebar
+                            .frame(width: clampedSidebarWidth(total: geo.size.width))
+                        sidebarDivide(total: geo.size.width)
+                    }
                     // The console sits under the *grid* and not under the whole
                     // pane, so the sidebar keeps its full height: the tables and
                     // the schema are what a reader writes SQL against, and a split
@@ -299,8 +311,57 @@ struct DatabaseViewerView: View {
 
     // MARK: - Tables, views and the schema
 
+    /// The strip over the sidebar carrying its Hide button. The glyph is
+    /// `sidebar.left`, not `chevron.left`, which already means "previous page"
+    /// in this tab's footer: one glyph must not mean two things in one tab.
+    private var sidebarHeader: some View {
+        HStack(spacing: 0) {
+            Spacer(minLength: 0)
+            Button { isSidebarCollapsed = true } label: {
+                sidebarGlyph("sidebar.left")
+            }
+            .buttonStyle(.plain)
+            .help("Hide the sidebar")
+            .accessibilityLabel("Hide the sidebar")
+        }
+        .padding(.horizontal, metrics.scaled(8))
+        .frame(height: metrics.scaled(DatabaseViewerLayout.sidebarHeaderHeight))
+        .background(alignment: .bottom) { hairline(horizontal: true) }
+        .background(theme.color(.bgPanel))
+    }
+
+    /// What is left of a folded sidebar: a narrow column holding the only
+    /// control that can unfold it, so the sidebar can never be folded away with
+    /// the way back lost. Hide and Show share the glyph because they are never
+    /// on screen together.
+    private var collapsedSidebarStrip: some View {
+        VStack(spacing: 0) {
+            Button { isSidebarCollapsed = false } label: {
+                sidebarGlyph("sidebar.left")
+            }
+            .buttonStyle(.plain)
+            .help("Show the sidebar")
+            .accessibilityLabel("Show the sidebar")
+            .padding(.top, metrics.scaled(6))
+            Spacer(minLength: 0)
+        }
+        .frame(width: metrics.scaled(DatabaseViewerLayout.collapsedStripWidth))
+        .frame(maxHeight: .infinity)
+        .background(theme.color(.bgPanel))
+    }
+
+    /// The fold button's glyph: sized in the interface zone and hidden, since
+    /// the button it labels is named outright — `pagingGlyph(_:)`'s shape.
+    private func sidebarGlyph(_ symbol: String) -> some View {
+        Image(systemName: symbol)
+            .font(metrics.scaledFont(.body))
+            .foregroundStyle(theme.color(.textSecondary))
+            .accessibilityHidden(true)
+    }
+
     private var sidebar: some View {
         VStack(spacing: 0) {
+            sidebarHeader
             // Plain rather than `.sidebar`: the sidebar style draws the
             // platform's translucent material under the rows, a step off the
             // pane's `bgPanel`. The platform still draws the selection, and no
