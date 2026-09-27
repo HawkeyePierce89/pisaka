@@ -195,9 +195,10 @@ ci.yml's `lint` job, and the version-bump procedure.
 
 ### Cross-cutting invariants
 
-Each invariant below states the claim an agent must not break. The reasoning, the
-enumerations and the edge cases live in the document named with it — read that document
-before changing the behaviour, not this list.
+Each invariant below states the claim an agent must not break. Where a bullet names a
+document, the reasoning, the enumerations and the edge cases live there — read it before
+changing the behaviour, not this list. The few that name none are stated here in full,
+because nothing else states them.
 
 - **Generation tokens**: every async git/search model orders overlapping work by
   monotonic tokens captured *synchronously* before the `Task` hop; superseded work
@@ -213,7 +214,7 @@ before changing the behaviour, not this list.
   raises the gate nor is gated by it — a refresh landing mid-revert costs at worst one
   entry the next refresh corrects, while taking the gate would serialize the editor
   behind a background walk.
-- **Language servers** (`core-lsp.md`, D1–D39): one server per `(server, root)`, started
+- **Language servers** (`core-lsp.md`, D1–D10 + D17–D39): one server per `(server, root)`, started
   lazily and never twice; registration is dynamic, and un-registering one shuts its process
   down. Sync is request-driven — the live buffer travels with the request — except for the
   diagnostics push channel, which re-syncs each open served buffer on a debounce and on tab
@@ -233,9 +234,10 @@ before changing the behaviour, not this list.
   displayed**: it crosses the seam as a maximum, and Core refuses anything longer before the
   digest. Every install verifies before unpacking and lands as one rename inside one
   directory, so deleting that directory de-provisions completely and **the disk is the
-  state**. Core never fetches or unpacks; the whole layer is a **reader**. gopls,
-  rust-analyzer and the YAML server are further *registry contributors*, not second layers,
-  and the last carries the **one stated exception** to "what may be downloaded is pinned
+  state**. Core never fetches or unpacks; the whole layer is a **reader**. gopls
+  and rust-analyzer are the second and third *registry contributors*, not second layers,
+  while `yaml-language-server` is an ordinary third downloadable server — one pinned
+  component, one enum case, and deliberately **not a fourth contributor** (D28). It carries the **one stated exception** to "what may be downloaded is pinned
   data" — it fetches JSON schemas while it runs, which is printed where consent is given and
   not only written here. A server that needs a setting gets it as data on its description; no
   server-specific code exists in the session.
@@ -300,7 +302,8 @@ before changing the behaviour, not this list.
 
 - **Colour reaches a gated chrome view only as a role** (macOS only, `core-theme.md`): the
   chrome — everything drawn *around* the code — is named in Core as a **closed** 21-case
-  `ChromeColorRole` plus `ChromeGeometry`'s point tokens, scaled at the use site and carrying
+  `ChromeColorRole` plus `ChromeGeometry`'s point tokens, scaled at the use site — `hairlineWidth` on an
+  AppKit code-zoom surface the one stated exception, drawn unscaled — and carrying
   **no font size**, and coloured in the app layer by one table, `ChromePalette`, whose
   **exhaustive `switch`** makes a role without a value a compile error. The palette has
   **exactly two value sets and no third**. Two paths reach a view and no others: SwiftUI reads
@@ -426,8 +429,10 @@ Three conventions govern that class, and each is load-bearing rather than tidy:
   settings in comments, so a raw `contains` stays green when the setting it names is
   deleted. **A rule weaker than its own comment is a defect.**
 - **A rule whose subject *is* a literal reads a scanner that keeps literals**, or it
-  deletes the very text it checks. There are **five such exceptions** today, each stated
-  in its own suite's doc comment with its reason; a sixth needs the same statement.
+  deletes the very text it checks. There are **five such exceptions** today: four
+  state their reason in their own suite's doc comment, and the fifth —
+  `ReleaseWorkflowTests`' build-output-root rules — states it in `release.yml`, at the site
+  the rule is about. A sixth needs the same statement somewhere a reader will find it.
 - **Prefer set equality to counting**, and where a count is the only shape available, pin
   it cross-file so a restated number cannot drift from the thing it restates.
 
@@ -443,12 +448,13 @@ it is charged — with the two deliberately kept apart at each site and never ho
 shared local. When they agree the budget halts the search at the ceiling; when they disagree
 the recorded work runs into the millions while the budget sits at zero looking healthy. That
 is an invariant, where a clock is a reading off whichever machine ran it. Two older suites
-still bound a *structural* cap with a generous clock because they have no budget to charge:
-the stated exception, not the pattern to copy.
+still bound a *structural* cap with a generous clock because they have no budget to charge —
+`GitignoreMatcherTests`' DP walk and `HoverContentTests`' two caps: the stated exception, not the pattern to copy.
 
 **Async tests stage races with a causal rendezvous** — a wait on a signal that *must*
 arrive, never on a window that may already have closed — rather than timed delays or
-`Task.yield()` spins. Condition-waits fail loudly on timeout rather than passing vacuously,
+`Task.yield()` spins. Condition-waits go through `Gate` or `waitFor` and fail
+loudly via `XCTFail` on timeout rather than passing vacuously,
 and assertions poll for a sink's record instead of assuming any particular hop count.
 
 **Reach for the shared helpers before writing a new stub.** They live in

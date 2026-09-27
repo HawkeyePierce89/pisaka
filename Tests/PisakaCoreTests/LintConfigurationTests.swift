@@ -536,13 +536,14 @@ final class LintConfigurationTests: XCTestCase {
 
     func testTheInstructionFileStaysUnderItsOwnStatedCeiling() throws {
         let text = try read(Self.instructionFilePath)
-        XCTAssertLessThanOrEqual(
+        XCTAssertLessThan(
             text.count, Self.instructionFileCeiling,
             """
-            \(Self.instructionFilePath) is \(text.count) characters, past its \
-            \(Self.instructionFileCeiling) ceiling. Move the longest paragraph to the \
-            docs/architecture/ document that owns the file it is about, leaving the claim and \
-            the pointer behind: the routing and the claims belong here, the reasoning does not
+            \(Self.instructionFilePath) is \(text.count) characters and must stay under \
+            \(Self.instructionFileCeiling) — the bound is exclusive, as the file's own sentence \
+            says. Move the longest paragraph to the docs/architecture/ document that owns the \
+            file it is about, leaving the claim and the pointer behind: the routing and the \
+            claims belong here, the reasoning does not
             """
         )
     }
@@ -941,6 +942,9 @@ final class LintConfigurationTests: XCTestCase {
     // MARK: - Data
 
     private static let rootConfigPath = ".swiftlint.yml"
+    private static let childConfigPath = "Tests/.swiftlint.yml"
+    private static let hookPath = ".githooks/pre-commit"
+    private static let ciWorkflowPath = ".github/workflows/ci.yml"
 
     /// The agent-facing instruction file, and the ceiling this suite holds it under.
     ///
@@ -949,14 +953,13 @@ final class LintConfigurationTests: XCTestCase {
     /// was allowed to reach 116,641 characters against a stated target of roughly 30,000,
     /// four times over and for more than a month, because the target was prose nothing
     /// measured. The number lives here and in the file's own "Documentation placement"
-    /// convention, and the two tests below hold them equal: a ceiling only this suite knows
-    /// is one the next writer never sees, and a ceiling only the prose knows is exactly the
-    /// situation that produced the 116,641.
+    /// convention, and the pair of assertions under
+    /// `// MARK: - The instruction file's own size` keeps both honest: one holds the file
+    /// under the ceiling, the other holds the file's own sentence naming that same ceiling.
+    /// A ceiling only this suite knows is one the next writer never sees, and a ceiling only
+    /// the prose knows is exactly the situation that produced the 116,641.
     private static let instructionFilePath = "CLAUDE.md"
     private static let instructionFileCeiling = 60_000
-    private static let childConfigPath = "Tests/.swiftlint.yml"
-    private static let hookPath = ".githooks/pre-commit"
-    private static let ciWorkflowPath = ".github/workflows/ci.yml"
 
     /// The test-tree exemptions, as `Tests/.swiftlint.yml` documents them.
     private static let documentedChildExemptions: Set<String> = [

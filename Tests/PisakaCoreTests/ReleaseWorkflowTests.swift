@@ -904,10 +904,11 @@ final class ReleaseWorkflowTests: XCTestCase {
         let waitMinutes = try XCTUnwrap(Int(wait), "could not read a number out of “\(wait)”")
 
         // The floor is *read from* `ci.yml`, not written here as a literal.
-        // `CLAUDE.md` and `docs/RELEASING.md` both state this relation as "the
-        // job budget exceeds the notary `--timeout` by at least ci.yml's build
-        // budget", and a hardcoded 45 makes that sentence true only by
-        // coincidence: raise CI's budget because the Release build got slower —
+        // `docs/RELEASING.md` states this relation as "the job budget exceeding
+        // the notary `--timeout` by at least `ci.yml`'s build budget", read out of
+        // `ci.yml` rather than restated as a number, and a hardcoded 45 makes that
+        // sentence true only by coincidence: raise CI's budget because the Release
+        // build got slower —
         // the one change that means an archive needs *more* headroom, not the
         // same — and this assertion keeps passing at the old number while the
         // documented invariant quietly stops holding. Same cross-file read as

@@ -1,6 +1,6 @@
 # Pisaka app (macOS) — PisakaApp orchestration, watcher, autosave & session controllers
 
-Design documentation moved verbatim from the root `CLAUDE.md` (which now holds only a one-line-per-file index). Each entry records a file's contract, invariants and the reasoning behind non-obvious decisions — read the relevant entry before modifying that file, and update it when behavior changes.
+Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a per-file index and the cross-cutting invariants). Each entry records a file's contract, invariants and the reasoning behind non-obvious decisions — read the relevant entry before modifying that file, and update it when behavior changes.
 
   - `PisakaApp.swift` — `@main` App, menu commands and shortcuts
     (Cmd+N/O, Cmd+Shift+O for "Open Folder…", Cmd+S/W), and the save/close and

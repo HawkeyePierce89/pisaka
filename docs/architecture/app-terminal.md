@@ -1,6 +1,6 @@
 # Pisaka app (macOS) — embedded terminal
 
-Design documentation moved verbatim from the root `CLAUDE.md` (which now holds only a one-line-per-file index). Each entry records a file's contract, invariants and the reasoning behind non-obvious decisions — read the relevant entry before modifying that file, and update it when behavior changes.
+Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a per-file index and the cross-cutting invariants). Each entry records a file's contract, invariants and the reasoning behind non-obvious decisions — read the relevant entry before modifying that file, and update it when behavior changes.
 
   - `TerminalTheme.swift` — the embedded terminal's built-in (not
     user-configurable) light/dark color table, the `SyntaxTheme` precedent applied

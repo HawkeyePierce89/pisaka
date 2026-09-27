@@ -1,6 +1,6 @@
 # PisakaCore — code intelligence (symbol index, go-to-definition, completion)
 
-Design documentation moved verbatim from the root `CLAUDE.md` (which now holds only a one-line-per-file index). Each entry records a file's contract, invariants and the reasoning behind non-obvious decisions — read the relevant entry before modifying that file, and update it when behavior changes.
+Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a per-file index and the cross-cutting invariants). Each entry records a file's contract, invariants and the reasoning behind non-obvious decisions — read the relevant entry before modifying that file, and update it when behavior changes.
 
   - `Symbol.swift` — the two value types the whole feature stands on.
     `SymbolKind` is a closed, color-free enum of what the shipped queries can
