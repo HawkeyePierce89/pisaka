@@ -4758,8 +4758,10 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// The sources are read through the **ordinary** scanner
     /// (`strippingCommentsAndStringLiterals`), not a literal-keeping one: the
     /// subject is what a file *paints with*, and a doc comment discussing
-    /// `.secondaryLabelColor` — `BracketOverlayLayoutManager.swift` has one, and
-    /// the gated files document their own rules the same way — paints nothing.
+    /// `.secondaryLabelColor` — the gated files document their own rules this
+    /// way — paints nothing. (No file is named as the example on purpose: a
+    /// named one goes stale the moment its comment is rewritten, and a comment
+    /// naming none has nothing to pin.)
     /// A colour named only inside a string literal is not a colour either. The
     /// `FileIcon(` lines are dropped as in rule one, since a `FileIconColor` case
     /// is a Core token, not a hue. The documents are read raw: a claim is prose.
