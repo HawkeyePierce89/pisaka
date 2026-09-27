@@ -1179,10 +1179,17 @@ only *consults* one, before each of its two writes.
   pane's reasoning that they are a preference about the window rather than about
   one database. The drag's base and the two cursor flags stay per-view `@State`,
   since the view that pushed a cursor must pop it. They are **session state on
-  purpose**: no `SettingsStore` key and no Core rule, because nothing is
-  written, so there is nothing to clamp at write time, and quitting the app
-  forgets both. A preference added here would be a new decision, not a missing
-  one.
+  purpose**: no `SettingsStore` key and no Core rule — nothing is *persisted*,
+  and quitting the app forgets both. The in-memory write, by contrast, **is
+  clamped**: the drag, the width's only writer, stores `clampedSidebarWidth`'s
+  answer against the total and scale of that moment, so a width narrowed in a
+  small window stays narrowed when the window grows — what is remembered is the
+  clamped value, not the reach the pointer asked for. That is intended, and it is
+  what the statement pane's handle does too (its `onChanged` stores the clamped
+  width); the Log's detail width stores the raw reach mid-drag but clamps it on
+  release, so it ends in the same place. The draw site still asks the clamp, which
+  bounds a stored width in a window narrower than the one it was stored in. A
+  preference added here would be a new decision, not a missing one.
 
 - `ContentView.swift` — `editorZone` keeps the breadcrumb for **every** tab (a
   database has a path like any other file) and routes below it on the tab kind:

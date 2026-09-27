@@ -200,15 +200,15 @@ or a zoom.
 - Modify: `Sources/Pisaka/DatabaseViewerView.swift`
 - Modify: `docs/architecture/core-database-viewer.md`
 
-- [ ] Correct both sentences to state that the drag stores an already-clamped
+- [x] Correct both sentences to state that the drag stores an already-clamped
   width, and name the consequence plainly: a width narrowed in a small window
   stays narrowed when the window grows, because what is remembered is the clamped
   value and not the reach the pointer asked for.
-- [ ] The sentence "nothing is written, so there is nothing to clamp at write
+- [x] The sentence "nothing is written, so there is nothing to clamp at write
   time" was about there being no `SettingsStore` write, and it reads as a claim
   about the in-memory store. Rewrite it so the two are not conflated: nothing is
   *persisted*, and the in-memory write is clamped.
-- [ ] Decide and record, in one sentence, whether storing the clamped value is
+- [x] Decide and record, in one sentence, whether storing the clamped value is
   intended. Keep it — it is what the statement pane's handle does, whose
   `onChanged` also captures and stores the rendered width — and say so rather
   than leaving the asymmetry with the Log's raw-stored detail width unexplained.

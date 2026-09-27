@@ -99,8 +99,15 @@ final class DatabaseViewerTabs: ObservableObject {
     @MainActor
     final class SidebarLayout: ObservableObject {
         /// The sidebar's dragged width, or `nil` for the ideal one. Never
-        /// persisted, and never re-clamped when it is stored — the clamp is asked
-        /// where the width is drawn.
+        /// persisted, but the drag — the only writer — stores it **already
+        /// clamped** against the total and scale of that moment, so a width
+        /// narrowed in a small window stays narrowed when the window grows: what
+        /// is remembered is the clamped value, not the reach the pointer asked
+        /// for. Intended, and the statement pane's handle does the same; the
+        /// Log's detail width stores the raw reach mid-drag but clamps it on
+        /// release, so it ends in the same place. The clamp is asked again where
+        /// the width is drawn, which bounds it in a window narrower than the one
+        /// it was stored in.
         @Published var sidebarWidth: CGFloat?
         /// Whether the sidebar is folded away to its strip. Never persisted.
         @Published var isSidebarCollapsed = false
