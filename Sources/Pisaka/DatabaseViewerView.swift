@@ -939,16 +939,20 @@ private enum DatabaseViewerLayout {
     /// The strip carrying the sidebar's fold button, as tall as the statement
     /// pane's header.
     static let sidebarHeaderHeight: Double = 24
-    /// The grid's floor inside the vertical split: its header row plus one data
-    /// row, both set in the interface `caption` font (about 13 pt of line height
-    /// at scale one) — the header padding 4 + 4 and a row 3 + 3, about 21 + 19.
+    /// The grid's floor inside the vertical split. It is applied to the whole
+    /// `grid` stack — the scrolling region, the one-point rule and the `footer`
+    /// (body-font chevrons padded 5 + 5, about 26 pt at scale one) — so at the
+    /// floor the footer and the rule above it survive the drag, keeping the
+    /// paging controls and the row-range readout on screen, and the scrolling
+    /// region keeps only a sliver (about 13 pt, less than the header row). What
+    /// it buys is that the grid no longer disappears entirely, not a visible row.
     ///
     /// The real bound is not the window's content minimum but the editor zone's,
     /// which `BottomPanelHeightRule`'s `editorMinimum` holds at 120 scaled points
     /// with the bottom dock at its ceiling. The console's 140 already exceeds that
-    /// zone on its own, so this floor is kept at the smallest honest size: the
-    /// grid stops vanishing without the overshoot growing by more than one header
-    /// row and one data row. The console's 140 is left exactly as it was.
+    /// zone on its own, so this floor is kept small rather than sized for a
+    /// header, a row and the footer, which would roughly double this side's
+    /// demand against that zone. The console's 140 is left exactly as it was.
     static let gridMinHeight: Double = 40
     /// The console's floor under the grid.
     static let consoleMinHeight: Double = 140

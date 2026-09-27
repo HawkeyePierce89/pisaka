@@ -1152,8 +1152,14 @@ only *consults* one, before each of its two writes.
   divide's `onDisappear` as well as its hover and drag ends (`core-theme.md` rule
   twenty-two): a tab closed, or a sidebar folded, with the pointer on the strip or
   mid-drag gets neither a hover-exit nor a drag-end, and `NSCursor`'s stack is
-  global. The **grid has a floor** inside the `VSplitView`: 40 points, its
-  header row plus one data row. Its real bound is the editor zone's 120-point
+  global. The **grid has a floor** inside the `VSplitView`: 40 points, applied
+  to the whole grid stack — the scrolling region, the rule above the footer and
+  the footer itself (about 26 points at scale one) — so what the floor keeps is
+  the footer and its rule, the paging controls and the row-range readout
+  surviving the drag, plus a sliver of the scrolling region (less than the
+  header row), instead of the grid disappearing entirely; it is not sized for a
+  header and a row, which would roughly double this side's demand against the
+  zone below. Its real bound is the editor zone's 120-point
   minimum (`BottomPanelHeightRule`'s `editorMinimum`, with the dock at its
   ceiling), not the window's; the console's unchanged 140-point minimum already
   exceeds that zone on its own, which is why the grid had no floor before and why

@@ -106,20 +106,20 @@ acceptable and the recorded rationale is false.
 - Modify: `Sources/Pisaka/DatabaseViewerView.swift`
 - Modify: `docs/architecture/core-database-viewer.md`
 
-- [ ] Keep the number at 40. Do not raise it to fit a header and a row: the
+- [x] Keep the number at 40. Do not raise it to fit a header and a row: the
   binding constraint is the editor zone's 120-point minimum that
   `BottomPanelHeightRule`'s `editorMinimum` sets, which the console's unchanged
   140 already exceeds on its own, and a floor sized for header plus row plus
   footer would roughly double this side's demand against that zone.
-- [ ] Replace the rationale, in the constant's comment and in the document, with
+- [x] Replace the rationale, in the constant's comment and in the document, with
   what 40 actually buys: the grid keeps its footer and the rule above it — so the
   paging controls and the row-range readout survive the drag — plus a sliver of
   the scrolling region, instead of the grid disappearing entirely. Name the
   footer as part of what the floor covers, since that is the fact the old
   sentence missed.
-- [ ] Keep the known limit already recorded (the console's 140 against the
+- [x] Keep the known limit already recorded (the console's 140 against the
   120-point zone) exactly as it stands; this task does not change it.
-- [ ] No test, for Task 1's reason.
+- [x] No test, for Task 1's reason.
 
 ### Task 3: The sidebar's width and fold survive leaving the tab
 
