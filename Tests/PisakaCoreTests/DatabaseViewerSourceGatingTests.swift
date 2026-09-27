@@ -60,6 +60,12 @@ import XCTest
 ///    loses a half-written query to a glance at a source file — silently, and
 ///    leaving the pane's deliberate re-presentation of a pending confirmation
 ///    standing over an empty box.
+/// 9. The compiler cannot see who owns the sidebar's width and fold. The same
+///    keying that makes rule 8 necessary tears the surface down on every tab
+///    switch, so a `@State` for either compiles perfectly and resets the sidebar
+///    to unfolded at the ideal width each time the reader glances at another tab
+///    — which is why both live on `DatabaseViewerTabs`, the owner that outlives
+///    the surface, and the surface declares neither.
 final class DatabaseViewerSourceGatingTests: XCTestCase {
 
     private static let repositoryRoot = URL(fileURLWithPath: #filePath)
@@ -734,6 +740,41 @@ final class DatabaseViewerSourceGatingTests: XCTestCase {
             try occurrences(of: #"console\.text"#, in: console),
             0,
             "…it reads and writes the console's own property instead."
+        )
+    }
+
+    /// The sidebar's width and fold belong to the window's owner, not to the
+    /// surface drawing them.
+    ///
+    /// `DatabaseViewerHost` keys the surface on the tab and `ContentView` swaps it
+    /// out whole for a text tab, so a `@State` for either value is destroyed by
+    /// every tab switch: fold the sidebar or drag it wide, look at a source file,
+    /// come back, and it is unfolded at the ideal width again — silently, since
+    /// nothing fails. Pinned by name on both sides: declared on
+    /// `DatabaseViewerTabs.swift`, and no `@State` of either name in the surface.
+    func testTheSidebarsWidthAndFoldAreHeldByTheOwnerAndNotByTheSurface() throws {
+        let tabs = try code(ofFileNamed: "DatabaseViewerTabs.swift", under: "Sources/Pisaka")
+        for declaration in [#"@Published var sidebarWidth: CGFloat\?"#, #"@Published var isSidebarCollapsed\b"#] {
+            XCTAssertEqual(
+                try occurrences(of: declaration, in: tabs),
+                1,
+                "DatabaseViewerTabs.swift must declare the sidebar's layout (\(declaration)): it is the object "
+                    + "that outlives a tab switch, and the surface is not."
+            )
+        }
+        let view = try code(ofFileNamed: "DatabaseViewerView.swift", under: "Sources/Pisaka")
+        for name in ["sidebarWidth", "isSidebarCollapsed"] {
+            XCTAssertEqual(
+                try occurrences(of: #"@State\s+(private\s+)?var\s+"# + name + #"\b"#, in: view),
+                0,
+                "DatabaseViewerView must not hold \(name) as @State: the surface is keyed on the tab and torn "
+                    + "down by every tab switch, so the sidebar would reset each time the reader left the tab."
+            )
+        }
+        XCTAssertEqual(
+            try occurrences(of: #"sidebarLayout: viewers\.sidebar"#, in: view),
+            1,
+            "DatabaseViewerHost must hand the owner's sidebar layout to the surface it builds."
         )
     }
 

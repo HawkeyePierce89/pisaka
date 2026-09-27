@@ -58,9 +58,19 @@ struct DatabaseViewerView: View {
     /// one console for the tab's life, so this never re-points.
     @ObservedObject private var console: DatabaseConsoleModel
 
-    init(model: DatabaseViewerModel) {
+    /// The sidebar's width and fold, owned by `DatabaseViewerTabs` and handed in.
+    ///
+    /// Not `@State`: this surface is keyed on the tab and torn down by every tab
+    /// switch, so state held here would come back unfolded at the ideal width
+    /// each time. The owner outlives the surface, so leaving a viewer tab and
+    /// coming back — or switching between two viewer tabs — keeps both. One per
+    /// window; nothing is persisted across a quit.
+    @ObservedObject private var sidebarLayout: DatabaseViewerTabs.SidebarLayout
+
+    init(model: DatabaseViewerModel, sidebarLayout: DatabaseViewerTabs.SidebarLayout) {
         self.model = model
         _console = ObservedObject(wrappedValue: model.console)
+        _sidebarLayout = ObservedObject(wrappedValue: sidebarLayout)
     }
 
     /// The interface zone's metrics, inherited from the window root.
@@ -95,22 +105,14 @@ struct DatabaseViewerView: View {
     /// two states cannot both claim to hold it.
     @FocusState private var focus: GridFocus?
 
-    /// The sidebar's dragged width, or `nil` for the ideal one. Session state
-    /// only, like the statement pane's width and the Log's detail width: never
-    /// persisted, and never re-clamped when it is stored — the clamp is asked
-    /// where the width is drawn.
-    @State private var sidebarWidth: CGFloat?
     /// The rendered width captured at the start of a drag, so the cumulative
     /// translation applies to a fixed base. `nil` when not dragging.
     @State private var sidebarDragStartWidth: CGFloat?
-    /// Whether the pointer is over the sidebar's divide. Session state only.
+    /// Whether the pointer is over the sidebar's divide. Per-view, like the drag base.
     @State private var isHoveringSidebarDivide = false
     /// Whether *this view* holds a resize cursor on `NSCursor`'s stack — see
-    /// `syncSidebarDivideCursor()`. Session state only.
+    /// `syncSidebarDivideCursor()`. Per-view: the view that pushed must pop.
     @State private var sidebarDivideCursorPushed = false
-    /// Whether the sidebar is folded away to its strip. Session state only, like
-    /// the width: never persisted.
-    @State private var isSidebarCollapsed = false
 
     /// What a cell Core refuses is drawn at. Faint enough to read as unavailable
     /// beside an editable neighbour, legible enough that the value is still the
@@ -137,7 +139,7 @@ struct DatabaseViewerView: View {
             }
             GeometryReader { geo in
                 HStack(spacing: 0) {
-                    if isSidebarCollapsed {
+                    if sidebarLayout.isSidebarCollapsed {
                         // A plain rule, no drag strip: nothing is resizable while
                         // folded. The divide leaves the tree as the sidebar folds,
                         // so its `onDisappear` releases any cursor it pushed. The
@@ -237,7 +239,7 @@ struct DatabaseViewerView: View {
     private func clampedSidebarWidth(total: CGFloat) -> CGFloat {
         clampedSidebarWidth(
             total: total,
-            wanted: sidebarWidth ?? metrics.scaled(DatabaseViewerLayout.sidebarIdealWidth)
+            wanted: sidebarLayout.sidebarWidth ?? metrics.scaled(DatabaseViewerLayout.sidebarIdealWidth)
         )
     }
 
@@ -296,7 +298,10 @@ struct DatabaseViewerView: View {
                         guard !beginning || value.translation.width != 0 else { return }
                         // The sidebar is on the left, so the sign mirrors the
                         // statement pane's.
-                        sidebarWidth = clampedSidebarWidth(total: total, wanted: base + value.translation.width)
+                        sidebarLayout.sidebarWidth = clampedSidebarWidth(
+                            total: total,
+                            wanted: base + value.translation.width
+                        )
                     }
                     .onEnded { _ in
                         sidebarDragStartWidth = nil
@@ -324,7 +329,7 @@ struct DatabaseViewerView: View {
     private var sidebarHeader: some View {
         HStack(spacing: 0) {
             Spacer(minLength: 0)
-            Button { isSidebarCollapsed = true } label: {
+            Button { sidebarLayout.isSidebarCollapsed = true } label: {
                 sidebarGlyph("sidebar.left")
             }
             .buttonStyle(.plain)
@@ -343,7 +348,7 @@ struct DatabaseViewerView: View {
     /// on screen together.
     private var collapsedSidebarStrip: some View {
         VStack(spacing: 0) {
-            Button { isSidebarCollapsed = false } label: {
+            Button { sidebarLayout.isSidebarCollapsed = false } label: {
                 sidebarGlyph("sidebar.left")
             }
             .buttonStyle(.plain)
@@ -994,8 +999,10 @@ struct DatabaseViewerHost: View {
         if let model = viewers.model(for: file) {
             // Keyed on the tab, so switching between two viewer tabs rebuilds the
             // surface against the other model rather than reusing this one's
-            // scroll and selection state under a different database's rows.
-            DatabaseViewerView(model: model)
+            // scroll and selection state under a different database's rows. The
+            // sidebar's layout is the window's and is handed in, so the rebuild
+            // does not reset it.
+            DatabaseViewerView(model: model, sidebarLayout: viewers.sidebar)
                 .id(file.id)
         }
     }

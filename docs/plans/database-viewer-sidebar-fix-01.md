@@ -150,25 +150,25 @@ was chosen for its survival.
 - Modify: `Tests/PisakaCoreTests/DatabaseViewerSourceGatingTests.swift`
 - Modify: `docs/architecture/core-database-viewer.md`
 
-- [ ] Move the source of truth for the sidebar's width and its folded state onto
+- [x] Move the source of truth for the sidebar's width and its folded state onto
   `DatabaseViewerTabs`, the per-window object whose lifetime already outlives a
   tab switch, and have the surface reach them through bindings so the
   `.id(file.id)` keying — which exists to stop one database's scroll and
   selection being reused under another's rows — stays exactly as it is.
-- [ ] Hold **one** width and **one** folded state for the window rather than one
+- [x] Hold **one** width and **one** folded state for the window rather than one
   per tab, on the statement pane's stated reasoning: it is a preference about the
   window, not about one database. Say that in the property's comment.
-- [ ] Do **not** move the drag's start width or either cursor flag. Those are
+- [x] Do **not** move the drag's start width or either cursor flag. Those are
   per-drag and per-view, and chrome rule twenty-two requires the push to be
   balanced by the view that made it.
-- [ ] Do not put layout state on `DatabaseViewerModel`: it is Core, and a Core
+- [x] Do not put layout state on `DatabaseViewerModel`: it is Core, and a Core
   model holding a pane's width is the boundary this repository keeps.
-- [ ] Correct the two `@State` comments and the document sentence: they may no
+- [x] Correct the two `@State` comments and the document sentence: they may no
   longer claim the statement pane's behaviour without having it. Say what now
   survives (leaving and re-entering a viewer tab, and switching between two
   viewer tabs) and what does not (quitting the app — nothing is persisted, which
   stays deliberate).
-- [ ] **The test that would have caught it.** Add a rule to
+- [x] **The test that would have caught it.** Add a rule to
   `DatabaseViewerSourceGatingTests` pinning where this state lives: the width and
   the folded state are declared on `DatabaseViewerTabs` and `DatabaseViewerView`
   declares no `@State` for either, so moving one back into the keyed surface
@@ -176,7 +176,7 @@ was chosen for its survival.
   existing style — pinned by name and by file, with the entry's comment stating
   the regression it names — and inventory it in the suite's doc comments and in
   `core-database-viewer.md`, as that suite's other rules are.
-- [ ] **Enumerate what you touched.** The state's input space is: no viewer tab
+- [x] **Enumerate what you touched.** The state's input space is: no viewer tab
   open, one open, two open and switched between, a viewer tab closed and
   reopened, and the fold set while a second viewer tab is showing. Confirm each
   behaves as the corrected comment says, and that closing the last viewer tab

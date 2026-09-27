@@ -923,7 +923,12 @@ only *consults* one, before each of its two writes.
   per tab" and "one connection per open database" are the same sentence.
   Re-selecting a tab hands back the model it already had, with its selected
   table, page and sort intact — which is the whole reason this state does not
-  live in the view. **Tab close is observed, not called**: the owner subscribes
+  live in the view. The same reason puts the viewer sidebar's width and fold
+  here, as one `SidebarLayout` object for the window rather than one per tab: its
+  own `ObservableObject` so a drag republishes only to the surface observing it,
+  not through this scene-owned `@StateObject`. Closing the last viewer tab leaves
+  it standing with nothing observing it — two values, no connection — and the
+  next viewer tab opened comes back at the same width and fold. **Tab close is observed, not called**: the owner subscribes
   to the workspace's `openFiles` and closes the connection of any tab that is no
   longer there, because a tab can leave through the close button, ⌘W, a
   force-close after a checkout, or a folder switch that replaces the whole tab
@@ -1164,11 +1169,20 @@ only *consults* one, before each of its two writes.
   ceiling), not the window's; the console's unchanged 140-point minimum already
   exceeds that zone on its own, which is why the grid had no floor before and why
   this one is kept to the smallest honest size — a **known limit**, the split
-  overshooting the zone in that corner. The width and the fold are **session
-  state on purpose**: no `SettingsStore` key and no Core rule, because nothing is
-  written, so there is nothing to clamp at write time, and the two sibling panes
-  (the Log's detail, the statement pane) already answer the same question in the
-  view. A preference added here would be a new decision, not a missing one.
+  overshooting the zone in that corner. The width and the fold are **held by
+  `DatabaseViewerTabs`**, not by this view (`DatabaseViewerTabs.SidebarLayout`,
+  observed here and handed in by `DatabaseViewerHost`): the surface is keyed on
+  the tab and swapped out whole for a text tab, so `@State` here would reset the
+  sidebar to unfolded at the ideal width on every tab switch. Held there, both
+  survive leaving a viewer tab and coming back, and switching between two viewer
+  tabs — **one width and one fold per window**, not per tab, on the statement
+  pane's reasoning that they are a preference about the window rather than about
+  one database. The drag's base and the two cursor flags stay per-view `@State`,
+  since the view that pushed a cursor must pop it. They are **session state on
+  purpose**: no `SettingsStore` key and no Core rule, because nothing is
+  written, so there is nothing to clamp at write time, and quitting the app
+  forgets both. A preference added here would be a new decision, not a missing
+  one.
 
 - `ContentView.swift` — `editorZone` keeps the breadcrumb for **every** tab (a
   database has a path like any other file) and routes below it on the tab kind:
@@ -2225,7 +2239,11 @@ transaction. `close()` stops the console the way it stops its own loads.
   `model.isWriting`, the half of it that a console batch does not raise — and that
   the reader's text is held by the console rather than by the pane, which no
   compiler can see either: an input owning its own text compiles perfectly and
-  loses a half-written query to a tab switch, silently.
+  loses a half-written query to a tab switch, silently. The same reasoning pins
+  the sidebar's width and fold: both declared on `DatabaseViewerTabs.swift`, no
+  `@State` of either name in `DatabaseViewerView.swift`, and the host handing the
+  owner's layout to the surface, so moving either back into the keyed surface
+  fails here rather than resetting the sidebar on every tab switch.
 
 `ScriptedDatabaseService` grew a console half: a classification per text (the
 deferral included), an answer per text, and scripted console outcomes with the
