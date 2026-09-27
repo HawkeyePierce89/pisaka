@@ -71,6 +71,48 @@ final class DatabaseViewerTabs: ObservableObject {
     /// What to run after a committed edit — the scene's Local Changes refresh.
     private var didWrite: @MainActor () -> Void = {}
 
+    /// The sidebar's width and fold, held here rather than in the surface so they
+    /// survive leaving the tab.
+    ///
+    /// `DatabaseViewerHost` keys the surface on the tab (`.id(file.id)`) and
+    /// `ContentView` swaps it out whole for a text tab, so any `@State` the
+    /// surface held for these two would reset to unfolded at the ideal width on
+    /// every tab switch — the reason the selected table, the page and the sort
+    /// live on the model rather than in the view, applied to layout.
+    ///
+    /// **One per window, not one per tab**, on the statement pane's reasoning: how
+    /// wide the sidebar is and whether it is folded is a preference about the
+    /// window, not about one database, so switching between two viewer tabs keeps
+    /// both. Not on `DatabaseViewerModel`, which is Core: a pane's width is the app
+    /// layer's, and Core holds no layout.
+    ///
+    /// Its own object rather than two `@Published` properties on this owner, so a
+    /// drag republishes only to the surface observing it — this owner is a
+    /// `@StateObject` of the scene, and republishing it would re-render the window
+    /// on every drag frame, the `models` table's reason for not being published.
+    /// Nothing is persisted: quitting the app forgets both, deliberately.
+    let sidebar = SidebarLayout()
+
+    /// The sidebar's two layout values for the window's viewer tabs. The drag's
+    /// start width and the cursor flags are *not* here: they are per-drag and
+    /// per-view, and a pushed cursor must be popped by the view that pushed it.
+    @MainActor
+    final class SidebarLayout: ObservableObject {
+        /// The sidebar's dragged width, or `nil` for the ideal one. Never
+        /// persisted, but the drag — the only writer — stores it **already
+        /// clamped** against the total and scale of that moment, so a width
+        /// narrowed in a small window stays narrowed when the window grows: what
+        /// is remembered is the clamped value, not the reach the pointer asked
+        /// for. Intended, and the statement pane's handle does the same; the
+        /// Log's detail width stores the raw reach mid-drag but clamps it on
+        /// release, so it ends in the same place. The clamp is asked again where
+        /// the width is drawn, which bounds it in a window narrower than the one
+        /// it was stored in.
+        @Published var sidebarWidth: CGFloat?
+        /// Whether the sidebar is folded away to its strip. Never persisted.
+        @Published var isSidebarCollapsed = false
+    }
+
     /// - Parameters:
     ///   - workspace: the tab set to follow. Held **weakly** through the
     ///     subscription alone, so this owner never keeps a torn-down workspace

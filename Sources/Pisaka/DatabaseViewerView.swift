@@ -58,9 +58,19 @@ struct DatabaseViewerView: View {
     /// one console for the tab's life, so this never re-points.
     @ObservedObject private var console: DatabaseConsoleModel
 
-    init(model: DatabaseViewerModel) {
+    /// The sidebar's width and fold, owned by `DatabaseViewerTabs` and handed in.
+    ///
+    /// Not `@State`: this surface is keyed on the tab and torn down by every tab
+    /// switch, so state held here would come back unfolded at the ideal width
+    /// each time. The owner outlives the surface, so leaving a viewer tab and
+    /// coming back — or switching between two viewer tabs — keeps both. One per
+    /// window; nothing is persisted across a quit.
+    @ObservedObject private var sidebarLayout: DatabaseViewerTabs.SidebarLayout
+
+    init(model: DatabaseViewerModel, sidebarLayout: DatabaseViewerTabs.SidebarLayout) {
         self.model = model
         _console = ObservedObject(wrappedValue: model.console)
+        _sidebarLayout = ObservedObject(wrappedValue: sidebarLayout)
     }
 
     /// The interface zone's metrics, inherited from the window root.
@@ -95,6 +105,15 @@ struct DatabaseViewerView: View {
     /// two states cannot both claim to hold it.
     @FocusState private var focus: GridFocus?
 
+    /// The rendered width captured at the start of a drag, so the cumulative
+    /// translation applies to a fixed base. `nil` when not dragging.
+    @State private var sidebarDragStartWidth: CGFloat?
+    /// Whether the pointer is over the sidebar's divide. Per-view, like the drag base.
+    @State private var isHoveringSidebarDivide = false
+    /// Whether *this view* holds a resize cursor on `NSCursor`'s stack — see
+    /// `syncSidebarDivideCursor()`. Per-view: the view that pushed must pop.
+    @State private var sidebarDivideCursorPushed = false
+
     /// What a cell Core refuses is drawn at. Faint enough to read as unavailable
     /// beside an editable neighbour, legible enough that the value is still the
     /// point — a viewer's whole job is showing what is there, and a view or an
@@ -118,21 +137,39 @@ struct DatabaseViewerView: View {
             if let message = model.errorMessage {
                 errorBanner(message)
             }
-            HStack(spacing: 0) {
-                sidebar
-                    .frame(width: metrics.scaled(220))
-                hairline(horizontal: false)
-                // The console sits under the *grid* and not under the whole pane,
-                // so the sidebar keeps its full height: the tables and the schema
-                // are what a reader writes SQL against, and a split that shortened
-                // them would hide the names being typed.
-                VSplitView {
-                    grid
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    DatabaseConsoleView(console: console, isWriteInFlight: model.isWriteInFlight)
-                        .frame(maxWidth: .infinity, minHeight: metrics.scaled(140))
+            GeometryReader { geo in
+                HStack(spacing: 0) {
+                    if sidebarLayout.isSidebarCollapsed {
+                        // A plain rule, no drag strip: nothing is resizable while
+                        // folded. The divide leaves the tree as the sidebar folds,
+                        // so its `onDisappear` releases any cursor it pushed. The
+                        // clamp is asked only while the sidebar is shown.
+                        collapsedSidebarStrip
+                        hairline(horizontal: false)
+                    } else {
+                        sidebar
+                            .frame(width: clampedSidebarWidth(total: geo.size.width))
+                        sidebarDivide(total: geo.size.width)
+                    }
+                    // The console sits under the *grid* and not under the whole
+                    // pane, so the sidebar keeps its full height: the tables and
+                    // the schema are what a reader writes SQL against, and a split
+                    // that shortened them would hide the names being typed.
+                    VSplitView {
+                        grid
+                            .frame(
+                                maxWidth: .infinity,
+                                minHeight: metrics.scaled(DatabaseViewerLayout.gridMinHeight),
+                                maxHeight: .infinity
+                            )
+                        DatabaseConsoleView(console: console, isWriteInFlight: model.isWriteInFlight)
+                            .frame(
+                                maxWidth: .infinity,
+                                minHeight: metrics.scaled(DatabaseViewerLayout.consoleMinHeight)
+                            )
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
         .background(theme.color(.bgPanel))
@@ -192,10 +229,151 @@ struct DatabaseViewerView: View {
             )
     }
 
+    // MARK: - The sidebar's divide
+
+    /// The sidebar's width: the dragged width, or the ideal one, clamped so
+    /// neither the sidebar nor the grid drops below its minimum — the Log's
+    /// `clampedDetailWidth(total:)` shape. When a narrow window makes the two
+    /// bounds cross, the floor on the maximum is the answer: the sidebar keeps
+    /// its own minimum and the grid is the one squeezed.
+    private func clampedSidebarWidth(total: CGFloat) -> CGFloat {
+        clampedSidebarWidth(
+            total: total,
+            wanted: sidebarLayout.sidebarWidth ?? metrics.scaled(DatabaseViewerLayout.sidebarIdealWidth)
+        )
+    }
+
+    /// `wanted` held between the sidebar's minimum and what the grid's minimum
+    /// leaves of the available width — the one clamp both the drawn width and a
+    /// drag ask.
+    ///
+    /// The divide strip is a sibling in the stack and takes real layout width,
+    /// so it is spent before anything is divided — `ContentView`'s
+    /// `markdownSplitContent(for:size:)` spells the same rule. Dividing `total`
+    /// whole would hand the grid its minimum less the strip at the maximum.
+    private func clampedSidebarWidth(total: CGFloat, wanted: CGFloat) -> CGFloat {
+        let available = max(0, total - metrics.scaled(DatabaseViewerLayout.divideHitWidth))
+        let minimum = metrics.scaled(DatabaseViewerLayout.sidebarMinWidth)
+        let maximum = max(minimum, available - metrics.scaled(DatabaseViewerLayout.gridMinWidth))
+        return min(max(wanted, minimum), maximum)
+    }
+
+    /// Drag right to widen the sidebar, left to narrow it. A transparent strip
+    /// with the one vertical `hairline` centred in it, so the rule is still drawn
+    /// exactly once while the drag target stays wide enough to find — hand-drawn
+    /// rather than a platform divider, whose colour no chrome role reaches.
+    private func sidebarDivide(total: CGFloat) -> some View {
+        Color.clear
+            .frame(width: metrics.scaled(DatabaseViewerLayout.divideHitWidth))
+            .overlay { hairline(horizontal: false) }
+            .contentShape(Rectangle())
+            .onHover { hovering in
+                guard hovering != isHoveringSidebarDivide else { return }
+                isHoveringSidebarDivide = hovering
+                syncSidebarDivideCursor()
+            }
+            .onDisappear {
+                // A tab closed with the pointer on the strip, or mid-drag, gets
+                // neither a hover-exit nor a drag-end, and the cursor stack is
+                // global: clear both inputs here so the sync pops what it pushed.
+                isHoveringSidebarDivide = false
+                sidebarDragStartWidth = nil
+                syncSidebarDivideCursor()
+            }
+            // The window's space, not the strip's own: the strip moves with the
+            // width it sets (the statement pane's handle states why that makes a
+            // local translation oscillate).
+            .gesture(
+                DragGesture(minimumDistance: 0, coordinateSpace: .global)
+                    .onChanged { value in
+                        // The base is the *rendered* width, and the zero-translation
+                        // opening frame writes nothing — both for the statement
+                        // pane's handle's reasons.
+                        let beginning = sidebarDragStartWidth == nil
+                        let base = sidebarDragStartWidth ?? clampedSidebarWidth(total: total)
+                        if beginning {
+                            sidebarDragStartWidth = base
+                            syncSidebarDivideCursor()
+                        }
+                        guard !beginning || value.translation.width != 0 else { return }
+                        // The sidebar is on the left, so the sign mirrors the
+                        // statement pane's.
+                        sidebarLayout.sidebarWidth = clampedSidebarWidth(
+                            total: total,
+                            wanted: base + value.translation.width
+                        )
+                    }
+                    .onEnded { _ in
+                        sidebarDragStartWidth = nil
+                        syncSidebarDivideCursor()
+                    }
+            )
+    }
+
+    /// Pushes or pops the resize cursor so that exactly one push of ours is on
+    /// `NSCursor`'s stack while the divide is hovered or being dragged, and none
+    /// otherwise. Every write of the hover flag or the drag base calls this;
+    /// nothing else in this view touches the stack.
+    private func syncSidebarDivideCursor() {
+        let wanted = isHoveringSidebarDivide || sidebarDragStartWidth != nil
+        guard wanted != sidebarDivideCursorPushed else { return }
+        if wanted { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() }
+        sidebarDivideCursorPushed = wanted
+    }
+
     // MARK: - Tables, views and the schema
+
+    /// The strip over the sidebar carrying its Hide button. The glyph is
+    /// `sidebar.left`, not `chevron.left`, which already means "previous page"
+    /// in this tab's footer: one glyph must not mean two things in one tab.
+    private var sidebarHeader: some View {
+        HStack(spacing: 0) {
+            Spacer(minLength: 0)
+            Button { sidebarLayout.isSidebarCollapsed = true } label: {
+                sidebarGlyph("sidebar.left")
+            }
+            .buttonStyle(.plain)
+            .help("Hide the sidebar")
+            .accessibilityLabel("Hide the sidebar")
+        }
+        .padding(.horizontal, metrics.scaled(8))
+        .frame(height: metrics.scaled(DatabaseViewerLayout.sidebarHeaderHeight))
+        .background(alignment: .bottom) { hairline(horizontal: true) }
+        .background(theme.color(.bgPanel))
+    }
+
+    /// What is left of a folded sidebar: a narrow column holding the only
+    /// control that can unfold it, so the sidebar can never be folded away with
+    /// the way back lost. Hide and Show share the glyph because they are never
+    /// on screen together.
+    private var collapsedSidebarStrip: some View {
+        VStack(spacing: 0) {
+            Button { sidebarLayout.isSidebarCollapsed = false } label: {
+                sidebarGlyph("sidebar.left")
+            }
+            .buttonStyle(.plain)
+            .help("Show the sidebar")
+            .accessibilityLabel("Show the sidebar")
+            .padding(.top, metrics.scaled(6))
+            Spacer(minLength: 0)
+        }
+        .frame(width: metrics.scaled(DatabaseViewerLayout.collapsedStripWidth))
+        .frame(maxHeight: .infinity)
+        .background(theme.color(.bgPanel))
+    }
+
+    /// The fold button's glyph: sized in the interface zone and hidden, since
+    /// the button it labels is named outright — `pagingGlyph(_:)`'s shape.
+    private func sidebarGlyph(_ symbol: String) -> some View {
+        Image(systemName: symbol)
+            .font(metrics.scaledFont(.body))
+            .foregroundStyle(theme.color(.textSecondary))
+            .accessibilityHidden(true)
+    }
 
     private var sidebar: some View {
         VStack(spacing: 0) {
+            sidebarHeader
             // Plain rather than `.sidebar`: the sidebar style draws the
             // platform's translucent material under the rows, a step off the
             // pane's `bgPanel`. The platform still draws the selection, and no
@@ -749,6 +927,42 @@ struct DatabaseViewerView: View {
     }
 }
 
+/// The viewer's own measurements, bare numbers scaled once at the use site
+/// (gating rule seven: none of these is derived from a `ChromeGeometry` token).
+private enum DatabaseViewerLayout {
+    /// The sidebar's width before any drag.
+    static let sidebarIdealWidth: Double = 220
+    /// The narrowest sidebar: a table name and its key glyph still fit.
+    static let sidebarMinWidth: Double = 160
+    /// The narrowest grid: a column or two stays readable beside a widened sidebar.
+    static let gridMinWidth: Double = 320
+    /// The sidebar divide's drag strip, as wide as the Log's divide and the
+    /// statement pane's handle.
+    static let divideHitWidth: Double = 5
+    /// The folded sidebar's strip, as wide as the statement pane's folded strip.
+    static let collapsedStripWidth: Double = 28
+    /// The strip carrying the sidebar's fold button, as tall as the statement
+    /// pane's header.
+    static let sidebarHeaderHeight: Double = 24
+    /// The grid's floor inside the vertical split. It is applied to the whole
+    /// `grid` stack — the scrolling region, the one-point rule and the `footer`
+    /// (body-font chevrons padded 5 + 5, about 26 pt at scale one) — so at the
+    /// floor the footer and the rule above it survive the drag, keeping the
+    /// paging controls and the row-range readout on screen, and the scrolling
+    /// region keeps only a sliver (about 13 pt, less than the header row). What
+    /// it buys is that the grid no longer disappears entirely, not a visible row.
+    ///
+    /// The real bound is not the window's content minimum but the editor zone's,
+    /// which `BottomPanelHeightRule`'s `editorMinimum` holds at 120 scaled points
+    /// with the bottom dock at its ceiling. The console's 140 already exceeds that
+    /// zone on its own, so this floor is kept small rather than sized for a
+    /// header, a row and the footer, which would roughly double this side's
+    /// demand against that zone. The console's 140 is left exactly as it was.
+    static let gridMinHeight: Double = 40
+    /// The console's floor under the grid.
+    static let consoleMinHeight: Double = 140
+}
+
 /// A grid row's pointer wash: `hoverTint` while the pointer is over it.
 ///
 /// A modifier with its own state rather than a hovered index on the surface, so
@@ -785,8 +999,10 @@ struct DatabaseViewerHost: View {
         if let model = viewers.model(for: file) {
             // Keyed on the tab, so switching between two viewer tabs rebuilds the
             // surface against the other model rather than reusing this one's
-            // scroll and selection state under a different database's rows.
-            DatabaseViewerView(model: model)
+            // scroll and selection state under a different database's rows. The
+            // sidebar's layout is the window's and is handed in, so the rebuild
+            // does not reset it.
+            DatabaseViewerView(model: model, sidebarLayout: viewers.sidebar)
                 .id(file.id)
         }
     }

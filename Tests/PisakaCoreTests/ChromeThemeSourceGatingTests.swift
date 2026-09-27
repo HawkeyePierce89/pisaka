@@ -1982,10 +1982,22 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         // named outright over a glyph hidden where it is drawn. "Each" is a
         // count: the footer spells exactly three labels — the two chevrons' and
         // its spinner's — so deleting either chevron's is red (fix round 02).
+        // The sidebar's header holds the icon-only Hide button and its folded
+        // strip the icon-only Show button, the only way back. Each spells
+        // exactly one label because each holds exactly one control; the count
+        // makes deleting either red, since this rule has no completeness check
+        // and an unlisted builder would leave its label unguarded. The glyph
+        // helper is hidden where it is drawn, like `pagingGlyph`.
         ("DatabaseViewerView.swift", [
             ControlBuilder(path: ["private var footer: some View"],
                            required: [".accessibilityLabel("], hidesSymbols: true, labelCount: 3),
             ControlBuilder(path: ["private func pagingGlyph("],
+                           required: [".accessibilityHidden(true)"], hidesSymbols: true),
+            ControlBuilder(path: ["private var sidebarHeader: some View"],
+                           required: [".accessibilityLabel("], hidesSymbols: true, labelCount: 1),
+            ControlBuilder(path: ["private var collapsedSidebarStrip: some View"],
+                           required: [".accessibilityLabel("], hidesSymbols: true, labelCount: 1),
+            ControlBuilder(path: ["private func sidebarGlyph("],
                            required: [".accessibilityHidden(true)"], hidesSymbols: true),
         ]),
         // The problem browser's row: one combined element
@@ -2373,6 +2385,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         "ContentView.swift: syncPanelDividerCursor",
         "ContentView.swift: syncMarkdownDividerCursor",
         "LeetCodeDescriptionView.swift: syncResizeHandleCursor",
+        "DatabaseViewerView.swift: syncSidebarDivideCursor",
     ]
 
     /// A hand-rolled divider pushes the resize cursor from hover and drag state
@@ -2383,8 +2396,9 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// whole panel away — and `NSCursor`'s stack is global, so the cursor stays
     /// pushed after the flag that would have balanced it is gone. The defect
     /// shipped once, in the Log's divide; the two `ContentView` dividers already
-    /// released from `onDisappear`, which is the rule this states for all four
-    /// (the statement pane's resize handle joined in part five (d)).
+    /// released from `onDisappear`, which is the rule this states for all five
+    /// (the statement pane's resize handle joined in part five (d), and the
+    /// database viewer's sidebar divide when that sidebar became resizable).
     ///
     /// Over stripped source, in every gated file: each function whose body
     /// pushes an `NSCursor` is called from inside an `.onDisappear {` block in the
@@ -3208,10 +3222,10 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// both confirmed against the tree, and the difference is the unstyleable
     /// buttons named in the entry's comment.
     private static let partFiveDButtonCounts: [String: (buttons: Int, styled: Int)] = [
-        // The sort headers, the hidden Return button and the two paging
-        // chevrons are styled; the cell menu's Copy and Set to NULL are menu
-        // items.
-        "DatabaseViewerView.swift": (buttons: 6, styled: 4),
+        // The sort headers, the hidden Return button, the two paging chevrons
+        // and the sidebar's Hide and Show buttons are styled; the cell menu's
+        // Copy and Set to NULL are menu items.
+        "DatabaseViewerView.swift": (buttons: 8, styled: 6),
         // Run is styled; the confirmation dialog's Run and Cancel are the
         // platform dialog's buttons and take no style.
         "DatabaseConsoleView.swift": (buttons: 3, styled: 1),
@@ -5126,6 +5140,87 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
                 named, passage.expected.subtracting(passage.omitting),
                 "core-theme.md's \(passage.label) must name exactly the files the suite holds"
             )
+        }
+    }
+
+    /// The canonical list restates pins' *numbers* as well as their sets, and
+    /// those drifted the same way: rule thirty's part five (d) sentence went on
+    /// reading `DatabaseViewerView.swift` 6 buttons, 4 styled after the pin
+    /// became 8 and 6 (and the browser's 5/4 after its pin became 6/4), and rule
+    /// twenty's builder list went on omitting the viewer's three sidebar
+    /// builders after `panelControlBuilders` named them.
+    ///
+    /// Generated from the pins, so neither passage can drift from them again:
+    /// every `partFiveDButtonCounts` entry must appear in rule thirty's text as
+    /// `` `name` b/s `` or `` `name` b buttons, s styled `` — whitespace folded,
+    /// since the prose wraps — and every builder `panelControlBuilders` holds
+    /// for a part five (d) file must be named, backticked, in rule twenty's.
+    ///
+    /// Reach, stated so nobody assumes it is total. Rule twenty's builder list is
+    /// prose, not a number: its `labelCount`s are spelled as "exactly one",
+    /// "exactly two labels" and inside parentheses, in no shape a check can read
+    /// without passing on a sentence it cannot verify, so only the builders'
+    /// *names* are held, and only for part five (d)'s files — the earlier parts'
+    /// builders (the three panels, the shared controls, the two search bars) are
+    /// described there by kind rather than listed by name. Rule thirty's part
+    /// five (c) numbers are phrased per group ("the two pull-request sheets 2
+    /// each") and are not held either; they were confirmed equal to
+    /// `partFiveCButtonCounts` by hand when this check was added.
+    func testTheCanonicalListsRestatedCountsAreTheSuitesOwn() throws {
+        let theme = try Self.read(Self.document("docs/architecture/core-theme.md"))
+        func item(_ start: String, endingAt end: String) throws -> String {
+            let opening = try XCTUnwrap(
+                theme.range(of: start),
+                "core-theme.md no longer opens a canonical item with \(start) — re-point this check"
+            )
+            let rest = theme[opening.upperBound...]
+            let close = try XCTUnwrap(
+                rest.range(of: end),
+                "core-theme.md's item opening \(start) no longer ends at \(end) — re-point this check"
+            )
+            return rest[..<close.lowerBound]
+                .split(whereSeparator: \.isWhitespace)
+                .joined(separator: " ")
+        }
+
+        let buttons = try item("\n30. **One primary button", endingAt: "\n31. **")
+        for (name, pinned) in Self.partFiveDButtonCounts.sorted(by: { $0.key < $1.key }) {
+            let spellings = [
+                "`\(name)` \(pinned.buttons)/\(pinned.styled)",
+                "`\(name)` \(pinned.buttons) buttons, \(pinned.styled) styled",
+            ]
+            XCTAssertTrue(
+                spellings.contains { buttons.contains($0) },
+                """
+                core-theme.md's rule thirty must spell \(name)'s pinned counts, \(pinned.buttons) buttons and \
+                \(pinned.styled) styled — restate the sentence to match partFiveDButtonCounts
+                """
+            )
+        }
+
+        let builders = try item("\n20. **The three panels'", endingAt: "\n21. **")
+        let declared = try NSRegularExpression(pattern: "\\b(?:struct|var|func)\\s+(\\w+)(\\()?")
+        let partFiveD = Set(Self.partFiveDButtonCounts.keys)
+        for (file, entries) in Self.panelControlBuilders where partFiveD.contains(file) {
+            for builder in entries {
+                // A type's `body` is named by its type, everything else by itself.
+                let step = builder.path.last == "var body: some View" && builder.path.count > 1
+                    ? builder.path[builder.path.count - 2]
+                    : builder.path.last ?? ""
+                let match = try XCTUnwrap(
+                    declared.firstMatch(in: step, range: NSRange(step.startIndex..., in: step)),
+                    "\(file)'s builder \(step) declares no name this check can read — re-point it"
+                )
+                let name = [1, 2].compactMap { Range(match.range(at: $0), in: step).map { String(step[$0]) } }
+                    .joined()
+                XCTAssertTrue(
+                    builders.contains("`\(name)`"),
+                    """
+                    core-theme.md's rule twenty must name \(file)'s builder `\(name)`, which \
+                    panelControlBuilders holds — add it to the part five (d) builder list
+                    """
+                )
+            }
         }
     }
 

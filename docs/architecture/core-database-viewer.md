@@ -923,7 +923,12 @@ only *consults* one, before each of its two writes.
   per tab" and "one connection per open database" are the same sentence.
   Re-selecting a tab hands back the model it already had, with its selected
   table, page and sort intact — which is the whole reason this state does not
-  live in the view. **Tab close is observed, not called**: the owner subscribes
+  live in the view. The same reason puts the viewer sidebar's width and fold
+  here, as one `SidebarLayout` object for the window rather than one per tab: its
+  own `ObservableObject` so a drag republishes only to the surface observing it,
+  not through this scene-owned `@StateObject`. Closing the last viewer tab leaves
+  it standing with nothing observing it — two values, no connection — and the
+  next viewer tab opened comes back at the same width and fold. **Tab close is observed, not called**: the owner subscribes
   to the workspace's `openFiles` and closes the connection of any tab that is no
   longer there, because a tab can leave through the close button, ⌘W, a
   force-close after a checkout, or a folder switch that replaces the whole tab
@@ -1126,6 +1131,65 @@ only *consults* one, before each of its two writes.
   hidden glyphs and their `.disabled(… || model.isWriteInFlight)` terms verbatim,
   and its activity indicator is the shared `ChromeSpinner`, labelled because
   nothing beside it names the load. `VSplitView`'s divider stays the platform's.
+  The **sidebar is resizable and foldable**, a layout change that decides nothing
+  new. Its right edge is a **hand-drawn divide** — a `Color.clear` drag strip 5
+  points wide with the vertical `hairline` overlaid on it, so the rule is still
+  drawn once — and never an `HSplitView`, whose divider is drawn in a colour no
+  chrome role reaches. The width is **clamped** by `clampedSidebarWidth(total:)`
+  against the sidebar's own minimum (160) and the grid's (320). The drag strip is
+  a sibling in the stack and takes its 5 points of layout width, so it is **spent
+  before the split** — `available = max(0, total − strip)`, as
+  `ContentView.markdownSplitContent(for:size:)` spends its divider — and the
+  maximum is `max(minimum, available − grid minimum)`: the grid keeps its stated
+  minimum, and the two frames plus the strip sum to no more than the pane. When
+  the two bounds cross in a narrow window the sidebar holds its minimum rather
+  than inverting — the Log's detail pane
+  (`CommitLogView.clampedDetailWidth(total:)`) is the precedent for that floor,
+  though its handle is an overlay on the list and takes no width. The drag
+  reads the global coordinate space and takes its base from the *rendered*,
+  clamped width, as the statement pane's resize handle does. The sidebar
+  **folds** from a Hide button in its header strip to a 28-point strip whose Show
+  button is the **only** unfold control, so the way back can never be lost; while
+  folded the edge is a plain `hairline` with no drag strip. Hide and Show both
+  draw `sidebar.left` — they are never on screen together — and not
+  `chevron.left`, which already means "previous page" in this tab's footer. The
+  cursor push lives in one function, `syncSidebarDivideCursor()`, called from the
+  divide's `onDisappear` as well as its hover and drag ends (`core-theme.md` rule
+  twenty-two): a tab closed, or a sidebar folded, with the pointer on the strip or
+  mid-drag gets neither a hover-exit nor a drag-end, and `NSCursor`'s stack is
+  global. The **grid has a floor** inside the `VSplitView`: 40 points, applied
+  to the whole grid stack — the scrolling region, the rule above the footer and
+  the footer itself (about 26 points at scale one) — so what the floor keeps is
+  the footer and its rule, the paging controls and the row-range readout
+  surviving the drag, plus a sliver of the scrolling region (less than the
+  header row), instead of the grid disappearing entirely; it is not sized for a
+  header and a row, which would roughly double this side's demand against the
+  zone below. Its real bound is the editor zone's 120-point
+  minimum (`BottomPanelHeightRule`'s `editorMinimum`, with the dock at its
+  ceiling), not the window's; the console's unchanged 140-point minimum already
+  exceeds that zone on its own, which is why the grid had no floor before and why
+  this one is kept to the smallest honest size — a **known limit**, the split
+  overshooting the zone in that corner. The width and the fold are **held by
+  `DatabaseViewerTabs`**, not by this view (`DatabaseViewerTabs.SidebarLayout`,
+  observed here and handed in by `DatabaseViewerHost`): the surface is keyed on
+  the tab and swapped out whole for a text tab, so `@State` here would reset the
+  sidebar to unfolded at the ideal width on every tab switch. Held there, both
+  survive leaving a viewer tab and coming back, and switching between two viewer
+  tabs — **one width and one fold per window**, not per tab, on the statement
+  pane's reasoning that they are a preference about the window rather than about
+  one database. The drag's base and the two cursor flags stay per-view `@State`,
+  since the view that pushed a cursor must pop it. They are **session state on
+  purpose**: no `SettingsStore` key and no Core rule — nothing is *persisted*,
+  and quitting the app forgets both. The in-memory write, by contrast, **is
+  clamped**: the drag, the width's only writer, stores `clampedSidebarWidth`'s
+  answer against the total and scale of that moment, so a width narrowed in a
+  small window stays narrowed when the window grows — what is remembered is the
+  clamped value, not the reach the pointer asked for. That is intended, and it is
+  what the statement pane's handle does too (its `onChanged` stores the clamped
+  width); the Log's detail width stores the raw reach mid-drag but clamps it on
+  release, so it ends in the same place. The draw site still asks the clamp, which
+  bounds a stored width in a window narrower than the one it was stored in. A
+  preference added here would be a new decision, not a missing one.
 
 - `ContentView.swift` — `editorZone` keeps the breadcrumb for **every** tab (a
   database has a path like any other file) and routes below it on the tab kind:
@@ -2182,7 +2246,11 @@ transaction. `close()` stops the console the way it stops its own loads.
   `model.isWriting`, the half of it that a console batch does not raise — and that
   the reader's text is held by the console rather than by the pane, which no
   compiler can see either: an input owning its own text compiles perfectly and
-  loses a half-written query to a tab switch, silently.
+  loses a half-written query to a tab switch, silently. The same reasoning pins
+  the sidebar's width and fold: both declared on `DatabaseViewerTabs.swift`, no
+  `@State` of either name in `DatabaseViewerView.swift`, and the host handing the
+  owner's layout to the surface, so moving either back into the keyed surface
+  fails here rather than resetting the sidebar on every tab switch.
 
 `ScriptedDatabaseService` grew a console half: a classification per text (the
 deferral included), an answer per text, and scripted console outcomes with the

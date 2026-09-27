@@ -926,7 +926,10 @@ choosing hues that sit on the design's ground is an open design question.
     40 being a named minimum. The three `Divider()`s are the surface's own
     hairlines — including the list/detail divide, which is therefore a hairline
     with a drag strip rather than an `HSplitView`. Full entry in
-    `app-git-views.md`.
+    `app-git-views.md`. The database viewer's sidebar divide has since taken the
+    same shape — a hand-drawn hairline with a drag strip rather than a platform
+    divider (`core-database-viewer.md`); its `VSplitView` divider stays the named
+    open departure.
   - **The graph gutter** — `CommitGraphView.swift`, AppKit, reading
     `CommitGraphPalette` and spelling no colour; 2 pt lines, a 6 pt dot, 14 pt
     lanes. Full entry in `app-git-views.md`.
@@ -2499,7 +2502,10 @@ The forty-three rules, each invisible to the compiler:
    spinner's — through the builder's optional `labelCount`, since `required`
    is satisfied by one label anywhere and fix round 02 measured that deleting
    either chevron's stayed green) and
-   its hidden `pagingGlyph(`, the problem browser's `LeetCodeBrowserRow` body
+   its hidden `pagingGlyph(`, the database sidebar's `sidebarHeader` (the Hide
+   button) and `collapsedSidebarStrip` (the Show button, the only way back) —
+   each counted at exactly one label, since each holds exactly one control —
+   and their hidden `sidebarGlyph(`, the problem browser's `LeetCodeBrowserRow` body
    (`.accessibilityElement(children: .combine)` for the one combined element,
    `.accessibilityAddTraits(isSelected ? .isSelected` for the selected trait,
    `.accessibilityAction(named:` for a named action, `.accessibilityLabel(` for
@@ -2549,11 +2555,13 @@ The forty-three rules, each invisible to the compiler:
    function. A hand-rolled divider balances its push from `onHover(false)` and
    the drag's `onEnded`; neither arrives when the divider leaves the tree with
    the pointer on it or mid-drag — the Log's list/detail divide goes when the
-   model clears its selection or the dock switches tabs — and `NSCursor`'s stack
+   model clears its selection or the dock switches tabs, the database viewer's
+   sidebar divide when its tab closes or its sidebar folds — and `NSCursor`'s stack
    is global, so the cursor stays pushed after the flag that would have popped
    it is gone. The set of pushing functions is pinned by equality (the Log
-   divide's, the two `ContentView` dividers' and — since part five (d) — the
-   statement pane's resize handle, `syncResizeHandleCursor`), so a scanner that stopped
+   divide's, the two `ContentView` dividers', — since part five (d) — the
+   statement pane's resize handle, `syncResizeHandleCursor`, and the database
+   viewer's sidebar divide, `syncSidebarDivideCursor`), so a scanner that stopped
    finding them fails rather than going vacuous. Stated limit: the rule sees the
    call, not that the handler clears the hover and drag state before it — a
    handler calling the sync with both still set pops nothing.
@@ -2695,9 +2703,11 @@ The forty-three rules, each invisible to the compiler:
     `LSPInstalledLicenses.swift` and `LicenseTextView.swift` 0). Part five (d)'s
     seven files state **two numbers each**, since menu items and a
     confirmation dialog's buttons cannot take a style: `DatabaseViewerView.swift`
-    6 buttons, 4 styled (the cell menu's Copy and Set to NULL unstyleable),
+    8 buttons, 6 styled (the sidebar's Hide and Show styled with the rest; the
+    cell menu's Copy and Set to NULL unstyleable),
     `DatabaseConsoleView.swift` 3/1 (the dialog's Run and Cancel),
-    `LeetCodeBrowserView.swift` 5/4 (the context-menu Open),
+    `LeetCodeBrowserView.swift` 6/4 (the row's context-menu Open and the list's,
+    below the last row),
     `LeetCodeDescriptionView.swift` 3/3 (`.plain`), `LeetCodeJudgeView.swift`
     2/2, `LeetCodeOpenProblemSheet.swift` 8/3 (`LeetCodeCommands`' five menu
     items) and `LeetCodeLoginView.swift` 1/1. The same part adds the
@@ -2971,6 +2981,20 @@ drifted, each correct on the day it was written, and a count that drifts tells a
 reader the sweep is smaller than it is while omitting the newest rules. Same
 shape as `LintConfigurationTests`' style-version pair: one source of truth, every
 document spelling it checked against that.
+
+Beside it, a **restated-count check**: the list above restates some pins'
+numbers, and those drifted exactly as the count once did — rule thirty's part
+five (d) sentence kept the database viewer's 6/4 after the pin became 8/6 (and
+the problem browser's 5/4 after 6/4), and rule twenty's builder list kept
+omitting the viewer's three sidebar builders. The suite now generates both from
+the pins: every `partFiveDButtonCounts` entry must appear in rule thirty as
+`` `name` b/s `` or `` `name` b buttons, s styled ``, and every builder
+`panelControlBuilders` holds for a part five (d) file must be named, backticked,
+in rule twenty. Stated reach: rule twenty's `labelCount`s are prose ("exactly
+one") and are not read, only the builders' names, and only for part five (d)'s
+files, the earlier parts' builders being described by kind rather than listed;
+rule thirty's part five (c) numbers are phrased per group and are not held. The
+check gates no source file and is not a rule, so the count above is unchanged.
 
 
 And, also beside the rules, **what a rule in this suite may do** — the
