@@ -926,7 +926,10 @@ choosing hues that sit on the design's ground is an open design question.
     40 being a named minimum. The three `Divider()`s are the surface's own
     hairlines — including the list/detail divide, which is therefore a hairline
     with a drag strip rather than an `HSplitView`. Full entry in
-    `app-git-views.md`.
+    `app-git-views.md`. The database viewer's sidebar divide has since taken the
+    same shape — a hand-drawn hairline with a drag strip rather than a platform
+    divider (`core-database-viewer.md`); its `VSplitView` divider stays the named
+    open departure.
   - **The graph gutter** — `CommitGraphView.swift`, AppKit, reading
     `CommitGraphPalette` and spelling no colour; 2 pt lines, a 6 pt dot, 14 pt
     lanes. Full entry in `app-git-views.md`.
@@ -2549,11 +2552,13 @@ The forty-three rules, each invisible to the compiler:
    function. A hand-rolled divider balances its push from `onHover(false)` and
    the drag's `onEnded`; neither arrives when the divider leaves the tree with
    the pointer on it or mid-drag — the Log's list/detail divide goes when the
-   model clears its selection or the dock switches tabs — and `NSCursor`'s stack
+   model clears its selection or the dock switches tabs, the database viewer's
+   sidebar divide when its tab closes or its sidebar folds — and `NSCursor`'s stack
    is global, so the cursor stays pushed after the flag that would have popped
    it is gone. The set of pushing functions is pinned by equality (the Log
-   divide's, the two `ContentView` dividers' and — since part five (d) — the
-   statement pane's resize handle, `syncResizeHandleCursor`), so a scanner that stopped
+   divide's, the two `ContentView` dividers', — since part five (d) — the
+   statement pane's resize handle, `syncResizeHandleCursor`, and the database
+   viewer's sidebar divide, `syncSidebarDivideCursor`), so a scanner that stopped
    finding them fails rather than going vacuous. Stated limit: the rule sees the
    call, not that the handler clears the hover and drag state before it — a
    handler calling the sync with both still set pops nothing.

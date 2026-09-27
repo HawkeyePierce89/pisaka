@@ -157,7 +157,7 @@ Three pinned sets in the chrome gating suite move with it: rules twenty, twenty-
 - Modify: `docs/architecture/core-database-viewer.md`
 - Modify: `docs/architecture/core-theme.md`
 
-- [ ] In `core-database-viewer.md`'s `DatabaseViewerView.swift` entry, describe:
+- [x] In `core-database-viewer.md`'s `DatabaseViewerView.swift` entry, describe:
   - The sidebar divide: a hand-drawn hairline with a 5-point drag strip, not an `HSplitView`, because a platform divider is drawn in a colour no chrome role reaches.
   - The clamp against the sidebar's own minimum and the grid's minimum, with the crossed-bounds answer and the Log's detail pane as the precedent.
   - The fold: its leftover strip holds the only unfold control, and Hide and Show both use `sidebar.left` because `chevron.left` means paging in this tab.
@@ -167,12 +167,12 @@ Three pinned sets in the chrome gating suite move with it: rules twenty, twenty-
     - Its real bound is the editor zone's 120-point minimum from `BottomPanelHeightRule`'s `editorMinimum`.
     - The console's unchanged 140 already exceeds that bound alone, which is why the grid had no floor before and why this one is kept minimal. State this as a known limit.
   - That the width and the fold are session state, with no `SettingsStore` key and no Core rule. Nothing is written, so there is nothing to clamp at write time, and two sibling panes already answer the question in the view. Word this so a later reader does not add a preference by reflex.
-- [ ] In `core-theme.md`, numbered item 22: its list of pushing functions spells the Log divide's, the two `ContentView` dividers' and the statement pane's `syncResizeHandleCursor`. Add the viewer's `syncSidebarDivideCursor` by name, and make the item's prose about which divides exist mention the database viewer's sidebar divide.
-- [ ] In `core-theme.md`, record beside the Log panel's matching entry that the database viewer's sidebar divide is now a hand-drawn hairline with a drag strip rather than a platform divider.
+- [x] In `core-theme.md`, numbered item 22: its list of pushing functions spells the Log divide's, the two `ContentView` dividers' and the statement pane's `syncResizeHandleCursor`. Add the viewer's `syncSidebarDivideCursor` by name, and make the item's prose about which divides exist mention the database viewer's sidebar divide.
+- [x] In `core-theme.md`, record beside the Log panel's matching entry that the database viewer's sidebar divide is now a hand-drawn hairline with a drag strip rather than a platform divider.
   - The `VSplitView` divider stays listed as the named open departure; do not touch it.
   - The rule count stays forty-three, so the cross-file rule-count sentences in `core-theme.md` and `CLAUDE.md` do not change.
-- [ ] `CLAUDE.md` is not modified.
-- [ ] Run `swift test` again, since the doc and count suites read these files. It must be green.
+- [x] `CLAUDE.md` is not modified.
+- [x] Run `swift test` again, since the doc and count suites read these files. It must be green.
 
 ### Task 5: Verify acceptance criteria
 

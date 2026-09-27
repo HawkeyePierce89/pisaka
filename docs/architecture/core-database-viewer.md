@@ -1126,6 +1126,37 @@ only *consults* one, before each of its two writes.
   hidden glyphs and their `.disabled(… || model.isWriteInFlight)` terms verbatim,
   and its activity indicator is the shared `ChromeSpinner`, labelled because
   nothing beside it names the load. `VSplitView`'s divider stays the platform's.
+  The **sidebar is resizable and foldable**, a layout change that decides nothing
+  new. Its right edge is a **hand-drawn divide** — a `Color.clear` drag strip 5
+  points wide with the vertical `hairline` overlaid on it, so the rule is still
+  drawn once — and never an `HSplitView`, whose divider is drawn in a colour no
+  chrome role reaches. The width is **clamped** by `clampedSidebarWidth(total:)`
+  against the sidebar's own minimum (160) and the grid's (320): the maximum is
+  `max(minimum, total − grid minimum)`, so when the two bounds cross in a narrow
+  window the sidebar holds its minimum rather than inverting — the Log's detail
+  pane (`CommitLogView.clampedDetailWidth(total:)`) is the precedent. The drag
+  reads the global coordinate space and takes its base from the *rendered*,
+  clamped width, as the statement pane's resize handle does. The sidebar
+  **folds** from a Hide button in its header strip to a 28-point strip whose Show
+  button is the **only** unfold control, so the way back can never be lost; while
+  folded the edge is a plain `hairline` with no drag strip. Hide and Show both
+  draw `sidebar.left` — they are never on screen together — and not
+  `chevron.left`, which already means "previous page" in this tab's footer. The
+  cursor push lives in one function, `syncSidebarDivideCursor()`, called from the
+  divide's `onDisappear` as well as its hover and drag ends (`core-theme.md` rule
+  twenty-two): a tab closed, or a sidebar folded, with the pointer on the strip or
+  mid-drag gets neither a hover-exit nor a drag-end, and `NSCursor`'s stack is
+  global. The **grid has a floor** inside the `VSplitView`: 40 points, its
+  header row plus one data row. Its real bound is the editor zone's 120-point
+  minimum (`BottomPanelHeightRule`'s `editorMinimum`, with the dock at its
+  ceiling), not the window's; the console's unchanged 140-point minimum already
+  exceeds that zone on its own, which is why the grid had no floor before and why
+  this one is kept to the smallest honest size — a **known limit**, the split
+  overshooting the zone in that corner. The width and the fold are **session
+  state on purpose**: no `SettingsStore` key and no Core rule, because nothing is
+  written, so there is nothing to clamp at write time, and the two sibling panes
+  (the Log's detail, the statement pane) already answer the same question in the
+  view. A preference added here would be a new decision, not a missing one.
 
 - `ContentView.swift` — `editorZone` keeps the breadcrumb for **every** tab (a
   database has a path like any other file) and routes below it on the tab kind:
