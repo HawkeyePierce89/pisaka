@@ -114,8 +114,8 @@ would still promise a handoff that no longer exists.
 
 ### Task 4: Gates
 
-- [ ] `swift test` — green, and report the test count.
-- [ ] The app-layer bundle — green, and report the count.
-- [ ] `swiftlint --strict` — clean.
-- [ ] Confirm the rule count is still forty-three and both summaries still agree with
+- [x] `swift test` — green, and report the test count.
+- [x] The app-layer bundle — green, and report the count.
+- [x] `swiftlint --strict` — clean.
+- [x] Confirm the rule count is still forty-three and both summaries still agree with
       it: no rule was added, removed or retitled by any task above.
