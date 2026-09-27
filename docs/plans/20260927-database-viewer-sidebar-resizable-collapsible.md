@@ -67,7 +67,7 @@ Three pinned sets in the chrome gating suite move with it: rules twenty, twenty-
 **Files:**
 - Modify: `Sources/Pisaka/DatabaseViewerView.swift`
 
-- [ ] Add a file-local `private enum DatabaseViewerLayout` of plain `Double` constants in `CommitLogLayout`'s shape. Each constant carries a one-line reason, and the enum's doc comment says none of them is derived from a `ChromeGeometry` token. Entries:
+- [x] Add a file-local `private enum DatabaseViewerLayout` of plain `Double` constants in `CommitLogLayout`'s shape. Each constant carries a one-line reason, and the enum's doc comment says none of them is derived from a `ChromeGeometry` token. Entries:
   - `sidebarIdealWidth` = 220: the existing literal, now the width before any drag.
   - `sidebarMinWidth` = 160: a table name and its key glyph still fit.
   - `gridMinWidth` = 320: a column or two stays readable beside a widened sidebar.
@@ -76,12 +76,12 @@ Three pinned sets in the chrome gating suite move with it: rules twenty, twenty-
   - `sidebarHeaderHeight` = 24: the strip carrying the fold button, the same height as the statement pane's header.
   - `gridMinHeight` = 40: the grid's floor inside the vertical split. This is the header row plus one data row, read off the file's own numbers. Both rows are set in the interface `caption` font (about 13 points of line height at scale one). The header row pads 4 + 4 and a data row pads 3 + 3, giving about 21 + 19.
   - `consoleMinHeight` = 140: moved in from the call site, value and meaning unchanged.
-- [ ] Give `gridMinHeight` a reason comment that states:
+- [x] Give `gridMinHeight` a reason comment that states:
   - the real bound: the editor zone's minimum, which `BottomPanelHeightRule`'s `editorMinimum` sets at 120 scaled points when the bottom dock is at its ceiling. It is not the window's content minimum.
   - that the console's 140 already exceeds that zone on its own. The grid's floor is therefore kept at the smallest honest size (the grid stops vanishing without growing the overshoot by more than one header row and one data row).
   - that the console's 140 is left exactly as it is.
-- [ ] In `body`, give the grid inside the `VSplitView` `minHeight: metrics.scaled(DatabaseViewerLayout.gridMinHeight)`. Replace the console's literal with `metrics.scaled(DatabaseViewerLayout.consoleMinHeight)`.
-- [ ] Run `swift test` and confirm it is green with no pin moved yet. Rule seven must stay green on the new holder. If it goes red, a constant was derived from a chrome token, and that is the defect.
+- [x] In `body`, give the grid inside the `VSplitView` `minHeight: metrics.scaled(DatabaseViewerLayout.gridMinHeight)`. Replace the console's literal with `metrics.scaled(DatabaseViewerLayout.consoleMinHeight)`.
+- [x] Run `swift test` and confirm it is green with no pin moved yet. Rule seven must stay green on the new holder. If it goes red, a constant was derived from a chrome token, and that is the defect.
 
 ### Task 2: The resizable divide and its clamp (rule twenty-two moves)
 

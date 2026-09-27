@@ -120,7 +120,7 @@ struct DatabaseViewerView: View {
             }
             HStack(spacing: 0) {
                 sidebar
-                    .frame(width: metrics.scaled(220))
+                    .frame(width: metrics.scaled(DatabaseViewerLayout.sidebarIdealWidth))
                 hairline(horizontal: false)
                 // The console sits under the *grid* and not under the whole pane,
                 // so the sidebar keeps its full height: the tables and the schema
@@ -128,9 +128,13 @@ struct DatabaseViewerView: View {
                 // them would hide the names being typed.
                 VSplitView {
                     grid
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .frame(
+                            maxWidth: .infinity,
+                            minHeight: metrics.scaled(DatabaseViewerLayout.gridMinHeight),
+                            maxHeight: .infinity
+                        )
                     DatabaseConsoleView(console: console, isWriteInFlight: model.isWriteInFlight)
-                        .frame(maxWidth: .infinity, minHeight: metrics.scaled(140))
+                        .frame(maxWidth: .infinity, minHeight: metrics.scaled(DatabaseViewerLayout.consoleMinHeight))
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -747,6 +751,38 @@ struct DatabaseViewerView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(theme.color(.bgEditor))
     }
+}
+
+/// The viewer's own measurements, bare numbers scaled once at the use site
+/// (gating rule seven: none of these is derived from a `ChromeGeometry` token).
+private enum DatabaseViewerLayout {
+    /// The sidebar's width before any drag.
+    static let sidebarIdealWidth: Double = 220
+    /// The narrowest sidebar: a table name and its key glyph still fit.
+    static let sidebarMinWidth: Double = 160
+    /// The narrowest grid: a column or two stays readable beside a widened sidebar.
+    static let gridMinWidth: Double = 320
+    /// The sidebar divide's drag strip, as wide as the Log's divide and the
+    /// statement pane's handle.
+    static let divideHitWidth: Double = 5
+    /// The folded sidebar's strip, as wide as the statement pane's folded strip.
+    static let collapsedStripWidth: Double = 28
+    /// The strip carrying the sidebar's fold button, as tall as the statement
+    /// pane's header.
+    static let sidebarHeaderHeight: Double = 24
+    /// The grid's floor inside the vertical split: its header row plus one data
+    /// row, both set in the interface `caption` font (about 13 pt of line height
+    /// at scale one) — the header padding 4 + 4 and a row 3 + 3, about 21 + 19.
+    ///
+    /// The real bound is not the window's content minimum but the editor zone's,
+    /// which `BottomPanelHeightRule`'s `editorMinimum` holds at 120 scaled points
+    /// with the bottom dock at its ceiling. The console's 140 already exceeds that
+    /// zone on its own, so this floor is kept at the smallest honest size: the
+    /// grid stops vanishing without the overshoot growing by more than one header
+    /// row and one data row. The console's 140 is left exactly as it was.
+    static let gridMinHeight: Double = 40
+    /// The console's floor under the grid.
+    static let consoleMinHeight: Double = 140
 }
 
 /// A grid row's pointer wash: `hoverTint` while the pointer is over it.
