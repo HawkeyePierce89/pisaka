@@ -71,15 +71,15 @@ that a reader following the documented handoff checks the wrong rule for the hex
 `core-theme.md` also contradicts itself across ten lines: its rule forty-three entry
 opens by naming all three triggers and then hands the gated case to one rule.
 
-- [ ] Say **rules one and two** at each of the three sites, naming which half each
+- [x] Say **rules one and two** at each of the three sites, naming which half each
       takes (semantic colour and hue; hex literal).
-- [ ] **Leave `ChromeThemeSourceGatingTests.swift:4749` exactly as it is.** It reads
+- [x] **Leave `ChromeThemeSourceGatingTests.swift:4749` exactly as it is.** It reads
       "a gated file *painting a system colour* is rule one's failure" — scoped to
       system colours, so it is already true. Changing it would be churn, and widening
       it to mention hex would make a sentence about one case describe two. State in
       the commit message that this site was checked and deliberately not changed, so
       a later reader does not read the asymmetry as an oversight.
-- [ ] Re-read each edited sentence against the measurement it describes, not against
+- [x] Re-read each edited sentence against the measurement it describes, not against
       the other sentences. Two of the three sit inside passages that already enumerate
       the triggers correctly; the fix is to make the handoff agree with that
       enumeration, not to re-word the enumeration.

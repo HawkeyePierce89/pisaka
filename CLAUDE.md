@@ -780,7 +780,8 @@ ci.yml's `lint` job, and the version-bump procedure.
   (the macOS files still painting outside the roles measured, pinned by set
   equality and named in the failure — the set is empty today, and that live
   half still guards every macOS file neither gated nor exempt, a gated one
-  falling to the first rule) — plus, beside the rules rather
+  falling to the first two rules — the first for a system colour or a hue, the
+  second for a hex literal) — plus, beside the rules rather
   than among them, the cross-file count that keeps this sentence and
   `core-theme.md`'s own list equal to the number of rules the suite declares —
   while **four files are exempt because they are not

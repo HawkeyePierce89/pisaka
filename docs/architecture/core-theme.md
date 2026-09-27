@@ -2918,8 +2918,9 @@ The forty-three rules, each invisible to the compiler:
     the failure names the files. **Its bound**: this live half's measurement
     skips gated and exempt files, so it guards only the macOS app files that
     are **neither gated nor exempt**, failing when one of them starts painting
-    outside the roles; a file that has joined the gated set is guarded by rule
-    one instead. Verified by mutation with the set empty: an
+    outside the roles; a file that has joined the gated set is guarded by rules
+    one and two instead — rule one for a system semantic colour or a SwiftUI
+    hue, rule two for a `0xRRGGBB` literal. Verified by mutation with the set empty: an
     `_ = NSColor.systemRed` in `DefinitionPicker.swift` (ungated, not exempt)
     turned it red naming that file, green again once restored. **The document
     half is dormant** while the set is empty and wakes only when the live half

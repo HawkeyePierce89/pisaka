@@ -4709,8 +4709,9 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// the measured surfaces and this set, and its measurement skips gated and
     /// exempt files — so it guards only the macOS app files that are **neither
     /// gated nor exempt**, failing when one of those starts painting outside the
-    /// roles. A file that has joined the gated set is guarded by rule one instead,
-    /// not by this one. The **document half** (no document calling the sweep
+    /// roles. A file that has joined the gated set is guarded by rules one and
+    /// two instead, not by this one — rule one for a system semantic colour or a
+    /// SwiftUI hue, rule two for a `0xRRGGBB` literal. The **document half** (no document calling the sweep
     /// closed) is dormant while the set is empty and wakes again only when the
     /// live half measures a surface. A dormant half is not a dead rule.
     private static let unsweptColorSurfaces: Set<String> = []
