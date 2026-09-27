@@ -95,6 +95,20 @@ struct DatabaseViewerView: View {
     /// two states cannot both claim to hold it.
     @FocusState private var focus: GridFocus?
 
+    /// The sidebar's dragged width, or `nil` for the ideal one. Session state
+    /// only, like the statement pane's width and the Log's detail width: never
+    /// persisted, and never re-clamped when it is stored — the clamp is asked
+    /// where the width is drawn.
+    @State private var sidebarWidth: CGFloat?
+    /// The rendered width captured at the start of a drag, so the cumulative
+    /// translation applies to a fixed base. `nil` when not dragging.
+    @State private var sidebarDragStartWidth: CGFloat?
+    /// Whether the pointer is over the sidebar's divide. Session state only.
+    @State private var isHoveringSidebarDivide = false
+    /// Whether *this view* holds a resize cursor on `NSCursor`'s stack — see
+    /// `syncSidebarDivideCursor()`. Session state only.
+    @State private var sidebarDivideCursorPushed = false
+
     /// What a cell Core refuses is drawn at. Faint enough to read as unavailable
     /// beside an editable neighbour, legible enough that the value is still the
     /// point — a viewer's whole job is showing what is there, and a view or an
@@ -118,25 +132,30 @@ struct DatabaseViewerView: View {
             if let message = model.errorMessage {
                 errorBanner(message)
             }
-            HStack(spacing: 0) {
-                sidebar
-                    .frame(width: metrics.scaled(DatabaseViewerLayout.sidebarIdealWidth))
-                hairline(horizontal: false)
-                // The console sits under the *grid* and not under the whole pane,
-                // so the sidebar keeps its full height: the tables and the schema
-                // are what a reader writes SQL against, and a split that shortened
-                // them would hide the names being typed.
-                VSplitView {
-                    grid
-                        .frame(
-                            maxWidth: .infinity,
-                            minHeight: metrics.scaled(DatabaseViewerLayout.gridMinHeight),
-                            maxHeight: .infinity
-                        )
-                    DatabaseConsoleView(console: console, isWriteInFlight: model.isWriteInFlight)
-                        .frame(maxWidth: .infinity, minHeight: metrics.scaled(DatabaseViewerLayout.consoleMinHeight))
+            GeometryReader { geo in
+                HStack(spacing: 0) {
+                    sidebar
+                        .frame(width: clampedSidebarWidth(total: geo.size.width))
+                    sidebarDivide(total: geo.size.width)
+                    // The console sits under the *grid* and not under the whole
+                    // pane, so the sidebar keeps its full height: the tables and
+                    // the schema are what a reader writes SQL against, and a split
+                    // that shortened them would hide the names being typed.
+                    VSplitView {
+                        grid
+                            .frame(
+                                maxWidth: .infinity,
+                                minHeight: metrics.scaled(DatabaseViewerLayout.gridMinHeight),
+                                maxHeight: .infinity
+                            )
+                        DatabaseConsoleView(console: console, isWriteInFlight: model.isWriteInFlight)
+                            .frame(
+                                maxWidth: .infinity,
+                                minHeight: metrics.scaled(DatabaseViewerLayout.consoleMinHeight)
+                            )
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
         .background(theme.color(.bgPanel))
@@ -194,6 +213,88 @@ struct DatabaseViewerView: View {
                 width: horizontal ? nil : metrics.scaled(ChromeGeometry.hairlineWidth),
                 height: horizontal ? metrics.scaled(ChromeGeometry.hairlineWidth) : nil
             )
+    }
+
+    // MARK: - The sidebar's divide
+
+    /// The sidebar's width: the dragged width, or the ideal one, clamped so
+    /// neither the sidebar nor the grid drops below its minimum — the Log's
+    /// `clampedDetailWidth(total:)` shape. When a narrow window makes the two
+    /// bounds cross, the floor on the maximum is the answer: the sidebar keeps
+    /// its own minimum and the grid is the one squeezed.
+    private func clampedSidebarWidth(total: CGFloat) -> CGFloat {
+        clampedSidebarWidth(
+            total: total,
+            wanted: sidebarWidth ?? metrics.scaled(DatabaseViewerLayout.sidebarIdealWidth)
+        )
+    }
+
+    /// `wanted` held between the sidebar's minimum and what the grid's minimum
+    /// leaves of `total` — the one clamp both the drawn width and a drag ask.
+    private func clampedSidebarWidth(total: CGFloat, wanted: CGFloat) -> CGFloat {
+        let minimum = metrics.scaled(DatabaseViewerLayout.sidebarMinWidth)
+        let maximum = max(minimum, total - metrics.scaled(DatabaseViewerLayout.gridMinWidth))
+        return min(max(wanted, minimum), maximum)
+    }
+
+    /// Drag right to widen the sidebar, left to narrow it. A transparent strip
+    /// with the one vertical `hairline` centred in it, so the rule is still drawn
+    /// exactly once while the drag target stays wide enough to find — hand-drawn
+    /// rather than a platform divider, whose colour no chrome role reaches.
+    private func sidebarDivide(total: CGFloat) -> some View {
+        Color.clear
+            .frame(width: metrics.scaled(DatabaseViewerLayout.divideHitWidth))
+            .overlay { hairline(horizontal: false) }
+            .contentShape(Rectangle())
+            .onHover { hovering in
+                guard hovering != isHoveringSidebarDivide else { return }
+                isHoveringSidebarDivide = hovering
+                syncSidebarDivideCursor()
+            }
+            .onDisappear {
+                // A tab closed with the pointer on the strip, or mid-drag, gets
+                // neither a hover-exit nor a drag-end, and the cursor stack is
+                // global: clear both inputs here so the sync pops what it pushed.
+                isHoveringSidebarDivide = false
+                sidebarDragStartWidth = nil
+                syncSidebarDivideCursor()
+            }
+            // The window's space, not the strip's own: the strip moves with the
+            // width it sets (the statement pane's handle states why that makes a
+            // local translation oscillate).
+            .gesture(
+                DragGesture(minimumDistance: 0, coordinateSpace: .global)
+                    .onChanged { value in
+                        // The base is the *rendered* width, and the zero-translation
+                        // opening frame writes nothing — both for the statement
+                        // pane's handle's reasons.
+                        let beginning = sidebarDragStartWidth == nil
+                        let base = sidebarDragStartWidth ?? clampedSidebarWidth(total: total)
+                        if beginning {
+                            sidebarDragStartWidth = base
+                            syncSidebarDivideCursor()
+                        }
+                        guard !beginning || value.translation.width != 0 else { return }
+                        // The sidebar is on the left, so the sign mirrors the
+                        // statement pane's.
+                        sidebarWidth = clampedSidebarWidth(total: total, wanted: base + value.translation.width)
+                    }
+                    .onEnded { _ in
+                        sidebarDragStartWidth = nil
+                        syncSidebarDivideCursor()
+                    }
+            )
+    }
+
+    /// Pushes or pops the resize cursor so that exactly one push of ours is on
+    /// `NSCursor`'s stack while the divide is hovered or being dragged, and none
+    /// otherwise. Every write of the hover flag or the drag base calls this;
+    /// nothing else in this view touches the stack.
+    private func syncSidebarDivideCursor() {
+        let wanted = isHoveringSidebarDivide || sidebarDragStartWidth != nil
+        guard wanted != sidebarDivideCursorPushed else { return }
+        if wanted { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() }
+        sidebarDivideCursorPushed = wanted
     }
 
     // MARK: - Tables, views and the schema

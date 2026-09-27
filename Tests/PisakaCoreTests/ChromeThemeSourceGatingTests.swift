@@ -2373,6 +2373,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         "ContentView.swift: syncPanelDividerCursor",
         "ContentView.swift: syncMarkdownDividerCursor",
         "LeetCodeDescriptionView.swift: syncResizeHandleCursor",
+        "DatabaseViewerView.swift: syncSidebarDivideCursor",
     ]
 
     /// A hand-rolled divider pushes the resize cursor from hover and drag state
@@ -2383,8 +2384,9 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// whole panel away — and `NSCursor`'s stack is global, so the cursor stays
     /// pushed after the flag that would have balanced it is gone. The defect
     /// shipped once, in the Log's divide; the two `ContentView` dividers already
-    /// released from `onDisappear`, which is the rule this states for all four
-    /// (the statement pane's resize handle joined in part five (d)).
+    /// released from `onDisappear`, which is the rule this states for all five
+    /// (the statement pane's resize handle joined in part five (d), and the
+    /// database viewer's sidebar divide when that sidebar became resizable).
     ///
     /// Over stripped source, in every gated file: each function whose body
     /// pushes an `NSCursor` is called from inside an `.onDisappear {` block in the

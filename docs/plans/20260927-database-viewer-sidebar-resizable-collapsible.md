@@ -89,19 +89,19 @@ Three pinned sets in the chrome gating suite move with it: rules twenty, twenty-
 - Modify: `Sources/Pisaka/DatabaseViewerView.swift`
 - Modify: `Tests/PisakaCoreTests/ChromeThemeSourceGatingTests.swift`
 
-- [ ] Add session state, each with a doc comment saying it is session-only, following the statement pane and the Log's detail width:
+- [x] Add session state, each with a doc comment saying it is session-only, following the statement pane and the Log's detail width:
   - `@State private var sidebarWidth: CGFloat?` (nil means the ideal width)
   - `@State private var sidebarDragStartWidth: CGFloat?`
   - `@State private var isHoveringSidebarDivide = false`
   - `@State private var sidebarDivideCursorPushed = false`
-- [ ] Wrap the body's `HStack` in a `GeometryReader` and pass its total width. Add `clampedSidebarWidth(total:)`:
+- [x] Wrap the body's `HStack` in a `GeometryReader` and pass its total width. Add `clampedSidebarWidth(total:)`:
   - minimum = `metrics.scaled(sidebarMinWidth)`
   - maximum = `max(minimum, total − metrics.scaled(gridMinWidth))`
   - wanted = `sidebarWidth ?? metrics.scaled(sidebarIdealWidth)`
   - result = `min(max(wanted, minimum), maximum)`
 
   Its doc comment says the floor on the maximum is the answer when the two bounds cross in a narrow window.
-- [ ] Replace the standalone `hairline(horizontal: false)` between the sidebar and the split with `sidebarDivide(total:)`. It is a `Color.clear` strip `metrics.scaled(divideHitWidth)` wide, with the vertical `hairline` as its overlay so the rule is still drawn exactly once, plus `.contentShape(Rectangle())`. It carries:
+- [x] Replace the standalone `hairline(horizontal: false)` between the sidebar and the split with `sidebarDivide(total:)`. It is a `Color.clear` strip `metrics.scaled(divideHitWidth)` wide, with the vertical `hairline` as its overlay so the rule is still drawn exactly once, plus `.contentShape(Rectangle())`. It carries:
   - `.onHover`, which sets the hover flag and syncs.
   - `.onDisappear`, which clears the hover flag and `sidebarDragStartWidth`, then syncs. Its comment says why: a tab closed with the pointer on the strip or mid-drag gets neither a hover-exit nor a drag-end, and the cursor stack is global.
   - `DragGesture(minimumDistance: 0, coordinateSpace: .global)`:
@@ -109,12 +109,12 @@ Three pinned sets in the chrome gating suite move with it: rules twenty, twenty-
     - it writes `sidebarWidth = clamp(base + translation.width)`; the sign is the mirror of the statement pane's, because the sidebar is on the left
     - `onEnded` drops the base and syncs
   - Brief comments stating the global coordinate space and the rendered-base reasons, pointing at the statement pane's handle rather than restating its essay.
-- [ ] Add `syncSidebarDivideCursor()`, the only function that pushes or pops. It pushes when `isHoveringSidebarDivide || sidebarDragStartWidth != nil` and no push is held. It pops when neither is true and a push is held.
-- [ ] Lay the sidebar out at the clamped width instead of the hard literal.
-- [ ] Update rule twenty-two:
+- [x] Add `syncSidebarDivideCursor()`, the only function that pushes or pops. It pushes when `isHoveringSidebarDivide || sidebarDragStartWidth != nil` and no push is held. It pops when neither is true and a push is held.
+- [x] Lay the sidebar out at the clamped width instead of the hard literal.
+- [x] Update rule twenty-two:
   - Add `"DatabaseViewerView.swift: syncSidebarDivideCursor"` to `cursorPushingFunctions`.
   - In the rule's doc comment, change "all four" to "all five" and add that the database viewer's sidebar divide joined in this change.
-- [ ] Run `swift test`. It must be green, with rule twenty-two passing on the real function and no other pin moved.
+- [x] Run `swift test`. It must be green, with rule twenty-two passing on the real function and no other pin moved.
 
 ### Task 3: Folding the sidebar away (rules twenty and thirty move)
 
