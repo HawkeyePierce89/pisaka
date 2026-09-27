@@ -249,12 +249,12 @@ was brought level, so for this file the document and the suite now disagree.
 
 ### Task 6: Run the gates
 
-- [ ] `swift test` — green. Report the count; it was 5816 before this plan, and
+- [x] `swift test` — green. Report the count; it was 5816 before this plan, and
   any change is the tests this plan adds.
-- [ ] `xcodegen generate`, then the app-layer bundle — green, 126 tests.
-- [ ] `swiftlint --strict` — clean across 591 files.
-- [ ] The macOS Release build and the `generic/platform=iOS` build — both
+- [x] `xcodegen generate`, then the app-layer bundle — green, 126 tests.
+- [x] `swiftlint --strict` — clean across 591 files.
+- [x] The macOS Release build and the `generic/platform=iOS` build — both
   succeed.
-- [ ] Re-read the whole diff against `master` and confirm: every pinned set that
+- [x] Re-read the whole diff against `master` and confirm: every pinned set that
   moved is stated, none widened; no `SettingsStore` key was added; no Core type
   was added; `CLAUDE.md` is unmodified.
