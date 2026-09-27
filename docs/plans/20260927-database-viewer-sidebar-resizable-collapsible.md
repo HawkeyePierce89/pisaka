@@ -176,12 +176,12 @@ Three pinned sets in the chrome gating suite move with it: rules twenty, twenty-
 
 ### Task 5: Verify acceptance criteria
 
-- [ ] Run `swift test`. It must be green at 5816 tests: none added or removed, three pins restated.
-- [ ] Run `xcodegen generate`, then `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' -derivedDataPath ~/Library/Developer/Xcode/DerivedData/pisaka-sidebar test`. It must be green at 126 tests.
-- [ ] Run `swiftlint --strict` from the repository root. It must be clean across 591 files.
-- [ ] Run `xcodebuild … -configuration Release -destination 'platform=macOS' build` with the same out-of-repo derived-data root. It must succeed.
-- [ ] Run `xcodebuild … -destination 'generic/platform=iOS' build`. It must succeed.
-- [ ] Re-read the diff of `ChromeThemeSourceGatingTests.swift` and confirm exactly three pins changed, none widened:
+- [x] Run `swift test`. It must be green at 5816 tests: none added or removed, three pins restated.
+- [x] Run `xcodegen generate`, then `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' -derivedDataPath ~/Library/Developer/Xcode/DerivedData/pisaka-sidebar test`. It must be green at 126 tests.
+- [x] Run `swiftlint --strict` from the repository root. It must be clean across 591 files.
+- [x] Run `xcodebuild … -configuration Release -destination 'platform=macOS' build` with the same out-of-repo derived-data root. It must succeed.
+- [x] Run `xcodebuild … -destination 'generic/platform=iOS' build`. It must succeed.
+- [x] Re-read the diff of `ChromeThemeSourceGatingTests.swift` and confirm exactly three pins changed, none widened:
   - twenty: three builders added and the comment extended
   - twenty-two: the set and the doc sentence
   - thirty: the entry and its comment
