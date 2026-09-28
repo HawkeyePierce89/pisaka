@@ -1,6 +1,6 @@
 # PisakaCore — git service protocol, status & blame
 
-Design documentation moved verbatim from the root `CLAUDE.md` (which now holds only a one-line-per-file index). Each entry records a file's contract, invariants and the reasoning behind non-obvious decisions — read the relevant entry before modifying that file, and update it when behavior changes.
+Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a per-file index and the cross-cutting invariants). Each entry records a file's contract, invariants and the reasoning behind non-obvious decisions — read the relevant entry before modifying that file, and update it when behavior changes.
 
   - `GitError.swift` — a `GitServicing` failure the model surfaces to the user:
     `public enum GitError: Error, Equatable, LocalizedError` with cases

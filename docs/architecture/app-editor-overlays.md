@@ -1,6 +1,6 @@
 # Pisaka app (macOS) — editor overlays: brackets, blame, gutter, minimap, themes
 
-Design documentation moved verbatim from the root `CLAUDE.md` (which now holds only a one-line-per-file index). Each entry records a file's contract, invariants and the reasoning behind non-obvious decisions — read the relevant entry before modifying that file, and update it when behavior changes.
+Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a per-file index and the cross-cutting invariants). Each entry records a file's contract, invariants and the reasoning behind non-obvious decisions — read the relevant entry before modifying that file, and update it when behavior changes.
 
   - `BracketOverlayLayoutManager.swift` — the editor's `NSLayoutManager` subclass
     (macOS, `@MainActor`) carrying every editor overlay: the rainbow

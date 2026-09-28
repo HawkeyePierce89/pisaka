@@ -361,8 +361,8 @@ flags, read here about markup.
 
 This is the third stated exception to the repository's comment- and
 literal-stripped matching rule, after `GitHubSourceGatingTests`' `gh` vocabulary
-and `ReleaseWorkflowTests`' build-output roots, and it is recorded in `CLAUDE.md`
-beside them.
+and `ReleaseWorkflowTests`' build-output roots, and like theirs its reason is stated
+here rather than in `CLAUDE.md`, which keeps only the principle and the count.
 
 ### M14 — Tight and loose are recovered from line numbers, and the rule lives in Core
 
