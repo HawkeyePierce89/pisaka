@@ -69,27 +69,27 @@ This plan closes the question with that measurement, in the document's own idiom
 **Files:**
 - Modify: `docs/architecture/core-theme.md`
 
-- [ ] In rule 24, keep all of the following exactly as they are:
+- [x] In rule 24, keep all of the following exactly as they are:
   - the rule's number and heading;
   - both pinned sets;
   - the viewer's explanation;
   - the `commandsDividerBodies` exception;
   - the four probe shapes with their numbers (126 / 104 / 104 / 93 pt).
-- [ ] After the probe's numbers, say plainly that this probe was a structural measurement, not a screen capture. It read item arrays after `NSMenu.update()` and sizes from `NSMenu.size`.
-- [ ] Then add the contrast:
+- [x] After the probe's numbers, say plainly that this probe was a structural measurement, not a screen capture. It read item arrays after `NSMenu.update()` and sizes from `NSMenu.size`.
+- [x] Then add the contrast:
   - Five in-window menus, built by three of the four `menuSectionFiles`, were measured on screen. There, AppKit hides the edge and adjacent separator items (the numbers are in part five (d)'s closure).
   - Whether the menu bar draws what a `Commands` menu's structure holds was not measured then and is not measured now. That is the stated limit.
   - The `LeetCodeCommands` `Divider()` exception stands on the structural numbers as before, neither strengthened nor weakened.
-- [ ] Qualify the premise wherever the document states it as a general fact:
+- [x] Qualify the premise wherever the document states it as a general fact:
   - Search the whole document for "neither hides", "collapses adjacent" and "edge separator". Reword each hit as the structural reading of a `Commands` menu.
   - The only hit today is the open-question bullet, which task 1 removed. Re-run the search to confirm nothing unqualified remains.
   - The rule-24 line "there the rule's premise … is false" is already scoped to a `Commands` builder and may stay. Tighten it to "false in that menu's structure" only if the new paragraph reads inconsistently without it.
-- [ ] In the same rule-24 paragraph, record the two Swift sites that still carry the unqualified sentence, so the next writer finds them:
+- [x] In the same rule-24 paragraph, record the two Swift sites that still carry the unqualified sentence, so the next writer finds them:
   - the comment above the Open Problem button in `LeetCodeOpenProblemSheet.swift`;
   - the doc comment on `commandsDividerBodies` in `ChromeThemeSourceGatingTests.swift`.
 
   Say that both describe the structural reading of a `Commands` menu and were left as written.
-- [ ] Run `swift test`. It must pass before task 3.
+- [x] Run `swift test`. It must pass before task 3.
 
 ### Task 3: Verify acceptance criteria
 

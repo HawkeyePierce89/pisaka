@@ -2613,13 +2613,27 @@ The forty-three rules, each invisible to the compiler:
     (`commandsDividerBodies`, one entry). A main menu built inside a
     `Commands`/`CommandMenu` builder is drawn by AppKit where no chrome role
     reaches it, and there the rule's premise — that a `Section` stands in for
-    the platform's separator — is false. A standalone probe against the real
+    the platform's separator — is false in that menu's structure. A standalone probe against the real
     AppKit menu (item arrays read after `NSMenu.update()`, heights from
     `NSMenu.size`) measured the same three items in four shapes:
     `Section { A; B }; Section { C }` drew four separators at 126 pt (above the
     first item, two adjacent between the groups, below the last);
     `A; B; Section { C }` and `Section { A; B }; C` two each at 104 pt;
-    `A; B; Divider(); C` one at 93 pt. So `LeetCodeCommands`' body is pinned by
+    `A; B; Divider(); C` one at 93 pt. That probe was a structural
+    measurement, not a screen capture: it read item arrays after
+    `NSMenu.update()` and sizes from `NSMenu.size`, and nothing it saw was
+    drawn on a screen. Five in-window menus built by three of the four
+    `menuSectionFiles` were measured on screen, and there AppKit hides the
+    edge and adjacent separator items (the numbers are in part five (d)'s
+    closure). Whether the menu bar draws what a `Commands` menu's structure
+    holds was not measured then and is not measured now — the stated limit of
+    both measurements — so the `LeetCodeCommands` exception stands on the
+    structural numbers as before, neither strengthened nor weakened. Two Swift
+    sites still state the premise without that qualifier: the comment above
+    the Open Problem button in `LeetCodeOpenProblemSheet.swift` and the doc
+    comment on `commandsDividerBodies` in `ChromeThemeSourceGatingTests.swift`.
+    Both describe the structural reading of a `Commands` menu and were left
+    as written. So `LeetCodeCommands`' body is pinned by
     shape — exactly one `Divider()`, no `Section` — and the rest of its file is
     held to the ordinary rule. Every other `Commands` builder is in an ungated
     file (`PisakaApp.swift`, which spells `Divider()` five times across three
