@@ -105,5 +105,5 @@ This plan closes the question with that measurement, in the document's own idiom
 
 ### Task 4: Update documentation
 
-- [ ] `README.md`: no change, because nothing user-facing changes.
-- [ ] `CLAUDE.md`: no change. It carries no sentence about menu separators, and its size ceiling is not spent on one.
+- [x] `README.md`: no change, because nothing user-facing changes.
+- [x] `CLAUDE.md`: no change. It carries no sentence about menu separators, and its size ceiling is not spent on one.
