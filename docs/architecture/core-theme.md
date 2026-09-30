@@ -1756,8 +1756,8 @@ differed:
    has none. Every surface divider is now the surface's own `hairline` rule at
    `hairlineWidth`. The commands' one is a menu separator and **stays a
    `Divider()`** — fix round 02 restored it after the first attempt, two
-   `Section { }` groups, turned out to draw four separators where one had been
-   (the measurement is under rule twenty-four); it is that rule's one stated
+   `Section { }` groups, turned out to hold four separator items in the menu's
+   structure where one had been (the measurement is under rule twenty-four); it is that rule's one stated
    exception.
 2. **Two `Picker`s, not one.** The browser's filter bar and the open-problem
    sheet both pick the solution language over
