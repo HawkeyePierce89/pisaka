@@ -1756,8 +1756,8 @@ differed:
    has none. Every surface divider is now the surface's own `hairline` rule at
    `hairlineWidth`. The commands' one is a menu separator and **stays a
    `Divider()`** — fix round 02 restored it after the first attempt, two
-   `Section { }` groups, turned out to draw four separators where one had been
-   (the measurement is under rule twenty-four); it is that rule's one stated
+   `Section { }` groups, turned out to hold four separator items in the menu's
+   structure where one had been (the measurement is under rule twenty-four); it is that rule's one stated
    exception.
 2. **Two `Picker`s, not one.** The browser's filter bar and the open-problem
    sheet both pick the solution language over
@@ -1892,19 +1892,36 @@ changed.
 - **The two served documents' palette**: the statement page and the sign-in
   page are not chrome; the pane around the first is.
 - **The terminal's colours** stay `TerminalTheme`'s, as before.
-- **Whether `Section` is the right menu separator anywhere.** Inside a
-  `Commands` builder a `Section` emits a separator on each side of its group,
-  and AppKit neither hides the edge ones nor collapses adjacent ones (the
-  probe's numbers are under rule twenty-four: four separators at 126 pt for two
-  `Section`s against one at 93 pt for one `Divider()`). Rule twenty-four's
-  `menuSectionFiles` — `SearchHistoryMenu.swift`, `ProjectTreeView.swift`,
-  `LocalChangesView.swift`, `DatabaseViewerView.swift` — may therefore be
-  drawing edge separators nobody asked for. Those menus were **not** measured
-  (the probe measured a main menu, not a `Menu` or a context menu) and were
-  **not** changed; the convention two earlier parts established stands until
-  someone decides otherwise.
 
 The spinner question part five (c) left open is **closed**.
+
+The `Section`-separator question part five (d) left open is **closed**, by a
+measurement on screen. Five menus, built by three of the four
+`menuSectionFiles`, were measured in the running app while open — three context
+menus in `ProjectTreeView.swift`, one in `LocalChangesView.swift` and the `Menu`
+popup in `SearchHistoryMenu.swift` — each menu's window captured by its own
+window id, its height read from the window bounds and its item list read
+through accessibility. The project tree's file context menu, three `Section`s
+(Run | Rename, Delete | Local History), draws two separators, both between
+groups, at 128 pt; the folder context menu, two `Section`s (New File, New Folder
+| Rename, Delete), draws one, between the groups, at 117 pt; the root context
+menu, one `Section` (New File, New Folder), draws none at 58 pt, where edge
+separators would put it near 80 pt; the Local Changes row context menu for a
+modified file, two `Section`s (Show Diff, Jump to Source, Commit… | Revert),
+draws one, between the groups, at 117 pt; and the recent-searches popup, two
+`Section`s (one recorded pattern | Clear History), draws one, between the
+groups, at 69 pt. The arithmetic agrees across all five: about 23.5 pt per
+item, about 11 pt per drawn separator and about 11 pt of padding. The history
+popup shows structure and drawing apart: its accessibility item list holds six
+items for two buttons — a separator item before the first group, two adjacent
+ones between the groups and one after the last — so the separator items exist
+in the menu's structure, and AppKit hides the leading, trailing and adjacent
+ones when it draws a popup or a context menu. The fourth file,
+`DatabaseViewerView.swift`, had nothing to measure: its cell context menu (Copy,
+Set to NULL) spells no `Section` of its own, as rule twenty-four already says.
+The limit is the method's: five menus on one machine, read at the heights the
+window bounds report. The convention the earlier parts established stands,
+confirmed rather than assumed: a menu's separator is a `Section` boundary.
 
 #### Part five (e) — the two served document pages and the alert accessory
 
@@ -2596,13 +2613,26 @@ The forty-three rules, each invisible to the compiler:
     (`commandsDividerBodies`, one entry). A main menu built inside a
     `Commands`/`CommandMenu` builder is drawn by AppKit where no chrome role
     reaches it, and there the rule's premise — that a `Section` stands in for
-    the platform's separator — is false. A standalone probe against the real
+    the platform's separator — is false in that menu's structure. A standalone probe against the real
     AppKit menu (item arrays read after `NSMenu.update()`, heights from
     `NSMenu.size`) measured the same three items in four shapes:
-    `Section { A; B }; Section { C }` drew four separators at 126 pt (above the
+    `Section { A; B }; Section { C }` held four separator items at 126 pt (above the
     first item, two adjacent between the groups, below the last);
     `A; B; Section { C }` and `Section { A; B }; C` two each at 104 pt;
-    `A; B; Divider(); C` one at 93 pt. So `LeetCodeCommands`' body is pinned by
+    `A; B; Divider(); C` one at 93 pt. That probe was a structural
+    measurement, not a screen capture, and nothing it saw was drawn on a
+    screen. Five in-window menus built by three of the four
+    `menuSectionFiles` were measured on screen, and there AppKit hides the
+    edge and adjacent separator items (the numbers are in part five (d)'s
+    closure). Whether the menu bar draws what a `Commands` menu's structure
+    holds was not measured then and is not measured now — the stated limit of
+    both measurements — so the `LeetCodeCommands` exception stands on the
+    structural numbers as before, neither strengthened nor weakened. Two Swift
+    sites still state the premise without that qualifier: the comment above
+    the Open Problem button in `LeetCodeOpenProblemSheet.swift` and the doc
+    comment on `commandsDividerBodies` in `ChromeThemeSourceGatingTests.swift`.
+    Both describe the structural reading of a `Commands` menu and were left
+    as written. So `LeetCodeCommands`' body is pinned by
     shape — exactly one `Divider()`, no `Section` — and the rest of its file is
     held to the ordinary rule. Every other `Commands` builder is in an ungated
     file (`PisakaApp.swift`, which spells `Divider()` five times across three
