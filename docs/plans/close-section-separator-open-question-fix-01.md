@@ -47,7 +47,7 @@ Finding `arch+quality-1` (confirmed, confidence 80), `docs/architecture/core-the
 
 ### Task 3: Run the gates
 
-- [ ] `swift test`: 5820 tests, 0 failures.
-- [ ] `git diff --stat master..HEAD`: `docs/architecture/core-theme.md` and `docs/plans/` only.
-- [ ] Grep the added lines of `git diff master..HEAD -- docs/architecture/core-theme.md` for "sweep" paired with "closed", "finished" or "complete", and for brand or product names: none.
-- [ ] Linter: not run, because `swiftlint --strict` does not read Markdown.
+- [x] `swift test`: 5820 tests, 0 failures.
+- [x] `git diff --stat master..HEAD`: `docs/architecture/core-theme.md` and `docs/plans/` only.
+- [x] Grep the added lines of `git diff master..HEAD -- docs/architecture/core-theme.md` for "sweep" paired with "closed", "finished" or "complete", and for brand or product names: none.
+- [x] Linter: not run, because `swiftlint --strict` does not read Markdown.
