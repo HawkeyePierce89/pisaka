@@ -39,11 +39,11 @@ Finding `docs+tests-1` (confirmed, confidence 95, two sources), `docs/architectu
 
 Finding `arch+quality-1` (confirmed, confidence 80), `docs/architecture/core-theme.md:2619–2624`. As revmux stated it: the kept probe sentence still says the probe "drew four separators at 126 pt", "two each at 104 pt" and "one at 93 pt"; the newly added sentence says the probe was structural and "nothing it saw was drawn on a screen". So the paragraph first reports what the probe drew, then says nothing it saw was drawn. The added sentence also repeats the parenthetical already in the paragraph ("item arrays read after `NSMenu.update()`, heights from `NSMenu.size`"), so the method is stated twice.
 
-- [ ] In the kept sentence, change "drew" to a structural verb — held, or reported — so it reads as what `NSMenu.size` reported for four separator items, with the four numbers (126 / 104 / 104 / 93 pt) and the placement parenthetical kept exactly.
-- [ ] Shorten the added sentence so it no longer restates the method the parenthetical two sentences earlier already gives: keep "structural measurement, not a screen capture" and "nothing it saw was drawn on a screen", drop the repeated `NSMenu.update()` / `NSMenu.size` clause.
-- [ ] Keep everything else in the rule-24 description exactly as it is: the rule's number and heading, both pinned sets, the viewer's explanation, the `commandsDividerBodies` exception, the five-menus contrast, the stated limit and the two named Swift sites.
-- [ ] Run the grep from Validation Commands again; the only "drew"/"draw" hits about separators left in the document must be the on-screen ones (the in-window menus) and the `Divider()`-in-system-colour sentences.
-- [ ] Run `swift test`. It must pass before task 3.
+- [x] In the kept sentence, change "drew" to a structural verb — held, or reported — so it reads as what `NSMenu.size` reported for four separator items, with the four numbers (126 / 104 / 104 / 93 pt) and the placement parenthetical kept exactly.
+- [x] Shorten the added sentence so it no longer restates the method the parenthetical two sentences earlier already gives: keep "structural measurement, not a screen capture" and "nothing it saw was drawn on a screen", drop the repeated `NSMenu.update()` / `NSMenu.size` clause.
+- [x] Keep everything else in the rule-24 description exactly as it is: the rule's number and heading, both pinned sets, the viewer's explanation, the `commandsDividerBodies` exception, the five-menus contrast, the stated limit and the two named Swift sites.
+- [x] Run the grep from Validation Commands again; the only "drew"/"draw" hits about separators left in the document must be the on-screen ones (the in-window menus) and the `Divider()`-in-system-colour sentences.
+- [x] Run `swift test`. It must pass before task 3.
 
 ### Task 3: Run the gates
 

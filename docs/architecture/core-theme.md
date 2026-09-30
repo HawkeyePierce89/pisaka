@@ -2616,13 +2616,12 @@ The forty-three rules, each invisible to the compiler:
     the platform's separator — is false in that menu's structure. A standalone probe against the real
     AppKit menu (item arrays read after `NSMenu.update()`, heights from
     `NSMenu.size`) measured the same three items in four shapes:
-    `Section { A; B }; Section { C }` drew four separators at 126 pt (above the
+    `Section { A; B }; Section { C }` held four separator items at 126 pt (above the
     first item, two adjacent between the groups, below the last);
     `A; B; Section { C }` and `Section { A; B }; C` two each at 104 pt;
     `A; B; Divider(); C` one at 93 pt. That probe was a structural
-    measurement, not a screen capture: it read item arrays after
-    `NSMenu.update()` and sizes from `NSMenu.size`, and nothing it saw was
-    drawn on a screen. Five in-window menus built by three of the four
+    measurement, not a screen capture, and nothing it saw was drawn on a
+    screen. Five in-window menus built by three of the four
     `menuSectionFiles` were measured on screen, and there AppKit hides the
     edge and adjacent separator items (the numbers are in part five (d)'s
     closure). Whether the menu bar draws what a `Commands` menu's structure
