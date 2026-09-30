@@ -1892,19 +1892,36 @@ changed.
 - **The two served documents' palette**: the statement page and the sign-in
   page are not chrome; the pane around the first is.
 - **The terminal's colours** stay `TerminalTheme`'s, as before.
-- **Whether `Section` is the right menu separator anywhere.** Inside a
-  `Commands` builder a `Section` emits a separator on each side of its group,
-  and AppKit neither hides the edge ones nor collapses adjacent ones (the
-  probe's numbers are under rule twenty-four: four separators at 126 pt for two
-  `Section`s against one at 93 pt for one `Divider()`). Rule twenty-four's
-  `menuSectionFiles` — `SearchHistoryMenu.swift`, `ProjectTreeView.swift`,
-  `LocalChangesView.swift`, `DatabaseViewerView.swift` — may therefore be
-  drawing edge separators nobody asked for. Those menus were **not** measured
-  (the probe measured a main menu, not a `Menu` or a context menu) and were
-  **not** changed; the convention two earlier parts established stands until
-  someone decides otherwise.
 
 The spinner question part five (c) left open is **closed**.
+
+The `Section`-separator question part five (d) left open is **closed**, by a
+measurement on screen. Five menus, built by three of the four
+`menuSectionFiles`, were measured in the running app while open — three context
+menus in `ProjectTreeView.swift`, one in `LocalChangesView.swift` and the `Menu`
+popup in `SearchHistoryMenu.swift` — each menu's window captured by its own
+window id, its height read from the window bounds and its item list read
+through accessibility. The project tree's file context menu, three `Section`s
+(Run | Rename, Delete | Local History), draws two separators, both between
+groups, at 128 pt; the folder context menu, two `Section`s (New File, New Folder
+| Rename, Delete), draws one, between the groups, at 117 pt; the root context
+menu, one `Section` (New File, New Folder), draws none at 58 pt, where edge
+separators would put it near 80 pt; the Local Changes row context menu for a
+modified file, two `Section`s (Show Diff, Jump to Source, Commit… | Revert),
+draws one, between the groups, at 117 pt; and the recent-searches popup, two
+`Section`s (one recorded pattern | Clear History), draws one, between the
+groups, at 69 pt. The arithmetic agrees across all five: about 23.5 pt per
+item, about 11 pt per drawn separator and about 11 pt of padding. The history
+popup shows structure and drawing apart: its accessibility item list holds six
+items for two buttons — a separator item before the first group, two adjacent
+ones between the groups and one after the last — so the separator items exist
+in the menu's structure, and AppKit hides the leading, trailing and adjacent
+ones when it draws a popup or a context menu. The fourth file,
+`DatabaseViewerView.swift`, had nothing to measure: its cell context menu (Copy,
+Set to NULL) spells no `Section` of its own, as rule twenty-four already says.
+The limit is the method's: five menus on one machine, read at the heights the
+window bounds report. The convention the earlier parts established stands,
+confirmed rather than assumed: a menu's separator is a `Section` boundary.
 
 #### Part five (e) — the two served document pages and the alert accessory
 

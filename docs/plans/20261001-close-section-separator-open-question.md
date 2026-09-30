@@ -46,8 +46,8 @@ This plan closes the question with that measurement, in the document's own idiom
 **Files:**
 - Modify: `docs/architecture/core-theme.md`
 
-- [ ] Remove the "Whether `Section` is the right menu separator anywhere" bullet from the open-questions list. The remaining four bullets (split-view dividers, focus ring, served documents' palette, terminal colours) stay exactly as they are.
-- [ ] Beside the existing sentence "The spinner question part five (c) left open is **closed**.", add a closure paragraph in the same idiom. It opens by saying the `Section`-separator question part five (d) left open is **closed**, then states the measurement:
+- [x] Remove the "Whether `Section` is the right menu separator anywhere" bullet from the open-questions list. The remaining four bullets (split-view dividers, focus ring, served documents' palette, terminal colours) stay exactly as they are.
+- [x] Beside the existing sentence "The spinner question part five (c) left open is **closed**.", add a closure paragraph in the same idiom. It opens by saying the `Section`-separator question part five (d) left open is **closed**, then states the measurement:
   - Scope: five menus, built by three of the four `menuSectionFiles`. That is three context menus in `ProjectTreeView.swift`, one in `LocalChangesView.swift`, and the `Menu` popup in `SearchHistoryMenu.swift`.
   - Method: each menu was measured in the running app while open. Its window was captured by its own window id, its height was read from the window bounds, and its item list was read through accessibility.
   - The project tree's file context menu has three `Section`s (Run | Rename, Delete | Local History). It draws two separators, both between groups, at 128 pt.
@@ -61,8 +61,8 @@ This plan closes the question with that measurement, in the document's own idiom
     - So the separator items exist in the menu's structure, and AppKit hides the leading, trailing and adjacent ones when it draws a popup or a context menu.
   - The fourth file, `DatabaseViewerView.swift`: its cell context menu (Copy, Set to NULL) spells no `Section` of its own, so there was nothing to measure, as rule twenty-four already says.
   - The convention the earlier parts established stands, confirmed rather than assumed: a menu's separator is a `Section` boundary.
-- [ ] Leave decision 1's pointer "(the measurement is under rule twenty-four)" as it is. It still refers to the structural `Commands` numbers, which stay there.
-- [ ] Run `swift test`. It must pass before task 2.
+- [x] Leave decision 1's pointer "(the measurement is under rule twenty-four)" as it is. It still refers to the structural `Commands` numbers, which stay there.
+- [x] Run `swift test`. It must pass before task 2.
 
 ### Task 2: Make rule twenty-four state what each measurement saw, and qualify the premise
 
