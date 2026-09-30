@@ -93,15 +93,15 @@ This plan closes the question with that measurement, in the document's own idiom
 
 ### Task 3: Verify acceptance criteria
 
-- [ ] Run `swift test`. All suites must be green, including `ChromeThemeSourceGatingTests`: rule count, canonical list, caller passages and the sweep-closure scan.
-- [ ] Run `git diff --stat`. The only changed file is `docs/architecture/core-theme.md`.
-- [ ] Grep the added lines:
+- [x] Run `swift test`. All suites must be green, including `ChromeThemeSourceGatingTests`: rule count, canonical list, caller passages and the sweep-closure scan.
+- [x] Run `git diff --stat`. The only changed file is `docs/architecture/core-theme.md`.
+- [x] Grep the added lines:
   - no "sweep";
   - no brand or product names;
   - no "four in-window menus" or any other menu count that disagrees with the five listed.
-- [ ] Confirm that the part five (a) and (b) "render the same separators" sentences, `app-git-views.md` and `app-editor.md` are unchanged. `git diff` must show no hunk there.
-- [ ] Linter: not run, because `swiftlint --strict` does not see Markdown.
-- [ ] Coverage: not applicable, because no code changes.
+- [x] Confirm that the part five (a) and (b) "render the same separators" sentences, `app-git-views.md` and `app-editor.md` are unchanged. `git diff` must show no hunk there.
+- [x] Linter: not run, because `swiftlint --strict` does not see Markdown.
+- [x] Coverage: not applicable, because no code changes.
 
 ### Task 4: Update documentation
 
