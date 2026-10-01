@@ -169,5 +169,5 @@ It does not catch the two button-dimming chains, which is correct. The rule's en
 
 ### Task 7: Update documentation
 
-- [ ] `README.md` and `docs/FEATURES.md` need no change, because nothing is user-visible.
-- [ ] `CLAUDE.md` needs only the role count, done in Task 5. Confirm nothing else there restates the count.
+- [x] `README.md` and `docs/FEATURES.md` need no change, because nothing is user-visible.
+- [x] `CLAUDE.md` needs only the role count, done in Task 5. Confirm nothing else there restates the count.
