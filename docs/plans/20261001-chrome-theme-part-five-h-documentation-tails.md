@@ -187,17 +187,17 @@ reading owes the same statement. The rewrite is shorter than today's text, so th
 
 ### Task 6: Verify acceptance criteria
 
-- [ ] Run `swift test`; the whole suite must be green.
-- [ ] Run `swiftlint --strict` from the repository root; it must be clean.
-- [ ] Run each grep from the ticket's acceptance criteria:
+- [x] Run `swift test`; the whole suite must be green.
+- [x] Run `swiftlint --strict` from the repository root; it must be clean.
+- [x] Run each grep from the ticket's acceptance criteria:
   - "as poor" in `core-theme.md`: no output;
   - "five such exceptions" in `CLAUDE.md`: no output;
   - "fifth stated exception" in the theme suite: no output.
-- [ ] Confirm that the rule forty-four entry and the test doc comment both quote
+- [x] Confirm that the rule forty-four entry and the test doc comment both quote
   the same three messages from Task 1.
-- [ ] Run `git diff master -- Sources/` and confirm it is empty. In particular,
+- [x] Run `git diff master -- Sources/` and confirm it is empty. In particular,
   `TerminalTheme.swift` must be byte-identical to `master`.
-- [ ] After committing, confirm `git status --porcelain` is empty.
+- [x] After committing, confirm `git status --porcelain` is empty.
 
 ### Task 7: Update documentation
 
