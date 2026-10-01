@@ -228,8 +228,8 @@ theme suite is untouched.
 
 ### Task 5: Update documentation
 
-- [ ] README.md: no user-facing change beyond the bug fix; leave it untouched unless it describes the dock's layout
-- [ ] CLAUDE.md: only the index name added in Task 3
+- [x] README.md: no user-facing change beyond the bug fix; leave it untouched unless it describes the dock's layout
+- [x] CLAUDE.md: only the index name added in Task 3
 
 ## Post-Completion (manual)
 
