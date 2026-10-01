@@ -25,8 +25,9 @@ import XCTest
 /// literals; the merge editor's chevron check in
 /// `testTheCommitDialogsRowsAndControls`, which finds the chevrons by their symbol
 /// names, also literals; and clause (c) of `testAServedPagesChromeIsThePalettes`,
-/// because a CSS hex value is a string literal. Every other rule reads the
-/// ordinary scanner.
+/// because a CSS hex value is a string literal. Every other rule that reads
+/// `Sources/` reads the ordinary scanner, and a self-check holds this paragraph
+/// to the code.
 ///
 /// What is checked, and why each rule is invisible to the compiler:
 ///
@@ -5351,6 +5352,53 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
             """
             the suite's header must carry one bolded bullet per declared rule (\(titles.count)), titled as \
             that rule's marker and in the markers' order
+            """
+        )
+    }
+
+    /// The header's **stated exceptions** paragraph names the rules that read
+    /// the literal-keeping scanner, and `CLAUDE.md` calls that statement the
+    /// record — so it is held to the code, not trusted. The test functions whose
+    /// *code* (comments and literals stripped, so a doc comment mentioning the
+    /// scanner and this check's own needle both drop out) calls
+    /// `GitHubSourceGatingTests.strippingComments(_:)` must equal, by set
+    /// equality, the `test…` names that paragraph spells: a rule switching
+    /// scanners either way, or a renamed one, fails here.
+    func testTheHeaderNamesEveryLiteralKeepingReading() throws {
+        let source = try Self.read(URL(fileURLWithPath: #filePath))
+        let opening = try XCTUnwrap(
+            source.range(of: "/// **The stated exceptions.**"),
+            "the header's stated-exceptions paragraph is gone — re-point this check rather than losing it"
+        )
+        let end = try XCTUnwrap(
+            source[opening.upperBound...].range(of: "\n///\n"),
+            "the header's stated-exceptions paragraph no longer ends on a blank doc line — re-point this check"
+        )
+        let paragraph = String(source[opening.upperBound..<end.lowerBound])
+        let named = try NSRegularExpression(pattern: "`(test\\w+)`")
+        let stated = Set(named.matches(in: paragraph, range: NSRange(paragraph.startIndex..., in: paragraph))
+            .compactMap { Range($0.range(at: 1), in: paragraph).map { String(paragraph[$0]) } })
+
+        let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(source)
+        let declaration = try NSRegularExpression(pattern: "(?m)^    func (test\\w+)\\(")
+        let matches = declaration.matches(in: code, range: NSRange(code.startIndex..., in: code))
+        var reading: Set<String> = []
+        for (index, match) in matches.enumerated() {
+            guard let name = Range(match.range(at: 1), in: code),
+                  let start = Range(match.range, in: code) else { continue }
+            let stop = index + 1 < matches.count
+                ? Range(matches[index + 1].range, in: code)?.lowerBound ?? code.endIndex
+                : code.endIndex
+            if code[start.upperBound..<stop].contains("GitHubSourceGatingTests.strippingComments(") {
+                reading.insert(String(code[name]))
+            }
+        }
+        XCTAssertFalse(reading.isEmpty, "no rule reads the literal-keeping scanner — re-point this check")
+        XCTAssertEqual(
+            reading, stated,
+            """
+            the header's stated-exceptions paragraph must name exactly the rules whose code reads \
+            GitHubSourceGatingTests.strippingComments(_:) — the literal-keeping scanner
             """
         )
     }

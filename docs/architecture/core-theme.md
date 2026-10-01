@@ -2289,7 +2289,11 @@ monochrome.
 In `ZoomSourceGatingTests`' mould: it reads `Sources/` through `#filePath` with
 Foundation only, so it runs in `swift test` with no Xcode build, and it matches
 against `LSPSourceGatingTests.strippingCommentsAndStringLiterals(_:)` output —
-**comments and string literals stripped before anything is matched**. That is
+**comments and string literals stripped before almost every match**. Three
+rules read `GitHubSourceGatingTests.strippingComments(_:)` instead, literals
+kept, because each one's subject is a literal — the query-toggle names, the
+merge editor's chevron symbols and clause (c)'s CSS hex — and the suite's
+header names them, held to the code by a self-check. The stripping is
 load-bearing rather than tidy here: the gated files document their own rules at
 length (the palette explains what a hex literal outside it would cost; the strip
 names the accent colour it no longer uses in order to say so; the ruler spells
@@ -3099,8 +3103,8 @@ The forty-four rules, each invisible to the compiler:
     `DocumentPageChrome.swift` (12) — and `LeetCodeStatementDocument.swift`
     spells none. (d) `func cssHex(` is defined in `ChromePalette.swift` alone.
     Clause (c) reads the comments-only scanner, literals kept, because a CSS
-    hex literal *is* a string literal — the suite's stated exception to the
-    stripped reading.
+    hex literal *is* a string literal — one of the suite's three literal-keeping
+    readings, named in its header.
 43. **No document calls the sweep closed while a surface remains.** The macOS
     app files outside `Sources/Pisaka/iOS/`, outside `gatedFiles` and outside
     the four exemptions that name a system semantic colour, a SwiftUI hue or a
