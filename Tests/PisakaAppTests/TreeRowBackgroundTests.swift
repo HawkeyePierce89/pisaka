@@ -31,8 +31,6 @@ final class TreeRowBackgroundTests: XCTestCase {
         for state in TreeRowState.allCases {
             XCTAssertEqual(TreeRowBackground.role(for: state), expected[state] ?? nil, "\(state)")
         }
-        let roleless = TreeRowState.allCases.filter { TreeRowBackground.role(for: $0) == nil }
-        XCTAssertEqual(roleless, [.plain])
     }
 
     func testTheColourIsTheResolversAnswerWithNoAlphaComposed() {

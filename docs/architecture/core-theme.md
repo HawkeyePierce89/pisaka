@@ -40,8 +40,10 @@ the geometry tokens, the appearance resolution, the tree row's states and
 `diagnosticRole(for:)` — `ChromeRoleMappingTests` (`swift test`, since part four
 (b)) pins the per-feature answers beside it — the changed-file status's letter,
 word and role, the pull-request checks' glyph, words and role, and the diff
-wash and marker — verbatim over `allCases`, and `ChromePaletteTests` (app
-bundle) pins the values themselves.
+wash and marker — verbatim over `allCases`, `ChromePaletteTests` (app
+bundle) pins the values themselves, and `TreeRowBackgroundTests` (app bundle,
+since part five (g)) pins the project tree's state-to-role mapping and that it
+composes no alpha.
 
 The chrome theme is a **reader**: it takes no writer gate, is gated by none, and
 adds no write of any kind. Its only persisted input is the existing
@@ -285,7 +287,7 @@ the translucent roles are *washes*, and a wash is the same wash over either
 background; two alphas would be two opinions about one design decision. The
 alpha is a `UInt8` defaulting to `0xFF`, the byte the design's eight-digit values
 carry in their last position, so the table spells the design's numbers verbatim
-(`0x22`, `0x33`, `0x0A`, `0x26`) rather than a fraction rounded away from them;
+(`0x22`, `0x33`, `0x0A`, `0x26`, `0x66`) rather than a fraction rounded away from them;
 each accessor divides by 255 where it builds a colour (`Entry.opacity`).
 
 `entry(for:)` is an **exhaustive `switch role` with no `default`**. That is the
@@ -339,6 +341,14 @@ row was being changed and was **already correct**
 (`dark: 0xC9A35C, light: 0xA67C2E, alpha: 0x26`), so it is untouched. No gating
 rule is added by any of this: `ChromeThemeSourceGatingTests`' rule count is
 unchanged, as is the sentence in `CLAUDE.md` that mirrors it.
+
+**One row has been added since.** `dropTargetTint` (part five (g)) is the
+accent's own hues, `dark: 0x4F8DFF, light: 0x2F6FE0`, at `0x66` (102 ÷ 255 =
+0.4) — the third strength of the accent wash, above `accentTintStrong`. Its one
+consumer is `ProjectTreeView.swift`'s `TreeRowBackground.role(for:)`, `case
+.dropTarget`. `testTheDropTargetWashIsTheAccentAtAThirdStrength` asserts in
+both appearances that it has `accent`'s RGB, an alpha strictly between
+`accentTintStrong`'s and `accent`'s, and exactly `0x66`.
 
 `textPrimary`, `textSecondary` and `accent` each carry a short comment
 recording that the **code zone's own theme states the same values** — for its
@@ -1999,7 +2009,7 @@ would read as a scar across a paragraph. The answer, in four parts:
    So `codeBackground` moving is invisible and the rule line moving is not.
 4. **The remedy, if it reads badly on screen**, is a change to `hairline`
    itself, which moves every swept surface — never a page-local override and
-   never a twenty-second role.
+   never a new role.
 
 `MarkdownPreviewPage` no longer emits `--table-border`, and `preview.css`'s
 table-cell rule reads `var(--border)` (`core-markdown-preview.md`).
@@ -2088,7 +2098,7 @@ was **rule twenty-nine**: its alpha clause sees an alpha chained directly onto
 does `ProjectTreeView.swift`'s drop-target `resolving(.accent).opacity(0.4)`.
 This part removes its own instance and records the gap on rule twenty-nine's
 entry; it does not change the rule and does not touch the tree (the drop-target
-is named under *What is still waiting*).
+was left waiting, and is settled in part five (g), below).
 
 **Rule forty-three, bounded.** It was verified live by mutation with the set
 empty: an `_ = NSColor.systemRed` added to `DefinitionPicker.swift` (ungated, not
@@ -2145,8 +2155,8 @@ local-variable form, which needs data flow.
 The dock is finished, the popovers and search surfaces are swept, and so are the
 commit dialog, the merge editor, every secondary window's ground, Preferences,
 the two pull-request sheets, the database viewer and its console, the
-problem-catalog surfaces, the two served document pages, the alert accessory and
-the fold placeholder. No macOS surface is known to paint outside the roles —
+problem-catalog surfaces, the two served document pages, the alert accessory,
+the fold placeholder and the project tree's drop-target wash (part five (g)). No macOS surface is known to paint outside the roles —
 that is the bounded closure stated at the end of part five (f), and rule
 forty-three's live half is what would say otherwise the moment an ungated,
 non-exempt macOS file started to.
