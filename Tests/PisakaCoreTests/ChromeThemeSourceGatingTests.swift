@@ -8,13 +8,25 @@ import XCTest
 /// A repository-file suite in the `ZoomSourceGatingTests` mould: it reads
 /// `Sources/` through `#filePath` with Foundation only, and it matches against
 /// `LSPSourceGatingTests.strippingCommentsAndStringLiterals(_:)` output, so
-/// **comments and string literals are stripped before anything is matched**.
+/// **comments and string literals are stripped before almost every match** —
+/// the three rules named below are the stated exceptions.
 /// That is load-bearing rather than tidy here: the gated files document their own
 /// rules at length — `ChromePalette.swift` explains what a hex literal outside it
 /// would cost, `TabStripView.swift` names the accent colour it no longer uses in
 /// order to say it does not, and `LineNumberRulerView.swift` spells
 /// `ChromeColorRole.textSecondary` in prose — so a raw `contains` would pass on
 /// all three while the code they name was deleted.
+///
+/// **The stated exceptions.** Three rules match against
+/// `GitHubSourceGatingTests.strippingComments(_:)` instead — comments removed,
+/// **string literals kept** — because each rule's subject *is* a literal, and the
+/// ordinary scanner would delete exactly the text it checks: the query-toggle name
+/// rule (`testQueryTogglesSpeakOneNamePerMode`), whose `help:` names are
+/// literals; the merge editor's chevron check in
+/// `testTheCommitDialogsRowsAndControls`, which finds the chevrons by their symbol
+/// names, also literals; and clause (c) of `testAServedPagesChromeIsThePalettes`,
+/// because a CSS hex value is a string literal. Every other rule reads the
+/// ordinary scanner.
 ///
 /// What is checked, and why each rule is invisible to the compiler:
 ///
@@ -4754,8 +4766,8 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// - (d) `func cssHex(` is defined in `ChromePalette.swift` alone: the one
     ///   place a colour is formatted into a string.
     ///
-    /// **Clause (c) is the fifth stated exception to the stripped reading.** It
-    /// matches against `GitHubSourceGatingTests.strippingComments(_:)` — comments
+    /// **Clause (c) is one of the suite's literal-keeping readings**, named in the
+    /// header with the other two. It matches against `GitHubSourceGatingTests.strippingComments(_:)` — comments
     /// removed, **string literals kept** — because a CSS hex literal *is* a string
     /// literal, and the ordinary scanner would delete exactly the text the clause
     /// counts. That the same scanner also drops comments is **inherited, not

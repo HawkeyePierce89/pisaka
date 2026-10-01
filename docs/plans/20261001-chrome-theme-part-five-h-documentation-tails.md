@@ -143,7 +143,7 @@ reading owes the same statement. The rewrite is shorter than today's text, so th
 **Files:**
 - Modify: `Tests/PisakaCoreTests/ChromeThemeSourceGatingTests.swift`
 
-- [ ] In the suite header, right after the paragraph claiming comments and string
+- [x] In the suite header, right after the paragraph claiming comments and string
   literals are stripped, add a paragraph naming the exceptions. Follow the
   convention of the other four suites' headers. The paragraph should say that
   three rules read `GitHubSourceGatingTests.strippingComments(_:)`, which removes
@@ -157,13 +157,13 @@ reading owes the same statement. The rewrite is shorter than today's text, so th
 
   Every other rule reads the ordinary scanner. Soften the flat "stripped before
   anything is matched" claim so it no longer contradicts the new paragraph.
-- [ ] In clause (c)'s doc comment, replace "**Clause (c) is the fifth stated
+- [x] In clause (c)'s doc comment, replace "**Clause (c) is the fifth stated
   exception to the stripped reading.**" with wording that does not number itself,
   for example that it is one of the suite's literal-keeping readings named in the
   header. Keep the rest of that paragraph's reasoning.
-- [ ] Verify that `grep -n "fifth stated exception" Tests/PisakaCoreTests/ChromeThemeSourceGatingTests.swift`
+- [x] Verify that `grep -n "fifth stated exception" Tests/PisakaCoreTests/ChromeThemeSourceGatingTests.swift`
   returns nothing.
-- [ ] Run `swift test` and `swiftlint --strict`; both must be clean.
+- [x] Run `swift test` and `swiftlint --strict`; both must be clean.
 
 ### Task 5: Drop the bare count from CLAUDE.md
 
