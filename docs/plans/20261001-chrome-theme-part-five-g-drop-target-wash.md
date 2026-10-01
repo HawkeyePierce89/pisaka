@@ -93,19 +93,19 @@ It does not catch the two button-dimming chains, which is correct. The rule's en
 - Modify: `Sources/Pisaka/ProjectTreeView.swift`
 - Create: `Tests/PisakaAppTests/TreeRowBackgroundTests.swift`
 
-- [ ] Make `TreeRowBackground.role(for:)` return `.dropTargetTint` for `.dropTarget`. Only `.plain` still returns `nil`.
-- [ ] Remove the special case from `color(for:resolving:)`. It returns the state's role where there is one and `Color.clear` otherwise. Both row kinds keep calling this one mapping.
-- [ ] Rewrite both doc comments:
+- [x] Make `TreeRowBackground.role(for:)` return `.dropTargetTint` for `.dropTarget`. Only `.plain` still returns `nil`.
+- [x] Remove the special case from `color(for:resolving:)`. It returns the state's role where there is one and `Color.clear` otherwise. Both row kinds keep calling this one mapping.
+- [x] Rewrite both doc comments:
   - Every state answers with a role or with nothing.
   - `nil` now has only one reason: `.plain` paints nothing.
   - The drop wash's strength now comes from the palette.
   - Remove the "accent at 40 %" and "a wash the closed role set does not name" text, and the stale `color(for:theme:)` reference.
-- [ ] Create `TreeRowBackgroundTests.swift`. It is macOS-gated and uses `@testable import Pisaka`, like its neighbours. Its doc comment says what it pins: the tree's state-to-role mapping, and that the mapping composes no alpha. It also says what it leaves to other suites: the palette's values are `ChromePaletteTests`' business, and the state precedence is Core's (`TreeRowState`'s tests). The suite asserts:
+- [x] Create `TreeRowBackgroundTests.swift`. It is macOS-gated and uses `@testable import Pisaka`, like its neighbours. Its doc comment says what it pins: the tree's state-to-role mapping, and that the mapping composes no alpha. It also says what it leaves to other suites: the palette's values are `ChromePaletteTests`' business, and the state precedence is Core's (`TreeRowState`'s tests). The suite asserts:
   - Over `TreeRowState.allCases`, `role(for:)` returns `nil` exactly for `.plain`. `.dropTarget` maps to `.dropTargetTint`, and `.hover`, `.selectedFocused` and `.selectedUnfocused` keep `hoverTint`, `accentTintStrong` and `selectionInactive`.
   - `color(for:resolving:)` with a recording resolver: for every state that has a role, the resolver is asked exactly that role once and its colour comes back unchanged, with no alpha composed. For `.plain`, the resolver is never asked.
-- [ ] Run `xcodegen generate` so the new file joins the bundle.
-- [ ] Check that `git grep -n 'opacity(0.4)' Sources/` finds nothing.
-- [ ] Run `swift test` and the app-layer bundle; both must pass.
+- [x] Run `xcodegen generate` so the new file joins the bundle.
+- [x] Check that `git grep -n 'opacity(0.4)' Sources/` finds nothing.
+- [x] Run `swift test` and the app-layer bundle; both must pass.
 
 ### Task 4: Rule twenty-nine sees the helper-call form
 
