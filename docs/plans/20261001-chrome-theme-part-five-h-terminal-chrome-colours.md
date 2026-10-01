@@ -99,12 +99,12 @@ Pixels change on purpose: the ground, the default text, the caret and the select
 2. Every entry of the light ANSI array clears 4.4:1 against the light `bgCanvas` by the relative-luminance contrast formula. Each failure message names the entry's index and its measured ratio.
 3. Both ANSI arrays have exactly sixteen entries.
 
-- [ ] Replace the four literal and system colours with the four roles, resolved through `ChromePalette.nsColor(_:in:)` at apply time; keep the caret text as the resolved ground
-- [ ] Remove the dynamic-colour resolver if it is now dead; rewrite the `ThemeKey` doc comment, the file's header comment and the array comments as described
-- [ ] Darken light ANSI 8, 11 and 14 to the stated values and restate the floor against `0xF5F5F7`; make both ANSI arrays internal
-- [ ] Remove the `systemColorsDidChangeNotification` observer and its comments from `TerminalSessionsModel`
-- [ ] Write `TerminalThemeTests` with the three assertions above
-- [ ] Run `xcodegen generate`, the app-layer bundle (`xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' test`) and `swift test`; all must pass before Task 2
+- [x] Replace the four literal and system colours with the four roles, resolved through `ChromePalette.nsColor(_:in:)` at apply time; keep the caret text as the resolved ground
+- [x] Remove the dynamic-colour resolver if it is now dead; rewrite the `ThemeKey` doc comment, the file's header comment and the array comments as described
+- [x] Darken light ANSI 8, 11 and 14 to the stated values and restate the floor against `0xF5F5F7`; make both ANSI arrays internal
+- [x] Remove the `systemColorsDidChangeNotification` observer and its comments from `TerminalSessionsModel`
+- [x] Write `TerminalThemeTests` with the three assertions above
+- [x] Run `xcodegen generate`, the app-layer bundle (`xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' test`) and `swift test`; all must pass before Task 2
 
 ### Task 2: Add rule forty-four to pin the narrowed exemption
 

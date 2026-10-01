@@ -49,37 +49,6 @@ final class TerminalSessionsModel: ObservableObject {
     /// that changes nothing.
     private var fontSize: Double?
 
-    /// Observer for `NSColor.systemColorsDidChangeNotification`, removed on deinit.
-    private var systemColorsObserver: NSObjectProtocol?
-
-    /// Subscribes to system color changes so the terminal keeps following the user's
-    /// **accent color**, which the caret and selection are derived from.
-    ///
-    /// The panel host's `viewDidChangeEffectiveAppearance` hook covers a light/dark
-    /// switch, but an accent change leaves the effective appearance untouched and so
-    /// fires no such callback — without this the sessions would keep the old accent
-    /// until the panel happened to be remounted. Re-applying is safe to do on every
-    /// notification: each session compares the resolved `TerminalTheme.ThemeKey` and
-    /// ignores a request that changes nothing (see `TerminalSession.applyTheme`), so
-    /// an unrelated system color change never resets colors the terminal itself set
-    /// through OSC 4/10/11/12.
-    init() {
-        systemColorsObserver = NotificationCenter.default.addObserver(
-            forName: NSColor.systemColorsDidChangeNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            guard let self, let appearance = self.appearance else { return }
-            self.applyTheme(for: appearance)
-        }
-    }
-
-    deinit {
-        if let systemColorsObserver {
-            NotificationCenter.default.removeObserver(systemColorsObserver)
-        }
-    }
-
     /// The active session, or `nil` when there are none.
     var activeSession: TerminalSession? {
         guard let activeID else { return nil }
@@ -92,8 +61,7 @@ final class TerminalSessionsModel: ObservableObject {
     /// session's view is out of the hierarchy and gets no appearance callback of
     /// its own).
     ///
-    /// Idempotent, so the panel host (and the accent-color observer above) can call
-    /// it on mount and on every appearance change without tracking whether the
+    /// Idempotent, so the panel host can call it on mount and on every appearance change without tracking whether the
     /// colors actually changed: each session skips a request whose resolved colors
     /// it already carries, which is what keeps a tab switch from resetting colors
     /// the terminal itself set through OSC 4/10/11 (see

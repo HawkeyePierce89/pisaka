@@ -1,63 +1,49 @@
 #if os(macOS)
 import AppKit
+import PisakaCore
 import SwiftTerm
 
 /// The embedded terminal's single built-in light/dark color table.
 ///
 /// SwiftTerm 1.5.0 starts every view from its own hardcoded defaults (black
 /// background, `#8A8A8A` text) and never reacts to the appearance, so the
-/// terminal stayed dark in a light app. This type holds the two palettes and
-/// applies one to a live `TerminalView`, mirroring `SyntaxTheme`: a built-in
-/// (not user-configurable) table that lives in the view layer so `PisakaCore`
-/// stays color-free.
+/// terminal stayed dark in a light app. This type applies one theme to a live
+/// `TerminalView`: a built-in (not user-configurable) table that lives in the
+/// view layer so `PisakaCore` stays color-free.
 ///
-/// Unlike `SyntaxTheme`, which hands dynamic `NSColor`s to AppKit and lets it
-/// resolve them at draw time, the palette is resolved *at apply time*: SwiftTerm
-/// stores its own `SwiftTerm.Color` structs (and plain `NSColor`s for the caret
-/// and the selection) and never re-resolves them, so the caller passes the
-/// appearance to resolve under.
+/// Only the two ANSI-16 arrays are spelled here — they are the terminal's own
+/// vocabulary, a protocol's numbering rather than chrome. The four colors around
+/// them are chrome and are read from `ChromePalette` as roles: the ground is
+/// `bgCanvas`, the default text `textPrimary`, the caret `accent` and the
+/// selection `accentTintStrong`. None of them follows the system accent.
+///
+/// Unlike the rest of the AppKit chrome, which hands dynamic `NSColor`s to AppKit
+/// and lets it resolve them at draw time, the colors are resolved *at apply time*
+/// through `ChromePalette.nsColor(_:in:)`: SwiftTerm stores its own
+/// `SwiftTerm.Color` structs (and plain `NSColor`s for the caret and the
+/// selection) and never re-resolves them, so the caller passes the appearance to
+/// resolve under and re-applies on every appearance change.
 ///
 /// The ANSI-16 palette is part of the theme rather than a follow-up: SwiftTerm's
 /// sixteen defaults are tuned for its black background and several of them are
-/// unreadable on a white one (bright white `#E5E5E5` is 1.26:1, bright yellow
-/// 1.35:1, bright cyan 1.57:1, ANSI 7 `#BFBFBF` 1.84:1 — and since
+/// unreadable on a light one (bright white `#E5E5E5` is 1.26:1 on white, bright
+/// yellow 1.35:1, bright cyan 1.57:1, ANSI 7 `#BFBFBF` 1.84:1 — and since
 /// `useBrightColors` defaults to `true`, *bold* text on colors 0–6 is remapped
 /// onto those brights, so ordinary prompt/`ls`/`npm` output would vanish). The
-/// dark theme keeps SwiftTerm's values verbatim; the light theme installs a
+/// dark theme installs SwiftTerm's values verbatim; the light theme installs a
 /// darkened set. What stays out of scope is a *user-configurable* palette.
 enum TerminalTheme {
-    /// The colors one theme needs. The four `NSColor`s may be dynamic system
-    /// colors; `apply(to:appearance:)` resolves them under the target appearance.
-    /// `ansi` is the 16-entry ANSI palette, already in SwiftTerm's own color type
-    /// (these are fixed terminal colors, never appearance-dependent).
-    struct Palette {
-        let background: NSColor
-        let foreground: NSColor
-        let caret: NSColor
-        let selection: NSColor
-        let ansi: [SwiftTerm.Color]
+    /// The chrome appearance a hosting `NSAppearance` resolves the four roles
+    /// under, matched against the two base appearances so a high-contrast or
+    /// accessibility variant still resolves to light/dark.
+    static func chromeAppearance(for appearance: NSAppearance) -> ChromeAppearance {
+        appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? .dark : .light
     }
 
-    /// White background with near-black text, matching a light `NSTextView`.
-    static let light = Palette(
-        background: NSColor(srgbRed: 1.0, green: 1.0, blue: 1.0, alpha: 1.0),
-        foreground: NSColor(srgbRed: 0x1E / 255.0, green: 0x1E / 255.0, blue: 0x1E / 255.0, alpha: 1.0),
-        caret: .selectedContentBackgroundColor,
-        selection: .selectedTextBackgroundColor,
-        ansi: lightANSIColors
-    )
-
-    /// SwiftTerm's own defaults — black background and its exact
-    /// `Color.defaultForeground` (35389/65535 per channel, i.e. `#8A8A8A`
-    /// rounded to 8 bits) — so the dark theme looks exactly as the terminal did
-    /// before this feature.
-    static let dark = Palette(
-        background: NSColor(srgbRed: 0.0, green: 0.0, blue: 0.0, alpha: 1.0),
-        foreground: NSColor(srgbRed: 35389 / 65535.0, green: 35389 / 65535.0, blue: 35389 / 65535.0, alpha: 1.0),
-        caret: .selectedContentBackgroundColor,
-        selection: .selectedTextBackgroundColor,
-        ansi: darkANSIColors
-    )
+    /// The ANSI-16 set that goes with a chrome appearance.
+    static func ansiColors(for appearance: ChromeAppearance) -> [SwiftTerm.Color] {
+        appearance == .dark ? darkANSIColors : lightANSIColors
+    }
 
     /// An 8-bit-per-channel color as a `SwiftTerm.Color`. SwiftTerm's own
     /// `init(red8:green8:blue8:)` is module-internal, so we reproduce its ×257
@@ -66,10 +52,11 @@ enum TerminalTheme {
         SwiftTerm.Color(red: red * 257, green: green * 257, blue: blue * 257)
     }
 
-    /// SwiftTerm's `Color.defaultInstalledColors`, spelled out here so the dark
-    /// theme reinstalls exactly what the view started with (installing is
-    /// unconditional, so switching dark → light → dark must restore them).
-    private static let darkANSIColors: [SwiftTerm.Color] = [
+    /// SwiftTerm's `Color.defaultInstalledColors`, verbatim: it is the terminal's
+    /// own vocabulary and the one thing this file still spells for itself
+    /// (installing is unconditional, so switching dark → light → dark must
+    /// restore exactly these).
+    static let darkANSIColors: [SwiftTerm.Color] = [
         rgb8(0, 0, 0),
         rgb8(153, 0, 1),
         rgb8(0, 166, 3),
@@ -88,11 +75,12 @@ enum TerminalTheme {
         rgb8(229, 229, 229),
     ]
 
-    /// The light theme's ANSI-16, darkened so every entry clears 4.4:1 against
-    /// the white background (SwiftTerm's own brights sit at 1.3–1.9:1 there).
-    /// "Bright" reads as *more saturated* rather than lighter, which is the only
-    /// direction that stays legible on a light background.
-    private static let lightANSIColors: [SwiftTerm.Color] = [
+    /// The light theme's ANSI-16, darkened so every entry clears at least 4.5:1
+    /// against the light ground, `bgCanvas`'s `0xF5F5F7` (SwiftTerm's own brights
+    /// sit at 1.3–1.9:1 on a light ground). "Bright" reads as *more saturated*
+    /// rather than lighter, which is the only direction that stays legible on a
+    /// light background.
+    static let lightANSIColors: [SwiftTerm.Color] = [
         rgb8(0x00, 0x00, 0x00),
         rgb8(0xB0, 0x1B, 0x1B),
         rgb8(0x0B, 0x7A, 0x28),
@@ -101,34 +89,23 @@ enum TerminalTheme {
         rgb8(0x9A, 0x22, 0xA8),
         rgb8(0x00, 0x70, 0x7F),
         rgb8(0x4D, 0x4D, 0x4D),
-        rgb8(0x75, 0x75, 0x75),
+        rgb8(0x70, 0x70, 0x70),
         rgb8(0xC7, 0x30, 0x1E),
         rgb8(0x1F, 0x7A, 0x33),
-        rgb8(0x9A, 0x70, 0x00),
+        rgb8(0x92, 0x6A, 0x00),
         rgb8(0x2E, 0x5F, 0xD0),
         rgb8(0xA8, 0x3B, 0xB5),
-        rgb8(0x00, 0x80, 0x8F),
+        rgb8(0x00, 0x7C, 0x8B),
         rgb8(0x1E, 0x1E, 0x1E),
     ]
 
-    /// The palette for an appearance, matched against the two base appearances
-    /// so a high-contrast or accessibility variant still resolves to light/dark.
-    static func palette(for appearance: NSAppearance) -> Palette {
-        appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? dark : light
-    }
-
     /// A fingerprint of everything `apply(to:appearance:)` would install for an
-    /// appearance: the four resolved colors as 16-bit sRGB components.
+    /// appearance: the four resolved colors as 16-bit sRGB components, in the order
+    /// ground, text, caret, selection.
     ///
     /// This is the key `TerminalSession` compares to decide whether a re-apply is
-    /// needed, and it is deliberately *not* the `NSAppearance.Name`. Two of the four
-    /// colors are the semantic `.selectedContentBackgroundColor` /
-    /// `.selectedTextBackgroundColor`, which follow the user's **accent color** — a
-    /// preference that changes them without changing the appearance name, so a
-    /// name-keyed guard would leave every live session on the old accent. The other
-    /// two are the fixed light/dark background and foreground, which differ between
-    /// the two palettes (white/black), so they also encode the palette choice and
-    /// hence the ANSI-16 set that goes with it — the key covers the whole apply.
+    /// needed. The ground differs between the two appearances, so it also encodes
+    /// the ANSI-16 set that goes with it — the key covers the whole apply.
     ///
     /// Comparing resolved *components* rather than the `NSColor`s themselves keeps
     /// the guard deterministic: a false negative here would silently reinstate the
@@ -137,10 +114,10 @@ enum TerminalTheme {
         let colors: [UInt16]
     }
 
-    /// The `ThemeKey` for `appearance` — resolved through the same palette choice
-    /// and the same dynamic-color resolution `apply(to:appearance:)` uses.
+    /// The `ThemeKey` for `appearance` — resolved through the same appearance
+    /// match and the same roles `apply(to:appearance:)` uses.
     static func key(for appearance: NSAppearance) -> ThemeKey {
-        let colors = resolvedColors(palette(for: appearance), in: appearance)
+        let colors = resolvedColors(in: chromeAppearance(for: appearance))
         return ThemeKey(
             colors: [colors.background, colors.foreground, colors.caret, colors.selection]
                 .flatMap(components(of:))
@@ -156,8 +133,8 @@ enum TerminalTheme {
     /// is why the caller (`TerminalSession.applyTheme(for:)`) is the one that skips a
     /// re-apply for an unchanged `ThemeKey` rather than calling in unconditionally.
     static func apply(to view: TerminalView, appearance: NSAppearance) {
-        let palette = palette(for: appearance)
-        let colors = resolvedColors(palette, in: appearance)
+        let chrome = chromeAppearance(for: appearance)
+        let colors = resolvedColors(in: chrome)
         let background = colors.background
         let foreground = colors.foreground
 
@@ -174,18 +151,16 @@ enum TerminalTheme {
         // ANSI palette goes in through the same public surface as the two default
         // colors. Unconditional in both directions: dark reinstalls SwiftTerm's
         // own values, so switching back restores exactly what the view started with.
-        view.installColors(palette.ansi)
+        view.installColors(ansiColors(for: chrome))
         view.setBackgroundColor(source: terminal, color: terminalColor(background))
         view.setForegroundColor(source: terminal, color: terminalColor(foreground))
 
         view.caretColor = colors.caret
-        // Text under a block cursor is drawn in this color, so the palette
-        // background keeps it readable against the caret. This only works because
-        // the caret is `.selectedContentBackgroundColor` (a saturated accent blue,
-        // #0064E1/#0059D1) rather than `.selectedControlColor` — the latter is the
-        // pale *selection* tint (#B3D7FF in light), against which a white glyph
-        // would sit at 1.5:1, and it is byte-identical to the selection color, so
-        // the caret and a selected region would also be indistinguishable.
+        // Text under a block cursor is drawn in the ground color, which keeps it
+        // readable against the caret. This only works because the caret is the
+        // saturated `accent` rather than the pale `accentTintStrong` wash the
+        // selection uses — against the wash a ground-colored glyph would vanish,
+        // and the caret and a selected region would be indistinguishable.
         view.caretTextColor = background
         view.selectedTextBackgroundColor = colors.selection
 
@@ -195,35 +170,18 @@ enum TerminalTheme {
         view.layer?.backgroundColor = background.cgColor
     }
 
-    /// The palette's four appearance-dependent colors, all resolved under
-    /// `appearance`. Shared by `apply(to:appearance:)` and `key(for:)` so the
-    /// guard can never judge a different set of colors than the one applied.
+    /// The four chrome roles, resolved concretely for `appearance`. Shared by
+    /// `apply(to:appearance:)` and `key(for:)` so the guard can never judge a
+    /// different set of colors than the one applied.
     private static func resolvedColors(
-        _ palette: Palette,
-        in appearance: NSAppearance
+        in appearance: ChromeAppearance
     ) -> (background: NSColor, foreground: NSColor, caret: NSColor, selection: NSColor) {
         (
-            background: resolved(palette.background, in: appearance),
-            foreground: resolved(palette.foreground, in: appearance),
-            caret: resolved(palette.caret, in: appearance),
-            selection: resolved(palette.selection, in: appearance)
+            background: ChromePalette.nsColor(.bgCanvas, in: appearance),
+            foreground: ChromePalette.nsColor(.textPrimary, in: appearance),
+            caret: ChromePalette.nsColor(.accent, in: appearance),
+            selection: ChromePalette.nsColor(.accentTintStrong, in: appearance)
         )
-    }
-
-    /// Resolves a possibly-dynamic `NSColor` (`.selectedControlColor` and
-    /// friends are appearance-dependent catalog colors) to concrete components
-    /// *under `appearance`*.
-    ///
-    /// Without the explicit drawing appearance, `usingColorSpace(_:)` resolves
-    /// against the current thread's appearance — which is the app's, not the
-    /// hosting view's — so a window forced light by `ThemePreference` while the
-    /// system is dark would hand SwiftTerm the dark variant.
-    private static func resolved(_ color: NSColor, in appearance: NSAppearance) -> NSColor {
-        var result = color
-        appearance.performAsCurrentDrawingAppearance {
-            result = color.usingColorSpace(.sRGB) ?? color
-        }
-        return result
     }
 
     /// `NSColor` → `SwiftTerm.Color` (16-bit components). SwiftTerm's own
@@ -250,8 +208,8 @@ enum TerminalTheme {
     /// values outside 0…1, which would trap the `UInt16` conversion. The NaN
     /// branch is separate rather than folded into the clamp: `min`/`max`
     /// *propagate* NaN (`max(.nan, 0)` is `.nan`), so a clamp alone would still
-    /// trap. Rounding rather than truncating is what makes the dark palette
-    /// reproduce SwiftTerm's `defaultForeground` exactly (35389, not 35388).
+    /// trap. Rounding rather than truncating keeps an 8-bit palette value on the
+    /// exact ×257 point of the 16-bit scale.
     private static func component(_ value: CGFloat) -> UInt16 {
         guard value.isFinite else { return 0 }
         return UInt16((min(max(value, 0), 1) * 65535).rounded())
