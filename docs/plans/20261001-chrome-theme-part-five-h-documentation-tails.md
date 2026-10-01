@@ -170,7 +170,7 @@ reading owes the same statement. The rewrite is shorter than today's text, so th
 **Files:**
 - Modify: `CLAUDE.md`
 
-- [ ] Rewrite the second Tests-conventions bullet. Keep its first clause: a rule
+- [x] Rewrite the second Tests-conventions bullet. Keep its first clause: a rule
   whose subject is a literal reads a scanner that keeps literals, or it deletes
   the very text it checks. Replace "There are **five such exceptions** today: … A
   sixth needs the same statement somewhere a reader will find it." with the rule
@@ -179,10 +179,10 @@ reading owes the same statement. The rewrite is shorter than today's text, so th
   (`ReleaseWorkflowTests`' build-output-root rules state theirs in
   `release.yml`). That inventory is the record, and a new literal-keeping reading
   owes the same statement. Use no number.
-- [ ] Verify that `grep -n "five such exceptions" CLAUDE.md` returns nothing and
+- [x] Verify that `grep -n "five such exceptions" CLAUDE.md` returns nothing and
   that no other bare count of literal-keeping exceptions remains in `CLAUDE.md`.
   Confirm the file got shorter, not longer.
-- [ ] Run `swift test`; it must be green, and `LintConfigurationTests` must stay
+- [x] Run `swift test`; it must be green, and `LintConfigurationTests` must stay
   green including the size bound.
 
 ### Task 6: Verify acceptance criteria
