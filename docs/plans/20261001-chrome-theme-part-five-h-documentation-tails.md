@@ -129,14 +129,14 @@ reading owes the same statement. The rewrite is shorter than today's text, so th
 **Files:**
 - Modify: `docs/architecture/core-theme.md`
 
-- [ ] In the "What is still waiting" paragraph, replace "are as poor on
+- [x] In the "What is still waiting" paragraph, replace "are as poor on
   `0x1E1F22` as they were on black" with a *worse* verdict. It should carry the
   same sense as the part five (h) entry (~line 2218) and `app-terminal.md`
   (~line 76): poorer on the canvas than on the black they were tuned for. Do not
   restate or recompute any ratio beyond the three already in that sentence.
-- [ ] Verify that `grep -n "as poor" docs/architecture/core-theme.md` returns
+- [x] Verify that `grep -n "as poor" docs/architecture/core-theme.md` returns
   nothing.
-- [ ] Run `swift test`; it must be green.
+- [x] Run `swift test`; it must be green.
 
 ### Task 4: State the theme suite's literal-keeping rules where a reader finds them
 

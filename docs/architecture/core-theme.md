@@ -2264,8 +2264,8 @@ glyph** and **changed-line text tint** (part five (b)'s departures six and
 seven), all open design questions. The terminal's own palette is **no longer
 deferred** — part five (h) moved its four chrome colours onto the roles — but
 one item takes its place: **tuning the dark ANSI-16 set**, whose weakest
-entries (ANSI 4 at 1.3:1, ANSI 1 at 1.8:1, ANSI 12 at 1.9:1) are as poor on
-`0x1E1F22` as they were on black. Each follows the six-step guide at the end of
+entries (ANSI 4 at 1.3:1, ANSI 1 at 1.8:1, ANSI 12 at 1.9:1) are worse on
+`0x1E1F22` than on the black they were tuned for. Each follows the six-step guide at the end of
 this document, on its own. Two roles remain unspent — `currentLine` and
 `bracketMatch`, both code zone — after fifty-seven surfaces, the same two roles
 `ChromeColorRole.swift`'s own doc comment names.
