@@ -311,7 +311,7 @@ because nothing else states them.
   AppKit asks for a **dynamic** colour — which is why no AppKit chrome view caches a resolved
   colour. A **reader**: no writer gate either way, and it writes nothing.
   `ChromeThemeSourceGatingTests` pins which files obey the rule (sixty, by set
-  equality) and its forty-three rules, inventoried in that suite's own header and
+  equality) and its forty-four rules, inventoried in that suite's own header and
   `core-theme.md`'s canonical list; **four files are exempt because they are not chrome**. The macOS colour sweep
   is closed in one bounded sense — every macOS chrome surface draws from the roles — and the
   theme is **not thereby finished**: the open questions, the swept surfaces, the unspent roles,

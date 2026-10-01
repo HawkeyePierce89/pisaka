@@ -2218,7 +2218,7 @@ although it is an editing affordance rather than a row: an inline draft
 for. `TabStripView.swift` covers `TabStatusMark` too, the slot view the two
 orientations share, which is why that extraction did not add a seventh file.
 
-The forty-three rules, each invisible to the compiler:
+The forty-four rules, each invisible to the compiler:
 
 1. **No gated view names a system semantic colour.** A closed forbidden-token
    list — AppKit's semantic set (`labelColor`, `separatorColor`,
@@ -2248,7 +2248,9 @@ The forty-three rules, each invisible to the compiler:
    belongs to the *code* zone, which is the editor's own theme, not the chrome's
    design system), `TerminalTheme.swift` (an ANSI-16 palette is a protocol's
    vocabulary — the numbers mean what the escape sequences say, and a role cannot
-   stand in for one), `FileIcon.swift` (a Core semantic token iOS still
+   stand in for one; since part five (h) that exemption covers its two
+   sixteen-entry arrays and nothing else, the file's four chrome colours being
+   roles pinned by rule forty-four), `FileIcon.swift` (a Core semantic token iOS still
    paints, so it cannot move behind a macOS-only palette) and, since part four
    (b), `CommitGraphPalette.swift` (a lane colour is an identity token — "this
    line is the same branch as that one" — not a chrome meaning; its eight hues
@@ -3028,6 +3030,27 @@ The forty-three rules, each invisible to the compiler:
     `PlatformColor.swift`'s sRGB initializer) is removed before the hue check,
     since it names no colour. Part five (d) and part five (e) each made the
     claim and neither was true; this is the measurement that would have said so.
+44. **The terminal's exemption shelters its two ANSI arrays and nothing else.**
+    `TerminalTheme.swift` stays in the four exemptions, but the exemption's
+    reason is true of its `darkANSIColors` and `lightANSIColors` alone. With
+    both array bodies carved out, the rest of the file (ordinary scanner) spells
+    no `0x` literal of any width — stricter than rule two's six digits, on
+    purpose — constructs no `NSColor` at all and names no token of rule one's
+    semantic list; it must name each of `.bgCanvas`, `.textPrimary`, `.accent`
+    and `.accentTintStrong`; and each array holds exactly sixteen top-level
+    `rgb8(` entries. The presence check is what catches a restored
+    `.selectedTextBackgroundColor` selection: that token is also SwiftTerm's
+    view property, so it is deliberately not on rule one's list, and restoring
+    it removes `.accentTintStrong` from the file. The arrays are found through
+    `matchedBracketBodyRange(after:in:)`, beside the brace-matching helper,
+    because an array literal has no braces and the first `{` after either
+    declaration belongs to a later function body; it searches for the `[` after
+    the `=`, past the type annotation's own. Either array going missing fails
+    loudly, naming the file and the declaration. Verified by mutation: the
+    caret put back to `NSColor.selectedContentBackgroundColor` turned it red
+    with "TerminalTheme.swift names a system colour outside its ANSI arrays:
+    selectedContentBackgroundColor" and "no longer names the role .accent",
+    green again once restored.
 
 Plus a **self-check** in the suite's own idiom: every gated file must actually
 *name* a `ChromeColorRole`, or the checks above have gone vacuous — with nine

@@ -205,6 +205,12 @@ import XCTest
 ///   set equality and named in the failure, and while that set is non-empty no
 ///   document under `docs/` (plans aside) or `CLAUDE.md` may say the sweep is
 ///   closed, finished or complete.
+/// - **The terminal's exemption shelters its two ANSI arrays and nothing else.**
+///   `TerminalTheme.swift` is exempt because an ANSI-16 palette is a protocol's
+///   vocabulary, which is true of its two arrays alone; outside them the file
+///   spells no hex literal, constructs no `NSColor` and names no system colour,
+///   and it names its four chrome roles. A colour slipped in beside the arrays
+///   compiles and draws, sheltered by a reason that does not cover it.
 ///
 /// What a rule here may do, and nothing more: pin a set by equality, assert the
 /// presence or absence of a token through `containsToken`, or take a
@@ -505,7 +511,9 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     ///   zone, which is the editor's own theme, not the chrome's design system.
     /// - `TerminalTheme.swift` — an ANSI-16 palette is a protocol's vocabulary:
     ///   the numbers mean what the escape sequences say they mean, and a role
-    ///   cannot stand in for one.
+    ///   cannot stand in for one. The exemption covers the two sixteen-entry
+    ///   arrays and nothing else: the file's four chrome colours — ground, text,
+    ///   caret, selection — are roles, pinned by rule forty-four.
     /// - `FileIcon.swift` — a Core semantic token that iOS still paints, so it
     ///   cannot move behind a macOS-only palette.
     /// - `CommitGraphPalette.swift` — a lane colour is an identity token, not a
@@ -731,6 +739,33 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         while index < code.endIndex {
             if code[index] == "{" { depth += 1 }
             if code[index] == "}" {
+                depth -= 1
+                if depth == 0 { return code.index(after: open)..<index }
+            }
+            index = code.index(after: index)
+        }
+        return nil
+    }
+
+    /// The bracket-matched body of the array literal assigned in `declaration`:
+    /// the range between the `[` opening the literal and the `]` closing it.
+    ///
+    /// Beside `matchedBodyRange(after:in:)` rather than folded into it, because
+    /// an array literal has no braces of its own: the first `{` after
+    /// `static let darkANSIColors` belongs to a later function body, so the
+    /// brace-matching helper would hand back the wrong region. The search for the
+    /// `[` starts after the `=`, since the type annotation (`[SwiftTerm.Color]`)
+    /// spells a `[` of its own. `nil` when the declaration, the `=`, the `[` or
+    /// its matching `]` is not found.
+    static func matchedBracketBodyRange(after declaration: String, in code: String) -> Range<String.Index>? {
+        guard let start = code.range(of: declaration) else { return nil }
+        guard let equals = code[start.upperBound...].firstIndex(of: "=") else { return nil }
+        guard let open = code[code.index(after: equals)...].firstIndex(of: "[") else { return nil }
+        var depth = 0
+        var index = open
+        while index < code.endIndex {
+            if code[index] == "[" { depth += 1 }
+            if code[index] == "]" {
                 depth -= 1
                 if depth == 0 { return code.index(after: open)..<index }
             }
@@ -4978,6 +5013,109 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         return try [document("CLAUDE.md")] + markdown
     }
 
+    // MARK: - Rule forty-four: the terminal's exemption shelters its two ANSI arrays and nothing else
+
+    /// The four roles the terminal's chrome colours are read as — ground, default
+    /// text, caret, selection — spelled leading-dot, the way the file passes them
+    /// to `ChromePalette.nsColor(_:in:)`.
+    private static let terminalChromeRoles = [".bgCanvas", ".textPrimary", ".accent", ".accentTintStrong"]
+
+    /// The two ANSI-16 declarations whose bodies rule three's exemption still
+    /// covers.
+    private static let terminalANSIDeclarations = ["static let darkANSIColors", "static let lightANSIColors"]
+
+    /// Rule forty-four. `TerminalTheme.swift` stays in `colorExemptions`, but the
+    /// exemption's reason — an ANSI-16 palette is a protocol's vocabulary — is
+    /// true of its two sixteen-entry arrays and of nothing else. With both
+    /// bracket-matched bodies carved out, the rest of the file must spell no `0x`
+    /// literal of any width (stricter than rule two's six-digit pattern, on
+    /// purpose), construct no `NSColor` at all, and name no token of
+    /// `forbiddenSemanticColors`; and it must name each of the four roles. Inside
+    /// each array there are exactly sixteen top-level `rgb8(` entries.
+    ///
+    /// The presence check is what catches a restored `.selectedTextBackgroundColor`
+    /// selection. That token is also the name of SwiftTerm's view property the
+    /// file assigns, so it is deliberately not on rule one's list; restoring it
+    /// removes `.accentTintStrong` from the file instead, which this rule sees.
+    ///
+    /// The arrays are found through `matchedBracketBodyRange(after:in:)`, not
+    /// `matchedBodyRange(after:in:)`: an array literal has no braces, and the
+    /// brace-matching helper would carve out a later function body. Either array
+    /// going missing fails loudly rather than leaving the whole file as the
+    /// remainder — or, worse, an empty one.
+    ///
+    /// Verified live by mutation, not assumed: the caret put back to
+    /// `NSColor.selectedContentBackgroundColor` in `TerminalTheme.swift` turned
+    /// this test red with "TerminalTheme.swift names a system colour outside its
+    /// ANSI arrays: selectedContentBackgroundColor" (and, the caret's `accent`
+    /// gone, "TerminalTheme.swift no longer names the role .accent"), and went
+    /// green again once restored.
+    func testTheTerminalsExemptionSheltersItsTwoANSIArraysAndNothingElse() throws {
+        let name = "TerminalTheme.swift"
+        let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(Self.source(named: name)))
+
+        var arrays: [Range<String.Index>] = []
+        for declaration in Self.terminalANSIDeclarations {
+            guard let body = Self.matchedBracketBodyRange(after: declaration, in: code) else {
+                XCTFail("\(name): `\(declaration)` or its bracket-matched array literal is gone — re-point this rule")
+                continue
+            }
+            arrays.append(body)
+            XCTAssertEqual(
+                Self.topLevelCallCount("rgb8", in: code[body]), 16,
+                "\(name): `\(declaration)` must hold exactly sixteen rgb8( entries — an ANSI-16 set has sixteen"
+            )
+        }
+        guard arrays.count == Self.terminalANSIDeclarations.count else { return }
+
+        var remainder = code
+        for body in arrays.sorted(by: { $0.lowerBound > $1.lowerBound }) {
+            remainder.replaceSubrange(body, with: "")
+        }
+
+        let hex = try NSRegularExpression(pattern: "(?<![A-Za-z0-9_])0x[0-9A-Fa-f]")
+        XCTAssertNil(
+            hex.firstMatch(in: remainder, range: NSRange(remainder.startIndex..., in: remainder)),
+            "\(name) spells a hex literal outside its ANSI arrays — a chrome colour is a role, read from the palette"
+        )
+        let construction = try NSRegularExpression(pattern: "(?<![A-Za-z0-9_])NSColor\\s*\\(")
+        XCTAssertNil(
+            construction.firstMatch(in: remainder, range: NSRange(remainder.startIndex..., in: remainder)),
+            "\(name) constructs an NSColor outside its ANSI arrays — a chrome colour is a role, read from the palette"
+        )
+        for token in Self.forbiddenSemanticColors where LSPSourceGatingTests.containsToken(token, in: remainder) {
+            XCTFail("\(name) names a system colour outside its ANSI arrays: \(token)")
+        }
+        for role in Self.terminalChromeRoles {
+            XCTAssertTrue(
+                LSPSourceGatingTests.containsToken(role, in: remainder),
+                "\(name) no longer names the role \(role) — its four chrome colours are roles"
+            )
+        }
+    }
+
+    /// Calls to `callee` at parenthesis depth zero within `text`, so a nested
+    /// call inside an entry's own arguments is not counted as an entry.
+    private static func topLevelCallCount(_ callee: String, in text: Substring) -> Int {
+        let characters = Array(text)
+        let needle = Array(callee + "(")
+        var depth = 0
+        var count = 0
+        var index = 0
+        while index < characters.count {
+            let preceded = index > 0
+                && (characters[index - 1].isLetter || characters[index - 1].isNumber || characters[index - 1] == "_")
+            if depth == 0, !preceded, index + needle.count <= characters.count,
+               Array(characters[index..<(index + needle.count)]) == needle {
+                count += 1
+            }
+            if characters[index] == "(" { depth += 1 }
+            if characters[index] == ")" { depth -= 1 }
+            index += 1
+        }
+        return count
+    }
+
     // MARK: - Self-check
 
     /// Every gated file draws with roles and must therefore name one — with two
@@ -5071,7 +5209,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         28: "twenty-eight", 29: "twenty-nine", 30: "thirty", 31: "thirty-one",
         32: "thirty-two", 33: "thirty-three", 34: "thirty-four", 35: "thirty-five",
         36: "thirty-six", 37: "thirty-seven", 38: "thirty-eight", 39: "thirty-nine",
-        40: "forty", 41: "forty-one", 42: "forty-two", 43: "forty-three",
+        40: "forty", 41: "forty-one", 42: "forty-two", 43: "forty-three", 44: "forty-four",
     ]
 
     func testBothSummariesSpellTheSuitesOwnRuleCount() throws {

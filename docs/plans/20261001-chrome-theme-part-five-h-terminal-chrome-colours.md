@@ -151,13 +151,13 @@ Pixels change on purpose: the ground, the default text, the caret and the select
   - `core-theme.md`'s canonical list opens "The forty-four rules, each invisible to the compiler:" and gains rule forty-four's entry, including the mutation check. Rule three's entry there gets the narrowed exemption text.
   - `CLAUDE.md` says "and its forty-four rules".
 
-- [ ] Narrow rule three's `TerminalTheme.swift` bullet in the doc comment of `colorExemptions`
-- [ ] Add `matchedBracketBodyRange(after:in:)` beside `matchedBodyRange(after:in:)`, with the contract above
-- [ ] Add rule forty-four (marker, doc comment, test) with the checks outside and inside the arrays described above, failing loudly when either range is not found
-- [ ] Run the live mutation check, record its outcome in the rule's doc comment, and confirm the tree is restored
-- [ ] Add `44: "forty-four"` to `spelled` and the header-inventory bullet in marker order
-- [ ] Update `core-theme.md`'s canonical-list opening, rule three's entry and the new rule forty-four entry; update `CLAUDE.md`'s count word
-- [ ] Run `swift test`; it must pass before Task 3
+- [x] Narrow rule three's `TerminalTheme.swift` bullet in the doc comment of `colorExemptions`
+- [x] Add `matchedBracketBodyRange(after:in:)` beside `matchedBodyRange(after:in:)`, with the contract above
+- [x] Add rule forty-four (marker, doc comment, test) with the checks outside and inside the arrays described above, failing loudly when either range is not found
+- [x] Run the live mutation check, record its outcome in the rule's doc comment, and confirm the tree is restored
+- [x] Add `44: "forty-four"` to `spelled` and the header-inventory bullet in marker order
+- [x] Update `core-theme.md`'s canonical-list opening, rule three's entry and the new rule forty-four entry; update `CLAUDE.md`'s count word
+- [x] Run `swift test`; it must pass before Task 3
 
 ### Task 3: Update the documents to say what is now true
 
