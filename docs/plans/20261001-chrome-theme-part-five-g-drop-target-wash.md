@@ -136,7 +136,7 @@ It does not catch the two button-dimming chains, which is correct. The rule's en
 - Modify: `docs/architecture/app-window.md`
 - Modify: `CLAUDE.md`
 
-- [ ] Update these parts of `core-theme.md`:
+- [x] Update these parts of `core-theme.md`:
   - **Core section:** change "twenty-one" to twenty-two, and add `dropTargetTint` to the canonical role list in the row-and-line-states group.
   - **The closed-set paragraph and the sweep guide's "when a surface seems to need a role that does not exist, it does not":** rewrite both in the present tense. The set is closed against call sites. It grew once, in part five (g), because the design states a value the table did not carry. A role whose only justification is a call site is still a case for the refusal.
   - **The project-tree-rows passage in "The surfaces restyled so far":** the drop target now reads `dropTargetTint` through the one mapping, which composes no alpha and is pinned by `TreeRowBackgroundTests`.
@@ -150,13 +150,13 @@ It does not catch the two button-dimming chains, which is correct. The rule's en
     - the mutation check;
     - the gap that remains.
   - **The earlier parts' sentences that say "`ChromeColorRole` stays at twenty-one":** leave them as written.
-- [ ] In `app-window.md`, rewrite the project-tree entry's "gains none" sentence. The drop target now maps to `dropTargetTint` through `TreeRowBackground`, which composes no alpha and is pinned by `TreeRowBackgroundTests`.
-- [ ] In `CLAUDE.md`, change "21-case" to 22-case. Keep the claim only and stay under the 60,000-character ceiling.
-- [ ] Run the acceptance greps:
+- [x] In `app-window.md`, rewrite the project-tree entry's "gains none" sentence. The drop target now maps to `dropTargetTint` through `TreeRowBackground`, which composes no alpha and is pinned by `TreeRowBackgroundTests`.
+- [x] In `CLAUDE.md`, change "21-case" to 22-case. Keep the claim only and stay under the 60,000-character ceiling.
+- [x] Run the acceptance greps:
   - `git grep -n 'twenty-one\|21-case\|21 roles' Sources/PisakaCore/ChromeColorRole.swift CLAUDE.md` finds nothing.
   - The canonical list names twenty-two roles.
   - Any count the gating suite pins against the document agrees.
-- [ ] Run `swift test`; it must pass, including `LintConfigurationTests` and the gating suite's checks against `core-theme.md`.
+- [x] Run `swift test`; it must pass, including `LintConfigurationTests` and the gating suite's checks against `core-theme.md`.
 
 ### Task 6: Verify acceptance criteria
 
