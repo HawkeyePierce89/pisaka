@@ -364,7 +364,8 @@ Three accessors, one table:
     `PlatformColor.dynamic(light:dark:alpha:)`, the primitive already in the
     tree (`SyntaxTheme`'s own colours are built the same way). This is why **no
     AppKit view in the chrome caches a resolved colour and none watches for a
-    *colour* change by hand**: the Theme preference is applied as
+    *colour* change by hand** (the terminal, a host that stores concrete
+    colours, is the stated exception — see the next bullet): the Theme preference is applied as
     `.preferredColorScheme` at each SwiftUI window root, which sets that window's
     `NSAppearance`; every `NSView` inside inherits it, and a dynamic colour asked
     to draw under the new appearance answers the new value. A view that resolved
@@ -2214,21 +2215,24 @@ comments went with it.
 
 **An open item, named rather than tuned.** The dark ANSI-16 set was tuned for
 black, and on `0x1E1F22` its weakest entries measure ANSI 4 at 1.3:1, ANSI 1 at
-1.8:1 and ANSI 12 at 1.9:1 — each as poor as it was on the black it was tuned
-for, so nothing regresses, and nothing is fixed either. Tuning the set is
-listed under *What is still waiting*.
+1.8:1 and ANSI 12 at 1.9:1 — each *worse* than on the black it was tuned for
+(1.6:1, 2.3:1 and 2.4:1 there), so the new ground costs these entries
+contrast and nothing is fixed. Tuning the set is listed under *What is still
+waiting*.
 
 **Pinned twice.** Rule forty-four (below) narrows the exemption in `swift
 test`: outside the two arrays the file spells no `0x` literal, constructs no
-`NSColor` and names no system colour, it names the four role tokens, and each
-array holds sixteen entries. The arrays are found through a new helper,
+`NSColor` and no colour beyond its two converters, names no system colour (its
+`.…Color` members pinned by set equality), it names the four role tokens, and
+each array holds sixteen entries. The arrays are found through a new helper,
 `matchedBracketBodyRange(after:in:)`, beside the brace-matching one, because an
 array literal has no braces of its own. A new app-layer suite,
-`TerminalThemeTests`, asserts under both appearances that `key(for:)` equals the
+`TerminalThemeTests`, asserts under both appearances and both high-contrast variants that
+`key(for:)` equals the
 palette's four roles' components by its own arithmetic (×65535, rounded — not
 the theme's converter, so the comparison is not a tautology), that every light
-ANSI entry clears 4.4:1 against the light `bgCanvas`, and that both arrays
-have sixteen entries.
+ANSI entry clears 4.5:1 against the light `bgCanvas`, that each appearance
+installs its own array, and that both arrays have sixteen entries.
 
 **No new role**: `ChromeColorRole` stays at twenty-two, `currentLine` and
 `bracketMatch` stay the two unspent, and nothing in Core changes. The gated set
@@ -3127,8 +3131,12 @@ The forty-four rules, each invisible to the compiler:
     reason is true of its `darkANSIColors` and `lightANSIColors` alone. With
     both array bodies carved out, the rest of the file (ordinary scanner) spells
     no `0x` literal of any width — stricter than rule two's six digits, on
-    purpose — constructs no `NSColor` at all and names no token of rule one's
-    semantic list; it must name each of `.bgCanvas`, `.textPrimary`, `.accent`
+    purpose — constructs no `NSColor` at all, calls `rgb8(` nowhere but its
+    definition and builds a `Color(` only inside `rgb8` and `terminalColor`, and
+    names no token of rule one's semantic list, none of `CGColor`, `black`,
+    `white`, `clear` or the greys, and no `.system…` hue; the `.…Color` members
+    it reaches are pinned by set equality, so `.controlAccentColor` fails; it
+    must name each of `.bgCanvas`, `.textPrimary`, `.accent`
     and `.accentTintStrong`; and each array holds exactly sixteen top-level
     `rgb8(` entries. The presence check is what catches a restored
     `.selectedTextBackgroundColor` selection: that token is also SwiftTerm's
@@ -3200,7 +3208,8 @@ convention every new rule is written to, because the rules that broke it are
 the ones that failed. A rule pins a **set** by equality (`gatedFiles`,
 `colorExemptions`, `diffWashReaders`, `sharedFieldConstructors`), or asserts
 the **presence or absence of a token** through `containsToken`, or takes a
-**brace-matched body** and does one of those two inside it. It does not
+**brace- or bracket-matched body** and does one of those two inside it, or in
+the text left once it is cut out (rule forty-four). It does not
 resolve types, evaluate conditionals or decide which of two branches runs.
 
 The evidence is three consecutive review rounds. Each found that a rule

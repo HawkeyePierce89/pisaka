@@ -208,13 +208,15 @@ import XCTest
 /// - **The terminal's exemption shelters its two ANSI arrays and nothing else.**
 ///   `TerminalTheme.swift` is exempt because an ANSI-16 palette is a protocol's
 ///   vocabulary, which is true of its two arrays alone; outside them the file
-///   spells no hex literal, constructs no `NSColor` and names no system colour,
-///   and it names its four chrome roles. A colour slipped in beside the arrays
+///   spells no hex literal, constructs no `NSColor` and no other colour beyond
+///   its two converters, names no system colour (its `.…Color` members pinned
+///   by set equality), and it names its four chrome roles. A colour slipped in beside the arrays
 ///   compiles and draws, sheltered by a reason that does not cover it.
 ///
 /// What a rule here may do, and nothing more: pin a set by equality, assert the
 /// presence or absence of a token through `containsToken`, or take a
-/// brace-matched body and do one of those inside it. A rule does not resolve
+/// brace- or bracket-matched body and do one of those inside it — or in the
+/// text left once it is cut out, as rule forty-four does. A rule does not resolve
 /// types, evaluate conditionals or decide which of two branches runs — the three
 /// that tried (thirty-one, thirty-four, thirty-five) each missed the regression
 /// it named across three review rounds, while no set or token rule failed.
@@ -5020,6 +5022,19 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// to `ChromePalette.nsColor(_:in:)`.
     private static let terminalChromeRoles = [".bgCanvas", ".textPrimary", ".accent", ".accentTintStrong"]
 
+    /// Colour names rule one's list leaves out because no gated view could reach
+    /// them, but `TerminalTheme.swift` could: AppKit's fixed greys and
+    /// Core Graphics' own colours.
+    private static let terminalForbiddenColorTokens = ["CGColor", "black", "white", "clear", "gray", "darkGray", "lightGray"]
+
+    /// Every `.…Color` member `TerminalTheme.swift` reaches outside its arrays:
+    /// SwiftTerm's sinks, the layer's, and the palette's accessor. A system colour
+    /// spelled `.controlAccentColor` or `NSColor.textColor` joins this set and fails.
+    private static let terminalColorMembers: Set<String> = [
+        "nsColor", "setBackgroundColor", "setForegroundColor", "caretColor", "caretTextColor",
+        "selectedTextBackgroundColor", "backgroundColor", "cgColor",
+    ]
+
     /// The two ANSI-16 declarations whose bodies rule three's exemption still
     /// covers.
     private static let terminalANSIDeclarations = ["static let darkANSIColors", "static let lightANSIColors"]
@@ -5030,8 +5045,14 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// bracket-matched bodies carved out, the rest of the file must spell no `0x`
     /// literal of any width (stricter than rule two's six-digit pattern, on
     /// purpose), construct no `NSColor` at all, and name no token of
-    /// `forbiddenSemanticColors`; and it must name each of the four roles. Inside
-    /// each array there are exactly sixteen top-level `rgb8(` entries.
+    /// `forbiddenSemanticColors` or `terminalForbiddenColorTokens` and no
+    /// `.system…` hue; the `.…Color` members it reaches are pinned by set
+    /// equality (`terminalColorMembers`), so `.controlAccentColor` or
+    /// `NSColor.textColor` fails; `rgb8(` appears there only as its definition and
+    /// a `Color(` construction only in `rgb8` and `terminalColor`, so a decimal
+    /// colour beside the arrays fails too; and it must name each of the four
+    /// roles. Inside each array there are exactly sixteen top-level `rgb8(`
+    /// entries.
     ///
     /// The presence check is what catches a restored `.selectedTextBackgroundColor`
     /// selection. That token is also the name of SwiftTerm's view property the
@@ -5083,9 +5104,32 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
             construction.firstMatch(in: remainder, range: NSRange(remainder.startIndex..., in: remainder)),
             "\(name) constructs an NSColor outside its ANSI arrays — a chrome colour is a role, read from the palette"
         )
-        for token in Self.forbiddenSemanticColors where LSPSourceGatingTests.containsToken(token, in: remainder) {
+        for token in Self.forbiddenSemanticColors + Self.terminalForbiddenColorTokens
+        where LSPSourceGatingTests.containsToken(token, in: remainder) {
             XCTFail("\(name) names a system colour outside its ANSI arrays: \(token)")
         }
+        let systemHue = try NSRegularExpression(pattern: "\\.system[A-Z]")
+        XCTAssertNil(
+            systemHue.firstMatch(in: remainder, range: NSRange(remainder.startIndex..., in: remainder)),
+            "\(name) names a system hue outside its ANSI arrays — a chrome colour is a role, read from the palette"
+        )
+        let member = try NSRegularExpression(pattern: "(?<=\\.)[a-z][A-Za-z0-9_]*Color(?![A-Za-z0-9_])")
+        let members = Set(member.matches(in: remainder, range: NSRange(remainder.startIndex..., in: remainder))
+            .compactMap { Range($0.range, in: remainder).map { String(remainder[$0]) } })
+        XCTAssertEqual(
+            members, Self.terminalColorMembers,
+            "\(name): the `.…Color` members outside its ANSI arrays changed — a new one is a system colour or a new sink"
+        )
+        let rgb8 = try NSRegularExpression(pattern: "(?<![A-Za-z0-9_])rgb8\\s*\\(")
+        XCTAssertEqual(
+            rgb8.numberOfMatches(in: remainder, range: NSRange(remainder.startIndex..., in: remainder)), 1,
+            "\(name) calls rgb8( outside its ANSI arrays — only its definition may stand there"
+        )
+        let construction16 = try NSRegularExpression(pattern: "(?<![A-Za-z0-9_])Color\\s*\\(")
+        XCTAssertEqual(
+            construction16.numberOfMatches(in: remainder, range: NSRange(remainder.startIndex..., in: remainder)), 2,
+            "\(name) builds a SwiftTerm.Color outside rgb8 and terminalColor — a chrome colour is a role"
+        )
         for role in Self.terminalChromeRoles {
             XCTAssertTrue(
                 LSPSourceGatingTests.containsToken(role, in: remainder),

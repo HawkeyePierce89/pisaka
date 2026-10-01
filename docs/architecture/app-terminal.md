@@ -69,10 +69,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     the view started with. Both arrays are internal so the app bundle's
     `TerminalThemeTests` can read them. **The chrome suite's exemption covers
     those two arrays and nothing else**: rule forty-four refuses any `0x` literal,
-    `NSColor(` construction or system colour name outside them, and requires the
-    four role tokens. The dark set's contrast on the new `0x1E1F22` ground (ANSI 4
-    at 1.3:1, ANSI 1 at 1.8:1, ANSI 12 at 1.9:1) is as poor as it was on black;
-    tuning it is an open item in `core-theme.md`. What remains out of scope is a
+    `NSColor(` construction, colour construction beyond the two converters or
+    system colour name outside them (the `.…Color` members pinned by set
+    equality), and requires the four role tokens and exactly sixteen `rgb8(`
+    entries in each array. The dark set's contrast on the new `0x1E1F22` ground
+    (ANSI 4 at 1.3:1, ANSI 1 at 1.8:1, ANSI 12 at 1.9:1) is worse than on black
+    (1.6:1, 2.3:1, 2.4:1); tuning it is an open item in `core-theme.md`. What remains out of scope is a
     *user-configurable* palette. A private `NSColor → SwiftTerm.Color` converter
     does the sRGB×65535 mapping (SwiftTerm's own `getTerminalColor()` is
     module-internal); its per-component helper *rounds* rather than truncates —
@@ -81,9 +83,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     outside it, which would trap the `UInt16` conversion), and rejects a
     non-finite value in a *separate* guard, since `min`/`max` propagate NaN and a
     clamp alone would still trap. `TerminalThemeTests` (app bundle) pins the key
-    against the palette's four roles under both appearances, with its own
-    component arithmetic, the light set's floor (every entry ≥ 4.4:1 on the light
-    `bgCanvas`, each failure naming the index and ratio) and both arrays' sixteen
+    against the palette's four roles under both appearances and both
+    high-contrast variants, with its own
+    component arithmetic, the light set's floor (every entry ≥ 4.5:1 on the light
+    `bgCanvas`, each failure naming the index and ratio), which set each
+    appearance installs, and both arrays' sixteen
     entries.
   - `TerminalSession.swift` — one live shell session in the embedded terminal: a
     final class holding a stable `id` (UUID), a display `title`, and the SwiftTerm

@@ -13,8 +13,9 @@ import PisakaCore
 /// compares is the only observable form of what an apply installs, so it is
 /// checked against the palette here — with this suite's own component arithmetic
 /// rather than the theme's private converter, so the comparison is not a
-/// tautology. The light ANSI set's contrast floor and both sets' size are pinned
-/// beside it.
+/// tautology, including under both high-contrast variants. The light ANSI set's
+/// contrast floor, which set each appearance installs and both sets' size are
+/// pinned beside it.
 final class TerminalThemeTests: XCTestCase {
 
     /// The roles in the order `ThemeKey` fingerprints them: ground, text, caret,
@@ -22,7 +23,12 @@ final class TerminalThemeTests: XCTestCase {
     private static let roles: [ChromeColorRole] = [.bgCanvas, .textPrimary, .accent, .accentTintStrong]
 
     func testThemeKeyIsTheFourRolesResolvedForEachAppearance() throws {
-        let cases: [(NSAppearance.Name, ChromeAppearance)] = [(.aqua, .light), (.darkAqua, .dark)]
+        let cases: [(NSAppearance.Name, ChromeAppearance)] = [
+            (.aqua, .light),
+            (.darkAqua, .dark),
+            (.accessibilityHighContrastAqua, .light),
+            (.accessibilityHighContrastDarkAqua, .dark),
+        ]
         for (name, chrome) in cases {
             let appearance = try XCTUnwrap(NSAppearance(named: name))
             let expected = Self.roles.flatMap { Self.sixteenBit(ChromePalette.nsColor($0, in: chrome)) }
@@ -42,10 +48,15 @@ final class TerminalThemeTests: XCTestCase {
             let ratio = (max(luminance, groundLuminance) + 0.05) / (min(luminance, groundLuminance) + 0.05)
             XCTAssertGreaterThanOrEqual(
                 ratio,
-                4.4,
+                4.5,
                 "light ANSI \(index) sits at \(String(format: "%.2f", ratio)):1 on the light ground"
             )
         }
+    }
+
+    func testEachAppearanceInstallsItsOwnANSISet() {
+        XCTAssertEqual(TerminalTheme.ansiColors(for: .dark), TerminalTheme.darkANSIColors)
+        XCTAssertEqual(TerminalTheme.ansiColors(for: .light), TerminalTheme.lightANSIColors)
     }
 
     func testBothANSISetsHaveSixteenEntries() {

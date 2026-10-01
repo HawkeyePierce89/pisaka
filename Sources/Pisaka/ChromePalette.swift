@@ -122,7 +122,8 @@ enum ChromePalette {
     /// resolves the value itself, per appearance, at draw time.
     ///
     /// That is why **no AppKit view in the chrome caches a resolved colour and
-    /// none watches for a *colour* change by hand.** The Theme preference is
+    /// none watches for a *colour* change by hand** — the terminal, a host that
+    /// stores concrete colours, being the stated exception (`nsColor(_:in:)`). The Theme preference is
     /// applied as `.preferredColorScheme` at each SwiftUI window root, which sets
     /// that window's `NSAppearance`; every `NSView` inside the window inherits it,
     /// and a dynamic colour asked to draw under the new appearance answers the new
@@ -152,7 +153,10 @@ enum ChromePalette {
     ///
     /// For the sites that are not drawing — the palette test, which has to read
     /// the components of each side — and for an AppKit view that has already been
-    /// handed an appearance to resolve against. Drawing code asks `nsColor(_:)`.
+    /// handed an appearance to resolve against. Drawing code asks `nsColor(_:)`,
+    /// with one stated exception: SwiftTerm stores the colours it is handed and
+    /// never re-resolves them, so `TerminalTheme` resolves its four roles here at
+    /// apply time and re-applies them on every appearance change.
     static func nsColor(_ role: ChromeColorRole, in appearance: ChromeAppearance) -> NSColor {
         let entry = entry(for: role)
         let rgb = appearance == .dark ? entry.dark : entry.light
