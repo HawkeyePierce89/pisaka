@@ -8,13 +8,26 @@ import XCTest
 /// A repository-file suite in the `ZoomSourceGatingTests` mould: it reads
 /// `Sources/` through `#filePath` with Foundation only, and it matches against
 /// `LSPSourceGatingTests.strippingCommentsAndStringLiterals(_:)` output, so
-/// **comments and string literals are stripped before anything is matched**.
+/// **comments and string literals are stripped before almost every match** —
+/// the three rules named below are the stated exceptions.
 /// That is load-bearing rather than tidy here: the gated files document their own
 /// rules at length — `ChromePalette.swift` explains what a hex literal outside it
 /// would cost, `TabStripView.swift` names the accent colour it no longer uses in
 /// order to say it does not, and `LineNumberRulerView.swift` spells
 /// `ChromeColorRole.textSecondary` in prose — so a raw `contains` would pass on
 /// all three while the code they name was deleted.
+///
+/// **The stated exceptions.** Three rules match against
+/// `GitHubSourceGatingTests.strippingComments(_:)` instead — comments removed,
+/// **string literals kept** — because each rule's subject *is* a literal, and the
+/// ordinary scanner would delete exactly the text it checks: the query-toggle name
+/// rule (`testQueryTogglesSpeakOneNamePerMode`), whose `help:` names are
+/// literals; the merge editor's chevron check in
+/// `testTheCommitDialogsRowsAndControls`, which finds the chevrons by their symbol
+/// names, also literals; and clause (c) of `testAServedPagesChromeIsThePalettes`,
+/// because a CSS hex value is a string literal. Every other rule that reads
+/// `Sources/` reads the ordinary scanner, and a self-check holds this paragraph
+/// to the code.
 ///
 /// What is checked, and why each rule is invisible to the compiler:
 ///
@@ -4754,8 +4767,8 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// - (d) `func cssHex(` is defined in `ChromePalette.swift` alone: the one
     ///   place a colour is formatted into a string.
     ///
-    /// **Clause (c) is the fifth stated exception to the stripped reading.** It
-    /// matches against `GitHubSourceGatingTests.strippingComments(_:)` — comments
+    /// **Clause (c) is one of the suite's literal-keeping readings**, named in the
+    /// header with the other two. It matches against `GitHubSourceGatingTests.strippingComments(_:)` — comments
     /// removed, **string literals kept** — because a CSS hex literal *is* a string
     /// literal, and the ordinary scanner would delete exactly the text the clause
     /// counts. That the same scanner also drops comments is **inherited, not
@@ -5074,10 +5087,14 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     ///
     /// Verified live by mutation, not assumed: the caret put back to
     /// `NSColor.selectedContentBackgroundColor` in `TerminalTheme.swift` turned
-    /// this test red with "TerminalTheme.swift names a system colour outside its
-    /// ANSI arrays: selectedContentBackgroundColor" (and, the caret's `accent`
-    /// gone, "TerminalTheme.swift no longer names the role .accent"), and went
-    /// green again once restored.
+    /// this test red with three failures, and it went green again once restored.
+    /// The forbidden-token loop's `XCTFail` printed "TerminalTheme.swift names a
+    /// system colour outside its ANSI arrays: selectedContentBackgroundColor";
+    /// the member set's `XCTAssertEqual` printed "TerminalTheme.swift: the
+    /// `.…Color` members outside its ANSI arrays changed — a new one is a system
+    /// colour or a new sink"; and, the caret's `accent` gone, the role loop's
+    /// `XCTAssertTrue` printed "TerminalTheme.swift no longer names the role
+    /// .accent — its four chrome colours are roles".
     func testTheTerminalsExemptionSheltersItsTwoANSIArraysAndNothingElse() throws {
         let name = "TerminalTheme.swift"
         let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(Self.source(named: name)))
@@ -5335,6 +5352,53 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
             """
             the suite's header must carry one bolded bullet per declared rule (\(titles.count)), titled as \
             that rule's marker and in the markers' order
+            """
+        )
+    }
+
+    /// The header's **stated exceptions** paragraph names the rules that read
+    /// the literal-keeping scanner, and `CLAUDE.md` calls that statement the
+    /// record — so it is held to the code, not trusted. The test functions whose
+    /// *code* (comments and literals stripped, so a doc comment mentioning the
+    /// scanner and this check's own needle both drop out) calls
+    /// `GitHubSourceGatingTests.strippingComments(_:)` must equal, by set
+    /// equality, the `test…` names that paragraph spells: a rule switching
+    /// scanners either way, or a renamed one, fails here.
+    func testTheHeaderNamesEveryLiteralKeepingReading() throws {
+        let source = try Self.read(URL(fileURLWithPath: #filePath))
+        let opening = try XCTUnwrap(
+            source.range(of: "/// **The stated exceptions.**"),
+            "the header's stated-exceptions paragraph is gone — re-point this check rather than losing it"
+        )
+        let end = try XCTUnwrap(
+            source[opening.upperBound...].range(of: "\n///\n"),
+            "the header's stated-exceptions paragraph no longer ends on a blank doc line — re-point this check"
+        )
+        let paragraph = String(source[opening.upperBound..<end.lowerBound])
+        let named = try NSRegularExpression(pattern: "`(test\\w+)`")
+        let stated = Set(named.matches(in: paragraph, range: NSRange(paragraph.startIndex..., in: paragraph))
+            .compactMap { Range($0.range(at: 1), in: paragraph).map { String(paragraph[$0]) } })
+
+        let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(source)
+        let declaration = try NSRegularExpression(pattern: "(?m)^    func (test\\w+)\\(")
+        let matches = declaration.matches(in: code, range: NSRange(code.startIndex..., in: code))
+        var reading: Set<String> = []
+        for (index, match) in matches.enumerated() {
+            guard let name = Range(match.range(at: 1), in: code),
+                  let start = Range(match.range, in: code) else { continue }
+            let stop = index + 1 < matches.count
+                ? Range(matches[index + 1].range, in: code)?.lowerBound ?? code.endIndex
+                : code.endIndex
+            if code[start.upperBound..<stop].contains("GitHubSourceGatingTests.strippingComments(") {
+                reading.insert(String(code[name]))
+            }
+        }
+        XCTAssertFalse(reading.isEmpty, "no rule reads the literal-keeping scanner — re-point this check")
+        XCTAssertEqual(
+            reading, stated,
+            """
+            the header's stated-exceptions paragraph must name exactly the rules whose code reads \
+            GitHubSourceGatingTests.strippingComments(_:) — the literal-keeping scanner
             """
         )
     }

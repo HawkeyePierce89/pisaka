@@ -430,10 +430,10 @@ Three conventions govern that class, and each is load-bearing rather than tidy:
   settings in comments, so a raw `contains` stays green when the setting it names is
   deleted. **A rule weaker than its own comment is a defect.**
 - **A rule whose subject *is* a literal reads a scanner that keeps literals**, or it
-  deletes the very text it checks. There are **five such exceptions** today: four
-  state their reason in their own suite's doc comment, and the fifth —
-  `ReleaseWorkflowTests`' build-output-root rules — states it in `release.yml`, at the site
-  the rule is about. A sixth needs the same statement somewhere a reader will find it.
+  deletes the very text it checks. Every such reading states its reason where a reader
+  will find it: its suite's doc comment, or the site the rule is about
+  (`ReleaseWorkflowTests`' build-output-root rules, in `release.yml`). That inventory
+  is the record; a new literal-keeping reading owes the same statement.
 - **Prefer set equality to counting**, and where a count is the only shape available, pin
   it cross-file so a restated number cannot drift from the thing it restates.
 

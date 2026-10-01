@@ -2264,8 +2264,8 @@ glyph** and **changed-line text tint** (part five (b)'s departures six and
 seven), all open design questions. The terminal's own palette is **no longer
 deferred** — part five (h) moved its four chrome colours onto the roles — but
 one item takes its place: **tuning the dark ANSI-16 set**, whose weakest
-entries (ANSI 4 at 1.3:1, ANSI 1 at 1.8:1, ANSI 12 at 1.9:1) are as poor on
-`0x1E1F22` as they were on black. Each follows the six-step guide at the end of
+entries (ANSI 4 at 1.3:1, ANSI 1 at 1.8:1, ANSI 12 at 1.9:1) are worse on
+`0x1E1F22` than on the black they were tuned for. Each follows the six-step guide at the end of
 this document, on its own. Two roles remain unspent — `currentLine` and
 `bracketMatch`, both code zone — after fifty-seven surfaces, the same two roles
 `ChromeColorRole.swift`'s own doc comment names.
@@ -2289,7 +2289,11 @@ monochrome.
 In `ZoomSourceGatingTests`' mould: it reads `Sources/` through `#filePath` with
 Foundation only, so it runs in `swift test` with no Xcode build, and it matches
 against `LSPSourceGatingTests.strippingCommentsAndStringLiterals(_:)` output —
-**comments and string literals stripped before anything is matched**. That is
+**comments and string literals stripped before almost every match**. Three
+rules read `GitHubSourceGatingTests.strippingComments(_:)` instead, literals
+kept, because each one's subject is a literal — the query-toggle names, the
+merge editor's chevron symbols and clause (c)'s CSS hex — and the suite's
+header names them, held to the code by a self-check. The stripping is
 load-bearing rather than tidy here: the gated files document their own rules at
 length (the palette explains what a hex literal outside it would cost; the strip
 names the accent colour it no longer uses in order to say so; the ruler spells
@@ -3099,8 +3103,8 @@ The forty-four rules, each invisible to the compiler:
     `DocumentPageChrome.swift` (12) — and `LeetCodeStatementDocument.swift`
     spells none. (d) `func cssHex(` is defined in `ChromePalette.swift` alone.
     Clause (c) reads the comments-only scanner, literals kept, because a CSS
-    hex literal *is* a string literal — the suite's stated exception to the
-    stripped reading.
+    hex literal *is* a string literal — one of the suite's three literal-keeping
+    readings, named in its header.
 43. **No document calls the sweep closed while a surface remains.** The macOS
     app files outside `Sources/Pisaka/iOS/`, outside `gatedFiles` and outside
     the four exemptions that name a system semantic colour, a SwiftUI hue or a
@@ -3152,9 +3156,12 @@ The forty-four rules, each invisible to the compiler:
     the `=`, past the type annotation's own. Either array going missing fails
     loudly, naming the file and the declaration. Verified by mutation: the
     caret put back to `NSColor.selectedContentBackgroundColor` turned it red
-    with "TerminalTheme.swift names a system colour outside its ANSI arrays:
-    selectedContentBackgroundColor" and "no longer names the role .accent",
-    green again once restored.
+    with three failures — "TerminalTheme.swift names a system colour outside
+    its ANSI arrays: selectedContentBackgroundColor", "TerminalTheme.swift: the
+    `.…Color` members outside its ANSI arrays changed — a new one is a system
+    colour or a new sink" and "TerminalTheme.swift no longer names the role
+    .accent — its four chrome colours are roles" — and green again once
+    restored.
 
 Plus a **self-check** in the suite's own idiom: every gated file must actually
 *name* a `ChromeColorRole`, or the checks above have gone vacuous — with nine
@@ -3173,6 +3180,18 @@ second, competing ground being what a controller can commit); and
 `SourceViewerContent.swift`, whose one colour was the pane's ground and now
 comes from `CodePaneGround` (gated for rules one and two and the code-pane
 ground rule).
+
+A second **self-check** holds the header's stated-exceptions paragraph to the
+code (`testTheHeaderNamesEveryLiteralKeepingReading`, added in part five (h)).
+The `test…` names that paragraph spells must equal, by set equality, the test
+functions whose code calls `GitHubSourceGatingTests.strippingComments(_:)`, the
+literal-keeping scanner. The code is read with comments and literals stripped, so
+a doc comment that mentions the scanner, and the check's own needle, both drop
+out. A rule switching scanners in either direction fails here, and so does a
+rule renamed without its header entry. It gates no source file. It exists
+because `CLAUDE.md` calls each suite's doc comment the record of its
+literal-keeping readings, and a record nothing reads drifts the way both rule
+summaries already had.
 
 And, beside the rules rather than among them, a **cross-file count**: the suite
 counts its own numbered rule markers and asserts that both summaries of it — the
