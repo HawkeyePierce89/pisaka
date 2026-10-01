@@ -57,7 +57,8 @@ import XCTest
 ///   halves are read.
 /// - **The column is pinned to the area, top-leading, and carries no clip; the
 ///   bottom bar is drawn above it instead.** A clip of any spelling —
-///   `clipped(`, `clipShape(`, `mask(`, `cornerRadius(` — anywhere in
+///   `clipped`, `clipShape`, `mask`, `cornerRadius`, called with an argument
+///   list or a trailing closure alike — anywhere in
 ///   `BottomDockColumn.swift`, or in `ContentView`'s `body`, `mainArea` or
 ///   `editorSplit`, sits above the editor's `HSplitView`, and a clip above that split makes its
 ///   panes drop the window's top safe-area inset: the whole top row slides under
@@ -233,6 +234,12 @@ final class BottomPanelSourceGatingTests: XCTestCase {
 
     // MARK: - The column is pinned and unclipped; the bar covers its overflow
 
+    /// Every clipping modifier, in both call syntaxes: whitespace removal turns
+    /// `.mask { Rectangle() }` into `mask{`, which an argument-list-only match
+    /// would let through.
+    private static let clipSpellings = ["clipped", "clipShape", "mask", "cornerRadius"]
+        .flatMap { [$0 + "(", $0 + "{"] }
+
     func testThePanelColumnIsPinnedUnclippedAndCoveredByTheBottomBar() throws {
         let column = Self.whitespaceFree(try dockColumnCode())
         let pin = Self.whitespaceFree(
@@ -245,7 +252,7 @@ final class BottomPanelSourceGatingTests: XCTestCase {
             split's panes state minimum widths the `GeometryReader` erases) would push half the \
             surplus off the project tree's leading edge.
             """)
-        for clip in ["clipped(", "clipShape(", "mask(", "cornerRadius("] {
+        for clip in Self.clipSpellings {
             XCTAssertFalse(column.contains(clip), """
                 `BottomDockColumn` contains `\(clip)`. A clip above the editor's `HSplitView` makes \
                 the split's panes drop the window's top safe-area inset, so with the dock open the \
@@ -265,7 +272,7 @@ final class BottomPanelSourceGatingTests: XCTestCase {
                 Self.declarationBody(after: name, in: contentView),
                 "ContentView no longer declares `\(name)` — update this suite deliberately"
             ))
-            for clip in ["clipped(", "clipShape(", "mask(", "cornerRadius("] {
+            for clip in Self.clipSpellings {
                 XCTAssertFalse(declaration.contains(clip), """
                     `ContentView.\(name)` contains `\(clip)`. It is an ancestor of the editor's \
                     `HSplitView`, and a clip there drops the panes' top safe-area inset exactly as \

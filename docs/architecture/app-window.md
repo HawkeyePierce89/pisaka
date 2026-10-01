@@ -407,8 +407,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     rather than merely listed. Also pinned: the gesture
     naming `panelColumnSpace` with `minimumDistance: 0` and the column
     publishing the name it is handed; the top-leading pin in
-    `BottomDockColumn.swift`, **no `clipped(`, `clipShape(`, `mask(` or
-    `cornerRadius(` anywhere in that file, nor in `ContentView`'s `body`,
+    `BottomDockColumn.swift`, **no `clipped`, `clipShape`, `mask` or
+    `cornerRadius` — called with an argument list or a trailing closure —
+    anywhere in that file, nor in `ContentView`'s `body`,
     `mainArea` or `editorSplit`** — the split's other ancestors, so a clip that
     moves one level up is refused too (a pane that needs one clips in its own
     declaration, below the split, as the markdown split does) — and
