@@ -3186,6 +3186,8 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         XCTAssertEqual(hits("x = resolving(.accent)\n    .opacity(0.4)"), ["resolving.opacity"])
         XCTAssertEqual(hits("x = resolving(.accent)?.opacity(0.4)"), ["resolving.opacity"])
         XCTAssertEqual(hits("x = resolving(ChromeColorRole.accent).opacity(0.4)"), ["resolving.opacity"])
+        XCTAssertEqual(hits("x = resolving(ChromeColorRole\n    .accent).opacity(0.4)"), ["resolving.opacity"])
+        XCTAssertEqual(hits("x = resolving(ChromeColorRole .accent).opacity(0.4)"), ["resolving.opacity"])
         XCTAssertEqual(hits("x = f(role: .hoverTint).withAlphaComponent(0.5)"), ["f.withAlphaComponent"])
         // A whole-view dimming, its role inside a nested call, is not an alpha on a role's colour.
         XCTAssertEqual(hits("v.background(RoundedRectangle(r).fill(theme.color(.accent))).opacity(x)"), [])
@@ -3239,7 +3241,14 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
                     let token = String(code[code.index(after: cursor)...].prefix(while: isIdentifier))
                     if roles.contains(token) { spellsRole = true }
                 }
-                word = isIdentifier(character) ? word + String(character) : ""
+                // Whitespace keeps the word, so `ChromeColorRole` survives a line
+                // break before `.accent`; an identifier after whitespace starts anew.
+                if isIdentifier(character) {
+                    let continues = cursor > found && isIdentifier(code[code.index(before: cursor)])
+                    word = (continues ? word : "") + String(character)
+                } else if !character.isWhitespace {
+                    word = ""
+                }
                 if !character.isWhitespace { previous = character }
                 cursor = code.index(after: cursor)
             }
