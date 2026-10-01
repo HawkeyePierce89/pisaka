@@ -160,12 +160,12 @@ It does not catch the two button-dimming chains, which is correct. The rule's en
 
 ### Task 6: Verify acceptance criteria
 
-- [ ] `swift test` is green.
-- [ ] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' test`, with DerivedData outside the repository, is green, including `TreeRowBackgroundTests`.
-- [ ] `swiftlint --strict` from the repository root is clean.
-- [ ] The macOS build with `-configuration Release` and the iOS Debug build (`generic/platform=iOS`) are both green.
-- [ ] `git grep -n 'opacity(0.4)' Sources/` finds nothing.
-- [ ] Rule twenty-nine's entry in `core-theme.md` records the mutation check against `ProjectTreeView.swift`.
+- [x] `swift test` is green.
+- [x] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' test`, with DerivedData outside the repository, is green, including `TreeRowBackgroundTests`.
+- [x] `swiftlint --strict` from the repository root is clean.
+- [x] The macOS build with `-configuration Release` and the iOS Debug build (`generic/platform=iOS`) are both green.
+- [x] `git grep -n 'opacity(0.4)' Sources/` finds nothing.
+- [x] Rule twenty-nine's entry in `core-theme.md` records the mutation check against `ProjectTreeView.swift`.
 
 ### Task 7: Update documentation
 
