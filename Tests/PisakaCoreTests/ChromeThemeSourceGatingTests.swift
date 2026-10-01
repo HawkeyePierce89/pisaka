@@ -5027,6 +5027,12 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// Core Graphics' own colours.
     private static let terminalForbiddenColorTokens = ["CGColor", "black", "white", "clear", "gray", "darkGray", "lightGray"]
 
+    /// AppKit's named hues, matched only as a member (`NSColor.red`, `.magenta`):
+    /// the file's own `red`/`green`/`blue` parameters and argument labels name a
+    /// channel, not a colour, so a bare-token check would refuse the converters.
+    /// Rule one's `forbiddenHues` plus `magenta`, which only AppKit spells.
+    private static let terminalForbiddenHueMembers = forbiddenHues + ["magenta"]
+
     /// Every `.…Color` member `TerminalTheme.swift` reaches outside its arrays:
     /// SwiftTerm's sinks, the layer's, and the palette's accessor. A system colour
     /// spelled `.controlAccentColor` or `NSColor.textColor` joins this set and fails.
@@ -5045,8 +5051,9 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// bracket-matched bodies carved out, the rest of the file must spell no `0x`
     /// literal of any width (stricter than rule two's six-digit pattern, on
     /// purpose), construct no `NSColor` at all, and name no token of
-    /// `forbiddenSemanticColors` or `terminalForbiddenColorTokens` and no
-    /// `.system…` hue; the `.…Color` members it reaches are pinned by set
+    /// `forbiddenSemanticColors` or `terminalForbiddenColorTokens`, no
+    /// `.system…` hue and no named-hue member (`terminalForbiddenHueMembers`,
+    /// so `NSColor.red` or `.magenta` fails); the `.…Color` members it reaches are pinned by set
     /// equality (`terminalColorMembers`), so `.controlAccentColor` or
     /// `NSColor.textColor` fails; `rgb8(` appears there only as its definition and
     /// a `Color(` construction only in `rgb8` and `terminalColor`, so a decimal
@@ -5112,6 +5119,13 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         XCTAssertNil(
             systemHue.firstMatch(in: remainder, range: NSRange(remainder.startIndex..., in: remainder)),
             "\(name) names a system hue outside its ANSI arrays — a chrome colour is a role, read from the palette"
+        )
+        let hueMember = try NSRegularExpression(
+            pattern: "\\.(\(Self.terminalForbiddenHueMembers.joined(separator: "|")))(?![A-Za-z0-9_])"
+        )
+        XCTAssertNil(
+            hueMember.firstMatch(in: remainder, range: NSRange(remainder.startIndex..., in: remainder)),
+            "\(name) names a named hue outside its ANSI arrays — a chrome colour is a role, read from the palette"
         )
         let member = try NSRegularExpression(pattern: "(?<=\\.)[a-z][A-Za-z0-9_]*Color(?![A-Za-z0-9_])")
         let members = Set(member.matches(in: remainder, range: NSRange(remainder.startIndex..., in: remainder))

@@ -2222,7 +2222,8 @@ waiting*.
 
 **Pinned twice.** Rule forty-four (below) narrows the exemption in `swift
 test`: outside the two arrays the file spells no `0x` literal, constructs no
-`NSColor` and no colour beyond its two converters, names no system colour (its
+`NSColor` and no colour beyond its two converters, names no system colour or
+named-hue member such as `NSColor.magenta` (its
 `.…Color` members pinned by set equality), it names the four role tokens, and
 each array holds sixteen entries. The arrays are found through a new helper,
 `matchedBracketBodyRange(after:in:)`, beside the brace-matching one, because an
@@ -3134,7 +3135,10 @@ The forty-four rules, each invisible to the compiler:
     purpose — constructs no `NSColor` at all, calls `rgb8(` nowhere but its
     definition and builds a `Color(` only inside `rgb8` and `terminalColor`, and
     names no token of rule one's semantic list, none of `CGColor`, `black`,
-    `white`, `clear` or the greys, and no `.system…` hue; the `.…Color` members
+    `white`, `clear` or the greys, no `.system…` hue, and no named hue spelled
+    as a member — rule one's hues plus `magenta`, matched only after a `.`
+    because the converters' `red`/`green`/`blue` name channels — so
+    `NSColor.red` or `.magenta` fails; the `.…Color` members
     it reaches are pinned by set equality, so `.controlAccentColor` fails; it
     must name each of `.bgCanvas`, `.textPrimary`, `.accent`
     and `.accentTintStrong`; and each array holds exactly sixteen top-level
