@@ -198,12 +198,12 @@ Each entry should state the roles, the concrete-accessor exception and the narro
 
 **`CLAUDE.md`.** In the chrome-theme invariant bullet, which currently calls `hairlineWidth` on an AppKit code-zoom surface "the one stated exception", word the theme's two exceptions as a pair: "two stated exceptions". One is `hairlineWidth` on an AppKit code-zoom surface, drawn unscaled. The other is the terminal, a host that stores concrete colours and is handed concrete colours resolved by appearance. Neither is called "one" or "second". The file must stay under its measured 60,000-character ceiling (about 49,700 today).
 
-- [ ] Add the Part five (h) entry, and qualify the part four (a), part five (d) and part five (f) sentences
-- [ ] Update *What is still waiting*: the terminal item out, the dark ANSI tuning in, part five (h) added to the swept list, "fifty-six" → "fifty-seven", and the role-file claim corrected to the two roles only
-- [ ] Apply the two ride-along corrections (part five (d)'s wording, rule twenty-nine's entry)
-- [ ] Update the four `app-terminal.md` entries
-- [ ] Reword `CLAUDE.md`'s chrome-theme bullet to name two stated exceptions
-- [ ] Run `swift test` (rule forty-three's document half, the rule-count checks and `LintConfigurationTests`); it must pass before Task 4
+- [x] Add the Part five (h) entry, and qualify the part four (a), part five (d) and part five (f) sentences
+- [x] Update *What is still waiting*: the terminal item out, the dark ANSI tuning in, part five (h) added to the swept list, "fifty-six" → "fifty-seven", and the role-file claim corrected to the two roles only
+- [x] Apply the two ride-along corrections (part five (d)'s wording, rule twenty-nine's entry)
+- [x] Update the four `app-terminal.md` entries
+- [x] Reword `CLAUDE.md`'s chrome-theme bullet to name two stated exceptions
+- [x] Run `swift test` (rule forty-three's document half, the rule-count checks and `LintConfigurationTests`); it must pass before Task 4
 
 ### Task 4: Verify acceptance criteria
 
