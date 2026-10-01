@@ -175,7 +175,7 @@ headlessly in `Tests/PisakaAppTests`.
   `ExecutableLocator.swift`, `GitHubCLIProcessTransport.swift`, `PullRequestCoordinator.swift`, `PullRequestsPanelView.swift`, `NewPullRequestSheet.swift`, `PullRequestMergeSheet.swift`, `PullRequestIndicatorView.swift`
 
 `docs/architecture/app-window.md` — window chrome (macOS):
-  `ContentView.swift`, `ProjectSwitcherView.swift`, `ProblemsPanelView.swift`, `UsagesPanelView.swift`, `DockTabRow.swift`, `DiffWindowContent.swift` / `DiffWindowController.swift`, `SourceViewerWindowController.swift` / `SourceViewerContent.swift`, `ProjectTreeView.swift`, `ProjectTreeDraftField.swift`, `TabListView.swift` / `TabRowView.swift`, `BreadcrumbBarView.swift`
+  `ContentView.swift`, `BottomDockColumn.swift`, `ProjectSwitcherView.swift`, `ProblemsPanelView.swift`, `UsagesPanelView.swift`, `DockTabRow.swift`, `DiffWindowContent.swift` / `DiffWindowController.swift`, `SourceViewerWindowController.swift` / `SourceViewerContent.swift`, `ProjectTreeView.swift`, `ProjectTreeDraftField.swift`, `TabListView.swift` / `TabRowView.swift`, `BreadcrumbBarView.swift`
 
 `docs/architecture/app-terminal.md` — embedded terminal (macOS):
   `TerminalTheme.swift`, `TerminalSession.swift`, `TerminalSessionsModel.swift`, `TerminalPanelView.swift`

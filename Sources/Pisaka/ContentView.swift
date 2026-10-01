@@ -1269,11 +1269,13 @@ struct ContentView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        // Pinned and clipped for `mainArea`'s reason: a fixed-width frame
-        // reports the width it was given, so a half that refuses its proposal
-        // would otherwise paint over the other one. The coordinate space is
-        // published on the pinned rect, which cannot move while the divider
-        // does.
+        // Pinned and clipped: a fixed-width frame reports the width it was
+        // given, so a half that refuses its proposal would otherwise paint
+        // over the other one. The coordinate space is published on the pinned
+        // rect, which cannot move while the divider does. The clip is safe
+        // here and was not on the dock column: this one sits *inside* one of
+        // `editorSplit`'s panes, below the `HSplitView`, and only a clip above
+        // that split loses the top safe-area inset (`BottomDockColumn`).
         .frame(width: size.width, height: size.height, alignment: .topLeading)
         .coordinateSpace(name: Self.markdownSplitSpace)
         .clipped()

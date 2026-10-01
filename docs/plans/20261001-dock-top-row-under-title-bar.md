@@ -215,9 +215,9 @@ theme suite is untouched.
   nothing else. The file must stay under the 60,000-character limit
   `LintConfigurationTests` enforces.
 
-- [ ] add the source-gating rule with its inventory entry, or record why none can express the cause
-- [ ] update `app-window.md` (`ContentView.swift` entry plus the new file's entry) and the `CLAUDE.md` index line
-- [ ] run `swift test` (including `LintConfigurationTests` and the gating suites) and `swiftlint --strict`; all green
+- [x] add the source-gating rule with its inventory entry, or record why none can express the cause
+- [x] update `app-window.md` (`ContentView.swift` entry plus the new file's entry) and the `CLAUDE.md` index line
+- [x] run `swift test` (including `LintConfigurationTests` and the gating suites) and `swiftlint --strict`; all green
 
 ### Task 4: Verify acceptance criteria
 
